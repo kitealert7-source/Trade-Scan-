@@ -1,0 +1,14 @@
+{
+    "engines": [
+        {
+            "engine_name": "VRS001",
+            "version": "1.0.0",
+            "status": "ACTIVE_BASELINE",
+            "run_id": "d38133e3-67e8-454c-8773-7e01e3691ff8",
+            "vault_path": "vault/engines/VRS001/",
+            "hash_manifest": "vault/engines/VRS001/hashes/hashes.json",
+            "fallback_allowed": true,
+            "registered_at_utc": "2026-02-05T07:15:00Z"
+        }
+    ]
+}

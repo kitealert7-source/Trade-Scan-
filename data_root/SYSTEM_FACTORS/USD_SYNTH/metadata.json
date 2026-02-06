@@ -1,0 +1,62 @@
+{
+  "name": "USD_SYNTH",
+  "version": "USD_SYNTH_D1_v1.0",
+  "timeframe": "D1",
+  "return_type": "log",
+  "base_value": 100.0,
+  "basket": [
+    "EURUSD",
+    "GBPUSD",
+    "AUDUSD",
+    "USDJPY",
+    "USDCAD"
+  ],
+  "direction_rule": {
+    "invert": [
+      "EURUSD",
+      "GBPUSD",
+      "AUDUSD"
+    ],
+    "keep": [
+      "USDJPY",
+      "USDCAD"
+    ]
+  },
+  "aggregation": "equal_weight_mean",
+  "calendar_rule": "intersection_only",
+  "source_data_hashes": {
+    "EURUSD": {
+      "EURUSD_OCTAFX_1d_2024_RESEARCH.csv": "59b414720fd2dfa26d5bc85d0f5fc9b26995ee64d1920c576c562c9edaf79b7a",
+      "EURUSD_OCTAFX_1d_2025_RESEARCH.csv": "dec0122a648ae323c45d7ba47f892e258f3c0cad5164a300e5574d1acdc252b1",
+      "EURUSD_OCTAFX_1d_2026_RESEARCH.csv": "98443ab80280ca0e27dc321f701efae0338b051fa245df401a1e031546a0e30e"
+    },
+    "GBPUSD": {
+      "GBPUSD_OCTAFX_1d_2024_RESEARCH.csv": "b90ebb7cea4245021ad0549c49f018a7bc8c06348ab7d1ee7a2ed94da797fb58",
+      "GBPUSD_OCTAFX_1d_2025_RESEARCH.csv": "47d2424f9e42ad2e075d6d4dd01ad0607e575584d8076bace5555b01387a5acd",
+      "GBPUSD_OCTAFX_1d_2026_RESEARCH.csv": "f43eba4484769f4ed973514f6cbd9bd0a95e6c4524d4e0e57dd765c3bfb9ce83"
+    },
+    "AUDUSD": {
+      "AUDUSD_OCTAFX_1d_2024_RESEARCH.csv": "5850809d0014ae15a9cb3b3725b2d0e519f8f85c83da258ea3c36b31b8e5291a",
+      "AUDUSD_OCTAFX_1d_2025_RESEARCH.csv": "79f31014efbe4889f454a84ad70d4fae6c7dcef75013357fa23ea59ca44aa65b",
+      "AUDUSD_OCTAFX_1d_2026_RESEARCH.csv": "98a714b210a2b5a38f96783bb247b28f1efda5e9128f487dd9701d337a9c7a47"
+    },
+    "USDJPY": {
+      "USDJPY_OCTAFX_1d_2024_RESEARCH.csv": "21b1bfff1a8c13cd525ac25a50de3969cd0898b369da6c6e6e7043a7d2ca2dbe",
+      "USDJPY_OCTAFX_1d_2025_RESEARCH.csv": "76720a38af2e1b7296290d0bb8df26cfa7e51af9e823e7e756c82eca833d21d3",
+      "USDJPY_OCTAFX_1d_2026_RESEARCH.csv": "1937807384b12730cae2ebdb367cb5416d0ddefa00a545295116d2fc5d955967"
+    },
+    "USDCAD": {
+      "USDCAD_OCTAFX_1d_2024_RESEARCH.csv": "dd1c650c2ccc9ac531dd5a9ac156df86322c3f9109b91b7b399f3b8531bb501d",
+      "USDCAD_OCTAFX_1d_2025_RESEARCH.csv": "7f15227285b197a4c4565c0e8900a565d8349553fa8485ff0866d6d5881241f2",
+      "USDCAD_OCTAFX_1d_2026_RESEARCH.csv": "f87dd6599afe6c569e194b7ec31f33ea40af2f4ed1b2692bf583e06bc987f7a5"
+    }
+  },
+  "creation_timestamp": "2026-02-05T14:28:26.920041Z",
+  "validation_stats": {
+    "start_date": "2024-01-03",
+    "end_date": "2026-02-05",
+    "count": 551,
+    "synth_vol_annualized": 0.060483075130076794,
+    "median_component_vol": 0.06878249434674157
+  }
+}

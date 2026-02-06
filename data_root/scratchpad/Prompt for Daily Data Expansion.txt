@@ -1,0 +1,149 @@
+Agent Mandate — FX + Daily Data Expansion (AG v17)
+Objective (Non-Negotiable)
+
+Expand AG data coverage by adding FX pairs (OctaFX) and Daily timeframe data in a way that is:
+
+SOP-v17 compliant
+
+Append-only
+
+Deterministic
+
+Zero resampling
+
+Zero architectural reinterpretation
+
+Agent must not introduce new contracts, rules, or opinions.
+
+Scope of Assets (Exact — do not extend)
+
+FX (OctaFX):
+
+EURUSD
+
+GBPUSD
+
+USDJPY
+
+USDCHF
+
+AUDUSD
+
+NZDUSD
+
+USDCAD
+
+All FX datasets in AG v17 are sourced from OctaFX. No alternative FX feeds are currently active.
+
+Existing assets (already present):
+
+XAUUSD (Gold)
+
+BTC
+
+ETH
+
+Scope of Timeframes
+
+For ALL above assets, ingest native feed data only for:
+
+1m, 5m, 15m, 30m, 1h, 4h, 1d
+
+
+Constraints:
+
+❌ No resampling
+
+❌ No derived bars
+
+❌ No inferred timeframes
+
+❌ Reject unsupported feed–timeframe pairs
+
+Validator enforcement must remain intact per SOP_DATA_TIMEFRAMES_v1.
+
+Data Lifecycle Rules (Must Follow Exactly)
+
+Agent must comply with:
+
+ANTI_GRAVITY_DATA_LIFECYCLE_SOP_v17
+
+DATA_UPDATE_RUNBOOK_v17
+
+DATASET_GOVERNANCE_SOP_v17-DV1
+
+SOP_DATA_TIMEFRAMES_v1
+
+Key invariants:
+
+RAW is append-only, per-year
+
+CLEAN & RESEARCH rebuilt after RAW update
+
+No overwrite, no backfill, no mutation
+
+Canonical filenames only:
+
+[ASSET]_[FEED]_[TIMEFRAME]_[YEAR]_[RAW|CLEAN|RESEARCH].csv
+
+What the Agent MUST Do
+
+Extend ingestion configuration to include:
+
+the 7 FX pairs
+
+daily timeframe (1d) where supported
+
+Run incremental RAW ingestion
+
+Per SOP17 incremental protocol
+
+Update RAW manifests and logs
+
+Run validator
+
+Must pass without warnings or soft bypasses
+
+Rebuild CLEAN and RESEARCH
+
+Dataset versions start at RESEARCH_v1_* for new datasets
+
+Existing datasets must remain unchanged
+
+Produce a completion report
+
+Assets × Timeframes ingested
+
+Files created (counts)
+
+Validation status
+
+Any rejected feed–timeframe pairs (if applicable)
+
+Explicit Prohibitions (Critical)
+
+The agent must NOT:
+
+❌ Add a “daily contract”
+
+❌ Change or reinterpret regime logic
+
+❌ Introduce execution assumptions
+
+❌ Modify existing datasets
+
+❌ Add extra assets “for completeness”
+
+❌ Relax validator rules
+
+❌ Use daily OHLC in strategy logic
+
+This task is data plumbing only.
+
+Output Expected from Agent
+
+Successful ingestion + rebuild
+
+Validator PASS
+
+Short factual summary (no commentary, no design suggestions)

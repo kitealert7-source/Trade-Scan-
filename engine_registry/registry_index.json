@@ -1,0 +1,10 @@
+[
+  {
+    "engine_type": "universal_research_engine",
+    "version": "1.0.0",
+    "path": "engine_registry/releases/universal_research_engine/1.0.0",
+    "manifest_hash": "f13bd88c5ab712449b5cc2260d0f764440b3216b6b6ae2b6607223ab7052c819",
+    "validated_at_utc": "2026-02-03T18:30:00Z",
+    "promoted_at_utc": "2026-02-03T13:02:28.315058Z"
+  }
+]

@@ -1,0 +1,11 @@
+vault/
+backtests/
+runs/
+results/
+MASTER_DATA/
+data/
+*.csv
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Validated Engine Manifest",
+  "type": "object",
+  "required": [
+    "engine_type",
+    "engine_version",
+    "sop_testing_version",
+    "sop_output_version",
+    "file_hashes",
+    "validated_at_utc"
+  ],
+  "properties": {
+    "engine_type": {
+      "type": "string",
+      "description": "Type of the execution engine (e.g., python_vectorized)"
+    },
+    "engine_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the engine"
+    },
+    "sop_testing_version": {
+      "type": "string",
+      "description": "Version of SOP_TESTING this engine complies with"
+    },
+    "sop_output_version": {
+      "type": "string",
+      "description": "Version of SOP_OUTPUT this engine complies with"
+    },
+    "base_engine": {
+      "type": "object",
+      "description": "Optional lineage reference for successor engines",
+      "required": ["engine_type", "engine_version"],
+      "properties": {
+        "engine_type": {
+          "type": "string",
+          "description": "Base engine type from which this engine was derived"
+        },
+        "engine_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "Base engine version from which this engine was derived"
+        }
+      },
+      "additionalProperties": false
+    },
+    "file_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "description": "Map of relative file paths to their SHA256 hashes"
+    },
+    "validated_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 UTC timestamp of validation"
+    }
+  },
+  "additionalProperties": false
+}

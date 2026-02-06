@@ -1,0 +1,21 @@
+broker: OctaFX
+reference_capital_usd: 5000
+symbol: USDJPY
+
+min_lot: 0.01
+lot_step: 0.01
+max_lot: 50.0
+
+cost_model: embedded
+apply_additional_costs: false
+
+infer_missing_fields: false
+allow_manual_override: false
+
+contract_size: null
+
+calibration:
+  base_lot: 0.01
+  usd_pnl_per_price_unit_0p01: 6.33
+  price_unit: JPY
+  status: PASS

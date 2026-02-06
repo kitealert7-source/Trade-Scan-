@@ -1,0 +1,21 @@
+broker: OctaFX
+reference_capital_usd: 5000
+symbol: USDCAD
+
+min_lot: 0.01
+lot_step: 0.01
+max_lot: 50.0
+
+cost_model: embedded
+apply_additional_costs: false
+
+infer_missing_fields: false
+allow_manual_override: false
+
+contract_size: null
+
+calibration:
+  base_lot: 0.01
+  usd_pnl_per_price_unit_0p01: 7.25
+  price_unit: CAD
+  status: PASS
