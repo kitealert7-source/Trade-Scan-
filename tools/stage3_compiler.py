@@ -288,8 +288,37 @@ def append_row_to_master_filter(master_filter_path, row_data):
                     max_width = max(max_width, len(str(cell.value)))
         ws.column_dimensions[col_letter].width = max(max_width + 2, 12)
     
-    wb.save(master_filter_path)
+    while True:
+        try:
+            wb.save(master_filter_path)
+            break
+        except PermissionError:
+            print(f"[WARN] Output file is open: {master_filter_path}")
+            input("Output file is open. Close it and press Enter to retry...")
     wb.close()
+
+
+def enforce_strategy_persistence(run_id: str):
+    """
+    Enforce Stage-5 Strategy Persistence invariant.
+    """
+    strategies_root = PROJECT_ROOT / "strategies"
+    strategy_dir = strategies_root / run_id
+
+    if not strategy_dir.exists():
+        raise RuntimeError(f"Strategy folder missing: strategies/{run_id}")
+
+    allowed = {"strategy.py", "__pycache__"}
+    found = {p.name for p in strategy_dir.iterdir()}
+
+    if "strategy.py" not in found:
+        raise RuntimeError(f"strategy.py missing in strategies/{run_id}")
+
+    extra = found - allowed
+    if extra:
+        raise RuntimeError(
+            f"Non-compliant files in strategies/{run_id}: {sorted(extra)}"
+        )
 
 
 def discover_completed_runs():
@@ -387,6 +416,10 @@ def compile_stage3(strategy_filter=None):
         
         # Append to Master Filter
         append_row_to_master_filter(master_filter_path, row_data)
+        
+        # Enforce Strategy Persistence (Stage-4A Invariant)
+        enforce_strategy_persistence(run_id)
+        
         added.append({"strategy": strategy, "run_id": run_id})
         print(f"  Added: {strategy} [{run_id[:8]}]")
     

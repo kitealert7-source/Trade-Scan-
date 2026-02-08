@@ -1,0 +1,33 @@
+Before Testing New family of Work add, 
+
+git checkout -b feature/new-indicator-rsi
+git checkout -b feature/stage3-ranking-tweak
+git checkout -b feature/session-filter-experiment
+
+One safety check (optional but good)
+After the agent runs the command, have it verify:
+git branch
+You should see:
+* feature/your-branch-name
+  main
+If * is next to main, stop and switch again
+
+
+The correct sequence every time
+ Before touching code
+git checkout -b feature/whatever-you-are-doing
+
+Do your work
+Commit on the feature branch
+Merge later (or don’t)
+
+If you forget and already edited something
+Not fatal. You can still recover:
+git checkout -b feature/recovery
+Your uncommitted changes will move with you.
+But don’t rely on this — it’s a safety net, not a workflow.
+One-line takeaway
+Creating the branch is the first line of code you write.
+
+
+grep -R "engine_version" -n engine_registry | sort

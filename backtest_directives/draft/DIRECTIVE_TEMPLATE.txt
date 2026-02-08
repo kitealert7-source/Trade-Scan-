@@ -1,0 +1,65 @@
+# ============================================================================
+# PREFLIGHT-COMPLIANT DIRECTIVE TEMPLATE
+# ============================================================================
+# This template follows the exact format expected by governance/preflight.py
+# All fields below marked [REQUIRED] must be present for preflight to pass.
+# ============================================================================
+
+[DIRECTIVE_ID] — [STRATEGY_NAME]
+
+# ----------------------------------------------------------------------------
+# SCOPE BLOCK (Parsed by Preflight Agent)
+# ----------------------------------------------------------------------------
+
+Family: [FAMILY_NAME]
+Strategy ID: [DIRECTIVE_ID]
+
+# [REQUIRED] Broker name must match folder in data_access/broker_specs/
+Broker: [BROKER_NAME]
+
+# [REQUIRED] Symbols - Use "Symbols:" header followed by "* SYMBOL" lines
+# Each symbol must have a corresponding .yaml in broker_specs/[BROKER]/
+Symbols:
+* [SYMBOL_1]
+* [SYMBOL_2]
+
+# [REQUIRED] Timeframe (e.g., 1m, 5m, 15m, 1h, 4h, Daily)
+Timeframe: [TIMEFRAME]
+
+# [REQUIRED] Start Date - Must be YYYY-MM-DD format
+Start Date: [YYYY-MM-DD]
+
+# [REQUIRED] End Date - Must be explicit YYYY-MM-DD (not "PRESENT")
+End Date: [YYYY-MM-DD]
+
+# ----------------------------------------------------------------------------
+# EXECUTION BLOCK
+# ----------------------------------------------------------------------------
+
+Engine: [ENGINE_NAME]
+Mode: Trade_Scan
+Position Size: Default as per Trade_Scan
+
+# ----------------------------------------------------------------------------
+# ENTRY LOGIC
+# ----------------------------------------------------------------------------
+
+[ENTRY CONDITIONS]
+
+# ----------------------------------------------------------------------------
+# EXIT LOGIC
+# ----------------------------------------------------------------------------
+
+[EXIT CONDITIONS]
+
+# ----------------------------------------------------------------------------
+# EXECUTION RULES
+# ----------------------------------------------------------------------------
+
+[EXECUTION RULES]
+
+# ----------------------------------------------------------------------------
+# RISK MANAGEMENT
+# ----------------------------------------------------------------------------
+
+[RISK RULES]

@@ -12,7 +12,7 @@ apply_additional_costs: false
 infer_missing_fields: false
 allow_manual_override: false
 
-contract_size: null
+contract_size: 1
 
 calibration:
   base_lot: 0.01

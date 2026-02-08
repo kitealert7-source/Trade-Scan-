@@ -37,11 +37,10 @@ Every engine exists in **exactly one** of the following states.
 - May be modified **only with explicit human instruction**
 
 ### 2.2 Validated / Released Engine
-- Location: `engine_registry/releases/<engine_type>/<version>/`
+- Location: `engine_dev/<engine_type>/<version>/`
 - Identified by:
   - `VALIDATED_ENGINE.manifest.json`
   - file hashes
-  - registry entry
 - **Immutable**
 - Used for authoritative runs
 
@@ -54,7 +53,7 @@ Every engine exists in **exactly one** of the following states.
 
 ## 3. Core Immutability Rule (HARD)
 
-**Any engine that has a `VALIDATED_ENGINE.manifest.json` and appears in `registry_index.json` MUST NOT be modified.**
+**Any engine that has a `VALIDATED_ENGINE.manifest.json` MUST NOT be modified.**
 
 - No bug fixes
 - No refactors
@@ -168,8 +167,8 @@ Agents MUST state this confirmation explicitly before writing any code.
 
 3. Establish engine location:
    - If successor engine:
-     copy ONLY from:
-       engine_registry/releases/<engine_type>/<version>/
+     copy from:
+       engine_dev/<engine_type>/<version>/
    - If brand-new hypothesis engine:
      create a new directory under:
        engine_dev/<new_engine_type>/<version>/
@@ -177,7 +176,7 @@ Agents MUST state this confirmation explicitly before writing any code.
 4. Implement changes:
    - Modify ONLY code under engine_dev/
    - Make minimal, scoped changes aligned to the declared hypothesis
-   - Do not touch engine_registry, manifests, or registry index
+   - Do not touch validated manifests
 
 5. Declare impact:
    - Explicitly state whether execution semantics changed
@@ -192,7 +191,7 @@ Agents MUST NOT proceed to implementation until steps 1–3 are completed and ac
 When engine evolution is approved:
 
 1. Copy the base engine from:
-   `engine_registry/releases/<engine_type>/<version>/`
+   `engine_dev/<engine_type>/<version>/`
    to:
    `engine_dev/<engine_type>/<new_version>/`
 
@@ -228,7 +227,6 @@ Promotion requires:
 - successful runs
 - validation review
 - creation of `VALIDATED_ENGINE.manifest.json`
-- registry entry update
 
 Agents MAY assist but MUST NOT self-promote engines.
 

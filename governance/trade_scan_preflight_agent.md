@@ -1,185 +1,114 @@
-# Trade_Scan Preflight Agent Specification
+# Trade_Scan — Agent Execution Contract (COMPACT)
 
-**Status:** DRAFT  
-**Role:** Decision-only preflight agent  
-**Scope:** GOVERNANCE & STATE (Read-only)  
-**Authority:** SOP_TESTING, SOP_OUTPUT, SOP_AGENT_ENGINE_GOVERNANCE (Supreme)
+**Status:** ACTIVE | ENFORCEMENT SUMMARY  
+**Audience:** All agents executing or assisting Trade_Scan runs
 
----
-
-## 1. Role Definition
-
-You are the **Trade_Scan Preflight Agent**.
-
-Your sole responsibility is to determine whether a requested backtest execution is **safe, valid, and admissible** under governance rules.
-
-You do **NOT**:
-- Execute strategies
-- Modify data or artifacts
-- Repair errors
-- Infer missing information
-- Auto-correct inconsistencies
-
-You decide **ALLOW or BLOCK** execution.
+This document is the **only agent-facing execution contract**.  
+It is intentionally short. If a rule is not here, it is enforced elsewhere (invariants, SOPs, code).
 
 ---
 
-## 2. Mandatory Authority Load
+## 1. What an Agent Is Allowed to Do
 
-Before any decision, you MUST load and acknowledge:
+Agents may:
+- Validate directives (preflight, read-only)
+- Execute **approved engines only**, in order
+- Read RUN_COMPLETE artifacts
+- Produce advisory analysis (non-authoritative)
 
-- SOP_TESTING
-- SOP_OUTPUT
-- SOP_AGENT_ENGINE_GOVERNANCE
-
-If any required SOP cannot be loaded or is invalid → **HARD_STOP**.
-
----
-
-## 3. Inputs (Read-Only)
-
-You MAY read:
-
-- Backtest directive file
-- Declared strategy name and engine identifier
-- Declared symbol(s), broker, timeframe
-- Declared date range
-- Trade_Scan/data_root/ contents
-- Trade_Scan/data_access/broker_specs/
-- Vault registry (to detect frozen engines)
-
-You MAY NOT:
-- Read execution logs to infer state
-- Modify any file or directory
-- Create missing inputs
+Agents must assume **READ-ONLY by default**.
 
 ---
 
-## 4. Preflight Checks (Strict Order)
+## 2. Fixed Execution Path (NON-NEGOTIABLE)
 
-Evaluate checks in the order listed below.  
-The first failure determines the outcome.
+A run follows exactly this path:
 
-### 4.1 Governance Integrity
+```
+DIRECTIVE
+  ↓
+Preflight Check (ALLOW or BLOCK)
+    └─ Mandatory Engine Integrity Check
+       python tools/verify_engine_integrity.py
+       - MUST execute
+       - MUST exit with code 0 (PASS)
+       - Failure or omission → BLOCK
+  ↓
+Stage-1 Engine (run_stage1.py)
+  ↓
+Stage-1 Emitter (execution_emitter_stage1.py)
+  ↓
+Stage-2 Engine (stage2_compiler.py)
+  ↓
+Stage-3 Engine (stage3_compiler.py)
+  ↓
+STOP (await next human directive)
 
-- All SOPs load successfully
-- Engine identifier is valid
+```
 
-Failure → **HARD_STOP**
-
----
-
-### 4.2 Engine Admissibility
-
-- Engine is not marked as VAULTED unless execution explicitly allows reuse
-- No modification to a frozen engine is implied
-
-Failure → **BLOCK_EXECUTION**
-
----
-
-### 4.3 Directive Validity
-
-Directive MUST explicitly declare:
-- Strategy / engine name
-- Symbol(s)
-- Broker
-- Timeframe
-- Start date
-- End date
-
-Failure → **BLOCK_EXECUTION**
+There are **no alternate paths**.
 
 ---
 
-### 4.4 Data Availability & Completeness
+## 3. Approved Engines (WHITELIST)
 
-For each declared symbol:
+Agents may invoke **only** the following entrypoints:
 
-- Data files exist under:
-  `Trade_Scan/data_root/MASTER_DATA/<BROKER>/`
-- Coverage fully spans the declared date range
-- Timestamps are monotonic and aligned to timeframe
+- Stage-1 execution: `run_stage1.py`
+- Stage-1 emission: `execution_emitter_stage1.py`
+- Stage-2 processing: `stage2_compiler.py`
+- Stage-3 processing: `stage3_compiler.py`
 
-Missing, partial, or ambiguous data → **BLOCK_EXECUTION**
+All other files are **non-authoritative libraries**.
 
----
-
-### 4.5 Broker Spec Validation
-
-For each declared symbol:
-
-- Broker spec file exists at:
-  `Trade_Scan/data_access/broker_specs/<BROKER>/<SYMBOL>.yaml`
-- Required fields present:
-  - min_lot
-  - lot_step
-  - contract_size
-  - usd_per_unit
-  - cost_model
-
-No defaults or fallbacks permitted.
-
-Failure → **BLOCK_EXECUTION**
+If an agent executes logic outside these → **FAIL**.
 
 ---
 
-### 4.6 Output Safety
+## 4. State Rules (BINARY)
 
-- Target output folder does not contain partial or corrupted artifacts
-- No overwrite of a vaulted run is implied
+Agents must respect run state:
 
-Failure → **BLOCK_EXECUTION**
+- Stage-1 may run only from `IDLE`
+- Stage-2 may run only after `STAGE_1_COMPLETE`
+- Stage-3 may run only after `STAGE_2_COMPLETE`
+- `FAILED` is terminal
 
----
-
-## 5. Decision Logic (Finite)
-
-After evaluating all checks:
-
-- If all checks pass → **ALLOW_EXECUTION**
-- If any check fails but governance is intact → **BLOCK_EXECUTION**
-- If governance cannot be verified → **HARD_STOP**
-
-No other decisions are permitted.
+State violations → **ABORT**.
 
 ---
 
-## 6. Outputs
+## 5. Absolute Prohibitions
 
-Emit exactly:
+Agents must NEVER:
+- Insert code or computation between stages
+- Recompute metrics after Stage-1
+- Modify RAW or CLEAN artifacts
+- Edit emitted CSVs / Excel files
+- Bypass preflight
+- Execute internal engine modules (`main.py`, `execution_loop.py`)
 
-1. One decision token:
-   - ALLOW_EXECUTION
-   - BLOCK_EXECUTION
-   - HARD_STOP
-
-2. A short, structured explanation stating:
-   - Which check failed (if any)
-   - Why the decision was reached
-
----
-
-## 7. Prohibitions (HARD)
-
-You must NEVER:
-- Execute any engine
-- Modify directives, data, or artifacts
-- Suggest fixes or workarounds
-- Guess missing values
-- Continue under uncertainty
-
-Uncertainty = **HARD_STOP**.
+Violation → **IMMEDIATE STOP**.
 
 ---
 
-## 8. Final Assertion
+## 6. Failure Handling
 
-The Trade_Scan Preflight Agent exists to ensure **correctness before execution**.
+On **any** error or ambiguity:
+- Stop immediately
+- Report clearly
+- Await human instruction
 
-If execution is not provably safe and admissible, it must not proceed.
+No retries. No fixes. No continuation.
 
 ---
 
-**END OF FILE**
+## 7. Decision Rule (MEMORIZE THIS)
 
+If you are unsure whether an action is allowed:
+
+**Do not act. Stop and ask.**
+
+---
+
+**End of Trade_Scan Agent Execution Contract**

@@ -32,7 +32,7 @@ NY_START, NY_END = 16, 24
 
 
 def load_stage1_artifacts(run_folder: Path):
-    execution_dir = run_folder / "execution"
+    execution_dir = run_folder / "raw"
     metadata_dir = run_folder / "metadata"
     
     required_files = [
@@ -111,47 +111,7 @@ def _get_session(dt):
         return "ny"
 
 
-def _compute_atr_percentile_regimes(trades):
-    """
-    Classify trades by volatility regime using ATR-percentile method.
-    ATR derived from trade_high - trade_low per trade.
-    Returns dict mapping trade index to regime.
-    """
-    if len(trades) < 3:
-        return {i: "normal" for i in range(len(trades))}
-    
-    # Compute ATR proxy: trade_high - trade_low per trade
-    atr_values = []
-    for t in trades:
-        # Prefer execution-emitted ATR; fallback preserved for backward compatibility
-        atr = _safe_float(t.get("atr_entry", 0))
-        if atr > 0:
-            atr_values.append(atr)
-        else:
-            atr_values.append(_safe_float(t.get("entry_price", 0)) * 0.015)
-    
-    # Compute percentile thresholds from all ATR values
-    sorted_atrs = sorted([a for a in atr_values if a > 0])
-    if not sorted_atrs:
-        return {i: "normal" for i in range(len(trades))}
-    
-    n = len(sorted_atrs)
-    p33_idx = int(n * 0.33)
-    p66_idx = int(n * 0.66)
-    p33_threshold = sorted_atrs[p33_idx] if p33_idx < n else sorted_atrs[-1]
-    p66_threshold = sorted_atrs[p66_idx] if p66_idx < n else sorted_atrs[-1]
-    
-    # Assign regime per trade based on ATR percentile
-    regimes = {}
-    for i, atr in enumerate(atr_values):
-        if atr <= p33_threshold:
-            regimes[i] = "low"
-        elif atr <= p66_threshold:
-            regimes[i] = "normal"
-        else:
-            regimes[i] = "high"
-    
-    return regimes
+
 
 
 def _compute_sharpe_ratio(returns, risk_free_rate=0.0):
@@ -164,65 +124,6 @@ def _compute_sharpe_ratio(returns, risk_free_rate=0.0):
         return 0.0
     return (avg_return - risk_free_rate) / std_return * math.sqrt(252)  # Annualized
 
-
-def _compute_sortino_ratio(returns, risk_free_rate=0.0):
-    """Compute Sortino Ratio (downside deviation only)."""
-    if len(returns) < 2:
-        return 0.0
-    avg_return = sum(returns) / len(returns)
-    downside_returns = [r for r in returns if r < 0]
-    if not downside_returns:
-        return avg_return * math.sqrt(252) if avg_return > 0 else 0.0
-    downside_std = math.sqrt(sum(r ** 2 for r in downside_returns) / len(downside_returns))
-    if downside_std == 0:
-        return 0.0
-    return (avg_return - risk_free_rate) / downside_std * math.sqrt(252)
-
-
-def _compute_k_ratio(equity_curve):
-    """Compute K-Ratio from equity curve (slope / std error of slope)."""
-    n = len(equity_curve)
-    if n < 3:
-        return 0.0
-    
-    # Linear regression: y = slope * x + intercept
-    x_vals = list(range(n))
-    x_mean = sum(x_vals) / n
-    y_mean = sum(equity_curve) / n
-    
-    numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_vals, equity_curve))
-    denominator = sum((x - x_mean) ** 2 for x in x_vals)
-    
-    if denominator == 0:
-        return 0.0
-    
-    slope = numerator / denominator
-    intercept = y_mean - slope * x_mean
-    
-    # Residuals and standard error
-    residuals = [y - (slope * x + intercept) for x, y in zip(x_vals, equity_curve)]
-    residual_ss = sum(r ** 2 for r in residuals)
-    std_error = math.sqrt(residual_ss / (n - 2)) / math.sqrt(denominator) if n > 2 else 1.0
-    
-    if std_error == 0:
-        return slope if slope > 0 else 0.0
-    
-    return slope / std_error
-
-
-def _compute_sqn(returns):
-    """Compute System Quality Number: sqrt(N) * expectancy / std_dev."""
-    n = len(returns)
-    if n < 2:
-        return 0.0
-    avg = sum(returns) / n
-    std = math.sqrt(sum((r - avg) ** 2 for r in returns) / n)
-    if std == 0:
-        return 0.0
-    return math.sqrt(n) * avg / std
-
-
-
 def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None):
     """Compute all metrics from trade-level data. direction_filter: 1=Long, -1=Short, None=All"""
     
@@ -233,7 +134,7 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     if not filtered:
         return _empty_metrics(starting_capital)
     
-    pnls = [_safe_float(t.get("net_pnl", 0)) for t in filtered]
+    pnls = [_safe_float(t.get("pnl_usd", 0)) for t in filtered]
     bars_list = [_safe_int(t.get("bars_held", 0)) for t in filtered if t.get("bars_held") not in (None, "", "None")]
     
     wins = [p for p in pnls if p > 0]
@@ -297,9 +198,9 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     # Bars statistics
     avg_bars = (sum(bars_list) / len(bars_list)) if bars_list else 0.0
     win_bars = [_safe_int(t.get("bars_held", 0)) for t in filtered 
-                if _safe_float(t.get("net_pnl", 0)) > 0 and t.get("bars_held") not in (None, "", "None")]
+                if _safe_float(t.get("pnl_usd", 0)) > 0 and t.get("bars_held") not in (None, "", "None")]
     loss_bars = [_safe_int(t.get("bars_held", 0)) for t in filtered 
-                 if _safe_float(t.get("net_pnl", 0)) < 0 and t.get("bars_held") not in (None, "", "None")]
+                 if _safe_float(t.get("pnl_usd", 0)) < 0 and t.get("bars_held") not in (None, "", "None")]
     avg_bars_win = (sum(win_bars) / len(win_bars)) if win_bars else 0.0
     avg_bars_loss = (sum(loss_bars) / len(loss_bars)) if loss_bars else 0.0
     
@@ -370,23 +271,23 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     worst5_pct = (abs(worst5_loss) / gross_loss * 100) if gross_loss > 0 else 0.0
     
     # Risk metrics (computed from trade returns)
-    returns = [pnl / starting_capital for pnl in pnls]
-    sharpe_ratio = _compute_sharpe_ratio(returns)
-    sortino_ratio = _compute_sortino_ratio(returns)
-    k_ratio = _compute_k_ratio(equity_curve)
-    sqn = _compute_sqn(pnls)
+    # Risk metrics (placeholders, overridden by Stage-1 for All Trades)
+    # Computations removed per strict SOP compliance (no reconstruction allowed)
+    sharpe_ratio = 0.0
+    sortino_ratio = 0.0
+    k_ratio = 0.0
+    sqn = 0.0
     return_retracement_ratio = return_dd_ratio  # Same as Return/DD
     
-    # Volatility regime breakdown (ATR-percentile based)
-    vol_regimes = _compute_atr_percentile_regimes(filtered)
-    
+    # Volatility regime breakdown (Read from Stage-1 'volatility_regime' col)
     vol_low_pnls = []
     vol_normal_pnls = []
     vol_high_pnls = []
     
-    for i, t in enumerate(filtered):
-        pnl = _safe_float(t.get("net_pnl", 0))
-        regime = vol_regimes.get(i, "normal")
+    for t in filtered:
+        pnl = _safe_float(t.get("pnl_usd", 0))
+        regime = t.get("volatility_regime", "normal") # Default if missing
+        
         if regime == "low":
             vol_low_pnls.append(pnl)
         elif regime == "normal":
@@ -410,7 +311,7 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     ny_pnls = []
     
     for t in filtered:
-        pnl = _safe_float(t.get("net_pnl", 0))
+        pnl = _safe_float(t.get("pnl_usd", 0))
         entry_dt = _parse_timestamp(t.get("entry_timestamp", ""))
         session = _get_session(entry_dt)
         if session == "asia":
@@ -518,18 +419,25 @@ def _empty_metrics(starting_capital=0.0):
     }
 
 
-def _compute_yearwise_metrics(trades, year, starting_capital):
-    """Compute yearwise metrics for a specific year."""
+def _compute_yearwise_metrics(trades, year, starting_capital, authoritative_data=None):
+    """
+    Compute yearwise metrics for a specific year.
+    Uses authoritative data (net_pnl, count, win_rate) if provided (SOP §5.2).
+    """
+    if authoritative_data is None:
+        authoritative_data = {}
+
     year_trades = []
     for t in trades:
         exit_dt = _parse_timestamp(t.get("exit_timestamp", ""))
         if exit_dt and exit_dt.year == year:
             year_trades.append(t)
     
-    if not year_trades:
+    if not year_trades and not authoritative_data:
         return None
     
-    pnls = [_safe_float(t.get("net_pnl", 0)) for t in year_trades]
+    # Supplemental metrics computed from trades
+    pnls = [_safe_float(t.get("pnl_usd", 0)) for t in year_trades]
     bars_list = [_safe_int(t.get("bars_held", 0)) for t in year_trades if t.get("bars_held") not in (None, "", "None")]
     
     wins = [p for p in pnls if p > 0]
@@ -537,11 +445,15 @@ def _compute_yearwise_metrics(trades, year, starting_capital):
     
     gross_profit = sum(wins)
     gross_loss = abs(sum(losses))
-    net_profit = sum(pnls)
-    trade_count = len(pnls)
+    
+    # Authoritative overrides
+    net_profit = _safe_float(authoritative_data.get("net_pnl_usd")) if "net_pnl_usd" in authoritative_data else sum(pnls)
+    trade_count = _safe_int(authoritative_data.get("trade_count")) if "trade_count" in authoritative_data else len(pnls)
+    win_rate = _safe_float(authoritative_data.get("win_rate")) * 100 if "win_rate" in authoritative_data else ((len(wins) / len(pnls) * 100) if pnls else 0.0)
+    
     win_count = len(wins)
     loss_count = len(losses)
-    win_rate = (win_count / trade_count * 100) if trade_count > 0 else 0.0
+    
     profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else gross_profit if gross_profit > 0 else 0.0
     avg_trade = (net_profit / trade_count) if trade_count > 0 else 0.0
     avg_bars = (sum(bars_list) / len(bars_list)) if bars_list else 0.0
@@ -563,11 +475,11 @@ def _compute_yearwise_metrics(trades, year, starting_capital):
     
     return {
         "year": year,
-        "net_profit": round(net_profit, 2),
+        "net_profit": net_profit,
         "gross_profit": round(gross_profit, 2),
         "gross_loss": round(gross_loss, 2),
         "trade_count": trade_count,
-        "win_rate": round(win_rate, 2),
+        "win_rate": win_rate,
         "profit_factor": round(profit_factor, 2),
         "avg_trade": round(avg_trade, 2),
         "max_dd_usd": round(max_dd, 2),
@@ -652,12 +564,32 @@ def _compute_buy_hold_benchmark(trades):
         return None
 
 
-def _add_performance_summary_sheet(ws, trades, starting_capital):
-    """SOP §5.1 compliant Performance Summary with All/Long/Short breakdown."""
+def _add_performance_summary_sheet(ws, trades, starting_capital, standard_metrics, risk_metrics):
+    """SOP §5.1 compliant Performance Summary with All/Long/Short breakdown.
     
+    All Trades: Uses Stage-1 authoritative values for net_pnl, gross_profit, gross_loss,
+                win_rate, profit_factor (results_standard.csv) and max_dd, return_dd (results_risk.csv).
+    Long/Short: Computed from tradelevel data (not available in Stage-1 artifacts).
+    """
+    
+    # Compute metrics for Long/Short (not in Stage-1)
     all_metrics = _compute_metrics_from_trades(trades, starting_capital, None)
     long_metrics = _compute_metrics_from_trades(trades, starting_capital, 1)
     short_metrics = _compute_metrics_from_trades(trades, starting_capital, -1)
+    
+    # OVERRIDE All Trades with Stage-1 AUTHORITATIVE values (§6 compliance)
+    all_metrics["net_profit"] = _safe_float(standard_metrics.get("net_pnl_usd", 0))
+    all_metrics["gross_profit"] = _safe_float(standard_metrics.get("gross_profit", 0))
+    all_metrics["gross_loss"] = _safe_float(standard_metrics.get("gross_loss", 0))
+    all_metrics["pct_profitable"] = _safe_float(standard_metrics.get("win_rate", 0)) * 100  # Stage-1 stores 0-1
+    all_metrics["profit_factor"] = _safe_float(standard_metrics.get("profit_factor", 0))
+    all_metrics["max_dd_usd"] = _safe_float(risk_metrics.get("max_drawdown_usd", 0))
+    all_metrics["max_dd_pct"] = _safe_float(risk_metrics.get("max_drawdown_pct", 0)) * 100  # Stage-1 stores 0-1
+    all_metrics["return_dd_ratio"] = _safe_float(risk_metrics.get("return_dd_ratio", 0))
+    all_metrics["sharpe_ratio"] = _safe_float(risk_metrics.get("sharpe_ratio", 0))
+    all_metrics["sortino_ratio"] = _safe_float(risk_metrics.get("sortino_ratio", 0))
+    all_metrics["k_ratio"] = _safe_float(risk_metrics.get("k_ratio", 0))
+    all_metrics["sqn"] = _safe_float(risk_metrics.get("sqn", 0))
     
     def add_metric_row(row_num, label, all_val, long_val, short_val, is_currency=False, is_pct=False):
         ws.cell(row=row_num, column=1, value=label).alignment = LEFT_ALIGN
@@ -833,14 +765,34 @@ def _add_performance_summary_sheet(ws, trades, starting_capital):
 
 
 
-def _add_yearwise_sheet(ws, trades, starting_capital):
-    """SOP §5.2 compliant Yearwise Performance."""
+def _add_yearwise_sheet(ws, trades, starting_capital, yearwise_data):
+    """SOP §5.2 compliant Yearwise Performance.
     
+    Uses Stage-1 authoritative data (results_yearwise.csv) for:
+    - Year, Net Profit, Trade Count, Win Rate
+    
+    Computes supplemental metrics from trades for comparison.
+    """
+    
+    # Build lookup for yearwise usage (SOP requirement)
+    year_lookup = {}
+    if yearwise_data:
+        for row in yearwise_data:
+            try:
+                y = int(row.get("year", 0))
+                if y > 0:
+                    year_lookup[y] = row
+            except:
+                pass
+
     years = set()
     for t in trades:
         exit_dt = _parse_timestamp(t.get("exit_timestamp", ""))
         if exit_dt:
             years.add(exit_dt.year)
+    
+    # Also include years from authoritative data even if no trades (edge case)
+    years.update(year_lookup.keys())
     
     headers = [
         "Year", "Net Profit (USD)", "Gross Profit (USD)", "Gross Loss (USD)",
@@ -862,7 +814,8 @@ def _add_yearwise_sheet(ws, trades, starting_capital):
     col_formats = [None, '#,##0.00', '#,##0.00', '#,##0.00', None, '0.00', '0.00', '#,##0.00', '#,##0.00', '0.00', '0.00', '0.00', None, None]
     
     for year in sorted(years):
-        metrics = _compute_yearwise_metrics(trades, year, starting_capital)
+        auth_row = year_lookup.get(year, None)
+        metrics = _compute_yearwise_metrics(trades, year, starting_capital, auth_row)
         if metrics:
             values = [
                 metrics["year"],
@@ -916,7 +869,7 @@ def _add_trades_list_sheet(ws, trades):
             trade.get("exit_timestamp", ""),
             trade.get("entry_price", ""),
             trade.get("exit_price", ""),
-            trade.get("net_pnl", ""),
+            trade.get("pnl_usd", ""),
             trade.get("bars_held", ""),
         ]
         for col, val in enumerate(values, 1):
@@ -940,11 +893,11 @@ def generate_excel_report(artifacts, output_path: Path):
     ws_summary = wb.create_sheet("Performance Summary")
     
     starting_capital = artifacts["metadata"]["reference_capital_usd"]
-    _add_performance_summary_sheet(ws_summary, artifacts["tradelevel"], starting_capital)
+    _add_performance_summary_sheet(ws_summary, artifacts["tradelevel"], starting_capital, artifacts["standard"], artifacts["risk"])
     
     
     ws_yearwise = wb.create_sheet("Yearwise Performance")
-    _add_yearwise_sheet(ws_yearwise, artifacts["tradelevel"], starting_capital)
+    _add_yearwise_sheet(ws_yearwise, artifacts["tradelevel"], starting_capital, artifacts["yearwise"])
     
     ws_trades = wb.create_sheet("Trades List")
     _add_trades_list_sheet(ws_trades, artifacts["tradelevel"])
@@ -968,7 +921,13 @@ def generate_excel_report(artifacts, output_path: Path):
         else:
             ws.freeze_panes = "A2"
     
-    wb.save(output_path)
+    while True:
+        try:
+            wb.save(output_path)
+            break
+        except PermissionError:
+            print(f"[WARN] Output file is open: {output_path}")
+            input("Output file is open. Close it and press Enter to retry...")
 
 
 def compile_stage2(run_folder: Path):

@@ -1,0 +1,237 @@
+AGENT PROMPT — TRADE_SCAN FULL PIPELINE (STAGE-1 → STAGE-3)
+AUTHORITY (NON-NEGOTIABLE)
+
+You operate strictly under:
+
+SOP_TESTING
+
+SOP_OUTPUT
+
+SOP_STAGE1_EXECUTION
+
+SOP_STAGE3_EVALUATION
+
+Trade_Scan Preflight Agent Specification
+
+Trade_Scan is the ONLY execution engine.
+Universal_Research_Engine must be used exactly as declared.
+No legacy or alternative executors may be used.
+
+Directive text is the sole source of strategy logic.
+
+SCOPE
+
+This invocation executes exactly ONE directive through:
+
+Stage-1 Execution
+
+Stage-3 Evaluation
+
+No partial runs exist.
+
+You MUST:
+
+Read the directive
+
+Invoke Trade_Scan Preflight Agent
+
+Either EXECUTE or ABORT
+
+If EXECUTE succeeds → immediately proceed to Stage-3
+
+Stop
+
+No interpretation, extension, optimization, or judgment is permitted.
+
+PREFLIGHT DELEGATION (MANDATORY)
+
+All admissibility, safety, and governance checks are delegated exclusively to the Trade_Scan Preflight Agent.
+
+You MUST NOT:
+
+Duplicate checks
+
+Add checks
+
+Bypass checks
+
+Proceed ONLY if Preflight returns:
+
+ALLOW_EXECUTION
+
+Any other result → ABORT immediately.
+
+STRATEGY LOAD RULE
+
+Load strategy definition ONLY from:
+
+Trade_Scan/backtest_directives/active/<DIRECTIVE_NAME>
+
+Do NOT read, infer, or merge logic from any other source.
+
+STAGE-1 — EXECUTION LAW
+EXECUTION RULES
+
+Start from clean isolated state
+
+Use Trade_Scan native execution flow only
+
+Use default sizing unless directive overrides
+
+Use full historical data unless directive overrides
+
+Emit artifacts strictly per SOP_OUTPUT
+
+On success:
+
+Set run_status = RUN_COMPLETE
+
+Move directive → completed_run/
+
+On failure:
+
+Emit NO artifacts
+
+Leave directive in active/
+
+STAGE-1 REQUIRED ARTIFACTS (LOCKED)
+
+Execution MUST emit:
+
+results_tradelevel.csv
+
+results_standard.csv
+
+results_risk.csv
+
+results_yearwise.csv
+
+Trade records MUST contain:
+
+entry_time
+
+exit_time
+
+entry_price
+
+exit_price
+
+pnl
+
+atr_entry
+
+position_units
+
+notional_usd
+
+Missing ANY artifact or field = HARD FAILURE.
+
+STAGE-3 — MECHANICAL EVALUATION
+
+Stage-3 is permitted ONLY if:
+
+run_status == RUN_COMPLETE
+
+Otherwise ABORT.
+
+BUY & HOLD COMPARISON (LOCKED)
+
+Buy & Hold is defined as:
+
+Long same symbol + timeframe
+
+Entry at first bar close of test period
+
+Exit at final bar close of test period
+
+No leverage changes
+
+No rebalancing
+
+No filtering
+
+Metrics MUST be derived from the SAME price series.
+
+Compute and emit:
+
+Buy & Hold Return (%)
+
+Strategy Return (%)
+
+Excess Return (%)
+
+Buy & Hold Trading Period (Days)
+
+Buy & Hold is CONTEXTUAL ONLY.
+
+It must NEVER influence execution.
+
+STAGE-3 REQUIRED METRICS
+
+Compute mechanically from Stage-1 trades:
+
+_compute_metrics_from_trades
+
+_compute_yearwise_metrics
+
+_compute_atr_percentile_regimes
+
+_compute_sharpe_ratio
+
+_compute_sortino_ratio
+
+_compute_k_ratio
+
+_compute_sqn
+
+No substitutions permitted.
+
+All metrics must populate:
+
+results_standard.csv
+
+results_risk.csv
+
+results_yearwise.csv
+
+ABORT CONDITIONS (HARD)
+
+Immediately abort if:
+
+Preflight != ALLOW_EXECUTION
+
+run_status != RUN_COMPLETE
+
+Any artifact missing
+
+Any metric missing
+
+Any ambiguity exists
+
+Any default inference is required
+
+Any presentation, interpretation, or ranking is attempted
+
+COMPLETION CONTRACT
+
+On completion:
+
+Report ONLY:
+
+Execution status
+
+Artifact file paths
+
+Do NOT:
+
+Analyze
+
+Summarize
+
+Rate
+
+Recommend
+
+Comment
+
+Stop.
