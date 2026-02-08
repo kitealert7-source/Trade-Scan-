@@ -1,11 +1,31 @@
-vault/
+# Runtime artifacts (never commit)
 backtests/
 runs/
 results/
+
+# Market & raw data
 MASTER_DATA/
 data/
-*.csv
+
+# Strategy snapshots (runtime mirrors)
+strategies/
+
+# Python junk
 __pycache__/
 *.pyc
+
+# OS junk
 .DS_Store
 Thumbs.db
+
+# Ignore generated CSVs everywhere
+*.csv
+
+# ---- VAULT RULE ----
+# Vault is tracked EXCEPT transient junk (if any)
+!vault/
+!vault/ENGINE_VAULT_CONTRACT.md
+!vault/engines/
+!vault/engines/**
+
+# (No ignores under vault unless explicitly added later)

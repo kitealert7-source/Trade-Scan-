@@ -1,0 +1,37 @@
+{
+    "engine_name": "Universal_Research_Engine",
+    "engine_version": "v1.1.0",
+    "purpose": "archival / safekeeping",
+    "promotion_timestamp_utc": "2026-02-06T02:03:37Z",
+    "stage1_files": [
+        "main.py",
+        "execution_emitter.py"
+    ],
+    "stage2_files": [
+        "stage2_compiler.py"
+    ],
+    "stage3_files": [
+        "stage3_compiler.py"
+    ],
+    "sop_files": [
+        "SOP_AGENT_ENGINE_GOVERNANCE.md",
+        "SOP_TESTING.md",
+        "SOP_OUTPUT.md"
+    ],
+    "file_hashes": {
+        "execution_emitter.py": "5E4561B25784C838D4CFF32CBD8040667D1999C4BAA2D8E285F1C9EA61F8F933",
+        "main.py": "815405A4458F89A64586AE344EE2EAA3F447C35D5B35B8AE25E5FEF8A5ABEC96",
+        "stage2_compiler.py": "FEF3393EB05FD7508E23F6DACCACFBD97009D8841E18029FCC59847FC457C660",
+        "stage3_compiler.py": "745946B8FCE02A2EB2926300920061B3B53C8395F06F66F09C4A60F511C81196",
+        "SOP_AGENT_ENGINE_GOVERNANCE.md": "9787A70F505B59F4ACF477C1BFA420E203D4C4E72945706456F336E7D1384A8F",
+        "SOP_OUTPUT.md": "BB5D8C2716B711417670F068475A56968E013ECDF88B4730B8A4744D7A332A4D",
+        "SOP_TESTING.md": "0A46831D1D473A1D3DDF4FD66A523915C755ED35891A4AF0BBF7A31368A54D73"
+    },
+    "snapshot_notes": {
+        "capital": "broker-spec authoritative",
+        "defaults": "no silent defaults",
+        "governance": "governance gate enforced",
+        "benchmark": "Buy & Hold contextual-only benchmark",
+        "stage3_purpose": "Stage-3 performs master strategy filtering"
+    }
+}
