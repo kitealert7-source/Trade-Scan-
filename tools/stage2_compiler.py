@@ -124,7 +124,7 @@ def _compute_sharpe_ratio(returns, risk_free_rate=0.0):
         return 0.0
     return (avg_return - risk_free_rate) / std_return * math.sqrt(252)  # Annualized
 
-def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None):
+def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None, metadata=None):
     """Compute all metrics from trade-level data. direction_filter: 1=Long, -1=Short, None=All"""
     
     filtered = trades
@@ -228,10 +228,70 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     
     trades_per_month = (trade_count / (trading_period_days / 30)) if trading_period_days >= 30 else trade_count
     
+    # --- Dynamic Bars Per Day Calculation (SOP-Compliant) ---
+    # 1. Empirical derivation from trades (Median Seconds/Bar)
+    # 2. Metadata fallback
+    # 3. Ultimate default (6) with warning
+    
+    bars_per_day = 6.0 # Ultimate fallback
+    source_method = "default"
+    
+    # Try Empirical Derivation
+    valid_samples = []
+    for t in filtered:
+        try:
+            entry = _parse_timestamp(t.get("entry_timestamp", ""))
+            exit = _parse_timestamp(t.get("exit_timestamp", ""))
+            bars = _safe_int(t.get("bars_held", 0))
+            
+            if entry and exit and bars > 1 and exit > entry:
+                duration_seconds = (exit - entry).total_seconds()
+                seconds_per_bar = duration_seconds / bars
+                valid_samples.append(seconds_per_bar)
+        except:
+            continue
+            
+    if len(valid_samples) >= 5: # Require at least 5 trades to trust empirical
+        valid_samples.sort()
+        mid = len(valid_samples) // 2
+        median_spb = valid_samples[mid]
+        if median_spb > 0:
+            bars_per_day = 86400.0 / median_spb
+            source_method = "empirical"
+    else:
+        # Try Metadata Fallback if available
+        if metadata and "timeframe" in metadata:
+            tf = str(metadata["timeframe"]).lower().strip()
+            if tf in ["1d", "d", "daily"]:
+                bars_per_day = 1.0
+                source_method = "metadata (1d)"
+            elif tf == "4h":
+                bars_per_day = 6.0
+                source_method = "metadata (4h)"
+            elif tf == "1h":
+                bars_per_day = 24.0
+                source_method = "metadata (1h)"
+            elif tf == "30m":
+                bars_per_day = 48.0
+                source_method = "metadata (30m)"
+            elif tf == "15m":
+                bars_per_day = 96.0
+                source_method = "metadata (15m)"
+            elif tf == "5m":
+                bars_per_day = 288.0
+                source_method = "metadata (5m)"
+            elif tf == "1m":
+                bars_per_day = 1440.0
+                source_method = "metadata (1m)"
+            
+    if source_method == "default":
+        print(f"[WARN] Using default bars_per_day=6.0 (Fallback). Timeframe assumption may be incorrect.")
+        
     # % Time in Market (total bars held / total bars in period)
     total_bars_held = sum(bars_list) if bars_list else 0
-    # Assuming 4H timeframe: 6 bars per day
-    total_bars_in_period = trading_period_days * 6
+    
+    # Dynamic Calculation:
+    total_bars_in_period = trading_period_days * bars_per_day
     pct_time_in_market = (total_bars_held / total_bars_in_period * 100) if total_bars_in_period > 0 else 0.0
     
     # Longest flat period (days between trades)
@@ -564,7 +624,7 @@ def _compute_buy_hold_benchmark(trades):
         return None
 
 
-def _add_performance_summary_sheet(ws, trades, starting_capital, standard_metrics, risk_metrics):
+def _add_performance_summary_sheet(ws, trades, starting_capital, standard_metrics, risk_metrics, metadata=None):
     """SOP §5.1 compliant Performance Summary with All/Long/Short breakdown.
     
     All Trades: Uses Stage-1 authoritative values for net_pnl, gross_profit, gross_loss,
@@ -573,9 +633,9 @@ def _add_performance_summary_sheet(ws, trades, starting_capital, standard_metric
     """
     
     # Compute metrics for Long/Short (not in Stage-1)
-    all_metrics = _compute_metrics_from_trades(trades, starting_capital, None)
-    long_metrics = _compute_metrics_from_trades(trades, starting_capital, 1)
-    short_metrics = _compute_metrics_from_trades(trades, starting_capital, -1)
+    all_metrics = _compute_metrics_from_trades(trades, starting_capital, None, metadata)
+    long_metrics = _compute_metrics_from_trades(trades, starting_capital, 1, metadata)
+    short_metrics = _compute_metrics_from_trades(trades, starting_capital, -1, metadata)
     
     # OVERRIDE All Trades with Stage-1 AUTHORITATIVE values (§6 compliance)
     all_metrics["net_profit"] = _safe_float(standard_metrics.get("net_pnl_usd", 0))
@@ -893,7 +953,7 @@ def generate_excel_report(artifacts, output_path: Path):
     ws_summary = wb.create_sheet("Performance Summary")
     
     starting_capital = artifacts["metadata"]["reference_capital_usd"]
-    _add_performance_summary_sheet(ws_summary, artifacts["tradelevel"], starting_capital, artifacts["standard"], artifacts["risk"])
+    _add_performance_summary_sheet(ws_summary, artifacts["tradelevel"], starting_capital, artifacts["standard"], artifacts["risk"], artifacts["metadata"])
     
     
     ws_yearwise = wb.create_sheet("Yearwise Performance")
@@ -944,32 +1004,93 @@ def compile_stage2(run_folder: Path):
 
 def main():
     import sys
+    import argparse
+    from pathlib import Path
     
-    if len(sys.argv) < 2:
-        raise SystemExit("ERROR: Run path argument required. Usage: python stage2_compiler.py <run_folder_path>")
+    # Setup Argument Parser
+    parser = argparse.ArgumentParser(description="Stage-2 Presentation Compiler (v4 Multi-Asset)")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("run_folder", nargs="?", help="Path to single Stage-1 run folder")
+    group.add_argument("--scan", help="Scan backtests/ for folders matching DIRECTIVE_NAME_*")
     
-    run_folder = Path(sys.argv[1])
+    args = parser.parse_args()
     
-    if not run_folder.exists():
-        raise SystemExit(f"ERROR: Run folder not found: {run_folder}")
-    
-    if not run_folder.is_dir():
-        raise SystemExit(f"ERROR: Run path is not a directory: {run_folder}")
-    
-    try:
-        output_dir, files = compile_stage2(run_folder)
+    # --- SCAN MODE ---
+    if args.scan:
+        directive_name = args.scan
+        backtests_root = Path(__file__).parent.parent / "backtests"
+        if not backtests_root.exists():
+            print(f"[FAIL] Backtests directory not found: {backtests_root}")
+            sys.exit(1)
+            
+        # Glob pattern: DIRECTIVE_NAME_*
+        # e.g. TEST_BATCH_AUDUSD, TEST_BATCH_GBPUSD
+        # We must ensure we don't pick up the directive file itself if it accidentally ended up there, 
+        # but backtests/ usually contains folders.
+        candidates = sorted(list(backtests_root.glob(f"{directive_name}_*")))
         
-        print(f"Path: {output_dir}")
-        print("Generated files:")
-        for f in files:
-            print(f"  - {output_dir / f}")
-        print()
-        print("Stage-2 presentation artifacts generated successfully from immutable Stage-1 inputs.")
+        valid_runs = []
+        for cand in candidates:
+            if cand.is_dir():
+                # Check for essential Stage-1 artifacts to confirm it's a run folder
+                meta_check = cand / "metadata" / "run_metadata.json"
+                trade_check = cand / "raw" / "results_tradelevel.csv"
+                if meta_check.exists() and trade_check.exists():
+                    valid_runs.append(cand)
         
-    except FileNotFoundError as e:
-        raise SystemExit(f"Stage-2 compilation aborted. {e}")
-    except Exception as e:
-        raise SystemExit(f"Stage-2 compilation aborted. {e}")
+        if not valid_runs:
+            print(f"[SCAN] No valid run folders found for directive: {directive_name}")
+            print(f"       Checked pattern: {backtests_root / (directive_name + '_*')}")
+            sys.exit(1)
+            
+        print(f"[SCAN] Found {len(valid_runs)} valid runs for '{directive_name}'")
+        
+        success_count = 0
+        fail_count = 0
+        
+        for run_folder in valid_runs:
+            folder_name = run_folder.name
+            try:
+                print(f">>> Compiling: {folder_name} ... ", end="", flush=True)
+                compile_stage2(run_folder)
+                print("[OK]")
+                success_count += 1
+            except Exception as e:
+                print(f"[FAIL] {e}")
+                fail_count += 1
+                
+        print("-" * 40)
+        print(f"BATCH SUMMARY: {success_count} Success, {fail_count} Failed")
+        print("-" * 40)
+        
+        if fail_count > 0:
+            sys.exit(1) # Signal failure if any run failed
+        sys.exit(0)
+
+    # --- SINGLE FOLDER MODE ---
+    else:
+        run_folder = Path(args.run_folder)
+        
+        if not run_folder.exists():
+            raise SystemExit(f"ERROR: Run folder not found: {run_folder}")
+        
+        if not run_folder.is_dir():
+            raise SystemExit(f"ERROR: Run path is not a directory: {run_folder}")
+        
+        try:
+            output_dir, files = compile_stage2(run_folder)
+            
+            print(f"Path: {output_dir}")
+            print("Generated files:")
+            for f in files:
+                print(f"  - {output_dir / f}")
+            print()
+            print("Stage-2 presentation artifacts generated successfully from immutable Stage-1 inputs.")
+            
+        except FileNotFoundError as e:
+            raise SystemExit(f"Stage-2 compilation aborted. {e}")
+        except Exception as e:
+            raise SystemExit(f"Stage-2 compilation aborted. {e}")
 
 
 if __name__ == "__main__":

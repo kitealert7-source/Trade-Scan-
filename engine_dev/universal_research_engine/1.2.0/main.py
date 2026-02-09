@@ -19,10 +19,16 @@ from typing import List
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from engine_dev.universal_research_engine.execution_loop_1_2_0 import run_execution_loop
+# Fixed dynamic import
+import importlib.util
+spec = importlib.util.spec_from_file_location("execution_loop", Path(__file__).parent / "execution_loop.py")
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+run_execution_loop = mod.run_execution_loop
 
 ENGINE_NAME = "Universal_Research_Engine"
 ENGINE_VERSION = "1.2.0"
+__version__ = ENGINE_VERSION
 
 
 def load_strategy(strategy_id: str):

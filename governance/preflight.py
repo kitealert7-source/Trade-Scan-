@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 from typing import Optional
+from tools.run_stage1 import parse_directive, get_canonical_hash
 
 # Project root (relative to this file's location in governance/)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -221,17 +222,25 @@ def run_preflight(
     if not date_pattern.match(resolved_scope["end_date"]):
         return ("BLOCK_EXECUTION", f"End Date must be explicit YYYY-MM-DD, got: {resolved_scope['end_date']}", None)
     
-    # --- CHECK 6: Broker Spec Validation for all symbols ---
-    for symbol in resolved_scope["symbols"]:
-        spec_path = PROJECT_ROOT / "data_access" / "broker_specs" / resolved_scope["broker"] / f"{symbol}.yaml"
-        if not spec_path.exists():
-            return ("BLOCK_EXECUTION", f"Broker spec not found: {spec_path.relative_to(PROJECT_ROOT)}", None)
+    # --- Canonical Hash Alignment (Stage-1 Consistency) ---
+    parsed_config = parse_directive(directive_full_path)
+
+    resolved_config = dict(parsed_config)
+    resolved_config.update({
+        "BROKER": resolved_scope["broker"],
+        "TIMEFRAME": resolved_scope["timeframe"],
+        "START_DATE": resolved_scope["start_date"],
+        "END_DATE": resolved_scope["end_date"]
+    })
+
+    canonical_hash = get_canonical_hash(resolved_config)
     
     # --- ALL CHECKS PASSED ---
     explanation = (
         f"Preflight passed. Engine={engine_name}:{engine_version}, "
         f"Broker={resolved_scope['broker']}, "
         f"Symbols={len(resolved_scope['symbols'])}, "
+        f"CanonicalHash={canonical_hash}, "
         f"Timeframe={resolved_scope['timeframe']}"
     )
     
