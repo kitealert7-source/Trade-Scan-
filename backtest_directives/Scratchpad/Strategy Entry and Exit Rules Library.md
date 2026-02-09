@@ -1,3 +1,78 @@
+1. **ATR mean Reversion Strategy**
+
+
+
+**Symbol: SPX500**
+
+**Time Frame: -- Daily**
+
+**Back Test period:**
+
+**Start Date: 2015-01-01**
+
+**End Date: 2026-01-31**
+
+
+
+**ENTRY**
+
+**Direction: Long Only**
+
+**Highest High of Five past Bars - ATR**
+
+**ATR: 10 period**
+
+
+
+**EXIT**
+
+**which ever come earlier**
+
+1. **Close > previous high**
+2. **5 Bar maximum holding period**
+
+**Which ever come earlier**
+
+
+
+**FILTERS**
+
+**Volatility:**
+
+**Direction: Market Regime Filter**
+
+
+
+**VARIENTS**
+
+**look back bars for calculating high**
+
+**ATR period Back period 4 to 26 in step of 2**
+
+**ATR multiplier for ATR .25 and 3 in steps of .25**
+
+**Exit 3 to 15 bars in step of 1**
+
+
+
+**Entry Conditions Variants**
+
+**Z score of price deviation ( STD deviation and SMA are variables in it)**
+
+**% Rank of Close to Close returns**
+
+
+
+
+
+
+
+
+
+**Rule Bank**
+
+
+
 **Trend Checking Rules**
 
 
@@ -44,6 +119,10 @@ Short: RSI(2) average of (T-1, T-2) ≥ 75 AND Downtrend permission
 
 2\. 4 consecutive same-color daily candles (CANDLE\_COUNT = 4)
 
+
+
+
+
 Exit (Authoritative)
 
 Primary: Stop-and-Reverse after 4 same-color candles
@@ -66,7 +145,7 @@ Fail-safe: 500-pip hard stop
 
 \- Take Profit: 3.0R fixed risk-reward ratio
 
-\- Timeout:50-bar maximum holding period 
+\- Timeout:50-bar maximum holding period
 
 
 

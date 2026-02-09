@@ -1,0 +1,85 @@
+AUTHORITY (NON-NEGOTIABLE)
+
+Operate strictly under:
+SOP_TESTING
+SOP_OUTPUT
+Trade_Scan Preflight Agent Specification
+
+Trade_Scan is the ONLY permitted execution engine.
+Universal_Research_Engine must be used as declared.
+Directive text is the sole source of strategy logic.
+
+SCOPE
+
+Execute exactly ONE directive.
+No interpretation. No analysis. No commentary.
+Batch mode only (speed and determinism prioritized).
+
+PIPELINE
+
+Preflight → Stage-1 Execution → Stage-2 Compilation → Stage-3 Aggregation
+
+PREFLIGHT (MANDATORY)
+
+Invoke Trade_Scan Preflight Agent.
+Proceed ONLY if result == ALLOW_EXECUTION.
+Otherwise → ABORT immediately.
+
+STRATEGY LOAD
+
+Load directive ONLY from:
+Trade_Scan/backtest_directives/active/<DIRECTIVE_NAME>
+
+STAGE-1 — EXECUTION
+
+Use clean isolated state.
+Use directive-declared historical scope.
+Use default sizing unless overridden.
+
+On success:
+- set run_status = RUN_COMPLETE
+- move directive → completed_run/
+
+On failure:
+- emit NO artifacts
+- leave directive in active/
+- STOP
+
+REQUIRED ARTIFACTS
+
+results_tradelevel.csv
+results_standard.csv
+results_risk.csv
+results_yearwise.csv
+metrics_glossary.csv
+run_metadata.json
+
+Missing any → HARD FAILURE.
+
+STAGE-2 — COMPILATION
+
+Consume Stage-1 artifacts only.
+No recomputation of authoritative values.
+Failure → ABORT.
+
+STAGE-3 — AGGREGATION
+
+Permitted ONLY if run_status == RUN_COMPLETE.
+Aggregate mechanically from Stage-2 artifacts.
+No qualitative logic.
+
+HARD ABORT CONDITIONS
+
+Abort if:
+- Preflight ≠ ALLOW_EXECUTION
+- run_status ≠ RUN_COMPLETE
+- any required artifact missing
+- any inference required
+
+COMPLETION OUTPUT
+
+Return ONLY:
+- execution status
+- artifact file paths
+
+STOP.

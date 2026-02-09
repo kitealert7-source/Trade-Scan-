@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from governance.preflight import run_preflight
 
-directive_path = "backtest_directives/active/VRS004.md"
+directive_path = "backtest_directives/active/SPX04.txt"
 engine_name = "universal_research_engine"
 engine_version = "1.2.0"
 

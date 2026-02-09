@@ -1,25 +1,16 @@
 SPX01 — DIP BUYING (MEAN-REVERSION)
 
 Family: SPX (Index Family)
-Strategy ID: SPX01
-
-# [REQUIRED] Broker name must match folder in data_access/broker_specs/
+Strategy ID: SPX03
 Broker: OctaFX
+Symbols: 
 
-# [REQUIRED] Symbols with proper bullet format for preflight parsing
-Symbols:
-* SPX500
-
-# [REQUIRED] Timeframe
+SPX500
 Timeframe: Daily
-
-# [REQUIRED] Start Date - YYYY-MM-DD format
 Start Date: 2015-01-01
-
-# [REQUIRED] End Date - Explicit YYYY-MM-DD (not PRESENT)
 End Date: 2026-01-31
 
-Engine: Universal_Research_Engine
+Engine: Universal_Research_Engine 
 Mode: Trade_Scan
 Position Size: Default as per Trade_Scan
 
