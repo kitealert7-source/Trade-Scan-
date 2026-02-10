@@ -1,389 +1,338 @@
-# SOP_OUTPUT — Results Emission & Human Analysis (STAGE-WISE)
-## VERSION 4.1 (REPORT SCHEMA & AGGREGATION CLARIFIED)
+# SOP_OUTPUT — Results Emission & Human Analysis (COMPACT)
 
+**Stage:** POST_BACKTEST | HUMAN_CONSUMPTION  
 **Applies to:** Trade_Scan  
-**Status:** AUTHORITATIVE | ACTIVE  
-**Scope:** Post-backtest outputs, reporting, aggregation, and agent boundaries
+**Status:** AUTHORITATIVE | ACTIVE | COMPLEMENTS SOP_TESTING
 
 ---
 
-## Stage-0 — Global Governance & Core Rules
+## 1. Core Rules
 
-### 0.1 One-Pass Rule (HARD)
-Execute → Capture → Compute → Emit.  
-No replay, recomputation, or mutation allowed.
-
-### 0.2 Storage & Presentation Standards
-- Percentages stored: `0.0–1.0`
-- Percentages presented: `0–100`
-- Dates stored: ISO8601 UTC
-- Dates presented: Native Excel
-
-### 0.3 Metric Ownership Rule (HARD)
-All economic metrics are **owned by Stage-1 definitions**.  
-Later stages may aggregate but must not redefine metrics.
+| Rule | Specification |
+|------|---------------|
+| **One-Pass** | Execute → Capture → Compute → Emit. No replay/recomputation. |
+| **Storage Format** | Percentages: `43.00` (0-100 scale, NOT 0.43). Dates: ISO8601 UTC. |
+| **Presentation Format** | Percentages: `0-100`. Dates: Native Excel. |
 
 ---
 
-## Stage-1 — Execution & Metric Emission (AUTHORITATIVE)
+## 2. Pipeline
 
-**Authority:** Absolute  
-**Mutability:** Immutable after run completion
+| Stage | Artifacts | Authority |
+|------|-----------|-----------|
+| **Stage 1** | `results_*.csv`, `run_metadata.json` | Authoritative execution record. Immutable. |
+| **Stage 2** | `AK_Trade_Report_<strategy_name>_<NN>.xlsx` | Deterministic derived presentation. |
+| **Stage 3** | `Strategy_Master_Filter.xlsx` | Aggregated comparison view. Non-authoritative. |
 
-### 1.1 Emitted Artifacts
-- `results_tradelevel.csv`
-- `results_standard.csv`
-- `results_risk.csv`
-- `results_yearwise.csv`
-- `run_metadata.json`
-- `metrics_glossary.csv`
+Flow is strictly Stage 1 → Stage 2 → Stage 3.
 
----
-
-### 1.2 results_tradelevel.csv
-
-| Column | Type | Definition |
-|------|------|------------|
-| strategy_name | String | Strategy identifier |
-| parent_trade_id | Integer | Unique trade grouping ID |
-| sequence_index | Integer | Zero-based leg index |
-| entry_timestamp | String | ISO8601 UTC |
-| exit_timestamp | String | ISO8601 UTC |
-| direction | Integer | 1 = Long, -1 = Short |
-| entry_price | Float | Entry execution price |
-| exit_price | Float | Exit execution price |
-| pnl_usd | Float | (exit − entry) × units × direction |
-| r_multiple | Float | pnl_usd / risk_usd |
-| trade_high | Float/NULL | Highest price during trade |
-| trade_low | Float/NULL | Lowest price during trade |
-| bars_held | Integer/NULL | Bars in position |
-| atr_entry | Float | ATR at entry |
-| position_units | Float | Executed units |
-| notional_usd | Float | position_units × entry_price |
-| mfe_price | Float | Max favorable price |
-| mae_price | Float | Max adverse price |
-| mfe_r | Float | MFE in R |
-| mae_r | Float | MAE in R |
+- Stage 2 MAY compute presentation metrics only from Stage-1 artifacts.
+- Stage 3 MUST only compile and aggregate Stage-2 outputs.
+- No recomputation, inference, approximation, or metric creation is permitted outside Stage-2.
+- Any metric appearing in Stage-2 MUST be fully materialized as a scalar value.
 
 ---
 
-### 1.3 results_standard.csv
+## 3. Directory Structure
 
-| Metric | Type | Definition | Formula |
-|------|------|------------|---------|
-| net_pnl_usd | Float | Net profit | SUM(pnl_usd) |
-| trade_count | Integer | Total trades | COUNT |
-| win_rate | Float | Win fraction | wins / trades |
-| profit_factor | Float | GP / GL | gross_profit / gross_loss |
-| gross_profit | Float | Sum of wins | Σ pnl > 0 |
-| gross_loss | Float | Sum of losses | ABS Σ pnl < 0 |
+```
+backtests/<strategy_name>/
+├── raw/
+│ ├── results_tradelevel.csv
+│ ├── results_standard.csv
+│ ├── results_risk.csv
+│ ├── results_yearwise.csv
+│ └── metrics_glossary.csv
+├── metadata/
+│ └── run_metadata.json
+├── <directive_copy>.md
+├── AK_Trade_Report_<strategy_name>_<NN>.xlsx
+└── Strategy_Master_Filter.xlsx 
 
----
+All files are append-only.  
+No files outside this structure are read or written by SOP_OUTPUT.
 
-### 1.4 results_risk.csv
+```
 
-| Metric | Type | Definition | Formula |
-|------|------|------------|---------|
-| max_drawdown_usd | Float | Max peak-to-trough | max(peak − equity) |
-| max_drawdown_pct | Float | DD % | dd / capital |
-| return_dd_ratio | Float | Return / DD | net_pnl / dd |
 
----
 
-### 1.5 results_yearwise.csv
+## 4. Required Artifacts 
 
-| Column | Type | Definition |
-|------|------|------------|
-| year | Integer | Calendar year |
-| net_pnl_usd | Float | Net profit |
-| trade_count | Integer | Trades |
-| win_rate | Float | Win rate |
+### 4.1 results_tradelevel.csv (Authoritative Record)
 
----
+| Column | Type | Notes |
+|------|------|------|
+| `strategy_name` | String | Strategy identifier |
+| `parent_trade_id` | Integer | Identifier grouping multiple legs (MANDATORY) |
+| `sequence_index` | Integer | Zero-based leg order within parent trade (MANDATORY) |
+| `entry_timestamp` | String | ISO8601 UTC |
+| `exit_timestamp` | String | ISO8601 UTC |
+| `direction` | Integer | 1 = Long, -1 = Short |
+| `entry_price` | Float | |
+| `exit_price` | Float | |
+| `pnl_usd` | Float | 2 decimal places |
+| `r_multiple` | Float | |
+| `trade_high` | Float / NULL | |
+| `trade_low` | Float / NULL | |
+| `bars_held` | Integer / NULL | |
 
-### 1.6 run_metadata.json (MANDATORY — EXTENDED)
 
-**Purpose:** Run identification, execution context, and capital reference.
+### 4.2 results_standard.csv
 
-#### Required Fields (HARD)
-| Field | Type | Description |
-|------|------|-------------|
-| run_id | String | Unique run identifier (UUID) |
-| strategy_name | String | Strategy identifier |
-| symbol | String | Traded instrument |
-| timeframe | String | Execution timeframe |
-| date_range.start | String | ISO start date |
-| date_range.end | String | ISO end date |
-| execution_timestamp_utc | String | ISO8601 UTC execution time |
-| engine_name | String | Execution engine |
-| engine_version | String | Engine version |
-| broker | String | Broker or data source |
-| schema_version | String | Metadata schema version |
-| reference_capital_usd | Float | Capital baseline for drawdown % and risk metrics |
+Core run-level performance metrics emitted as authoritative execution artifacts.
 
-**Rules**
-- All fields above MUST exist for a run to be valid
-- No field may be mutated post RUN_COMPLETE
-- Additional fields are allowed only if non-derivative and informational
+All percentage-based metrics in this file MUST be stored as decimals
+in the range 0.0–1.0.
 
-### 1.7 metrics_glossary.csv
+Metrics:
+- `net_pnl_usd`          — Net profit (USD)
+- `win_rate`             — Win rate (decimal 0.0–1.0; presented as 0–100% in reports)
+- `profit_factor`        — Gross profit / Gross loss
+- `trade_count`          — Total number of trades
 
-| Field | Description |
-|------|-------------|
-| metric_key | Canonical key |
-| full_name | Human name |
-| definition | Formal definition |
-| unit | Measurement unit |
 
----
 
-## Stage-2 — Presentation & Reporting (NON-AUTHORITATIVE)
+### 4.3 results_risk.csv
 
-**Authority:** Deterministic presentation  
-**Metric Ownership:** Stage-1  
-**New Measurements:** Forbidden  
-**Derivation & Aggregation:** Permitted (see rule below)
+Risk metrics. See glossary.
 
-### Stage-2 Derivation & Aggregation Rule (CRITICAL)
+### 4.4 results_yearwise.csv
 
-Stage-2 MAY derive metrics **whose formulas depend exclusively on Stage-1 emitted fields and do not require reconstruction of capital or volatility paths**.
+One row per year: `year` (Integer) + metrics.
 
-Stage-2 MAY perform:
-- Arithmetic derivations using Stage-1 fields (ratios, averages, percentages)
-- SUM, COUNT, AVG, MAX, MIN
-- Grouping by year, session, direction, or **pre-emitted** regime labels
-- Formatting, scaling, and ordering for presentation
+### 4.5 run_metadata.json
 
-Stage-2 MUST NOT:
-- Reconstruct equity curves, capital paths, or volatility paths
-- Recompute drawdown trajectories or risk paths
-- Infer regimes, risk states, or missing execution values
-- Use external data
-- Alter Stage-1 formulas or redefine metric meaning
+Required fields: `run_id`, `strategy_name`, `symbol`, `timeframe`, `date_range`, `execution_timestamp_utc`.
 
-All Stage-2 outputs MUST be reproducible from immutable Stage-1 artifacts.
+### 4.6 metrics_glossary.csv
 
-Derivation and aggregation are **presentation logic**, not execution or measurement.
-
+Fields: `metric_key`, `full_name`, `definition`, `unit`.
 
 ---
 
-### 2.1 AK Trade Report
+## 5. AK Trade Report 
 
-**File:** `AK_Trade_Report_<strategy_name>_<NN>.xlsx`  
-**Cardinality:** Exactly one report per completed run
+**File:** experiments/<strategy_name>AK_Trade_Report_<strategy_name>_<NN>.xlsx
+- `<NN>` is sequential, append-only
+- Exactly **one** report per completed run
 
-#### Sheets & Sources
 | Sheet | Source |
-|------|--------|
-| Settings | run_metadata.json |
-| Performance Summary | Stage-2 aggregated from Stage-1 |
-| Yearwise Performance | Stage-2 aggregated from Stage-1 |
-| Trades List | results_tradelevel.csv |
+|-------|--------|
+| Settings | `run_metadata.json` |
+| Performance Summary | `results_standard.csv` (scaled) |
+| Yearwise Performance | `results_yearwise.csv` (scaled) |
+| Trades List | `results_tradelevel.csv` |
 
----
+**Formatting Rules:**
+| Element | Format |
+|---------|--------|
+| Percentages | `43.00` (0-100 scale, NOT 0.43) |
+| Currency | `$#,##0.00` |
+| Dates | Native Excel dates (timezone-naive) |
+| Numbers | `#,##0` (comma separator), rounded to 2 decimals |
+| Headers | Bold, white text, dark blue fill (`#4472C4`), Freeze Top Row |
+| Columns | Auto-fit width |
+| Alternate Rows | Light blue shading (`#DCE6F1`) |
 
-### 2.2 Performance Summary — REQUIRED ROW SCHEMA (LOCKED)
+### 5.1 Performance Summary Schema (Mandatory)
 
-Rows MUST appear in this exact order.
+Performance Summary Sheet — Required Structure in order
 
-**Capital & Profitability**
-- Starting Capital
-- Net Profit (USD)
-- Gross Profit (USD)
-- Gross Loss (USD)
-- Profit Factor
-- Expectancy (USD)
-- Return / Drawdown Ratio
+| Section                         | Rows  | Metrics                                                                 |
+|---------------------------------|-------|-------------------------------------------------------------------------|
+| Title                           | 1     | Strategy Performance Summary                                            |
+| Headers                         | 3     | Metric / All Trades / Long Trades / Short Trades                        |
 
-**Trade Activity**
-- Total Trades
-- Winning Trades
-- Losing Trades
-- % Profitable
-- Trades per Month
-- Longest Flat Period (Days)
+| Capital & Profitability         | 4–10  | Starting Capital, Net Profit (USD), Gross Profit (USD),                 |
+|                                 |       | Gross Loss (USD), Profit Factor, Expectancy (USD),                      |
+|                                 |       | Return / Drawdown Ratio                                                 |
 
-**Averages & Trade Quality**
-- Avg Trade (USD)
-- Avg Win (USD)
-- Avg Loss (USD)
-- Win/Loss Ratio
-- Avg MFE (R)
-- Avg MAE (R)
-- Edge Ratio (MFE / MAE)
+| Trade Activity                  | 12–18 | Total Trades, Winning Trades, Losing Trades, % Profitable,              |
+|                                 |       | Trades per Month, Longest Flat Period (Days)                            |
 
-**Extremes & Concentration**
-- Largest Win (USD)
-- Largest Loss (USD)
-- % of Gross Profit (Top Trades)
-- Worst 5 Trades Loss %
+| Averages & Trade Quality        | 20–27 | Avg Trade (USD), Avg Win (USD), Avg Loss (USD),                          |
+|                                 |       | Win/Loss Ratio, Avg MFE (R), Avg MAE (R),                                |
+|                                 |       | Edge Ratio (MFE / MAE)                                                   |
 
-**Streaks**
-- Max Consecutive Wins
-- Max Consecutive Losses
+| Extremes & Concentration        | 29–33 | Largest Win (USD), Largest Loss (USD),                                   |
+|                                 |       | % of Gross Profit (Top Trades), Worst 5 Trades Loss %                   |
 
-**Drawdown & Exposure**
-- Max Drawdown (USD)
-- Max Drawdown (%)
-- Return on Capital
-- % Time in Market
+| Streaks                         | 35–36 | Max Consecutive Wins, Max Consecutive Losses                             |
 
-**Risk & System Quality**
-- Sharpe Ratio
-- Sortino Ratio
-- K-Ratio
-- SQN (System Quality Number)
-- Return Retracement Ratio
+| Drawdown & Exposure             | 38–41 | Max Drawdown (USD), Max Drawdown (%),                                    |
+|                                 |       | Return on Capital, % Time in Market                                      |
 
-**Duration**
-- Avg Bars in Winning Trades
-- Avg Bars in Losing Trades
-- Avg Bars per Trade
-- Trading Period (Days)
+| Risk & System Quality           | 43–47 | Sharpe Ratio, Sortino Ratio, K-Ratio,                                    |
+|                                 |       | SQN (System Quality Number),                                             |
+|                                 |       | Return Retracement Ratio                                                 |
 
-**Volatility Regime Breakdown**
-- Net Profit (Low Vol)
-- Net Profit (Normal Vol)
-- Net Profit (High Vol)
-- Trade Count (Low / Normal / High)
-- Avg Trade by Regime
+| Duration                        | 49–52 | Avg Bars in Winning Trades, Avg Bars in Losing Trades,                   |
+|                                 |       | Avg Bars per Trade, Trading Period (Days)                                |
 
-**Session Breakdown**
-- Net Profit (Asia)
-- Net Profit (London)
-- Net Profit (New York)
-- Trade Count by Session
-- Avg Trade by Session
+| Volatility Regime Breakdown     | 54–64 | Net Profit by Low / Normal / High Volatility,                            |
+|                                 |       | Trade Counts by Regime, Avg Trade by Regime                              |
 
-**Buy & Hold Comparison (LOCKED)**
-- Buy & Hold Return (%)
-- Strategy Return (%)
-- Excess Return (%)
-- Buy & Hold Trading Period (Days)
--If underlying market price series are unavailable, a trade-derived Buy & Hold benchmark MAY be computed 
-  from the first trade entry price and last trade exit price, provided it is explicitly labeled 
-  “Trade-Derived Buy & Hold (Contextual Only)” and excluded from Stage-3 comparisons.
----
+| Session Breakdown               | 66–76 | Net Profit by Asia / London / New York,                                  |
+|                                 |       | Trade Counts by Session, Avg Trade by Session                            |
+| Buy & Hold Comparison           | 78–82 | Buy & Hold Return (%), |
+|                                 |       | Strategy Return (%), |
+|                                 |       | Excess Return (%), |
+|                                 |       | Buy & Hold Trading Period (Days) |
 
-### 2.3 Yearwise Performance — REQUIRED SCHEMA
+Buy & Hold Definition (LOCKED)
 
-**One row per calendar year. Values only.**
+Buy & Hold Definition (LOCKED)
+Buy & Hold = long on the same symbol/timeframe from first bar close to final bar close, with no rebalancing or leverage changes.
+Governance Rule
+Buy & Hold metrics are contextual only, must use the same price series, must not influence execution or decisions, and must not appear in Stage-3.
 
-| Column |
-|------|
-| Year |
-| Net Profit (USD) |
-| Gross Profit (USD) |
-| Gross Loss (USD) |
-| Trade Count |
-| Win Rate (%) |
-| Profit Factor |
-| Avg Trade (USD) |
-| Max Drawdown (USD) |
-| Max Drawdown (%) |
-| Return / DD Ratio |
-| Avg Bars per Trade |
-| Winning Trades |
-| Losing Trades |
+#### Computational Inputs (Execution-Derived, Non-Surfaced)
 
-**Source Rules**
-- Year, Net Profit, Trade Count, Win Rate → `results_yearwise.csv`
-- All other fields → aggregated from `results_tradelevel.csv`
-- Scaling and definitions must match Performance Summary
+Certain metrics used in the computation of Performance Summary values are
+execution-derived inputs that may not appear explicitly as rows or columns
+in the report.
 
----
+These metrics:
+- originate exclusively from immutable Stage-1 execution artifacts
+- are used only to ensure correctness of reported metrics
+- are not independently surfaced or reported
 
-## Stage-3 — Aggregation & Comparison (NON-AUTHORITATIVE)
+Permitted execution-derived computational inputs include:
+- atr_entry
+- position_units
+- notional_usd
+- mfe_price, mae_price
+- mfe_r, mae_r
 
-**Authority:** Copy-only  
-**Computation:** Forbidden
+These inputs MAY be used by Stage-2 solely to compute or normalize metrics
+already defined in the Performance Summary schema.
 
-### 3.1 Strategy Master Filter
+Metric Availability Rule (HARD)
 
-**File Location:**  
-`backtests/<strategy_name>/Strategy_Master_Filter.xlsx`
+All metrics presented in Stage-2 reports MUST be derived exclusively from
+immutable Stage-1 execution artifacts.
 
-**Scope Rules**
+Stage-2 MAY use additional execution-derived inputs for internal computation,
+but MUST NOT surface metrics outside the schemas defined in this SOP.
+
+Stage-3 aggregation is strictly copy-only.
+
+No metric may be computed, recomputed, inferred, or derived outside this sheet.
+
+
+### 5.2 — Yearwise Performance (MANDATORY)
+
+Sheet: Yearwise Performance
+Stage: Stage-2 (derived presentation)
+Purpose: Stability and year-to-year consistency
+
+Rules
+One row per calendar year
+Scalar values only (no formulas)
+Percentages shown on 0–100 scale
+Formatting identical to Performance Summary
+Stage-3 is copy-only; no recomputation
+
+Required Columns (Exact Order)
+Column
+Year
+Net Profit (USD)
+Gross Profit (USD)
+Gross Loss (USD)
+Trade Count
+Win Rate (%)
+Profit Factor
+Avg Trade (USD)
+Max Drawdown (USD)
+Max Drawdown (%)
+Return / DD Ratio
+Avg Bars per Trade
+Winning Trades
+Losing Trades
+Source Rules
+
+Year, Net Profit, Trade Count, Win Rate → results_yearwise.csv
+All other columns → derived in Stage-2 from results_tradelevel.csv
+Definitions and scaling must match Performance Summary
+Hard Constraint
+All columns above MUST exist in:
+AK_Trade_Report_<strategy_name>_<NN>.xlsx
+No Yearwise metric may be computed outside Stage-2.
+
+## 6. Strategy Master Filter
+
+**File Location (MANDATORY):**
+backtests/<strategy_name>/Strategy_Master_Filter.xlsx
+
+**Scope:**
 - Per-strategy, run-level aggregation only
 - Aggregates sequential runs of the same strategy
 - Exactly one row per atomically completed run
 - Trade-level fields are explicitly forbidden
 
-**Schema (MANDATORY)**
 
 | Column | Description |
 |--------|-------------|
-| strategy_name | Strategy identifier |
-| strategy | Strategy ID |
-| timeframe | Execution timeframe |
-| test_start | Start date (ISO) |
-| test_end | End date (ISO) |
-| trading_period | Days covered |
-| total_trades | Trade count |
-| total_net_profit | Net PnL (USD) |
-| gross_profit | Gross profit (USD) |
-| gross_loss | Gross loss (USD) |
-| profit_factor | Profit factor |
-| max_drawdown | Max drawdown (USD) |
-| max_dd_pct | Max drawdown % |
-| return_dd_ratio | Net profit / max DD |
-| worst_5_loss_pct | Concentration risk |
-| longest_loss_streak | Max loss streak |
-| pct_time_in_market | Exposure % |
-| avg_bars_in_trade | Avg duration |
-| max_consec_losses | Max consecutive losses |
-| trading_days | Active trading days |
-| net_profit_high_vol | PnL in high volatility |
-| net_profit_low_vol | PnL in low volatility |
-| sharpe_ratio | Sharpe ratio |
-| expectancy | Expectancy (USD) |
+| `strategy_name` | Integer | Sequential |
+| `strategy` | Strategy ID |
+| `timeframe` | Execution Timeframe |
+| `test_start` | Start Date (ISO) |
+| `test_end` | End Date (ISO) |
+| `trading_period` | Days covered |
+| `total_trades` | Trade Count |
+| `total_net_profit` | Net PnL (USD) |
+| `gross_profit` | Gross Profit (USD) |
+| `gross_loss` | Gross Loss (USD) |
+| `profit_factor` | Profit Factor |
+| `max_drawdown` | Max DD (USD) |
+| `max_dd_pct` | Max DD % |
+| `return_dd_ratio` | Net Profit / Max DD |
+| `worst_5_loss_pct` | Concentration Risk |
+| `longest_loss_streak` | Max consecutive losses |
+| `pct_time_in_market` | Exposure Time % |
+| `avg_bars_in_trade` | Avg Duration |
+| `max_consec_losses` | Max consecutive losses |
+| `trading_days` | Active trading days |
+| `net_profit_high_vol` | PnL in High Vol regime |
+| `net_profit_low_vol` | PnL in Low Vol regime |
+| `sharpe_ratio` | Sharpe Ratio |
+| `expectancy` | Expectancy (USD) |
 
-**Population Rule**
-Populated via standard reporting pipeline only.  
-No manual entry permitted.
+**Population:** Via Standard Reporting Pipeline only. No manual entry.
 
-**Formatting Rules**
-- Percentages: `43` (0–100 integer scale)
-- Currency: `#,##0.00`
-- Dates: Native Excel
-- Numbers: `#,##0`
-- Headers: Bold, dark blue fill, freeze top row
-- Append-only
-
----
-
-## Stage-4 — Update & Run Integrity Rules
-
-- One completed run → one report → one master row
-- Failed or partial runs emit nothing
-- Corrections require new run + new index
+**Formatting Rules:**
+| Element | Format |
+|---------|--------|
+| Percentages | `43` (0-100 INTEGER scale, NOT 0.43 or 43.00%) |
+| Currency | `#,##0.00` |
+| Dates | Native Excel dates |
+| Numbers | `#,##0` (comma separator) |
+| Headers | Bold, white text, dark blue fill (`#4472C4`), Freeze Top Row |
+| Columns | Auto-fit width |
+| Alternate Rows | Light blue shading (`#DCE6F1`) |
 
 ---
 
-## Stage-5 — Strategy Persistence (POST-RUN INVARIANT)
+## 7. Update Rules
 
-- For every completed backtest run, the executed strategy logic MUST be saved to:
-  `strategies/<RUN_ID>/strategy.py`
-- Strategy folders MUST contain only:
-  - `strategy.py`
-  - `__pycache__/`
-- This structure reflects the architecture where strategy logic is decoupled from execution.
-- The `strategies/` directory is a mirror of `backtests/`.
-- If a backtest folder is deleted, the corresponding strategy folder MUST also be deleted.
+- Each completed run generates **one** `AK_Trade_Report_<strategy_name>_<NN>.xlsx`.
+- Master Filter receives **one** new row per completed run.
+- **Append-only.** No modifications to existing reports/rows.
+- Corrections require **new run + new index**.
+- Failed runs produce **no artifacts**.
 
 ---
 
-## Stage-6 — Agent Boundary (FINAL GATE)
+## 8. Agent Boundary
 
-Agents are advisory only.
-
+All agent analysis is **advisory only**.
 Agents MUST NOT:
-- Modify Stage-1 artifacts
-- Recompute metrics
-- Treat presentation outputs as authoritative
-- Rank, promote, or select strategies
+- Modify authoritative execution artifacts or derived presentation artifacts
+- Recompute execution metrics
+- Treat presentation or analysis outputs as authoritative
+- Make promotion, ranking, or selection decisions
+
 
 ---
 
-**End of SOP — VERSION 4.1**
+**End of SOP**
