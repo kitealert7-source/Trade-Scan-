@@ -1,5 +1,5 @@
 # SOP_OUTPUT — Results Emission & Human Analysis (STAGE-WISE)
-## VERSION 4.1 (REPORT SCHEMA & AGGREGATION CLARIFIED)
+
 
 **Applies to:** Trade_Scan  
 **Status:** AUTHORITATIVE | ACTIVE  
@@ -18,6 +18,24 @@ No replay, recomputation, or mutation allowed.
 - Percentages presented: `0–100`
 - Dates stored: ISO8601 UTC
 - Dates presented: Native Excel
+
+**Ledger Authority Model**
+
+- The system operates under a **Materialized View + Immutable Ledger** model.
+- `runs/<run_id>/`: Immutable historical snapshot. Append-only. Becomes authoritative once indexed in `Strategy_Master_Filter.xlsx`.
+- `backtests/<strategy_symbol>/`: Represents the latest materialized state for that strategy-symbol pair. May be overwritten during subsequent executions. Does NOT determine historical retention authority.
+
+**Retention Authority**
+
+- A run snapshot is considered valid and retained if and only if it has a corresponding row in `Strategy_Master_Filter.xlsx`.
+- Historical snapshots in `runs/<run_id>/` are NOT deleted during overwrite of `backtests/<strategy_symbol>/`.
+
+**Overwrite Semantics**
+
+- Overwrite affects only `backtests/<strategy_symbol>/`.
+- It does NOT imply deletion of historical `runs/<run_id>/` snapshots unless explicitly purged via authorized cleanup.
+
+
 
 ### 0.3 Metric Ownership Rule (HARD)
 All economic metrics are **owned by Stage-1 definitions**.  
@@ -155,11 +173,11 @@ Stage-2 MAY perform:
 - Formatting, scaling, and ordering for presentation
 
 Stage-2 MUST NOT:
-- Reconstruct equity curves, capital paths, or volatility paths
-- Recompute drawdown trajectories or risk paths
-- Infer regimes, risk states, or missing execution values
-- Use external data
-- Alter Stage-1 formulas or redefine metric meaning
+- Rerun strategy logic or regenerate trade sequences
+- Mutate, overwrite or delete any stage-1 trade level artifacts
+- Introduce external data not produced by Stage-1
+- Override or redefine the semantic meaning of any Stage-1 field
+- Fabricate or infer execution values not explicitly present in Stage-1 outputs
 
 All Stage-2 outputs MUST be reproducible from immutable Stage-1 artifacts.
 
@@ -302,7 +320,7 @@ Rows MUST appear in this exact order.
 ### 3.1 Strategy Master Filter
 
 **File Location:**  
-`backtests/<strategy_name>/Strategy_Master_Filter.xlsx`
+`backtests/Strategy_Master_Filter.xlsx`
 
 **Scope Rules**
 - Per-strategy, run-level aggregation only
@@ -361,16 +379,52 @@ No manual entry permitted.
 
 ---
 
-## Stage-5 — Strategy Persistence (POST-RUN INVARIANT)
+## 5. Stage-5 Strategy Persistence (POST-RUN INVARIANT)
 
-- For every completed backtest run, the executed strategy logic MUST be saved to:
-  `strategies/<RUN_ID>/strategy.py`
-- Strategy folders MUST contain only:
-  - `strategy.py`
-  - `__pycache__/`
-- This structure reflects the architecture where strategy logic is decoupled from execution.
-- The `strategies/` directory is a mirror of `backtests/`.
-- If a backtest folder is deleted, the corresponding strategy folder MUST also be deleted.
+### Model
+System operates under a Materialized View + Immutable Ledger model.
+
+### Materialized View Rule
+For every folder:
+
+    backtests/<strategy_name>/
+
+there MUST exist exactly one valid and indexed `run_id` in:
+
+    Strategy_Master_Filter.xlsx
+
+and a corresponding immutable snapshot at:
+
+    runs/<run_id>/
+
+`backtests/<strategy_name>/` represents only the latest active materialized state.
+
+### Immutable Snapshot Rules
+Each folder under:
+
+    runs/<run_id>/
+
+MUST:
+- Be immutable
+- Contain only:
+    - strategy.py
+    - __pycache__/
+
+Snapshots are append-only and are NOT deleted during overwrite of `backtests/<strategy_name>/`.
+
+### Cleanup Authority
+A `runs/<run_id>/` snapshot may be deleted ONLY if:
+- Its corresponding Master Sheet row is removed, AND
+- Deterministic cleanup is executed.
+
+Deletion of `backtests/<strategy_name>/` alone does NOT invalidate historical snapshots.
+
+### Agent Enforcement
+Agents MUST:
+- Treat `runs/` as read-only
+- Never modify snapshot contents
+- Never create or delete snapshots except via authorized cleanup
+
 
 ---
 
