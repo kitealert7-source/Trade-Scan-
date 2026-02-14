@@ -44,6 +44,7 @@ MASTER_FILTER_COLUMNS = [
     "avg_bars_in_trade",
     "net_profit_high_vol",
     "net_profit_low_vol",
+    "IN_PORTFOLIO",
 ]
 
 # Required Performance Summary metric labels (EXACT, no fuzzy matching)
@@ -210,6 +211,7 @@ def extract_from_report(report_path, metadata):
         "timeframe": metadata.get("timeframe"),
         "test_start": metadata.get("date_range", {}).get("start"),
         "test_end": metadata.get("date_range", {}).get("end"),
+        "IN_PORTFOLIO": False, # Default Governance Value (SOP_OUTPUT §6)
     }
     
     # Map Performance Summary metrics (exact labels)
@@ -288,8 +290,37 @@ def append_row_to_master_filter(master_filter_path, row_data):
                     max_width = max(max_width, len(str(cell.value)))
         ws.column_dimensions[col_letter].width = max(max_width + 2, 12)
     
-    wb.save(master_filter_path)
+    while True:
+        try:
+            wb.save(master_filter_path)
+            break
+        except PermissionError:
+            print(f"[WARN] Output file is open: {master_filter_path}")
+            input("Output file is open. Close it and press Enter to retry...")
     wb.close()
+
+
+def enforce_strategy_persistence(run_id: str):
+    """
+    Enforce Stage-5 Strategy Persistence invariant.
+    """
+    strategies_root = PROJECT_ROOT / "runs"
+    strategy_dir = strategies_root / run_id
+
+    if not strategy_dir.exists():
+        raise RuntimeError(f"Strategy folder missing: runs/{run_id}")
+
+    allowed = {"strategy.py", "__pycache__"}
+    found = {p.name for p in strategy_dir.iterdir()}
+
+    if "strategy.py" not in found:
+        raise RuntimeError(f"strategy.py missing in runs/{run_id}")
+
+    extra = found - allowed
+    if extra:
+        raise RuntimeError(
+            f"Non-compliant files in runs/{run_id}: {sorted(extra)}"
+        )
 
 
 def discover_completed_runs():
@@ -364,6 +395,9 @@ def compile_stage3(strategy_filter=None):
     existing_ids = get_existing_run_ids(master_filter_path)
     print(f"Existing runs in Master Filter: {len(existing_ids)}")
     
+    # Schema Migration Check
+    ensure_governance_column(master_filter_path)
+    
     # Process each run
     added = []
     skipped = []
@@ -387,6 +421,10 @@ def compile_stage3(strategy_filter=None):
         
         # Append to Master Filter
         append_row_to_master_filter(master_filter_path, row_data)
+        
+        # Enforce Strategy Persistence (Stage-4A Invariant)
+        enforce_strategy_persistence(run_id)
+        
         added.append({"strategy": strategy, "run_id": run_id})
         print(f"  Added: {strategy} [{run_id[:8]}]")
     
@@ -403,6 +441,42 @@ def compile_stage3(strategy_filter=None):
         "discovery_rejected": discovery_rejected,
         "output_path": str(master_filter_path),
     }
+
+def ensure_governance_column(master_filter_path):
+    """
+    Backward Compatibility: Ensure IN_PORTFOLIO column exists.
+    If missing, add it to header and file, initializing to False.
+    """
+    if not master_filter_path.exists():
+        return
+
+    wb = openpyxl.load_workbook(master_filter_path)
+    ws = wb.active
+    
+    # Check if header exists
+    header_row = [cell.value for cell in ws[1]]
+    if "IN_PORTFOLIO" in header_row:
+        wb.close()
+        return
+
+    print(f"[MIGRATION] Adding IN_PORTFOLIO column to {master_filter_path}")
+    
+    # Add Header
+    new_col_idx = len(header_row) + 1
+    cell = ws.cell(row=1, column=new_col_idx, value="IN_PORTFOLIO")
+    cell.font = HEADER_FONT
+    cell.fill = HEADER_FILL
+    cell.alignment = Alignment(horizontal="left")
+    
+    # Fill False for all existing rows
+    for row_idx in range(2, ws.max_row + 1):
+        cell = ws.cell(row=row_idx, column=new_col_idx, value=False)
+        cell.alignment = Alignment(horizontal="left")
+        if row_idx % 2 == 0:
+             cell.fill = ALT_ROW_FILL
+
+    wb.save(master_filter_path)
+    wb.close()
 
 
 def main():
