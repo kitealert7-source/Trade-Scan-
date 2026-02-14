@@ -1,5 +1,7 @@
 
 import sys
+import json
+import hashlib
 import pandas as pd
 from pathlib import Path
 import importlib.util
@@ -8,9 +10,12 @@ import importlib.util
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "1.2.0"
+MANIFEST_PATH = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine" / "v1.2.0" / "manifests" / "engine_manifest.json"
+
 def load_engine():
     """Load the Universal Research Engine execution loop dynamically."""
-    engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/1.2.0/execution_loop.py"
+    engine_path = ENGINE_ROOT / "execution_loop.py"
     if not engine_path.exists():
         print(f"[FAIL] Engine not found at {engine_path}")
         sys.exit(1)
@@ -19,6 +24,50 @@ def load_engine():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def verify_hashes():
+    """Verify engine file hashes against the vaulted manifest."""
+    if not MANIFEST_PATH.exists():
+        print(f"[WARN] Manifest not found at {MANIFEST_PATH} — skipping hash verification")
+        return True
+
+    with open(MANIFEST_PATH, 'r', encoding='utf-8') as f:
+        manifest = json.load(f)
+
+    file_hashes = manifest.get("file_hashes", {})
+    if not file_hashes:
+        print("[WARN] No file_hashes in manifest — skipping hash verification")
+        return True
+
+    failures = []
+    for filename, expected_hash in file_hashes.items():
+        # Skip SOP files (governance docs, not engine code)
+        if filename.endswith(".md"):
+            continue
+
+        filepath = ENGINE_ROOT / filename
+        if not filepath.exists():
+            failures.append(f"  {filename}: FILE MISSING")
+            continue
+
+        sha256 = hashlib.sha256()
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha256.update(chunk)
+        actual_hash = sha256.hexdigest().upper()
+
+        if actual_hash != expected_hash.upper():
+            failures.append(f"  {filename}: HASH MISMATCH (expected {expected_hash[:16]}..., got {actual_hash[:16]}...)")
+
+    if failures:
+        print("[FAIL] Hash Verification Failed:")
+        for f in failures:
+            print(f)
+        return False
+    else:
+        print(f"[PASS] Hash Verification: {len([k for k in file_hashes if not k.endswith('.md')])} engine files match manifest")
+        return True
 
 class IntegrityStrategy:
     def __init__(self):
@@ -63,6 +112,11 @@ def run_check():
         print("[PASS] Engine Module Loaded")
     except Exception as e:
         print(f"[FAIL] Engine Load Error: {e}")
+        sys.exit(1)
+
+    # 1.5 Verify File Hashes Against Manifest
+    if not verify_hashes():
+        print("[FAIL] Engine files do not match vaulted manifest. Aborting.")
         sys.exit(1)
 
     # 2. Create Synthetic Data (20 bars)

@@ -1,33 +1,24 @@
-"""
-Average True Range (ATR)
-
-Pure function indicator for measuring volatility.
-"""
-import numpy as np
 import pandas as pd
+import numpy as np
 
-
-def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+def atr(df: pd.DataFrame, window: int) -> pd.Series:
     """
-    Compute Average True Range.
-    
+    Calculate Average True Range (ATR) using Wilder's Smoothing (RMA).
+
     Args:
-        high: High prices series
-        low: Low prices series
-        close: Close prices series
-        period: Lookback period for smoothing (default: 14)
-        
+        df: DataFrame containing 'high', 'low', 'close' columns
+        window: Lookback period
+
     Returns:
         pd.Series: ATR values
     """
-    prev_close = close.shift(1)
-    
-    tr1 = high - low
-    tr2 = (high - prev_close).abs()
-    tr3 = (low - prev_close).abs()
-    
-    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    
-    atr_series = true_range.ewm(span=period, adjust=False).mean()
-    
-    return atr_series
+    high_low = df['high'] - df['low']
+    high_close = np.abs(df['high'] - df['close'].shift(1))
+    low_close = np.abs(df['low'] - df['close'].shift(1))
+
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+
+    # Wilder's RMA
+    atr = tr.ewm(alpha=1/window, adjust=False).mean()
+
+    return atr

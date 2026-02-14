@@ -1,0 +1,162 @@
+GENT PROMPT — VAULT SNAPSHOT SAVE
+Universal_Research_Engine v1.2.0 (Full Engine Core Freeze)
+
+You are instructed to create an immutable vault snapshot of the current Universal Research Engine baseline.
+
+This snapshot must include the complete deterministic execution core and its governance layer.
+
+PRECONDITIONS (VERIFY FIRST)
+
+Git working tree is clean.
+
+No staged but uncommitted changes.
+
+No untracked engine files.
+
+Target vault version directory does NOT already exist.
+
+No experimental or WIP code merged.
+
+If any condition fails → STOP and REPORT.
+
+SNAPSHOT TARGET
+vault/engines/Universal_Research_Engine/v1.2.0/
+
+
+Do not overwrite existing versions.
+
+FILES TO COPY (BYTE-IDENTICAL)
+1️⃣ Execution Entry Points (Root)
+
+run_stage1.py
+
+stage2_compiler.py
+
+stage3_compiler.py
+
+preflight.py
+
+2️⃣ Engine Core — tools/
+
+Copy the following files from tools/:
+
+apply_portfolio_constraints.py
+
+cleanup_reconciler.py
+
+exec_preflight.py
+
+execution_emitter_stage1.py
+
+portfolio_evaluator.py
+
+run_stage1.py
+
+stage2_compiler.py
+
+stage3_compiler.py
+
+verify_engine_integrity.py
+
+Include:
+
+tools/utils/ (only if required by above modules)
+
+Exclude:
+
+pycache/
+
+temp files
+
+experimental scripts
+
+notebooks
+
+3️⃣ Governance Layer
+
+Copy entire:
+
+governance/SOP/
+
+
+Including all .md files inside.
+
+Also include (if constitutional):
+
+governance/trade_scan_invariants_state_gated.md
+
+governance/trade_scan_preflight_agent.md
+
+governance/README.md
+
+STRICT EXCLUSIONS
+
+Do NOT copy:
+
+backtests/
+
+strategies/
+
+results/
+
+logs/
+
+review_checklists/
+
+schemas/
+
+DATA_BIAS_AUDIT_REPORT.md
+
+runtime outputs
+
+local datasets
+
+.env files
+
+experimental branches
+
+archived versions
+
+Vault must contain engine constitution only.
+
+VERIFICATION CHECKS
+
+After copy:
+
+Confirm byte identity vs HEAD.
+
+Confirm no runtime artifacts present.
+
+Confirm no strategy-specific logic.
+
+Confirm no duplicate files.
+
+Confirm version folder did not pre-exist.
+
+Confirm no extra files beyond allowed list.
+
+If deviation detected → STOP and REPORT.
+
+COMMIT
+
+Commit with exact message:
+
+vault: snapshot Universal_Research_Engine v1.2.0 (engine core + governance baseline)
+
+
+Do not amend.
+Do not squash.
+Do not refactor.
+
+OUTPUT REQUIRED
+
+Return:
+
+Snapshot completion confirmation
+
+Commit hash
+
+Explicit statement:
+“No deviations”
+OR
+Detailed deviation report

@@ -1,0 +1,60 @@
+AGENT PROMPT — STANDARD CLEANUP RUN
+
+Context:
+
+Strategy_Master_Filter.xlsx is the sole authoritative source of truth.
+
+The filesystem must be reconciled to the current state of the Master Sheet.
+
+Do not assume which strategies or runs were modified.
+
+Task:
+
+Run cleanup reconciler in dry-run mode:
+
+python tools/cleanup_reconciler.py
+
+
+Validate that:
+
+Every planned deletion targets artifacts not represented in the Master Sheet.
+
+No artifact still represented in the Master Sheet is scheduled for deletion.
+
+Action ordering is deterministic.
+
+If and only if dry-run output is correct, run cleanup in execute mode:
+
+python tools/cleanup_reconciler.py --execute
+
+
+After execution:
+
+Verify all planned deletions were applied.
+
+Verify preserved artifacts remain untouched.
+
+Verify Master Sheet reflects the authoritative post-cleanup state.
+
+Re-run cleanup:
+
+python tools/cleanup_reconciler.py
+
+
+Expect no output (idempotence check).
+
+Reporting:
+
+Report PASS if the final dry-run produces no actions.
+
+Report FAIL with the first unexpected action only.
+
+Rules:
+
+Do not infer intent beyond the Master Sheet.
+
+Do not manually delete files.
+
+Do not add heuristics or extra cleanup.
+
+Treat any file locks or failures as non-fatal; allow the next run to converge.

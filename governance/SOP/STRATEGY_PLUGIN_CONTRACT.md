@@ -28,8 +28,10 @@ No other locations are permitted.
 
 ## 2. Ownership Rules (LOCKED)
 
-- All **indicator calculations** belong to the strategy.
-- All **entry / exit logic** belongs to the strategy.
+- All **indicator invocation and parameter selection** belong to the strategy.
+- All **entry / exit decision logic** belongs to the strategy.
+- All **indicator implementation** belongs to the `indicators/` repository and MUST NOT be reimplemented inline.
+
 - The engine MUST NOT:
   - compute indicators
   - inspect indicator values

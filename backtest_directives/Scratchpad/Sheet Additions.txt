@@ -1,0 +1,216 @@
+Why This Is a Good Idea
+
+As your sheet grows:
+
+You accumulate independent signal expressions.
+
+Some will dominate in certain regimes.
+
+Some will be capital-efficient but noisy.
+
+Some will be stable but low power.
+
+Instead of picking “one winner,”
+you build a strategy basket.
+
+That’s institutional thinking.
+
+2️⃣ The Danger of Using Only Sharpe + Expectancy
+
+Sharpe measures:
+
+Return per unit volatility.
+
+Expectancy measures:
+
+Average profit per trade.
+
+Neither measures:
+
+Correlation between strategies
+
+Concurrency overlap
+
+Drawdown synchronization
+
+Regime overlap
+
+If you pick top 5 by Sharpe,
+they may all be:
+
+US-mean-reversion variants
+
+Firing in the same volatility bucket
+
+Losing together
+
+That’s not diversification.
+
+That’s duplication.
+
+3️⃣ The Correct Way to Use the Sheet
+
+Your sheet is useful as a first filter, not final selection.
+
+Step 1 — Quality Filter
+
+Remove strategies with:
+
+Sharpe < 0.8
+
+Expectancy near 0
+
+Profit factor < 1.2
+
+Return/DD < 1.5
+
+This trims weak engines.
+
+Step 2 — Correlation Filter
+
+Compute correlation between strategy equity curves.
+
+Only include strategies where:
+
+Average pairwise correlation < 0.6
+Prefer < 0.4
+
+This is critical.
+
+Step 3 — Concurrency Overlap Check
+
+Two strategies may:
+
+Have low equity correlation
+
+But fire trades simultaneously
+
+That increases portfolio stress.
+
+You need concurrency overlap metric across strategies.
+
+Step 4 — Regime Complementarity
+
+If all strategies:
+
+Lose in high volatility regime
+
+Then your basket collapses in stress.
+
+You want:
+
+Some that thrive in high vol
+Some that thrive in low vol
+
+4️⃣ Expectancy vs Sharpe — Which Matters More?
+
+For portfolio construction:
+
+Sharpe > Expectancy.
+
+Because expectancy ignores volatility clustering.
+
+But:
+
+Return/DD is even more important for strategy baskets.
+
+High Sharpe with huge tail drawdown is fragile.
+
+5️⃣ What You’re Really Building
+
+You’re evolving from:
+
+Single strategy research
+→ Strategy portfolio architecture
+
+This is a different discipline.
+
+You now need:
+
+Strategy-level capital allocation
+
+Strategy correlation matrix
+
+Strategy concurrency matrix
+
+Strategy regime exposure profile
+
+6️⃣ What Your Sheet Should Eventually Contain
+
+Each strategy row should include:
+
+CAGR
+
+Sharpe
+
+MAR
+
+Return/DD
+
+Max DD duration
+
+Avg concurrency
+
+p95 concurrency
+
+Avg correlation vs others
+
+Regime PnL breakdown
+
+Stress removal resilience
+
+Then you rank by:
+
+Utility-adjusted score, not raw Sharpe.
+
+7️⃣ Brutal Reality
+
+If you use only Sharpe + Expectancy:
+
+You will over-allocate to:
+
+US-heavy mean reversion variants
+
+Highly similar systems
+
+Your basket will look diversified but collapse together.
+
+8️⃣ The Right Way to Grow This
+
+As sheet grows:
+
+Build strategy-level correlation matrix.
+
+Run strategy stress removal test (remove top strategy).
+
+Run strategy cluster removal (remove US-style strategies).
+
+Optimize basket size for MAR, not CAGR.
+
+9️⃣ Strategic Insight
+
+Your edge is not “best strategy.”
+
+Your edge becomes:
+
+Portfolio of independent edges.
+
+That’s where compounding power emerges.
+
+Final Answer
+
+Yes — you can build a basket from the sheet.
+
+But:
+
+Do not rank by Sharpe alone.
+Do not rank by expectancy alone.
+
+Use:
+
+Sharpe filter
+Correlation filter
+Concurrency filter
+Regime diversification filter
+
+Then allocate capital proportionally.

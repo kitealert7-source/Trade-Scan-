@@ -9,6 +9,12 @@
 
 ## Stage-0 — Global Governance & Core Rules
 
+System Flow (Extended):
+
+Stage-1 → Stage-2 → Stage-3 → Stage-4 (Portfolio Analysis) → Human
+
+Stage-4 is governed exclusively by SOP_PORTFOLIO_ANALYSIS.
+
 ### 0.1 One-Pass Rule (HARD)
 Execute → Capture → Compute → Emit.  
 No replay, recomputation, or mutation allowed.
@@ -282,6 +288,7 @@ Rows MUST appear in this exact order.
 -If underlying market price series are unavailable, a trade-derived Buy & Hold benchmark MAY be computed 
   from the first trade entry price and last trade exit price, provided it is explicitly labeled 
   “Trade-Derived Buy & Hold (Contextual Only)” and excluded from Stage-3 comparisons.
+
 ---
 
 ### 2.3 Yearwise Performance — REQUIRED SCHEMA
@@ -356,6 +363,9 @@ Rows MUST appear in this exact order.
 | net_profit_low_vol | PnL in low volatility |
 | sharpe_ratio | Sharpe ratio |
 | expectancy | Expectancy (USD) |
+| run_id | Unique run identifier (UUID) |
+| symbol | Traded instrument |
+| IN_PORTFOLIO | Portfolio inclusion flag (Boolean) |
 
 **Population Rule**
 Populated via standard reporting pipeline only.  
@@ -371,7 +381,7 @@ No manual entry permitted.
 
 ---
 
-## Stage-4 — Update & Run Integrity Rules
+## Stage-3A — Update & Run Integrity Rules
 
 - One completed run → one report → one master row
 - Failed or partial runs emit nothing

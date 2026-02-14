@@ -1,10 +1,9 @@
-# SOP_TESTING — Backtest Execution & Stage‑1 Artifact Authority
-## VERSION 2.0 (ALIGNED WITH SOP_OUTPUT_STAGEWISE_v4.1)
+# SOP_TESTING — Backtest Execution & Stage-1 Artifact Authority
 
 **Stage:** BACKTESTING  
 **Applies to:** Trade_Scan  
 **Status:** AUTHORITATIVE | ACTIVE  
-**Companion SOP:** SOP_OUTPUT_STAGEWISE_v4.1 (POST_BACKTEST)
+**Companion SOP:** SOP_OUTPUT — VERSION 4.1 (POST_BACKTEST)
 
 ---
 
@@ -19,7 +18,7 @@ Trade_Scan:
 - emits Stage‑1 artifacts
 - stops
 
-All post‑execution presentation, aggregation, and reporting are governed by **SOP_OUTPUT_STAGEWISE_v4.1**.
+All post‑execution presentation, aggregation, and reporting are governed by **SOP_OUTPUT — VERSION 4.1**.
 
 ---
 
@@ -78,18 +77,21 @@ If execution is partial, interrupted, or failed, the directive MUST remain in `a
 
 ## 4. Execution Model
 
+> **Authoritative Market Data Rule:** All Stage-1 executions MUST use **RESEARCH** market data; CLEAN or derived datasets are non-authoritative and MUST NOT be used for execution or metric computation.
+
 When invoked by a human:
 
 1. Read the selected directive.
 2. Validate presence of executable conditions.
 3. Enforce STRATEGY_PLUGIN_CONTRACT.md.
-4. Constrain execution strictly to the directive.
-5. Execute all declared back tests.
-6. Compute **all Stage‑1 execution metrics** during execution.
-7. Emit Stage‑1 artifacts exactly as defined below.
-8. If and only if `RUN_COMPLETE`:
-   - Trigger Stage‑2, then Stage‑3 (per SOP_OUTPUT_STAGEWISE_v4.1).
-9. Stop.
+4. Enforce SOP_INDICATOR.md (repository-only indicator usage; no inline indicator logic).
+5. Constrain execution strictly to the directive.
+6. Execute all declared back tests.
+7. Compute **all Stage-1 execution metrics** during execution.
+8. Emit Stage-1 artifacts exactly as defined below.
+9. If and only if `RUN_COMPLETE`:
+   - Trigger Stage-2, then Stage-3 (per SOP_OUTPUT — VERSION 4.1).
+10. Stop.
 
 There is:
 - no loop
@@ -103,7 +105,7 @@ There is:
 
 For each run, Trade_Scan MUST:
 
-- Create one strategy folder named exactly as the human‑defined Strategy Name
+- Create one run output folder named exactly as the human-defined Strategy Name
 - Place it under:
 
 ```
@@ -134,7 +136,7 @@ Stage‑1 artifacts:
 
 Stage‑2 and Stage‑3:
 - MUST NOT recompute execution metrics already present in Stage-1 artifacts.
-- MAY aggregate only as allowed by SOP_OUTPUT_STAGEWISE_v4.1
+- MAY aggregate only as allowed by SOP_OUTPUT — VERSION 4.1
 
 ---
 
@@ -178,6 +180,70 @@ Field names and presence MUST match SOP_OUTPUT
 - Fields MUST remain immutable after RUN_COMPLETE
 
 Any change to this schema or its computation constitutes **engine evolution** and requires a new engine identity per SOP_AGENT_ENGINE_GOVERNANCE.
+
+------------------------------------------------------------------------
+
+## 7A. Stage-1 Constraint Enforcement (When Declared)
+
+If a directive explicitly declares deterministic execution constraints, including but not limited to:
+
+- Maximum concurrent positions
+- Capital exposure limits
+- Trade admission rules
+- Deterministic filtering conditions
+
+Then constraint enforcement SHALL be considered part of Stage-1 execution.
+
+Stage-1 execution MAY include:
+
+• Raw execution phase  
+• Deterministic constraint enforcement phase (if declared)
+
+A run is considered RUN_COMPLETE only after all declared execution phases are completed successfully.
+
+Stage-1 artifacts become immutable only after all declared execution phases are complete.
+
+------------------------------------------------------------------------
+
+### 7A.1 Artifact Authority
+
+If constraint enforcement is applied:
+
+- The post-constraint results_tradelevel.csv becomes the authoritative Stage-1 artifact.
+- The pre-constraint raw execution output MUST be preserved as:
+
+results_tradelevel_raw_snapshot.csv
+
+The raw snapshot is archival only and MUST NOT be used for metric computation.
+
+------------------------------------------------------------------------
+
+### 7A.2 Compliance Clarification
+
+Deterministic constraint enforcement under Stage-1 does NOT constitute:
+
+- Post-hoc filtering
+- Data snooping
+- Retroactive execution modification
+
+Because it is part of declared execution semantics.
+
+------------------------------------------------------------------------
+
+### 7A.3 Determinism Requirement
+
+Constraint logic MUST:
+
+- Be deterministic
+- Use only declared directive parameters
+- Be reproducible from raw execution output
+- Not introduce probabilistic trade selection
+
+Any change to constraint logic constitutes engine evolution.
+
+------------------------------------------------------------------------
+
+
 
 ---
 
@@ -247,8 +313,8 @@ Forbidden:
 ## 12. Handoff to SOP_OUTPUT
 
 Upon RUN_COMPLETE:
-- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT_STAGEWISE_v4.1
-- This SOP relinquishes authority beyond Stage‑1 artifacts
+- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.1
+- This SOP relinquishes authority beyond Stage‑1 artifacts 
 
 ---
 

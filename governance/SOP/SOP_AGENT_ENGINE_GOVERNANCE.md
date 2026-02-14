@@ -37,7 +37,7 @@ Every engine exists in **exactly one** of the following states.
 - May be modified **only with explicit human instruction**
 
 ### 2.2 Validated / Released Engine
-- Location: `engine_dev/<engine_type>/<version>/`
+- Canonical identity: engine_dev/<engine_type>/<version>/ (physical storage may be vaulted)
 - Identified by:
   - `VALIDATED_ENGINE.manifest.json`
   - file hashes

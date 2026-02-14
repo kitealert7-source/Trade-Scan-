@@ -1,0 +1,159 @@
+AGENT DIRECTIVE — PORTFOLIO EVALUATION + SNAPSHOT ARCHIVAL
+
+Objective:
+Evaluate the strategy as a multi-instrument portfolio and
+automatically generate a frozen evaluation snapshot for promotion governance.
+
+No strategy modifications.
+Pure portfolio-layer analytics + archival.
+
+INPUT:
+Load trade-level results from:
+backtests/<STRATEGY_ID>_<SYMBOL>/raw/results_tradelevel.csv
+
+Assume equal capital allocation per symbol (default: $5,000 each)
+unless otherwise specified.
+
+------------------------------------------------------------
+1) PORTFOLIO CONSTRUCTION
+
+Method A — Equal Capital Allocation:
+- Allocate fixed capital per symbol.
+- Merge trades chronologically by close date.
+- Construct cumulative portfolio equity curve.
+
+Compute:
+- Total Net PnL
+- CAGR (if applicable)
+- Portfolio Max Drawdown (USD and %)
+- Return/DD ratio
+- Sharpe
+- Sortino
+- K-Ratio
+- MAR ratio
+- Longest flat period (days and trades)
+
+------------------------------------------------------------
+2) CAPITAL UTILIZATION ANALYSIS
+
+Report:
+- % time capital fully deployed
+- Average concurrent open positions
+- Maximum concurrent exposure
+- Exposure clustering during volatility spikes
+
+------------------------------------------------------------
+3) CORRELATION & DEPENDENCY STRUCTURE
+
+Compute:
+- Rolling 60-day correlation between symbol equity curves
+- Correlation matrix
+- Average pairwise correlation
+
+Identify:
+- Cluster dominance (e.g., US indices)
+- Diversification quality
+- Concentration risk
+
+------------------------------------------------------------
+4) CONTRIBUTION ANALYSIS
+
+For each symbol report:
+- Total PnL contribution (% of portfolio)
+- Contribution to Max DD
+- Contribution to volatility
+- Regime-based profit contribution (Low / Normal / High vol)
+
+------------------------------------------------------------
+5) DRAWDOWN ANATOMY (PORTFOLIO LEVEL)
+
+Report:
+- Largest peak-to-trough event
+- Absolute drop (USD)
+- Percentage retracement
+- Duration of drawdown (days)
+- Time to recovery
+- Trades during collapse
+- Volatility regime during collapse
+
+------------------------------------------------------------
+6) STRESS TESTING
+
+Simulate:
+- Remove top performing symbol
+- Remove worst performing symbol
+- Remove US cluster
+
+Recompute:
+- Net PnL
+- Sharpe
+- Max DD
+- Return/DD
+
+Assess fragility vs robustness.
+
+------------------------------------------------------------
+7) REGIME SEGMENTATION
+
+Segment portfolio performance by:
+- Volatility regime (Low / Normal / High)
+- Yearly breakdown
+
+Report:
+- CAGR by regime
+- DD by regime
+- Exposure behavior
+
+------------------------------------------------------------
+8) VISUAL OUTPUTS
+
+Generate and save:
+- Portfolio equity curve (PNG)
+- Portfolio drawdown curve (PNG)
+- Correlation heatmap (PNG)
+- Contribution bar chart (PNG)
+- Stress-test comparison chart (PNG)
+
+------------------------------------------------------------
+9) SNAPSHOT ARCHIVAL (MANDATORY)
+
+Create directory:
+strategies/<STRATEGY_ID>/portfolio_evaluation/
+
+Save:
+
+portfolio_summary.json
+  - Net PnL
+  - Sharpe
+  - Max DD (USD & %)
+  - Return/DD
+  - CAGR
+  - Avg correlation
+  - Top contributor %
+  - Evaluation date
+  - Engine version
+  - Data range
+
+portfolio_metrics.csv
+portfolio_overview.md (1-page executive summary)
+equity_curve.png
+drawdown_curve.png
+correlation_matrix.png
+stress_test_report.md
+
+This snapshot becomes immutable reference
+for future promotion decisions.
+
+------------------------------------------------------------
+DELIVERABLE
+
+Agent must output:
+
+- Executive Summary
+- Risk Assessment
+- Concentration Risk Evaluation
+- Structural Weakness Identification
+- Recommendation:
+    Promote / Hold / Reject
+
+END OF DIRECTIVE

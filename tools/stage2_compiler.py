@@ -61,6 +61,16 @@ def load_stage1_artifacts(run_folder: Path):
     with open(metadata_dir / "run_metadata.json", "r", encoding="utf-8") as f:
         metadata = json.load(f)
         
+    # v5 Metric Integrity: Load Bar Geometry if available
+    geometry_path = execution_dir / "bar_geometry.json"
+    if geometry_path.exists():
+        try:
+            with open(geometry_path, "r", encoding="utf-8") as f:
+                geo = json.load(f)
+                metadata["bar_geometry"] = geo
+        except Exception:
+            pass # Graceful degradation
+        
     starting_capital = metadata.get("reference_capital_usd")
     if not isinstance(starting_capital, (int, float)) or starting_capital <= 0:
         raise ValueError("Missing or invalid reference_capital_usd in metadata")
@@ -251,7 +261,15 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
         except:
             continue
             
-    if len(valid_samples) >= 5: # Require at least 5 trades to trust empirical
+    # Try Candle Geometry (Primary - v5 Metric Integrity)
+    if metadata and "bar_geometry" in metadata and "median_bar_seconds" in metadata["bar_geometry"]:
+        median_sec = _safe_float(metadata["bar_geometry"]["median_bar_seconds"])
+        if median_sec > 0:
+            bars_per_day = 86400.0 / median_sec
+            source_method = "candle_geometry"
+            
+    # Try Empirical Derivation (Secondary)
+    elif len(valid_samples) >= 5: # Require at least 5 trades to trust empirical
         valid_samples.sort()
         mid = len(valid_samples) // 2
         median_spb = valid_samples[mid]

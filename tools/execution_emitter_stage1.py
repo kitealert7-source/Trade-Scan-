@@ -349,7 +349,8 @@ def emit_stage1(
     metadata: Stage1Metadata,
     directive_content: str,
     directive_filename: str,
-    output_root: Path
+    output_root: Path,
+    median_bar_seconds: int = 0
 ) -> Path:
     """
     Emit all Stage-1 artifacts as defined in SOP_OUTPUT Section 4.
@@ -471,6 +472,11 @@ def emit_stage1(
     }
     with open(metadata_dir / "run_metadata.json", "w", encoding="utf-8") as f:
         json.dump(meta_dict, f, indent=2)
+        
+    # 7b. Emit bar_geometry.json (v5 Metric Integrity)
+    if median_bar_seconds > 0:
+        with open(raw_dir / "bar_geometry.json", "w", encoding="utf-8") as f:
+            json.dump({"median_bar_seconds": median_bar_seconds}, f, indent=2)
     
     # 8. Copy Directive
     with open(out_folder / directive_filename, "w", encoding="utf-8") as f:

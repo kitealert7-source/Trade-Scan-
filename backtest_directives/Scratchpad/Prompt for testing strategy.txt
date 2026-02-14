@@ -1,51 +1,88 @@
+MASTER EXECUTION DIRECTIVE
+
+(Generic — Applicable to All Strategies)
+
 AUTHORITY (NON-NEGOTIABLE)
 
 Operate strictly under:
+
+TRADE_SCAN_DOCTRINE
 SOP_TESTING
 SOP_OUTPUT
 Trade_Scan Preflight Agent Specification
+SOP_OUTPUT_AGENT_SUMMARY
+SOP_AGENT_ENGINE_GOVERNANCE
+STRATEGY_PLUGIN_CONTRACT
+trade_scan_invariants_state_gated
 
 Trade_Scan is the ONLY permitted execution engine.
-Universal_Research_Engine must be used as declared.
+Universal_Research_Engine must be used exactly as declared.
 Directive text is the sole source of strategy logic.
+No interpretation. No enhancement. No substitution.
 
 SCOPE
 
-Execute exactly ONE directive.
-No interpretation. No analysis. No commentary.
-Batch mode only (speed and determinism prioritized).
+Execute all directives present in:
+
+Trade_Scan/backtest_directives/active
+
+Sequentially.
+Batch mode only.
+Determinism prioritized over speed.
 
 PIPELINE
 
-Preflight → Stage-1 Execution → Stage-2 Compilation → Stage-3 Aggregation
+Preflight → Stage-1 Execution → Stage-2 Compilation → Stage-3 Aggregation → Stage-4 Portfolio Evaluation
+
+No stage skipping permitted.
 
 PREFLIGHT (MANDATORY)
 
 Invoke Trade_Scan Preflight Agent.
-Proceed ONLY if result == ALLOW_EXECUTION.
-Otherwise → ABORT immediately.
+
+Proceed ONLY if:
+result == ALLOW_EXECUTION
+
+Else:
+ABORT immediately.
 
 STRATEGY LOAD
 
-Load directive ONLY from:
+Load directive exclusively from:
+
 Trade_Scan/backtest_directives/active/<DIRECTIVE_NAME>
+
+No alternative source permitted.
 
 STAGE-1 — EXECUTION
 
-Use clean isolated state.
-Use directive-declared historical scope.
-Use default sizing unless overridden.
+Requirements:
+
+Clean isolated state
+
+Directive-declared historical scope only
+
+Default sizing unless explicitly overridden
+
+No external inference
+
+No data substitution
 
 On success:
-- set run_status = RUN_COMPLETE
-- move directive → completed_run/
+
+set run_status = RUN_COMPLETE
+
+move directive → completed_run/
 
 On failure:
-- emit NO artifacts
-- leave directive in active/
-- STOP
 
-REQUIRED ARTIFACTS
+emit NO artifacts
+
+leave directive in active/
+
+STOP
+
+REQUIRED ARTIFACTS (HARD REQUIREMENT)
 
 results_tradelevel.csv
 results_standard.csv
@@ -54,32 +91,71 @@ results_yearwise.csv
 metrics_glossary.csv
 run_metadata.json
 
-Missing any → HARD FAILURE.
+Missing any artifact → HARD FAILURE.
 
 STAGE-2 — COMPILATION
 
 Consume Stage-1 artifacts only.
 No recomputation of authoritative values.
+No signal re-evaluation.
 Failure → ABORT.
 
 STAGE-3 — AGGREGATION
 
-Permitted ONLY if run_status == RUN_COMPLETE.
+Permitted ONLY if:
+run_status == RUN_COMPLETE
+
 Aggregate mechanically from Stage-2 artifacts.
-No qualitative logic.
+No qualitative adjustments.
+No metric reinterpretation.
+
+STAGE-4 — PORTFOLIO EVALUATION
+
+Run Portfolio Evaluator.
+
+Permitted ONLY if:
+run_status == RUN_COMPLETE
+
+Portfolio evaluation must:
+
+Use closed-trade equity model
+
+Preserve deterministic thresholds
+
+Produce immutable snapshot
+
+Emit summary + stress report
+
+No governance overrides permitted.
 
 HARD ABORT CONDITIONS
 
-Abort if:
-- Preflight ≠ ALLOW_EXECUTION
-- run_status ≠ RUN_COMPLETE
-- any required artifact missing
-- any inference required
+Abort immediately if:
+
+Preflight ≠ ALLOW_EXECUTION
+
+run_status ≠ RUN_COMPLETE
+
+any required artifact missing
+
+any stage requires inference
+
+any stage mutates prior stage outputs
 
 COMPLETION OUTPUT
 
 Return ONLY:
-- execution status
-- artifact file paths
+
+execution status
+
+artifact file paths
+
+summary of quantitative results
+
+improvement suggestions strictly aligned with TRADE_SCAN_DOCTRINE
+
+No commentary.
+No qualitative narrative.
+No speculative reasoning.
 
 STOP.

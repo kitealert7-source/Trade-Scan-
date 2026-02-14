@@ -46,7 +46,7 @@ def run_engine(df, strategy) -> List[dict]:
     Execute strategy on provided data.
     
     Args:
-        df: DataFrame with OHLCV data (clean, pre-processed)
+        df: DataFrame with OHLCV market data (authoritative source determined by execution context)
         strategy: Strategy instance with prepare_indicators, check_entry, check_exit
         
     Returns:

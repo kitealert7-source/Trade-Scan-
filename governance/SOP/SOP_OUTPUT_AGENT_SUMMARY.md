@@ -18,7 +18,7 @@ If conflict exists, SOP_OUTPUT.md overrides this summary.
 
 - Stage-1 computes ALL metrics.
 - Stage-2 operates Stage-1 outputs only.
-- Stage-3 operates Stage-2 outputs only.
+- Stage-3 aggregates from Stage-1 and Stage-2 artifacts.
 
 Agents MUST NOT compute, infer, or recompute metrics
 outside Stage-1.
@@ -29,7 +29,12 @@ outside Stage-1.
 
 Flow is strictly:
 
-Stage-1 → Stage-2 → Stage-3 → Human
+System Flow:
+
+Stage-1 → Stage-2 → Stage-3 → Stage-4 (Portfolio Analysis) → Human
+
+Stage-4 is governed exclusively by SOP_PORTFOLIO_ANALYSIS.
+
 
 Backflow is forbidden.
 
@@ -40,7 +45,7 @@ Backflow is forbidden.
 Agents MUST:
 - treat Stage-1 artifacts as immutable
 - treat Stage-2 artifacts as read-only
-- append only; never overwrite
+- append only; never mutate existing artifacts
 
 Agents MUST NOT:
 - edit CSVs
@@ -60,20 +65,23 @@ Stage-1 → Stage-2 → Stage-3
 
 Failed or partial runs do not exist.
 
+Agents MUST assume all pre-existing artifacts for the same strategy
+belong to a superseded run and MUST NOT reuse, merge, or reason across runs.
+
+Agents MUST follow SOP_OUTPUT.md as the authoritative source.
+
 
 ---
 ## 5. Stage-5 Strategy Persistence (POST-RUN INVARIANT)
 
-Agents MUST ensure that for every RUN_COMPLETE backtest:
-- A corresponding folder exists at `strategies/<RUN_ID>/`
-- The folder contains only:
-  - `strategy.py`
-  - `__pycache__/`
-- The `strategies/` directory mirrors `backtests/`
+For every folder present under:
 
-If a backtest folder is deleted by the human operator, the corresponding
-strategy folder MUST also be deleted.
+    backtests/<strategy_name>/
 
+the system MUST have a corresponding historical snapshot at:
+
+    runs/<RUN_ID>/
+---
 ## 6. Failure Handling
 
 On any ambiguity or error:
