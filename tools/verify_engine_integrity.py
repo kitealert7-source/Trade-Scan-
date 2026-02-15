@@ -2,6 +2,7 @@
 import sys
 import json
 import hashlib
+import argparse
 import pandas as pd
 from pathlib import Path
 import importlib.util
@@ -11,7 +12,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "1.2.0"
+TOOLS_ROOT = PROJECT_ROOT / "tools"
 MANIFEST_PATH = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine" / "v1.2.0" / "manifests" / "engine_manifest.json"
+TOOLS_MANIFEST = PROJECT_ROOT / "tools" / "tools_manifest.json"
 
 def load_engine():
     """Load the Universal Research Engine execution loop dynamically."""
@@ -26,8 +29,19 @@ def load_engine():
     return module
 
 
-def verify_hashes():
+def verify_hashes(mode="strict"):
     """Verify engine file hashes against the vaulted manifest."""
+    if mode == "workspace":
+        print("[INFO] Mode: WORKSPACE — Skipping Vault Hash Verification")
+        print(f"[INFO] Engine Root: {ENGINE_ROOT}")
+        # Basic check: Ensure minimal files exist
+        required = ["execution_loop.py", "main.py"]
+        missing = [f for f in required if not (ENGINE_ROOT / f).exists()]
+        if missing:
+            print(f"[FAIL] Missing critical workspace files: {missing}")
+            return False
+        return True
+
     if not MANIFEST_PATH.exists():
         print(f"[WARN] Manifest not found at {MANIFEST_PATH} — skipping hash verification")
         return True
@@ -69,6 +83,45 @@ def verify_hashes():
         print(f"[PASS] Hash Verification: {len([k for k in file_hashes if not k.endswith('.md')])} engine files match manifest")
         return True
 
+def verify_tools_integrity(mode="strict"):
+    """Verify critical tool hashes against tools_manifest.json."""
+    if mode == "workspace":
+        return True # Skip in workspace mode
+
+    if not TOOLS_MANIFEST.exists():
+        print(f"[WARN] Tools manifest not found at {TOOLS_MANIFEST}")
+        return True
+
+    with open(TOOLS_MANIFEST, 'r', encoding='utf-8') as f:
+        manifest = json.load(f)
+
+    file_hashes = manifest.get("file_hashes", {})
+    failures = []
+
+    for filename, expected_hash in file_hashes.items():
+        filepath = TOOLS_ROOT / filename
+        if not filepath.exists():
+            failures.append(f"  {filename}: TOOL MISSING")
+            continue
+
+        sha256 = hashlib.sha256()
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha256.update(chunk)
+        actual_hash = sha256.hexdigest().upper()
+
+        if actual_hash != expected_hash.upper():
+            failures.append(f"  {filename}: HASH MISMATCH")
+    
+    if failures:
+        print("[FAIL] Tools Integrity Failed:")
+        for f in failures:
+            print(f)
+        return False
+    else:
+        print(f"[PASS] Tools Integrity: {len(file_hashes)} critical tools match manifest")
+        return True
+
 class IntegrityStrategy:
     def __init__(self):
         self.name = "Integrity Check Strategy"
@@ -102,8 +155,12 @@ class IntegrityStrategy:
         return None
 
 def run_check():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["strict", "workspace"], default="strict", help="Verification mode")
+    args = parser.parse_args()
+
     print("="*60)
-    print("ENGINE INTEGRITY SELF-TEST")
+    print(f"ENGINE INTEGRITY SELF-TEST (Mode: {args.mode})")
     print("="*60)
     
     # 1. Load Engine
@@ -115,8 +172,13 @@ def run_check():
         sys.exit(1)
 
     # 1.5 Verify File Hashes Against Manifest
-    if not verify_hashes():
+    if not verify_hashes(mode=args.mode):
         print("[FAIL] Engine files do not match vaulted manifest. Aborting.")
+        sys.exit(1)
+
+    # 1.6 Verify Tools Integrity
+    if not verify_tools_integrity(mode=args.mode):
+        print("[FAIL] Critical tools do not match tools_manifest. Aborting.")
         sys.exit(1)
 
     # 2. Create Synthetic Data (20 bars)

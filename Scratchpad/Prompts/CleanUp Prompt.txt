@@ -1,12 +1,24 @@
-AGENT PROMPT — STANDARD CLEANUP RUN
+AGENT PROMPT — STANDARD CLEANUP RUN (v2.1)
 
 Context:
 
-Strategy_Master_Filter.xlsx is the sole authoritative source of truth.
+Two authoritative ledgers exist:
 
-The filesystem must be reconciled to the current state of the Master Sheet.
+1. Strategy Layer:
+   backtests/Strategy_Master_Filter.xlsx
+   → Governs strategy run retention.
 
-Do not assume which strategies or runs were modified.
+2. Portfolio Layer:
+   strategies/Master_Portfolio_Sheet.xlsx
+   → Governs portfolio folder existence.
+
+The filesystem must be reconciled against both ledgers independently.
+
+Do not assume which strategies, runs, or portfolios were modified.
+
+--------------------------------------------------
+STRATEGY LAYER CLEANUP
+--------------------------------------------------
 
 Task:
 
@@ -14,47 +26,66 @@ Run cleanup reconciler in dry-run mode:
 
 python tools/cleanup_reconciler.py
 
-
 Validate that:
 
-Every planned deletion targets artifacts not represented in the Master Sheet.
-
-No artifact still represented in the Master Sheet is scheduled for deletion.
-
-Action ordering is deterministic.
+- Every planned deletion targets artifacts not represented in Strategy_Master_Filter.xlsx.
+- No artifact still represented in Strategy_Master_Filter.xlsx is scheduled for deletion.
+- Action ordering is deterministic.
 
 If and only if dry-run output is correct, run cleanup in execute mode:
 
 python tools/cleanup_reconciler.py --execute
 
-
 After execution:
 
-Verify all planned deletions were applied.
+- Verify all planned deletions were applied.
+- Verify preserved artifacts remain untouched.
+- Re-run cleanup:
+  python tools/cleanup_reconciler.py
+- Expect no output (idempotence check).
 
-Verify preserved artifacts remain untouched.
+--------------------------------------------------
+PORTFOLIO LAYER CLEANUP
+--------------------------------------------------
 
-Verify Master Sheet reflects the authoritative post-cleanup state.
+Independently reconcile portfolio folders:
 
-Re-run cleanup:
+Compare:
 
-python tools/cleanup_reconciler.py
+strategies/<portfolio_id>/
 
+against:
 
-Expect no output (idempotence check).
+strategies/Master_Portfolio_Sheet.xlsx
 
+Validate that:
+
+- Any portfolio folder without a corresponding Master_Portfolio_Sheet.xlsx entry is flagged.
+- Any Master_Portfolio_Sheet.xlsx row without a corresponding folder is flagged.
+- No portfolio folder deletion is performed automatically.
+
+Portfolio cleanup is advisory.
+
+If mismatch exists:
+- Report discrepancy.
+- Do NOT auto-delete portfolio folders.
+- Manual action is required per SOP_CLEANUP.md.
+
+--------------------------------------------------
 Reporting:
 
-Report PASS if the final dry-run produces no actions.
+Report PASS if:
+
+- Strategy layer cleanup converges to no actions.
+- No unexpected portfolio discrepancies exist.
 
 Report FAIL with the first unexpected action only.
 
+--------------------------------------------------
 Rules:
 
-Do not infer intent beyond the Master Sheet.
-
-Do not manually delete files.
-
-Do not add heuristics or extra cleanup.
-
-Treat any file locks or failures as non-fatal; allow the next run to converge.
+- Do not infer intent beyond authoritative ledgers.
+- Do not manually delete files.
+- Do not add heuristics or extra cleanup.
+- Treat file locks or transient failures as non-fatal; allow next run to converge.
+- Strategy and Portfolio layers must remain strictly independent.

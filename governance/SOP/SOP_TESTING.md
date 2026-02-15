@@ -41,63 +41,86 @@ Trade_Scan exists only while executing explicit instructions.
 
 ### 3.1 Directive Source
 
-Trade_Scan operates only on **the directive explicitly selected by the human operator** from:
-
+Executable directives MUST reside in:
 ```
 backtest_directives/active/
 ```
 
-All other directive files MUST be ignored.
+Execution may be:
+
+- Single-directive mode (explicit ID)
+- Sequential batch mode (`--all`)
+
 
 ---
 
-### 3.2 Directive Requirements
+### 3.2  Authoritative Execution Entry Point
 
-A directive MUST declare:
-- Entry conditions
-- Exit logic
-- Risk and cost assumptions
-- Iteration allowance and bounds (if any)
+Execution is directive-explicit and does not rely on folder isolation.
 
-Undeclared behavior is forbidden.
+All executions MUST be initiated via:
+
+```
+python tools/run_pipeline.py <DIRECTIVE_ID>
+```
+
+or
+
+```
+python tools/run_pipeline.py --all
+```
+
+Direct invocation of individual stage scripts (run_stage1.py, stage2_compiler.py, stage3_compiler.py, apply_portfolio_constraints.py, portfolio_evaluator.py) is prohibited for full multi-asset runs.
+
+The pipeline orchestrator is the sole authorized execution entry point.
 
 ---
 
-### 3.3 Directive Completion
+### 3.3 Directive Completion & State Transition
 
-Upon **atomic completion** of all declared runs, Trade_Scan MUST move **that directive file only** to:
+Upon atomic completion of all declared execution phases:
 
+The processed directive MUST be moved to:
 ```
 backtest_directives/completed_run/
 ```
 
-If execution is partial, interrupted, or failed, the directive MUST remain in `active/`.
+If execution fails or is interrupted:
+
+- The directive MUST remain in `active/`
+- No partial completion is permitted
+- No artifacts may be considered authoritative
+
+Overwrite of previously completed directives is permitted in research mode, as execution is deterministic and reproducible.
 
 ---
 
+
 ## 4. Execution Model
 
-> **Authoritative Market Data Rule:** All Stage-1 executions MUST use **RESEARCH** market data; CLEAN or derived datasets are non-authoritative and MUST NOT be used for execution or metric computation.
+> **Authoritative Market Data Rule:** All Stage-1 executions MUST use **RESEARCH** market data. CLEAN or derived datasets are non-authoritative and MUST NOT be used for execution or metric computation.
 
-When invoked by a human:
+Execution flow is deterministic and pipeline-driven:
 
-1. Read the selected directive.
-2. Validate presence of executable conditions.
-3. Enforce STRATEGY_PLUGIN_CONTRACT.md.
-4. Enforce SOP_INDICATOR.md (repository-only indicator usage; no inline indicator logic).
-5. Constrain execution strictly to the directive.
-6. Execute all declared back tests.
-7. Compute **all Stage-1 execution metrics** during execution.
-8. Emit Stage-1 artifacts exactly as defined below.
-9. If and only if `RUN_COMPLETE`:
-   - Trigger Stage-2, then Stage-3 (per SOP_OUTPUT — VERSION 4.1).
-10. Stop.
+1. Preflight validation (governance + safety).
+2. Directive validation.
+3. Enforcement of STRATEGY_PLUGIN_CONTRACT.md.
+4. Enforcement of SOP_INDICATOR.md (repository-only indicators; no inline logic).
+5. Stage-1 execution (including declared deterministic constraints).
+6. Stage-2 compilation.
+7. Stage-3 aggregation.
+8. Portfolio evaluation (if applicable).
+9. Stop.
 
 There is:
-- no loop
-- no persistence
+
 - no autonomous continuation
-- no partial pipeline completion
+- no implicit rerun
+- no partial execution
+- no pipeline skipping
+
+Vault is not accessed during normal execution and must not influence pipeline behavior.
+
 
 ---
 
@@ -318,4 +341,4 @@ Upon RUN_COMPLETE:
 
 ---
 
-**End of SOP_TESTING — VERSION 2.0**
+**End of SOP_TESTING — VERSION 2.1**

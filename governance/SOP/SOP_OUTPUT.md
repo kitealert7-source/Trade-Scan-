@@ -20,10 +20,11 @@ Execute → Capture → Compute → Emit.
 No replay, recomputation, or mutation allowed.
 
 ### 0.2 Storage & Presentation Standards
-- Percentages stored: `0.0–1.0`
-- Percentages presented: `0–100`
+- Percentages stored: `0.0–1.0` (Decimal)
+- Percentages presented: `0–100` (via Formatting)
 - Dates stored: ISO8601 UTC
 - Dates presented: Native Excel
+- Excel Styling: Delegated to `tools/format_excel_artifact.py`
 
 **Ledger Authority Model**
 
@@ -371,13 +372,14 @@ Rows MUST appear in this exact order.
 Populated via standard reporting pipeline only.  
 No manual entry permitted.
 
-**Formatting Rules**
-- Percentages: `43` (0–100 integer scale)
+**Formatting Rules (Unified)**
+- **Authority**: `tools/format_excel_artifact.py`
+- Percentages: `0.00%` (Input: 0.1234 -> Display: 12.34%)
 - Currency: `#,##0.00`
 - Dates: Native Excel
-- Numbers: `#,##0`
-- Headers: Bold, dark blue fill, freeze top row
-- Append-only
+- Numbers: `#,##0` (Int), `0.00` (Float)
+- Headers: Lighter Blue (`4472C4`), White Font, Bold, Freeze Top Row
+- Row Banding: Alternating (`DCE6F1`)
 
 ---
 

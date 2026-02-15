@@ -1,161 +1,47 @@
-MASTER EXECUTION DIRECTIVE
+AGENT PROMPT — STRATEGY TESTING EXECUTION (v2.3)
 
-(Generic — Applicable to All Strategies)
+OBJECTIVE
+Execute all directives deterministically via the pipeline manager.
+No stage skipping. No inference. No mutation.
 
-AUTHORITY (NON-NEGOTIABLE)
-
-Operate strictly under:
-
-TRADE_SCAN_DOCTRINE
-SOP_TESTING
-SOP_OUTPUT
-Trade_Scan Preflight Agent Specification
-SOP_OUTPUT_AGENT_SUMMARY
-SOP_AGENT_ENGINE_GOVERNANCE
-STRATEGY_PLUGIN_CONTRACT
-trade_scan_invariants_state_gated
-
-Trade_Scan is the ONLY permitted execution engine.
-Universal_Research_Engine must be used exactly as declared.
-Directive text is the sole source of strategy logic.
-No interpretation. No enhancement. No substitution.
-
+--------------------------------------------------
 SCOPE
+--------------------------------------------------
 
-Execute all directives present in:
+Process all directives in:
 
-Trade_Scan/backtest_directives/active
+backtest_directives/active/
 
-Sequentially.
-Batch mode only.
-Determinism prioritized over speed.
+Sequentially using:
 
-PIPELINE
+python tools/run_pipeline.py --all
 
-Preflight → Stage-1 Execution → Stage-2 Compilation → Stage-3 Aggregation → Stage-4 Portfolio Evaluation
+run_pipeline.py is the sole authorized execution entry point.
+Direct invocation of stage scripts is prohibited.
 
-No stage skipping permitted.
+--------------------------------------------------
+EXECUTION FLOW (NON-BYPASSABLE)
+--------------------------------------------------
 
-PREFLIGHT (MANDATORY)
+1. Preflight
+2. Stage-1 (RESEARCH data only)
+3. Stage-1.5 (if declared)
+4. Stage-2
+5. Stage-3
+6. Stage-4 (if applicable)
 
-Invoke Trade_Scan Preflight Agent.
+Abort immediately on any failure.
 
-Proceed ONLY if:
-result == ALLOW_EXECUTION
+--------------------------------------------------
+ARTIFACT & INTEGRITY RULES
+--------------------------------------------------
 
-Else:
-ABORT immediately.
+Each run must produce required artifacts.
+If any artifact is missing → abort.
 
-STRATEGY LOAD
-
-Load directive exclusively from:
-
-Trade_Scan/backtest_directives/active/<DIRECTIVE_NAME>
-
-No alternative source permitted.
-
-STAGE-1 — EXECUTION
-
-Requirements:
-
-Clean isolated state
-
-Directive-declared historical scope only
-
-Default sizing unless explicitly overridden
-
-No external inference
-
-No data substitution
-
-On success:
-
-set run_status = RUN_COMPLETE
-
-move directive → completed_run/
-
-On failure:
-
-emit NO artifacts
-
-leave directive in active/
-
-STOP
-
-REQUIRED ARTIFACTS (HARD REQUIREMENT)
-
-results_tradelevel.csv
-results_standard.csv
-results_risk.csv
-results_yearwise.csv
-metrics_glossary.csv
-run_metadata.json
-
-Missing any artifact → HARD FAILURE.
-
-STAGE-2 — COMPILATION
-
-Consume Stage-1 artifacts only.
-No recomputation of authoritative values.
-No signal re-evaluation.
-Failure → ABORT.
-
-STAGE-3 — AGGREGATION
-
-Permitted ONLY if:
-run_status == RUN_COMPLETE
-
-Aggregate mechanically from Stage-2 artifacts.
-No qualitative adjustments.
-No metric reinterpretation.
-
-STAGE-4 — PORTFOLIO EVALUATION
-
-Run Portfolio Evaluator.
-
-Permitted ONLY if:
-run_status == RUN_COMPLETE
-
-Portfolio evaluation must:
-
-Use closed-trade equity model
-
-Preserve deterministic thresholds
-
-Produce immutable snapshot
-
-Emit summary + stress report
-
-No governance overrides permitted.
-
-HARD ABORT CONDITIONS
-
-Abort immediately if:
-
-Preflight ≠ ALLOW_EXECUTION
-
-run_status ≠ RUN_COMPLETE
-
-any required artifact missing
-
-any stage requires inference
-
-any stage mutates prior stage outputs
-
-COMPLETION OUTPUT
-
-Return ONLY:
-
-execution status
-
-artifact file paths
-
-summary of quantitative results
-
-improvement suggestions strictly aligned with TRADE_SCAN_DOCTRINE
-
-No commentary.
-No qualitative narrative.
-No speculative reasoning.
-
-STOP.
+Do not:
+- Recompute completed runs
+- Modify historical artifacts
+- Mutate strategy artifacts from portfolio layer
+- Delete manually
+- Continue after failure

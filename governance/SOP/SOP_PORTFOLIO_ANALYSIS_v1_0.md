@@ -142,6 +142,8 @@ All concurrency calculations MUST reference a single deterministic implementatio
 
 Any deviation constitutes metric drift and requires engine evolution.
 
+Concurrency calculation functions MUST be side-effect free (PURE) and IDEMPOTENT. They must not mutate the input DataFrame.
+
 ------------------------------------------------------------------------
 
 ## 5. Portfolio Trade-Level Artifact
@@ -180,15 +182,16 @@ All portfolio metrics MUST derive exclusively from this file.
 -   CAGR
 -   Sharpe Ratio
 -   Max Drawdown (USD)
--   Max Drawdown (%)
+-   Max Drawdown (%) (Stored as 0.0-1.0 decimal)
 -   Return / DD
 
 ### 6.2 Capital & Concurrency
 
 -   peak_capital_deployed
 -   capital_overextension_ratio
--   avg_concurrent_positions
--   max_concurrent_positions
+avg_concurrent
+max_concurrent
+
 
 ### 6.3 Correlation (Minimal Scope)
 
@@ -261,6 +264,11 @@ Extended fields MUST NOT:
 - Modify historical rows.
 - Change meaning of required fields.
 - Introduce schema-breaking transformations.
+
+### 8.2 Technical Implementation Constraints (Governance)
+-   **Zero OpenPyXL**: Engines MUST NOT import `openpyxl`. All Excel styling MUST be delegated to `tools/format_excel_artifact.py`.
+-   **Decimal Storage**: All percentage metrics MUST be stored as decimals (e.g. `0.125` for 12.5%).
+-   **No Checkpoint Rounding**: Computing functions MUST NOT round intermediate float values. Rounding is a presentation-layer concern only.
 
 -----------------------------------------------------------------------
 

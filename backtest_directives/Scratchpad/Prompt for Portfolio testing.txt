@@ -1,0 +1,158 @@
+AGENT PROMPT — PORTFOLIO CONSTRUCTION & ANALYSIS (v1.0)
+
+OBJECTIVE
+Construct and evaluate a deterministic portfolio from strategies marked
+IN_PORTFOLIO = TRUE in Strategy_Master_Filter.xlsx.
+
+Follow SOP_PORTFOLIO_ANALYSIS v1.0 strictly.
+No mutation of prior-stage artifacts.
+No back-propagation.
+
+--------------------------------------------------
+SOURCE OF TRUTH
+--------------------------------------------------
+
+Select constituent runs exclusively from:
+
+backtests/Strategy_Master_Filter.xlsx
+
+Filter condition:
+
+IN_PORTFOLIO == TRUE
+AND
+RUN_STATUS == RUN_COMPLETE
+
+Only these runs are eligible.
+
+Do not infer missing runs.
+Do not include incomplete runs.
+
+--------------------------------------------------
+PORTFOLIO CONSTRUCTION RULES
+--------------------------------------------------
+
+Portfolio must define:
+
+- portfolio_id (unique, immutable)
+- creation_timestamp_utc
+- constituent_run_ids (explicit list)
+- reference_capital_usd
+- capital_model_version = "v1.0_trade_close_compounding"
+- portfolio_engine_version
+- rolling_window_length = 252
+- schema_version
+
+--------------------------------------------------
+CAPITAL MODEL (LOCKED v1.0)
+--------------------------------------------------
+
+- Initial equity = reference_capital_usd
+- Equity updates ONLY at trade close.
+- All trades from constituent runs are executed.
+- No trade is rejected due to capital insufficiency.
+- No mark-to-market adjustments.
+- No reweighting.
+- No scaling.
+
+E_t = E_(t-1) + pnl_t
+
+Returns:
+
+return_t = pnl_t / E_(t-1)
+
+CAGR derived from equity curve.
+
+--------------------------------------------------
+CONCURRENCY (AUTHORITATIVE)
+--------------------------------------------------
+
+Two trades are concurrent if:
+
+entry_A < exit_B AND entry_B < exit_A
+
+This definition MUST be used for:
+
+- avg_concurrent_positions
+- max_concurrent_positions
+- peak_capital_deployed
+- capital_deployed_at_entry
+- concurrency_at_entry
+
+No approximations permitted.
+
+--------------------------------------------------
+REQUIRED ARTIFACTS
+--------------------------------------------------
+
+Emit:
+
+portfolio_tradelevel.csv
+portfolio_metadata.json
+portfolio_summary.json
+
+All metrics MUST derive from portfolio_tradelevel.csv.
+
+--------------------------------------------------
+REQUIRED METRICS
+--------------------------------------------------
+AS per SOP_PORTFOLIO_ANALYSIS_v1_0
+
+Performance:
+- net_pnl_usd
+- CAGR
+- Sharpe
+- max_dd_usd
+- max_dd_pct
+- return_dd_ratio
+
+Capital & Concurrency:
+- peak_capital_deployed
+- capital_overextension_ratio
+- avg_concurrent_positions
+- max_concurrent_positions
+
+Correlation:
+- avg_pairwise_corr
+- max_pairwise_corr_stress
+
+Stress window = start-to-trough of maximum drawdown.
+
+--------------------------------------------------
+LEDGER UPDATE
+--------------------------------------------------
+
+Append portfolio to:
+
+strategies/Master_Portfolio_Sheet.xlsx
+
+Append-only.
+Do not modify historical rows.
+Do not delete rows.
+
+Include all required governance fields per SOP.
+
+--------------------------------------------------
+PROHIBITIONS
+--------------------------------------------------
+
+Do NOT:
+
+- Modify Stage-1 artifacts
+- Modify Stage-2 reports
+- Modify Stage-3 master sheet
+- Modify Strategy_Master_Filter.xlsx
+- Trigger cleanup
+- Reweight capital
+- Skip trades
+- Apply undeclared constraints
+
+Portfolio analysis is synthesis, not mutation.
+
+--------------------------------------------------
+TERMINATION RULE
+--------------------------------------------------
+
+If any required artifact or metric is missing:
+Abort.
+Report first failure only.
+Do not self-correct.

@@ -348,14 +348,32 @@ def main():
         print(f"[FATAL] Indicators repository missing at {indicators_root}")
         return
 
-    # 1. Locate Directive
+    # 1. Locate Directive (with Argument Support)
+    import argparse
+    parser = argparse.ArgumentParser(description="Stage-1 Execution Harness")
+    parser.add_argument("directive", nargs="?", help="Optional Directive ID (e.g. IDX28)")
+    args = parser.parse_args()
+
     active_dir = PROJECT_ROOT / "backtest_directives" / "active"
-    txt_files = list(active_dir.glob("*.txt"))
-    if len(txt_files) != 1:
-        print(f"[FATAL] Expected exactly 1 active directive, found {len(txt_files)}.")
-        return
     
-    directive_path = txt_files[0]
+    if args.directive:
+        # Argument Mode
+        candidate = args.directive.replace(".txt", "")
+        directive_path = active_dir / f"{candidate}.txt"
+        if not directive_path.exists():
+            # Try exact match if user provided extension
+            directive_path = active_dir / candidate 
+            if not directive_path.exists():
+                print(f"[FATAL] Specified directive not found: {directive_path}")
+                return
+    else:
+        # Legacy Mode (Single File Auto-Detect)
+        txt_files = list(active_dir.glob("*.txt"))
+        if len(txt_files) != 1:
+            print(f"[FATAL] Expected exactly 1 active directive, found {len(txt_files)}.")
+            return
+        directive_path = txt_files[0]
+
     global DIRECTIVE_FILENAME
     DIRECTIVE_FILENAME = directive_path.name
     print(f"[INIT] Directive: {DIRECTIVE_FILENAME}")

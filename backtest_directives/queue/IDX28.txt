@@ -1,9 +1,9 @@
-IDX27 — DIP BUYING WITH CONCURRENCY CAP
+IDX28 — DIP BUYING WITH CONCURRENCY CAP
 
 Family: Index Family
-Strategy ID: IDX27
+Strategy ID: IDX28
 
-Strategy: IDX27
+Strategy: IDX28
 
 Symbols:
 
@@ -16,7 +16,7 @@ SPX500
 US30
 
 Broker: OctaFx
-Timeframe: 1d
+Timeframe: 4 hour
 Start Date: 2015-01-01
 End Date: 2026-01-31
 Engine: Universal_Research_Engine

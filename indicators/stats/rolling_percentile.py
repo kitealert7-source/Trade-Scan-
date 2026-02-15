@@ -1,17 +1,47 @@
 
+"""
+Rolling Percentile Rank — Canonical Production Implementation
+
+Features:
+- Returns percentile in canonical 0–100 scale
+- Statistically correct rolling percentile computation
+- Deterministic and vectorized
+- Enforces invariant to prevent scale corruption
+"""
+
 import pandas as pd
 import numpy as np
 
+
 def rolling_percentile(series: pd.Series, window: int) -> pd.Series:
     """
-    Calculate rolling percentile rank (0-100) of value within window.
-    
+    Compute percentile rank of current value within rolling window.
+
     Args:
-        series: Input series
-        window: Rolling window size
-        
+        series: numeric series
+        window: rolling window
+
     Returns:
-        pd.Series: Percentile rank (0 to 100)
+        percentile series (0–100 scale)
     """
-    # pct=True returns 0.0-1.0
-    return series.rolling(window=window).rank(pct=True) * 100
+
+    series = series.astype(float)
+
+    def percentile_last(x):
+        last = x[-1]
+        count = np.sum(x <= last)
+        return (count / len(x)) * 100.0
+
+    percentile = series.rolling(
+        window=window,
+        min_periods=window
+    ).apply(percentile_last, raw=True)
+
+    # Enforce invariant: percentile must never exceed 100
+    max_val = percentile.max(skipna=True)
+    if max_val > 100.0001:
+        raise RuntimeError(
+            f"rolling_percentile invariant violation: max={max_val} exceeds 100"
+        )
+
+    return percentile

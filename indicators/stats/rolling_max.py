@@ -1,14 +1,31 @@
+
+"""
+Rolling Maximum — Production-grade implementation
+
+Features:
+- Enforces full window for statistical consistency
+- Prevents warmup distortion
+- Fully vectorized
+"""
+
 import pandas as pd
+
 
 def rolling_max(series: pd.Series, window: int) -> pd.Series:
     """
-    Calculate rolling maximum over a specified window.
-    
+    Compute rolling maximum using full window.
+
     Args:
-        series (pd.Series): Input data series
-        window (int): Size of the moving window
-        
+        series: numeric series
+        window: rolling window
+
     Returns:
-        pd.Series: Rolling maximum values
+        rolling maximum series
     """
-    return series.rolling(window=window, min_periods=1).max()
+
+    series = series.astype(float)
+
+    return series.rolling(
+        window=window,
+        min_periods=window
+    ).max()

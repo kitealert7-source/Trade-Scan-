@@ -140,11 +140,12 @@ and must contain:
 ---
 
 ### 8.3 Authority Model
+    
+- Portfolio existence is governed by `strategies/Master_Portfolio_Sheet.xlsx` (Authoritative).
+- Portfolio folders MUST correspond to a valid row in the Master Portfolio Sheet.
+- Deletion of strategy runs does NOT automatically delete portfolio folders (they are independent layers), BUT:
+- Portfolio folders ARE subject to integrity reconciliation via `tools/cleanup_reconciler.py`.
 
-- Portfolio existence is governed manually.
-- Portfolio artifacts are NOT indexed in `Strategy_Master_Filter.xlsx`.
-- Deletion of strategy runs does NOT automatically delete portfolio folders.
-- Portfolios are advisory and non-authoritative.
 
 ---
 
@@ -152,10 +153,11 @@ and must contain:
 
 Portfolio folders:
 
-- May be deleted manually.
-- Are not subject to automatic cleanup sweeps.
-- Are not classified as zombies under strategy cleanup rules.
-- Must not be removed implicitly due to Excel tick-box changes.
+- ARE subject to automatic cleanup sweeps by `tools/cleanup_reconciler.py`.
+- Any portfolio folder not indexed in `Master_Portfolio_Sheet.xlsx` is a ZOMBIE and MUST be deleted.
+- Any indexed row without a corresponding folder is an ORPHAN and MUST be removed from the sheet.
+- Manual deletion is permitted, but automated reconciliation is preferred.
+
 
 ---
 
@@ -183,7 +185,7 @@ Portfolio artifacts are analytical and non-authoritative.
 
 Therefore:
 
-- Manual deletion of `strategies/<portfolio_id>/` is permitted.
+- Manual deletion of `strategies/<portfolio_id>/` is permitted. Automated cleanup via `tools/cleanup_reconciler.py` is the standard enforcement mechanism.
 
   If a portfolio folder is manually deleted, the corresponding row in
   `strategies/Master_Portfolio_Sheet.xlsx` MUST also be removed to
@@ -191,11 +193,11 @@ Therefore:
 
 `strategies/Master_Portfolio_Sheet.xlsx` is authoritative for portfolio existence.
 
-- Portfolio folders are not subject to automatic integrity sweeps.
-- Portfolio existence does not influence strategy retention.
+- Portfolio folders ARE subject to integrity reconciliation against strategies/Master_Portfolio_Sheet.xlsx.
+- Any portfolio folder without a corresponding Master_Portfolio_Sheet.xlsx entry MUST be deleted automatically during cleanup.
+- Any Master_Portfolio_Sheet.xlsx row without a corresponding folder MUST be removed.
+- Portfolio existence remains independent from strategy retention.
 - Portfolio artifacts must not mutate underlying strategy artifacts.
-
-Portfolio evaluation is advisory and does not alter system state.
 
 ---
 
@@ -214,9 +216,11 @@ When enforced, this SOP ensures:
 - analytical flexibility
 - no cross-layer coupling
 - preservation of strategy integrity
-- clean separation between governance and analysis
+- clear separation between governance and analysis
+- **auditable existence** via Master Portfolio Sheet
 
-Filesystem governs run start.  
-Strategy Master Sheet governs completed strategy state.  
-Portfolio artifacts remain independent and advisory.
+Filesystem governs run start.
+Strategy Master Sheet governs completed strategy state.
+Master Portfolio Sheet governs portfolio existence.
+
 

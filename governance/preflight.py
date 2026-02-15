@@ -24,7 +24,8 @@ REQUIRED_SOPS = [
 def run_preflight(
     directive_path: str,
     engine_name: str,
-    engine_version: str
+    engine_version: str,
+    skip_vault_check: bool = False
 ) -> tuple[str, str, Optional[dict]]:
     """
     Run preflight checks before backtest execution.
@@ -61,7 +62,7 @@ def run_preflight(
     
     # Check if engine is vaulted (modification not allowed)
     vault_path = PROJECT_ROOT / "vault" / "engines" / engine_name
-    if vault_path.exists():
+    if not skip_vault_check and vault_path.exists():
         pass
     
     # --- CHECK 2.5: Mandatory Engine Integrity Check ---
@@ -74,7 +75,12 @@ def run_preflight(
             None
         )
     
-    exit_code = os.system(f"python {integrity_check}")
+    if skip_vault_check:
+        cmd = f"python {integrity_check} --mode workspace"
+    else:
+        cmd = f"python {integrity_check} --mode strict"
+
+    exit_code = os.system(cmd)
     if exit_code != 0:
         return (
             "BLOCK_EXECUTION",

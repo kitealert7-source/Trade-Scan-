@@ -23,9 +23,7 @@ warnings.filterwarnings('ignore')
 # ------------------------------------------------------------------
 # IMPORTS (numpy/pandas/matplotlib)
 # ------------------------------------------------------------------
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -85,8 +83,8 @@ def load_all_trades(strategy_id):
         raise FileNotFoundError(f"Strategy Master Filter not found at {master_path}")
     
     try:
-        # Read using openpyxl engine
-        df_master = pd.read_excel(master_path, engine='openpyxl')
+        # Read using default engine
+        df_master = pd.read_excel(master_path)
     except Exception as e:
         raise ValueError(f"Failed to read Strategy Master Filter: {e}")
 
@@ -204,7 +202,7 @@ def load_symbol_metrics(strategy_id):
         raise FileNotFoundError(f"Strategy Master Filter not found at {master_path}")
     
     try:
-        df_master = pd.read_excel(master_path, engine='openpyxl')
+        df_master = pd.read_excel(master_path)
     except Exception as e:
         raise ValueError(f"Failed to read Strategy Master Filter: {e}")
 
@@ -388,19 +386,19 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
         ])
 
     return {
-        'net_pnl_usd': round(net_pnl, 2),
-        'cagr': round(cagr * 100, 2),
-        'max_dd_usd': round(max_dd_usd, 2),
-        'max_dd_pct': round(max_dd_pct * 100, 2),
-        'return_dd_ratio': round(return_dd, 2),
-        'sharpe': round(sharpe, 2),
-        'sortino': round(sortino, 2),
-        'k_ratio': round(k_ratio, 2),
-        'mar': round(mar, 2),
+        'net_pnl_usd': net_pnl,
+        'cagr': cagr,
+        'max_dd_usd': max_dd_usd,
+        'max_dd_pct': max_dd_pct,
+        'return_dd_ratio': return_dd,
+        'sharpe': sharpe,
+        'sortino': sortino,
+        'k_ratio': k_ratio,
+        'mar': mar,
         'longest_flat_days': longest_flat_days,
         'longest_flat_trades': flat_trades,
         'total_trades': len(portfolio_df),
-        'years': round(years, 1),
+        'years': years,
         'start_date': str(start_date.date()),
         'end_date': str(end_date.date()),
     }
@@ -462,10 +460,10 @@ def compute_concurrency_series(portfolio_df):
         last_time = t
         
     avg_concurrent = weighted_sum / total_duration if total_duration > 0 else 0.0
-    pct_deployed = (time_deployed / total_duration * 100) if total_duration > 0 else 0.0
+    pct_deployed = (time_deployed / total_duration) if total_duration > 0 else 0.0
     
     time_at_max = duration_by_count[max_concurrent]
-    pct_at_max = (time_at_max / total_duration * 100) if total_duration > 0 else 0.0
+    pct_at_max = (time_at_max / total_duration) if total_duration > 0 else 0.0
     
     return series, max_concurrent, avg_concurrent, pct_at_max, pct_deployed
 
@@ -482,8 +480,8 @@ def capital_utilization(portfolio_df, symbol_trades):
     total_days = (end - start).days if pd.notnull(start) and pd.notnull(end) else 0
 
     return {
-        'pct_time_deployed': round(pct_deployed, 1),
-        'avg_concurrent': round(avg_conc, 2),
+        'pct_time_deployed': pct_deployed,
+        'avg_concurrent': avg_conc,
         'max_concurrent': int(max_conc),
         'total_trading_days': total_days,
     }
@@ -502,7 +500,7 @@ def concurrency_profile(portfolio_df, portfolio_equity):
     # 1. Distribution
     if len(concurrent_values) > 0:
         counts = pd.Series(concurrent_values).value_counts(normalize=True).sort_index()
-        distribution = {int(k): round(v * 100, 1) for k, v in counts.items()}
+        distribution = {int(k): v for k, v in counts.items()}
         p95_conc = np.percentile(concurrent_values, 95)
     else:
         distribution = {}
@@ -511,7 +509,7 @@ def concurrency_profile(portfolio_df, portfolio_equity):
     # Full load clustering check (float precision safe)
     full_load_cluster = (p95_conc >= max_conc - 1e-9)
     # pct_days_at_max (now pct_time_at_max)
-    pct_days_at_max = round(pct_at_max, 2)
+    pct_days_at_max = pct_at_max
     
     # 3. During Largest DD
     running_max = portfolio_equity.cummax()
@@ -550,13 +548,13 @@ def concurrency_profile(portfolio_df, portfolio_equity):
         regime_avg = {'low': 0, 'normal': 0, 'high': 0}
 
     return {
-        "avg_concurrent": round(avg_conc, 2),
+        "avg_concurrent": avg_conc,
         "max_concurrent": int(max_conc),
-        "p95_concurrent": round(p95_conc, 2),
+        "p95_concurrent": p95_conc,
         "distribution": distribution,
-        "dd_avg_concurrent": round(dd_avg, 2),
+        "dd_avg_concurrent": dd_avg,
         "dd_max_concurrent": int(dd_max),
-        "regime_avg": regime_avg,
+        "regime_avg": regime_means.to_dict(),
         "full_load_cluster": bool(full_load_cluster),
         "pct_days_at_max": pct_days_at_max
     }
@@ -610,9 +608,9 @@ def correlation_analysis(symbol_equity):
 
     return {
         'corr_matrix': corr_matrix,
-        'avg_pairwise_corr': round(avg_corr, 3),
-        'us_cluster_corr': round(us_avg, 3),
-        'eu_cluster_corr': round(eu_avg, 3),
+        'avg_pairwise_corr': avg_corr,
+        'us_cluster_corr': us_avg,
+        'eu_cluster_corr': eu_avg,
         'returns_df': returns_df,
     }
 
@@ -659,7 +657,7 @@ def contribution_analysis(symbol_trades, portfolio_df):
 
     for sym, df in symbol_trades.items():
         sym_pnl = df['pnl_usd'].sum()
-        pnl_pct = (sym_pnl / total_pnl * 100) if total_pnl != 0 else 0
+        pnl_pct = (sym_pnl / total_pnl) if total_pnl != 0 else 0
 
         # Volatility contribution (std of PnL)
         sym_vol = df['pnl_usd'].std()
@@ -668,12 +666,12 @@ def contribution_analysis(symbol_trades, portfolio_df):
         regime_pnl = {}
         for regime in ['low', 'normal', 'high']:
             r_df = df[df['volatility_regime'] == regime]
-            regime_pnl[regime] = round(r_df['pnl_usd'].sum(), 2)
+            regime_pnl[regime] = r_df['pnl_usd'].sum()
 
         contributions[sym] = {
-            'total_pnl': round(sym_pnl, 2),
-            'pnl_pct': round(pnl_pct, 1),
-            'volatility': round(sym_vol, 2),
+            'total_pnl': sym_pnl,
+            'pnl_pct': pnl_pct,
+            'volatility': sym_vol,
             'trades': len(df),
             'regime_pnl': regime_pnl,
         }
@@ -727,8 +725,8 @@ def drawdown_anatomy(portfolio_equity, portfolio_df):
     return {
         'peak_date': str(peak_idx.date()),
         'trough_date': str(trough_idx.date()),
-        'absolute_drop_usd': round(trough_val, 2),
-        'pct_retracement': round(trough_pct * 100, 2),
+        'absolute_drop_usd': trough_val,
+        'pct_retracement': trough_pct,
         'duration_days': dd_duration,
         'recovery_days': recovery_days,
         'trades_during_collapse': len(dd_trades),
@@ -788,10 +786,10 @@ def stress_test(symbol_trades, portfolio_df):
 
         results[name] = {
             'symbols': len(syms),
-            'net_pnl': round(net, 2),
-            'sharpe': round(sh, 2),
-            'max_dd_usd': round(dd, 2),
-            'return_dd': round(rdd, 2),
+            'net_pnl': net,
+            'sharpe': sh,
+            'max_dd_usd': dd,
+            'return_dd': rdd,
         }
 
     return results
@@ -809,9 +807,9 @@ def regime_segmentation(portfolio_df):
             continue
         regime_stats[regime] = {
             'trades': len(r_df),
-            'net_pnl': round(r_df['pnl_usd'].sum(), 2),
-            'avg_pnl': round(r_df['pnl_usd'].mean(), 2),
-            'win_rate': round((r_df['pnl_usd'] > 0).mean() * 100, 1),
+            'net_pnl': r_df['pnl_usd'].sum(),
+            'avg_pnl': r_df['pnl_usd'].mean(),
+            'win_rate': (r_df['pnl_usd'] > 0).mean(),
         }
 
     # Yearly
@@ -821,9 +819,9 @@ def regime_segmentation(portfolio_df):
     for yr, ydf in portfolio_df.groupby('year'):
         yearly[int(yr)] = {
             'trades': len(ydf),
-            'net_pnl': round(ydf['pnl_usd'].sum(), 2),
-            'avg_pnl': round(ydf['pnl_usd'].mean(), 2),
-            'win_rate': round((ydf['pnl_usd'] > 0).mean() * 100, 1),
+            'net_pnl': ydf['pnl_usd'].sum(),
+            'avg_pnl': ydf['pnl_usd'].mean(),
+            'win_rate': (ydf['pnl_usd'] > 0).mean(),
         }
 
     return {'regime': regime_stats, 'yearly': yearly}
@@ -1046,8 +1044,8 @@ def generate_portfolio_tradelevel(portfolio_df, output_dir, total_capital):
         ratio = 0.0
     
     return {
-        'peak_capital_deployed': round(peak_capital, 2),
-        'capital_overextension_ratio': round(ratio, 2)
+        'peak_capital_deployed': peak_capital,
+        'capital_overextension_ratio': ratio
     }
 def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
                   dd_anatomy, stress_results, regime_data, cap_util, concurrency_data, 
@@ -1073,7 +1071,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'k_ratio': port_metrics['k_ratio'],
         'mar': port_metrics['mar'],
         'avg_correlation': corr_data['avg_pairwise_corr'],
-        'max_pairwise_corr_stress': round(max_stress_corr, 3),
+        'max_pairwise_corr_stress': max_stress_corr,
         'avg_concurrent': concurrency_data['avg_concurrent'],
         'max_concurrent': concurrency_data['max_concurrent'],
         'p95_concurrent': concurrency_data['p95_concurrent'],
@@ -1118,11 +1116,11 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     elif port_metrics['sharpe'] >= 0.5: score += 1
     if port_metrics['return_dd_ratio'] >= 2.0: score += 2
     elif port_metrics['return_dd_ratio'] >= 1.0: score += 1
-    if abs(port_metrics['max_dd_pct']) <= 10: score += 1
+    if abs(port_metrics['max_dd_pct']) <= 0.10: score += 1
     if port_metrics['net_pnl_usd'] > 0: score += 1
     if corr_data['avg_pairwise_corr'] < 0.5: score += 1
     top_conc = max(c['pnl_pct'] for c in contributions.values())
-    if top_conc < 30: score += 1
+    if top_conc < 0.30: score += 1
     if concurrency_data['p95_concurrent'] <= 4: score += 1
 
     if score >= 7:
@@ -1136,7 +1134,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     baseline_pnl = stress_results.get('baseline', {}).get('net_pnl', 0)
     us_removed = [v for k, v in stress_results.items() if 'US_cluster' in k]
     us_removed_pnl = us_removed[0]['net_pnl'] if us_removed else 0
-    us_dependency = ((baseline_pnl - us_removed_pnl) / baseline_pnl * 100) if baseline_pnl != 0 else 0
+    us_dependency = ((baseline_pnl - us_removed_pnl) / baseline_pnl) if baseline_pnl != 0 else 0.0
 
     overview = f"""# {strategy_id} — Portfolio Evaluation Summary
 
@@ -1145,39 +1143,39 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
 | Metric | Value |
 |--------|-------|
 | Net PnL | ${port_metrics['net_pnl_usd']:,.2f} |
-| CAGR | {port_metrics['cagr']:.2f}% |
+| CAGR | {port_metrics['cagr']:.2%} |
 | Sharpe | {port_metrics['sharpe']:.2f} |
 | Sortino | {port_metrics['sortino']:.2f} |
 | Max DD (USD) | ${port_metrics['max_dd_usd']:,.2f} |
-| Max DD (%) | {port_metrics['max_dd_pct']:.2f}% |
+| Max DD (%) | {port_metrics['max_dd_pct']:.2%} |
 | Return/DD | {port_metrics['return_dd_ratio']:.2f} |
 | K-Ratio | {port_metrics['k_ratio']:.2f} |
 | MAR | {port_metrics['mar']:.2f} |
 | Avg Correlation | {corr_data['avg_pairwise_corr']:.3f} |
 | Total Trades | {port_metrics['total_trades']} |
-| Period | {port_metrics['start_date']} to {port_metrics['end_date']} ({port_metrics['years']} yrs) |
+| Period | {port_metrics['start_date']} to {port_metrics['end_date']} ({port_metrics['years']:.1f} yrs) |
 
 ## Top/Worst Contributors
 
-- **Top**: {top_sym} (${contributions[top_sym]['total_pnl']:,.2f}, {contributions[top_sym]['pnl_pct']:.1f}%)
-- **Worst**: {worst_sym} (${contributions[worst_sym]['total_pnl']:,.2f}, {contributions[worst_sym]['pnl_pct']:.1f}%)
+- **Top**: {top_sym} (${contributions[top_sym]['total_pnl']:,.2f}, {contributions[top_sym]['pnl_pct']:.1%})
+- **Worst**: {worst_sym} (${contributions[worst_sym]['total_pnl']:,.2f}, {contributions[worst_sym]['pnl_pct']:.1%})
 
 ## Capital Utilization
 
-- Time deployed: {cap_util['pct_time_deployed']}%
-- Avg concurrent positions: {cap_util['avg_concurrent']}
+- Time deployed: {cap_util['pct_time_deployed']:.1%}
+- Avg concurrent positions: {cap_util['avg_concurrent']:.2f}
 - Max concurrent: {cap_util['max_concurrent']}
 
 ## Concurrency Profile
 
-- 95th percentile concurrency: {concurrency_data['p95_concurrent']}
-- Pct days at max concurrency: {concurrency_data['pct_days_at_max']}%
-- Avg concurrency during largest DD: {concurrency_data['dd_avg_concurrent']}
+- 95th percentile concurrency: {concurrency_data['p95_concurrent']:.2f}
+- Pct days at max concurrency: {concurrency_data['pct_days_at_max']:.1%}
+- Avg concurrency during largest DD: {concurrency_data['dd_avg_concurrent']:.2f}
 - Max concurrency during largest DD: {concurrency_data['dd_max_concurrent']}
 - Regime avg concurrency:
-    - Low: {concurrency_data['regime_avg']['low']}
-    - Normal: {concurrency_data['regime_avg']['normal']}
-    - High: {concurrency_data['regime_avg']['high']}
+    - Low: {concurrency_data['regime_avg']['low']:.2f}
+    - Normal: {concurrency_data['regime_avg']['normal']:.2f}
+    - High: {concurrency_data['regime_avg']['high']:.2f}
 """
 
     if concurrency_data['full_load_cluster']:
@@ -1188,21 +1186,21 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     overview += f"""
 ## Risk Assessment
 
-- Largest drawdown: {dd_anatomy['peak_date']} to {dd_anatomy['trough_date']} (${dd_anatomy['absolute_drop_usd']:,.2f}, {dd_anatomy['pct_retracement']:.2f}%)
+- Largest drawdown: {dd_anatomy['peak_date']} to {dd_anatomy['trough_date']} (${dd_anatomy['absolute_drop_usd']:,.2f}, {dd_anatomy['pct_retracement']:.2%})
 - Recovery: {'%d days' % dd_anatomy['recovery_days'] if dd_anatomy['recovery_days'] else 'Not recovered'}
-- US cluster dependency: {us_dependency:.1f}% of PnL
+- US cluster dependency: {us_dependency:.1%} of PnL
 
 ## Concentration Risk
 
-- Top contributor accounts for {top_conc:.1f}% of total PnL
-- US cluster (NAS100, SPX500, US30): ~{us_dependency:.0f}% dependency
+- Top contributor accounts for {top_conc:.1%} of total PnL
+- US cluster (NAS100, SPX500, US30): ~{us_dependency:.0%} dependency
 - Avg pairwise correlation: {corr_data['avg_pairwise_corr']:.3f}
 
 ## Regime Performance
 
 """
     for regime, stats in regime_data['regime'].items():
-        overview += f"- **{regime.title()}** vol: {stats['trades']} trades, ${stats['net_pnl']:,.2f} PnL, {stats['win_rate']:.1f}% WR\n"
+        overview += f"- **{regime.title()}** vol: {stats['trades']} trades, ${stats['net_pnl']:,.2f} PnL, {stats['win_rate']:.1%} WR\n"
 
     overview += f"""
 ## Recommendation
@@ -1287,7 +1285,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "dd_max_concurrent": concurrency_data['dd_max_concurrent'],
         "full_load_cluster": concurrency_data['full_load_cluster'],
         "avg_pairwise_corr": corr_data['avg_pairwise_corr'],
-        "max_pairwise_corr_stress": round(max_stress_corr, 3),
+        "max_pairwise_corr_stress": max_stress_corr,
         "total_trades": metrics['total_trades'],
         "portfolio_engine_version": "1.2.1"
     }
@@ -1317,53 +1315,21 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     df_final = pd.concat([df_ledger, new_row[columns]], ignore_index=True)
     
     # Save
-    with pd.ExcelWriter(ledger_path, engine='openpyxl') as writer:
-        df_final.to_excel(writer, index=False)
+    # Use pandas default writer (openpyxl engine implied by xlsx extension, but we don't import it directly)
+    # Actually, pandas might need 'openpyxl' installed, which is fine. We just don't use it for styling here.
+    df_final.to_excel(ledger_path, index=False)
 
-    # Apply Stage-3 Styling (SOP Compliance)
-    wb = openpyxl.load_workbook(ledger_path)
-    ws = wb.active
-    
-    # Styles
-    HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    HEADER_FONT = Font(bold=True, color="FFFFFF")
-    ALT_ROW_FILL = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
-    
-    # Styling Loop
-    for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
-        for cell in row:
-            cell.alignment = Alignment(horizontal="left")
-            if cell.row == 1:
-                cell.font = HEADER_FONT
-                cell.fill = HEADER_FILL
-            elif cell.row % 2 == 0:
-                 cell.fill = ALT_ROW_FILL
-                 
-    # Freeze Header
-    ws.freeze_panes = "A2"
-    
-    # Auto-fit Columns
-    for col in ws.columns:
-        max_length = 0
-        column = col[0].column_letter # Get the column name
-        for cell in col:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        adjusted_width = (max_length + 2)
-        if adjusted_width < 12: adjusted_width = 12
-        ws.column_dimensions[column].width = adjusted_width
-
-    # Hide 'constituent_run_ids' (SOP Auditing Field - Hidden for readability)
-    if "constituent_run_ids" in columns:
-        c_idx = columns.index("constituent_run_ids") + 1
-        c_letter = get_column_letter(c_idx)
-        ws.column_dimensions[c_letter].hidden = True
-        
-    wb.save(ledger_path)
-    wb.close()
+    # Call Unified Formatter
+    try:
+        cmd = [
+            sys.executable, 
+            str(PROJECT_ROOT / "tools" / "format_excel_artifact.py"),
+            "--file", str(ledger_path),
+            "--profile", "portfolio"
+        ]
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"[WARN] Formatting failed: {e}")
 
 
 # ==================================================================
@@ -1422,12 +1388,12 @@ def main():
     print("[5/9] Analyzing symbol contributions...")
     contributions = contribution_analysis(symbol_trades, portfolio_df)
     top_sym = max(contributions, key=lambda s: contributions[s]['total_pnl'])
-    print(f"  Top contributor: {top_sym} ({contributions[top_sym]['pnl_pct']:.1f}%)")
+    print(f"  Top contributor: {top_sym} ({contributions[top_sym]['pnl_pct']:.1%})")
 
     # Drawdown anatomy
     print("[6/9] Dissecting largest drawdown...")
     dd_anatomy = drawdown_anatomy(portfolio_equity, portfolio_df)
-    print(f"  Largest DD: ${dd_anatomy['absolute_drop_usd']:,.2f} ({dd_anatomy['pct_retracement']:.2f}%)")
+    print(f"  Largest DD: ${dd_anatomy['absolute_drop_usd']:,.2f} ({dd_anatomy['pct_retracement']:.2%})")
 
     # Stress Correlation (Injection)
     print("[6.5/9] Computing stress-window correlation...")
@@ -1492,10 +1458,10 @@ def main():
     print(f"PORTFOLIO EVALUATION COMPLETE — {strategy_id}")
     print(f"{'='*60}")
     print(f"\n  Net PnL:     ${port_metrics['net_pnl_usd']:,.2f}")
-    print(f"  CAGR:         {port_metrics['cagr']:.2f}%")
+    print(f"  CAGR:         {port_metrics['cagr']:.2%}")
     print(f"  Sharpe:       {port_metrics['sharpe']}")
     print(f"  Sortino:      {port_metrics['sortino']}")
-    print(f"  Max DD:       {port_metrics['max_dd_pct']:.2f}% (${port_metrics['max_dd_usd']:,.2f})")
+    print(f"  Max DD:       {port_metrics['max_dd_pct']:.2%} (${port_metrics['max_dd_usd']:,.2f})")
     print(f"  Return/DD:    {port_metrics['return_dd_ratio']}")
     print(f"  Peak Capital: ${port_metrics.get('peak_capital_deployed', 0):,.2f}")
     print(f"  Overextension: {port_metrics.get('capital_overextension_ratio', 0):.2f}")
