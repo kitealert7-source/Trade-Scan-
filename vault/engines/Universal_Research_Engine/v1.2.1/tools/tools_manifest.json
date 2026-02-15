@@ -1,0 +1,9 @@
+{
+    "file_hashes": {
+        "run_portfolio_analysis.py": "d2d3812ddd8ceb5f93920594891185df7a8092663a442f2e4605bc1852d309dc",
+        "portfolio_evaluator.py": "015af7dc78c3dcbb830c0488ae5749432c62f93616284a02e17f84113876dee9",
+        "format_excel_artifact.py": "48e978bbe0abc2f1ced22bcaa0f301a747300e1b089f7427b8834cf459477c5f",
+        "cleanup_reconciler.py": "309c5254b70de889fe758719dee2e1dcd6a7a06128b18afdc7ff6e5eabd44d80",
+        "run_pipeline.py": "517825fe96820b2aad25ce1da50c7df625c4f5f50e65e81b04c88fde0fc9c516"
+    }
+}
