@@ -95,6 +95,10 @@ def compute_volatility_regimes(trades: List[RawTradeRecord]) -> None:
              atr = t.entry_price * 0.015
         
         atr_values.append(atr)
+        
+        # PERSISTENCE FIX: Save back to record for CSV emission
+        if t.atr_entry is None or t.atr_entry == 0:
+            t.atr_entry = atr
 
     # Compute thresholds
     sorted_atrs = sorted([a for a in atr_values if a > 0])

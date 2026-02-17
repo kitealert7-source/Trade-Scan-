@@ -17,6 +17,7 @@ Trade_Scan/strategies/<STRATEGY_ID>/strategy.py
 ```
 
 Examples:
+
 ```
 strategies/SPX01/strategy.py
 strategies/FF001/strategy.py
@@ -87,6 +88,7 @@ The engine supplies a read-only `ctx` object containing:
 - best_price / worst_price (if in position)
 
 Strategies MUST NOT:
+
 - mutate engine state
 - access broker specs directly
 - write artifacts
@@ -111,11 +113,14 @@ No caching, global state, or cross-strategy sharing.
 ## 6. Governance Integration
 
 ### SOP_TESTING
+
 - Strategy logic MUST comply with this contract.
 - Any deviation invalidates the run.
 
 ### Preflight Agent
+
 Preflight MUST block execution if:
+
 - strategy module is missing
 - `Strategy` class is missing
 - required attributes are absent
@@ -126,6 +131,7 @@ Preflight MUST block execution if:
 ## 7. Change Policy (HARD)
 
 Any change to this contract:
+
 - is **engine evolution**
 - requires a new engine version
 - requires SOP update

@@ -1,0 +1,55 @@
+Test Name - Range_Breakout01
+Family: Forex
+Strategy: Range_Breakout
+Broker: OctaFX
+Timeframe: 15m
+Session Time Reference: UTC
+Start Date: 2024-01-01
+End Date: 2026-01-31
+
+Symbols: 
+
+AUDNZD
+AUDUSD
+EURAUD
+EURUSD
+GBPAUD
+GBPUSD
+GBPNZD
+NZDUSD
+USDCAD
+USDCHF
+USDJPY
+
+
+Notes:
+# Final Alignment v3 + PnL Fix
+Entry Rules
+Time Window (Range Definition): The strategy analyzes the price action between  03:00 and 06:00 UTC.
+Identify the highest high and lowest low during this 3-hour window using M5 data.
+Orders are placed immediately after range finalization.
+Order Placement (06:00 UTC)
+Place Buy Stop at the session high.
+Place Sell Stop at the session low.
+
+
+• Order Placement: At the end of the range period (6:00 AM), two pending orders are placed:
+    ◦ A Buy Stop order at the highest point of the range.
+    ◦ A Sell Stop order at the lowest point of the range.
+
+• Execution Logic: The strategy waits for one of the orders to be triggered. As soon as one order is executed, the opposing pending order is immediately deleted.
+• Frequency: Maximum two trades per day (if first trade hits SL and opposite side later triggers).No re-entry after second trade.
+
+
+Exit Rules
+• Time-Based Exit: All open positions are closed in the evening at 18:00 UTC.
+• Stop loss is placed at the opposite side of the defined range.
+• Take Profit: There is no Take Profit (TP) target used. The strategy relies on the time-based exit or the stop loss.
+• Trailing Stop: None.
+
+
+
+
+
+
+

@@ -26,6 +26,7 @@ At run start, the filesystem is the **only authoritative state**.
 - **Primary Key:** `run_id` (globally unique, immutable)
 
 The master sheet is written **only after successful run completion** and is authoritative for:
+
 - retention
 - cleanup
 - registry state of completed runs
@@ -36,17 +37,21 @@ The master sheet is written **only after successful run completion** and is auth
 ## 3. Cleanup Invariants (Ledger Authority)
 
 **Authoritative Ledger**
+
 - `Strategy_Master_Filter.xlsx` is the sole authority for historical run retention.
 
 **Valid Snapshot Definition**
+
 - A `runs/<run_id>/` snapshot is valid if and only if it is indexed in the Master Sheet.
 
 **Zombie Definition**
+
 - A snapshot is classified as a zombie only if:
     1. It exists in `runs/<run_id>/`
     2. AND it does not have a corresponding Master Sheet entry.
 
 **Materialized View Independence**
+
 - The presence or absence of a `backtests/<strategy_symbol>/` folder does not determine snapshot validity.
 
 ---
@@ -75,6 +80,7 @@ After successful execution:
 3. Upsert the corresponding row in the Strategy Master Sheet.
 
 If the master sheet update fails:
+
 - All newly created artifacts MUST be deleted or quarantined.
 - No unindexed artifacts may persist.
 
@@ -85,11 +91,13 @@ If the master sheet update fails:
 **Trigger:** Removal of a row from the Strategy Master Sheet.
 
 **Execution Order:**
+
 1. `rm -rf runs/<run_id>/`
 2. `rm -rf backtests/<strategy>/`
 3. Persist master sheet update
 
 **Always Preserve:**
+
 - `Strategy_Master_Filter.xlsx`
 - `batch_summary_*.csv`
 - directive/source files
@@ -113,7 +121,6 @@ Periodic or startup integrity sweep must detect and resolve:
 The filesystem is trusted for **existence**, the master sheet for **commit validity**.
 
 ---
-
 
 ## 8. Portfolio Evaluation Artifacts (Non-Strategy Layer)
 
@@ -140,12 +147,11 @@ and must contain:
 ---
 
 ### 8.3 Authority Model
-    
+
 - Portfolio existence is governed by `strategies/Master_Portfolio_Sheet.xlsx` (Authoritative).
 - Portfolio folders MUST correspond to a valid row in the Master Portfolio Sheet.
 - Deletion of strategy runs does NOT automatically delete portfolio folders (they are independent layers), BUT:
 - Portfolio folders ARE subject to integrity reconciliation via `tools/cleanup_reconciler.py`.
-
 
 ---
 
@@ -158,7 +164,6 @@ Portfolio folders:
 - Any indexed row without a corresponding folder is an ORPHAN and MUST be removed from the sheet.
 - Manual deletion is permitted, but automated reconciliation is preferred.
 
-
 ---
 
 ## 9. Prohibitions
@@ -168,8 +173,8 @@ Portfolio folders:
 The following actions are strictly forbidden for strategy artifacts governed by `Strategy_Master_Filter.xlsx`:
 
 - No manual deletion of:
-    - `runs/<run_id>/`
-    - `backtests/<strategy>/`
+  - `runs/<run_id>/`
+  - `backtests/<strategy>/`
 - No timestamp-based cleanup logic
 - No retention of partial or failed runs
 - No artifact persistence without successful master sheet indexing
@@ -205,14 +210,16 @@ Therefore:
 
 When enforced, this SOP ensures:
 
-### Strategy Layer:
+### Strategy Layer
+
 - bounded storage growth
 - safe overwrite semantics
 - deterministic cleanup
 - audit-safe registry state
 - single-source-of-truth retention
 
-### Portfolio Layer:
+### Portfolio Layer
+
 - analytical flexibility
 - no cross-layer coupling
 - preservation of strategy integrity
@@ -222,5 +229,3 @@ When enforced, this SOP ensures:
 Filesystem governs run start.
 Strategy Master Sheet governs completed strategy state.
 Master Portfolio Sheet governs portfolio existence.
-
-

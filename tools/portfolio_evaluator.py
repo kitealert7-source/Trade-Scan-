@@ -95,12 +95,15 @@ def load_all_trades(strategy_id):
     # Using startswith because Master Sheet strategy column often contains {STRATEGY_ID}_{SYMBOL}
     # Governed by SOP: Strict prefix matching to avoid collisions (e.g. IDX2 vs IDX27)
     selected_rows = df_master[
-        (df_master['strategy'].astype(str).str.startswith(strategy_id + "_")) & 
-        (df_master['IN_PORTFOLIO'] == True)
+        (df_master['strategy'].astype(str).str.startswith(strategy_id + "_"))
     ]
-    
+
     if selected_rows.empty:
-        raise ValueError("No strategies marked IN_PORTFOLIO=True")
+        # Fallback: Try Exact Match
+        selected_rows = df_master[df_master['strategy'] == strategy_id]
+        
+    if selected_rows.empty:
+        raise ValueError(f"No strategies found in Master Filter matching {strategy_id}")
     
     # 3. Extract and Load
     loaded_symbols = []
@@ -211,12 +214,15 @@ def load_symbol_metrics(strategy_id):
          raise ValueError("Master Sheet missing required columns: 'strategy', 'IN_PORTFOLIO', 'run_id', or 'symbol'")
 
     selected_rows = df_master[
-        (df_master['strategy'].astype(str).str.startswith(strategy_id + "_")) & 
-        (df_master['IN_PORTFOLIO'] == True)
+        (df_master['strategy'].astype(str).str.startswith(strategy_id + "_")) 
     ]
     
     if selected_rows.empty:
-        raise ValueError("No strategies marked IN_PORTFOLIO=True")
+        # Fallback: Try Exact Match
+        selected_rows = df_master[df_master['strategy'] == strategy_id]
+        
+    if selected_rows.empty:
+        raise ValueError(f"No strategies found in Master Filter matching {strategy_id}")
         
     # 3. Locate Folders (Pre-scan for Run-ID mapping)
     run_id_map = {}

@@ -4,6 +4,9 @@ OBJECTIVE
 Execute all directives deterministically via the pipeline manager.
 No stage skipping. No inference. No mutation.
 
+Follow SOP_Testing, SOP_Output and other SOPs strictly.
+No mutation of prior-stage artifacts.
+No back-propagation.
 --------------------------------------------------
 SCOPE
 --------------------------------------------------

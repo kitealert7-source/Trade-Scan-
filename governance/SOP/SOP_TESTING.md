@@ -12,6 +12,7 @@
 This SOP governs **execution‑time behavior only**.
 
 Trade_Scan:
+
 - reads human‑written directives
 - executes back tests
 - computes execution metrics
@@ -27,6 +28,7 @@ All post‑execution presentation, aggregation, and reporting are governed by **
 All decisions are made by **humans**.
 
 Trade_Scan has **no authority** to:
+
 - decide what to back test
 - expand scope
 - judge outcomes
@@ -42,6 +44,7 @@ Trade_Scan exists only while executing explicit instructions.
 ### 3.1 Directive Source
 
 Executable directives MUST reside in:
+
 ```
 backtest_directives/active/
 ```
@@ -50,7 +53,6 @@ Execution may be:
 
 - Single-directive mode (explicit ID)
 - Sequential batch mode (`--all`)
-
 
 ---
 
@@ -81,6 +83,7 @@ The pipeline orchestrator is the sole authorized execution entry point.
 Upon atomic completion of all declared execution phases:
 
 The processed directive MUST be moved to:
+
 ```
 backtest_directives/completed_run/
 ```
@@ -94,7 +97,6 @@ If execution fails or is interrupted:
 Overwrite of previously completed directives is permitted in research mode, as execution is deterministic and reproducible.
 
 ---
-
 
 ## 4. Execution Model
 
@@ -121,7 +123,6 @@ There is:
 
 Vault is not accessed during normal execution and must not influence pipeline behavior.
 
-
 ---
 
 ## 5. Strategy Folder & Artifact Authority (LOCKED)
@@ -142,6 +143,8 @@ This folder is the **sole authoritative container** for the run.
 A run is `RUN_COMPLETE` only if **all declared executions finish atomically**.
 
 Failed or partial runs:
+
+- produce no retained artifacts
 - produce no retained artifacts
 - must be deleted
 - must not update any indices
@@ -158,6 +161,8 @@ Stage‑1 artifacts:
 - must be sufficient for exact reproduction
 
 Stage‑2 and Stage‑3:
+
+- MUST NOT recompute execution metrics already present in Stage-1 artifacts.
 - MUST NOT recompute execution metrics already present in Stage-1 artifacts.
 - MAY aggregate only as allowed by SOP_OUTPUT — VERSION 4.1
 
@@ -169,6 +174,7 @@ This is the **complete and authoritative Stage‑1 trade schema**.
 Field names and presence MUST match SOP_OUTPUT
 
 ### Core Identity & Timing
+
 - strategy_name
 - parent_trade_id
 - sequence_index
@@ -176,6 +182,7 @@ Field names and presence MUST match SOP_OUTPUT
 - exit_timestamp
 
 ### Trade Semantics
+
 - direction
 - entry_price
 - exit_price
@@ -183,11 +190,13 @@ Field names and presence MUST match SOP_OUTPUT
 - bars_held (nullable)
 
 ### Risk, Sizing & Exposure
+
 - atr_entry (nullable)
 - position_units (nullable)
 - notional_usd (nullable)
 
 ### Excursion Metrics
+
 - trade_high (nullable)
 - trade_low (nullable)
 - mfe_price (nullable)
@@ -197,6 +206,7 @@ Field names and presence MUST match SOP_OUTPUT
 - r_multiple (nullable)
 
 **Rules**
+
 - All fields MUST be computed during execution
 - All fields MUST be emitted in Stage‑1 artifacts
 - Fields MUST NOT be inferred, reconstructed, or recomputed later
@@ -266,8 +276,6 @@ Any change to constraint logic constitutes engine evolution.
 
 ------------------------------------------------------------------------
 
-
-
 ---
 
 ## 8. Capital, Risk & Broker Constraints (LOCKED)
@@ -293,6 +301,8 @@ Trade_Scan/data_access/broker_specs/<BROKER>/<SYMBOL>.yaml
 ```
 
 Mandatory fields:
+
+- min_lot
 - min_lot
 - lot_step
 - max_lot
@@ -307,6 +317,8 @@ No defaults or inference permitted.
 Iteration is permitted **only if explicitly declared**.
 
 Each iteration:
+
+- is a full folder copy
 - is a full folder copy
 - is isolated
 - is non‑adaptive
@@ -325,6 +337,8 @@ Each iteration:
 ## 11. Prohibitions (HARD)
 
 Forbidden:
+
+- post‑hoc filtering
 - post‑hoc filtering
 - data snooping
 - undeclared reruns
@@ -336,8 +350,10 @@ Forbidden:
 ## 12. Handoff to SOP_OUTPUT
 
 Upon RUN_COMPLETE:
+
 - Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.1
-- This SOP relinquishes authority beyond Stage‑1 artifacts 
+- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.1
+- This SOP relinquishes authority beyond Stage‑1 artifacts
 
 ---
 

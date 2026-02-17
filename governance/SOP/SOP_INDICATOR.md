@@ -34,19 +34,19 @@ Subfolder grouping by domain is permitted:
 
 An indicator is defined as:
 
--   A pure function
--   Deterministic
--   Stateless
--   Side-effect free
--   Returning a pandas Series
+- A pure function
+- Deterministic
+- Stateless
+- Side-effect free
+- Returning a pandas Series
 
 Indicators MUST NOT:
 
--   Access engine internals
--   Access strategy context
--   Modify external state
--   Perform file I/O
--   Depend on global variables
+- Access engine internals
+- Access strategy context
+- Modify external state
+- Perform file I/O
+- Depend on global variables
 
 ------------------------------------------------------------------------
 
@@ -54,10 +54,10 @@ Indicators MUST NOT:
 
 Indicators MUST:
 
--   Accept explicit inputs (DataFrame or Series)
--   Not rely on hidden data
--   Not mutate input objects
--   Return a new Series aligned to input index
+- Accept explicit inputs (DataFrame or Series)
+- Not rely on hidden data
+- Not mutate input objects
+- Return a new Series aligned to input index
 
 Standard form:
 
@@ -88,9 +88,9 @@ Indicator function signatures MUST NOT change silently.
 
 If a signature change is required:
 
--   A new function name MUST be introduced
--   Existing function MUST remain backward compatible
--   Dependent strategies MUST be updated explicitly
+- A new function name MUST be introduced
+- Existing function MUST remain backward compatible
+- Dependent strategies MUST be updated explicitly
 
 No breaking changes allowed without version traceability.
 
@@ -102,15 +102,15 @@ Indicator logic is part of research determinism.
 
 Therefore:
 
--   Indicator files are snapshotted indirectly through strategy
+- Indicator files are snapshotted indirectly through strategy
     snapshots.
--   Strategies depending on indicators assume indicator repository
+- Strategies depending on indicators assume indicator repository
     stability.
 
 If an indicator is materially changed:
 
--   This constitutes research evolution.
--   Revalidation of dependent strategies is REQUIRED.
+- This constitutes research evolution.
+- Revalidation of dependent strategies is REQUIRED.
 
 ------------------------------------------------------------------------
 
@@ -131,6 +131,7 @@ However, enforcement is governance-level only. Execution engine behavior
 remains unaffected.
 
 ------------------------------------------------------------------------
+
 ## 10. Indicator Dependency Validation (MANDATORY)
 
 Strategy plugins MUST declare indicator dependencies exclusively through:
@@ -140,7 +141,7 @@ Strategy plugins MUST declare indicator dependencies exclusively through:
 The following rules apply:
 
 1. All referenced indicator modules MUST physically exist under:
-   
+
        Trade_Scan/indicators/
 
 2. Missing indicator files SHALL result in HARD FAILURE during Stage-1 preflight.
@@ -226,14 +227,12 @@ Indicator files SHALL NOT be modified to accommodate parameter testing.
 ---
 
 This policy ensures:
+
 - Repository minimalism
 - Mathematical consistency
 - Reuse integrity
 - Clean separation of concerns
 - Future-safe parameter experimentation
 
------------------------------------------------------------------------
+-----
 END OF DOCUMENT
-
-
-

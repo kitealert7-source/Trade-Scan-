@@ -14,9 +14,12 @@ TRADE_SCAN_DOCTRINE
 This SOP governs deterministic cross-run portfolio construction and
 evaluation.
 
-Portfolio analysis: - Operates only on RUN_COMPLETE strategies - Does
-not alter Stage-1, Stage-2, or Stage-3 artifacts - Produces independent
-portfolio artifacts - Maintains strict forward-only flow
+Portfolio analysis:
+
+- Operates only on RUN_COMPLETE strategies
+- Does not alter Stage-1, Stage-2, or Stage-3 artifacts
+- Produces independent portfolio artifacts
+- Maintains strict forward-only flow
 
 Portfolio analysis is structural synthesis, not execution truth.
 
@@ -26,11 +29,11 @@ Portfolio analysis is structural synthesis, not execution truth.
 
 Stage-4:
 
--   MAY read Stage-1, Stage-2, and Stage-3 artifacts
--   MUST NOT modify any prior artifact
--   MUST NOT write to Strategy_Master_Filter.xlsx
--   MUST NOT trigger cleanup
--   MUST NOT influence strategy registry state
+- MAY read Stage-1, Stage-2, and Stage-3 artifacts
+- MUST NOT modify any prior artifact
+- MUST NOT write to Strategy_Master_Filter.xlsx
+- MUST NOT trigger cleanup
+- MUST NOT influence strategy registry state
 
 Flow is strictly:
 
@@ -44,14 +47,14 @@ No backward mutation permitted.
 
 Each portfolio MUST define:
 
--   portfolio_id (unique, immutable)
--   creation_timestamp_utc
--   constituent_run_ids (explicit list)
--   reference_capital_usd
--   capital_model_version = "v1.0_trade_close_compounding"
--   portfolio_engine_version
--   rolling_window_length (default: 252)
--   schema_version
+- portfolio_id (unique, immutable)
+- creation_timestamp_utc
+- constituent_run_ids (explicit list)
+- reference_capital_usd
+- capital_model_version = "v1.0_trade_close_compounding"
+- portfolio_engine_version
+- rolling_window_length (default: 252)
+- schema_version
 
 Portfolio is a synthetic research object.
 
@@ -65,11 +68,11 @@ Dynamic Capital Scaling --- Trade-Close Compounding
 
 ### Rules
 
-1.  All trades from constituent runs are executed.
-2.  No trade is rejected due to capital insufficiency.
-3.  reference_capital_usd is the initial equity baseline.
-4.  Equity updates ONLY when trades close.
-5.  No mark-to-market adjustments are permitted.
+1. All trades from constituent runs are executed.
+2. No trade is rejected due to capital insufficiency.
+3. reference_capital_usd is the initial equity baseline.
+4. Equity updates ONLY when trades close.
+5. No mark-to-market adjustments are permitted.
 
 ------------------------------------------------------------------------
 
@@ -107,8 +110,8 @@ capital_deployed_t = sum(notional_usd of open trades)
 
 Required metrics:
 
--   peak_capital_deployed
--   capital_overextension_ratio = peak_capital_deployed /
+- peak_capital_deployed
+- capital_overextension_ratio = peak_capital_deployed /
     max_equity_observed
 
 These MUST be emitted.
@@ -154,21 +157,21 @@ portfolio_tradelevel.csv
 
 Required fields:
 
--   source_run_id
--   strategy_name
--   entry_timestamp
--   exit_timestamp
--   direction
--   entry_price
--   exit_price
--   pnl_usd
--   position_units
--   notional_usd
--   bars_held
--   equity_before_trade
--   equity_after_trade
--   concurrency_at_entry
--   capital_deployed_at_entry
+- source_run_id
+- strategy_name
+- entry_timestamp
+- exit_timestamp
+- direction
+- entry_price
+- exit_price
+- pnl_usd
+- position_units
+- notional_usd
+- bars_held
+- equity_before_trade
+- equity_after_trade
+- concurrency_at_entry
+- capital_deployed_at_entry
 
 All portfolio metrics MUST derive exclusively from this file.
 
@@ -178,20 +181,19 @@ All portfolio metrics MUST derive exclusively from this file.
 
 ### 6.1 Performance
 
--   net_pnl_usd
--   CAGR
--   Sharpe Ratio
--   Max Drawdown (USD)
--   Max Drawdown (%) (Stored as 0.0-1.0 decimal)
--   Return / DD
+- net_pnl_usd
+- CAGR
+- Sharpe Ratio
+- Max Drawdown (USD)
+- Max Drawdown (%) (Stored as 0.0-1.0 decimal)
+- Return / DD
 
 ### 6.2 Capital & Concurrency
 
--   peak_capital_deployed
--   capital_overextension_ratio
-avg_concurrent
-max_concurrent
-
+- peak_capital_deployed
+- capital_overextension_ratio
+- avg_concurrent
+- max_concurrent
 
 ### 6.3 Correlation (Minimal Scope)
 
@@ -199,8 +201,8 @@ Correlation MUST be computed from aligned portfolio return series.
 
 Required metrics:
 
--   avg_pairwise_corr
--   max_pairwise_corr_stress
+- avg_pairwise_corr
+- max_pairwise_corr_stress
 
 ------------------------------------------------------------------------
 
@@ -266,9 +268,10 @@ Extended fields MUST NOT:
 - Introduce schema-breaking transformations.
 
 ### 8.2 Technical Implementation Constraints (Governance)
--   **Zero OpenPyXL**: Engines MUST NOT import `openpyxl`. All Excel styling MUST be delegated to `tools/format_excel_artifact.py`.
--   **Decimal Storage**: All percentage metrics MUST be stored as decimals (e.g. `0.125` for 12.5%).
--   **No Checkpoint Rounding**: Computing functions MUST NOT round intermediate float values. Rounding is a presentation-layer concern only.
+
+- **Zero OpenPyXL**: Engines MUST NOT import `openpyxl`. All Excel styling MUST be delegated to `tools/format_excel_artifact.py`.
+- **Decimal Storage**: All percentage metrics MUST be stored as decimals (e.g. `0.125` for 12.5%).
+- **No Checkpoint Rounding**: Computing functions MUST NOT round intermediate float values. Rounding is a presentation-layer concern only.
 
 -----------------------------------------------------------------------
 
@@ -281,19 +284,18 @@ Modification or deletion of rows requires explicit human authorization.
 
 Portfolio registry state does not influence strategy-level governance.
 
-
 ------------------------------------------------------------------------
 
 ## 9. Prohibitions
 
 Stage-4 MUST NOT:
 
--   Modify Stage-1 artifacts
--   Modify Stage-2 reports
--   Modify Stage-3 master sheet
--   Retroactively scale Stage-1 trade pnl
--   Apply undeclared capital reweighting
--   Influence strategy promotion decisions
+- Modify Stage-1 artifacts
+- Modify Stage-2 reports
+- Modify Stage-3 master sheet
+- Retroactively scale Stage-1 trade pnl
+- Apply undeclared capital reweighting
+- Influence strategy promotion decisions
 
 Any change to capital model constitutes portfolio engine evolution.
 
@@ -303,9 +305,9 @@ Any change to capital model constitutes portfolio engine evolution.
 
 Given:
 
--   constituent_run_ids
--   portfolio_metadata.json
--   portfolio_tradelevel.csv
+- constituent_run_ids
+- portfolio_metadata.json
+- portfolio_tradelevel.csv
 
 The entire portfolio evaluation MUST be reproducible deterministically.
 

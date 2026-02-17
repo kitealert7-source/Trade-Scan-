@@ -3,10 +3,10 @@
 Engine: Universal_Research_Engine  
 System: Trade Scan  
 Canonical Source Location:
-engine_dev/universal_research_engine/<version>/
+`engine_dev/universal_research_engine/<version>/`
 
 Vault Location:
-vault/engines/Universal_Research_Engine/<version>/
+`vault/engines/Universal_Research_Engine/<version>/`
 
 Purpose:
 Disaster recovery, audit replay, and immutable backup only.
@@ -33,7 +33,7 @@ System = operational authority.
 
 Authoritative engine state is defined by:
 
-engine_dev/universal_research_engine/<version>/
+`engine_dev/universal_research_engine/<version>/`
 
 Only this directory is used for:
 
@@ -56,6 +56,7 @@ Vault contents must never be imported into runtime.
 5. Vault versions must match system engine version exactly.
 
 If corruption occurs:
+
 - Do not patch in place.
 - Invalidate and promote a new version.
 
@@ -74,8 +75,8 @@ Promotion occurs only after:
 Then:
 
 1. Generate engine manifest from canonical source.
-2. Copy engine_dev/universal_research_engine/<version>/
-   → vault/engines/Universal_Research_Engine/<version>/
+2. Copy `engine_dev/universal_research_engine/<version>/`
+   → `vault/engines/Universal_Research_Engine/<version>/`
 3. Commit vault snapshot.
 4. Tag version.
 5. Never modify that version again.
@@ -146,6 +147,7 @@ If system becomes corrupted:
 4. Resume operations.
 
 Vault protects against:
+
 - Accidental deletion
 - Corrupted commits
 - Broken refactors
@@ -170,6 +172,7 @@ Vault remains untouched unless:
 If vault is touched during daily development, process is broken.
 
 ---
+
 ## 10. Agent Access Restriction
 
 Autonomous agents must NOT:
@@ -192,6 +195,7 @@ Any automatic Vault inspection, validation, or integrity enforcement during norm
 Vault is not part of day-to-day functioning.
 The system must operate fully and independently without requiring any interaction with the Vault.
 If normal execution depends on Vault access, the architecture is considered broken.
+
 ---
 
 This contract defines the separation between

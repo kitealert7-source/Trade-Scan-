@@ -33,39 +33,76 @@ FMT_INT = "0"               # Integer
 # Column Rules (Column Name -> Format)
 # Keys should be lower-case for matching
 FORMAT_MAP = {
-    # Currency
-    "net_pnl_usd": FMT_CURRENCY,
-    "peak_capital_deployed": FMT_CURRENCY,
-    "reference_capital_usd": FMT_CURRENCY,
-    "max_dd_usd": FMT_CURRENCY,
-    "gross_profit_usd": FMT_CURRENCY,
-    "gross_loss_usd": FMT_CURRENCY,
+    # Trades List Headers (Human Readable)
+    "pnl (usd)": FMT_CURRENCY,
+    "entry price": FMT_FLOAT,
+    "exit price": FMT_FLOAT,
+    "bars held": FMT_INT,
     
-    # Percent
-    "max_dd_pct": FMT_PERCENT,
-    "capital_overextension_ratio": FMT_PERCENT, # Ratio treated as % ? User said "Percent Fields... applies to capital_overextension_ratio". 
-    # Usually ratio > 1 is bad. If it's 1.5, format 150.00%? Or 1.50? 
-    # User listed it under "Percent Fields". I will trust instructions.
-    "avg_pairwise_corr": FMT_PERCENT, 
-    "max_pairwise_corr_stress": FMT_PERCENT,
-    "win_rate": FMT_PERCENT,
-    "cagr": FMT_PERCENT,
+    # Summary Metrics (Human Readable - Lowercase)
+    "net profit (usd)": FMT_CURRENCY,
+    "gross profit (usd)": FMT_CURRENCY,
+    "gross loss (usd)": FMT_CURRENCY,
+    "starting capital": FMT_CURRENCY,
+    "max drawdown (usd)": FMT_CURRENCY,
+    "largest win (usd)": FMT_CURRENCY,
+    "largest loss (usd)": FMT_CURRENCY,
+    "expectancy (usd)": FMT_CURRENCY,
+    "avg trade (usd)": FMT_CURRENCY,
+    "avg win (usd)": FMT_CURRENCY,
+    "avg loss (usd)": FMT_CURRENCY,
     
-    # Float / Ratio
-    "sharpe": FMT_FLOAT,
+    "max drawdown (%)": FMT_PERCENT,
+    "% profitable": FMT_PERCENT,
+    "% of gross profit (top trades)": FMT_PERCENT,
+    "worst 5 trades loss %": FMT_PERCENT,
+    "return on capital": FMT_PERCENT,
+    "% time in market": FMT_PERCENT,
+    
+    "profit factor": FMT_FLOAT,
+    "sharpe ratio": FMT_FLOAT,
+    "sortino ratio": FMT_FLOAT,
+    "k-ratio": FMT_FLOAT,
+    "sqn (system quality number)": FMT_FLOAT,
+    "return / drawdown ratio": FMT_FLOAT,
+    "return retracement ratio": FMT_FLOAT,
+    "avg mfe (r)": FMT_FLOAT,
+    "avg mae (r)": FMT_FLOAT,
+    "edge ratio (mfe / mae)": FMT_FLOAT,
+    "win/loss ratio": FMT_FLOAT,
+    "avg bars in winning trades": FMT_FLOAT,
+    "avg bars in losing trades": FMT_FLOAT,
+    "avg bars per trade": FMT_FLOAT,
+    
+    # Strategy Master Filter Keys (Stage-3)
+    "total_net_profit": FMT_CURRENCY,
+    "expectancy": FMT_CURRENCY,
+    "sharpe_ratio": FMT_FLOAT,
     "return_dd_ratio": FMT_FLOAT,
-    "avg_concurrent": FMT_FLOAT,
-    "p95_concurrent": FMT_FLOAT,
-    "profit_factor": FMT_FLOAT,
-    "avg_r_multiple": FMT_FLOAT,
-    "sqn": FMT_FLOAT,
+    "worst_5_loss_pct": FMT_PERCENT,
+    "max_drawdown": FMT_CURRENCY, # "max_dd_usd" is legacy
+    "longest_loss_streak": FMT_INT,
+    "pct_time_in_market": FMT_PERCENT,
+    "avg_bars_in_trade": FMT_FLOAT,
+    "net_profit_high_vol": FMT_CURRENCY,
+    "net_profit_normal_vol": FMT_CURRENCY,
+    "net_profit_low_vol": FMT_CURRENCY,
     
-    # Integer
-    "max_concurrent": FMT_INT,
-    "dd_max_concurrent": FMT_INT,
+    # Legacy / Internal Keys (Keep for compatibility)
+    "net_pnl_usd": FMT_CURRENCY,
+    "net_profit": FMT_CURRENCY, 
+    "gross_profit": FMT_CURRENCY,
+    "gross_loss": FMT_CURRENCY,
+    "max_dd_usd": FMT_CURRENCY,
+    "max_dd_pct": FMT_PERCENT,
+    "win_rate": FMT_PERCENT,
+    "sharpe": FMT_FLOAT,
+    "profit_factor": FMT_FLOAT,
     "total_trades": FMT_INT,
-    "total_wins": FMT_INT,
-    "total_losses": FMT_INT,
+    "winning_trades": FMT_INT,
+    "losing_trades": FMT_INT,
+    "max_consec_wins": FMT_INT,
+    "max_consec_losses": FMT_INT,
     "consecutive_wins": FMT_INT,
     "consecutive_losses": FMT_INT
 }
@@ -120,6 +157,14 @@ def apply_formatting(file_path, profile):
             for row_idx in range(2, max_row + 1):
                 is_alt = (row_idx % 2 == 0)
                 
+                # Special Logic for Transposed Summary
+                # If Sheet is "Performance Summary", Column 1 is Metric Name.
+                # Use that to determine format for Col 2, 3...
+                row_metric_fmt = None
+                if ws.title == "Performance Summary":
+                     metric_name = str(ws.cell(row=row_idx, column=1).value).lower().strip()
+                     row_metric_fmt = FORMAT_MAP.get(metric_name)
+                    
                 for col_idx in range(1, max_col + 1):
                     cell = ws.cell(row=row_idx, column=col_idx)
                     col_name = col_map.get(col_idx, "")
@@ -129,15 +174,26 @@ def apply_formatting(file_path, profile):
                         cell.fill = alt_row_fill
                     
                     # Formatting & Alignment
+                    fmt = None
+                    
+                    # Strategy A: Column Header Match (Normal Sheets)
                     if col_name in FORMAT_MAP:
                         fmt = FORMAT_MAP[col_name]
-                        cell.number_format = fmt
                         
-                        # Right align numerics
+                    # Strategy B: Row Metric Match (Transposed Summary) -- Value Columns Only (Col > 1)
+                    elif row_metric_fmt and col_idx > 1:
+                        fmt = row_metric_fmt
+                        
+                    if fmt:
+                        cell.number_format = fmt
                         cell.alignment = Alignment(horizontal="right")
                     else:
-                        # Default Left Align for text/other
-                        cell.alignment = Alignment(horizontal="left")
+                        # Default Left Align for text/other (unless it's a value col in summary, assume right? No, stick to default)
+                        # Actually for Summary Column 1 (headers), left is good.
+                        if row_metric_fmt and col_idx > 1:
+                             cell.alignment = Alignment(horizontal="right") # Align unformatted numbers right too
+                        else:
+                             cell.alignment = Alignment(horizontal="left")
 
             # 3. Column Widths & Hiding
             for col_idx in range(1, max_col + 1):

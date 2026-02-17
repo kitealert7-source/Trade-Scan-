@@ -14,6 +14,7 @@ import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
+import argparse
 
 # ==================================================================
 # CONSTANTS & CONFIG
@@ -138,7 +139,7 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     trade_count = len(pnls)
     win_count = len(wins)
     loss_count = len(losses)
-    win_rate = (win_count / trade_count * 100) if trade_count > 0 else 0.0
+    win_rate = (win_count / trade_count) if trade_count > 0 else 0.0
     
     profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else gross_profit if gross_profit > 0 else 0.0
     avg_trade = (net_profit / trade_count) if trade_count > 0 else 0.0
@@ -164,9 +165,9 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
         if dd > max_dd:
             max_dd = dd
     
-    max_dd_pct = (max_dd / starting_capital * 100) if starting_capital > 0 else 0.0
+    max_dd_pct = (max_dd / starting_capital) if starting_capital > 0 else 0.0
     return_dd_ratio = (net_profit / max_dd) if max_dd > 0 else net_profit if net_profit > 0 else 0.0
-    return_on_capital = (net_profit / starting_capital * 100) if starting_capital > 0 else 0.0
+    return_on_capital = (net_profit / starting_capital) if starting_capital > 0 else 0.0
     
     # Streaks
     max_consec_wins = 0
@@ -282,7 +283,7 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     # % Time in Market (total bars held / total bars in period)
     total_bars_held = sum(bars_list) if bars_list else 0
     total_bars_in_period = trading_period_days * bars_per_day
-    pct_time_in_market = (total_bars_held / total_bars_in_period * 100) if total_bars_in_period > 0 else 0.0
+    pct_time_in_market = (total_bars_held / total_bars_in_period) if total_bars_in_period > 0 else 0.0
     
     # Longest flat period (days between trades)
     longest_flat_days = 0
@@ -311,11 +312,11 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     # Concentration (top 5 trades contribution)
     sorted_wins = sorted(wins, reverse=True)
     top5_profit = sum(sorted_wins[:5]) if len(sorted_wins) >= 5 else sum(sorted_wins)
-    top5_pct = (top5_profit / gross_profit * 100) if gross_profit > 0 else 0.0
+    top5_pct = (top5_profit / gross_profit) if gross_profit > 0 else 0.0
     
     sorted_losses = sorted(losses)
     worst5_loss = sum(sorted_losses[:5]) if len(sorted_losses) >= 5 else sum(sorted_losses)
-    worst5_pct = (abs(worst5_loss) / gross_loss * 100) if gross_loss > 0 else 0.0
+    worst5_pct = (abs(worst5_loss) / gross_loss) if gross_loss > 0 else 0.0
     
     # Risk metrics placeholders (overridden later)
     sharpe_ratio = 0.0

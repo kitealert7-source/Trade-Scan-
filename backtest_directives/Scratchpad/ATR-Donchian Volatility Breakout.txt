@@ -1,0 +1,27 @@
+ATR-Donchian Volatility Breakout Protocol
+Based on the strategy detailed in the transcript, here are the clear entry and exit conditions for the Breakout Strategy. The strategy is designed for a 1-hour timeframe but utilizes a 4-hour filter for trend direction [1, 2].
+Entry Conditions
+The strategy uses Donchian Channels (Period 30), ATR, and a 200-period SMA (4-hour) to determine entries [3, 4].
+Long Position Rules:
+• Breakout Signal: The current price must be above the Donchian Channel Upper Band [3, 5].
+• Trend Filter: The current price must be above the 200-period Simple Moving Average (SMA) calculated on the 4-hour timeframe [3, 5].
+• Volatility Filter: The current ATR value must be greater than the 20-period SMA of the ATR. This ensures trades are only taken when volatility is increasing [3, 5, 6].
+Short Position Rules:
+• Breakout Signal: The current price must be below the Donchian Channel Lower Band [5].
+• Trend Filter: The current price must be below the 200-period SMA calculated on the 4-hour timeframe [5].
+• Volatility Filter: The current ATR value must be greater than the 20-period SMA of the ATR (volatility must still be high/increasing regardless of trade direction) [5].
+--------------------------------------------------------------------------------
+Exit Conditions
+The strategy utilizes a dynamic exit plan involving an initial wide stop loss and take profit, followed by an aggressive trailing stop starting on the second candle [7].
+Initial Settings (Upon Opening Position):
+• Stop Loss: Set to the Entry Price minus 5 times the ATR (for longs) or Entry Price plus 5 times the ATR (for shorts) [3, 8].
+• Take Profit: Set to the Entry Price plus 10 times the ATR (for longs) or Entry Price minus 10 times the ATR (for shorts) [3, 8].
+**Trailing Stop Logic (Active Trade Management):**The primary method for exiting trades is trailing the stop loss using the Donchian Channel bands. This trailing logic begins after the position is opened [7].
+• For Long Positions:
+    ◦ The Stop Loss is updated to the current Donchian Channel Lower Band value.
+    ◦ Condition: The Stop Loss is only moved up. The code calculates the maximum between the current stop price and the new Lower Band value to ensures the stop loss never widens (drops back down) [9-11].
+• For Short Positions:
+    ◦ The Stop Loss is updated to the current Donchian Channel Upper Band value.
+    ◦ Condition: The Stop Loss is only moved down. The code calculates the minimum between the current stop price and the new Upper Band value [9, 12].
+Position Sizing
+• Risk: The author configures the strategy to risk 3% of the account equity per trade [3, 13].

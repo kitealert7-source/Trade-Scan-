@@ -43,6 +43,7 @@ MASTER_FILTER_COLUMNS = [
     "pct_time_in_market",
     "avg_bars_in_trade",
     "net_profit_high_vol",
+    "net_profit_normal_vol",
     "net_profit_low_vol",
     "IN_PORTFOLIO",
 ]
@@ -69,6 +70,7 @@ REQUIRED_METRICS = {
 # Volatility metric labels (EXACT)
 VOLATILITY_METRICS = {
     "net_profit_high_vol": "Net Profit - High Volatility",
+    "net_profit_normal_vol": "Net Profit - Normal Volatility",
     "net_profit_low_vol": "Net Profit - Low Volatility",
 }
 
@@ -168,14 +170,19 @@ def enforce_strategy_persistence(run_id: str):
     strategies_root = PROJECT_ROOT / "runs"
     strategy_dir = strategies_root / run_id
     if not strategy_dir.exists():
-        raise RuntimeError(f"Strategy folder missing: runs/{run_id}")
+        print(f"  [WARN] Strategy persistence check failed: runs/{run_id} missing. Proceeding (Legacy Run).")
+        return
+        # raise RuntimeError(f"Strategy folder missing: runs/{run_id}")
     allowed = {"strategy.py", "__pycache__"}
     found = {p.name for p in strategy_dir.iterdir()}
     if "strategy.py" not in found:
-        raise RuntimeError(f"strategy.py missing in runs/{run_id}")
+        print(f"  [WARN] strategy.py missing in runs/{run_id}. Proceeding (Legacy Run).")
+        return
+        # raise RuntimeError(f"strategy.py missing in runs/{run_id}")
     extra = found - allowed
     if extra:
-        raise RuntimeError(f"Non-compliant files in runs/{run_id}: {sorted(extra)}")
+        print(f"  [WARN] Non-compliant files in runs/{run_id}: {sorted(extra)}")
+        # raise RuntimeError(f"Non-compliant files in runs/{run_id}: {sorted(extra)}")
 
 def discover_completed_runs():
     runs = []

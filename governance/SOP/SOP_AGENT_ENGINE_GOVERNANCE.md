@@ -16,6 +16,7 @@ Trade_Scan_invariants
 This document governs **how engines may be created, modified, validated, and promoted** within Trade_Scan.
 
 It exists to:
+
 - prevent silent engine drift
 - protect proven engines
 - preserve reproducibility
@@ -30,6 +31,7 @@ This SOP is **prohibitive by default**.
 Every engine exists in **exactly one** of the following states.
 
 ### 2.1 Experimental Engine
+
 - Location: `engine_dev/`
 - Mutable
 - Not trusted
@@ -37,7 +39,8 @@ Every engine exists in **exactly one** of the following states.
 - May be modified **only with explicit human instruction**
 
 ### 2.2 Validated / Released Engine
-- Canonical identity: engine_dev/<engine_type>/<version>/ (physical storage may be vaulted)
+
+- Canonical identity: `engine_dev/<engine_type>/<version>/` (physical storage may be vaulted)
 - Identified by:
   - `VALIDATED_ENGINE.manifest.json`
   - file hashes
@@ -45,6 +48,7 @@ Every engine exists in **exactly one** of the following states.
 - Used for authoritative runs
 
 ### 2.3 Deprecated Engine
+
 - No longer recommended
 - Remains immutable
 - Retained for historical reproducibility
@@ -68,11 +72,13 @@ Validated engines MUST NOT be deleted, renamed, or structurally reorganized.
 **Any change creates a new engine.**
 
 ---
+
 ### 3.1 Vaulted Engines (ENFORCEMENT)
 
 Validated engines may be physically isolated into a vault structure for preservation.
 
 Vaulting:
+
 - does NOT change engine identity
 - does NOT modify code, manifests, or hashes
 - is a storage and governance action only
@@ -98,6 +104,7 @@ If **any condition fails**, the agent MUST stop and ask.
 Before writing code, agents MUST classify the request:
 
 ### 5.1 Research / Analysis
+
 - Conceptual metrics
 - Explanations
 - Hypotheses
@@ -107,6 +114,7 @@ Before writing code, agents MUST classify the request:
 ---
 
 ### 5.2 New Run Using Existing Engine
+
 - Parameter changes
 - Different directives
 - New date ranges
@@ -116,6 +124,7 @@ Before writing code, agents MUST classify the request:
 ---
 
 ### 5.3 Engine Evolution
+
 - New metric requiring new computation
 - Logic changes
 - Execution behavior changes
@@ -125,15 +134,13 @@ Successor engines SHOULD record their base engine (engine_type + version)
 in the VALIDATED_ENGINE.manifest.json under a `base_engine` field
 to preserve lineage and traceability.
 
-
-
-
 ➡️ Requires a new engine
 
 Agents MUST explicitly state this classification before proceeding.
 When a request is classified as Engine Evolution, agents MUST follow this flow exactly.
 
 Engine Evolution includes:
+
 - creating a successor to an existing engine, OR
 - creating a brand-new engine to test a completely new hypothesis.
 
@@ -153,7 +160,6 @@ Before implementing a new engine or a successor engine, agents MUST:
 
 Agents MUST state this confirmation explicitly before writing any code.
 
-
 1. Declare intent:
    - State whether this is:
      a) a successor engine, or
@@ -168,10 +174,10 @@ Agents MUST state this confirmation explicitly before writing any code.
 3. Establish engine location:
    - If successor engine:
      copy from:
-       engine_dev/<engine_type>/<version>/
+       `engine_dev/<engine_type>/<version>/`
    - If brand-new hypothesis engine:
      create a new directory under:
-       engine_dev/<new_engine_type>/<version>/
+       `engine_dev/<new_engine_type>/<version>/`
 
 4. Implement changes:
    - Modify ONLY code under engine_dev/
@@ -204,6 +210,7 @@ When engine evolution is approved:
 ## 7. Delivery Rules for Code Changes
 
 Agents MUST:
+
 - make minimal, scoped changes
 - avoid refactors unless explicitly requested
 - deliver **full replacement blocks**
@@ -213,6 +220,7 @@ Agents MUST:
   - whether execution semantics changed
 
 Agents MUST NOT:
+
 - change defaults silently
 - modify multiple engines unless instructed
 - merge changes back into validated engines
@@ -224,6 +232,7 @@ Agents MUST NOT:
 An engine may be promoted **only by humans**.
 
 Promotion requires:
+
 - successful runs
 - validation review
 - creation of `VALIDATED_ENGINE.manifest.json`
@@ -243,11 +252,13 @@ Any action that breaks this rule is a **system violation**.
 ## 10. Violation Handling
 
 If an agent:
+
 - modifies a validated engine
 - bypasses the registry
 - mutates engine code without authorization
 
 The action MUST:
+
 - abort immediately
 - be disclosed
 - require corrective human instruction
@@ -257,6 +268,7 @@ The action MUST:
 ## Final Rule
 
 If a requested change:
+
 - alters execution truth
 - changes computed metrics
 - affects economic outcomes
