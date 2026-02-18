@@ -26,25 +26,30 @@ Any violation **must abort the run immediately**.
 A Trade_Scan run exists in **exactly one state** at any time.
 
 **Allowed states (linear, non‑reentrant):**
+
 - IDLE
 - STAGE_1_COMPLETE
 - STAGE_2_COMPLETE
 - STAGE_3_COMPLETE
+- STAGE_3A_COMPLETE
 - COMPLETE
 - FAILED
 
 **Allowed transitions:**
+
 - IDLE → STAGE_1_COMPLETE
 - STAGE_1_COMPLETE → STAGE_2_COMPLETE
 - STAGE_2_COMPLETE → STAGE_3_COMPLETE
-- STAGE_3_COMPLETE → COMPLETE
-- ANY STATE → FAILED
+- STAGE_3_COMPLETE → STAGE_3A_COMPLETE
+- STAGE_3A_COMPLETE → COMPLETE
 
 **Rules:**
+
 - Stage‑1 engine may execute **only** from IDLE.
 - Stage‑2 engine may execute **only** if state = STAGE_1_COMPLETE.
 - Stage‑3 engine may execute **only** if state = STAGE_2_COMPLETE.
-- COMPLETE may be reached **only** from STAGE_3_COMPLETE.
+- Stage-3A snapshot finalization may execute only if state = STAGE_3_COMPLETE.
+- COMPLETE may be reached only from STAGE_3A_COMPLETE.
 - FAILED is terminal. No further execution is permitted.
 
 ---
@@ -58,12 +63,13 @@ Stage-1 execution must be invoked via run_stage1.py
 Stage-1 emission must use execution_emitter_stage1.py
 Stage-2 processing must use stage2_compiler.py
 Stage-3 processing must use stage3_compiler.py
-N other files may perform execution, emission, compilation, or aggregation.
+No other files may perform execution, emission, compilation, or aggregation.
 Binary. No interpretation.
 
 **Forbidden:**
 Any file not listed above is non-authoritative by definition.
 Execution, metrics, or transformation logic in any other file invalidates the run.
+Execution from any vault/ directory is explicitly forbidden.
 
 If detected → **FAIL**.
 
@@ -72,6 +78,7 @@ If detected → **FAIL**.
 ## Invariant 4 — No In‑Between Computation
 
 Between any two stages:
+
 - No new code may execute
 - No data may be modified
 - No metrics may be added, recomputed, or inferred
@@ -113,12 +120,14 @@ Partial success does not exist.
 ## Invariant 9 — Failure Semantics
 
 On **any** of the following:
+
 - error
 - ambiguity
 - invariant violation
 - missing required artifact
 
 The system must:
+
 1. Transition to FAILED
 2. Abort immediately
 3. Await a new human directive
@@ -130,6 +139,7 @@ No retries. No continuation.
 ## Final Rule
 
 If an action:
+
 - bypasses a stage
 - inserts logic between stages
 - executes outside approved engines
@@ -139,5 +149,4 @@ The run is **invalid and must terminate**.
 
 ---
 
-**End of Trade_Scan Invariants (STATE‑GATED | FINAL)**
-
+End of Trade_Scan Invariants (STATE‑GATED | FINAL)

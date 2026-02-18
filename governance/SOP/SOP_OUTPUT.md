@@ -10,7 +10,7 @@
 
 System Flow (Extended):
 
-Stage-1 → Stage-2 → Stage-3 → Stage-4 (Portfolio Analysis) → Human
+Stage-1 → Stage-2 → Stage-3 → Stage-3A → Stage-4 (Portfolio) → Human
 
 Stage-4 is governed exclusively by SOP_PORTFOLIO_ANALYSIS.
 
@@ -402,11 +402,57 @@ No manual entry permitted.
 
 ---
 
-## Stage-3A — Update & Run Integrity Rules
+## Stage-3A — Strategy Snapshot Finalization (AUTHORITATIVE)
 
-- One completed run → one report → one master row
-- Failed or partial runs emit nothing
-- Corrections require new run + new index
+**Authority:** System-level enforcement  
+**Mutability:** Immutable upon creation  
+
+Stage-3A is executed automatically by the pipeline after successful completion of Stage-3.
+
+### Stage-3A Responsibilities
+
+The pipeline MUST:
+
+- Copy the staged strategy.py into:
+      strategies/<DirectiveName>/
+- Generate:
+      STRATEGY_SNAPSHOT.manifest.json
+- Compute sha256 hash of strategy.py
+- Record:
+  - hash
+  - timestamp (UTC)
+  - directive name
+  - strategy family
+  - run_id
+  - engine dependency versions (if applicable)
+  - Collect and record indicator dependency fingerprints (per SOP_INDICATOR Section 7)
+
+### RUN_COMPLETE Definition (HARD)
+
+A run is considered RUN_COMPLETE ONLY IF:
+
+Stage-1 → Stage-2 → Stage-3 → Stage-3A
+
+all complete successfully.
+
+If snapshot generation fails:
+
+- RUN_COMPLETE MUST NOT be emitted
+- No artifacts are considered valid
+- No row may be written to Strategy_Master_Filter.xlsx
+
+### Immutability Rule
+
+Once created:
+
+    strategies/<DirectiveName>/
+
+is classified as an Immutable Historical Artifact.
+
+No file within this folder may be modified,
+including strategy.py or STRATEGY_SNAPSHOT.manifest.json.
+
+Any mutation constitutes a governance violation.
 
 ---
 

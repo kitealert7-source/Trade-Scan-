@@ -265,6 +265,185 @@ The action MUST:
 
 ---
 
+## 11. Strategy Staging, Snapshot & Directive Artifact Governance (MANDATORY)
+
+This section governs the interaction between:
+
+- Development Environment (mutable strategy staging)
+- Execution Pipeline
+- Directive Artifact Store (immutable results)
+
+This protocol applies to all strategy-based backtests executed via the pipeline.
+
+---
+
+### 11.1 Staging Principle (Execution Source of Truth)
+
+For strategy-based runs, the folder:
+
+```text
+strategies/<StrategyFamily>/
+```
+
+acts as the **Staging Engine**.
+
+It is:
+
+- Mutable
+- The single source of truth for execution
+- Loaded directly by the pipeline
+- Considered LOCKED during execution
+
+The pipeline does NOT execute from directive folders.
+It executes only from the staging folder.
+
+---
+
+### 11.2 Directive Execution Rule
+
+When a directive specifies:
+
+```text
+Strategy: <StrategyFamily>
+```
+
+The pipeline MUST load:
+
+```text
+strategies/<StrategyFamily>/strategy.py
+```
+
+Requirements:
+
+- The staging engine MUST be fully prepared before execution.
+- The staging engine MUST NOT be modified during execution.
+- Any mid-run mutation constitutes a governance violation.
+
+---
+
+### 11.3 Mandatory Snapshot Creation (NON-OPTIONAL)
+
+Immediately after a successful RUN_COMPLETE status:
+
+The exact staged engine used MUST be snapshotted into the directive artifact folder.
+
+Required structure:
+
+```text
+strategies/<DirectiveName>/
+    strategy.py
+    STRATEGY_SNAPSHOT.manifest.json
+```
+
+The snapshot MUST include:
+
+1. A byte-identical copy of:
+
+    ```text
+    strategies/<StrategyFamily>/strategy.py
+    ```
+
+2. A manifest file containing:
+   - sha256 hash of strategy.py
+   - timestamp (UTC)
+   - directive name
+   - strategy family name
+   - pipeline run identifier (if available)
+   - dependency engine versions (if applicable)
+
+Failure to create this snapshot invalidates reproducibility guarantees.
+
+---
+
+### 11.4 Snapshot Immutability Rule
+
+Once created, the folder:
+
+```text
+strategies/<DirectiveName>/
+```
+
+is classified as an **Immutable Historical Artifact**.
+
+The following are strictly prohibited:
+
+- Modifying strategy.py inside the directive folder
+- Regenerating or editing the snapshot manifest
+- Deleting snapshot files
+- Renaming directive artifact folders
+
+Any such action is treated as equivalent to modifying a validated engine
+and falls under Section 10 (Violation Handling).
+
+---
+
+### 11.5 Relationship to engine_dev Governance
+
+This protocol:
+
+- Does NOT override Section 3 (Core Immutability Rule)
+- Does NOT permit modification of validated engines under engine_dev/
+- Applies only to strategy staging folders
+
+If a strategy depends on a validated engine:
+
+Engine immutability rules remain in full force.
+
+---
+
+### 11.6 Strategy Evolution Rule
+
+If a staged strategy change alters:
+
+- Execution semantics
+- Trade logic
+- Risk model
+- Economic outcomes
+- Computed metrics
+
+Then it constitutes strategy evolution and MUST:
+
+- Be executed under a new directive name
+- Produce a new snapshot
+- Preserve all prior directive artifacts unchanged
+
+Overwriting or reusing directive folders is prohibited.
+
+---
+
+### 11.7 Enforcement Principle
+
+Reproducibility is defined as:
+
+```text
+Historical results + Exact strategy snapshot + Dependency identity
+```
+
+If any of the above cannot be reconstructed deterministically,
+the system is considered in violation.
+
+This rule is non-negotiable.
+
+### 11.8 Pipeline Enforcement Requirement (MANDATORY)
+
+The execution pipeline MUST automatically generate the required
+strategy snapshot and manifest defined in Section 11.3
+upon successful RUN_COMPLETE status.
+
+Manual snapshotting is prohibited.
+
+The pipeline MUST:
+
+- Copy the staged strategy.py into the directive artifact folder
+- Generate STRATEGY_SNAPSHOT.manifest.json
+- Compute and store sha256 hash
+- Abort completion if snapshot generation fails
+
+A run is not considered complete unless snapshot creation succeeds.
+
+Any pipeline implementation that omits this enforcement
+is non-compliant with this SOP.
+
 ## Final Rule
 
 If a requested change:

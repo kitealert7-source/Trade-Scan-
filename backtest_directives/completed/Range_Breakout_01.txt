@@ -1,0 +1,75 @@
+Test Name - Range_Breakout_02_LR_D1_Filter
+Family: Forex
+Strategy: Range_Breakout
+Broker: OctaFX
+Timeframe: 15m
+Session Time Reference: UTC
+Start Date: 2024-01-01
+End Date: 2026-02-15
+
+Symbols:
+
+AUDNZD
+AUDUSD
+EURAUD
+EURUSD
+GBPAUD
+GBPUSD
+GBPNZD
+NZDUSD
+USDCAD
+USDCHF
+USDJPY
+
+
+Notes:
+# Final Alignment v3 + PnL Fix + D1 Linear Regression Filter
+
+
+Additional Indicator:
+Linear Regression Regime (Daily Timeframe)
+Source: D1 Close
+Window: 50
+Use last confirmed daily bar only.
+
+Regime Definition:
+slope > 0  → Allow Longs Only
+slope < 0  → Allow Shorts Only
+insufficient data → No Trade
+
+
+Entry Rules
+
+Time Window (Range Definition):
+The strategy analyzes the price action between 03:00 and 06:00 UTC.
+Identify the highest high and lowest low during this 3-hour window using M5 data.
+Orders are placed immediately after range finalization.
+
+
+Order Placement (06:00 UTC)
+
+• If Daily slope > 0:
+    Place Buy Stop at the highest point of the range.
+    Do NOT place Sell Stop.
+
+• If Daily slope < 0:
+    Place Sell Stop at the lowest point of the range.
+    Do NOT place Buy Stop.
+
+• If no valid Daily slope:
+    No orders placed for the day.
+
+
+Execution Logic:
+The strategy waits for the permitted order to be triggered.
+No opposing pending order exists.
+Maximum one trade per day.
+No re-entry.
+
+
+Exit Rules
+
+• Time-Based Exit: All open positions are closed at 18:00 UTC.
+• Stop loss is placed at the opposite side of the defined range.
+• Take Profit: None.
+• Trailing Stop: None.

@@ -31,7 +31,7 @@ EXECUTION FLOW (NON-BYPASSABLE)
 3. Stage-1.5 (if declared)
 4. Stage-2
 5. Stage-3
-6. Stage-4 (if applicable)
+6. Stage-4 
 
 Abort immediately on any failure.
 

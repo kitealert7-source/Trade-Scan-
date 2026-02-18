@@ -11,6 +11,7 @@ It is intentionally short. If a rule is not here, it is enforced elsewhere (inva
 ## 1. What an Agent Is Allowed to Do
 
 Agents may:
+
 - Validate directives (preflight, read-only)
 - Execute **approved engines only**, in order
 - Read RUN_COMPLETE artifacts
@@ -41,8 +42,14 @@ Stage-1 Emitter (execution_emitter_stage1.py)
 Stage-2 Engine (stage2_compiler.py)
   ↓
 Stage-3 Engine (stage3_compiler.py)
-  ↓
-STOP (await next human directive)
+↓
+Stage-3A Snapshot Finalization (pipeline-enforced)
+↓
+STOP
+
+Stage-3A MUST execute before STOP.
+Failure to finalize snapshot → FAILED state.
+
 
 ```
 
@@ -72,6 +79,8 @@ Agents must respect run state:
 - Stage-1 may run only from `IDLE`
 - Stage-2 may run only after `STAGE_1_COMPLETE`
 - Stage-3 may run only after `STAGE_2_COMPLETE`
+- Stage-3A may run only after `STAGE_3_COMPLETE`
+- COMPLETE may be reached only after `STAGE_3A_COMPLETE`
 - `FAILED` is terminal
 
 State violations → **ABORT**.
@@ -81,6 +90,7 @@ State violations → **ABORT**.
 ## 5. Absolute Prohibitions
 
 Agents must NEVER:
+
 - Insert code or computation between stages
 - Recompute metrics after Stage-1
 - Modify RAW or CLEAN artifacts
@@ -95,6 +105,7 @@ Violation → **IMMEDIATE STOP**.
 ## 6. Failure Handling
 
 On **any** error or ambiguity:
+
 - Stop immediately
 - Report clearly
 - Await human instruction

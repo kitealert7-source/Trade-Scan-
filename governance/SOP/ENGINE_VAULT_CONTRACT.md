@@ -113,6 +113,8 @@ Manifest must:
 - Be tied to system commit hash.
 - Not be manually edited.
 
+Vault manifest is independent of strategy snapshot manifest.
+
 Manifest exists for audit, replay, and forensic validation.
 
 ---

@@ -227,6 +227,91 @@ def run_preflight(
     
     if not date_pattern.match(resolved_scope["end_date"]):
         return ("BLOCK_EXECUTION", f"End Date must be explicit YYYY-MM-DD, got: {resolved_scope['end_date']}", None)
+
+    # --- CHECK 4.5: Indicator Availability (Optional Declared Dependencies) ---
+    # Phase 1: Availability Enforcement Only
+    
+    declared_indicators = []
+    in_indicators_block = False
+    
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped or line_stripped.startswith('#'):
+            continue
+            
+        # Detect Header
+        if re.match(r'^\s*Indicators\s*[:=\-]', line_stripped, re.IGNORECASE):
+            in_indicators_block = True
+            continue
+            
+        # If in block, capture items
+        if in_indicators_block:
+            # End block if we hit another known header
+            if re.match(r'^\s*(?:Broker|Timeframe|Start|End|Symbols|Asset)', line_stripped, re.IGNORECASE):
+                in_indicators_block = False
+                continue
+                
+            # Capture bulleted or indented items
+            if re.match(r'^[\s*\-•]', line) or line.startswith(' '):
+                # Remove bullets and whitespace
+                item = re.sub(r'^[\s*\-•]+', '', line_stripped).strip()
+                if item:
+                    declared_indicators.append(item)
+            else:
+                # Non-indented loop break? 
+                # Strict YAML would imply indentation, but we can be loose.
+                # If it looks like a path (has /) or snake_case, take it?
+                # Safer: assume list items must be indented or bulleted if strict, 
+                # but let's allow plain lines if they don't match other headers.
+                # Actually, effectively reusing the loop over lines is tricky if we don't track state well.
+                # Let's rely on the main loop structure or just re-scan for this block specifically to be safe and isolated.
+                pass
+
+    # Reworking extraction to be robust and isolated from the main loop above if needed, 
+    # but let's try to fit it into the flow or restart scan for clarity.
+    # Given the constraint to not refactor globally, let's just do a dedicated scan for Indicators 
+    # to avoid interfering with the complex Broker/Symbol state machine above.
+    
+    declared_indicators = []
+    in_indicators_block = False
+    
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped or line_stripped.startswith('#'):
+            continue
+
+        if re.match(r'^\s*Indicators\s*[:=\-]', line_stripped, re.IGNORECASE):
+            in_indicators_block = True
+            continue
+        
+        if in_indicators_block:
+            # Check if this line is a new header (stop capturing)
+            if ":" in line_stripped and not line_stripped.startswith("-"):
+                 # Likely a header (e.g. "Symbols:")
+                 in_indicators_block = False
+                 continue
+            
+            # Capture item
+            cleaned = re.sub(r'^[\s*\-•]+', '', line_stripped).strip()
+            if cleaned:
+                declared_indicators.append(cleaned)
+
+    # Validate Existence
+    if declared_indicators:
+        indicators_root = PROJECT_ROOT / "indicators"
+        for ind_path in declared_indicators:
+            # normalize path sep just in case, though usually forward slash in directives
+            clean_path = ind_path.replace("\\", "/")
+            if not clean_path.endswith(".py"):
+                clean_path += ".py"
+            
+            target_file = indicators_root / clean_path
+            if not target_file.exists():
+                return (
+                    "BLOCK_EXECUTION", 
+                    f"Preflight Error: Declared indicator not found: indicators/{clean_path}", 
+                    None
+                )
     
     # --- Canonical Hash Alignment (Stage-1 Consistency) ---
     parsed_config = parse_directive(directive_full_path)

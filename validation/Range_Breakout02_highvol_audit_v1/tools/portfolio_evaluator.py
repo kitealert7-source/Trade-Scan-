@@ -1088,16 +1088,9 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'total_trades': port_metrics['total_trades'],
         'peak_capital_deployed': port_metrics.get('peak_capital_deployed', 0.0),
         'capital_overextension_ratio': port_metrics.get('capital_overextension_ratio', 0.0),
-        'portfolio_net_profit_low_vol': port_metrics.get('portfolio_net_profit_low_vol', 0.0),
-        'portfolio_net_profit_normal_vol': port_metrics.get('portfolio_net_profit_normal_vol', 0.0),
-        'portfolio_net_profit_high_vol': port_metrics.get('portfolio_net_profit_high_vol', 0.0),
-        'signal_timeframes': port_metrics.get('signal_timeframes', "UNKNOWN"),
-        'evaluation_timeframe': port_metrics.get('evaluation_timeframe', "1D")
     }
     with open(output_dir / 'portfolio_summary.json', 'w') as f:
         json.dump(summary, f, indent=4)
-
-
 
     # --- portfolio_metadata.json (SOP Requirement) ---
     metadata = {
@@ -1107,9 +1100,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
       "reference_capital_usd": summary['total_capital'],
       "capital_model_version": "v1.0_trade_close_compounding",
       "portfolio_engine_version": "1.2.1",
-      "schema_version": "1.0",
-      "signal_timeframes": port_metrics.get('signal_timeframes', "UNKNOWN"),
-      "evaluation_timeframe": port_metrics.get('evaluation_timeframe', "1D")
+      "schema_version": "1.0"
     }
     with open(output_dir / 'portfolio_metadata.json', 'w') as f:
         json.dump(metadata, f, indent=4)
@@ -1188,9 +1179,9 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
 - Avg concurrency during largest DD: {concurrency_data['dd_avg_concurrent']:.2f}
 - Max concurrency during largest DD: {concurrency_data['dd_max_concurrent']}
 - Regime avg concurrency:
-    - Low: {concurrency_data['regime_avg'].get('low', 0.0):.2f}
-    - Normal: {concurrency_data['regime_avg'].get('normal', 0.0):.2f}
-    - High: {concurrency_data['regime_avg'].get('high', 0.0):.2f}
+    - Low: {concurrency_data['regime_avg']['low']:.2f}
+    - Normal: {concurrency_data['regime_avg']['normal']:.2f}
+    - High: {concurrency_data['regime_avg']['high']:.2f}
 """
 
     if concurrency_data['full_load_cluster']:
@@ -1271,12 +1262,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "avg_pairwise_corr",
         "max_pairwise_corr_stress",
         "total_trades",
-        "portfolio_engine_version",
-        "portfolio_net_profit_low_vol",
-        "portfolio_net_profit_normal_vol",
-        "portfolio_net_profit_high_vol",
-        "signal_timeframes",
-        "evaluation_timeframe"
+        "portfolio_engine_version"
     ]
     
     
@@ -1307,12 +1293,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "avg_pairwise_corr": corr_data['avg_pairwise_corr'],
         "max_pairwise_corr_stress": max_stress_corr,
         "total_trades": metrics['total_trades'],
-        "portfolio_engine_version": "1.2.1",
-        "portfolio_net_profit_low_vol": metrics.get('portfolio_net_profit_low_vol', 0.0),
-        "portfolio_net_profit_normal_vol": metrics.get('portfolio_net_profit_normal_vol', 0.0),
-        "portfolio_net_profit_high_vol": metrics.get('portfolio_net_profit_high_vol', 0.0),
-        "signal_timeframes": metrics.get('signal_timeframes', "UNKNOWN"),
-        "evaluation_timeframe": metrics.get('evaluation_timeframe', "1D")
+        "portfolio_engine_version": "1.2.1"
     }
     
     # Load or Create
@@ -1388,47 +1369,6 @@ def main():
     
     # Deterministic capital calculation (SOP Issue #2)
     port_metrics['total_capital'] = CAPITAL_PER_SYMBOL * len(symbol_trades)
-
-    # Regime PnL Calculation (Zero Structural Change Injection)
-    if "volatility_regime" in portfolio_df.columns:
-        regime_pnl = portfolio_df.groupby("volatility_regime")["pnl_usd"].sum()
-        low_pnl = float(regime_pnl.get("low", 0.0))
-        normal_pnl = float(regime_pnl.get("normal", 0.0))
-        high_pnl = float(regime_pnl.get("high", 0.0))
-    else:
-        low_pnl = normal_pnl = high_pnl = 0.0
-
-    port_metrics["portfolio_net_profit_low_vol"] = low_pnl
-    port_metrics["portfolio_net_profit_normal_vol"] = normal_pnl
-    port_metrics["portfolio_net_profit_high_vol"] = high_pnl
-
-    # Timeframe Metadata Extraction (SOP Requirement)
-    # Read Master Sheet locally to avoid refactoring load_all_trades
-    try:
-        master_path_local = BACKTESTS_ROOT / "Strategy_Master_Filter.xlsx"
-        df_master_local = pd.read_excel(master_path_local)
-        
-        # Filter for runs present in the loaded portfolio
-        # unique_runs is defined later in the code (line ~1461), but we need it now or we can use portfolio_df['source_run_id']
-        current_run_ids = sorted(list(set(portfolio_df['source_run_id'].astype(str).unique())))
-        
-        related_runs = df_master_local[df_master_local['run_id'].astype(str).isin(current_run_ids)]
-        
-        # Normalize column name
-        tf_col = 'timeframe' if 'timeframe' in related_runs.columns else 'TIMEFRAME'
-        
-        if tf_col in related_runs.columns:
-             timeframes = sorted(related_runs[tf_col].astype(str).unique())
-             signal_timeframes_str = "|".join(timeframes)
-        else:
-             signal_timeframes_str = "UNKNOWN"
-             
-    except Exception as e:
-        print(f"  [WARN] Failed to extract timeframes: {e}")
-        signal_timeframes_str = "UNKNOWN"
-
-    port_metrics['signal_timeframes'] = signal_timeframes_str
-    port_metrics['evaluation_timeframe'] = "1D"
     
     print(f"  Net PnL: ${port_metrics['net_pnl_usd']:,.2f} | Sharpe: {port_metrics['sharpe']}")
 

@@ -111,7 +111,10 @@ FORMAT_MAP = {
 HIDDEN_COLS = {
     "constituent_run_ids",
     "run_ids",
-    "genome_id" 
+    "genome_id",
+    "run_id",
+    "creation_timestamp",
+    "timestamp"
 }
 
 # ==========================================================
@@ -151,7 +154,7 @@ def apply_formatting(file_path, profile):
                 # Header Styling
                 cell.font = header_font
                 cell.fill = header_fill
-                cell.alignment = Alignment(horizontal="left", vertical="center")
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
             # 2. Row Iteration (Data)
             for row_idx in range(2, max_row + 1):
@@ -205,18 +208,43 @@ def apply_formatting(file_path, profile):
                     ws.column_dimensions[col_letter].hidden = True
                     continue
                     
-                # Auto-fit (Simple approximation)
+                # Auto-fit (Smarter Logic)
                 max_len = 0
-                # Sample first 20 rows + header for speed
-                sample_rows = list(range(1, min(max_row, 50) + 1))
-                for r in sample_rows:
-                    val = ws.cell(row=r, column=col_idx).value
-                    if val:
-                        max_len = max(max_len, len(str(val)))
+                sample_rows = list(range(2, min(max_row, 50) + 1))
                 
+                is_numeric_col = False
+                
+                for r in sample_rows:
+                    cell = ws.cell(row=r, column=col_idx)
+                    val = cell.value
+                    if val is not None:
+                        # Check if numeric
+                        if isinstance(val, (int, float)):
+                            is_numeric_col = True
+                            # Estimate formatted length (approx 0.00 or 0.00%)
+                            # Raw str(float) is too long (decimals). 
+                            # Most metrics are < 10 chars formatted.
+                            # Let's cap contribution of numbers to avoid 1.3333333 expanding width
+                            s_val = f"{val:.2f}" 
+                            max_len = max(max_len, len(s_val))
+                        else:
+                            max_len = max(max_len, len(str(val)))
+                
+                # Base padding
                 width = max_len + 2
-                if width < 10: width = 10
-                if width > 50: width = 50
+                
+                # Constraints
+                if is_numeric_col:
+                    # Metrics usually don't need huge width, but header might wrap to 2 lines
+                    # If max_len is small (e.g. "1.23"), width=6. header "Sharpe Ratio" wrapped might be ~6? No, "Sharpe" is 6.
+                    # constant minimum for numeric to look good
+                    if width < 10: width = 10
+                    if width > 18: width = 18 # Cap numeric columns tighter
+                else:
+                    # Text columns
+                    if width < 8: width = 8
+                    if width > 40: width = 40
+                    
                 ws.column_dimensions[col_letter].width = width
 
             # 4. Freeze Header

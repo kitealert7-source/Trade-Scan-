@@ -1,0 +1,18 @@
+Test Name - Workflow_Test_01
+Family: Forex
+Strategy: Range_Breakout
+Broker: OctaFX
+Timeframe: 5m
+Session Time Reference: UTC
+Start Date: 2024-01-01
+End Date: 2024-01-07
+
+Symbols:
+
+AUDNZD
+
+Notes:
+Short duration test to verify v3.0 Workflow.
+- Engine Staging
+- Execution
+- Archival

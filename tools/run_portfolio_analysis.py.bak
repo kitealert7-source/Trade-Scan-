@@ -389,31 +389,11 @@ def main():
     trades.sort_values("exit_timestamp", inplace=True)
     trades.reset_index(drop=True, inplace=True)
 
-    # Regime PnL Calculation (Added for parity with portfolio_evaluator.py)
-    if "volatility_regime" in trades.columns:
-        regime_pnl = trades.groupby("volatility_regime")["pnl"].sum()
-        low_pnl = float(regime_pnl.get("low", 0.0))
-        normal_pnl = float(regime_pnl.get("normal", 0.0))
-        high_pnl = float(regime_pnl.get("high", 0.0))
-    else:
-        low_pnl = normal_pnl = high_pnl = 0.0
-
     # --------------------------------------------------
     # Capital model
     # --------------------------------------------------
 
     trades = compute_equity_curve(trades, reference_capital)
-
-    # Timeframe Metadata (SOP Requirement)
-    tf_col = 'timeframe' if 'timeframe' in selected.columns else 'TIMEFRAME'
-    if tf_col in selected.columns:
-        # Case insensitive handling if needed, but usually standardized
-        timeframes = sorted(selected[tf_col].astype(str).unique())
-        signal_timeframes_str = "|".join(timeframes)
-    else:
-        signal_timeframes_str = "UNKNOWN"
-    
-    evaluation_timeframe = "1D"
 
     # --------------------------------------------------
     # Concurrency (Updated Port)
@@ -513,12 +493,7 @@ def main():
         "avg_pairwise_corr": float(avg_pairwise_corr),
         "max_pairwise_corr_stress": float(max_pairwise_corr_stress),
         "reference_capital_usd": reference_capital,
-        "total_trades": len(trades),
-        "portfolio_net_profit_low_vol": low_pnl,
-        "portfolio_net_profit_normal_vol": normal_pnl,
-        "portfolio_net_profit_high_vol": high_pnl,
-        "signal_timeframes": signal_timeframes_str,
-        "evaluation_timeframe": evaluation_timeframe
+        "total_trades": len(trades)
     }
 
     with open(output_dir / "portfolio_summary.json", "w") as f:
@@ -533,9 +508,7 @@ def main():
         "capital_model_version": CAPITAL_MODEL_VERSION,
         "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
         "rolling_window_length": ROLLING_WINDOW_LENGTH,
-        "schema_version": SCHEMA_VERSION,
-        "signal_timeframes": signal_timeframes_str,
-        "evaluation_timeframe": evaluation_timeframe
+        "schema_version": SCHEMA_VERSION
     }
 
     with open(output_dir / "portfolio_metadata.json", "w") as f:
@@ -566,12 +539,7 @@ def main():
         "avg_pairwise_corr",
         "max_pairwise_corr_stress",
         "total_trades",
-        "portfolio_engine_version",
-        "portfolio_net_profit_low_vol",
-        "portfolio_net_profit_normal_vol",
-        "portfolio_net_profit_high_vol",
-        "signal_timeframes",
-        "evaluation_timeframe"
+        "portfolio_engine_version"
     ]
 
     def append_master_portfolio_sheet(record):
@@ -643,12 +611,7 @@ def main():
         "avg_pairwise_corr": summary["avg_pairwise_corr"],
         "max_pairwise_corr_stress": summary["max_pairwise_corr_stress"],
         "total_trades": summary["total_trades"],
-        "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
-        "portfolio_net_profit_low_vol": summary["portfolio_net_profit_low_vol"],
-        "portfolio_net_profit_normal_vol": summary["portfolio_net_profit_normal_vol"],
-        "portfolio_net_profit_high_vol": summary["portfolio_net_profit_high_vol"],
-        "signal_timeframes": summary["signal_timeframes"],
-        "evaluation_timeframe": summary["evaluation_timeframe"]
+        "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION
     }
 
     append_master_portfolio_sheet(record)

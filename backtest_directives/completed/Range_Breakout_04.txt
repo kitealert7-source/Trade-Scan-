@@ -1,0 +1,72 @@
+
+
+
+Test Name - Range_Breakout_04
+Family: Forex
+Strategy: Range_Breakout
+Broker: OctaFX
+Timeframe: 5m
+Session Time Reference: UTC
+Start Date: 2024-01-01
+End Date: 2026-01-31
+
+Symbols:
+
+AUDNZD
+AUDUSD
+EURAUD
+EURUSD
+GBPAUD
+GBPUSD
+GBPNZD
+NZDUSD
+USDCAD
+USDCHF
+USDJPY
+
+
+Notes:
+
+Core Logic: Opening Range Breakout
+
+Entry Rules:
+
+• Range Definition Window:
+  Analyze price action between 03:00 and 06:00 UTC.
+  Use M5 data to compute:
+      - Highest High
+      - Lowest Low
+  This defines the session range.
+
+• Order Placement (at 06:00 UTC):
+  Place:
+      - Buy Stop at Session High
+      - Sell Stop at Session Low
+
+• Execution Logic:
+  - When one order triggers, immediately cancel the opposite order.
+  - Maximum two trades per day.
+  - No re-entry after second trade.
+
+Exit Rules:
+
+• Time-Based Exit:
+  Close all open positions at 18:00 UTC.
+
+• Stop Loss:
+  Opposite side of the defined session range.
+
+• Take Profit:
+  None.
+
+• Trailing Stop:
+  None.
+
+Risk & Execution Assumptions:
+
+• No volatility gating.
+• No additional filters.
+• No parameter optimization.
+• No regime conditioning.
+• Bar-resolution execution.
+• Slippage and spread handled by broker specs.

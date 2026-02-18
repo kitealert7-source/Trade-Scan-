@@ -28,9 +28,9 @@ outside Stage-1.
 
 Flow is strictly:
 
-System Flow:
+Stage-1 → Stage-2 → Stage-3 → Stage-3A (Strategy Snapshot Finalization) → Stage-4 (Portfolio Analysis) → Human
 
-Stage-1 → Stage-2 → Stage-3 → Stage-4 (Portfolio Analysis) → Human
+Stage-3A is part of run finalization and is governed by SOP_OUTPUT.
 
 Stage-4 is governed exclusively by SOP_PORTFOLIO_ANALYSIS.
 
@@ -61,7 +61,11 @@ Agents MAY act only if:
 run_status == RUN_COMPLETE
 
 RUN_COMPLETE is defined as successful completion of:
-Stage-1 → Stage-2 → Stage-3
+
+Stage-1 → Stage-2 → Stage-3 → Stage-3A (Strategy Snapshot Finalization)
+
+A run without a valid strategy snapshot
+is NOT considered complete.
 
 Failed or partial runs do not exist.
 
@@ -78,9 +82,10 @@ For every folder present under:
 
     backtests/<strategy_name>/
 
-the system MUST have a corresponding historical snapshot at:
+the system MUST have:
+    - a strategy snapshot under strategies/<DirectiveName>/, AND
+    - an immutable engine snapshot under runs/<RUN_ID>/ (if applicable).
 
-    runs/<RUN_ID>/
 ---
 
 ## 6. Failure Handling

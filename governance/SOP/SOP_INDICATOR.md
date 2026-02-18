@@ -96,21 +96,38 @@ No breaking changes allowed without version traceability.
 
 ------------------------------------------------------------------------
 
-## 7. REPRODUCIBILITY REQUIREMENT
+## 7. REPRODUCIBILITY REQUIREMENT (MANDATORY)
 
 Indicator logic is part of research determinism.
 
-Therefore:
+Indicators are NOT independently snapshotted.
+Reproducibility is enforced through dependency fingerprinting.
 
-- Indicator files are snapshotted indirectly through strategy
-    snapshots.
-- Strategies depending on indicators assume indicator repository
-    stability.
+When a strategy snapshot is created (Stage-3A):
 
-If an indicator is materially changed:
+- All indicator source files imported by the strategy MUST have their
+  sha256 hashes recorded inside STRATEGY_SNAPSHOT.manifest.json.
 
-- This constitutes research evolution.
-- Revalidation of dependent strategies is REQUIRED.
+The snapshot manifest MUST record, for each dependency:
+
+    - fully qualified import reference
+    - resolved file path at execution time
+    - sha256 hash of the file contents
+
+The structure or folder hierarchy of the indicator repository
+is NOT fixed by this SOP.
+
+If any indicator file changes:
+
+- Its hash will differ.
+- Dependent strategies MUST be treated as research evolution.
+- Revalidation is REQUIRED.
+
+Historical runs remain valid because their dependency fingerprints
+are preserved in the snapshot manifest.
+
+Failure to record indicator dependency hashes invalidates
+deterministic reproducibility guarantees.
 
 ------------------------------------------------------------------------
 

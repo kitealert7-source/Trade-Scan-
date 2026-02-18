@@ -13,10 +13,11 @@ This SOP governs **execution‑time behavior only**.
 
 Trade_Scan:
 
-- reads human‑written directives
+- reads human-written directives
 - executes back tests
 - computes execution metrics
-- emits Stage‑1 artifacts
+- emits Stage-1 artifacts
+- participates in pipeline finalization through Stage-3A snapshot enforcement
 - stops
 
 All post‑execution presentation, aggregation, and reporting are governed by **SOP_OUTPUT — VERSION 4.1**.
@@ -81,6 +82,9 @@ The pipeline orchestrator is the sole authorized execution entry point.
 ### 3.3 Directive Completion & State Transition
 
 Upon atomic completion of all declared execution phases:
+Execution phases include Stage-3A Strategy Snapshot Finalization.
+
+Directive state transition to `completed_run/` MUST occur only after snapshot creation succeeds.
 
 The processed directive MUST be moved to:
 
@@ -111,8 +115,9 @@ Execution flow is deterministic and pipeline-driven:
 5. Stage-1 execution (including declared deterministic constraints).
 6. Stage-2 compilation.
 7. Stage-3 aggregation.
-8. Portfolio evaluation (if applicable).
-9. Stop.
+8. Stage-3A Strategy Snapshot Finalization (including indicator dependency fingerprinting).
+9. Portfolio evaluation (if applicable).
+10. Stop.
 
 There is:
 
@@ -140,14 +145,21 @@ This folder is the **sole authoritative container** for the run.
 
 ### RUN_COMPLETE Rule
 
-A run is `RUN_COMPLETE` only if **all declared executions finish atomically**.
+A run is `RUN_COMPLETE` only if:
 
-Failed or partial runs:
+- Stage-1 execution completes successfully
+- Stage-2 compilation completes successfully
+- Stage-3 aggregation completes successfully
+- Stage-3A Strategy Snapshot Finalization completes successfully
 
-- produce no retained artifacts
-- produce no retained artifacts
-- must be deleted
-- must not update any indices
+If snapshot creation fails:
+
+- RUN_COMPLETE MUST NOT be emitted
+- No artifacts are authoritative
+- No directive state transition may occur
+- No index update may occur
+
+RUN_COMPLETE is atomic across all declared pipeline stages.
 
 ---
 
@@ -162,7 +174,6 @@ Stage‑1 artifacts:
 
 Stage‑2 and Stage‑3:
 
-- MUST NOT recompute execution metrics already present in Stage-1 artifacts.
 - MUST NOT recompute execution metrics already present in Stage-1 artifacts.
 - MAY aggregate only as allowed by SOP_OUTPUT — VERSION 4.1
 
@@ -232,7 +243,10 @@ Stage-1 execution MAY include:
 • Raw execution phase  
 • Deterministic constraint enforcement phase (if declared)
 
-A run is considered RUN_COMPLETE only after all declared execution phases are completed successfully.
+A run is considered RUN_COMPLETE only after:
+
+- All declared Stage-1 execution phases complete successfully, AND
+- Stage-3A Strategy Snapshot Finalization completes successfully.
 
 Stage-1 artifacts become immutable only after all declared execution phases are complete.
 
@@ -303,7 +317,6 @@ Trade_Scan/data_access/broker_specs/<BROKER>/<SYMBOL>.yaml
 Mandatory fields:
 
 - min_lot
-- min_lot
 - lot_step
 - max_lot
 - contract_size
@@ -318,7 +331,6 @@ Iteration is permitted **only if explicitly declared**.
 
 Each iteration:
 
-- is a full folder copy
 - is a full folder copy
 - is isolated
 - is non‑adaptive
@@ -339,7 +351,6 @@ Each iteration:
 Forbidden:
 
 - post‑hoc filtering
-- post‑hoc filtering
 - data snooping
 - undeclared reruns
 - metric inference
@@ -352,8 +363,9 @@ Forbidden:
 Upon RUN_COMPLETE:
 
 - Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.1
-- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.1
-- This SOP relinquishes authority beyond Stage‑1 artifacts
+- This SOP governs execution truth through Stage-1 and participates in RUN_COMPLETE validation through Stage-3A snapshot finalization.
+
+All presentation, aggregation, and portfolio synthesis remain governed by SOP_OUTPUT and SOP_PORTFOLIO_ANALYSIS.
 
 ---
 
