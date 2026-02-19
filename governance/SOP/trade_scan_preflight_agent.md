@@ -25,7 +25,6 @@ Agents must assume **READ-ONLY by default**.
 
 A run follows exactly this path:
 
-```
 DIRECTIVE
   ↓
 Preflight Check (ALLOW or BLOCK)
@@ -35,6 +34,8 @@ Preflight Check (ALLOW or BLOCK)
        - MUST exit with code 0 (PASS)
        - Failure or omission → BLOCK
   ↓
+Stage-0.5 Semantic Validation
+  ↓
 Stage-1 Engine (run_stage1.py)
   ↓
 Stage-1 Emitter (execution_emitter_stage1.py)
@@ -42,16 +43,15 @@ Stage-1 Emitter (execution_emitter_stage1.py)
 Stage-2 Engine (stage2_compiler.py)
   ↓
 Stage-3 Engine (stage3_compiler.py)
-↓
+  ↓
 Stage-3A Snapshot Finalization (pipeline-enforced)
-↓
+  ↓
 STOP
+
+Stage-1 MUST NOT execute unless Stage-0.5 passes.
 
 Stage-3A MUST execute before STOP.
 Failure to finalize snapshot → FAILED state.
-
-
-```
 
 There are **no alternate paths**.
 
@@ -76,11 +76,13 @@ If an agent executes logic outside these → **FAIL**.
 
 Agents must respect run state:
 
-- Stage-1 may run only from `IDLE`
+- Preflight may run only from `IDLE`
+- Stage-0.5 Semantic Validation may run only after `PREFLIGHT_COMPLETE`
+- Stage-1 may run only after `PREFLIGHT_COMPLETE_SEMANTICALLY_VALID`
 - Stage-2 may run only after `STAGE_1_COMPLETE`
 - Stage-3 may run only after `STAGE_2_COMPLETE`
-- Stage-3A may run only after `STAGE_3_COMPLETE`
-- COMPLETE may be reached only after `STAGE_3A_COMPLETE`
+- Stage-3A may run only after `STAGE_3_COMPLETE`- COMPLETE may be reached only after `STAGE_3A_COMPLETE`
+
 - `FAILED` is terminal
 
 State violations → **ABORT**.

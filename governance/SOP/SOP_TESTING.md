@@ -130,6 +130,94 @@ Vault is not accessed during normal execution and must not influence pipeline be
 
 ---
 
+## 4A. Stage-0.5 — Strategy Semantic Validation (MANDATORY)
+
+Stage-0.5 executes after Preflight and before Stage-1.
+
+Stage-1 MUST NOT execute unless Stage-0.5 passes.
+
+Stage-0.5 prevents silent strategy mutation and legacy drift.
+
+It ensures that:
+
+- The active `strategy.py` fully reflects the current directive.
+- No legacy indicators, parameters, or primitives from prior versions remain.
+- No undeclared structural elements exist.
+- No declared elements are missing.
+
+Stage-0.5 validates structural identity only.
+It does NOT evaluate performance, outcomes, or execution results.
+
+---
+
+### What Is Validated
+
+Stage-0.5 SHALL verify alignment between directive and strategy:
+
+1. Strategy Identity
+   - `Strategy.name` matches directive.
+   - `Strategy.timeframe` matches directive.
+
+2. Indicator Usage
+   - All indicators are imported from `indicators/`.
+   - No undeclared indicator imports.
+   - No missing declared indicators.
+   - No legacy or unused indicator imports permitted.
+   - No inline indicator logic.
+
+3. Parameter Integrity
+   - Declared parameters exist.
+   - Default values match directive.
+   - No hidden or residual parameters from prior versions.
+
+4. Primitive Presence (if declared)
+   - Entry / stop / exit primitives declared in directive
+     must be present by identity (import + invocation).
+   - No residual primitives from prior versions.
+
+---
+
+### Validation Method
+
+Stage-0.5 constructs:
+
+- Declared Semantic Signature
+- Implementation Semantic Signature
+
+Binary equality required.
+
+Any extra element, missing element, or mismatch → HARD FAIL.
+
+No warnings.
+No auto-correction.
+
+---
+
+### Failure Rule
+
+On failure:
+
+- Transition to FAILED
+- Abort run
+- Emit no artifacts
+- Directive remains in `active/`
+
+---
+
+### Boundary
+
+Stage-0.5:
+
+- Does NOT execute strategy logic
+- Does NOT recompute indicators
+- Does NOT evaluate trade results
+- Does NOT modify strategy code
+- Does NOT enforce runtime constraints
+
+It is a pre-execution structural identity check only.
+
+---
+
 ## 5. Strategy Folder & Artifact Authority (LOCKED)
 
 For each run, Trade_Scan MUST:

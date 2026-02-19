@@ -1,0 +1,63 @@
+# RESEARCH DEFINITION — TEMPLATE (PHASE 14)
+# Instructions: Copy to research/<DIRECTIVE_ID>.yaml and fill.
+# Refer to governance/SOP/SOP_RESEARCH_DEFINITION.md for schema.
+# -------------------------------------------------------------
+
+# 1. METADATA
+id: "Strategy_Variant_vX"       # Must match filename (without .yaml)
+researcher: "Your Name"
+created_at: "YYYY-MM-DD"
+base_strategy: "Strategy_Name"
+engine_version: "1.2.0"
+
+# 2. BASELINE REFERENCE
+baseline:
+  id: "Strategy_Base_vY"        # ID of the run to compare against
+  manifest_hash: ""             # MANDATORY. SHA256 of baseline code snapshot.
+
+# 3. HYPOTHESIS & VALIDATION
+hypothesis:
+  mechanism: "Description of the logic change (causal mechanism)."
+  mechanism_validation:         # Qualitative Causal Check (Does not affect score)
+    expected_trade_count: "neutral"       # increase / decrease / neutral
+    expected_drawdown: "decrease"         # increase / decrease / neutral
+    expected_volatility_exp: "neutral"    # increase / decrease / neutral
+
+# 4. DESIGN
+design:
+  independent_variable: "Parameter or Logic Block Changed"
+  other_changes: []            # List incidental changes (avoid if possible)
+
+# 5. TEST SCOPE (Must match Directive File)
+test_scope:
+  symbols:
+    - "Symbol1"
+    - "Symbol2"
+  timeframe: "5m"
+  start_date: "YYYY-MM-DD"
+  end_date: "YYYY-MM-DD"
+
+# 6. EVALUATION MODEL (10-Metric Binary Scoring)
+# Promotion Threshold: 7 / 10 (Fixed by Governance)
+evaluation:
+  sharpe_min: 1.0              # Min acceptable Sharpe
+  return_to_drawdown_min: 2.0  # Net Profit / Max DD
+  expectancy_min: 0.5          # Average Win Amount > Average Loss Amount? (simplified)
+  profit_factor_min: 1.2       # Gross Win / Gross Loss
+  max_drawdown_pct_max: 25.0   # Max DD %
+  equity_stability_rule: true  # Qualitative: Is curve stable?
+  trade_count_min: 100         # Significance
+  win_rate_min: 40.0           # Min Win Rate %
+  avg_concurrent_max: 10       # Capacity
+  exposure_pct_max: 60.0       # Max Capital Exposure
+
+# 7. OPERATIONAL CONSTRAINTS
+operational_constraints:
+  max_concurrency: 20          # Matches Broker Limit
+
+# 8. DECISION (Post-Run)
+decision:
+  status: "PENDING"            # PENDING / ADVANCE / REJECT / REFINE
+  score: 0                     # Final Score (0-10)
+  promoted: false              # true if moved to Master Filter
+  notes: ""                    # Explanation of outcome

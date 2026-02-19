@@ -21,13 +21,15 @@ Any violation **must abort the run immediately**.
 
 ---
 
-## Invariant 2 — Linear State‑Gated Execution
+## Invariant 2 — Linear State-Gated Execution
 
-A Trade_Scan run exists in **exactly one state** at any time.
+A Trade_Scan run exists in exactly one state at any time.
 
-**Allowed states (linear, non‑reentrant):**
+Allowed states (linear, non-reentrant):
 
 - IDLE
+- PREFLIGHT_COMPLETE
+- PREFLIGHT_COMPLETE_SEMANTICALLY_VALID
 - STAGE_1_COMPLETE
 - STAGE_2_COMPLETE
 - STAGE_3_COMPLETE
@@ -35,19 +37,23 @@ A Trade_Scan run exists in **exactly one state** at any time.
 - COMPLETE
 - FAILED
 
-**Allowed transitions:**
+Allowed transitions:
 
-- IDLE → STAGE_1_COMPLETE
+- IDLE → PREFLIGHT_COMPLETE
+- PREFLIGHT_COMPLETE → PREFLIGHT_COMPLETE_SEMANTICALLY_VALID
+- PREFLIGHT_COMPLETE_SEMANTICALLY_VALID → STAGE_1_COMPLETE
 - STAGE_1_COMPLETE → STAGE_2_COMPLETE
 - STAGE_2_COMPLETE → STAGE_3_COMPLETE
 - STAGE_3_COMPLETE → STAGE_3A_COMPLETE
 - STAGE_3A_COMPLETE → COMPLETE
 
-**Rules:**
+Rules:
 
-- Stage‑1 engine may execute **only** from IDLE.
-- Stage‑2 engine may execute **only** if state = STAGE_1_COMPLETE.
-- Stage‑3 engine may execute **only** if state = STAGE_2_COMPLETE.
+- Preflight may execute only from IDLE.
+- Stage-0.5 Semantic Validation may execute only from PREFLIGHT_COMPLETE.
+- Stage-1 engine may execute only if state = PREFLIGHT_COMPLETE_SEMANTICALLY_VALID.
+- Stage-2 engine may execute only if state = STAGE_1_COMPLETE.
+- Stage-3 engine may execute only if state = STAGE_2_COMPLETE.
 - Stage-3A snapshot finalization may execute only if state = STAGE_3_COMPLETE.
 - COMPLETE may be reached only from STAGE_3A_COMPLETE.
 - FAILED is terminal. No further execution is permitted.

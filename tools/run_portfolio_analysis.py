@@ -246,7 +246,8 @@ def compute_concurrency_profile(trades, equity_series):
         "p95_concurrent": p95_conc,
         "dd_max_concurrent": int(dd_max),
         "full_load_cluster": full_load_cluster,
-        "peak_capital_deployed": peak_capital_deployed
+        "peak_capital_deployed": peak_capital_deployed,
+        "pct_time_deployed": pct_deployed  # Phase 16: Exposure Metric
     }
     
     return concurrency_at_entry_series, capital_deployed_series, metrics
@@ -487,6 +488,54 @@ def main():
     )
 
     # --------------------------------------------------
+    # Phase 16: Mandatory Research Metrics
+    # --------------------------------------------------
+
+    # K-Ratio (Slope of log equity / SE)
+    log_eq = np.log(daily_equity_series.values)
+    x = np.arange(len(log_eq))
+    if len(x) > 2:
+        slope, intercept = np.polyfit(x, log_eq, 1)
+        predicted = slope * x + intercept
+        residuals = log_eq - predicted
+        denom = np.sqrt(np.sum((x - x.mean())**2))
+        if denom > 0:
+             se_slope = np.sqrt(np.sum(residuals**2) / (len(x) - 2)) / denom
+        else:
+             se_slope = 0.0
+        k_ratio = slope / se_slope if se_slope > 0 else 0.0
+    else:
+        k_ratio = 0.0
+
+    # Win Rate
+    total_trades = len(trades)
+    if total_trades > 0:
+        win_rate = (trades['pnl'] > 0).mean() * 100.0
+    else:
+        win_rate = 0.0
+
+    # Profit Factor
+    gross_profit = trades[trades['pnl'] > 0]['pnl'].sum()
+    gross_loss = abs(trades[trades['pnl'] < 0]['pnl'].sum())
+    
+    if gross_loss == 0:
+        profit_factor = float('inf') if gross_profit > 0 else 0.0
+    else:
+        profit_factor = gross_profit / gross_loss
+
+    # Expectancy
+    if total_trades > 0:
+        expectancy = trades['pnl'].mean()
+    else:
+        expectancy = 0.0
+
+    # Exposure % (Mapped)
+    exposure_pct = concurrency_data.get('pct_time_deployed', 0.0) * 100.0
+
+    # Equity Stability (Mapped)
+    equity_stability_k_ratio = k_ratio
+
+    # --------------------------------------------------
     # Outputs
     # --------------------------------------------------
 
@@ -518,7 +567,14 @@ def main():
         "portfolio_net_profit_normal_vol": normal_pnl,
         "portfolio_net_profit_high_vol": high_pnl,
         "signal_timeframes": signal_timeframes_str,
-        "evaluation_timeframe": evaluation_timeframe
+        "evaluation_timeframe": evaluation_timeframe,
+        # Phase 16 Metrics
+        "k_ratio": float(k_ratio),
+        "win_rate": float(win_rate),
+        "profit_factor": float(profit_factor),
+        "expectancy": float(expectancy),
+        "exposure_pct": float(exposure_pct),
+        "equity_stability_k_ratio": float(equity_stability_k_ratio)
     }
 
     with open(output_dir / "portfolio_summary.json", "w") as f:
@@ -571,7 +627,15 @@ def main():
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
         "signal_timeframes",
-        "evaluation_timeframe"
+        "signal_timeframes",
+        "evaluation_timeframe",
+        # Phase 16 Metrics
+        "k_ratio",
+        "win_rate",
+        "profit_factor",
+        "expectancy",
+        "exposure_pct",
+        "equity_stability_k_ratio"
     ]
 
     def append_master_portfolio_sheet(record):
@@ -648,7 +712,15 @@ def main():
         "portfolio_net_profit_normal_vol": summary["portfolio_net_profit_normal_vol"],
         "portfolio_net_profit_high_vol": summary["portfolio_net_profit_high_vol"],
         "signal_timeframes": summary["signal_timeframes"],
-        "evaluation_timeframe": summary["evaluation_timeframe"]
+        "signal_timeframes": summary["signal_timeframes"],
+        "evaluation_timeframe": summary["evaluation_timeframe"],
+        # Phase 16 Metrics
+        "k_ratio": summary["k_ratio"],
+        "win_rate": summary["win_rate"],
+        "profit_factor": summary["profit_factor"],
+        "expectancy": summary["expectancy"],
+        "exposure_pct": summary["exposure_pct"],
+        "equity_stability_k_ratio": summary["equity_stability_k_ratio"]
     }
 
     append_master_portfolio_sheet(record)

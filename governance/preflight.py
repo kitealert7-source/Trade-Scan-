@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 from typing import Optional
-from tools.run_stage1 import parse_directive, get_canonical_hash
+from tools.pipeline_utils import parse_directive, get_canonical_hash
 
 # Project root (relative to this file's location in governance/)
 PROJECT_ROOT = Path(__file__).parent.parent

@@ -391,6 +391,32 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
             (portfolio_df['exit_timestamp'] <= lf_end)
         ])
 
+    # ------------------------------------------------------------------
+    # PHASE 15 PATCH: MANDATORY RESEARCH METRICS
+    # ------------------------------------------------------------------
+    # Win Rate
+    total_trades = len(portfolio_df)
+    if total_trades > 0:
+        win_rate = (portfolio_df['pnl_usd'] > 0).mean() * 100.0
+    else:
+        win_rate = 0.0
+
+    # Profit Factor
+    gross_profit = portfolio_df[portfolio_df['pnl_usd'] > 0]['pnl_usd'].sum()
+    gross_loss = abs(portfolio_df[portfolio_df['pnl_usd'] < 0]['pnl_usd'].sum())
+    
+    if gross_loss == 0:
+        profit_factor = float('inf') if gross_profit > 0 else 0.0
+    else:
+        profit_factor = gross_profit / gross_loss
+
+    # Expectancy
+    if total_trades > 0:
+        expectancy = portfolio_df['pnl_usd'].mean()
+    else:
+        expectancy = 0.0
+    # ------------------------------------------------------------------
+
     return {
         'net_pnl_usd': net_pnl,
         'cagr': cagr,
@@ -403,10 +429,16 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
         'mar': mar,
         'longest_flat_days': longest_flat_days,
         'longest_flat_trades': flat_trades,
-        'total_trades': len(portfolio_df),
+        'total_trades': total_trades,
         'years': years,
         'start_date': str(start_date.date()),
         'end_date': str(end_date.date()),
+        # Phase 15 Metrics
+        'win_rate': win_rate,
+        'profit_factor': profit_factor,
+        'expectancy': expectancy,
+        'gross_profit': gross_profit,
+        'gross_loss': gross_loss
     }
 
 
@@ -1092,7 +1124,13 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'portfolio_net_profit_normal_vol': port_metrics.get('portfolio_net_profit_normal_vol', 0.0),
         'portfolio_net_profit_high_vol': port_metrics.get('portfolio_net_profit_high_vol', 0.0),
         'signal_timeframes': port_metrics.get('signal_timeframes', "UNKNOWN"),
-        'evaluation_timeframe': port_metrics.get('evaluation_timeframe', "1D")
+        'evaluation_timeframe': port_metrics.get('evaluation_timeframe', "1D"),
+        # Phase 15 Metrics
+        'win_rate': port_metrics.get('win_rate', 0.0),
+        'profit_factor': port_metrics.get('profit_factor', 0.0),
+        'expectancy': port_metrics.get('expectancy', 0.0),
+        'exposure_pct': port_metrics.get('exposure_pct', 0.0),
+        'equity_stability_k_ratio': port_metrics.get('equity_stability_k_ratio', 0.0)
     }
     with open(output_dir / 'portfolio_summary.json', 'w') as f:
         json.dump(summary, f, indent=4)
@@ -1276,7 +1314,13 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
         "signal_timeframes",
-        "evaluation_timeframe"
+        "evaluation_timeframe",
+        # Phase 15 Metrics
+        "win_rate",
+        "profit_factor",
+        "expectancy",
+        "exposure_pct",
+        "equity_stability_k_ratio"
     ]
     
     
@@ -1312,7 +1356,13 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "portfolio_net_profit_normal_vol": metrics.get('portfolio_net_profit_normal_vol', 0.0),
         "portfolio_net_profit_high_vol": metrics.get('portfolio_net_profit_high_vol', 0.0),
         "signal_timeframes": metrics.get('signal_timeframes', "UNKNOWN"),
-        "evaluation_timeframe": metrics.get('evaluation_timeframe', "1D")
+        "evaluation_timeframe": metrics.get('evaluation_timeframe', "1D"),
+        # Phase 15 Metrics
+        "win_rate": metrics.get('win_rate', 0.0),
+        "profit_factor": metrics.get('profit_factor', 0.0),
+        "expectancy": metrics.get('expectancy', 0.0),
+        "exposure_pct": metrics.get('exposure_pct', 0.0),
+        "equity_stability_k_ratio": metrics.get('equity_stability_k_ratio', 0.0)
     }
     
     # Load or Create
@@ -1497,6 +1547,17 @@ def main():
 
     # Extract unique source run IDs (moved up for save_snapshot)
     unique_runs = sorted(list(set(portfolio_df['source_run_id'].astype(str).unique())))
+
+    # ------------------------------------------------------------------
+    # PHASE 15 PATCH: SNAPSHOT METRIC ENRICHMENT
+    # ------------------------------------------------------------------
+    # Exposure % (Formalized)
+    exposure_pct = cap_util.get('pct_time_deployed', 0.0) * 100.0
+    port_metrics['exposure_pct'] = exposure_pct
+
+    # Equity Stability (Raw K-Ratio)
+    port_metrics['equity_stability_k_ratio'] = port_metrics.get('k_ratio', 0.0)
+    # ------------------------------------------------------------------
 
     # Save snapshot
     recommendation = save_snapshot(

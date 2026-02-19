@@ -1,7 +1,7 @@
 """
-run_stage1.py — Minimal Stage-1 Execution Harness (Multi-Asset Batch v4)
+run_stage1.py — Minimal Stage-1 Execution Harness (Multi-Asset Batch v5 - State Gated)
 Purpose: Execute Directive (Batch), emit Stage-1 artifacts only
-Authority: SOP_TESTING, SOP_OUTPUT
+Authority: SOP_TESTING, SOP_OUTPUT, SOP_AGENT_ENGINE_GOVERNANCE
 
 NO METRICS COMPUTATION
 NO STAGE-2 OR STAGE-3
@@ -24,6 +24,9 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# Governance Imports
+from tools.pipeline_utils import PipelineStateManager, generate_run_id, parse_directive, get_engine_version
+
 # --- CONFIGURATION TO BE PARSED FROM DIRECTIVE ---
 # Default placeholders, will be overridden by parsing
 DIRECTIVE_FILENAME = "SPX04.txt"
@@ -31,7 +34,6 @@ BROKER = "OctaFx"
 TIMEFRAME = "1d"
 START_DATE = "2015-01-01"
 END_DATE = "2026-01-31"
-
 
 
 # --- PnL NORMALIZATION LOGIC ---
@@ -147,79 +149,11 @@ def normalize_pnl_to_usd(raw_pnl_quote: float,
     raise ValueError(f"Missing conversion data for cross PnL ({base_ccy}/{quote_ccy}). Needed {target_direct} or {target_indirect}.")
 
 
-def get_engine_version():
-    """Dynamically import engine module and read __version__."""
-    import importlib.util
+# get_engine_version imported from pipeline_utils
 
-    engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/1.2.0/main.py"
-    if not engine_path.exists():
-        raise RuntimeError(f"Engine main.py not found at {engine_path}")
+# parse_directive imported from pipeline_utils
 
-    spec = importlib.util.spec_from_file_location("universal_research_engine", engine_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Failed to load engine spec")
-        
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    if not hasattr(module, "__version__"):
-        raise RuntimeError("Engine module missing __version__ attribute")
-
-    return module.__version__
-
-
-def parse_directive(file_path: Path) -> dict:
-    """
-    Parse directive text into a structured dictionary for canonical hashing.
-    Supports 'Key: Value' and Lists (- item or implicit).
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-
-    parsed = {}
-    current_key = None
-    
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-            
-        # List Item (Explicit)
-        if line.startswith("-") and current_key:
-            val = line[1:].strip()
-            if not isinstance(parsed[current_key], list):
-                parsed[current_key] = []
-            parsed[current_key].append(val)
-            continue
-            
-        # Key-Value
-        if ":" in line:
-            parts = line.split(":", 1)
-            key = parts[0].strip()
-            val = parts[1].strip()
-            
-            if not val:
-                # Key with empty value, possibly start of list
-                parsed[key] = []
-                current_key = key
-            else:
-                parsed[key] = val
-                current_key = key
-        else:
-            # Implicit List Item (No dash, no colon, but we have a current_key pointing to a list)
-            if current_key and isinstance(parsed.get(current_key), list):
-                parsed[current_key].append(line)
-            else:
-                # Continuation text or description, ignore for config hash if not Key:Value
-                pass
-            
-    return parsed
-
-
-def get_canonical_hash(parsed_data: dict) -> str:
-    """Generate SHA256 hash of canonical JSON representation."""
-    canonical_str = json.dumps(parsed_data, sort_keys=True, ensure_ascii=True)
-    return hashlib.sha256(canonical_str.encode()).hexdigest()[:8]
+# get_canonical_hash imported from pipeline_utils (indirectly used via generate_run_id)
 
 
 def load_market_data(symbol: str) -> pd.DataFrame:
@@ -413,7 +347,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
                 )
             except ValueError:
                 notional_usd = 0.0 # Fallback
-
+ 
         
         entry_idx = t["entry_index"]
         exit_idx = t["exit_index"]
@@ -500,7 +434,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
 
 def main():
     print("=" * 60)
-    print("MULTI-ASSET BATCH EXECUTION HARNESS (v4)")
+    print("MULTI-ASSET BATCH EXECUTION HARNESS (v5 - State Gated)")
     print("=" * 60)
     
     global DIRECTIVE_FILENAME, BROKER, TIMEFRAME, START_DATE, END_DATE
@@ -514,34 +448,27 @@ def main():
     # 1. Locate Directive (with Argument Support)
     import argparse
     parser = argparse.ArgumentParser(description="Stage-1 Execution Harness")
-    parser.add_argument("directive", nargs="?", help="Optional Directive ID (e.g. IDX28)")
+    parser.add_argument("directive", help="Directive ID (e.g. IDX28)")
+    parser.add_argument("--symbol", required=True, help="Target Symbol")
+    parser.add_argument("--run_id", required=True, help="Deterministic Run ID")
     args = parser.parse_args()
 
     active_dir = PROJECT_ROOT / "backtest_directives" / "active"
     
-    if args.directive:
-        # Argument Mode
-        candidate = args.directive.replace(".txt", "")
-        directive_path = active_dir / f"{candidate}.txt"
+    # Argument Mode
+    candidate = args.directive.replace(".txt", "")
+    directive_path = active_dir / f"{candidate}.txt"
+    if not directive_path.exists():
+        # Try exact match if user provided extension
+        directive_path = active_dir / candidate 
         if not directive_path.exists():
-            # Try exact match if user provided extension
-            directive_path = active_dir / candidate 
-            if not directive_path.exists():
-                print(f"[FATAL] Specified directive not found: {directive_path}")
-                return
-    else:
-        # Legacy Mode (Single File Auto-Detect)
-        txt_files = list(active_dir.glob("*.txt"))
-        if len(txt_files) != 1:
-            print(f"[FATAL] Expected exactly 1 active directive, found {len(txt_files)}.")
+            print(f"[FATAL] Specified directive not found: {directive_path}")
             return
-        directive_path = txt_files[0]
 
-    global DIRECTIVE_FILENAME
     DIRECTIVE_FILENAME = directive_path.name
     print(f"[INIT] Directive: {DIRECTIVE_FILENAME}")
     
-    # 2. Parse & Canonical Hash
+    # 2. Parse & Canonical Hash via Shared Util
     directive_content = directive_path.read_text(encoding="utf-8")
     parsed_config = parse_directive(directive_path)
     
@@ -550,19 +477,6 @@ def main():
     if "Timeframe" in parsed_config: TIMEFRAME = parsed_config["Timeframe"]
     if "Start Date" in parsed_config: START_DATE = parsed_config["Start Date"]
     if "End Date" in parsed_config: END_DATE = parsed_config["End Date"]
-    
-    # --- Inject resolved defaults into canonical config ---
-    resolved_config = dict(parsed_config)  # shallow copy
-    
-    resolved_config.update({
-        "BROKER": BROKER,
-        "TIMEFRAME": TIMEFRAME,
-        "START_DATE": START_DATE,
-        "END_DATE": END_DATE
-    })
-    
-    content_hash = get_canonical_hash(resolved_config)
-    print(f"[INIT] Content Hash: {content_hash}")
     
     # 3. Engine Version
     engine_ver = get_engine_version()
@@ -575,146 +489,157 @@ def main():
         return
     print(f"[CONFIG] Strategy ID: {strategy_id}")
 
-    # 4b. Get Symbols
-    symbols = parsed_config.get("Symbols", [])
-    if isinstance(symbols, str):
-        symbols = [symbols]
-    if not symbols:
-        print("[FATAL] No symbols define in directive.")
+    # 4b. Get Symbols checks (verify request matches directive)
+    directive_symbols = parsed_config.get("Symbols", [])
+    if isinstance(directive_symbols, str):
+        directive_symbols = [directive_symbols]
+    
+    target_symbol = args.symbol
+    if target_symbol not in directive_symbols:
+        print(f"[FATAL] Requested symbol '{target_symbol}' not in directive.")
         return
         
-    print(f"[CONFIG] Batch Size: {len(symbols)} symbols ({symbols})")
+    print(f"[CONFIG] Atomic Execution: {target_symbol}")
 
-    # 5. Batch Loop
+    # 5. Atomic Execution
     summary_csv = PROJECT_ROOT / "backtests" / f"batch_summary_{DIRECTIVE_FILENAME.replace('.txt', '')}.csv"
-    batch_results = []
     
-    for symbol in symbols:
-        print(f"\n>>> PROCESSING: {symbol} ...")
+    print(f"\n>>> PROCESSING: {target_symbol} ...")
+    
+    status = "FAILED"
+    net_pnl = 0.0
+    error_msg = ""
+    run_id = args.run_id
+    
+    try:
+        # Verify Run ID matches generation logic?
+        # User said "Use provided run_id". Trusting Orchestrator.
+        # But we calculate lineage_str for artifacts.
+        _, content_hash = generate_run_id(directive_path, target_symbol)
+        lineage_str = f"{content_hash}_{target_symbol}_{TIMEFRAME}_{BROKER}_{engine_ver}"
+        print(f"    Run ID: {run_id}")
         
-        status = "FAILED"
-        run_id = "N/A"
-        net_pnl = 0.0
-        error_msg = ""
-        
+        # --- PHASE 7: STATE VERIFICATION ---
         try:
-            # Deterministic Run ID
-            # lineage_str = f"{content_hash}_{symbol}_{timeframe}_{broker}_{engine_version}"
-            lineage_str = f"{content_hash}_{symbol}_{TIMEFRAME}_{BROKER}_{engine_ver}"
-            run_id = hashlib.sha256(lineage_str.encode()).hexdigest()[:12]
-            print(f"    Run ID: {run_id}")
-            
-            # Load Data
-            df = load_market_data(symbol)
-            broker_spec = load_broker_spec(symbol)
-            
-            # --- METRIC INTEGRITY: Compute Bar Geometry ---
-            median_bar_seconds = 0
-            if len(df) > 1:
-                deltas = df["timestamp"].diff().dropna().dt.total_seconds()
-                median_bar_seconds = int(deltas.median()) if not deltas.empty else 0
-            
-            print(f"    Geometry: {median_bar_seconds}s per bar")
-            
-            # Strategy
-            strategy = load_strategy(strategy_id)
-            
-            # Exec
-            trades = run_engine_logic(df, strategy)
-            print(f"    Trades: {len(trades)}")
-            
-            # Emit
-            if trades:
-                out_folder = emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, median_bar_seconds)
-                
-                # Persist Strategy
-                from pathlib import Path
-                # Persist Strategy Source (Full Module Snapshot)
-                from pathlib import Path
-                import shutil
-
-                target_dir = PROJECT_ROOT / "runs" / run_id
-                target_dir.mkdir(parents=True, exist_ok=True)
-
-                # Source plugin file
-                plugin_file = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
-
-                if not plugin_file.exists():
-                    raise FileNotFoundError(f"Cannot snapshot strategy — file missing: {plugin_file}")
-
-                # Copy full module file verbatim
-                shutil.copy2(plugin_file, target_dir / "strategy.py")
-                
-                contract_size = float(broker_spec["contract_size"])
-                min_lot = float(broker_spec["min_lot"])
-                has_mult = 'size_multiplier' in df.columns
-                total_pnl = 0.0
-                
-                # --- Batch Summary PnL (Currency Aware) ---
-                base_ccy, quote_ccy = parse_symbol_properties(symbol)
-                
-                for t in trades:
-                    d = t['direction'] if t['direction'] != 0 else 1
-                    if has_mult:
-                        m = df.iloc[t['entry_index']].get('size_multiplier', 1.0)
-                        import math
-                        if math.isnan(m): m = 1.0
-                        sl = min_lot * m
-                    else:
-                        sl = t.get('size', min_lot)
-                    
-                    units = sl * contract_size
-                    raw_pnl_quote = (t['exit_price'] - t['entry_price']) * d * units
-                    
-                    try:
-                        trade_pnl = normalize_pnl_to_usd(
-                            raw_pnl_quote=raw_pnl_quote,
-                            base_ccy=base_ccy,
-                            quote_ccy=quote_ccy,
-                            exit_price=t['exit_price'],
-                            timestamp=pd.Timestamp(t['exit_timestamp'])
-                        )
-                        total_pnl += trade_pnl
-                    except ValueError:
-                        # For batch summary, if cross conversion fails, maybe warn or skip?
-                        # User requested strictness, but failing the whole batch might be harsh.
-                        # Let's log and skip trade to minimize noise, or just fail as per strict req?
-                        # Req: "Hard raise if neither cross pair exists." -> So we let it crash.
-                        raise
-                        
-                net_pnl = total_pnl
-                
-                status = "SUCCESS"
-                print(f"    [SUCCESS] Artifacts: {out_folder}")
-            else:
-                status = "NO_TRADES"
-                print("    [WARN] No trades generated.")
-
+            state_mgr = PipelineStateManager(run_id)
+            # Orchestrator sets NEXT state always.
+            state_mgr.verify_state("STAGE_1_START")
+            print(f"    [GOVERNANCE] State Verified: STAGE_1_START")
         except Exception as e:
-            error_msg = str(e)
-            print(f"    [ERROR] {e}")
-            # traceback.print_exc()
+            print(f"    [FATAL] Governance Check Failed: {e}")
+            error_msg = f"Governance Check Failed: {e}"
+            raise e
+        # -----------------------------------
+        
+        # Load Data
+        df = load_market_data(target_symbol)
+        broker_spec = load_broker_spec(target_symbol)
+        
+        # --- METRIC INTEGRITY: Compute Bar Geometry ---
+        median_bar_seconds = 0
+        if len(df) > 1:
+            deltas = df["timestamp"].diff().dropna().dt.total_seconds()
+            median_bar_seconds = int(deltas.median()) if not deltas.empty else 0
+        
+        print(f"    Geometry: {median_bar_seconds}s per bar")
+        
+        # Strategy
+        strategy = load_strategy(strategy_id)
+        
+        # Exec
+        trades = run_engine_logic(df, strategy)
+        print(f"    Trades: {len(trades)}")
+        
+        # Emit
+        if trades:
+            out_folder = emit_result(trades, df, broker_spec, target_symbol, run_id, content_hash, lineage_str, directive_content, median_bar_seconds)
+            
+            # Persist Strategy
+            from pathlib import Path
+            import shutil
 
-        batch_results.append({
-            "Symbol": symbol,
+            target_dir = PROJECT_ROOT / "runs" / run_id
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            # Source plugin file
+            plugin_file = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
+
+            if not plugin_file.exists():
+                raise FileNotFoundError(f"Cannot snapshot strategy — file missing: {plugin_file}")
+
+            # Copy full module file verbatim
+            shutil.copy2(plugin_file, target_dir / "strategy.py")
+            
+            contract_size = float(broker_spec["contract_size"])
+            min_lot = float(broker_spec["min_lot"])
+            has_mult = 'size_multiplier' in df.columns
+            total_pnl = 0.0
+            
+            # --- Batch Summary PnL (Currency Aware) ---
+            base_ccy, quote_ccy = parse_symbol_properties(target_symbol)
+            
+            for t in trades:
+                d = t['direction'] if t['direction'] != 0 else 1
+                if has_mult:
+                    m = df.iloc[t['entry_index']].get('size_multiplier', 1.0)
+                    import math
+                    if math.isnan(m): m = 1.0
+                    sl = min_lot * m
+                else:
+                    sl = t.get('size', min_lot)
+                
+                units = sl * contract_size
+                raw_pnl_quote = (t['exit_price'] - t['entry_price']) * d * units
+                
+                try:
+                    trade_pnl = normalize_pnl_to_usd(
+                        raw_pnl_quote=raw_pnl_quote,
+                        base_ccy=base_ccy,
+                        quote_ccy=quote_ccy,
+                        exit_price=t['exit_price'],
+                        timestamp=pd.Timestamp(t['exit_timestamp'])
+                    )
+                    total_pnl += trade_pnl
+                except ValueError:
+                    raise
+                    
+            net_pnl = total_pnl
+            
+            status = "SUCCESS"
+            print(f"    [SUCCESS] Artifacts: {out_folder}")
+        else:
+            status = "NO_TRADES"
+            print("    [WARN] No trades generated.")
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"    [ERROR] {e}")
+        # traceback.print_exc()
+
+    # 6. Write Summary (Append Mode)
+    print("\n" + "=" * 60)
+    print("ATOMIC EXECUTION SUMMARY")
+    print("=" * 60)
+    
+    file_exists = summary_csv.exists()
+    
+    with open(summary_csv, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["Symbol", "RunID", "Status", "NetPnL", "Error"])
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            "Symbol": target_symbol,
             "RunID": run_id,
             "Status": status,
             "NetPnL": round(net_pnl, 2),
             "Error": error_msg
         })
-
-    # 6. Write Summary
-    print("\n" + "=" * 60)
-    print("BATCH EXECUTION SUMMARY")
-    print("=" * 60)
-    with open(summary_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["Symbol", "RunID", "Status", "NetPnL", "Error"])
-        writer.writeheader()
-        for res in batch_results:
-            writer.writerow(res)
-            print(f"{res['Symbol']:<10} | {res['Status']:<10} | {res['RunID']:<12} | PnL: ${res['NetPnL']}")
             
+    print(f"{target_symbol:<10} | {status:<10} | {run_id:<12} | PnL: ${round(net_pnl, 2)}")
     print("=" * 60)
+    
+    if status == "FAILED":
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

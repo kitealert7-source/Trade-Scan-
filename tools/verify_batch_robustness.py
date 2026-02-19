@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
-    from tools.run_stage1 import get_canonical_hash, parse_directive
+    from tools.pipeline_utils import get_canonical_hash, parse_directive
 except ImportError as e:
     print(f"[FAIL] Import Error: {e}")
     sys.exit(1)

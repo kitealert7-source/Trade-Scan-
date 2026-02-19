@@ -4,8 +4,8 @@ Strategy: Range_Breakout
 Broker: OctaFX
 Timeframe: 5m
 Session Time Reference: UTC
-Start Date: 2024-01-01
-End Date: 2024-01-07
+Start Date: 2024-09-01
+End Date: 2024-09-07
 
 Symbols:
 

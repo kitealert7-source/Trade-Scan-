@@ -4,6 +4,9 @@ Consumes Stage-1 authoritative artifacts and produces AK_Trade_Report Excel.
 Implements SOP_OUTPUT §5.1 (Performance Summary) and §5.2 (Yearwise Performance).
 All metrics computed from Stage-1 data. No placeholders.
 Rewritten to use pandas and Unified Formatter (Zero OpenPyXL Styling / Imports).
+
+Authority: SOP_OUTPUT, SOP_TESTING
+State Gated: Yes (STAGE_2_START)
 """
 
 import csv
@@ -15,6 +18,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
 import argparse
+
+# Config
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Governance Imports
+from tools.pipeline_utils import PipelineStateManager
 
 # ==================================================================
 # CONSTANTS & CONFIG
@@ -428,6 +438,7 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
         "avg_trade_ny": avg_trade_ny,
     }
 
+
 def _empty_metrics(starting_capital=0.0):
     return {
         "starting_capital": starting_capital,
@@ -774,7 +785,7 @@ def compile_stage2(run_folder: Path):
     return run_folder, [excel_filename]
 
 def main():
-    parser = argparse.ArgumentParser(description="Stage-2 Presentation Compiler (v4 Multi-Asset) - Clean Engine")
+    parser = argparse.ArgumentParser(description="Stage-2 Presentation Compiler (v5 Multi-Asset) - Clean Engine")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("run_folder", nargs="?", help="Path to single Stage-1 run folder")
     group.add_argument("--scan", help="Scan backtests/ for folders matching DIRECTIVE_NAME_*")
@@ -784,9 +795,12 @@ def main():
     if args.scan:
         directive_name = args.scan
         backtests_root = Path(__file__).parent.parent / "backtests"
+        runs_root = Path(__file__).parent.parent / "runs" # For governance
+        
         if not backtests_root.exists():
             print(f"[FAIL] Backtests directory not found: {backtests_root}")
             sys.exit(1)
+            
         candidates = sorted(list(backtests_root.glob(f"{directive_name}_*")))
         valid_runs = []
         for cand in candidates:
@@ -798,28 +812,55 @@ def main():
             sys.exit(1)
             
         print(f"[SCAN] Found {len(valid_runs)} valid runs for '{directive_name}'")
-        success_count = 0
-        fail_count = 0
+        
+        # BATCH EXECUTION
         for run_folder in valid_runs:
             try:
-                print(f">>> Compiling: {run_folder.name} ... ", end="", flush=True)
+                # --- GOVERNANCE CHECK ---
+                # We need Run ID to verify state.
+                with open(run_folder / "metadata" / "run_metadata.json", "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    run_id = meta.get("run_id")
+                    
+                if not run_id:
+                     raise ValueError("Run ID missing in metadata.")
+                     
+                state_mgr = PipelineStateManager(run_id)
+                # Verify we are cleared for Stage 2
+                state_mgr.verify_state("STAGE_2_START")
+                print(f"[GOVERNANCE] Verified -> {run_folder.name}")
+                # ------------------------
+                
                 compile_stage2(run_folder)
-                print("[OK]")
-                success_count += 1
             except Exception as e:
-                print(f"[FAIL] {e}")
-                fail_count += 1
-        print(f"BATCH SUMMARY: {success_count} Success, {fail_count} Failed")
-        if fail_count > 0: sys.exit(1)
-        sys.exit(0)
+                print(f"[ERROR] Failed to compile {run_folder.name}: {e}")
+                # We do NOT exit whole batch, but we log the error.
+        
     else:
-        run_folder = Path(args.run_folder)
-        if not run_folder.exists(): raise SystemExit(f"ERROR: Run folder not found: {run_folder}")
+        # SINGLE EXECUTION
+        run_folder = Path(args.run_folder).resolve()
+        if not run_folder.exists():
+            print(f"[FAIL] Run folder not found: {run_folder}")
+            sys.exit(1)
+            
         try:
-            out, files = compile_stage2(run_folder)
-            print(f"Generated: {files}")
+             # --- GOVERNANCE CHECK ---
+            with open(run_folder / "metadata" / "run_metadata.json", "r", encoding="utf-8") as f:
+                meta = json.load(f)
+                run_id = meta.get("run_id")
+            
+            if not run_id:
+                 raise ValueError("Run ID missing in metadata.")
+                 
+            state_mgr = PipelineStateManager(run_id)
+            state_mgr.verify_state("STAGE_2_START")
+            print(f"[GOVERNANCE] Verified -> {run_folder.name}")
+            # ------------------------
+            
+            compile_stage2(run_folder)
         except Exception as e:
-            raise SystemExit(f"Stage-2 compilation aborted. {e}")
+            print(f"[FATAL] {e}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

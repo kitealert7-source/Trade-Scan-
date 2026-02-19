@@ -6,6 +6,9 @@ This engine is READ-ONLY (for inputs), COPY-ONLY, and APPEND-ONLY (for Master Sh
 No computation, derivation, inference, or ranking is performed.
 Values are treated as opaque scalars — no conversion or cleaning.
 Rewritten to use pandas and Unified Formatter (Zero OpenPyXL Styling / Imports).
+
+Authority: SOP_OUTPUT
+State Gated: Yes (STAGE_3_START)
 """
 
 import json
@@ -15,9 +18,13 @@ from pathlib import Path
 import pandas as pd
 from datetime import datetime
 
-# Constants
+# Config
 PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
+
+# Governance Imports
+from tools.pipeline_utils import PipelineStateManager
 
 # Column schema per SOP_OUTPUT §6 (exact order)
 MASTER_FILTER_COLUMNS = [
@@ -173,7 +180,7 @@ def enforce_strategy_persistence(run_id: str):
         print(f"  [WARN] Strategy persistence check failed: runs/{run_id} missing. Proceeding (Legacy Run).")
         return
         # raise RuntimeError(f"Strategy folder missing: runs/{run_id}")
-    allowed = {"strategy.py", "__pycache__"}
+    allowed = {"strategy.py", "__pycache__", "run_state.json", "run_state.json.tmp"} # Added accepted state files
     found = {p.name for p in strategy_dir.iterdir()}
     if "strategy.py" not in found:
         print(f"  [WARN] strategy.py missing in runs/{run_id}. Proceeding (Legacy Run).")
@@ -231,6 +238,17 @@ def compile_stage3(strategy_filter=None):
     for run in runs:
         run_id = str(run["metadata"].get("run_id"))
         strategy = run["metadata"].get("strategy_name")
+        
+        # --- GOVERNANCE CHECK ---
+        try:
+             state_mgr = PipelineStateManager(run_id)
+             state_mgr.verify_state("STAGE_3_START")
+        except Exception as e:
+            msg = f"Governance Fail: {e}"
+            skipped.append({"strategy": strategy, "run_id": run_id, "reason": msg})
+            print(f"  SKIPPED: {strategy} [{run_id[:8]}] - {msg}")
+            continue
+        # ------------------------
         
         if run_id in existing_ids:
             skipped.append({"strategy": strategy, "run_id": run_id, "reason": "Already exists"})
