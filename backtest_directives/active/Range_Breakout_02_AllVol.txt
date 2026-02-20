@@ -1,5 +1,5 @@
 test:
-  name: Range_Breakout_01
+  name: Range_Breakout_02_AllVol
   family: Forex
   strategy: Range_Breakout
   broker: OctaFX
@@ -38,7 +38,7 @@ range_definition:
     low: lowest_low
 
 volatility_filter:
-  enabled: true
+  enabled: false
   type: volatility_regime
   window: 100
   required_regime: 1   # 1 = High regime (>= 66 percentile inside indicator)

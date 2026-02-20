@@ -149,7 +149,16 @@ Concurrency calculation functions MUST be side-effect free (PURE) and IDEMPOTENT
 
 ------------------------------------------------------------------------
 
-## 5. Portfolio Trade-Level Artifact
+## 5. Strategy Master Filter (Stage-3) — Regime-Aware Metrics
+
+The Strategy Master Filter aggregates finalized Stage-1 trade artifacts.
+
+It MUST:
+
+- Operate strictly on emitted trade-level metadata.
+- Preserve volatility_regime and trend_regime dimensions.
+- Never recompute or reclassify market state.
+- Persist regime-based breakdown metrics as first-class evaluation axes.
 
 Each portfolio MUST emit:
 
@@ -174,6 +183,54 @@ Required fields:
 - capital_deployed_at_entry
 
 All portfolio metrics MUST derive exclusively from this file.
+
+### 5.1 Market State Breakdown Requirements
+
+Stage-3 MUST compute and persist:
+
+Volatility Dimension:
+
+- net_profit_high_vol
+- net_profit_normal_vol
+- net_profit_low_vol
+
+Trend Dimension:
+
+- net_profit_strong_up
+- net_profit_weak_up
+- net_profit_neutral
+- net_profit_weak_down
+- net_profit_strong_down
+- trades_strong_up
+- trades_weak_up
+- trades_neutral
+- trades_weak_down
+- trades_strong_down
+
+These metrics are mandatory analytical outputs.
+
+They:
+
+- MUST use Stage-1 emitted metadata.
+- MUST NOT derive new classifications.
+- MUST remain deterministic.
+
+---
+
+### 5.2 Evaluation Philosophy
+
+Strategy evaluation is multi-dimensional.
+
+Performance must be assessed across:
+
+- Absolute performance
+- Risk-adjusted performance
+- Volatility regime exposure
+- Trend regime exposure
+- Capital efficiency
+
+Regime dimensions are not optional filters.
+They are structural evaluation axes.
 
 ------------------------------------------------------------------------
 

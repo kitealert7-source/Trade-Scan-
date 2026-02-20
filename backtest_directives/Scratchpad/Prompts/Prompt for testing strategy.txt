@@ -1,39 +1,81 @@
-AGENT PROMPT — STRATEGY TESTING EXECUTION (v2.3)
+AGENT PROMPT — STRATEGY TESTING EXECUTION (v2.5)
 
 OBJECTIVE
-Execute all directives deterministically via the pipeline manager.
-No stage skipping. No inference. No mutation.
+Execute all directives deterministically via pipeline manager.
+No inference. No mutation. No stage skipping.
 
-Follow SOP_Testing, SOP_Output and other SOPs strictly.
-No mutation of prior-stage artifacts.
-No back-propagation.
+Follow SOP_Testing and all governance SOPs strictly.
+
 --------------------------------------------------
 SCOPE
 --------------------------------------------------
 
 Process all directives in:
-
 backtest_directives/active/
 
 Sequentially using:
-
 python tools/run_pipeline.py --all
 
-run_pipeline.py is the sole authorized execution entry point.
-Direct invocation of stage scripts is prohibited.
+run_pipeline.py is the sole authorized entry point.
+Direct stage invocation is prohibited.
 
 --------------------------------------------------
 EXECUTION FLOW (NON-BYPASSABLE)
 --------------------------------------------------
 
-1. Preflight
-2. Stage-1 (RESEARCH data only)
-3. Stage-1.5 (if declared)
-4. Stage-2
-5. Stage-3
-6. Stage-4 
+0.  Stage-0   (Provisioning)
+0.5 Stage-0.5 (Semantic Validation — Identity & Signature)
+1.  Stage-1   (Research Data)
+1.5 Stage-1.5 (If declared)
+2.  Stage-2
+3.  Stage-3
+4.  Stage-4
 
 Abort immediately on any failure.
+
+--------------------------------------------------
+SCHEMA GOVERNANCE RULE
+--------------------------------------------------
+
+System enforces SIGNATURE_SCHEMA_VERSION.
+
+If failure occurs due to:
+- Signature schema version mismatch
+- Structural signature mismatch
+- Missing signature_version
+
+Abort immediately.
+
+Do NOT:
+- Patch signature manually
+- Downgrade/override version
+- Modify directive automatically
+- Attempt migration
+
+Re-provisioning is the only valid recovery path.
+
+--------------------------------------------------
+MARKET STATE INVARIANT RULE
+--------------------------------------------------
+
+Volatility and Trend regime are intrinsic execution-time dimensions.
+
+Stage-1 MUST emit:
+- volatility_regime
+- trend_score
+- trend_regime
+- trend_label
+
+These fields:
+- Must originate from engine-level computation.
+- Must not be recomputed post-trade.
+- Must not be inferred in Stage-2 or Stage-3.
+- Must not default to fallback values.
+
+If any required market state field is missing → abort immediately.
+
+No repair, no recomputation, no silent defaults.
+
 
 --------------------------------------------------
 ARTIFACT & INTEGRITY RULES
@@ -45,6 +87,6 @@ If any artifact is missing → abort.
 Do not:
 - Recompute completed runs
 - Modify historical artifacts
-- Mutate strategy artifacts from portfolio layer
+- Mutate strategy artifacts
 - Delete manually
 - Continue after failure

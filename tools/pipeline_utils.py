@@ -80,7 +80,7 @@ def get_engine_version(engine_path=None):
     Default path: engine_dev/universal_research_engine/1.2.0/main.py
     """
     if not engine_path:
-        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/1.2.0/main.py"
+        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/1.3.0/main.py"
         
     if not engine_path.exists():
         raise RuntimeError(f"Engine main.py not found at {engine_path}")
@@ -105,8 +105,8 @@ def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
     parsed_config = parse_directive(directive_path)
     
     # Resolve Defaults if missing in Directive
-    broker = parsed_config.get("Broker", "OctaFx")
-    timeframe = parsed_config.get("Timeframe", "1d")
+    broker = parsed_config.get("Broker", parsed_config.get("broker", "OctaFx"))
+    timeframe = parsed_config.get("Timeframe", parsed_config.get("timeframe", "1d"))
     
     # Clean Config for Hash
     # (Matches run_stage1.py logic logic for consistency)
@@ -114,8 +114,8 @@ def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
     resolved_config.update({
         "BROKER": broker,
         "TIMEFRAME": timeframe,
-        "START_DATE": parsed_config.get("Start Date", "2015-01-01"),
-        "END_DATE": parsed_config.get("End Date", "2026-01-31")
+        "START_DATE": parsed_config.get("Start Date", parsed_config.get("start_date", "2015-01-01")),
+        "END_DATE": parsed_config.get("End Date", parsed_config.get("end_date", "2026-01-31"))
     })
     
     content_hash = get_canonical_hash(resolved_config)
@@ -292,8 +292,13 @@ class PipelineStateManager:
              sys.exit(1)
              
         if current != expected_state:
-            print(f"[FATAL] State Mismatch. Expected: {expected_state}, Found: {current}")
-            sys.exit(1)
+            # Allow forward states for re-running reports
+            if (expected_state == "STAGE_2_COMPLETE" and current in ["STAGE_3_COMPLETE", "STAGE_3A_COMPLETE", "COMPLETE"]) or \
+               (expected_state == "STAGE_1_COMPLETE" and current in ["STAGE_2_COMPLETE", "STAGE_3_COMPLETE", "STAGE_3A_COMPLETE", "COMPLETE"]):
+                pass
+            else:
+                print(f"[FATAL] State Mismatch. Expected: {expected_state}, Found: {current}")
+                sys.exit(1)
             
         # print(f"[VERIFIED] State is {current}")
 

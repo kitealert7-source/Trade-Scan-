@@ -8,22 +8,24 @@ This document defines **what a strategy is allowed to be**, and **what the engin
 
 ---
 
-## 1. Placement (MANDATORY)
+## Strategy Placement (Directive-Driven Mode)
 
-Every strategy MUST reside at:
+Strategies are engine-managed artifacts.
 
-```
-Trade_Scan/strategies/<STRATEGY_ID>/strategy.py
-```
+Source of truth is the Directive.
 
-Examples:
+At runtime:
 
-```
-strategies/SPX01/strategy.py
-strategies/FF001/strategy.py
-```
+- If strategy folder is missing, engine provisions it.
+- If strategy exists, engine aligns it deterministically to directive.
+- Manual edits are not authoritative.
 
-No other locations are permitted.
+Folder structure:
+
+Trade_Scan/
+└── strategies/
+    └── <StrategyName>/
+        └── strategy.py
 
 ---
 
@@ -119,12 +121,13 @@ No caching, global state, or cross-strategy sharing.
 
 ### Preflight Agent
 
-Preflight MUST block execution if:
+Preflight MUST provision strategy module if missing.
 
-- strategy module is missing
-- `Strategy` class is missing
-- required attributes are absent
-- module fails to import cleanly
+Execution MUST be blocked only if:
+
+- strategy provisioning fails
+- Strategy class fails to import
+- STRATEGY_SIGNATURE is missing or malformed
 
 ---
 

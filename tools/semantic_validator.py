@@ -21,8 +21,22 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Import strictly from utils
-from tools.pipeline_utils import parse_directive
+# Import specific tools
+from tools.directive_utils import load_directive_yaml, get_key_ci
+
+SIGNATURE_SCHEMA_VERSION = 1
+
+def _canonicalize(obj):
+    """
+    Return a structural canonical representation for strict deterministic comparison.
+    Recursively sorts dictionary keys.
+    """
+    if isinstance(obj, dict):
+        return {k: _canonicalize(obj[k]) for k in sorted(obj)}
+    elif isinstance(obj, list):
+        return [_canonicalize(x) for x in obj]
+    else:
+        return obj
 
 def validate_semantic_signature(directive_path_str: str) -> bool:
     """
@@ -39,11 +53,19 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     # 1. Parse Directive (Authoritative)
     # ------------------------------------------------------------------
     # Use only the standardized parser. No regex.
-    d_conf = parse_directive(directive_path)
+    # d_conf = parse_directive(directive_path) # ORIGINAL
     
-    # Extract Identity
-    target_strategy_name = d_conf.get("Strategy")
-    target_timeframe = d_conf.get("Timeframe")
+    # UPGRADE: Direct YAML Load via Shared Utility
+    try:
+        d_conf = load_directive_yaml(directive_path)
+    except Exception as e:
+        raise ValueError(f"Failed to parse directive YAML: {e}")
+
+    # Extract Identity (Match Provisioner Logic)
+    test_block = get_key_ci(d_conf, "test") or {}
+    
+    target_strategy_name = get_key_ci(test_block, "strategy") or get_key_ci(d_conf, "strategy")
+    target_timeframe = get_key_ci(test_block, "timeframe") or get_key_ci(d_conf, "timeframe")
     
     if not target_strategy_name:
         raise ValueError("Directive missing 'Strategy' field")
@@ -51,27 +73,28 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
          raise ValueError("Directive missing 'Timeframe' field")
 
     # Extract Indicators (Must be a list)
-    declared_indicators = d_conf.get("Indicators", [])
-    if isinstance(declared_indicators, str):
-         # Single item as string? Enforce list in directive, but parse_directive might behave differently.
-         # parse_directive handling:
-         # If "- item", it becomes list.
-         # If single value, it becomes string.
-         # Strictness requires us to handle both or fail if not list?
-         # "If Indicators is not a list → Hard Fail."
-         # But parse_directive might return single string if only one listed without dash?
-         # Let's check parse_directive logic. It says: "If not val: ... parsed[current_key] = []" 
-         # "If line.startswith("-"): ... parsed[current_key].append(val)"
-         # So if written as list in directive, it is list in dict.
-         # If written "Indicators: foo", it is string.
-         # User Rule: "If Indicators is not a list → Hard Fail."
-         raise ValueError("Directive 'Indicators' must be a list (use dash syntax).")
+    declared_indicators = get_key_ci(d_conf, "indicators") or get_key_ci(test_block, "indicators") or []
+    if isinstance(declared_indicators, str): declared_indicators = [declared_indicators]
     
     if not isinstance(declared_indicators, list):
-         # Could be None if missing
-         if "Indicators" not in d_conf:
-              raise ValueError("Directive missing 'Indicators' key.")
          raise ValueError(f"Directive 'Indicators' must be a list. Found {type(declared_indicators)}.")
+
+    # BUILD EXPECTED SIGNATURE (Must match provisioner exactly)
+    vol_filter = get_key_ci(d_conf, "volatility_filter") or get_key_ci(test_block, "volatility_filter") or {}
+    range_def = get_key_ci(d_conf, "range_definition") or get_key_ci(test_block, "range_definition") or {}
+    trade_mgmt = get_key_ci(d_conf, "trade_management") or get_key_ci(test_block, "trade_management") or {}
+    exec_rules = get_key_ci(d_conf, "execution_rules") or get_key_ci(test_block, "execution_rules") or {}
+    order_placement = get_key_ci(d_conf, "order_placement") or get_key_ci(test_block, "order_placement") or {}
+
+    expected_signature = {
+        "signature_version": SIGNATURE_SCHEMA_VERSION,
+        "indicators": declared_indicators,
+        "volatility_filter": vol_filter,
+        "range_definition": range_def,
+        "trade_management": trade_mgmt,
+        "execution_rules": exec_rules,
+        "order_placement": order_placement
+    }
 
     # 2. Locate Strategy (Implementation)
     # ------------------------------------------------------------------
@@ -95,6 +118,7 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
             self.class_name_attr = None
             self.class_tf_attr = None
             self.imports = set()
+            self.signature_dict = None
             
         def visit_ClassDef(self, node):
             if node.name == "Strategy":
@@ -113,6 +137,14 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
                                         self.class_tf_attr = item.value.value
                                     elif isinstance(item.value, ast.Str):
                                         self.class_tf_attr = item.value.s
+                                elif target.id == "STRATEGY_SIGNATURE":
+                                    # Safe extraction of dictionary literal
+                                    try:
+                                        self.signature_dict = ast.literal_eval(item.value)
+                                    except ValueError:
+                                        print(f"[WARN] Could not eval STRATEGY_SIGNATURE literal. Complexity too high?")
+                                        self.signature_dict = None
+                                        
             self.generic_visit(node)
 
         def visit_ImportFrom(self, node):
@@ -125,6 +157,9 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
 
     if not visitor.found_class:
         raise ValueError("No 'class Strategy' found in strategy.py")
+    
+    if visitor.signature_dict is None:
+        raise ValueError("STRATEGY_SIGNATURE not found or invalid literal in strategy.py")
 
     # 4. Strict Validation Logic
     # ------------------------------------------------------------------
@@ -140,7 +175,33 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
             f"Timeframe Mismatch. Directive='{target_timeframe}', Code='{visitor.class_tf_attr}'"
         )
 
-    # B. Indicators (Exact Set Equality)
+    # B. Signature Equality (Deep Canonical Check and Version Enforcement)
+    
+    actual_version = visitor.signature_dict.get("signature_version")
+
+    if actual_version != SIGNATURE_SCHEMA_VERSION:
+        raise ValueError(
+            f"Signature schema version mismatch. "
+            f"Expected {SIGNATURE_SCHEMA_VERSION}, "
+            f"Found {actual_version}. "
+            f"Re-provision required."
+        )
+
+    canonical_expected = _canonicalize(expected_signature)
+    canonical_actual = _canonicalize(visitor.signature_dict)
+    
+    if canonical_expected != canonical_actual:
+        raise ValueError(
+            f"STRATEGY_SIGNATURE Mismatch.\n"
+            f"Expected: {canonical_expected}\n"
+            f"Actual:   {canonical_actual}"
+        )
+
+    # C. Indicators (Exact Set Equality) - REDUNDANT but kept for granular error msg? 
+    # Actually if signature matches, imports from indicators must explicitly match?
+    # NO: Signature contains strings like "indicators...". 
+    # Code contains imports "from indicators...". 
+    # We still need to validate imports exist for the indicators listed in signature.
     
     # Normalize Declared Modules
     # Directive format: "indicators/structure/range_breakout_session.py" 
@@ -168,7 +229,134 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
 
     print(f"[SEMANTIC] Identity Verified: {target_strategy_name}")
     print(f"[SEMANTIC] Timeframe Verified: {target_timeframe}")
+    print(f"[SEMANTIC] Signature Verified: MATCH")
     print(f"[SEMANTIC] Indicator Set Match: {len(declared_set)} modules")
+    
+    # 5. Behavioral Guard (Architectural Enforcement)
+    # ------------------------------------------------------------------
+    class BehavioralGuard(ast.NodeVisitor):
+        def __init__(self):
+            self.uses_filterstack_import = False
+            self.initializes_filterstack = False
+            self.calls_allow_trade = False
+            self.illegal_regime_compare = False
+            self.illegal_nodes = []
+            self.regime_aliases = set()
+
+        def visit_ImportFrom(self, node):
+            if node.module == "engines.filter_stack" and "FilterStack" in [n.name for n in node.names]:
+                self.uses_filterstack_import = True
+            self.generic_visit(node)
+
+        def visit_FunctionDef(self, node):
+            if node.name == "__init__":
+                for stmt in node.body:
+                    if isinstance(stmt, ast.Assign):
+                        for target in stmt.targets:
+                            # Check for self.filter_stack = ...
+                            if isinstance(target, ast.Attribute) and \
+                               isinstance(target.value, ast.Name) and \
+                               target.value.id == "self" and \
+                               target.attr == "filter_stack":
+                                # Check if value is FilterStack(...)
+                                if isinstance(stmt.value, ast.Call) and \
+                                   isinstance(stmt.value.func, ast.Name) and \
+                                   stmt.value.func.id == "FilterStack":
+                                    self.initializes_filterstack = True
+
+            elif node.name == "check_entry":
+                for stmt in ast.walk(node):
+                    if isinstance(stmt, ast.Call):
+                        # Check for self.filter_stack.allow_trade(...)
+                        if isinstance(stmt.func, ast.Attribute) and \
+                           stmt.func.attr == "allow_trade" and \
+                           isinstance(stmt.func.value, ast.Attribute) and \
+                           stmt.func.value.attr == "filter_stack" and \
+                           isinstance(stmt.func.value.value, ast.Name) and \
+                           stmt.func.value.value.id == "self":
+                            self.calls_allow_trade = True
+            
+            self.generic_visit(node)
+        
+        def visit_Assign(self, node):
+            # Detect alias creation: reg = row.get("regime")
+            if isinstance(node.value, ast.Call):
+                if isinstance(node.value.func, ast.Attribute):
+                    if node.value.func.attr == "get":
+                        if len(node.value.args) > 0 and isinstance(node.value.args[0], ast.Constant):
+                            if node.value.args[0].value in ["regime", "trend_regime"]:
+                                for target in node.targets:
+                                    if isinstance(target, ast.Name):
+                                        self.regime_aliases.add(target.id)
+
+            # Detect alias: reg = row["regime"]
+            if isinstance(node.value, ast.Subscript):
+                slice_node = node.value.slice
+                key = None
+
+                if isinstance(slice_node, ast.Constant):
+                    key = slice_node.value
+                elif hasattr(ast, "Index") and isinstance(slice_node, ast.Index) and isinstance(slice_node.value, ast.Constant):
+                    key = slice_node.value.value
+
+                if key in ["regime", "trend_regime"]:
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            self.regime_aliases.add(target.id)
+
+            self.generic_visit(node)
+
+        def visit_Compare(self, node):
+            # Check left and right operands for illegal access
+            # We look for direct string comparisons against "regime" or "trend_regime" values
+            
+            def is_illegal_access(n):
+                # 1. Subscript: row["regime"]
+                if isinstance(n, ast.Subscript):
+                    if isinstance(n.slice, ast.Constant) and n.slice.value in ["regime", "trend_regime"]:
+                        return True
+                    # Python < 3.9 uses ast.Index
+                    if isinstance(n.slice, ast.Index) and isinstance(n.slice.value, ast.Constant) and n.slice.value.value in ["regime", "trend_regime"]:
+                        return True
+                        
+                # 2. Call: row.get("regime")
+                if isinstance(n, ast.Call):
+                    if isinstance(n.func, ast.Attribute) and n.func.attr == "get":
+                        if len(n.args) > 0 and isinstance(n.args[0], ast.Constant) and n.args[0].value in ["regime", "trend_regime"]:
+                            return True
+                return False
+
+            if is_illegal_access(node.left) or any(is_illegal_access(comparator) for comparator in node.comparators):
+                # Check if comparing against a literal number (likely a regime code)
+                # But basically ANY direct comparison is suspicious outside FilterStack
+                self.illegal_regime_compare = True
+                self.illegal_nodes.append(node)
+            
+            # Detect alias usage in comparison
+            for side in [node.left] + node.comparators:
+                if isinstance(side, ast.Name):
+                    if side.id in self.regime_aliases:
+                        self.illegal_regime_compare = True
+                        self.illegal_nodes.append(node)
+                
+            self.generic_visit(node)
+
+    guard = BehavioralGuard()
+    guard.visit(tree)
+
+    if not guard.uses_filterstack_import:
+        raise ValueError("Architectural Violation: 'from engines.filter_stack import FilterStack' missing.")
+
+    if not guard.initializes_filterstack:
+        raise ValueError("Architectural Violation: 'self.filter_stack = FilterStack(...)' missing in __init__.")
+
+    if not guard.calls_allow_trade:
+        raise ValueError("Architectural Violation: 'self.filter_stack.allow_trade(...)' not called in check_entry.")
+
+    if guard.illegal_regime_compare:
+        raise ValueError(f"Architectural Violation: Hardcoded regime comparison detected. strict usage of FilterStack required. Found {len(guard.illegal_nodes)} instance(s).")
+
+    print("[SEMANTIC] Behavioral Guard: PASSED (FilterStack Enforced)")
     
     return True
 

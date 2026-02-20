@@ -3,7 +3,7 @@
 **Stage:** BACKTESTING  
 **Applies to:** Trade_Scan  
 **Status:** AUTHORITATIVE | ACTIVE  
-**Companion SOP:** SOP_OUTPUT — VERSION 4.1 (POST_BACKTEST)
+**Companion SOP:** SOP_OUTPUT — VERSION 4.2 (POST_BACKTEST)
 
 ---
 
@@ -136,60 +136,62 @@ Stage-0.5 executes after Preflight and before Stage-1.
 
 Stage-1 MUST NOT execute unless Stage-0.5 passes.
 
-Stage-0.5 prevents silent strategy mutation and legacy drift.
+This is  Directive-Driven Model
 
-It ensures that:
-
-- The active `strategy.py` fully reflects the current directive.
-- No legacy indicators, parameters, or primitives from prior versions remain.
-- No undeclared structural elements exist.
-- No declared elements are missing.
-
-Stage-0.5 validates structural identity only.
-It does NOT evaluate performance, outcomes, or execution results.
+- Strategy folders are engine-managed artifacts.
+- Preflight may create or modify strategy code to align with directive.
+- Stage-0.5 validates final strategy state against directive.
+- Stage-0.5 does NOT generate or modify code.
 
 ---
 
-### What Is Validated
+### Provisioning Model (Stage-0 Responsibility
 
-Stage-0.5 SHALL verify alignment between directive and strategy:
+During Preflight:
+
+1. If `strategies/<StrategyName>/` does NOT exist:
+   - Create folder.
+   - Generate `strategy.py` from canonical template.
+   - Embed structured `STRATEGY_SIGNATURE` block.
+   - Log provisioning event.
+
+2. If strategy exists:
+   - Engine MAY modify strategy deterministically to align with directive.
+   - Modifications must be idempotent.
+   - No manual edits are preserved if conflicting with directive.
+
+Preflight MUST complete before Stage-0.5 executes.
+
+---
+
+### Stage-0.5 Validation Scope
+
+Stage-0.5 SHALL validate:
 
 1. Strategy Identity
    - `Strategy.name` matches directive.
    - `Strategy.timeframe` matches directive.
 
-2. Indicator Usage
-   - All indicators are imported from `indicators/`.
-   - No undeclared indicator imports.
-   - No missing declared indicators.
-   - No legacy or unused indicator imports permitted.
-   - No inline indicator logic.
+2. STRATEGY_SIGNATURE Integrity
+   - Extract `STRATEGY_SIGNATURE` object from strategy.
+   - Compare strictly against directive spec:
+       - Indicators
+       - Parameters
+       - Timeframe
+       - Trade limits
+       - Filters
 
-3. Parameter Integrity
-   - Declared parameters exist.
-   - Default values match directive.
-   - No hidden or residual parameters from prior versions.
+3. Indicator Module Identity
+   - Imported indicator modules must exactly match declared modules.
+   - Exact set equality required.
 
-4. Primitive Presence (if declared)
-   - Entry / stop / exit primitives declared in directive
-     must be present by identity (import + invocation).
-   - No residual primitives from prior versions.
+Mismatch → HARD FAIL.
 
----
-
-### Validation Method
-
-Stage-0.5 constructs:
-
-- Declared Semantic Signature
-- Implementation Semantic Signature
-
-Binary equality required.
-
-Any extra element, missing element, or mismatch → HARD FAIL.
-
-No warnings.
 No auto-correction.
+No mutation.
+No warnings.
+
+Stage-0.5 is validation only.
 
 ---
 
@@ -267,10 +269,17 @@ Stage‑2 and Stage‑3:
 
 ---
 
-## 7. Stage‑1 Trade‑Level Schema (AUTHORITATIVE)
+## 7. Stage‑1 Trade‑Level Schema (AUTHORITATIVE — VERSION 2.0)
 
-This is the **complete and authoritative Stage‑1 trade schema**.
-Field names and presence MUST match SOP_OUTPUT
+This defines the complete and authoritative Stage-1 trade schema.
+
+Field names and presence MUST match SOP_OUTPUT.
+
+Any change to this schema or its computation constitutes **engine evolution** and requires a new engine identity per SOP_AGENT_ENGINE_GOVERNANCE.
+
+- Engine version increment
+- Snapshot fingerprint update
+- Governance compliance under SOP_AGENT_ENGINE_GOVERNANCE
 
 ### Core Identity & Timing
 
@@ -304,14 +313,63 @@ Field names and presence MUST match SOP_OUTPUT
 - mae_r (nullable)
 - r_multiple (nullable)
 
-**Rules**
+### Market State Dimensions (MANDATORY)
 
+Market state dimensions are intrinsic execution-time context.
+
+They:
+
+- Are independent of YAML filter activation
+- Are computed before execution
+- Are captured at entry
+- Must not be recomputed post-trade
+- Are immutable after RUN_COMPLETE
+
+#### Volatility
+
+- volatility_regime (string: "low" | "normal" | "high")
+
+#### Trend
+
+- trend_score (integer: −5 … +5)
+- trend_regime (integer: −2, −1, 0, +1, +2)
+- trend_label (string)
+
+Trend classification:
+
+| Condition | trend_regime | trend_label |
+|------------|--------------|-------------|
+| score ≥ +3 | +2 | strong_up |
+| score = +1 or +2 | +1 | weak_up |
+| score = 0 | 0 | neutral |
+| score = −1 or −2 | −1 | weak_down |
+| score ≤ −3 | −2 | strong_down |
+
+### Invariants
+
+- Market state MUST be captured at entry.
+- Market state MUST NOT be recomputed in Stage-2 or Stage-3.
+- Missing volatility_regime → HARD FAIL.
+- Missing trend_regime → HARD FAIL.
+- Default fallback values are prohibited.
+- Schema changes require engine version increment
 - All fields MUST be computed during execution
 - All fields MUST be emitted in Stage‑1 artifacts
 - Fields MUST NOT be inferred, reconstructed, or recomputed later
 - Fields MUST remain immutable after RUN_COMPLETE
 
-Any change to this schema or its computation constitutes **engine evolution** and requires a new engine identity per SOP_AGENT_ENGINE_GOVERNANCE.
+### Reproducibility
+
+Given identical directive, engine version, and data:
+
+- volatility_regime
+- trend_score
+- trend_regime
+- trend_label
+
+MUST reproduce identically.
+
+Deviation constitutes engine drift.
 
 ------------------------------------------------------------------------
 
@@ -450,7 +508,7 @@ Forbidden:
 
 Upon RUN_COMPLETE:
 
-- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.1
+- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.2
 - This SOP governs execution truth through Stage-1 and participates in RUN_COMPLETE validation through Stage-3A snapshot finalization.
 
 All presentation, aggregation, and portfolio synthesis remain governed by SOP_OUTPUT and SOP_PORTFOLIO_ANALYSIS.

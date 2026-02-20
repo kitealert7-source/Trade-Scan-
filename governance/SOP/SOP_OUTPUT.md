@@ -1,5 +1,7 @@
 # SOP_OUTPUT — Results Emission & Human Analysis (STAGE-WISE)
 
+**Companion SOP:** SOP_OUTPUT — VERSION 4.2 (POST_BACKTEST)
+
 **Applies to:** Trade_Scan  
 **Status:** AUTHORITATIVE | ACTIVE  
 **Scope:** Post-backtest outputs, reporting, aggregation, and agent boundaries
@@ -84,12 +86,26 @@ Later stages may aggregate but must not redefine metrics.
 | trade_low | Float/NULL | Lowest price during trade |
 | bars_held | Integer/NULL | Bars in position |
 | atr_entry | Float | ATR at entry |
+| volatility_regime | String | Execution-time volatility classification ("low" \| "normal" \| "high") |
+| trend_score | Integer | Composite trend score (−5 … +5) captured at entry |
+| trend_regime | Integer | Collapsed trend regime (−2, −1, 0, +1, +2) |
+| trend_label | String | Trend label ("strong_up", "weak_up", "neutral", "weak_down", "strong_down") |
 | position_units | Float | Executed units |
 | notional_usd | Float | position_units × entry_price |
 | mfe_price | Float | Max favorable price |
 | mae_price | Float | Max adverse price |
 | mfe_r | Float | MFE in R |
 | mae_r | Float | MAE in R |
+
+Market state fields (volatility_regime, trend_score, trend_regime, trend_label)
+are mandatory execution-time metadata.
+
+These fields:
+
+- MUST originate from Stage-1 execution
+- MUST NOT be recomputed in Stage-2 or Stage-3
+- MUST be present for every trade
+- Missing values → HARD FAIL
 
 ---
 
@@ -379,12 +395,34 @@ Rows MUST appear in this exact order.
 | max_consec_losses | Max consecutive losses |
 | trading_days | Active trading days |
 | net_profit_high_vol | PnL in high volatility |
+| net_profit_normal_vol | PnL in normal volatility |
 | net_profit_low_vol | PnL in low volatility |
 | sharpe_ratio | Sharpe ratio |
 | expectancy | Expectancy (USD) |
 | run_id | Unique run identifier (UUID) |
 | symbol | Traded instrument |
 | IN_PORTFOLIO | Portfolio inclusion flag (Boolean) |
+
+### Trend Regime Breakdown (MANDATORY)
+
+| Column | Description |
+|--------|-------------|
+| net_profit_strong_up | Sum of pnl_usd where trend_label = "strong_up" |
+| net_profit_weak_up | Sum of pnl_usd where trend_label = "weak_up" |
+| net_profit_neutral | Sum of pnl_usd where trend_label = "neutral" |
+| net_profit_weak_down | Sum of pnl_usd where trend_label = "weak_down" |
+| net_profit_strong_down | Sum of pnl_usd where trend_label = "strong_down" |
+| trades_strong_up | Trade count in strong_up regime |
+| trades_weak_up | Trade count in weak_up regime |
+| trades_neutral | Trade count in neutral regime |
+| trades_weak_down | Trade count in weak_down regime |
+| trades_strong_down | Trade count in strong_down regime |
+
+Trend regime aggregation:
+
+- MUST use trend_label emitted in Stage-1.
+- MUST NOT reclassify or recompute trend state.
+- MUST operate strictly on emitted trade-level metadata.
 
 **Population Rule**
 Populated via standard reporting pipeline only.  
@@ -525,4 +563,4 @@ Agents MUST NOT:
 
 ---
 
-### End of SOP — VERSION 4.1
+### End of SOP — VERSION 4.2

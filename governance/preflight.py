@@ -155,19 +155,19 @@ def run_preflight(
             continue
         
         # --- Timeframe extraction ---
-        timeframe_val = extract_field_value(line_stripped, r'time\s*frame')
+        timeframe_val = extract_field_value(line_stripped, r'time[\s_]*frame')
         if timeframe_val and not resolved_scope["timeframe"]:
             resolved_scope["timeframe"] = timeframe_val
             continue
         
         # --- Start Date extraction ---
-        start_date_val = extract_field_value(line_stripped, r'start\s*date')
+        start_date_val = extract_field_value(line_stripped, r'start[\s_]*date')
         if start_date_val and not resolved_scope["start_date"]:
             resolved_scope["start_date"] = start_date_val
             continue
         
         # --- End Date extraction ---
-        end_date_val = extract_field_value(line_stripped, r'end\s*date')
+        end_date_val = extract_field_value(line_stripped, r'end[\s_]*date')
         if end_date_val and not resolved_scope["end_date"]:
             resolved_scope["end_date"] = end_date_val
             continue
@@ -301,18 +301,47 @@ def run_preflight(
         indicators_root = PROJECT_ROOT / "indicators"
         for ind_path in declared_indicators:
             # normalize path sep just in case, though usually forward slash in directives
-            clean_path = ind_path.replace("\\", "/")
+            clean_path = ind_path.replace("\\", "/").replace(".", "/")
             if not clean_path.endswith(".py"):
                 clean_path += ".py"
             
-            target_file = indicators_root / clean_path
+            # Remove duplicate 'indicators/' prefix if present
+            if clean_path.startswith("indicators/"):
+                target_path = clean_path
+            else:
+                target_path = f"indicators/{clean_path}"
+            
+            target_file = PROJECT_ROOT / target_path
+            
             if not target_file.exists():
                 return (
                     "BLOCK_EXECUTION", 
-                    f"Preflight Error: Declared indicator not found: indicators/{clean_path}", 
+                    f"Preflight Error: Declared indicator not found: {target_path}", 
                     None
                 )
     
+    # --- CHECK 6: Strategy Provisioning (Directive-Driven Mode) ---
+    # Authority: SOP_TESTING (Stage-0 Provisioning)
+    # If strategy folder is missing or needs update, provision it now.
+    
+    from tools.strategy_provisioner import provision_strategy
+    
+    print(f"[PREFLIGHT] Provisioning Strategy Artifacts for {directive_path}...")
+    try:
+        if not provision_strategy(str(directive_full_path)):
+             return ("BLOCK_EXECUTION", "Strategy Provisioning Failed.", None)
+    except Exception as e:
+        return ("BLOCK_EXECUTION", f"Strategy Provisioning Exception: {e}", None)
+
+    # --- CHECK 7: Semantic Validation (Stage-0.5) ---
+    from tools.semantic_validator import validate_semantic_signature
+    
+    print(f"[PREFLIGHT] running Semantic Validation (Stage-0.5) on {directive_path}...")
+    try:
+        validate_semantic_signature(str(directive_full_path))
+    except Exception as e:
+        return ("BLOCK_EXECUTION", f"Semantic Validation Failed: {e}", None)
+
     # --- Canonical Hash Alignment (Stage-1 Consistency) ---
     parsed_config = parse_directive(directive_full_path)
 

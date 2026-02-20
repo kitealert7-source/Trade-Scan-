@@ -33,6 +33,32 @@ Preflight Check (ALLOW or BLOCK)
        - MUST execute
        - MUST exit with code 0 (PASS)
        - Failure or omission → BLOCK
+
+       ## Strategy Provisioning (MANDATORY — Directive Mode)
+
+During Preflight:
+
+If strategies/<StrategyName>/ does not exist:
+
+    - Create directory.
+    - Generate strategy.py from canonical template.
+    - Populate STRATEGY_SIGNATURE block from directive.
+    - Save file.
+    - Log event in run metadata.
+
+If strategy exists:
+
+    - Regenerate deterministic sections.
+    - Update STRATEGY_SIGNATURE to match directive.
+    - Preserve only non-directive-neutral boilerplate.
+
+Provisioning must be idempotent.
+No partial regeneration allowed.
+No overwrite of unrelated strategy families.
+
+Preflight is authorized to provision strategy artifacts
+in Directive-Driven Mode.
+
   ↓
 Stage-0.5 Semantic Validation
   ↓
@@ -81,7 +107,8 @@ Agents must respect run state:
 - Stage-1 may run only after `PREFLIGHT_COMPLETE_SEMANTICALLY_VALID`
 - Stage-2 may run only after `STAGE_1_COMPLETE`
 - Stage-3 may run only after `STAGE_2_COMPLETE`
-- Stage-3A may run only after `STAGE_3_COMPLETE`- COMPLETE may be reached only after `STAGE_3A_COMPLETE`
+- Stage-3A may run only after `STAGE_3_COMPLETE`
+- COMPLETE may be reached only after `STAGE_3A_COMPLETE`
 
 - `FAILED` is terminal
 

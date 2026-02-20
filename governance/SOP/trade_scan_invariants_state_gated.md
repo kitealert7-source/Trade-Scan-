@@ -91,6 +91,14 @@ Between any two stages:
 
 Stage boundaries are **hard execution barriers**.
 
+Exception — Preflight Provisioning
+
+Stage-0 (Preflight) is permitted to create or modify strategy artifacts
+as part of directive-driven provisioning.
+
+No mutation is permitted after PREFLIGHT_COMPLETE.
+Stage-0.5 and later stages are strictly non-mutating.
+
 ---
 
 ## Invariant 5 — Atomicity

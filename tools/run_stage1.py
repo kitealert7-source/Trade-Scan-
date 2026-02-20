@@ -266,7 +266,7 @@ def run_engine_logic(df, strategy):
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "execution_loop",
-        PROJECT_ROOT / "engine_dev/universal_research_engine/1.2.0/execution_loop.py"
+        PROJECT_ROOT / "engine_dev/universal_research_engine/1.3.0/execution_loop.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -362,8 +362,18 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             mfe_price = entry - trade_low
             mae_price = trade_high - entry
         
-        risk_price = 0.0 # No SL
-        
+        risk_distance = t.get('risk_distance')
+
+        if risk_distance and risk_distance > 0:
+            pnl_price = (exit_p - entry) * direction
+            r_multiple = pnl_price / risk_distance
+            mfe_r = mfe_price / risk_distance
+            mae_r = mae_price / risk_distance
+        else:
+            r_multiple = 0.0
+            mfe_r = 0.0
+            mae_r = 0.0
+
         raw_trades.append(RawTradeRecord(
             strategy_name=f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}",
             parent_trade_id=i + 1,
@@ -377,14 +387,19 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             pnl_usd=round(pnl_usd, 2),
             trade_high=trade_high,
             trade_low=trade_low,
-            atr_entry=t.get('atr'),
+            atr_entry=t.get('atr_entry'),
             position_units=units,
             notional_usd=round(notional_usd, 2),
             mfe_price=round(mfe_price, 4),
             mae_price=round(mae_price, 4),
-            mfe_r=0.0,
-            mae_r=0.0,
-            r_multiple=0.0
+            mfe_r=round(mfe_r, 4),
+            mae_r=round(mae_r, 4),
+            r_multiple=round(r_multiple, 4),
+            # Intrinsic Market State
+            volatility_regime=t.get('volatility_regime'),
+            trend_score=t.get('trend_score'),
+            trend_regime=t.get('trend_regime'),
+            trend_label=t.get('trend_label')
         ))
     
     # Metadata includes Deterministic Run details
@@ -474,23 +489,30 @@ def main():
     
     # --- CRITICAL FIX: Update Globals from Directive ---
     if "Broker" in parsed_config: BROKER = parsed_config["Broker"]
+    elif "broker" in parsed_config: BROKER = parsed_config["broker"]
+    
     if "Timeframe" in parsed_config: TIMEFRAME = parsed_config["Timeframe"]
+    elif "timeframe" in parsed_config: TIMEFRAME = parsed_config["timeframe"]
+    
     if "Start Date" in parsed_config: START_DATE = parsed_config["Start Date"]
+    elif "start_date" in parsed_config: START_DATE = parsed_config["start_date"]
+    
     if "End Date" in parsed_config: END_DATE = parsed_config["End Date"]
+    elif "end_date" in parsed_config: END_DATE = parsed_config["end_date"]
     
     # 3. Engine Version
     engine_ver = get_engine_version()
     print(f"[INIT] Engine Version: {engine_ver}")
     
     # 4a. Get Strategy ID
-    strategy_id = parsed_config.get("Strategy")
+    strategy_id = parsed_config.get("Strategy", parsed_config.get("strategy"))
     if not strategy_id:
         print("[FATAL] Directive missing 'Strategy' field.")
         return
     print(f"[CONFIG] Strategy ID: {strategy_id}")
 
     # 4b. Get Symbols checks (verify request matches directive)
-    directive_symbols = parsed_config.get("Symbols", [])
+    directive_symbols = parsed_config.get("Symbols", parsed_config.get("symbols", []))
     if isinstance(directive_symbols, str):
         directive_symbols = [directive_symbols]
     
@@ -523,8 +545,8 @@ def main():
         try:
             state_mgr = PipelineStateManager(run_id)
             # Orchestrator sets NEXT state always.
-            state_mgr.verify_state("STAGE_1_START")
-            print(f"    [GOVERNANCE] State Verified: STAGE_1_START")
+            state_mgr.verify_state("PREFLIGHT_COMPLETE_SEMANTICALLY_VALID")
+            print(f"    [GOVERNANCE] State Verified: PREFLIGHT_COMPLETE_SEMANTICALLY_VALID")
         except Exception as e:
             print(f"    [FATAL] Governance Check Failed: {e}")
             error_msg = f"Governance Check Failed: {e}"

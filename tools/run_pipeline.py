@@ -190,7 +190,7 @@ def run_single_directive(directive_id):
     # Using pipeline_utils.parse_directive
     from tools.pipeline_utils import parse_directive
     p_conf = parse_directive(d_path)
-    symbols = p_conf.get("Symbols", [])
+    symbols = p_conf.get("Symbols", p_conf.get("symbols", []))
     if isinstance(symbols, str): symbols = [symbols]
     
     if not symbols:
@@ -369,7 +369,7 @@ def run_single_directive(directive_id):
                         raise RuntimeError(f"Snapshot missing for {rid}")
 
                     # 2. Verify Snapshot Integrity (Hash Check)
-                    strategy_id = p_conf.get("Strategy")
+                    strategy_id = p_conf.get("Strategy", p_conf.get("strategy"))
                     source_path = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
                     
                     if not source_path.exists():

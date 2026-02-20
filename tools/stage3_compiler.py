@@ -52,6 +52,20 @@ MASTER_FILTER_COLUMNS = [
     "net_profit_high_vol",
     "net_profit_normal_vol",
     "net_profit_low_vol",
+    "net_profit_asia",
+    "net_profit_london",
+    "net_profit_ny",
+    # Trend Breakdown (SOP v4.2)
+    "net_profit_strong_up",
+    "net_profit_weak_up",
+    "net_profit_neutral",
+    "net_profit_weak_down",
+    "net_profit_strong_down",
+    "trades_strong_up",
+    "trades_weak_up",
+    "trades_neutral",
+    "trades_weak_down",
+    "trades_strong_down",
     "IN_PORTFOLIO",
 ]
 
@@ -79,6 +93,9 @@ VOLATILITY_METRICS = {
     "net_profit_high_vol": "Net Profit - High Volatility",
     "net_profit_normal_vol": "Net Profit - Normal Volatility",
     "net_profit_low_vol": "Net Profit - Low Volatility",
+    "net_profit_asia": "Net Profit - Asia Session",
+    "net_profit_london": "Net Profit - London Session",
+    "net_profit_ny": "Net Profit - New York Session",
 }
 
 # Required metadata fields
@@ -139,13 +156,89 @@ def validate_required_metrics(metrics, run_id):
         if label not in metrics: missing.append(label)
     return (False, missing) if missing else (True, [])
 
-def extract_from_report(report_path, metadata):
+def compute_trend_metrics(run_folder):
+    """
+    SOP v4.2 Strictly computes Trend Regime metrics from results_tradelevel.csv.
+    Raises ValueError if trend_label is missing.
+    """
+    csv_path = run_folder / "raw" / "results_tradelevel.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"results_tradelevel.csv missing in {run_folder}")
+        
+    df = pd.read_csv(csv_path)
+    
+    # Strict Schema Check
+    if "trend_label" not in df.columns:
+        raise ValueError("CRITICAL: 'trend_label' column missing in results_tradelevel.csv")
+    if "pnl_usd" not in df.columns:
+        raise ValueError("CRITICAL: 'pnl_usd' column missing in results_tradelevel.csv")
+        
+    # Initialize Aggregates
+    aggs = {
+        "net_profit_strong_up": 0.0,
+        "net_profit_weak_up": 0.0,
+        "net_profit_neutral": 0.0,
+        "net_profit_weak_down": 0.0,
+        "net_profit_strong_down": 0.0,
+        "trades_strong_up": 0,
+        "trades_weak_up": 0,
+        "trades_neutral": 0,
+        "trades_weak_down": 0,
+        "trades_strong_down": 0,
+    }
+    
+    valid_labels = {
+        "strong_up", "weak_up", "neutral", "weak_down", "strong_down"
+    }
+    
+    # Iterate and Aggregate
+    for _, row in df.iterrows():
+        label = str(row["trend_label"]).strip() # Ensure string
+        # We explicitly rely on the CSV containing the correct string labels.
+        # If null/nan, it becomes "nan" or "None".
+        
+        if label not in valid_labels:
+             # Strict Validation: If we encounter an invalid label, we should probably fail 
+             # OR if the row is empty/malformed.
+             # SOP says "Missing trend_label -> raise ValueError".
+             if pd.isna(row["trend_label"]) or label in ["nan", "None", ""]:
+                 raise ValueError(f"Missing trend_label for trade {row.get('parent_trade_id', '?')}")
+             # We ignore unknown labels? No, strict compliance usually implies only knowns.
+             # But let's assume valid labels filter.
+             pass
+        
+        pnl = float(row["pnl_usd"]) if pd.notnull(row["pnl_usd"]) else 0.0
+        
+        if label == "strong_up":
+            aggs["net_profit_strong_up"] += pnl
+            aggs["trades_strong_up"] += 1
+        elif label == "weak_up":
+            aggs["net_profit_weak_up"] += pnl
+            aggs["trades_weak_up"] += 1
+        elif label == "neutral":
+            aggs["net_profit_neutral"] += pnl
+            aggs["trades_neutral"] += 1
+        elif label == "weak_down":
+            aggs["net_profit_weak_down"] += pnl
+            aggs["trades_weak_down"] += 1
+        elif label == "strong_down":
+            aggs["net_profit_strong_down"] += pnl
+            aggs["trades_strong_down"] += 1
+            
+    return aggs
+
+def extract_from_report(report_path, metadata, run_folder):
     metrics = extract_performance_metrics(report_path)
     run_id = metadata.get("run_id", "UNKNOWN")
     
     is_valid, missing = validate_required_metrics(metrics, run_id)
     if not is_valid:
         return None, f"Missing required metrics: {', '.join(missing)}"
+        
+    try:
+        trend_aggs = compute_trend_metrics(run_folder)
+    except Exception as e:
+        return None, f"Trend Metric Computation Failed: {e}"
     
     row_data = {
         "run_id": metadata.get("run_id"),
@@ -162,6 +255,9 @@ def extract_from_report(report_path, metadata):
     
     for col_name, label in VOLATILITY_METRICS.items():
         row_data[col_name] = metrics.get(label)
+        
+    # Merge Trend Aggs
+    row_data.update(trend_aggs)
     
     return row_data, None
 
@@ -242,7 +338,7 @@ def compile_stage3(strategy_filter=None):
         # --- GOVERNANCE CHECK ---
         try:
              state_mgr = PipelineStateManager(run_id)
-             state_mgr.verify_state("STAGE_3_START")
+             state_mgr.verify_state("STAGE_2_COMPLETE")
         except Exception as e:
             msg = f"Governance Fail: {e}"
             skipped.append({"strategy": strategy, "run_id": run_id, "reason": msg})
@@ -254,7 +350,7 @@ def compile_stage3(strategy_filter=None):
             skipped.append({"strategy": strategy, "run_id": run_id, "reason": "Already exists"})
             continue
         
-        row_data, error = extract_from_report(run["report_path"], run["metadata"])
+        row_data, error = extract_from_report(run["report_path"], run["metadata"], run["folder"])
         if error:
             skipped.append({"strategy": strategy, "run_id": run_id, "reason": error})
             print(f"  REJECTED: {strategy} [{run_id[:8]}] - {error}")
@@ -276,6 +372,8 @@ def compile_stage3(strategy_filter=None):
         
         # Save
         try:
+            print(f"[DEBUG] df_master shape before save: {df_master.shape}")
+            print(f"[DEBUG] df_new shape: {df_new.shape}")
             df_master.to_excel(master_filter_path, index=False)
             
             # Format

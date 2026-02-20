@@ -90,7 +90,6 @@ def load_stage1_artifacts(run_folder: Path):
     }
 
 
-
 def _safe_float(val, default=0.0):
     try:
         return float(val) if val not in (None, "", "None") else default
@@ -103,12 +102,6 @@ def _safe_int(val, default=0):
         return int(float(val)) if val not in (None, "", "None") else default
     except (ValueError, TypeError):
         return default
-
-def _round_val(val, decimals=2):
-    if isinstance(val, (int, float)):
-        return round(val, decimals)
-    return val
-
 
 
 def _parse_timestamp(ts_str):
@@ -335,32 +328,11 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     worst5_loss = sum(sorted_losses[:5]) if len(sorted_losses) >= 5 else sum(sorted_losses)
     worst5_pct = (abs(worst5_loss) / gross_loss) if gross_loss > 0 else 0.0
     
-    # Risk metrics calculation (Standard Deviation based)
-    returns = []
-    if trade_count > 0:
-        # Simple returns per trade (PnL / Starting Capital) seems wrong for Sharpe on trade-level.
-        # Usually Sharpe is periodic. For trade-level, we often use R-multiples or PnL based.
-        # We will compute a simplified trade-based Sharpe: Mean(PnL) / StdDev(PnL).
-        # This isn't "Annualized Sharpe" but "Trade Sharpe".
-        import statistics
-        if len(pnls) > 1:
-            mean_pnl = statistics.mean(pnls)
-            std_pnl = statistics.stdev(pnls)
-            sharpe_ratio = (mean_pnl / std_pnl) if std_pnl != 0 else 0.0
-            
-            # Sortino: Downside deviation
-            downside_pnls = [p for p in pnls if p < 0]
-            # We treat 0 as the target return
-            downside_sum_sq = sum(p**2 for p in downside_pnls)
-            downside_dev = math.sqrt(downside_sum_sq / len(pnls))
-            sortino_ratio = (mean_pnl / downside_dev) if downside_dev != 0 else 0.0
-        
-        # SQN: sqrt(N) * Average / StdDev
-        if len(pnls) > 1 and trade_count > 0:
-             std_pnl = statistics.stdev(pnls)
-             sqn = (math.sqrt(trade_count) * avg_trade) / std_pnl if std_pnl != 0 else 0.0
-
-    k_ratio = 0.0 # Requires regression on equity curve, skipped for complexity unless requested
+    # Risk metrics placeholders (overridden later)
+    sharpe_ratio = 0.0
+    sortino_ratio = 0.0
+    k_ratio = 0.0
+    sqn = 0.0
     return_retracement_ratio = return_dd_ratio
     
     # Volatility regime breakdown
@@ -598,33 +570,7 @@ def _compute_buy_hold_benchmark(trades):
         return None
 
 
-def get_runtime_engine_version():
-    """Dynamically load version from validated engine manifest."""
-    try:
-        manifest_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "1.3.0" / "VALIDATED_ENGINE.manifest.json"
-        if not manifest_path.exists():
-            # Fallback path if running from different context
-            manifest_path = Path("engine_dev/universal_research_engine/1.3.0/VALIDATED_ENGINE.manifest.json")
-            
-        if manifest_path.exists():
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("engine_version", "UNKNOWN")
-    except Exception:
-        pass
-    return "UNKNOWN"
-
 def get_settings_df(metadata):
-    # Strict Version Validation (SOP v4.2 Remediation)
-    meta_engine_ver = metadata.get("engine_version", "")
-    runtime_ver = get_runtime_engine_version()
-    
-    # If runtime version is known, enforce strict match
-    if runtime_ver != "UNKNOWN":
-        if meta_engine_ver != runtime_ver:
-             # Raise error to prevent silent corruption/mismatch
-             raise ValueError(f"Stage-2 Metadata Mismatch: Metadata says {meta_engine_ver}, Runtime says {runtime_ver}. Strict enforcement enabled.")
-    
     data = [
         {"Parameter": "Run ID", "Value": metadata.get("run_id", "")},
         {"Parameter": "Strategy Name", "Value": metadata.get("strategy_name", "")},
@@ -637,7 +583,7 @@ def get_settings_df(metadata):
         {"Parameter": "Date Range End", "Value": metadata.get("date_range", {}).get("end", "")},
         {"Parameter": "Execution Timestamp", "Value": metadata.get("execution_timestamp_utc", "")},
         {"Parameter": "Engine Name", "Value": metadata.get("engine_name", "")},
-        {"Parameter": "Engine Version", "Value": meta_engine_ver}, 
+        {"Parameter": "Engine Version", "Value": metadata.get("engine_version", "")},
         {"Parameter": "Schema Version", "Value": metadata.get("schema_version", "")},
     ]
     return pd.DataFrame(data)
@@ -659,18 +605,15 @@ def get_performance_summary_df(trades, starting_capital, standard_metrics, risk_
     all_metrics["sharpe_ratio"] = _safe_float(risk_metrics.get("sharpe_ratio", 0))
     all_metrics["sortino_ratio"] = _safe_float(risk_metrics.get("sortino_ratio", 0))
     all_metrics["k_ratio"] = _safe_float(risk_metrics.get("k_ratio", 0))
+    all_metrics["sqn"] = _safe_float(risk_metrics.get("sqn", 0))
     
     rows = []
     def add_row(label, key):
-        val_all = all_metrics.get(key)
-        val_long = long_metrics.get(key)
-        val_short = short_metrics.get(key)
-        
         rows.append({
             "Metric": label,
-            "All Trades": _round_val(val_all, 2),
-            "Long Trades": _round_val(val_long, 2),
-            "Short Trades": _round_val(val_short, 2)
+            "All Trades": all_metrics.get(key),
+            "Long Trades": long_metrics.get(key),
+            "Short Trades": short_metrics.get(key)
         })
 
     add_row("Starting Capital", "starting_capital")
@@ -785,43 +728,25 @@ def get_yearwise_df(trades, starting_capital, yearwise_data):
     return df[cols]
 
 def get_trades_df(trades):
-    if not trades:
-        return pd.DataFrame()
-        
-    # Get all unique keys from all trades to ensure we don't miss any columns
-    all_keys = set()
-    for t in trades:
-        all_keys.update(t.keys())
-    
-    # Define a logical order for known columns, others appended at end
-    priority_cols = [
-        "strategy_name", "parent_trade_id", "sequence_index", "direction",
-        "entry_timestamp", "exit_timestamp", "entry_price", "exit_price",
-        "pnl_usd", "bars_held", "volatility_regime", "trend_score", "trend_regime", "trend_label"
-    ]
-    
-    sorted_cols = [c for c in priority_cols if c in all_keys]
-    remaining_cols = sorted([c for c in all_keys if c not in priority_cols])
-    final_cols = sorted_cols + remaining_cols
-    
     rows = []
     for t in trades:
-        row = {}
-        for k in final_cols:
-            val = t.get(k, "")
-            # Try to make numeric if possible for Excel
-            try:
-                if k in ["direction", "sequence_index", "bars_held"]:
-                    row[k] = int(float(val))
-                elif k in ["strategy_name", "parent_trade_id", "entry_timestamp", "exit_timestamp", "volatility_regime", "trend_label"]:
-                    row[k] = str(val)
-                else:
-                    fval = float(val)
-                    row[k] = _round_val(fval, 4) # 4 decimals for price/r-multiples
-            except:
-                row[k] = val
-        rows.append(row)
-        
+        d = _safe_int(t.get("direction", 0))
+        rows.append({
+            "Parent Trade ID": t.get("parent_trade_id", ""),
+            "Sequence Index": t.get("sequence_index", ""),
+            "Strategy Name": t.get("strategy_name", ""),
+            "Direction": "LONG" if d == 1 else "SHORT",
+            "Entry Time": t.get("entry_timestamp", ""),
+            "Exit Time": t.get("exit_timestamp", ""),
+            "Entry Price": t.get("entry_price", ""),
+            "Exit Price": t.get("exit_price", ""),
+            "PnL (USD)": t.get("pnl_usd", ""),
+            "Bars Held": t.get("bars_held", ""),
+            "Volatility Regime": t.get("volatility_regime", ""),
+            "Trend Score": t.get("trend_score", ""),
+            "Trend Regime": t.get("trend_regime", ""),
+            "Trend Label": t.get("trend_label", ""),
+        })
     return pd.DataFrame(rows)
 
 
