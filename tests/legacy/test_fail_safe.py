@@ -1,3 +1,11 @@
+"""
+DEPRECATED: Incompatible with FSM v1.3.0+
+Retained for historical reference only.
+
+Original purpose: Adversarial fail-safe cleanup test using deprecated
+*_START states (PREFLIGHT_START, STAGE_1_START, etc.) that no longer
+exist in PipelineStateManager.ALLOWED_TRANSITIONS.
+"""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))

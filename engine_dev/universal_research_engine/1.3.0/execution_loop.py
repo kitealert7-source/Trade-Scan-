@@ -181,17 +181,31 @@ def run_execution_loop(df, strategy):
                     pass
                 
                 # --- INITIAL STOP CAPTURE (SESSION OPPOSITE RANGE) ---
+                # STRICT CONTRACT: strategy must define session_low / session_high
+                # before any entry is signalled. No fallback. No default.
                 if direction == 1:
+                    if not hasattr(strategy, 'session_low'):
+                        raise ValueError(
+                            "STOP CONTRACT VIOLATION: session_opposite_range requires "
+                            "session_low to be defined before entry."
+                        )
                     stop_price = strategy.session_low
                 elif direction == -1:
+                    if not hasattr(strategy, 'session_high'):
+                        raise ValueError(
+                            "STOP CONTRACT VIOLATION: session_opposite_range requires "
+                            "session_high to be defined before entry."
+                        )
                     stop_price = strategy.session_high
                 else:
                     raise ValueError("Invalid direction during stop capture")
 
                 risk_distance = abs(entry_price - stop_price)
-
                 if risk_distance <= 0:
-                    raise ValueError("Invalid risk distance (zero or negative)")
+                    raise ValueError(
+                        f"STOP CONTRACT VIOLATION: risk_distance <= 0 "
+                        f"(entry={entry_price}, stop={stop_price})"
+                    )
 
                 entry_market_state = {
                     "volatility_regime": vol_regime,

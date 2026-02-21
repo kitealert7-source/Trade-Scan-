@@ -17,8 +17,8 @@ def load_directive_yaml(path: Path) -> dict:
     Load directive YAML deterministically.
     No transformation.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    from tools.pipeline_utils import parse_directive
+    return parse_directive(path)
 
 
 def get_key_ci(d: dict, key: str):

@@ -24,10 +24,6 @@ symbols:
   - USDCHF
   - USDJPY
 
-indicators:
-  - indicators.volatility.volatility_regime
-  - indicators.volatility.atr
-
 range_definition:
   window_start: "03:00"
   window_end: "06:00"

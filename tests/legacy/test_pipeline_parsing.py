@@ -1,4 +1,11 @@
+"""
+DEPRECATED: Incompatible with FSM v1.3.0+
+Retained for historical reference only.
 
+Original purpose: Tests parse_concurrency_config() which was removed
+from run_pipeline.py. References a non-existent function and creates
+dummy directive files with old flat-format parsing expectations.
+"""
 import sys
 import os
 from pathlib import Path

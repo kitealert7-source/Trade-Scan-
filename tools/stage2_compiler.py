@@ -116,7 +116,7 @@ def _parse_timestamp(ts_str):
         return None
     try:
         return datetime.fromisoformat(ts_str.replace("Z", "+00:00").replace("+00:00", ""))
-    except:
+    except Exception:
         return None
 
 
@@ -253,7 +253,7 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
                 duration_seconds = (exit - entry).total_seconds()
                 seconds_per_bar = duration_seconds / bars
                 valid_samples.append(seconds_per_bar)
-        except:
+        except Exception:
             continue
             
     # Try Candle Geometry (Primary - v5 Metric Integrity)
@@ -601,11 +601,9 @@ def _compute_buy_hold_benchmark(trades):
 def get_runtime_engine_version():
     """Dynamically load version from validated engine manifest."""
     try:
-        manifest_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "1.3.0" / "VALIDATED_ENGINE.manifest.json"
-        if not manifest_path.exists():
-            # Fallback path if running from different context
-            manifest_path = Path("engine_dev/universal_research_engine/1.3.0/VALIDATED_ENGINE.manifest.json")
-            
+        from tools.pipeline_utils import get_engine_version
+        _ver = get_engine_version()
+        manifest_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / _ver / "VALIDATED_ENGINE.manifest.json"
         if manifest_path.exists():
             with open(manifest_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -758,7 +756,7 @@ def get_yearwise_df(trades, starting_capital, yearwise_data):
             try:
                 y = int(row.get("year", 0))
                 if y > 0: year_lookup[y] = row
-            except: pass
+            except Exception: pass
 
     years = set()
     for t in trades:
@@ -818,7 +816,7 @@ def get_trades_df(trades):
                 else:
                     fval = float(val)
                     row[k] = _round_val(fval, 4) # 4 decimals for price/r-multiples
-            except:
+            except Exception:
                 row[k] = val
         rows.append(row)
         
@@ -835,7 +833,7 @@ def generate_excel_report(artifacts, output_path: Path):
     try:
         net_profit_row = df_summary[df_summary["Metric"] == "Net Profit (USD)"]
         net_profit = float(net_profit_row["All Trades"].values[0])
-    except:
+    except Exception:
         net_profit = 0.0
         
     df_benchmark = get_benchmark_df(artifacts["tradelevel"], starting_capital, net_profit)

@@ -117,7 +117,7 @@ def main():
                 print(f"[WARN] Extra columns in CSV (Outside SOP): {extra}")
             else:
                 print("[PASS] CSV strict adherence (No extra columns).")
-        except: pass
+        except Exception: pass
     
     # 2. Stage-2 Excel (Trades List)
     report_files = list(target_run.glob("AK_Trade_Report_*.xlsx"))

@@ -5,6 +5,8 @@ Role: Decision-only governance gate + scope resolver
 Authority: SOP_TESTING, SOP_OUTPUT, SOP_AGENT_ENGINE_GOVERNANCE (Supreme)
 """
 import os
+import sys
+import subprocess
 import re
 from pathlib import Path
 from typing import Optional
@@ -75,16 +77,15 @@ def run_preflight(
             None
         )
     
-    if skip_vault_check:
-        cmd = f"python {integrity_check} --mode workspace"
-    else:
-        cmd = f"python {integrity_check} --mode strict"
-
-    exit_code = os.system(cmd)
-    if exit_code != 0:
+    mode = "workspace" if skip_vault_check else "strict"
+    result = subprocess.run(
+        [sys.executable, str(integrity_check), "--mode", mode],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
         return (
             "BLOCK_EXECUTION",
-            "Engine integrity check FAILED. Execution blocked.",
+            f"Engine integrity check FAILED. Execution blocked.\n{result.stderr}",
             None
         )
     

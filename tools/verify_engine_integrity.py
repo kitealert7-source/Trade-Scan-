@@ -11,9 +11,16 @@ import importlib.util
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "1.2.0"
+# --- Single Source of Truth: import ENGINE_VERSION from runtime engine ---
+_engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "1.3.0" / "main.py"
+_spec = importlib.util.spec_from_file_location("_engine_main", _engine_main_path)
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+ENGINE_VERSION = _mod.ENGINE_VERSION
+
+ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / ENGINE_VERSION
 TOOLS_ROOT = PROJECT_ROOT / "tools"
-MANIFEST_PATH = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine" / "v1.2.0" / "manifests" / "engine_manifest.json"
+MANIFEST_PATH = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine" / f"v{ENGINE_VERSION}" / "manifests" / "engine_manifest.json"
 TOOLS_MANIFEST = PROJECT_ROOT / "tools" / "tools_manifest.json"
 
 def load_engine():
@@ -125,6 +132,10 @@ def verify_tools_integrity(mode="strict"):
 class IntegrityStrategy:
     def __init__(self):
         self.name = "Integrity Check Strategy"
+        # Explicit stop fields required by strict stop contract (session_opposite_range).
+        # Values set to match synthetic test data (close=100.0, low=95.0, high=105.0).
+        self.session_low = 95.0   # stop for long trades: below entry
+        self.session_high = 105.0  # stop for short trades: above entry
 
     def prepare_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         # Pass-through, no indicators needed for forced signals

@@ -7,10 +7,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from governance.preflight import run_preflight
+from tools.pipeline_utils import get_engine_version
 
 
 ENGINE_NAME = "Universal_Research_Engine"
-ENGINE_VERSION = "1.2.0"
+ENGINE_VERSION = get_engine_version()
 DIRECTIVES_DIR = PROJECT_ROOT / "backtest_directives" / "active"
 
 

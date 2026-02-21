@@ -264,9 +264,10 @@ def load_strategy(strategy_id: str):
 def run_engine_logic(df, strategy):
     """Run engine execution loop."""
     import importlib.util
+    engine_ver = get_engine_version()
     spec = importlib.util.spec_from_file_location(
         "execution_loop",
-        PROJECT_ROOT / "engine_dev/universal_research_engine/1.3.0/execution_loop.py"
+        PROJECT_ROOT / "engine_dev" / "universal_research_engine" / engine_ver / "execution_loop.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -370,9 +371,9 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             mfe_r = mfe_price / risk_distance
             mae_r = mae_price / risk_distance
         else:
-            r_multiple = 0.0
-            mfe_r = 0.0
-            mae_r = 0.0
+            r_multiple = None
+            mfe_r = None
+            mae_r = None
 
         raw_trades.append(RawTradeRecord(
             strategy_name=f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}",
@@ -392,9 +393,9 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             notional_usd=round(notional_usd, 2),
             mfe_price=round(mfe_price, 4),
             mae_price=round(mae_price, 4),
-            mfe_r=round(mfe_r, 4),
-            mae_r=round(mae_r, 4),
-            r_multiple=round(r_multiple, 4),
+            mfe_r=round(mfe_r, 4) if mfe_r is not None else None,
+            mae_r=round(mae_r, 4) if mae_r is not None else None,
+            r_multiple=round(r_multiple, 4) if r_multiple is not None else None,
             # Intrinsic Market State
             volatility_regime=t.get('volatility_regime'),
             trend_score=t.get('trend_score'),

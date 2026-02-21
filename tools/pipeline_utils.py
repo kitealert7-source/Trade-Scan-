@@ -14,6 +14,10 @@ from pathlib import Path
 from datetime import datetime, timezone
 import importlib.util
 
+import yaml
+from yaml.loader import SafeLoader
+from yaml.resolver import BaseResolver
+
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
@@ -25,49 +29,91 @@ RUNS_DIR = PROJECT_ROOT / "runs"
 # CANONICAL HASHING & RUN ID
 # ==============================================================================
 
+
+
+# ---------------------------------------------------------------------------
+# Strict Duplicate-Key YAML Loader
+# ---------------------------------------------------------------------------
+
+class NoDuplicateSafeLoader(SafeLoader):
+    """SafeLoader that raises ValueError on duplicate mapping keys."""
+    pass
+
+
+def _construct_mapping_no_duplicates(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ValueError(
+                f"DUPLICATE DIRECTIVE KEY DETECTED: '{key}'"
+            )
+        value = loader.construct_object(value_node, deep=deep)
+        mapping[key] = value
+    return mapping
+
+
+NoDuplicateSafeLoader.add_constructor(
+    BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_mapping_no_duplicates,
+)
+
+
 def parse_directive(file_path: Path) -> dict:
     """
-    Parse directive text into a structured dictionary for canonical hashing.
-    Supports 'Key: Value' and Lists (- item).
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+    Load a directive using YAML-safe parsing with strict duplicate-key detection.
 
-    parsed = {}
-    current_key = None
-    
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-            
-        # List Item (Explicit)
-        if line.startswith("-") and current_key:
-            val = line[1:].strip()
-            if not isinstance(parsed[current_key], list):
-                parsed[current_key] = []
-            parsed[current_key].append(val)
-            continue
-            
-        # Key-Value
-        if ":" in line:
-            parts = line.split(":", 1)
-            key = parts[0].strip()
-            val = parts[1].strip()
-            
-            if not val:
-                # Key with empty value, possibly start of list
-                parsed[key] = []
-                current_key = key
-            else:
-                parsed[key] = val
-                current_key = key
-        else:
-            # Implicit List Item
-            if current_key and isinstance(parsed.get(current_key), list):
-                parsed[current_key].append(line)
-            
-    return parsed
+    Contract:
+    - Fails fast on invalid YAML, duplicate keys, or non-dict root.
+    - Preserves full nested YAML structure.
+    - Mirrors test: sub-keys into root for backward-compatible access.
+      Raises ValueError on collision (never silently overwrites a root key).
+
+    Returns:
+        dict: Parsed directive config with test: keys hoisted to root level.
+    """
+    with open(file_path, "r", encoding="utf-8") as f:
+        try:
+            data = yaml.load(f, Loader=NoDuplicateSafeLoader)
+        except ValueError:
+            raise  # Re-raise duplicate key errors verbatim
+        except yaml.YAMLError as e:
+            raise ValueError(f"INVALID DIRECTIVE STRUCTURE: {e}")
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            "INVALID DIRECTIVE STRUCTURE: root element must be a YAML mapping"
+        )
+
+    # YAML auto-parses bare date literals (e.g. 2024-01-01) as datetime.date
+    # objects instead of strings. This breaks json.dumps() in get_canonical_hash()
+    # and would cause run ID drift. Convert recursively to ISO string.
+    import datetime as _dt
+
+    def _stringify_dates(obj):
+        if isinstance(obj, (_dt.date, _dt.datetime)):
+            return obj.isoformat()
+        if isinstance(obj, dict):
+            return {k: _stringify_dates(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_stringify_dates(i) for i in obj]
+        return obj
+
+    data = _stringify_dates(data)
+
+    # Mirror test: sub-keys into root for backward-compatible downstream access.
+    # Collision detection: raises if a root key would be silently overwritten.
+    test_block = data.get("test", {})
+    if isinstance(test_block, dict):
+        for k, v in test_block.items():
+            if k in data:
+                raise ValueError(
+                    f"KEY COLLISION during test: merge: "
+                    f"'{k}' already exists at root level"
+                )
+            data[k] = v
+
+    return data
 
 def get_canonical_hash(parsed_data: dict) -> str:
     """Generate SHA256 hash of canonical JSON representation."""
@@ -102,29 +148,68 @@ def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
     Generate Deterministic Run ID based on Governance Rules.
     Returns: (run_id, content_hash)
     """
+    # Public parse for downstream field access (correct YAML structure).
     parsed_config = parse_directive(directive_path)
-    
-    # Resolve Defaults if missing in Directive
+
+    # Resolve broker/timeframe for the lineage string.
     broker = parsed_config.get("Broker", parsed_config.get("broker", "OctaFx"))
     timeframe = parsed_config.get("Timeframe", parsed_config.get("timeframe", "1d"))
-    
-    # Clean Config for Hash
-    # (Matches run_stage1.py logic logic for consistency)
-    resolved_config = dict(parsed_config)
-    resolved_config.update({
+
+    # -------------------------------------------------------------------------
+    # RUN ID HASH — computed from the LEGACY flat-parser output, frozen.
+    #
+    # ⚠️  DO NOT CHANGE THIS LOGIC. Changing it invalidates ALL existing run IDs,
+    #     requiring a full re-run of every directive. The legacy flat parser is
+    #     kept here as an internal private function purely for hash stability.
+    #     It is NOT used for directive config access anywhere else.
+    # -------------------------------------------------------------------------
+    def _legacy_flat_parse(file_path: Path) -> dict:
+        """Verbatim copy of the original flat key:value parser — hash use only."""
+        with open(file_path, 'r', encoding='utf-8') as _f:
+            lines = _f.readlines()
+        _parsed = {}
+        _current_key = None
+        for _line in lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#"):
+                continue
+            if _line.startswith("-") and _current_key:
+                _val = _line[1:].strip()
+                if not isinstance(_parsed[_current_key], list):
+                    _parsed[_current_key] = []
+                _parsed[_current_key].append(_val)
+                continue
+            if ":" in _line:
+                _parts = _line.split(":", 1)
+                _key = _parts[0].strip()
+                _val = _parts[1].strip()
+                if not _val:
+                    _parsed[_key] = []
+                    _current_key = _key
+                else:
+                    _parsed[_key] = _val
+                    _current_key = _key
+            else:
+                if _current_key and isinstance(_parsed.get(_current_key), list):
+                    _parsed[_current_key].append(_line)
+        return _parsed
+
+    _legacy_config = _legacy_flat_parse(directive_path)
+    _legacy_config.update({
         "BROKER": broker,
         "TIMEFRAME": timeframe,
-        "START_DATE": parsed_config.get("Start Date", parsed_config.get("start_date", "2015-01-01")),
-        "END_DATE": parsed_config.get("End Date", parsed_config.get("end_date", "2026-01-31"))
+        "START_DATE": _legacy_config.get("Start Date", _legacy_config.get("start_date", "2015-01-01")),
+        "END_DATE": _legacy_config.get("End Date", _legacy_config.get("end_date", "2026-01-31")),
     })
-    
-    content_hash = get_canonical_hash(resolved_config)
+    content_hash = get_canonical_hash(_legacy_config)
+    # -------------------------------------------------------------------------
+
     engine_ver = get_engine_version()
-    
+
     # Lineage String
     lineage_str = f"{content_hash}_{symbol}_{timeframe}_{broker}_{engine_ver}"
     run_id = hashlib.sha256(lineage_str.encode()).hexdigest()[:12]
-    
+
     return run_id, content_hash
 
 
@@ -193,13 +278,17 @@ class PipelineStateManager:
              try:
                  with open(self.state_file, 'r', encoding='utf-8') as f:
                      existing_data = json.load(f)
-                 existing_data["current_state"] = "IDLE"
-                 existing_data["last_updated"] = datetime.now(timezone.utc).isoformat()
+                 # Capture old_state BEFORE overwriting current_state so history
+                 # records the true prior state (e.g. STAGE_3_COMPLETE → IDLE)
+                 # not the post-mutation value (IDLE → IDLE).
+                 old_state = existing_data.get("current_state", "UNKNOWN")
                  existing_data["history"].append({
-                     "from": existing_data.get("current_state", "UNKNOWN"),
+                     "from": old_state,
                      "to": "IDLE",
                      "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
                  })
+                 existing_data["current_state"] = "IDLE"
+                 existing_data["last_updated"] = datetime.now(timezone.utc).isoformat()
                  self._write_atomic(existing_data)
              except Exception as e:
                  print(f"[WARNING] Could not reset existing state file for {self.run_id}: {e}. Initializing as new.")
@@ -271,35 +360,38 @@ class PipelineStateManager:
     def verify_state(self, expected_state: str):
         """
         Verify current state matches expected_state.
-        Abort/Raise if mismatch or missing.
+        Raises RuntimeError on mismatch or missing state file.
+        Caller (run_stage1.py) handles failures via its existing try/except.
         """
         if not self.state_file.exists():
-            print(f"[FATAL] State file missing: {self.state_file}")
-            sys.exit(1)
-            
+            raise RuntimeError(
+                f"[FATAL] State file missing: {self.state_file}"
+            )
+
         try:
             with open(self.state_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as e:
-            print(f"[FATAL] Corrupt state file: {e}")
-            sys.exit(1)
-            
+            raise RuntimeError(f"[FATAL] Corrupt state file: {e}")
+
         current = data.get("current_state")
-        
+
         # Identity Check
         if data.get("run_id") != self.run_id:
-             print(f"[FATAL] Run Identity Mismatch. File: {data.get('run_id')} vs Arg: {self.run_id}")
-             sys.exit(1)
-             
+            raise RuntimeError(
+                f"[FATAL] Run Identity Mismatch. File: {data.get('run_id')} vs Arg: {self.run_id}"
+            )
+
         if current != expected_state:
             # Allow forward states for re-running reports
             if (expected_state == "STAGE_2_COMPLETE" and current in ["STAGE_3_COMPLETE", "STAGE_3A_COMPLETE", "COMPLETE"]) or \
                (expected_state == "STAGE_1_COMPLETE" and current in ["STAGE_2_COMPLETE", "STAGE_3_COMPLETE", "STAGE_3A_COMPLETE", "COMPLETE"]):
                 pass
             else:
-                print(f"[FATAL] State Mismatch. Expected: {expected_state}, Found: {current}")
-                sys.exit(1)
-            
+                raise RuntimeError(
+                    f"[FATAL] State Mismatch. Expected: {expected_state}, Found: {current}"
+                )
+
         # print(f"[VERIFIED] State is {current}")
 
     def get_state_data(self) -> dict:
@@ -310,7 +402,7 @@ class PipelineStateManager:
         try:
             with open(self.state_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
+        except Exception:
              return {"current_state": "IDLE"}
 
 class DirectiveStateManager:
@@ -388,7 +480,7 @@ class DirectiveStateManager:
         try:
             with open(self.state_file, 'r') as f:
                 return json.load(f).get("current_state", "IDLE")
-        except:
+        except Exception:
             return "IDLE"
 
     def transition_to(self, new_state: str):

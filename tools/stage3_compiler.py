@@ -266,7 +266,7 @@ def get_existing_master_df(master_filter_path):
         return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
     try:
         return pd.read_excel(master_filter_path)
-    except:
+    except Exception:
         return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
 
 def enforce_strategy_persistence(run_id: str):

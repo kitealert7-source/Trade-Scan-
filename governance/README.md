@@ -5,7 +5,8 @@
 This document is **descriptive only**.
 
 Authoritative system behavior is defined exclusively by:
-- `Trade_Scan_invariants.md`
+
+- `trade_scan_invariants_state_gated.md`
 - `SOP_TESTING.md`
 - `SOP_OUTPUT.md`
 
@@ -16,6 +17,7 @@ If any inconsistency exists between this README and the documents above, **this 
 ## What Trade_Scan Is
 
 **Trade_Scan** is a **research and backtesting system** designed to help humans:
+
 - formulate trade ideas
 - validate logic and assumptions
 - stress-test ideas against economic reality
@@ -31,6 +33,7 @@ All outputs are **advisory** and **non-operational**.
 Trade_Scan is **not** a trading system.
 
 It does **not**:
+
 - place trades
 - manage orders or positions
 - connect to brokers or exchanges
@@ -60,7 +63,7 @@ There is no autonomy, looping, or self-directed exploration.
 Trade_Scan is governed by a strict hierarchy:
 
 ```
-Trade_Scan_invariants.md   → system laws (non-negotiable)
+trade_scan_invariants_state_gated.md   → system laws (non-negotiable)
 SOP_TESTING.md             → execution & validation procedure
 SOP_OUTPUT.md              → results emission & human analysis
 agent_rules/               → agent behavior enforcement
@@ -86,6 +89,7 @@ Any movement of ideas across system boundaries is **manual and human-only**.
 ## Results & Human Analysis
 
 Trade_Scan produces artifacts intended for human reasoning:
+
 - structured reports
 - comparative summaries
 - exploratory research views
@@ -98,17 +102,18 @@ Results are organized by artifact authority:
 
 Human judgment is encouraged, but it never feeds back into execution automatically.
 
-
 ---
 
 ## Intended Use
 
 Trade_Scan exists to support:
+
 - disciplined research
 - repeatable backtesting
 - clear separation between analysis and action
 
 It is intentionally constrained to prevent:
+
 - accidental automation
 - authority creep
 - execution coupling
@@ -118,6 +123,7 @@ It is intentionally constrained to prevent:
 ## Final Note
 
 If a proposed change would make Trade_Scan:
+
 - more autonomous
 - more authoritative
 - closer to execution
@@ -128,4 +134,3 @@ then that change likely belongs **outside** Trade_Scan.
 ---
 
 **End of README**
-

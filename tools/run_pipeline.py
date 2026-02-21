@@ -96,28 +96,17 @@ def get_directive_path(directive_id):
     sys.exit(1)
 
 def parse_concurrency_config(file_path):
-    with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    max_concurrent = None
-    symbols = []
-    in_symbols_block = False
-    
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"): continue
-        if "max concurrent positions" in line.lower():
-            parts = line.split(":")
-            if len(parts) > 1 and parts[1].strip().isdigit():
-                max_concurrent = int(parts[1].strip())
-        if line.lower().startswith("symbols:"):
-            in_symbols_block = True
-            continue
-        if in_symbols_block:
-            if ":" in line:
-                in_symbols_block = False
-            else:
-                sym = line.replace("-", "").strip()
-                if sym: symbols.append(sym)
+    from tools.pipeline_utils import parse_directive
+    config = parse_directive(file_path)
+    # Extract symbols list — support both cased key variants
+    symbols = config.get("symbols", config.get("Symbols", []))
+    if isinstance(symbols, str):
+        symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+    elif not isinstance(symbols, list):
+        symbols = []
+    max_concurrent = config.get("max_concurrent_positions", len(symbols))
+    if isinstance(max_concurrent, str) and max_concurrent.isdigit():
+        max_concurrent = int(max_concurrent)
     return max_concurrent, len(symbols)
 
 def run_single_directive(directive_id):
@@ -236,7 +225,7 @@ def run_single_directive(directive_id):
 
     try:
         # Resume Check
-        if current_dir_state == "SYMBOL_RUNS_COMPLETE":
+        if dir_state_mgr.get_state() == "SYMBOL_RUNS_COMPLETE":  # live fetch — not stale var
              print("[ORCHESTRATOR] Resuming at Stage-4 (Portfolio)...")
         else:
             # 2. Preflight (Directive Level - Runs Once)
@@ -289,9 +278,9 @@ def run_single_directive(directive_id):
                      # Transition to FAILED
                      for rid in run_ids:
                         try: PipelineStateManager(rid).transition_to("FAILED")
-                        except: pass
+                        except Exception as e_cleanup: print(f"[WARN] Failed to mark {rid} as FAILED: {e_cleanup}")
                      try: dir_state_mgr.transition_to("FAILED")
-                     except: pass
+                     except Exception as e_cleanup: print(f"[WARN] Failed to mark directive as FAILED: {e_cleanup}")
                      sys.exit(1)
             elif check_state == "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID":
                 print("[ORCHESTRATOR] Semantic Validation already COMPLETE. Resuming...")
@@ -311,9 +300,15 @@ def run_single_directive(directive_id):
             for symbol, rid in zip(symbols, run_ids):
                 mgr = PipelineStateManager(rid)
                 
-                # Check if symbol already complete
+                # Skip if symbol has already progressed past Stage-1.
+                # Guard must cover all forward states, not just COMPLETE,
+                # to prevent illegal re-execution on resume.
+                _SKIP_STATES = {
+                    "STAGE_1_COMPLETE", "STAGE_2_COMPLETE",
+                    "STAGE_3_COMPLETE", "STAGE_3A_COMPLETE", "COMPLETE"
+                }
                 st = mgr.get_state_data()["current_state"]
-                if st == "COMPLETE": 
+                if st in _SKIP_STATES:
                     continue
 
                 try:
@@ -334,8 +329,8 @@ def run_single_directive(directive_id):
                     print(f"[ERROR] Stage-1 Failed for {symbol}: {e}")
                     try:
                         mgr.transition_to("FAILED")
-                    except:
-                        pass
+                    except Exception as e_cleanup:
+                        print(f"[WARN] Failed to mark {symbol} run as FAILED: {e_cleanup}")
                     raise e
             
             # End of Stage 1 Loop - Move to Stage 2
@@ -490,8 +485,8 @@ def run_single_directive(directive_id):
         # Directive Commit FAILED
         try:
             dir_state_mgr.transition_to("FAILED")
-        except:
-            pass
+        except Exception as e_cleanup:
+            print(f"[WARN] Failed to mark directive as FAILED: {e_cleanup}")
 
         # Crash Handling: Mark all non-terminal runs as FAILED
         print("[ORCHESTRATOR] Performing fail-safe state cleanup...")
