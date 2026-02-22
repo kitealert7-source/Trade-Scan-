@@ -164,6 +164,35 @@ Preflight MUST complete before Stage-0.5 executes.
 
 ---
 
+### Strategy Execution Admission Rule (MANDATORY)
+
+Pipeline execution is **prohibited** when:
+
+- A new directory is created under `strategies/`, OR
+- Any `strategy.py` inside `strategies/` is modified with a **logic-affecting change**
+
+AND explicit human approval has **not** been granted.
+
+**Logic-affecting modification** includes any change that can alter:
+
+- Entry or exit conditions
+- Indicator calculations or wiring
+- Filter stack composition
+- Parameter default values
+- Regime classification logic
+- Position sizing or risk logic
+
+**Explicitly excluded** (no approval required):
+
+- Formatting and whitespace changes
+- Comments and docstrings
+- Non-executable metadata
+- `STRATEGY_SIGNATURE` block updates that are deterministically derived from directive
+
+The agent MUST stop and request human approval before proceeding with pipeline execution when a logic-affecting change is detected. This gate is pre-FSM and purely procedural.
+
+---
+
 ### Stage-0.5 Validation Scope
 
 Stage-0.5 SHALL validate:

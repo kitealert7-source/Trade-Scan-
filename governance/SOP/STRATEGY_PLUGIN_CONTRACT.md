@@ -131,6 +131,18 @@ Execution MUST be blocked only if:
 
 ---
 
+## 6A. Admission Rule
+
+No new strategy plugin may enter the governed `strategies/` directory,
+and no logic-affecting edit to an existing `strategy.py` may be
+executed by the pipeline, without explicit human approval.
+
+This rule is enforced procedurally at the agent level, before FSM
+initialization. See SOP_TESTING §4 for the full definition of
+"logic-affecting modification."
+
+---
+
 ## 7. Change Policy (HARD)
 
 Any change to this contract:

@@ -59,6 +59,16 @@ No overwrite of unrelated strategy families.
 Preflight is authorized to provision strategy artifacts
 in Directive-Driven Mode.
 
+**Strategy Admission Gate:**
+
+If provisioning would create a **new** `strategies/<name>/` directory,
+or modify `strategy.py` with a **logic-affecting change** (entry/exit
+conditions, indicator wiring, filters, parameters, regime logic):
+
+- **STOP. Request explicit human approval.**
+- Do not invoke the pipeline until approval is granted.
+- Non-functional changes (comments, formatting, docstrings) are exempt.
+
   ↓
 Stage-0.5 Semantic Validation
   ↓
