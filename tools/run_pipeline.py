@@ -322,6 +322,11 @@ def run_single_directive(directive_id):
                     ]
                     run_command(cmd, f"Stage-1: {symbol}")
                     
+                    # --- STAGE-1 ARTIFACT GATE ---
+                    out_folder = PROJECT_ROOT / "backtests" / f"{clean_id}_{symbol}"
+                    if not (out_folder / "raw" / "results_tradelevel.csv").exists():
+                        raise RuntimeError(f"[FATAL] Stage-1 artifact missing for {symbol}. (Probable NO_TRADES).")
+                    
                     # 3. Transition to Complete
                     mgr.transition_to("STAGE_1_COMPLETE")
                     
