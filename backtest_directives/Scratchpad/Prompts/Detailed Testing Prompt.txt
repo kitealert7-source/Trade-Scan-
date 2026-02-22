@@ -1,0 +1,129 @@
+AGENT PROMPT — STRATEGY TESTING EXECUTION (v3 — Governance First + Admission Gate)
+
+OBJECTIVE
+Execute all active directives deterministically.
+No inference. No mutation. No stage skipping. No implicit provisioning.
+System is fail-fast and constitution-bound.
+Consult AGENT.md for all failure classification and recovery paths.
+
+────────────────────────────────────────
+PHASE 1 — SOP INGESTION (MANDATORY)
+────────────────────────────────────────
+
+Before execution, the agent MUST:
+
+1. Read and internalize all governing SOPs:
+   - SOP_TESTING
+   - SOP_OUTPUT
+   - SOP_CLEANUP
+   - SOP_PORTFOLIO_ANALYSIS
+   - STRATEGY_PLUGIN_CONTRACT
+   - AGENT.md (Failure Playbook)
+
+2. Confirm understanding of:
+   - Stage ordering rules
+   - Artifact authority model
+   - Fail-fast contract
+   - Ledger supremacy
+   - Append-only guarantees
+   - Admission Gate enforcement
+
+No execution may begin before SOP ingestion is complete.
+
+────────────────────────────────────────
+PHASE 2 — DIRECTIVE READINESS VALIDATION
+(NON-BYPASSABLE)
+────────────────────────────────────────
+
+For each directive in:
+    backtest_directives/active/
+
+The agent MUST validate:
+
+1) PROVISIONING STATUS
+   - Run: python tools/run_pipeline.py --all --provision-only
+   - This executes Stage-0 + Stage-0.5 ONLY.
+   - Semantic validation + Admission Gate are enforced.
+   - If PROVISION_REQUIRED → STOP. Strategy must be authored by human.
+   - If ALLOW_EXECUTION → strategy exists and passes all gates.
+
+2) STRATEGY REVIEW (ADMISSION GATE)
+   - If --provision-only succeeded, present strategy.py to human.
+   - Human MUST approve before any execution proceeds.
+   - Do NOT proceed without explicit approval.
+
+3) ARTIFACT PRE-CONDITIONS
+   - If directive was previously FAILED:
+     --force will be required for retry.
+   - Verify no partial or orphaned artifacts from prior runs.
+   - Verify no illegal state transitions pending.
+
+────────────────────────────────────────
+PHASE 3 — EXECUTION
+────────────────────────────────────────
+
+Only after Phase 1, Phase 2, and human approval:
+
+Execute strictly via:
+    python tools/run_pipeline.py --all --force
+
+(--force required if prior FAILED state exists)
+
+────────────────────────────────────────
+EXECUTION FLOW (NON-BYPASSABLE)
+────────────────────────────────────────
+
+Stages execute in order:
+
+    Stage-0     Preflight + Provisioning
+    Stage-0.5   Semantic Validation + Admission Gate
+    Stage-0.75  Dry-Run Validator
+    Stage-1     Execution (per symbol, atomic)
+    Stage-2     Compilation
+    Stage-3     Aggregation + Snapshot + Manifest Binding
+    Stage-4     Portfolio Evaluation + Ledger Gate
+
+Abort immediately on any failure.
+No continuation after error.
+No partial progression.
+
+────────────────────────────────────────
+FAILURE HANDLING
+────────────────────────────────────────
+
+On any failure:
+
+1. Classify per AGENT.md failure playbook.
+2. Report the exact failure class.
+3. Do NOT attempt automatic repair.
+4. Do NOT retry without addressing root cause.
+5. Do NOT modify strategy code without human approval.
+
+Valid failure classes:
+    PROVISION_REQUIRED
+    SCHEMA_VIOLATION
+    ARTIFACT_MISSING
+    STATE_TRANSITION_INVALID
+    EXECUTION_ERROR
+    STAGE_3_CARDINALITY_MISMATCH
+    STAGE_4_LEDGER_MISMATCH
+    SNAPSHOT_INTEGRITY_MISMATCH
+    MANIFEST_TAMPER_DETECTED
+    FILTERSTACK_ARCHITECTURAL_VIOLATION
+    DRYRUN_CRASH
+    INDICATOR_IMPORT_MISMATCH
+    PREFLIGHT_FAILURE
+    DATA_LOAD_FAILURE
+
+────────────────────────────────────────
+SYSTEM CONTRACT
+────────────────────────────────────────
+
+The system is:
+    Deterministic
+    Ledger-authoritative
+    Append-only
+    Fail-fast
+    Non-mutating
+
+Execution without compliance validation is prohibited.

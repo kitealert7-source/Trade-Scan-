@@ -102,31 +102,9 @@ def run_preflight(
     except Exception as e:
         return ("HARD_STOP", f"Cannot read directive: {e}", None)
     
-    # --- CHECK 4: Extract Resolved Scope (Human-Tolerant Parsing) ---
-    resolved_scope = {
-        "broker": None,
-        "symbols": [],
-        "timeframe": None,
-        "start_date": None,
-        "end_date": None
-    }
-    
-    # Helper: Extract value after field name with flexible separators (:, -, =)
-    def extract_field_value(line: str, field_pattern: str) -> Optional[str]:
-        """Extract value from line matching field pattern with :, -, or = separator."""
-        match = re.match(
-            rf'^\s*{field_pattern}\s*[:=\-]\s*(.+?)\s*$',
-            line,
-            re.IGNORECASE
-        )
-        if match:
-            return match.group(1).strip()
-        return None
-    
-    # Helper: Strip bullet prefixes (*, -, •)
-    def strip_bullet(line: str) -> str:
-        """Remove leading bullet characters and whitespace."""
-        return re.sub(r'^[\s*\-•]+', '', line).strip()
+    # --- CHECK 4: Extract Resolved Scope ---
+    # Layered approach: try authoritative YAML parser first, fall back to
+    # human-tolerant regex scanner if the directive isn't strict YAML.
 
     def normalize_broker(name: str) -> str:
         """Normalize broker name to match directory convention."""
@@ -136,166 +114,175 @@ def run_preflight(
         if clean == "DELTAEXCHANGE":
             return "DeltaExchange"
         return name
-    
-    lines = directive_content.split('\n')
-    in_symbols_block = False
-    collected_symbols = set()
-    
-    for line in lines:
-        line_stripped = line.strip()
-        line_upper = line_stripped.upper()
-        
-        # Skip empty lines and comments
-        if not line_stripped or line_stripped.startswith('#'):
-            continue
-        
-        # --- Broker extraction ---
-        broker_val = extract_field_value(line_stripped, r'broker(?:\s+feed)?')
-        if broker_val and not resolved_scope["broker"]:
-            resolved_scope["broker"] = normalize_broker(broker_val)
-            continue
-        
-        # --- Timeframe extraction ---
-        timeframe_val = extract_field_value(line_stripped, r'time[\s_]*frame')
-        if timeframe_val and not resolved_scope["timeframe"]:
-            resolved_scope["timeframe"] = timeframe_val
-            continue
-        
-        # --- Start Date extraction ---
-        start_date_val = extract_field_value(line_stripped, r'start[\s_]*date')
-        if start_date_val and not resolved_scope["start_date"]:
-            resolved_scope["start_date"] = start_date_val
-            continue
-        
-        # --- End Date extraction ---
-        end_date_val = extract_field_value(line_stripped, r'end[\s_]*date')
-        if end_date_val and not resolved_scope["end_date"]:
-            resolved_scope["end_date"] = end_date_val
-            continue
-        
-        # --- Symbols extraction ---
-        # Check for "Symbol:", "Symbols:", or "Asset:" header
-        symbol_header_match = re.match(r'^\s*(?:symbol|asset)s?\s*[:=\-]\s*(.*)$', line_stripped, re.IGNORECASE)
-        if symbol_header_match:
-            inline_value = symbol_header_match.group(1).strip()
-            if inline_value:
-                # Inline symbol(s) after header
-                cleaned = strip_bullet(inline_value).upper()
-                if cleaned and len(cleaned) <= 10:
-                    collected_symbols.add(cleaned)
-            else:
-                # Start of symbols block
-                in_symbols_block = True
-            continue
-        
-        # Inside symbols block: collect bulleted items or standalone tickers
-        if in_symbols_block:
-            # Check if line starts with bullet or is indented
-            if re.match(r'^[\s*\-•]', line):
-                cleaned = strip_bullet(line_stripped).upper()
-                if cleaned and len(cleaned) <= 10:
-                    collected_symbols.add(cleaned)
-            # Also accept short uppercase-only lines as symbols (e.g., "SPX500" on its own line)
-            elif line_stripped and len(line_stripped) <= 10 and re.match(r'^[A-Z0-9]+$', line_stripped):
-                collected_symbols.add(line_stripped.upper())
-            elif line_stripped and not re.match(r'^[\s*\-•]', line) and not re.match(r'^[A-Z0-9]+$', line_stripped):
-                # Non-bulleted, non-ticker line ends the block
-                in_symbols_block = False
-    
-    # De-duplicate and assign symbols
-    resolved_scope["symbols"] = list(collected_symbols)
-    
-    # --- CHECK 5: Validate Resolved Scope ---
+
+    resolved_scope = None
+    declared_indicators = []
+
+    # --- PRIMARY PATH: Authoritative YAML parser ---
+    try:
+        from tools.pipeline_utils import parse_directive
+        parsed = parse_directive(directive_full_path)
+
+        # Extract symbols — handle list or string
+        raw_symbols = parsed.get("symbols", parsed.get("Symbols", []))
+        if isinstance(raw_symbols, str):
+            raw_symbols = [s.strip() for s in raw_symbols.split(",") if s.strip()]
+        elif not isinstance(raw_symbols, list):
+            raw_symbols = []
+        # Normalize to uppercase
+        raw_symbols = [s.upper() for s in raw_symbols]
+
+        raw_broker = parsed.get("broker_feed", parsed.get("broker", parsed.get("Broker Feed", parsed.get("Broker", ""))))
+        raw_start = parsed.get("start_date", parsed.get("Start Date", None))
+        raw_end = parsed.get("end_date", parsed.get("End Date", None))
+        raw_tf = parsed.get("timeframe", parsed.get("Timeframe", None))
+
+        # Coerce dates to string (YAML may parse as datetime)
+        if raw_start is not None:
+            raw_start = str(raw_start)
+        if raw_end is not None:
+            raw_end = str(raw_end)
+        if raw_tf is not None:
+            raw_tf = str(raw_tf)
+
+        resolved_scope = {
+            "broker": normalize_broker(str(raw_broker)) if raw_broker else None,
+            "symbols": raw_symbols,
+            "timeframe": raw_tf,
+            "start_date": raw_start,
+            "end_date": raw_end,
+        }
+        # Extract indicators
+        raw_indicators = parsed.get("indicators", parsed.get("Indicators", []))
+        if isinstance(raw_indicators, list):
+            declared_indicators = [str(i) for i in raw_indicators]
+        elif isinstance(raw_indicators, str):
+            declared_indicators = [raw_indicators]
+
+        print("[PREFLIGHT] Directive parsed via YAML authority.")
+    except Exception as yaml_err:
+        print(f"[PREFLIGHT] YAML parse failed ({yaml_err}). Falling back to regex scanner.")
+        resolved_scope = None  # Signal fallback
+
+    # --- FALLBACK PATH: Human-tolerant regex scanner ---
+    if resolved_scope is None:
+        resolved_scope = {
+            "broker": None,
+            "symbols": [],
+            "timeframe": None,
+            "start_date": None,
+            "end_date": None
+        }
+
+        def extract_field_value(line: str, field_pattern: str) -> Optional[str]:
+            """Extract value from line matching field pattern with :, -, or = separator."""
+            match = re.match(
+                rf'^\s*{field_pattern}\s*[:=\-]\s*(.+?)\s*$',
+                line,
+                re.IGNORECASE
+            )
+            if match:
+                return match.group(1).strip()
+            return None
+
+        def strip_bullet(line: str) -> str:
+            """Remove leading bullet characters and whitespace."""
+            return re.sub(r'^[\s*\-•]+', '', line).strip()
+
+        lines = directive_content.split('\n')
+        in_symbols_block = False
+        collected_symbols = set()
+
+        for line in lines:
+            line_stripped = line.strip()
+
+            if not line_stripped or line_stripped.startswith('#'):
+                continue
+
+            broker_val = extract_field_value(line_stripped, r'broker(?:\s+feed)?')
+            if broker_val and not resolved_scope["broker"]:
+                resolved_scope["broker"] = normalize_broker(broker_val)
+                continue
+
+            timeframe_val = extract_field_value(line_stripped, r'time[\s_]*frame')
+            if timeframe_val and not resolved_scope["timeframe"]:
+                resolved_scope["timeframe"] = timeframe_val
+                continue
+
+            start_date_val = extract_field_value(line_stripped, r'start[\s_]*date')
+            if start_date_val and not resolved_scope["start_date"]:
+                resolved_scope["start_date"] = start_date_val
+                continue
+
+            end_date_val = extract_field_value(line_stripped, r'end[\s_]*date')
+            if end_date_val and not resolved_scope["end_date"]:
+                resolved_scope["end_date"] = end_date_val
+                continue
+
+            symbol_header_match = re.match(r'^\s*(?:symbol|asset)s?\s*[:=\-]\s*(.*)$', line_stripped, re.IGNORECASE)
+            if symbol_header_match:
+                inline_value = symbol_header_match.group(1).strip()
+                if inline_value:
+                    cleaned = strip_bullet(inline_value).upper()
+                    if cleaned and len(cleaned) <= 10:
+                        collected_symbols.add(cleaned)
+                else:
+                    in_symbols_block = True
+                continue
+
+            if in_symbols_block:
+                if re.match(r'^[\s*\-•]', line):
+                    cleaned = strip_bullet(line_stripped).upper()
+                    if cleaned and len(cleaned) <= 10:
+                        collected_symbols.add(cleaned)
+                elif line_stripped and len(line_stripped) <= 10 and re.match(r'^[A-Z0-9]+$', line_stripped):
+                    collected_symbols.add(line_stripped.upper())
+                elif line_stripped and not re.match(r'^[\s*\-•]', line) and not re.match(r'^[A-Z0-9]+$', line_stripped):
+                    in_symbols_block = False
+
+        resolved_scope["symbols"] = list(collected_symbols)
+
+        # Indicator extraction (regex path)
+        declared_indicators = []
+        in_indicators_block = False
+        for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped or line_stripped.startswith('#'):
+                continue
+            if re.match(r'^\s*Indicators\s*[:=\-]', line_stripped, re.IGNORECASE):
+                in_indicators_block = True
+                continue
+            if in_indicators_block:
+                if ":" in line_stripped and not line_stripped.startswith("-"):
+                    in_indicators_block = False
+                    continue
+                cleaned = re.sub(r'^[\s*\-•]+', '', line_stripped).strip()
+                if cleaned:
+                    declared_indicators.append(cleaned)
+
+    # --- CHECK 5: Validate Resolved Scope (applies to both YAML and regex paths) ---
     if not resolved_scope["broker"]:
         return ("BLOCK_EXECUTION", "Broker not declared in directive", None)
-    
+
     if not resolved_scope["symbols"]:
         return ("BLOCK_EXECUTION", "Symbols not declared in directive", None)
-    
+
     if not resolved_scope["timeframe"]:
         return ("BLOCK_EXECUTION", "Timeframe not declared in directive", None)
-    
+
     if not resolved_scope["start_date"]:
         return ("BLOCK_EXECUTION", "Start Date not declared in directive", None)
-    
+
     if not resolved_scope["end_date"]:
         return ("BLOCK_EXECUTION", "End Date not declared in directive", None)
-    
+
     # Validate date format (simple check)
     date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
-    if not date_pattern.match(resolved_scope["start_date"]):
+    if not date_pattern.match(str(resolved_scope["start_date"])):
         return ("BLOCK_EXECUTION", f"Start Date malformed: {resolved_scope['start_date']}", None)
-    
-    if not date_pattern.match(resolved_scope["end_date"]):
+
+    if not date_pattern.match(str(resolved_scope["end_date"])):
         return ("BLOCK_EXECUTION", f"End Date must be explicit YYYY-MM-DD, got: {resolved_scope['end_date']}", None)
-
-    # --- CHECK 4.5: Indicator Availability (Optional Declared Dependencies) ---
-    # Phase 1: Availability Enforcement Only
-    
-    declared_indicators = []
-    in_indicators_block = False
-    
-    for line in lines:
-        line_stripped = line.strip()
-        if not line_stripped or line_stripped.startswith('#'):
-            continue
-            
-        # Detect Header
-        if re.match(r'^\s*Indicators\s*[:=\-]', line_stripped, re.IGNORECASE):
-            in_indicators_block = True
-            continue
-            
-        # If in block, capture items
-        if in_indicators_block:
-            # End block if we hit another known header
-            if re.match(r'^\s*(?:Broker|Timeframe|Start|End|Symbols|Asset)', line_stripped, re.IGNORECASE):
-                in_indicators_block = False
-                continue
-                
-            # Capture bulleted or indented items
-            if re.match(r'^[\s*\-•]', line) or line.startswith(' '):
-                # Remove bullets and whitespace
-                item = re.sub(r'^[\s*\-•]+', '', line_stripped).strip()
-                if item:
-                    declared_indicators.append(item)
-            else:
-                # Non-indented loop break? 
-                # Strict YAML would imply indentation, but we can be loose.
-                # If it looks like a path (has /) or snake_case, take it?
-                # Safer: assume list items must be indented or bulleted if strict, 
-                # but let's allow plain lines if they don't match other headers.
-                # Actually, effectively reusing the loop over lines is tricky if we don't track state well.
-                # Let's rely on the main loop structure or just re-scan for this block specifically to be safe and isolated.
-                pass
-
-    # Reworking extraction to be robust and isolated from the main loop above if needed, 
-    # but let's try to fit it into the flow or restart scan for clarity.
-    # Given the constraint to not refactor globally, let's just do a dedicated scan for Indicators 
-    # to avoid interfering with the complex Broker/Symbol state machine above.
-    
-    declared_indicators = []
-    in_indicators_block = False
-    
-    for line in lines:
-        line_stripped = line.strip()
-        if not line_stripped or line_stripped.startswith('#'):
-            continue
-
-        if re.match(r'^\s*Indicators\s*[:=\-]', line_stripped, re.IGNORECASE):
-            in_indicators_block = True
-            continue
-        
-        if in_indicators_block:
-            # Check if this line is a new header (stop capturing)
-            if ":" in line_stripped and not line_stripped.startswith("-"):
-                 # Likely a header (e.g. "Symbols:")
-                 in_indicators_block = False
-                 continue
-            
-            # Capture item
-            cleaned = re.sub(r'^[\s*\-•]+', '', line_stripped).strip()
-            if cleaned:
-                declared_indicators.append(cleaned)
 
     # Validate Existence
     if declared_indicators:

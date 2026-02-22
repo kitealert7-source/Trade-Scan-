@@ -123,7 +123,7 @@ def get_canonical_hash(parsed_data: dict) -> str:
 def get_engine_version(engine_path=None):
     """
     Dynamically import engine module and read __version__.
-    Default path: engine_dev/universal_research_engine/1.2.0/main.py
+    Default path: engine_dev/universal_research_engine/1.3.0/main.py
     """
     if not engine_path:
         engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/1.3.0/main.py"

@@ -2,6 +2,7 @@
 backtests/
 runs/
 results/
+research/
 
 # Market & raw data
 MASTER_DATA/

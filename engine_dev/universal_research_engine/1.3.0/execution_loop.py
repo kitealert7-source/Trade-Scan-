@@ -20,6 +20,14 @@ def run_execution_loop(df, strategy):
     from entry_bar to exit_bar inclusive.
     """
     df = strategy.prepare_indicators(df)
+
+    # --- ENSURE DATETIME INDEX ---
+    # Required for HTF indicators that use daily resampling
+    if not isinstance(df.index, pd.DatetimeIndex):
+        if 'timestamp' in df.columns:
+            df.index = pd.DatetimeIndex(df['timestamp'])
+        elif 'time' in df.columns:
+            df.index = pd.DatetimeIndex(df['time'])
     # --- INTRINSIC MARKET STATE COMPUTATION ---
     # Per SOP_TESTING v2.1 Section 7
     

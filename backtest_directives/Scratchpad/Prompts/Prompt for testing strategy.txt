@@ -1,92 +1,52 @@
-AGENT PROMPT — STRATEGY TESTING EXECUTION (v2.5)
+AGENT PROMPT — STRATEGY TESTING EXECUTION
 
 OBJECTIVE
-Execute all directives deterministically via pipeline manager.
+Execute all active directives deterministically.
 No inference. No mutation. No stage skipping.
 
-Follow SOP_Testing and all governance SOPs strictly.
+ENTRY POINT
+Execute only via:
+    python tools/run_pipeline.py --all
 
---------------------------------------------------
 SCOPE
---------------------------------------------------
-
 Process all directives in:
-backtest_directives/active/
+    backtest_directives/active/
 
-Sequentially using:
-python tools/run_pipeline.py --all
-
-run_pipeline.py is the sole authorized entry point.
-Direct stage invocation is prohibited.
-
---------------------------------------------------
 EXECUTION FLOW (NON-BYPASSABLE)
---------------------------------------------------
-
-0.  Stage-0   (Provisioning)
-0.5 Stage-0.5 (Semantic Validation — Identity & Signature)
-1.  Stage-1   (Research Data)
-1.5 Stage-1.5 (If declared)
-2.  Stage-2
-3.  Stage-3
-4.  Stage-4
+    Stage-0
+    Stage-0.5
+    Stage-1
+    Stage-1.5 (if declared)
+    Stage-2
+    Stage-3
+    Stage-4
 
 Abort immediately on any failure.
+No continuation after error.
 
---------------------------------------------------
-SCHEMA GOVERNANCE RULE
---------------------------------------------------
-
-System enforces SIGNATURE_SCHEMA_VERSION.
-
-If failure occurs due to:
-- Signature schema version mismatch
-- Structural signature mismatch
-- Missing signature_version
-
-Abort immediately.
-
-Do NOT:
-- Patch signature manually
-- Downgrade/override version
-- Modify directive automatically
-- Attempt migration
-
+SCHEMA GOVERNANCE
+SIGNATURE_SCHEMA_VERSION is authoritative.
+On mismatch, structural failure, or missing signature_version:
+    Abort.
+    No patching.
+    No downgrade.
+    No migration.
 Re-provisioning is the only valid recovery path.
 
---------------------------------------------------
-MARKET STATE INVARIANT RULE
---------------------------------------------------
+MARKET STATE CONTRACT
+Stage-1 must emit engine-derived market state fields.
+No recomputation.
+No fallback.
+Missing field → abort.
 
-Volatility and Trend regime are intrinsic execution-time dimensions.
-
-Stage-1 MUST emit:
-- volatility_regime
-- trend_score
-- trend_regime
-- trend_label
-
-These fields:
-- Must originate from engine-level computation.
-- Must not be recomputed post-trade.
-- Must not be inferred in Stage-2 or Stage-3.
-- Must not default to fallback values.
-
-If any required market state field is missing → abort immediately.
-
-No repair, no recomputation, no silent defaults.
-
-
---------------------------------------------------
-ARTIFACT & INTEGRITY RULES
---------------------------------------------------
-
-Each run must produce required artifacts.
-If any artifact is missing → abort.
-
+ARTIFACT INTEGRITY
+All required artifacts must be produced.
+Missing artifact → abort.
 Do not:
-- Recompute completed runs
-- Modify historical artifacts
-- Mutate strategy artifacts
-- Delete manually
-- Continue after failure
+    - Modify historical artifacts
+    - Recompute completed runs
+    - Mutate strategies
+    - Delete outputs manually
+
+SYSTEM IS FAIL-FAST.
+No silent recovery.

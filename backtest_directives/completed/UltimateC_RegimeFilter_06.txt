@@ -1,0 +1,59 @@
+test:
+  name: UltimateC_RegimeFilter_06
+  family: Forex
+  strategy: UltimateC_RegimeFilter_06
+  broker: OctaFX
+  timeframe: 1h
+  session_time_reference: UTC
+  start_date: 2015-01-01
+  end_date: 2026-02-15
+
+indicators:
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.trend.efficiency_ratio_regime
+  - indicators.price.ultimate_c_percent
+  - indicators.volatility.volatility_regime
+  - indicators.volatility.atr
+
+symbols:
+  - AUDNZD
+  - AUDUSD
+  - EURAUD
+  - EURUSD
+  - GBPAUD
+  - GBPUSD
+  - GBPNZD
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - USDJPY
+
+mean_reversion_rules:
+  entry:
+    long:
+      ultimate_signal: -1
+      max_abs_trend_score: 1
+    short:
+      ultimate_signal: 1
+      max_abs_trend_score: 1
+
+  exit:
+    type: opposite_signal_or_time
+    max_bars: 20
+
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    multiple: 1.3
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+
+trade_management:
+  reentry:
+    allowed: true
+  direction_restriction: none

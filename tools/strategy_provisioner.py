@@ -63,6 +63,10 @@ class Strategy:
         Return entry signal dict or None.
         e.g. {{"signal": 1}} for Long
         \"\"\"
+        # Architectural Requirement: Allow FilterStack to gate entry
+        if not self.filter_stack.allow_trade(ctx):
+            return None
+
         return None
 
     def check_exit(self, ctx):
