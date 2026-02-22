@@ -50,6 +50,16 @@ No replay, recomputation, or mutation allowed.
 All economic metrics are **owned by Stage-1 definitions**.  
 Later stages may aggregate but must not redefine metrics.
 
+### 0.4 Artifact Authority Hierarchy
+
+| Path | Authority | Mutability |
+|------|-----------|------------|
+| `runs/<run_id>/` | Authoritative | Immutable (append-only) |
+| `backtests/<strategy>/` | Materialized View | Overwritable per SOP |
+| `research/adhoc_experiments/` | Non-Authoritative | Unrestricted |
+
+Research scripts are prohibited from writing to `runs/` or `backtests/`.
+
 ---
 
 ## Stage-1 — Execution & Metric Emission (AUTHORITATIVE)

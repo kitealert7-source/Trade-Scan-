@@ -28,6 +28,13 @@ All research initiatives MUST be defined in a YAML file located at:
 
 The `directive_id` in the filename MUST match the `id` field within the YAML.
 
+### 2.1 Ad-Hoc Analytics Scope
+
+Scripts in `research/adhoc_experiments/` are informal precursors. They do not
+constitute governed hypotheses until formalized into a YAML directive and
+executed through the pipeline. Ad-hoc outputs carry no authority and must not
+be cited as validated results.
+
 ---
 
 ## 3. Schema Definition (Strict)

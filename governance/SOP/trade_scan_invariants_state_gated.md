@@ -150,6 +150,30 @@ No retries. No continuation.
 
 ---
 
+## Invariant 10 — Research Layer Isolation (Symmetric Boundary)
+
+The `research/` directory is structurally outside the FSM scope.
+
+**Pipeline → Research (Outbound):**
+
+- Code executing within the FSM (Preflight through Stage‑4) MUST NOT import any module from `research/`.
+- No pipeline stage may read configuration, data, or code from `research/`.
+
+**Research → Pipeline (Inbound):**
+
+No module inside `research/` may:
+
+- Import `PipelineStateManager` or `DirectiveStateManager`
+- Write to `runs/`
+- Modify `Strategy_Master_Filter.xlsx` or any registry artifact
+- Alter any `run_state.json` or `directive_state.json`
+
+The boundary is **symmetric and absolute**.
+
+Violation in either direction invalidates the run or contaminates the research artifact.
+
+---
+
 ## Final Rule
 
 If an action:

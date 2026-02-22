@@ -213,6 +213,21 @@ def load_strategy(strategy_id: str):
     if not plugin_path.exists():
         raise FileNotFoundError(f"Strategy plugin not found: {plugin_path}")
 
+    # --- INVARIANT 10: Research Layer Boundary Guard ---
+    resolved = plugin_path.resolve()
+    strategies_root = (PROJECT_ROOT / "strategies").resolve()
+    if not str(resolved).startswith(str(strategies_root)):
+        raise RuntimeError(
+            f"[FATAL] Boundary Violation: Strategy path '{resolved}' "
+            f"is outside governed strategies/ directory."
+        )
+    if "research" in str(resolved).lower():
+        raise RuntimeError(
+            f"[FATAL] Boundary Violation: Strategy path '{resolved}' "
+            f"resolves into the research layer. Pipeline refuses to load."
+        )
+    # --------------------------------------------------
+
     # --- STATIC ANALYSIS GUARD ---
     source_code = plugin_path.read_text(encoding='utf-8')
     forbidden = ["rolling(", "high_low", "high_close"]
