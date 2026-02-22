@@ -338,16 +338,17 @@ def run_single_directive(directive_id):
             # Stage 2
             run_command([PYTHON_EXE, "tools/stage2_compiler.py", "--scan", clean_id], "Stage-2 Compilation")
             
-            # Per-run_id artifact existence gate before state transition
+            # Per-run_id artifact existence gate (idempotent — re-verifies on resume)
             for rid, symbol in zip(run_ids, symbols):
                 mgr = PipelineStateManager(rid)
                 current = mgr.get_state_data()["current_state"]
-                if current == "STAGE_1_COMPLETE":
-                    # Verify AK_Trade_Report exists before marking complete
+                if current in ("STAGE_1_COMPLETE", "STAGE_2_COMPLETE"):
+                    # Verify AK_Trade_Report exists before marking/confirming complete
                     run_folder = PROJECT_ROOT / "backtests" / f"{clean_id}_{symbol}"
                     ak_reports = list(run_folder.glob("AK_Trade_Report_*.xlsx"))
                     if ak_reports:
-                        mgr.transition_to("STAGE_2_COMPLETE")
+                        if current != "STAGE_2_COMPLETE":
+                            mgr.transition_to("STAGE_2_COMPLETE")
                     else:
                         print(f"[WARN] Stage-2 artifact missing for {symbol} ({rid[:8]}). Marking FAILED.")
                         mgr.transition_to("FAILED")
