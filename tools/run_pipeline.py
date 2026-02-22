@@ -369,10 +369,23 @@ def run_single_directive(directive_id):
             import openpyxl
             wb = openpyxl.load_workbook(master_filter_path, read_only=True)
             ws = wb.active
+            
+            # Resolve strategy column index dynamically
+            try:
+                headers = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+                strategy_idx = headers.index("strategy")
+            except Exception as e:
+                print(f"[FATAL] Failed to resolve 'strategy' column in Master Filter: {e}")
+                for rid in run_ids:
+                    try: PipelineStateManager(rid).transition_to("FAILED")
+                    except Exception: pass
+                dir_state_mgr.transition_to("FAILED")
+                sys.exit(1)
+                
             # Count rows whose strategy column starts with this directive's clean_id
             actual_count = sum(
                 1 for row in ws.iter_rows(min_row=2, values_only=True)
-                if row and row[1] and str(row[1]).startswith(clean_id)
+                if row and len(row) > strategy_idx and row[strategy_idx] and str(row[strategy_idx]).startswith(clean_id)
             )
             wb.close()
             expected_count = len(symbols)
