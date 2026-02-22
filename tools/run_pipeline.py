@@ -558,13 +558,13 @@ def run_single_directive(directive_id):
             sys.exit(1)
             
         # Find the appended row for this portfolio
-        portfolio_row = None
+        matching_rows = []
         row_count = 0
         for row in ws.iter_rows(min_row=2, values_only=True):
             if any(cell is not None for cell in row):
                 row_count += 1
             if row and len(row) > max(pid_idx, runs_idx) and str(row[pid_idx]) == clean_id:
-                portfolio_row = row
+                matching_rows.append(row)
         wb.close()
         
         if row_count == 0:
@@ -575,16 +575,20 @@ def run_single_directive(directive_id):
             dir_state_mgr.transition_to("FAILED")
             sys.exit(1)
             
-        if not portfolio_row:
-            print(f"[FATAL] Stage-4 validation failed: {clean_id} not found in {portfolio_ledger_path.name}")
+        if len(matching_rows) != 1:
+            print(f"[FATAL] Stage-4 validation failed: Expected exactly 1 row for {clean_id} in Master Ledger, found {len(matching_rows)}")
             for rid in run_ids:
                 try: PipelineStateManager(rid).transition_to("FAILED")
                 except Exception: pass
             dir_state_mgr.transition_to("FAILED")
             sys.exit(1)
             
-        # Optional check: component cardinality
-        saved_runs = str(portfolio_row[runs_idx]).split(",")
+        portfolio_row = matching_rows[0]
+            
+        # Optional check: component cardinality (whitespace & null safe)
+        raw_runs_str = str(portfolio_row[runs_idx]) if portfolio_row[runs_idx] is not None else ""
+        saved_runs = [r.strip() for r in raw_runs_str.split(",") if r.strip()]
+        
         if len(saved_runs) != len(symbols):
             print(f"[FATAL] Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}")
             for rid in run_ids:
