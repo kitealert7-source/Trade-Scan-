@@ -200,15 +200,15 @@ def run_single_directive(directive_id):
          print(f"[ORCHESTRATOR] Directive {clean_id} is already COMPLETE. Aborting.")
          return
     elif current_dir_state == "FAILED":
-         # Check for force flag? The tool definition didn't explicitly ask for CLI arg parsing for force,
-         # just "Abort unless --force flag passed". 
-         # I'll check sys.argv for now as a quick implementation, or just strict abort.
          if "--force" not in sys.argv:
              print(f"[ORCHESTRATOR] Directive {clean_id} is FAILED. Use --force to retry.")
              sys.exit(1)
          else:
              print(f"[ORCHESTRATOR] Force retry enabled. Resetting to INITIALIZED.")
              dir_state_mgr.transition_to("INITIALIZED")
+    
+    # --provision-only flag
+    provision_only = "--provision-only" in sys.argv
 
     # 1. Initialize State for All Symbols
     print("[ORCHESTRATOR] Initializing symbol states...") 
@@ -280,9 +280,29 @@ def run_single_directive(directive_id):
             elif check_state == "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID":
                 print("[ORCHESTRATOR] Semantic Validation already COMPLETE. Resuming...")
             elif check_state not in ["SYMBOL_RUNS_COMPLETE", "PORTFOLIO_COMPLETE"]:
-                # If we are in some other state (should cover all valid forward states?), maybe error?
-                # Actually if SYMBOL_RUNS_COMPLETE, we skip this.
                 pass
+
+            # --- PROVISION-ONLY EXIT POINT ---
+            # Stops after Stage-0.5 (semantic validation + Admission Gate enforced).
+            if provision_only:
+                strategy_path = PROJECT_ROOT / "strategies" / clean_id / "strategy.py"
+                print(f"[PROVISION-ONLY] Strategy provisioned at: {strategy_path}")
+                print(f"[PROVISION-ONLY] Human review required before execution.")
+                print(f"[PROVISION-ONLY] Re-run without --provision-only after review.")
+                return
+
+            # --- STAGE 0.75: STRATEGY DRY-RUN VALIDATION ---
+            live_state_075 = dir_state_mgr.get_state()
+            if live_state_075 == "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID":
+                from tools.strategy_dryrun_validator import validate_strategy_dryrun
+                dryrun_ok = validate_strategy_dryrun(clean_id, symbols[0], d_path)
+                if not dryrun_ok:
+                    print("[FATAL] Stage-0.75 Dry-Run Validation FAILED.")
+                    for rid in run_ids:
+                        try: PipelineStateManager(rid).transition_to("FAILED")
+                        except Exception: pass
+                    dir_state_mgr.transition_to("FAILED")
+                    sys.exit(1)
 
             # Clean legacy summary CSV only if Stage-1 will rerun for at least one symbol
             _any_stage1_rerun = any(

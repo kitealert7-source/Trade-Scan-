@@ -358,6 +358,64 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
 
     print("[SEMANTIC] Behavioral Guard: PASSED (FilterStack Enforced)")
     
+    # 6. Hollow Strategy Detection (Admission Gate)
+    # ------------------------------------------------------------------
+    # A hollow strategy is one where check_entry() body is strictly:
+    #   - optional docstring (ast.Expr with ast.Constant/ast.Str)
+    #   - optional filter_stack guard (if not self.filter_stack.allow_trade: return None)
+    #   - return None
+    # Anything beyond that pattern = considered implemented.
+
+    class HollowDetector(ast.NodeVisitor):
+        def __init__(self):
+            self.check_entry_is_hollow = False
+
+        def visit_FunctionDef(self, node):
+            if node.name != "check_entry":
+                return
+            
+            remaining = []
+            for stmt in node.body:
+                # Skip docstrings
+                if isinstance(stmt, ast.Expr) and isinstance(
+                    getattr(stmt, 'value', None), (ast.Constant, ast.Str)
+                ):
+                    continue
+                # Skip: if not self.filter_stack.allow_trade(ctx): return None
+                if isinstance(stmt, ast.If):
+                    test = stmt.test
+                    is_guard = False
+                    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+                        call = test.operand
+                        if (isinstance(call, ast.Call) and
+                            isinstance(call.func, ast.Attribute) and
+                            call.func.attr == "allow_trade"):
+                            is_guard = True
+                    if is_guard:
+                        continue
+                # Skip: return None
+                if isinstance(stmt, ast.Return):
+                    val = stmt.value
+                    if val is None or (isinstance(val, ast.Constant) and val.value is None):
+                        continue
+                # Anything else = non-trivial
+                remaining.append(stmt)
+            
+            if len(remaining) == 0:
+                self.check_entry_is_hollow = True
+
+    hollow = HollowDetector()
+    hollow.visit(tree)
+
+    if hollow.check_entry_is_hollow:
+        raise ValueError(
+            "PROVISION_REQUIRED: check_entry() contains no execution logic. "
+            "Strategy was auto-provisioned but not implemented. "
+            "Human must author entry/exit logic before pipeline execution."
+        )
+
+    print("[SEMANTIC] Admission Gate: PASSED (Strategy is implemented)")
+
     return True
 
 # NO STANDALONE ENTRY POINT PERMITTED
