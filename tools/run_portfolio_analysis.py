@@ -627,7 +627,6 @@ def main():
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
         "signal_timeframes",
-        "signal_timeframes",
         "evaluation_timeframe",
         # Phase 16 Metrics
         "k_ratio",
@@ -690,7 +689,7 @@ def main():
     record = {
         "portfolio_id": portfolio_id,
         "creation_timestamp": metadata["creation_timestamp_utc"],
-        "constituent_run_ids": "|".join(run_ids),
+        "constituent_run_ids": ",".join(run_ids),
         "source_strategy": "AGGREGATED",
         "reference_capital_usd": reference_capital,
         "net_pnl_usd": summary["net_pnl_usd"],
@@ -711,7 +710,6 @@ def main():
         "portfolio_net_profit_low_vol": summary["portfolio_net_profit_low_vol"],
         "portfolio_net_profit_normal_vol": summary["portfolio_net_profit_normal_vol"],
         "portfolio_net_profit_high_vol": summary["portfolio_net_profit_high_vol"],
-        "signal_timeframes": summary["signal_timeframes"],
         "signal_timeframes": summary["signal_timeframes"],
         "evaluation_timeframe": summary["evaluation_timeframe"],
         # Phase 16 Metrics

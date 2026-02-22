@@ -1376,9 +1376,37 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     else:
         df_ledger = pd.DataFrame(columns=columns)
         
-    # Check Duplicate
+    # Check Duplicate & Append-Only Idempotent Guard
     if strategy_id in df_ledger['portfolio_id'].astype(str).values:
-        raise ValueError(f"Portfolio ID '{strategy_id}' already exists in ledger. Update rejected (Append-Only).")
+        existing_row = df_ledger[df_ledger['portfolio_id'].astype(str) == strategy_id].iloc[-1]
+        
+        is_identical = True
+        for k, v in row_data.items():
+            if k in ["creation_timestamp", "portfolio_engine_version"]:
+                continue
+            
+            old_val = existing_row.get(k)
+            # Handle nulls
+            if pd.isna(old_val) and (v is None or pd.isna(v)):
+                continue
+                
+            try:
+                if abs(float(old_val) - float(v)) > 1e-4:
+                    is_identical = False
+                    break
+            except Exception:
+                if str(old_val) != str(v):
+                    is_identical = False
+                    break
+                    
+        if is_identical:
+            print(f"  [LEDGER] Portfolio '{strategy_id}' already exists and is identical. Skipping append (idempotent).")
+            return
+        else:
+            raise ValueError(
+                f"[FATAL] Attempted modification of existing portfolio entry '{strategy_id}'.\n"
+                f"Explicit human authorization required. No automatic overwrite allowed."
+            )
         
     # Append
     new_row = pd.DataFrame([row_data])
