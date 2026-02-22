@@ -356,6 +356,38 @@ def run_single_directive(directive_id):
             # Stage 3
             run_command([PYTHON_EXE, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
             
+            # --- STAGE-3 ARTIFACT GATE (idempotent) ---
+            master_filter_path = PROJECT_ROOT / "backtests" / "Strategy_Master_Filter.xlsx"
+            if not master_filter_path.exists():
+                print(f"[FATAL] Stage-3 artifact missing: {master_filter_path}")
+                for rid in run_ids:
+                    try: PipelineStateManager(rid).transition_to("FAILED")
+                    except Exception: pass
+                dir_state_mgr.transition_to("FAILED")
+                sys.exit(1)
+            
+            import openpyxl
+            wb = openpyxl.load_workbook(master_filter_path, read_only=True)
+            ws = wb.active
+            # Count rows whose strategy column starts with this directive's clean_id
+            actual_count = sum(
+                1 for row in ws.iter_rows(min_row=2, values_only=True)
+                if row and row[1] and str(row[1]).startswith(clean_id)
+            )
+            wb.close()
+            expected_count = len(symbols)
+            
+            if actual_count != expected_count:
+                print(f"[FATAL] Stage-3 cardinality mismatch: expected {expected_count}, found {actual_count} for {clean_id}")
+                for rid in run_ids:
+                    try: PipelineStateManager(rid).transition_to("FAILED")
+                    except Exception: pass
+                dir_state_mgr.transition_to("FAILED")
+                sys.exit(1)
+            
+            print(f"[GATE] Stage-3 artifact verified: {actual_count}/{expected_count} rows for {clean_id}")
+            # --- END GATE ---
+            
             for rid, symbol in zip(run_ids, symbols):
                 mgr = PipelineStateManager(rid)
                 current = mgr.get_state_data()["current_state"]
