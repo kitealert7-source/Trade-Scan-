@@ -229,34 +229,29 @@ def run_single_directive(directive_id):
              print("[ORCHESTRATOR] Resuming at Stage-4 (Portfolio)...")
         else:
             # 2. Preflight (Directive Level - Runs Once)
-            if current_dir_state != "PREFLIGHT_COMPLETE":
+            live_state = dir_state_mgr.get_state()
+            _PREFLIGHT_SKIP = {"PREFLIGHT_COMPLETE", "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+                               "SYMBOL_RUNS_COMPLETE", "PORTFOLIO_COMPLETE"}
+            if live_state not in _PREFLIGHT_SKIP:
                 print("[ORCHESTRATOR] Starting Preflight Checks...")
                 
                 # Execute Preflight
                 run_command([PYTHON_EXE, "tools/exec_preflight.py", clean_id], "Preflight")
                 
                 # Transition ALL to PREFLIGHT_COMPLETE
-                # Transition ALL to PREFLIGHT_COMPLETE
                 for rid in run_ids:
                     PipelineStateManager(rid).transition_to("PREFLIGHT_COMPLETE")
                 
                 dir_state_mgr.transition_to("PREFLIGHT_COMPLETE")
             else:
-                 print("[ORCHESTRATOR] Preflight already complete. Checking Semantic Status...")
+                 print(f"[ORCHESTRATOR] Preflight already complete (state={live_state}). Checking Semantic Status...")
 
             # --- STAGE 0.5: SEMANTIC VALIDATION ---
             # Gate: Must be PREFLIGHT_COMPLETE to enter.
             # Exit: PREFLIGHT_COMPLETE_SEMANTICALLY_VALID
             
-            if current_dir_state in ["PREFLIGHT_COMPLETE", "INITIALIZED"]: # INITIALIZED handled by Preflight block above, so here current is at least PREFLIGHT_COMPLETE
-                # But strictly, if we just finished Preflight, current_dir_state var is stale? 
-                # No, current_dir_state was read at start. If we ran preflight, we updated DB but var is old.
-                # However, we can just run validation now unconditionally if we passed Preflight block.
-                pass
-
-            # Improve Logic: Refetch state? Or just trust control flow.
-            # If we just ran Preflight, we are ready for Semantic.
-            # If we resumed, check if we need Semantic.
+            # Semantic validation gate uses live state (fetched below)
+            # No stale variable dependency.
             
             check_state = dir_state_mgr.get_state()
             if check_state == "PREFLIGHT_COMPLETE":
@@ -289,9 +284,14 @@ def run_single_directive(directive_id):
                 # Actually if SYMBOL_RUNS_COMPLETE, we skip this.
                 pass
 
-            # Clean legacy summary CSV
+            # Clean legacy summary CSV only if Stage-1 will rerun for at least one symbol
+            _any_stage1_rerun = any(
+                PipelineStateManager(rid).get_state_data()["current_state"]
+                in ("IDLE", "PREFLIGHT_COMPLETE", "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID")
+                for rid in run_ids
+            )
             summary_csv = PROJECT_ROOT / "backtests" / f"batch_summary_{clean_id}.csv"
-            if summary_csv.exists():
+            if summary_csv.exists() and _any_stage1_rerun:
                 summary_csv.unlink()
 
             # Orchestrate Atomic Stage-1 Execution
@@ -338,11 +338,19 @@ def run_single_directive(directive_id):
             # Stage 2
             run_command([PYTHON_EXE, "tools/stage2_compiler.py", "--scan", clean_id], "Stage-2 Compilation")
             
-            for rid in run_ids:
+            # Per-run_id artifact existence gate before state transition
+            for rid, symbol in zip(run_ids, symbols):
                 mgr = PipelineStateManager(rid)
                 current = mgr.get_state_data()["current_state"]
                 if current == "STAGE_1_COMPLETE":
-                    mgr.transition_to("STAGE_2_COMPLETE")
+                    # Verify AK_Trade_Report exists before marking complete
+                    run_folder = PROJECT_ROOT / "backtests" / f"{clean_id}_{symbol}"
+                    ak_reports = list(run_folder.glob("AK_Trade_Report_*.xlsx"))
+                    if ak_reports:
+                        mgr.transition_to("STAGE_2_COMPLETE")
+                    else:
+                        print(f"[WARN] Stage-2 artifact missing for {symbol} ({rid[:8]}). Marking FAILED.")
+                        mgr.transition_to("FAILED")
 
             # Stage 3
             run_command([PYTHON_EXE, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")

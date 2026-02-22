@@ -336,6 +336,11 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     worst5_pct = (abs(worst5_loss) / gross_loss) if gross_loss > 0 else 0.0
     
     # Risk metrics calculation (Standard Deviation based)
+    # Initialize to 0.0 BEFORE conditionals to prevent UnboundLocalError
+    # when directional filter yields <= 1 trade (e.g., 1 Long in 11 total).
+    sharpe_ratio = 0.0
+    sortino_ratio = 0.0
+    sqn = 0.0
     returns = []
     if trade_count > 0:
         # Simple returns per trade (PnL / Starting Capital) seems wrong for Sharpe on trade-level.
@@ -898,7 +903,9 @@ def main():
             
         print(f"[SCAN] Found {len(valid_runs)} valid runs for '{directive_name}'")
         
-        # BATCH EXECUTION
+        # BATCH EXECUTION — Per-asset error tracking
+        batch_succeeded = []
+        batch_failed = []
         for run_folder in valid_runs:
             try:
                 # --- GOVERNANCE CHECK ---
@@ -917,10 +924,23 @@ def main():
                 # ------------------------
                 
                 compile_stage2(run_folder)
+                
+                # Verify critical artifact was actually written
+                ak_reports = list(run_folder.glob("AK_Trade_Report_*.xlsx"))
+                if not ak_reports:
+                    raise RuntimeError(f"AK_Trade_Report not found after compile_stage2 for {run_folder.name}")
+                
+                batch_succeeded.append(run_folder.name)
             except Exception as e:
                 print(f"[ERROR] Failed to compile {run_folder.name}: {e}")
-                # We do NOT exit whole batch, but we log the error.
+                batch_failed.append({"folder": run_folder.name, "error": str(e)})
         
+        # --- BATCH SUMMARY ---
+        print(f"\n[SCAN SUMMARY] Succeeded: {len(batch_succeeded)} | Failed: {len(batch_failed)}")
+        if batch_failed:
+            for f_info in batch_failed:
+                print(f"  FAILED: {f_info['folder']} — {f_info['error']}")
+            sys.exit(1)
     else:
         # SINGLE EXECUTION
         run_folder = Path(args.run_folder).resolve()
