@@ -531,6 +531,71 @@ def run_single_directive(directive_id):
         # Stage 4 (Portfolio)
         run_command([PYTHON_EXE, "tools/portfolio_evaluator.py", clean_id], "Stage-4 Evaluation")
         
+        # --- STAGE-4 ARTIFACT GATE (idempotent) ---
+        portfolio_ledger_path = PROJECT_ROOT / "strategies" / "Master_Portfolio_Sheet.xlsx"
+        if not portfolio_ledger_path.exists():
+            print(f"[FATAL] Stage-4 ledger artifact missing: {portfolio_ledger_path}")
+            for rid in run_ids:
+                try: PipelineStateManager(rid).transition_to("FAILED")
+                except Exception: pass
+            dir_state_mgr.transition_to("FAILED")
+            sys.exit(1)
+            
+        import openpyxl
+        wb = openpyxl.load_workbook(portfolio_ledger_path, read_only=True)
+        ws = wb.active
+        
+        try:
+            headers = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            pid_idx = headers.index("portfolio_id")
+            runs_idx = headers.index("constituent_run_ids")
+        except Exception as e:
+            print(f"[FATAL] Failed to resolve columns in Master Ledger: {e}")
+            for rid in run_ids:
+                try: PipelineStateManager(rid).transition_to("FAILED")
+                except Exception: pass
+            dir_state_mgr.transition_to("FAILED")
+            sys.exit(1)
+            
+        # Find the appended row for this portfolio
+        portfolio_row = None
+        row_count = 0
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if any(cell is not None for cell in row):
+                row_count += 1
+            if row and len(row) > max(pid_idx, runs_idx) and str(row[pid_idx]) == clean_id:
+                portfolio_row = row
+        wb.close()
+        
+        if row_count == 0:
+            print(f"[FATAL] Stage-4 validation failed: {portfolio_ledger_path.name} is empty (0 data rows).")
+            for rid in run_ids:
+                try: PipelineStateManager(rid).transition_to("FAILED")
+                except Exception: pass
+            dir_state_mgr.transition_to("FAILED")
+            sys.exit(1)
+            
+        if not portfolio_row:
+            print(f"[FATAL] Stage-4 validation failed: {clean_id} not found in {portfolio_ledger_path.name}")
+            for rid in run_ids:
+                try: PipelineStateManager(rid).transition_to("FAILED")
+                except Exception: pass
+            dir_state_mgr.transition_to("FAILED")
+            sys.exit(1)
+            
+        # Optional check: component cardinality
+        saved_runs = str(portfolio_row[runs_idx]).split(",")
+        if len(saved_runs) != len(symbols):
+            print(f"[FATAL] Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}")
+            for rid in run_ids:
+                try: PipelineStateManager(rid).transition_to("FAILED")
+                except Exception: pass
+            dir_state_mgr.transition_to("FAILED")
+            sys.exit(1)
+            
+        print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
+        # --- END GATE ---
+        
         dir_state_mgr.transition_to("PORTFOLIO_COMPLETE")
 
     except Exception as e:
