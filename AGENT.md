@@ -657,13 +657,185 @@ Market data for the requested symbol is not available in the MASTER_DATA reposit
 
 **Escalation Required:** NO — Data provisioning is a separate workflow
 
+------------------------------------------------------------
+
+### TRADE_PAYLOAD_SCHEMA_VIOLATION
+
+------------------------------------------------------------
+
+**Trigger Location:**  
+`tools/run_stage1.py` → Stage-1 (`execution_loop.py`) or `tools/strategy_dryrun_validator.py` → Stage-0.75
+
+**Detection Mechanism:**  
+Engine crashes with errors like `CRITICAL: Trade X missing 'volatility_regime'` or `KeyError` on expected market state fields.
+
+**Structural Meaning:**  
+The strategy correctly fired trades, but the resulting trade payload or context lacks mandatory keys required by the engine or downstream ledgers. Often caused by failing to include required metadata indicators (e.g., `volatility_regime`, `trend_regime`) in the directive or failing to attach them to the dataframe in `prepare_indicators()`.
+
+**Allowed Actions:**  
+
+- Report the missing keys or payload properties.
+- Check the strategy's `prepare_indicators` logic against the directive's indicator list.
+
+**Forbidden Actions:**  
+
+- Do NOT auto-inject indicators into the directive.
+- Do NOT inject defaults to bypass schema requirements.
+
+**Deterministic Recovery Path:**  
+
+1. Human updates the directive to include required state indicators (if missing).
+2. Human updates `strategy.py`'s `prepare_indicators` to correctly calculate and attach the indicator outputs to `df`.
+3. Re-run pipeline (`--force`).
+
+**Escalation Required:** YES — Strategy code or directive must be fixed by human.
+
+------------------------------------------------------------
+
+### INDICATOR_SERIES_OVERWRITE
+
+------------------------------------------------------------
+
+**Trigger Location:**  
+`tools/strategy_dryrun_validator.py` → Stage-0.75 or `tools/run_stage1.py` → Stage-1
+
+**Detection Mechanism:**  
+`KeyError: 'close'` or similar missing core OHLCV column errors during `prepare_indicators` or subsequent indicator calls.
+
+**Structural Meaning:**  
+A classic human authoring mistake where an indicator returning a `pd.Series` (like `atr`) is assigned over the entire dataframe (`df = atr(df)` instead of `df['atr'] = atr(df)`). This destroys the OHLCV structure required by subsequent logic.
+
+**Allowed Actions:**  
+
+- Report the exact line in `prepare_indicators` where the dataframe structure is lost.
+
+**Forbidden Actions:**  
+
+- Do NOT auto-patch the strategy without approval (unless explicitly authorized for surgical fixes).
+
+**Deterministic Recovery Path:**  
+
+1. Human reviews and fixes the variable assignment in `prepare_indicators`.
+2. Human approves the strategy (Admission Gate).
+3. Re-run pipeline.
+
+**Escalation Required:** YES — Strategy bug requires human fix.
+
+---
+
+## ENGINE ARCHITECTURE STANDARDS (MANDATORY)
+
+Purpose: Prevent structural drift, shadow routing, and split execution authority.
+
+These rules are non-negotiable.
+
+------------------------------------------------------------
+
+### 1. Version Namespace Validity
+
+Engine version folders inside:
+
+engine_dev/universal_research_engine/
+
+MUST follow this exact pattern:
+
+v<major>_<minor>_<patch>
+
+Example:
+
+- v1_4_0  ✅
+- 1.4.0   ❌
+- 1_4_0   ❌
+- version1_4_0 ❌
+
+If a version folder cannot be imported via native Python syntax,
+the architecture is invalid.
+
+------------------------------------------------------------
+
+### 2. No Engine Core Import Bypass
+
+The following is strictly forbidden for engine core modules:
+
+importlib.util.spec_from_file_location
+
+Dynamic filesystem injection is permitted ONLY for strategy plugins.
+
+All engine execution components MUST be imported using standard syntax:
+
+from engine_dev.universal_research_engine.vX_Y_Z.<module> import ...
+
+If dynamic loading is detected for engine core → HARD FAIL.
+
+------------------------------------------------------------
+
+### 3. Single Execution Authority
+
+At runtime, the following modules MUST resolve inside the active version folder:
+
+- execution_loop
+- execution_emitter_stage1
+- stage2_compiler
+
+If any resolve outside the active version directory → HARD FAIL.
+
+Split execution authority is prohibited.
+
+------------------------------------------------------------
+
+### 4. Engine Self-Containment Doctrine
+
+An engine version folder MUST be fully self-contained for:
+
+- Stage-1 execution loop
+- Stage-1 artifact emission
+- Stage-2 compilation
+
+No execution lifecycle component may depend on unversioned global modules.
+
+------------------------------------------------------------
+
+### 5. Shadow Core Prohibition
+
+Core execution files MUST NOT exist in multiple active locations
+in a way that allows silent fallback.
+
+If duplicate filenames exist across:
+
+- engine_dev/
+- tools/
+
+Runtime must explicitly bind to the version folder.
+
+Implicit fallback to global modules is prohibited.
+
+------------------------------------------------------------
+
+### 6. Manifest Localization & Strict Integrity
+
+engine_manifest.json MUST reside inside the active version folder.
+
+verify_engine_integrity.py MUST:
+
+- Hash only files inside the active version directory
+- Fail strictly if manifest is missing
+- Fail strictly on any SHA-256 mismatch
+- Never downgrade to WARN
+
+------------------------------------------------------------
+
+### 7. Vault Non-Authority Doctrine
+
+Vault snapshots are non-authoritative for execution.
+They are recovery artifacts only.
+
 ---
 
 ## FAILURE ESCALATION MATRIX
 
 | Category | Failure Classes | Recovery Authority |
 |:---|:---|:---|
-| **Strategy Authoring Error** | PROVISION_REQUIRED, HOLLOW_STRATEGY_DETECTED, DRYRUN_CRASH, FILTERSTACK_ARCHITECTURAL_VIOLATION | Human — strategy logic must be authored/corrected |
+| **Strategy Authoring Error** | PROVISION_REQUIRED, HOLLOW_STRATEGY_DETECTED, DRYRUN_CRASH, FILTERSTACK_ARCHITECTURAL_VIOLATION, TRADE_PAYLOAD_SCHEMA_VIOLATION, INDICATOR_SERIES_OVERWRITE | Human — strategy logic must be authored/corrected |
 | **Data Issue** | DATA_LOAD_FAILURE, ARTIFACT_MISSING (NO_TRADES from bad data) | Data pipeline — re-ingest via SOP_17 |
 | **Governance Violation** | SCHEMA_VIOLATION, INDICATOR_IMPORT_MISMATCH, FILTERSTACK_ARCHITECTURAL_VIOLATION | Human — must align strategy with directive |
 | **Artifact Corruption** | MANIFEST_TAMPER_DETECTED, ARTIFACT_MISSING (post-creation) | Full re-provision (`--force`) |
