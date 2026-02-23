@@ -12,15 +12,16 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # --- Single Source of Truth: import ENGINE_VERSION from runtime engine ---
-_engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "1.3.0" / "main.py"
+_engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "v1_4_0" / "main.py"
 _spec = importlib.util.spec_from_file_location("_engine_main", _engine_main_path)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 ENGINE_VERSION = _mod.ENGINE_VERSION
 
-ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / ENGINE_VERSION
+py_version = f"v{ENGINE_VERSION.replace('.', '_')}"
+ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / py_version
 TOOLS_ROOT = PROJECT_ROOT / "tools"
-MANIFEST_PATH = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine" / f"v{ENGINE_VERSION}" / "manifests" / "engine_manifest.json"
+MANIFEST_PATH = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / py_version / "engine_manifest.json"
 TOOLS_MANIFEST = PROJECT_ROOT / "tools" / "tools_manifest.json"
 
 def load_engine():
@@ -50,16 +51,16 @@ def verify_hashes(mode="strict"):
         return True
 
     if not MANIFEST_PATH.exists():
-        print(f"[WARN] Manifest not found at {MANIFEST_PATH} — skipping hash verification")
-        return True
+        print(f"[FAIL] Manifest not found at {MANIFEST_PATH}")
+        return False
 
     with open(MANIFEST_PATH, 'r', encoding='utf-8') as f:
         manifest = json.load(f)
 
     file_hashes = manifest.get("file_hashes", {})
     if not file_hashes:
-        print("[WARN] No file_hashes in manifest — skipping hash verification")
-        return True
+        print("[FAIL] No file_hashes in manifest")
+        return False
 
     failures = []
     for filename, expected_hash in file_hashes.items():
@@ -142,18 +143,18 @@ class IntegrityStrategy:
         return df
 
     def check_entry(self, ctx) -> dict:
-        idx = ctx['index']
+        idx = ctx.index
         # Force Long Entry at Index 1
         if idx == 1:
-            return {"signal": 1, "comment": "Forced_Long"}
+            return {"signal": 1, "comment": "Forced_Long", "stop_price": 95.0}
         # Force Short Entry at Index 10
         if idx == 10:
-            return {"signal": -1, "comment": "Forced_Short"}
+            return {"signal": -1, "comment": "Forced_Short", "stop_price": 105.0}
         return None
 
     def check_exit(self, ctx) -> dict:
-        idx = ctx['index']
-        direction = ctx['direction']
+        idx = ctx.index
+        direction = ctx.direction
         
         # Exit Long at Index 5
         if direction == 1 and idx == 5:
