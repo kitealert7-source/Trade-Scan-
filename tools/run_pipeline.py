@@ -74,7 +74,8 @@ def run_command(cmd_list, step_name):
         print(f"[{step_name}] COMPLETED (Time: {duration:.2f}s)")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"\n[FATAL] {step_name} FAILED with exit code {e.returncode}")
+        if e.returncode != 2:
+            print(f"\n[FATAL] {step_name} FAILED with exit code {e.returncode}")
         # Propagate error up
         raise e
     except Exception as e:
@@ -236,8 +237,18 @@ def run_single_directive(directive_id):
                 print("[ORCHESTRATOR] Starting Preflight Checks...")
                 
                 # Execute Preflight
-                run_command([PYTHON_EXE, "tools/exec_preflight.py", clean_id], "Preflight")
-                
+                try:
+                    run_command([PYTHON_EXE, "tools/exec_preflight.py", clean_id], "Preflight")
+                except subprocess.CalledProcessError as e:
+                    if e.returncode == 2:
+                        print("\n============================================================")
+                        print("[ADMISSION GATE] STRATEGY REQUIRES HUMAN IMPLEMENTATION")
+                        print("============================================================")
+                        print("ACTION: Please open the generated strategy file and implement `check_entry` and `check_exit`.")
+                        print("STATE: Pipeline paused cleanly. Rerun after implementation.")
+                        sys.exit(0)
+                    else:
+                        raise e
                 # Transition ALL to PREFLIGHT_COMPLETE
                 for rid in run_ids:
                     PipelineStateManager(rid).transition_to("PREFLIGHT_COMPLETE")
@@ -269,14 +280,23 @@ def run_single_directive(directive_id):
                     print("[ORCHESTRATOR] Semantic Validation PASSED.")
                     
                 except Exception as e:
-                     print(f"[FATAL] Semantic Validation FAILED: {e}")
-                     # Transition to FAILED
-                     for rid in run_ids:
-                        try: PipelineStateManager(rid).transition_to("FAILED")
-                        except Exception as e_cleanup: print(f"[WARN] Failed to mark {rid} as FAILED: {e_cleanup}")
-                     try: dir_state_mgr.transition_to("FAILED")
-                     except Exception as e_cleanup: print(f"[WARN] Failed to mark directive as FAILED: {e_cleanup}")
-                     sys.exit(1)
+                    if "PROVISION_REQUIRED" in str(e):
+                        print("\n============================================================")
+                        print("[ADMISSION GATE] STRATEGY REQUIRES HUMAN IMPLEMENTATION")
+                        print("============================================================")
+                        print(f"Details: {e}")
+                        print("ACTION: Please open the generated strategy.py file and implement `check_entry` and `check_exit`.")
+                        print("STATE: Pipeline paused cleanly. Rerun after implementation.")
+                        sys.exit(0)
+                    else:
+                        print(f"[FATAL] Semantic Validation FAILED: {e}")
+                        # Transition to FAILED
+                        for rid in run_ids:
+                            try: PipelineStateManager(rid).transition_to("FAILED")
+                            except Exception as e_cleanup: print(f"[WARN] Failed to mark {rid} as FAILED: {e_cleanup}")
+                        try: dir_state_mgr.transition_to("FAILED")
+                        except Exception as e_cleanup: print(f"[WARN] Failed to mark directive as FAILED: {e_cleanup}")
+                        sys.exit(1)
             elif check_state == "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID":
                 print("[ORCHESTRATOR] Semantic Validation already COMPLETE. Resuming...")
             elif check_state not in ["SYMBOL_RUNS_COMPLETE", "PORTFOLIO_COMPLETE"]:
@@ -361,7 +381,7 @@ def run_single_directive(directive_id):
             # End of Stage 1 Loop - Move to Stage 2
             
             # Stage 2
-            run_command([PYTHON_EXE, "tools/stage2_compiler.py", "--scan", clean_id], "Stage-2 Compilation")
+            run_command([PYTHON_EXE, "-m", "engine_dev.universal_research_engine.v1_4_0.stage2_compiler", "--scan", clean_id], "Stage-2 Compilation")
             
             # Per-run_id artifact existence gate (idempotent — re-verifies on resume)
             for rid, symbol in zip(run_ids, symbols):
@@ -624,6 +644,22 @@ def run_single_directive(directive_id):
             
         print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
         # --- END GATE ---
+        
+        # --- STAGE 5A & 5B: DETERMINISTIC REPORT GENERATION ---
+        try:
+            from tools.report_generator import generate_backtest_report, generate_strategy_portfolio_report
+            backtest_root = PROJECT_ROOT / "backtests"
+            strategy_id = p_conf.get("Strategy", p_conf.get("strategy"))
+            print("[ORCHESTRATOR] Generating Deterministic Markdown Reports...")
+            generate_backtest_report(clean_id, backtest_root)
+            if strategy_id:
+                generate_strategy_portfolio_report(strategy_id, PROJECT_ROOT)
+        except Exception as rep_err:
+            import traceback
+            traceback.print_exc()
+            print(f"[ERROR] REPORT_GENERATION_FAILURE: {rep_err}")
+            print(f"[WARN] Non-authoritative step failed. Directive state unaffected.")
+        # --- END REPORT GENERATION ---
         
         dir_state_mgr.transition_to("PORTFOLIO_COMPLETE")
 

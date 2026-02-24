@@ -1,0 +1,43 @@
+test:
+  name: AK29_USDJPY_4H
+  family: LegacyPersistence
+  strategy: AK29
+  version: 1.0.0
+
+  broker: OctaFX
+  timeframe: 4h
+  session_time_reference: UTC
+
+  start_date: 2024-01-01
+  end_date: 2026-02-15
+
+symbols:
+  - USDJPY
+
+direction: both
+
+indicators:
+  - indicators/price/candle_state
+  - indicators/price/usd_stress_index
+  - indicators.volatility.volatility_regime
+  - indicators.volatility.atr
+
+state_machine:
+  long_bias_trigger:
+    green_streak: 2
+  short_bias_trigger:
+    red_streak: 2
+
+usd_stress_filter:
+  percentile_column: usd_stress_percentile
+  long_allowed_if_gte: 0.90
+  short_allowed_if_lte: 0.10
+
+position_management:
+  mode: stop_and_reverse
+  max_positions: 1
+  pyramiding: false
+
+execution:
+  entry_timing: next_bar_open
+  order_type: market

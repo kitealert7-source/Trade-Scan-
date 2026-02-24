@@ -721,6 +721,108 @@ A classic human authoring mistake where an indicator returning a `pd.Series` (li
 
 **Escalation Required:** YES — Strategy bug requires human fix.
 
+------------------------------------------------------------
+
+### MISSING_BROKER_SPECIFICATION
+
+------------------------------------------------------------
+
+**Trigger Location:**  
+`tools/run_stage1.py` → Stage-1 (`load_broker_spec`)
+
+**Detection Mechanism:**  
+
+- `FileNotFoundError: Broker spec not found: broker_specs/OctaFX/<SYMBOL>.yaml`
+- `ValueError: Broker spec missing mandatory field: min_lot` (or other schema fields)
+
+**Structural Meaning:**  
+Having historical CSV data in the `data_root` is not enough to execute a new symbol. The engine requires a strictly formatted YAML specification for the broker to understand contract sizes, tick values, and cost models.
+
+**Allowed Actions:**  
+
+- Identify which symbol/broker combination is missing the `.yaml` file.
+- Identify which schema fields are missing if the file exists.
+
+**Forbidden Actions:**  
+
+- Do NOT proceed with Stage-1 execution if the broker spec is missing or malformed.
+- Do NOT use a hardcoded default configuration in place of the YAML definition.
+
+**Deterministic Recovery Path:**  
+
+1. Create the missing `<SYMBOL>.yaml` file in `data_access/broker_specs/<BROKER>/`
+2. Ensure ALL mandatory schema fields are populated: `min_lot`, `lot_step`, `max_lot`, `cost_model`, `precision`, `tick_size`, `pip_size`, `margin_currency`, `profit_currency`, and the `calibration` block.
+3. Re-run pipeline with `--force`.
+
+**Escalation Required:** NO — Broker specs are defined statically.
+
+------------------------------------------------------------
+
+### ORPHANED_MASTER_LEDGER_ENTRIES
+
+------------------------------------------------------------
+
+**Trigger Location:**  
+`tools/run_pipeline.py` → Stage-3 Gate (Cardinality Mismatch)
+
+**Detection Mechanism:**  
+Stage-3 throws `[FATAL] Stage-3 cardinality mismatch: expected X, found Y for <STRATEGY_ID>` where Y > X.
+
+**Structural Meaning:**  
+A previous execution attempt created rows in `Strategy_Master_Filter.xlsx` that were not automatically wiped when local `runs/` or `backtests/` directories were deleted. Because the ledger is persistent, the orphaned rows caused the aggregator to miscount the active artifacts.
+
+**Allowed Actions:**  
+
+- Read the master ledger `Strategy_Master_Filter.xlsx` to identify the corrupted/stale rows for the active `STRATEGY_ID`.
+- Purge the specific rows belonging to the active `STRATEGY_ID` prefix.
+
+**Forbidden Actions:**  
+
+- Do NOT delete the entire `Strategy_Master_Filter.xlsx` file.
+- Do NOT delete rows belonging to other strategies.
+- Do NOT bypass the Stage-3 cardinality check.
+
+**Deterministic Recovery Path:**  
+
+1. Deleting local `runs/` and `backtest/` folders is insufficient for a full reset.
+2. Programmatically drop all rows matching `strategy.startswith(<STRATEGY_ID>)` from `backtests/Strategy_Master_Filter.xlsx`.
+3. Re-run the pipeline.
+
+**Escalation Required:** NO — Routine artifact cleanup.
+
+------------------------------------------------------------
+
+### IDEMPOTENT_OVERWRITE_LOCK
+
+------------------------------------------------------------
+
+**Trigger Location:**  
+`tools/portfolio_evaluator.py` → Stage-4 (`update_master_portfolio_ledger`)
+
+**Detection Mechanism:**  
+`ValueError: [FATAL] Attempted modification of existing portfolio entry '<STRATEGY_ID>'. Explicit human authorization required. No automatic overwrite allowed.`
+
+**Structural Meaning:**  
+Stage-4 detected that `Master_Portfolio_Sheet.xlsx` already contains a historical record for this exact `portfolio_id`. Output from a previous test block. The engine strictly forbids auto-overwrites.
+
+**Allowed Actions:**  
+
+- Read the master portfolio ledger to confirm the presence of the colliding `portfolio_id`.
+- Programmatically drop the single legacy historical record with the exact `STRATEGY_ID` to allow the new result batch to write.
+
+**Forbidden Actions:**  
+
+- Do NOT modify the `update_master_portfolio_ledger` function to bypass the overwrite restriction.
+- Do NOT delete the entire `Master_Portfolio_Sheet.xlsx` file.
+
+**Deterministic Recovery Path:**  
+
+1. Evaluate if the previous portfolio record was a failed test run or temporary cache.
+2. Manually or programmatically purge the existing row from `strategies/Master_Portfolio_Sheet.xlsx`.
+3. Re-run `tools/portfolio_evaluator.py <STRATEGY_ID>` or re-execute the final pipeline pass.
+
+**Escalation Required:** NO — Handled via standard reset protocols.
+
 ---
 
 ## ENGINE ARCHITECTURE STANDARDS (MANDATORY)

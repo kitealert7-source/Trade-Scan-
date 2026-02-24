@@ -1,0 +1,27 @@
+broker: OctaFX
+reference_capital_usd: 5000
+symbol: EURGBP
+
+min_lot: 0.01
+lot_step: 0.01
+max_lot: 50.0
+
+cost_model: embedded
+apply_additional_costs: false
+
+infer_missing_fields: false
+allow_manual_override: false
+
+contract_size: 100000.0
+
+precision: 5
+tick_size: 1e-05
+pip_size: 0.0001
+margin_currency: EUR
+profit_currency: GBP
+
+calibration:
+  base_lot: 0.01
+  usd_pnl_per_price_unit_0p01: 1.25
+  price_unit: GBP
+  status: PASS

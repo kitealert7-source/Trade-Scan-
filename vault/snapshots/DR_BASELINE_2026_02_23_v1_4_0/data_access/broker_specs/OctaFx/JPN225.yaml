@@ -1,0 +1,16 @@
+broker: OctaFX
+reference_capital_usd: 5000
+symbol: JPN225
+min_lot: 0.01
+lot_step: 0.01
+max_lot: 100.0
+cost_model: embedded
+apply_additional_costs: false
+infer_missing_fields: false
+allow_manual_override: false
+contract_size: 10.0
+calibration:
+  base_lot: 0.01
+  usd_pnl_per_price_unit_0p01: 0.1
+  price_unit: INDEX_POINT
+  status: DERIVED_BACKTEST_ONLY

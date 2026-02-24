@@ -1,0 +1,102 @@
+Agent Mandate — Forex CFD Expansion (Architecturally Constrained)
+Objective (Non-Negotiable)
+
+Expand Anti-Gravity data coverage by adding the following OctaFX Forex CFD assets:
+
+EURJPY
+
+GBPJPY
+
+CHFJPY
+
+AUDJPY
+
+NZDJPY
+
+CADJPY
+
+EURGBP
+
+Across native OctaFX timeframes:
+
+1m, 5m, 15m, 30m, 1h, 4h, 1d
+
+All work must remain:
+
+SOP v17 compliant
+
+Append-only
+
+Deterministic
+
+Zero resampling
+
+Zero architectural reinterpretation
+
+🔒 Implementation Constraint (Critical)
+
+The agent must:
+
+Extend the existing FX symbol registry only.
+
+NOT create new ingestion functions.
+
+NOT duplicate FX ingestion logic.
+
+NOT alter timeframe dictionaries.
+
+NOT modify execution semantics logic.
+
+New symbols must inherit the existing OctaFX ingestion pipeline.
+
+Historical Bootstrap Rule
+
+For each new asset–timeframe pair:
+
+Ingest full available broker history.
+
+If broker history is limited, that limit is authoritative.
+
+Do NOT fabricate or infer earlier history.
+
+Lifecycle Enforcement
+
+After RAW ingestion:
+
+Run validator (must PASS, no bypass).
+
+Rebuild CLEAN.
+
+Rebuild RESEARCH.
+
+Register lineage.
+
+Leave all pre-existing datasets unchanged.
+
+Explicit Prohibitions
+
+❌ No new assets beyond list
+❌ No new timeframes
+❌ No resampling
+❌ No derived bars
+❌ No symbol-specific ingestion forks
+❌ No validator relaxation
+❌ No heuristic gap filling
+
+Output Required
+
+Broker symbol names used (exact MT5 identifiers)
+
+Years covered per asset per timeframe
+
+RAW file count created
+
+CLEAN file count created
+
+RESEARCH file count created
+
+Validator PASS confirmation
+
+Final datasets_validated value
+
+No commentary. No redesign.

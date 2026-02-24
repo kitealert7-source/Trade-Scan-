@@ -159,7 +159,8 @@ def normalize_pnl_to_usd(raw_pnl_quote: float,
 def load_market_data(symbol: str) -> pd.DataFrame:
     """Load Daily data from MASTER_DATA for efficient batching."""
     # Dynamic path construction
-    data_root = PROJECT_ROOT.parent / "Anti_Gravity_DATA_ROOT" / "MASTER_DATA" / f"{symbol}_{BROKER.upper()}_MASTER" / "RESEARCH"
+    # Redirected to the user-provided internal data_root
+    data_root = PROJECT_ROOT / "data_root" / "MASTER_DATA" / f"{symbol}_{BROKER.upper()}_MASTER" / "RESEARCH"
     
     # Files are split by year. Pattern: SYMBOL_BROKER_TIMEFRAME_YYYY_RESEARCH.csv
     pattern = f"{symbol}_{BROKER.upper()}_{TIMEFRAME}_*_RESEARCH.csv"
@@ -278,21 +279,14 @@ def load_strategy(strategy_id: str):
 
 def run_engine_logic(df, strategy):
     """Run engine execution loop."""
-    import importlib.util
-    engine_ver = get_engine_version()
-    spec = importlib.util.spec_from_file_location(
-        "execution_loop",
-        PROJECT_ROOT / "engine_dev" / "universal_research_engine" / engine_ver / "execution_loop.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.run_execution_loop(df, strategy)
+    from engine_dev.universal_research_engine.v1_4_0.execution_loop import run_execution_loop
+    return run_execution_loop(df, strategy)
 
 
 def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, median_bar_seconds=0):
     """Emit artifacts for a single symbol run."""
     import pandas as pd
-    from tools.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
+    from engine_dev.universal_research_engine.v1_4_0.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
     
     contract_size = float(broker_spec["contract_size"])
     min_lot = float(broker_spec["min_lot"])
@@ -652,7 +646,8 @@ def main():
     except Exception as e:
         error_msg = str(e)
         print(f"    [ERROR] {e}")
-        # traceback.print_exc()
+        import traceback
+        traceback.print_exc()
 
     # 6. Write Summary (Append Mode)
     print("\n" + "=" * 60)

@@ -1,0 +1,27 @@
+broker: OctaFX
+reference_capital_usd: 5000
+symbol: NZDJPY
+
+min_lot: 0.01
+lot_step: 0.01
+max_lot: 50.0
+
+cost_model: embedded
+apply_additional_costs: false
+
+infer_missing_fields: false
+allow_manual_override: false
+
+contract_size: 100000.0
+
+precision: 3
+tick_size: 0.001
+pip_size: 0.01
+margin_currency: NZD
+profit_currency: JPY
+
+calibration:
+  base_lot: 0.01
+  usd_pnl_per_price_unit_0p01: 6.33
+  price_unit: JPY
+  status: PASS

@@ -35,16 +35,11 @@ def load_master_index():
 
     try:
         df = pd.read_excel(MASTER_SHEET_PATH)
-        # Ensure column names match schema
-        # Col A=run_id, B=strategy (we assume by name or position)
-        if "run_id" not in df.columns or "strategy" not in df.columns:
-            # Try positional fallback if headers are missing/wrong? 
-            # SOP says structured. Assume headers exist.
-            pass
         
         rows = []
         valid_run_ids = set()
         valid_strategies = set()
+        valid_base_strategies = set()
         
         for _, row in df.iterrows():
             r_id = str(row.get("run_id", "")).strip()
@@ -54,8 +49,15 @@ def load_master_index():
                 rows.append((r_id, s_name))
                 valid_run_ids.add(r_id.casefold())
                 valid_strategies.add(s_name.casefold())
+                # Also derive base strategy name by stripping the trailing _SYMBOL suffix
+                # e.g. AK32_FX_PORTABILITY_4H_AUDJPY -> AK32_FX_PORTABILITY_4H
+                parts = s_name.rsplit('_', 1)
+                if len(parts) == 2 and len(parts[1]) <= 7:  # symbol suffix is short (AUDJPY, USDJPY etc.)
+                    valid_base_strategies.add(parts[0].casefold())
+                else:
+                    valid_base_strategies.add(s_name.casefold())
                  
-        return rows, valid_run_ids, valid_strategies
+        return rows, valid_run_ids, valid_strategies, valid_base_strategies
         
     except Exception as e:
         print(f"[ERROR] Failed to read Master Sheet: {e}")
@@ -73,7 +75,7 @@ def scan_runs(valid_run_ids):
                 actions.append(f"DELETE_RUN_SNAPSHOT runs/{run_id}/")
     return actions
 
-def scan_backtests(valid_strategies):
+def scan_backtests(valid_strategies, valid_base_strategies):
     actions = []
     if not BACKTESTS_ROOT.exists():
         return actions
@@ -81,9 +83,16 @@ def scan_backtests(valid_strategies):
     for item in BACKTESTS_ROOT.iterdir():
         name = item.name
         if name == "Strategy_Master_Filter.xlsx": continue
-        if name.startswith("batch_summary_") and name.endswith(".csv"): continue
         if name.startswith("."): continue
-            
+
+        # Orphaned batch_summary_<base_strategy>.csv check
+        # batch_summary files use base strategy names (without symbol suffix)
+        if name.startswith("batch_summary_") and name.endswith(".csv"):
+            base_name = name[len("batch_summary_"):-len(".csv")]
+            if base_name.casefold() not in valid_base_strategies:
+                actions.append(f"DELETE_BATCH_SUMMARY backtests/{name}")
+            continue
+
         if item.is_dir():
             if name.casefold() not in valid_strategies:
                 actions.append(f"DELETE_BACKTEST_STATE backtests/{name}/")
@@ -219,7 +228,7 @@ def main():
     parser.add_argument("--execute", action="store_true", help="Execute planned deletions")
     args = parser.parse_args()
 
-    rows, valid_run_ids, valid_strategies = load_master_index()
+    rows, valid_run_ids, valid_strategies, valid_base_strategies = load_master_index()
     strategy_to_run_id = {s: r for r, s in rows}
     
     all_strategies = []
@@ -227,7 +236,7 @@ def main():
     all_rows = []
     
     zombie_runs = scan_runs(valid_run_ids)
-    zombie_bt = scan_backtests(valid_strategies)
+    zombie_bt = scan_backtests(valid_strategies, valid_base_strategies)
     all_strategies.extend(zombie_runs)
     all_backtests.extend(zombie_bt)
     
@@ -256,16 +265,26 @@ def main():
         print(action)
         if args.execute:
             parts = action.split()
+            action_type = parts[0]
             path_str = parts[1]
             try:
-                s_name = path_str.split('/')[1]
                 target_path = PROJECT_ROOT / path_str
-                if target_path.exists():
-                    shutil.rmtree(target_path)
+                if action_type == "DELETE_BATCH_SUMMARY":
+                    # File deletion
+                    if target_path.exists():
+                        target_path.unlink()
+                else:
+                    # Directory deletion
+                    s_name = path_str.split('/')[1]
+                    if target_path.exists():
+                        shutil.rmtree(target_path)
             except Exception as e:
                 print(f"[ERROR] Failed to delete {path_str}: {e}")
-                if s_name in strategy_to_run_id:
-                    failed_run_ids.add(strategy_to_run_id[s_name])
+                if action_type != "DELETE_BATCH_SUMMARY":
+                    s_name = path_str.split('/')[1]
+                    if s_name in strategy_to_run_id:
+                        failed_run_ids.add(strategy_to_run_id[s_name])
+
 
     valid_row_actions = []
     for action in all_rows:

@@ -100,6 +100,50 @@ On successful completion, report:
 - Stage-by-stage pass/fail summary
 - Final directive state (PORTFOLIO_COMPLETE)
 
+### Step 7: Deterministic Report Generation (Non-Authoritative)
+
+After successful completion of Stage-4 (Portfolio Evaluation + Ledger Gate),
+the pipeline must generate a deterministic research summary artifact.
+
+This stage is observational only and does NOT affect directive state.
+
+Behavior:
+
+- Read-only access to:
+  - raw/results_standard.csv
+  - raw/results_risk.csv
+  - raw/results_yearwise.csv
+
+- Generate:
+  backtests/<DIRECTIVE_NAME>/REPORT_SUMMARY.md
+
+The report must contain:
+
+- Portfolio Summary
+- Per-Symbol Summary
+- Volatility Edge Breakdown
+- Trend Edge Breakdown
+
+Constraints:
+
+- Must NOT modify execution artifacts.
+- Must NOT modify run_state.json.
+- Must NOT modify directive state.
+- Must NOT recompute indicators.
+- Must NOT alter ledger data.
+- Must NOT affect manifest integrity.
+
+Failure Handling:
+
+If report generation fails:
+
+- Classify as REPORT_GENERATION_FAILURE.
+- Log error.
+- Do NOT invalidate completed directive.
+- Do NOT downgrade PORTFOLIO_COMPLETE state.
+
+This stage is non-authoritative and does not participate in governance gates.
+
 ### System Contract
 
 The system is: Deterministic, Ledger-authoritative, Append-only, Fail-fast, Non-mutating.

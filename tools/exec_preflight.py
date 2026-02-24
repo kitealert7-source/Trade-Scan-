@@ -79,6 +79,8 @@ def main():
 
     if decision == "ALLOW_EXECUTION":
         sys.exit(0)
+    elif decision == "ADMISSION_GATE":
+        sys.exit(2)
     else:
         sys.exit(1)
 

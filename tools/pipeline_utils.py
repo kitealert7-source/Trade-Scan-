@@ -126,7 +126,7 @@ def get_engine_version(engine_path=None):
     Default path: engine_dev/universal_research_engine/1.3.0/main.py
     """
     if not engine_path:
-        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/1.3.0/main.py"
+        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_4_0/main.py"
         
     if not engine_path.exists():
         raise RuntimeError(f"Engine main.py not found at {engine_path}")

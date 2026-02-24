@@ -1,5 +1,5 @@
-GENT PROMPT — VAULT SNAPSHOT SAVE
-Universal_Research_Engine v1.2.0 (Full Engine Core Freeze)
+AGENT PROMPT — VAULT SNAPSHOT SAVE
+
 
 You are instructed to create an immutable vault snapshot of the current Universal Research Engine baseline.
 
@@ -20,7 +20,7 @@ No experimental or WIP code merged.
 If any condition fails → STOP and REPORT.
 
 SNAPSHOT TARGET
-vault/engines/Universal_Research_Engine/v1.2.0/
+vault/engines/Universal_Research_Engine/v1.3.0/
 
 
 Do not overwrite existing versions.
@@ -141,7 +141,7 @@ COMMIT
 
 Commit with exact message:
 
-vault: snapshot Universal_Research_Engine v1.2.0 (engine core + governance baseline)
+vault: snapshot Universal_Research_Engine v1.3.0 (engine core + governance baseline)
 
 
 Do not amend.

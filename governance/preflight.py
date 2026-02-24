@@ -328,6 +328,8 @@ def run_preflight(
     try:
         validate_semantic_signature(str(directive_full_path))
     except Exception as e:
+        if "PROVISION_REQUIRED" in str(e):
+            return ("ADMISSION_GATE", str(e), None)
         return ("BLOCK_EXECUTION", f"Semantic Validation Failed: {e}", None)
 
     # --- Canonical Hash Alignment (Stage-1 Consistency) ---
