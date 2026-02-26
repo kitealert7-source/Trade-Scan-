@@ -409,7 +409,11 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             volatility_regime=t.get('volatility_regime'),
             trend_score=t.get('trend_score'),
             trend_regime=t.get('trend_regime'),
-            trend_label=t.get('trend_label')
+            trend_label=t.get('trend_label'),
+            # Phase 1 Schema Extension (Deployable Capital Wrapper)
+            symbol=symbol,
+            initial_stop_price=t.get('initial_stop_price'),
+            risk_distance=t.get('risk_distance'),
         ))
     
     # Metadata includes Deterministic Run details

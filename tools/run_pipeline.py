@@ -652,7 +652,9 @@ def run_single_directive(directive_id):
             strategy_id = p_conf.get("Strategy", p_conf.get("strategy"))
             print("[ORCHESTRATOR] Generating Deterministic Markdown Reports...")
             generate_backtest_report(clean_id, backtest_root)
-            if strategy_id:
+            # Portfolio report: directory is under clean_id (directive name), not strategy_id
+            generate_strategy_portfolio_report(clean_id, PROJECT_ROOT)
+            if strategy_id and strategy_id != clean_id:
                 generate_strategy_portfolio_report(strategy_id, PROJECT_ROOT)
         except Exception as rep_err:
             import traceback

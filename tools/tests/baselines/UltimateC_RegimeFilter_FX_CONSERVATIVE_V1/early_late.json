@@ -1,0 +1,18 @@
+{
+  "first_half": {
+    "final_equity": 9454.410000000007,
+    "cagr": -0.05655353366657301,
+    "max_dd_pct": 22.043264487346995,
+    "max_loss_streak": 11,
+    "win_rate": 48.30769230769231,
+    "trade_count": 325
+  },
+  "second_half": {
+    "final_equity": 9117.54999999999,
+    "cagr": -0.07809124091987063,
+    "max_dd_pct": 17.907142479074,
+    "max_loss_streak": 8,
+    "win_rate": 47.07692307692308,
+    "trade_count": 325
+  }
+}

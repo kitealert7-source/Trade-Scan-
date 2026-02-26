@@ -1,0 +1,25 @@
+{
+  "prefix": "AK37_FX_PORTABILITY_4H",
+  "profile": "AGGRESSIVE_V1",
+  "frozen_at": "2026-02-26T09:09:31.257318",
+  "trade_count": 4857,
+  "equity_points": 9714,
+  "sections_frozen": [
+    "edge_metrics",
+    "tail_contribution",
+    "tail_removal",
+    "baseline_simulation",
+    "sequence_mc",
+    "rolling",
+    "year_wise_pnl",
+    "drawdown",
+    "streaks",
+    "friction",
+    "directional",
+    "early_late",
+    "symbol_isolation",
+    "symbol_breakdown",
+    "block_bootstrap"
+  ],
+  "engine_version": "pre-consolidation"
+}

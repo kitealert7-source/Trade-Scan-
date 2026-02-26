@@ -1,0 +1,26 @@
+[
+  {
+    "scenario": "Baseline",
+    "net_profit": -1428.0399999999995,
+    "pf": 0.9178892847368048,
+    "degradation_pct": 0.0
+  },
+  {
+    "scenario": "Slip 1.0 pip RT",
+    "net_profit": -3030.64,
+    "pf": 0.834000113929653,
+    "degradation_pct": -112.22374723397111
+  },
+  {
+    "scenario": "Spread +50%",
+    "net_profit": -2706.74,
+    "pf": 0.8501607314762993,
+    "degradation_pct": -89.54230973922304
+  },
+  {
+    "scenario": "Severe (1.0 + 75%)",
+    "net_profit": -4948.6900000000005,
+    "pf": 0.7435862427914735,
+    "degradation_pct": -246.53721184280565
+  }
+]

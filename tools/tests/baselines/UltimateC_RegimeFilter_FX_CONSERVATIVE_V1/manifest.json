@@ -1,0 +1,25 @@
+{
+  "prefix": "UltimateC_RegimeFilter_FX",
+  "profile": "CONSERVATIVE_V1",
+  "frozen_at": "2026-02-26T09:11:09.789116",
+  "trade_count": 650,
+  "equity_points": 1300,
+  "sections_frozen": [
+    "edge_metrics",
+    "tail_contribution",
+    "tail_removal",
+    "baseline_simulation",
+    "sequence_mc",
+    "rolling",
+    "year_wise_pnl",
+    "drawdown",
+    "streaks",
+    "friction",
+    "directional",
+    "early_late",
+    "symbol_isolation",
+    "symbol_breakdown",
+    "block_bootstrap"
+  ],
+  "engine_version": "pre-consolidation"
+}

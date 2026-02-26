@@ -48,6 +48,10 @@ class RawTradeRecord:
     trend_score: Optional[int] = None
     trend_regime: Optional[int] = None
     trend_label: Optional[str] = None
+    # Phase 1 Schema Extension (Deployable Capital Wrapper)
+    symbol: Optional[str] = None
+    initial_stop_price: Optional[float] = None
+    risk_distance: Optional[float] = None
 
 
 @dataclass
@@ -336,7 +340,8 @@ def emit_stage1(
         "trade_high", "trade_low", "bars_held", 
         "atr_entry", "position_units", "notional_usd", 
         "mfe_price", "mae_price", "mfe_r", "mae_r",
-        "volatility_regime", "trend_score", "trend_regime", "trend_label"
+        "volatility_regime", "trend_score", "trend_regime", "trend_label",
+        "symbol", "initial_stop_price", "risk_distance"
     ]
     
     # Validate Intrinsic Market State Presence (SOP_TESTING §7.y)
@@ -375,7 +380,10 @@ def emit_stage1(
                 "volatility_regime": t.volatility_regime,
                 "trend_score": t.trend_score,
                 "trend_regime": t.trend_regime,
-                "trend_label": t.trend_label
+                "trend_label": t.trend_label,
+                "symbol": t.symbol if t.symbol is not None else "",
+                "initial_stop_price": t.initial_stop_price if t.initial_stop_price is not None else "",
+                "risk_distance": t.risk_distance if t.risk_distance is not None else ""
             })
     
     # 3. Emit results_standard.csv (SOP 4.2)

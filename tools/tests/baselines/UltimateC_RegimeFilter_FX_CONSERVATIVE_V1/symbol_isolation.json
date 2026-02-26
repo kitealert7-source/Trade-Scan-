@@ -1,0 +1,26 @@
+[
+  {
+    "final_equity": 8912.369999999994,
+    "cagr": -0.05322147298441904,
+    "max_dd_pct": 19.50910631210996,
+    "max_loss_streak": 8,
+    "removed_symbol": "EURAUD",
+    "remaining_trades": 462
+  },
+  {
+    "final_equity": 9618.22000000001,
+    "cagr": -0.018271579158963824,
+    "max_dd_pct": 16.80629877295136,
+    "max_loss_streak": 10,
+    "removed_symbol": "EURUSD",
+    "remaining_trades": 307
+  },
+  {
+    "final_equity": 8613.32999999999,
+    "cagr": -0.06835949355170468,
+    "max_dd_pct": 23.681379120213244,
+    "max_loss_streak": 11,
+    "removed_symbol": "GBPNZD",
+    "remaining_trades": 531
+  }
+]

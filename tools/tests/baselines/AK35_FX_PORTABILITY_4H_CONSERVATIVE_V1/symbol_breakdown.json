@@ -1,0 +1,26 @@
+{
+  "AUDUSD": {
+    "pnl": -3162.37,
+    "trades": 307
+  },
+  "EURUSD": {
+    "pnl": -2469.84,
+    "trades": 286
+  },
+  "GBPUSD": {
+    "pnl": -164.20999999999987,
+    "trades": 248
+  },
+  "NZDUSD": {
+    "pnl": -1896.21,
+    "trades": 232
+  },
+  "USDCAD": {
+    "pnl": -4.199999999999896,
+    "trades": 183
+  },
+  "USDCHF": {
+    "pnl": 4945.77,
+    "trades": 207
+  }
+}

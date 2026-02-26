@@ -1,0 +1,25 @@
+{
+  "prefix": "AK35_FX_PORTABILITY_4H",
+  "profile": "CONSERVATIVE_V1",
+  "frozen_at": "2026-02-26T09:10:51.515480",
+  "trade_count": 1463,
+  "equity_points": 2926,
+  "sections_frozen": [
+    "edge_metrics",
+    "tail_contribution",
+    "tail_removal",
+    "baseline_simulation",
+    "sequence_mc",
+    "rolling",
+    "year_wise_pnl",
+    "drawdown",
+    "streaks",
+    "friction",
+    "directional",
+    "early_late",
+    "symbol_isolation",
+    "symbol_breakdown",
+    "block_bootstrap"
+  ],
+  "engine_version": "pre-consolidation"
+}

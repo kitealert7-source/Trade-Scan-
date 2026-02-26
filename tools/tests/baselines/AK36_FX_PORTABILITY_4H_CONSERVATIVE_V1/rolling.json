@@ -1,0 +1,15 @@
+{
+  "stability": {
+    "total_windows": 218,
+    "negative_windows": 104,
+    "ret_under_minus_10": 50,
+    "dd_over_15": 164,
+    "dd_over_20": 120,
+    "worst_return": -29.60652895316337,
+    "worst_dd": 33.50740058435889,
+    "mean_return": 5.761953255585085,
+    "mean_dd": 20.078911802325596,
+    "clustering": "CLUSTERED"
+  },
+  "window_count": 218
+}
