@@ -1,14 +1,14 @@
 test:
-  name: AK29_FX_PORTABILITY_4H
+  name: AK35_FX_PORTABILITY_4H
   family: LegacyPersistence
-  strategy: AK29_FX_PORTABILITY_4H
+  strategy: AK35_FX_PORTABILITY_4H
   version: 1.0.0
 
   broker: OctaFX
   timeframe: 4h
   session_time_reference: UTC
 
-  start_date: 2024-01-01
+  start_date: 2007-01-03
   end_date: 2026-02-15
 
   research_mode: portability_validation
@@ -16,13 +16,14 @@ test:
   parameter_mutation: prohibited
 
 symbols:
-  - USDJPY
+  
+  - AUDUSD
   - EURUSD
   - GBPUSD
-  - AUDUSD
+  - NZDUSD
   - USDCAD
   - USDCHF
-
+  - USDJPY
 
 direction: both
 
@@ -42,6 +43,16 @@ usd_stress_filter:
   percentile_column: usd_stress_percentile
   long_allowed_if_gte: 0.90
   short_allowed_if_lte: 0.10
+
+#  Structural Addition 
+polarity_override:
+  mode: invert
+  symbols:
+    - EURUSD
+    - GBPUSD
+    - AUDUSD
+    - NZDUSD
+# ---------------------------------
 
 position_management:
   mode: stop_and_reverse

@@ -1,7 +1,7 @@
 [
   {
     "final_equity": 16552.780000000064,
-    "cagr": 0.02705241031010952,
+    "cagr": 0.027048435390870873,
     "max_dd_pct": 35.254680315186896,
     "max_loss_streak": 10,
     "removed_symbol": "AUDUSD",
@@ -9,7 +9,7 @@
   },
   {
     "final_equity": 16054.830000000065,
-    "cagr": 0.025392193324238033,
+    "cagr": 0.02538846535065664,
     "max_dd_pct": 32.9150417105044,
     "max_loss_streak": 18,
     "removed_symbol": "EURUSD",
@@ -17,7 +17,7 @@
   },
   {
     "final_equity": 13876.16999999999,
-    "cagr": 0.017502252478387437,
+    "cagr": 0.01749969274098606,
     "max_dd_pct": 48.817037590382064,
     "max_loss_streak": 15,
     "removed_symbol": "GBPUSD",
@@ -25,7 +25,7 @@
   },
   {
     "final_equity": 14671.83,
-    "cagr": 0.02051154289931878,
+    "cagr": 0.02050853862929025,
     "max_dd_pct": 39.29845450251911,
     "max_loss_streak": 12,
     "removed_symbol": "NZDUSD",
@@ -33,7 +33,7 @@
   },
   {
     "final_equity": 22469.139999999996,
-    "cagr": 0.043811188363503506,
+    "cagr": 0.04380469901405082,
     "max_dd_pct": 41.813500331701434,
     "max_loss_streak": 11,
     "removed_symbol": "USDCAD",
@@ -41,7 +41,7 @@
   },
   {
     "final_equity": 11114.949999999988,
-    "cagr": 0.005614469852434079,
+    "cagr": 0.005613653526598483,
     "max_dd_pct": 57.103197596846925,
     "max_loss_streak": 12,
     "removed_symbol": "USDCHF",

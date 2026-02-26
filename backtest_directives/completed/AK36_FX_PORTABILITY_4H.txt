@@ -1,35 +1,24 @@
 test:
-  name: AK31_FX_PORTABILITY_4H
-  family: LegacyPersistence
-  strategy: AK31_FX_PORTABILITY_4H
+  name: AK36_FX_USD_BREAKOUT_SAR_4H
+  family: USDRegimeBreakout
+  strategy: AK36_FX_USD_BREAKOUT_SAR_4H
   version: 1.0.0
 
   broker: OctaFX
   timeframe: 4h
   session_time_reference: UTC
 
-  start_date: 2024-01-01
+  start_date: 2007-01-03
   end_date: 2026-02-15
 
-  research_mode: portability_validation
+  research_mode: hypothesis_validation
   tuning_allowed: false
   parameter_mutation: prohibited
 
 symbols:
-  - AUDJPY
   - AUDUSD
-  - AUDNZD
-  - CADJPY
-  - CHFJPY
-  - EURAUD
-  - EURGBP
-  - EURJPY
   - EURUSD
-  - GBPAUD
-  - GBPJPY
-  - GBPNZD
   - GBPUSD
-  - NZDJPY
   - NZDUSD
   - USDCAD
   - USDCHF
@@ -38,23 +27,22 @@ symbols:
 direction: both
 
 indicators:
-  - indicators.price.candle_state
   - indicators.price.usd_stress_index
+  - indicators.price.previous_bar_breakout
   - indicators.volatility.volatility_regime
   - indicators.volatility.atr
 
 state_machine:
-  long_bias_trigger:
-    green_streak: 2
-  short_bias_trigger:
-    red_streak: 2
+  long_entry:
+    breakout_up_close: true
+  short_entry:
+    breakout_down_close: true
 
 usd_stress_filter:
   percentile_column: usd_stress_percentile
-  long_allowed_if_gte: 0.90
-  short_allowed_if_lte: 0.10
+  long_allowed_if_gte: 0.55
+  short_allowed_if_lte: 0.45
 
-# --- AK31 Structural Addition ---
 polarity_override:
   mode: invert
   symbols:
@@ -62,7 +50,6 @@ polarity_override:
     - GBPUSD
     - AUDUSD
     - NZDUSD
-# ---------------------------------
 
 position_management:
   mode: stop_and_reverse

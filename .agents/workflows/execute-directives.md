@@ -144,7 +144,177 @@ If report generation fails:
 
 This stage is non-authoritative and does not participate in governance gates.
 
+### Step 8: Capital Wrapper Execution (Deployable Artifact Emission)
+
+After the deterministic report in Step 7, run the capital wrapper to simulate
+multi-profile portfolio equity paths and emit all deployable artifacts.
+
+This step derives from the authoritative `backtests/<RUN_ID>/raw/results_tradelevel.csv`
+files written by Stage-1. It is read-only with respect to all prior pipeline artifacts.
+
+// turbo
+
+```
+python tools/capital_wrapper.py <DIRECTIVE_NAME>
+```
+
+Where `<DIRECTIVE_NAME>` is the base strategy prefix (e.g. `AK34_FX_PORTABILITY_4H`).
+
+Profiles executed in a single pass:
+
+- `CONSERVATIVE_V1`
+- `AGGRESSIVE_V1`
+
+Outputs emitted to `strategies/<DIRECTIVE_NAME>/deployable/<PROFILE>/`:
+
+| Artifact                    | Description                                      |
+|-----------------------------|--------------------------------------------------|
+| `equity_curve.csv`          | Per-bar portfolio equity path                    |
+| `deployable_trade_log.csv`  | Accepted trades with lot sizes and realized PnL  |
+| `summary_metrics.json`      | CAGR, Max DD, Final Equity, Accepted/Rejected    |
+| `profile_comparison.json`   | Side-by-side metric comparison across profiles   |
+
+Constraints:
+
+- Must NOT modify `run_state.json`.
+- Must NOT modify the ledger or manifest.
+- Must NOT alter any Stage-1/2/3 artifacts.
+- Must NOT change directive state.
+
+Failure handling:
+
+- Classify as `CAPITAL_WRAPPER_FAILURE`.
+- Report exact error.
+- Do NOT invalidate the completed directive.
+
+### Step 9: Deployable Artifact Verification
+
+Verify the outputs emitted in Step 8 are structurally sound before marking the run complete.
+
+For each profile (`CONSERVATIVE_V1`, `AGGRESSIVE_V1`):
+
+1. Confirm all 4 artifact files exist under `strategies/<DIRECTIVE_NAME>/deployable/<PROFILE>/`.
+2. Load `summary_metrics.json` and confirm:
+   - `final_equity = starting_capital + realized_pnl` (diff must be < $0.01)
+   - `final_equity > 0`
+3. Confirm `equity_curve.csv` has a `equity` column and minimum value > 0.
+4. Confirm `deployable_trade_log.csv` row count matches `summary_metrics["total_accepted"]`.
+
+// turbo
+
+```
+python -c "
+import json, pandas as pd
+from pathlib import Path
+
+directive = '<DIRECTIVE_NAME>'
+deploy_root = Path('strategies') / directive / 'deployable'
+
+for prof in ['CONSERVATIVE_V1', 'AGGRESSIVE_V1']:
+    d = deploy_root / prof
+    assert d.exists(), f'Missing profile dir: {d}'
+    m = json.loads((d / 'summary_metrics.json').read_text())
+    diff = abs(m['final_equity'] - (m['starting_capital'] + m['realized_pnl']))
+    assert diff < 0.01, f'[{prof}] Equity math mismatch: diff={diff}'
+    assert m['final_equity'] > 0, f'[{prof}] Final equity is zero or negative'
+    eq = pd.read_csv(d / 'equity_curve.csv')
+    assert eq['equity'].min() > 0, f'[{prof}] Negative equity detected'
+    tl = pd.read_csv(d / 'deployable_trade_log.csv')
+    assert len(tl) == m['total_accepted'], f'[{prof}] Trade log count mismatch'
+    print(f'[PASS] {prof}: final_equity={m[\"final_equity\"]:,.2f}, accepted={m[\"total_accepted\"]}')
+
+print('All deployable artifact checks PASSED.')
+"
+```
+
+Replace `<DIRECTIVE_NAME>` with the actual directive prefix before running.
+
+On verification failure:
+
+- Classify as `DEPLOYABLE_INTEGRITY_FAILURE`.
+- Do NOT mark pipeline as complete.
+- Report exact failing assertion.
+
+On verification success:
+
+- The deployable artifacts are structurally sound.
+- Proceed to Step 10.
+
+### Step 10: Robustness Suite Execution
+
+After deployable artifacts are verified, run the full robustness evaluation suite
+against **both** profiles' deployable artifacts.
+
+This step is **observational only** — it reads deployable artifacts and produces
+a markdown research report. It does NOT modify any pipeline state, directive state,
+ledger, or manifest.
+
+**10a. Conservative Profile:**
+
+// turbo
+
+```
+python tools/evaluate_robustness.py <DIRECTIVE_NAME> --profile CONSERVATIVE_V1 --suite full
+```
+
+**10b. Aggressive Profile:**
+
+// turbo
+
+```
+python tools/evaluate_robustness.py <DIRECTIVE_NAME> --profile AGGRESSIVE_V1 --suite full
+```
+
+Replace `<DIRECTIVE_NAME>` with the actual strategy prefix before running.
+
+Outputs emitted (per profile):
+
+| Location | File |
+|---|---|
+| `strategies/<DIRECTIVE_NAME>/ROBUSTNESS_<DIRECTIVE_NAME>_<PROFILE>.md` | Strategy root (primary copy) |
+| `outputs/reports/ROBUSTNESS_<DIRECTIVE_NAME>_<PROFILE>.md` | Archive copy |
+
+Report sections (14 total):
+
+1. Edge Metrics Summary
+2. Tail Contribution
+3. Tail Removal
+4. Sequence Monte Carlo (500 runs)
+5. Reverse Path Test
+6. Rolling 1-Year Window + Year-Wise PnL + Monthly Heatmap
+7. Drawdown Diagnostics
+8. Streak Analysis
+9. Friction Stress Test
+10. Directional Robustness
+11. Early/Late Split
+12. Symbol Isolation Stress
+13. Per-Symbol PnL Breakdown
+14. Block Bootstrap (100 runs)
+
+Constraints:
+
+- Must NOT modify `run_state.json`.
+- Must NOT modify the ledger or manifest.
+- Must NOT alter any pipeline artifacts.
+- Must NOT change directive state.
+- Must NOT invoke Stage1, indicator recomputation, or pipeline replay.
+- Consumes ONLY: `deployable_trade_log.csv`, `equity_curve.csv`, `summary_metrics.json`.
+
+Failure handling:
+
+- Classify as `ROBUSTNESS_EVALUATION_FAILURE`.
+- Report exact error.
+- Do NOT invalidate the completed directive.
+
+On success:
+
+- Report the path to both generated robustness reports.
+- The directive is fully complete end-to-end.
+
 ### System Contract
 
-The system is: Deterministic, Ledger-authoritative, Append-only, Fail-fast, Non-mutating.
-Execution without compliance validation is prohibited.
+The system is: Deterministic, Ledger-authoritative, Append-only, Fail-fast, Non-mutating.  
+Execution without compliance validation is prohibited.  
+Capital Wrapper output is a deterministic, read-only derivation from Stage-1 artifacts.  
+Deployable artifacts are non-authoritative over pipeline state and governance structures.  
+Robustness reports are observational research artifacts with no governance authority.
