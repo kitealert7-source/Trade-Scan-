@@ -1,6 +1,6 @@
 
 """
-run_pipeline.py — Master Execution Pipeline Orchestrator (v3.2 - State Gated)
+run_pipeline.py -- Master Execution Pipeline Orchestrator (v3.2 - State Gated)
 
 Usage:
   python tools/run_pipeline.py <DIRECTIVE_ID>
@@ -17,7 +17,7 @@ Purpose:
   5. Stage-3: Aggregation
   6. Stage-4: Portfolio Evaluation
 
-Execution Model — Mandatory Compliance:
+Execution Model -- Mandatory Compliance:
 
   - All execution gated by run_state.json (Audit Phase 7)
   - All Stage-1 executions MUST use RESEARCH market data.
@@ -99,7 +99,7 @@ def get_directive_path(directive_id):
 def parse_concurrency_config(file_path):
     from tools.pipeline_utils import parse_directive
     config = parse_directive(file_path)
-    # Extract symbols list — support both cased key variants
+    # Extract symbols list -- support both cased key variants
     symbols = config.get("symbols", config.get("Symbols", []))
     if isinstance(symbols, str):
         symbols = [s.strip() for s in symbols.split(",") if s.strip()]
@@ -173,23 +173,85 @@ def run_single_directive(directive_id):
     #
     # Let's parsing symbols here.
     
-    # max_conf, count = parse_concurrency_config(d_path) # Stage 1.5 Removed
-    
-    # We need to re-parse the directive to get the explicit symbol list 
-    # used by generation logic to pre-calculate Run IDs.
-    # Using pipeline_utils.parse_directive
-    from tools.pipeline_utils import parse_directive
-    p_conf = parse_directive(d_path)
-    symbols = p_conf.get("Symbols", p_conf.get("symbols", []))
-    if isinstance(symbols, str): symbols = [symbols]
-    
+    # We need the symbol list pre-Stage-0.25 only to pre-calculate Run IDs.
+    # Use a raw yaml.safe_load() to extract symbols without invoking parse_directive()
+    # strict validation (which requires test: wrapper, collisions, etc.).
+    # This ensures non-canonical directives still reach Stage -0.25 rather than
+    # failing here with a confusing INVALID DIRECTIVE STRUCTURE error.
+    import yaml as _yaml_pre
+    try:
+        _raw_pre = _yaml_pre.safe_load(d_path.read_text(encoding="utf-8")) or {}
+    except Exception as _pre_err:
+        print(f"[FATAL] YAML_PARSE_ERROR (pre-Stage-0.25): {_pre_err}")
+        sys.exit(1)
+    # Support both canonical (test: wrapper) and flat directives for symbol extraction only
+    _test_block_pre = _raw_pre.get("test", {})
+    symbols = (
+        _raw_pre.get("symbols")
+        or _raw_pre.get("Symbols")
+        or _test_block_pre.get("symbols")
+        or _test_block_pre.get("Symbols")
+        or []
+    )
+    if isinstance(symbols, str):
+        symbols = [symbols]
+
     if not symbols:
         print("[FATAL] No symbols found in directive.")
         sys.exit(1)
 
     print(f"[ORCHESTRATOR] Found {len(symbols)} symbols: {symbols}")
 
-    # Phase 10: Directive State Manager
+    # ----------------------------------------------------------
+    # STAGE -0.25: DIRECTIVE CANONICALIZATION GATE
+    # Must run before any state initialization or pipeline stage.
+    # ----------------------------------------------------------
+    from tools.canonicalizer import canonicalize, CanonicalizationError
+    import yaml as _yaml
+
+    try:
+        raw_yaml = d_path.read_text(encoding="utf-8")
+        parsed_raw = _yaml.safe_load(raw_yaml)
+        canonical, canonical_yaml, diff_lines, violations, has_drift = \
+            canonicalize(parsed_raw)
+    except CanonicalizationError as e:
+        print(f"\n[FATAL] STAGE -0.25 CANONICALIZATION FAILED:")
+        print(f"  {e}")
+        sys.exit(1)
+    except _yaml.YAMLError as e:
+        print(f"\n[FATAL] YAML_PARSE_ERROR: {e}")
+        sys.exit(1)
+
+    if violations:
+        print("[STAGE -0.25] Structural changes detected:")
+        for level, msg in violations:
+            print(f"  [{level}] {msg}")
+
+    if has_drift:
+        print("\n[STAGE -0.25] STRUCTURAL DRIFT -- directive is not canonical.")
+        print("  --- Unified Diff ---")
+        for line in diff_lines:
+            print(f"  {line}", end="")
+        tmp_path = Path("/tmp") / f"{clean_id}_canonical.yaml"
+        tmp_path.write_text(canonical_yaml, encoding="utf-8")
+        print(f"\n  Corrected YAML written to: {tmp_path}")
+        print("  Human must review and approve overwrite.")
+        print("[HALT] Pipeline stopped. Fix directive and re-run.")
+        sys.exit(1)
+    else:
+        print("[STAGE -0.25] Directive is in canonical form. [OK]")
+
+    # Stage -0.25 passed. Now safe to call parse_directive() with strict validation.
+    # This is the earliest correct point: canonical structure is confirmed.
+    # Fix 3: Previously parse_directive() ran before Stage -0.25, so non-canonical
+    # directives failed with INVALID DIRECTIVE STRUCTURE before reaching the gate.
+    from tools.pipeline_utils import parse_directive
+    p_conf = parse_directive(d_path)
+    # Authoritative symbol resolution from fully parsed config
+    symbols = p_conf.get("Symbols", p_conf.get("symbols", symbols))
+    if isinstance(symbols, str):
+        symbols = [symbols]
+
     dir_state_mgr = DirectiveStateManager(clean_id)
     dir_state_mgr.initialize()
     
@@ -201,12 +263,9 @@ def run_single_directive(directive_id):
          print(f"[ORCHESTRATOR] Directive {clean_id} is already COMPLETE. Aborting.")
          return
     elif current_dir_state == "FAILED":
-         if "--force" not in sys.argv:
-             print(f"[ORCHESTRATOR] Directive {clean_id} is FAILED. Use --force to retry.")
-             sys.exit(1)
-         else:
-             print(f"[ORCHESTRATOR] Force retry enabled. Resetting to INITIALIZED.")
-             dir_state_mgr.transition_to("INITIALIZED")
+         print(f"[ORCHESTRATOR] Directive {clean_id} is FAILED.")
+         print(f"[ORCHESTRATOR] To reset, run: python tools/reset_directive.py {clean_id} --reason \"<justification>\"")
+         sys.exit(1)
     
     # --provision-only flag
     provision_only = "--provision-only" in sys.argv
@@ -226,7 +285,7 @@ def run_single_directive(directive_id):
 
     try:
         # Resume Check
-        if dir_state_mgr.get_state() == "SYMBOL_RUNS_COMPLETE":  # live fetch — not stale var
+        if dir_state_mgr.get_state() == "SYMBOL_RUNS_COMPLETE":  # live fetch -- not stale var
              print("[ORCHESTRATOR] Resuming at Stage-4 (Portfolio)...")
         else:
             # 2. Preflight (Directive Level - Runs Once)
@@ -302,6 +361,31 @@ def run_single_directive(directive_id):
             elif check_state not in ["SYMBOL_RUNS_COMPLETE", "PORTFOLIO_COMPLETE"]:
                 pass
 
+            # --- STAGE 0.55: SEMANTIC COVERAGE CHECK ---
+            # Gate: Runs after semantic validation passes.
+            # Verifies all behavioral directive parameters are referenced in strategy.py.
+            # Fix 2: Use parsed strategy_id from p_conf, not clean_id, so this gate
+            # is not silently skipped when directive ID differs from strategy name.
+            _cov_state = dir_state_mgr.get_state()
+            if _cov_state in ("PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",):
+                _cov_strategy_id = p_conf.get("Strategy", p_conf.get("strategy")) or clean_id
+                _cov_strategy_path = PROJECT_ROOT / "strategies" / _cov_strategy_id / "strategy.py"
+                if _cov_strategy_path.exists():
+                    try:
+                        from governance.semantic_coverage_checker import check_semantic_coverage
+                        check_semantic_coverage(str(d_path), str(_cov_strategy_path))
+                        print("[ORCHESTRATOR] Stage-0.55 Semantic Coverage Check PASSED.")
+                    except RuntimeError as e:
+                        if "SEMANTIC_COVERAGE_FAILURE" in str(e):
+                            print(f"\n[FATAL] {e}")
+                            for rid in run_ids:
+                                try: PipelineStateManager(rid).transition_to("FAILED")
+                                except Exception: pass
+                            try: dir_state_mgr.transition_to("FAILED")
+                            except Exception: pass
+                            sys.exit(1)
+                        raise
+
             # --- PROVISION-ONLY EXIT POINT ---
             # Stops after Stage-0.5 (semantic validation + Admission Gate enforced).
             if provision_only:
@@ -333,6 +417,21 @@ def run_single_directive(directive_id):
             summary_csv = PROJECT_ROOT / "backtests" / f"batch_summary_{clean_id}.csv"
             if summary_csv.exists() and _any_stage1_rerun:
                 summary_csv.unlink()
+
+            # --- STAGE-0.9: PRE-EXECUTION ATOMIC SNAPSHOTTING ---
+            # Snapshot strategy for ALL symbols simultaneously before execution
+            # This mathematically eliminates mid-pipeline mutation.
+            strategy_id = p_conf.get("Strategy", p_conf.get("strategy"))
+            if strategy_id:
+                source_strategy_path = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
+                if source_strategy_path.exists():
+                    print("[ORCHESTRATOR] Performing atomic preemptive strategy snapshots...")
+                    for rid in run_ids:
+                        mgr = PipelineStateManager(rid)
+                        target_path = mgr.run_dir / "strategy.py"
+                        if not target_path.exists():
+                            target_path.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy(str(source_strategy_path), str(target_path))
 
             # Orchestrate Atomic Stage-1 Execution
             print("[ORCHESTRATOR] Launching Stage-1 Generator (Atomic)...")
@@ -383,7 +482,7 @@ def run_single_directive(directive_id):
             # Stage 2
             run_command([PYTHON_EXE, "-m", "engine_dev.universal_research_engine.v1_4_0.stage2_compiler", "--scan", clean_id], "Stage-2 Compilation")
             
-            # Per-run_id artifact existence gate (idempotent — re-verifies on resume)
+            # Per-run_id artifact existence gate (idempotent -- re-verifies on resume)
             for rid, symbol in zip(run_ids, symbols):
                 mgr = PipelineStateManager(rid)
                 current = mgr.get_state_data()["current_state"]
@@ -665,6 +764,92 @@ def run_single_directive(directive_id):
         
         dir_state_mgr.transition_to("PORTFOLIO_COMPLETE")
 
+        # --- STEP 8: CAPITAL WRAPPER (Deployable Artifact Emission) ---
+        # Non-authoritative: failure does NOT invalidate PORTFOLIO_COMPLETE.
+        # Classify as CAPITAL_WRAPPER_FAILURE and report — do not sys.exit.
+        try:
+            print("[ORCHESTRATOR] Running Step 8: Capital Wrapper...")
+            run_command([PYTHON_EXE, "tools/capital_wrapper.py", clean_id], "Capital Wrapper")
+            print("[ORCHESTRATOR] Step 8: Capital Wrapper COMPLETE.")
+        except Exception as cw_err:
+            print(f"[ERROR] CAPITAL_WRAPPER_FAILURE: {cw_err}")
+            print("[WARN] Capital wrapper failed. Directive state is unaffected (PORTFOLIO_COMPLETE).")
+            print("[WARN] Re-run manually: python tools/capital_wrapper.py " + clean_id)
+
+        # --- STEP 9: DEPLOYABLE ARTIFACT VERIFICATION ---
+        # Non-authoritative: verifies the capital wrapper outputs are structurally sound.
+        # Reports DEPLOYABLE_INTEGRITY_FAILURE without invalidating directive state.
+        try:
+            print("[ORCHESTRATOR] Running Step 9: Deployable Artifact Verification...")
+            deploy_root = PROJECT_ROOT / "strategies" / clean_id / "deployable"
+            profiles = ["CONSERVATIVE_V1", "AGGRESSIVE_V1"]
+            step9_failures = []
+
+            for prof in profiles:
+                d = deploy_root / prof
+                if not d.exists():
+                    step9_failures.append(f"  [{prof}] Profile directory missing: {d}")
+                    continue
+
+                # 1. All 5 artifacts present
+                required_files = [
+                    "equity_curve.csv",
+                    "equity_curve.png",
+                    "deployable_trade_log.csv",
+                    "summary_metrics.json",
+                ]
+                for fname in required_files:
+                    if not (d / fname).exists():
+                        step9_failures.append(f"  [{prof}] Missing artifact: {fname}")
+
+                # 2. summary_metrics.json equity math check
+                metrics_path = d / "summary_metrics.json"
+                if metrics_path.exists():
+                    import json as _json
+                    m = _json.loads(metrics_path.read_text(encoding="utf-8"))
+                    diff = abs(m.get("final_equity", 0) - (m.get("starting_capital", 0) + m.get("realized_pnl", 0)))
+                    if diff >= 0.01:
+                        step9_failures.append(f"  [{prof}] Equity math mismatch: diff={diff:.4f}")
+                    if m.get("final_equity", 0) <= 0:
+                        step9_failures.append(f"  [{prof}] Final equity is zero or negative")
+
+                # 3. equity_curve.csv has equity column with no negative values
+                eq_path = d / "equity_curve.csv"
+                if eq_path.exists():
+                    import csv as _csv
+                    with open(eq_path, newline="", encoding="utf-8") as cf:
+                        reader = _csv.DictReader(cf)
+                        for row_num, row in enumerate(reader, 1):
+                            eq_val = float(row.get("equity", 1))
+                            if eq_val <= 0:
+                                step9_failures.append(f"  [{prof}] Negative equity at row {row_num}")
+                                break
+
+                # 4. Trade log row count matches summary_metrics total_accepted
+                tl_path = d / "deployable_trade_log.csv"
+                if tl_path.exists() and metrics_path.exists():
+                    with open(tl_path, newline="", encoding="utf-8") as cf:
+                        tl_rows = sum(1 for _ in cf) - 1  # subtract header
+                    expected = m.get("total_accepted", -1)
+                    if tl_rows != expected:
+                        step9_failures.append(f"  [{prof}] Trade log count {tl_rows} != total_accepted {expected}")
+
+                if not step9_failures:
+                    print(f"[ORCHESTRATOR] Step 9 [{prof}]: All artifacts verified.")
+
+            if step9_failures:
+                print("[ERROR] DEPLOYABLE_INTEGRITY_FAILURE:")
+                for line in step9_failures:
+                    print(line)
+                print("[WARN] Deployable verification failed. Directive state unaffected (PORTFOLIO_COMPLETE).")
+            else:
+                print("[ORCHESTRATOR] Step 9: Deployable Artifact Verification COMPLETE.")
+
+        except Exception as dv_err:
+            print(f"[ERROR] DEPLOYABLE_INTEGRITY_FAILURE: {dv_err}")
+            print("[WARN] Deployable verification failed. Directive state unaffected (PORTFOLIO_COMPLETE).")
+        # --- END STEPS 8 & 9 ---
+
     except Exception as e:
         print(f"[ORCHESTRATOR] Execution Failed: {e}")
         
@@ -715,11 +900,14 @@ def run_batch_mode():
             print(f"\n[BATCH] Processing Directive {idx+1}/{len(directives)}: {d_name}")
             try:
                 run_single_directive(d_id)
-                final_dst = completed_dir / d_name
-                if final_dst.exists(): 
-                    os.remove(final_dst)
-                shutil.move(str(d_path), str(final_dst))
-                print(f"[BATCH] Completed: {d_name} -> {completed_dir}")
+                if "--provision-only" not in sys.argv:
+                    final_dst = completed_dir / d_name
+                    if final_dst.exists(): 
+                        os.remove(final_dst)
+                    shutil.move(str(d_path), str(final_dst))
+                    print(f"[BATCH] Completed: {d_name} -> {completed_dir}")
+                else:
+                    print(f"[BATCH] Provision-only: {d_name} remains in active/")
             except Exception as e:
                 print(f"[BATCH] FAILED: {d_name} - {e}")
                 print(f"[FAIL-FAST] Stopping batch execution.")
@@ -740,7 +928,7 @@ def main():
         run_batch_mode()
     else:
         directive_id = arg.replace(".txt", "")
-        print(f"MASTER PIPELINE EXECUTION — {directive_id}")
+        print(f"MASTER PIPELINE EXECUTION -- {directive_id}")
         run_single_directive(directive_id)
         print("\n[SUCCESS] Pipeline Completed Successfully.")
 

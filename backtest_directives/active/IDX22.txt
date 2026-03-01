@@ -1,0 +1,78 @@
+test:
+  name: IDX22
+  family: Index
+  strategy: IDX22
+
+  broker: OctaFx
+  timeframe: 1d
+  session_time_reference: UTC
+
+  start_date: 2015-01-01
+  end_date: 2026-01-31
+
+  research_mode: false
+  tuning_allowed: false
+  parameter_mutation: false
+
+  description: >
+    Dip Buying (Mean-Reversion) across Global Indices.
+    Enter long when Close dips below prior 5-bar Highest High minus ATR(14),
+    subject to volatility regime filter (ATR percentile <= 75) and
+    a 5-bar volatility shock cooldown. Exit on price recovery above HH_prev
+    or after 5 bars held.
+
+symbols:
+  - AUS200
+  - ESP35
+  - EUSTX50
+  - FRA40
+  - GER40
+  - JPN225
+  - NAS100
+  - SPX500
+  - UK100
+  - US30
+
+indicators:
+  - indicators.structure.highest_high
+  - indicators.volatility.atr
+  - indicators.volatility.atr_percentile
+  - indicators.volatility.volatility_regime
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+
+  entry_logic:
+    type: volatility_pullback
+    lookback_bars: 5
+    atr_length: 14
+    condition: close_less_than_hh_minus_atr
+
+  exit_logic:
+    type: dynamic_or_time
+    price_exit: close_greater_than_hh_prev
+    time_exit_bars: 5
+
+  stop_loss:
+    type: none
+
+  trailing_stop:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: false
+
+volatility_filter:
+  condition: atr_percentile_above_threshold
+  atr_length: 14
+  atr_percentile_lookback: 100
+  threshold: 75
+  cooldown_bars: 5

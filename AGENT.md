@@ -1,4 +1,4 @@
-# AGENT.md — Failure Classification & Rectification Playbook v1
+# AGENT.md — Failure Classification & Rectification Playbook v2
 
 **Authority:** Governance-First Pipeline Architecture  
 **Status:** DIAGNOSTIC ONLY — No mutation authority  
@@ -25,6 +25,15 @@ These are non-negotiable. The agent must never violate any of these.
 8. **Single Authority** — Only `run_pipeline.py` may mutate `run_state.json`. No other tool, script, or agent may modify state files.
 9. **Append-Only Audit** — `directive_audit.log` and run audit logs are append-only. No truncation. No retroactive edits.
 10. **Human Gating** — No new `strategy.py` may enter execution without explicit human approval (Admission Gate — SOP_TESTING §4A).
+11. **Protected Infrastructure** — Files under `tools/`, `engines/`, `engine_dev/`, `governance/`, and `.agents/workflows/` are Protected Infrastructure. Agent MUST NOT modify without presenting an implementation plan and receiving explicit human approval.
+12. **Single Signature Authority** — Signature construction is owned exclusively by `tools/directive_schema.py:normalize_signature()`. No other file may construct or compare signatures independently.
+13. **Genesis/Clone Classification** — New strategies (no existing `strategy.py`) use GENESIS_MODE: directive-only implementation, no cross-family behavioral borrowing. Existing strategies use CLONE_MODE.
+14. **No Workspace Mode** — All pipeline executions run in strict integrity mode. Engine hash verification and tools manifest verification are mandatory. There is no development bypass.
+15. **Governance-Authorized Reset Only** — `--force` is removed from the pipeline. Failed directives may only be reset via `tools/reset_directive.py --reason "<justification>"`, which logs to `governance/reset_audit_log.csv`. Use `--to-stage4` to resume at Stage-4 without re-running Stages 0-3 (only from FAILED or PORTFOLIO_COMPLETE). Resets also clean associated per-symbol run states. The agent MUST NOT invoke this tool autonomously.
+16. **Guard-Layer Manifest** — All Critical Guard Set files (`tools/tools_manifest.json`) are SHA-256 bound. `tools/generate_guard_manifest.py` is human-only; the agent MUST NOT invoke it or modify the manifest.
+17. **Root-of-Trust Vault Binding** — `verify_engine_integrity.py` is hash-bound via `vault/root_of_trust.json`. `preflight.py` verifies this hash before invoking the integrity checker. Vault updates require explicit human action. The agent MUST NOT modify `vault/root_of_trust.json`.
+18. **Engine Manifest Generator** — `tools/generate_engine_manifest.py` is human-only; the agent MUST NOT invoke it. It auto-detects the active engine version and writes `engine_manifest.json`.
+19. **Directive Schema Freeze** — The canonical directive schema is defined in `tools/canonical_schema.py` (FREEZE policy). All directives must conform to this schema. `tools/canonicalizer.py` validates structure at Stage -0.25. Unknown keys, misplaced blocks, type mismatches, and missing required sub-blocks cause HARD FAIL. The canonicalizer moves, renames, or reorders keys only via explicit tables — never via inference or leaf scanning.
 
 ---
 
@@ -32,6 +41,15 @@ These are non-negotiable. The agent must never violate any of these.
 
 ```
 Directive (YAML in active/)
+    │
+    ▼
+Stage -0.25: Structural Canonicalization
+    ├── Envelope Guard (test: must be identity-only)
+    ├── Tree Rebuild (parse → canonical blocks → type check)
+    ├── Conflict-Safe Relocation (misplaced keys)
+    ├── Leftover Rejection (unknown keys = HALT)
+    ├── Depth-2 Nested Key Validation
+    └── Deterministic Diff + Approval Gate
     │
     ▼
 Stage-0: Preflight
@@ -46,6 +64,10 @@ Stage-0.5: Semantic Validation
     ├── Indicator Set Verification (exact import matching)
     ├── Behavioral Guard (FilterStack enforcement, no hardcoded regime access)
     └── Admission Gate (hollow strategy detection → PROVISION_REQUIRED)
+    │
+    ▼
+Stage-0.55: Semantic Coverage Gate
+    └── All declared behavioral parameters referenced in strategy code
     │
     ▼
 Stage-0.75: Dry-Run Validation
@@ -89,6 +111,32 @@ Stage-4: Portfolio Evaluation
     │
     ▼
 PORTFOLIO_COMPLETE → Directive moved to completed/
+    │
+    ▼
+Step 7: Deterministic Report Generation (non-authoritative)
+    ├── REPORT_SUMMARY.md from raw results CSVs
+    └── Read-only — does NOT affect directive state
+    │
+    ▼
+Step 8: Capital Wrapper (deployable artifact emission)
+    ├── CONSERVATIVE_V1 + AGGRESSIVE_V1 profiles
+    ├── equity_curve.csv + equity_curve.png
+    ├── deployable_trade_log.csv
+    ├── summary_metrics.json
+    └── profile_comparison.json
+    │
+    ▼
+Step 9: Deployable Artifact Verification
+    ├── Equity math invariant (final_equity = starting + pnl)
+    ├── Non-negative equity check
+    ├── Trade log count match
+    └── PNG existence + non-zero size
+    │
+    ▼
+Step 10: Robustness Suite (observational research)
+    ├── 14-section analysis per profile
+    ├── Monte Carlo, Bootstrap, Friction Stress
+    └── Reports to strategies/ + outputs/reports/
 ```
 
 ---
@@ -127,7 +175,8 @@ Strategy was auto-provisioned by `strategy_provisioner.py` but no execution logi
 
 1. Human authors `check_entry()`, `check_exit()`, and `prepare_indicators()` logic
 2. Human approves the strategy (Admission Gate)
-3. Re-execute pipeline with `--force`
+3. Re-execute pipeline: `python tools/run_pipeline.py <DIRECTIVE>`
+   (If state is FAILED, human must first run `python tools/reset_directive.py <ID> --reason "strategy authored"`)
 
 **Escalation Required:** YES — Human must author strategy logic
 
@@ -143,7 +192,7 @@ Strategy was auto-provisioned by `strategy_provisioner.py` but no execution logi
 **Detection Mechanism:**  
 Any of:
 
-- `signature_version` in strategy does not match `SIGNATURE_SCHEMA_VERSION` (currently `1`)
+- `signature_version` in strategy does not match `SIGNATURE_SCHEMA_VERSION` (currently `2`, defined in `tools/directive_schema.py`)
 - Deep canonical comparison of `STRATEGY_SIGNATURE` in code vs directive-derived expected signature fails
 - Strategy `name` attribute does not match directive's declared strategy name
 - Strategy `timeframe` attribute does not match directive's declared timeframe
@@ -166,7 +215,7 @@ The strategy implementation does not match its governing directive. The signatur
 **Deterministic Recovery Path:**  
 
 1. Determine which is authoritative: directive or strategy
-2. If directive changed: re-provision strategy (`--force`)
+2. If directive changed: re-provision strategy (human resets via `tools/reset_directive.py`)
 3. If strategy was manually edited: restore signature from directive
 4. Re-run pipeline
 
@@ -940,12 +989,13 @@ They are recovery artifacts only.
 | **Strategy Authoring Error** | PROVISION_REQUIRED, HOLLOW_STRATEGY_DETECTED, DRYRUN_CRASH, FILTERSTACK_ARCHITECTURAL_VIOLATION, TRADE_PAYLOAD_SCHEMA_VIOLATION, INDICATOR_SERIES_OVERWRITE | Human — strategy logic must be authored/corrected |
 | **Data Issue** | DATA_LOAD_FAILURE, ARTIFACT_MISSING (NO_TRADES from bad data) | Data pipeline — re-ingest via SOP_17 |
 | **Governance Violation** | SCHEMA_VIOLATION, INDICATOR_IMPORT_MISMATCH, FILTERSTACK_ARCHITECTURAL_VIOLATION | Human — must align strategy with directive |
-| **Artifact Corruption** | MANIFEST_TAMPER_DETECTED, ARTIFACT_MISSING (post-creation) | Full re-provision (`--force`) |
-| **State Corruption** | STATE_TRANSITION_INVALID | Human investigation + `--force` reset |
+| **Artifact Corruption** | MANIFEST_TAMPER_DETECTED, ARTIFACT_MISSING (post-creation) | Full re-provision |
+| **State Corruption** | STATE_TRANSITION_INVALID | Human investigation + `reset_directive.py` |
 | **Environmental Failure** | PREFLIGHT_FAILURE, DATA_LOAD_FAILURE | Fix environment, then re-run |
 | **Requires Triage** | EXECUTION_ERROR | Subclassify after traceback inspection: may be Strategy Authoring Error, Data Issue, or Environmental Failure |
 | **Ledger Integrity** | STAGE_3_CARDINALITY_MISMATCH, STAGE_4_LEDGER_MISMATCH, SNAPSHOT_INTEGRITY_MISMATCH | Human investigation — ledger is authoritative |
+| **Post-Pipeline (Non-Fatal)** | REPORT_GENERATION_FAILURE, CAPITAL_WRAPPER_FAILURE, DEPLOYABLE_INTEGRITY_FAILURE, ROBUSTNESS_EVALUATION_FAILURE | Do NOT invalidate directive. Report error. Do NOT downgrade PORTFOLIO_COMPLETE. |
 
 ---
 
-**End of AGENT.md — Failure Classification & Rectification Playbook v1**
+**End of AGENT.md — Failure Classification & Rectification Playbook v2**

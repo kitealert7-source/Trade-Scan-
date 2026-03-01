@@ -1,6 +1,8 @@
 """Quick test for HollowDetector in semantic_validator.py"""
 import ast
 import sys
+import unittest
+
 
 # Hollow template (matches provisioner output)
 HOLLOW = '''
@@ -24,6 +26,7 @@ class Strategy:
             return {"signal": 1}
         return None
 '''
+
 
 class HollowDetector(ast.NodeVisitor):
     def __init__(self):
@@ -57,28 +60,27 @@ class HollowDetector(ast.NodeVisitor):
         if len(remaining) == 0:
             self.check_entry_is_hollow = True
 
-passed = 0
-failed = 0
 
-# Test 1: Hollow should be detected
-h = HollowDetector()
-h.visit(ast.parse(HOLLOW))
-if h.check_entry_is_hollow:
-    print("TEST 1 PASSED: Hollow template correctly detected")
-    passed += 1
-else:
-    print("TEST 1 FAILED: Hollow template NOT detected")
-    failed += 1
+class TestHollowDetector(unittest.TestCase):
+    """Test 1 -- Hollow template is correctly detected."""
 
-# Test 2: Real should NOT be detected
-r = HollowDetector()
-r.visit(ast.parse(REAL))
-if not r.check_entry_is_hollow:
-    print("TEST 2 PASSED: Real strategy correctly allowed")
-    passed += 1
-else:
-    print("TEST 2 FAILED: Real strategy incorrectly flagged as hollow")
-    failed += 1
+    def test_hollow_detected(self):
+        h = HollowDetector()
+        h.visit(ast.parse(HOLLOW))
+        self.assertTrue(
+            h.check_entry_is_hollow,
+            "Hollow template should be detected as hollow"
+        )
 
-print(f"\nResults: {passed} passed, {failed} failed")
-sys.exit(1 if failed > 0 else 0)
+    def test_real_strategy_not_hollow(self):
+        """Test 2 -- Real strategy is NOT flagged as hollow."""
+        r = HollowDetector()
+        r.visit(ast.parse(REAL))
+        self.assertFalse(
+            r.check_entry_is_hollow,
+            "Real strategy should not be flagged as hollow"
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -64,12 +64,11 @@ def main():
 
     print(f"Running Preflight on: {directive_path.name}")
 
-    # Vault check permanently disabled (workspace-only model)
+    # Strict mode -- all integrity checks mandatory
     decision, explanation, scope = run_preflight(
         str(directive_path),
         ENGINE_NAME,
         ENGINE_VERSION,
-        skip_vault_check=True
     )
 
     print("-" * 60)

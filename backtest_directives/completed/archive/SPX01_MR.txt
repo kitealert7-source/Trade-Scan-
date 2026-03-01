@@ -1,0 +1,51 @@
+SPX01 — DIP BUYING (MEAN-REVERSION)
+Family: SPX (Index Family)
+Strategy ID: SPX01_MR
+
+
+ broker: OctaFX
+ timeframe: 1d 
+ session_time_reference: UTC
+
+ start_date: 2024-01-15
+ end_date: 2026-02-15
+
+
+
+strategy indicators:
+
+"C:\Users\faraw\Documents\Trade_Scan\indicators\structure\highest_high.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\structure\lowest_low.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\price\roc.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\price\rsi.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\price\stochastic.py"
+
+default indicators
+
+"C:\Users\faraw\Documents\Trade_Scan\indicators\trend\linreg_regime.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\trend\linreg_regime_htf.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\trend\kalman_regime.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\trend\trend_persistence.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\volatility\volatility_regime.py"
+"C:\Users\faraw\Documents\Trade_Scan\indicators\volatility\atr.py"
+
+
+
+
+Symbols:
+
+- SPX500
+
+
+
+# Test Parameters
+Direction: Long Only
+
+
+# Entry Logic
+Condition: Enter long when Close < Close(T-1) AND Close(T-1) < Close(T-2) AND Close(T-2) < Close(T-3) OR Stoch(14,3) < 20 (Cross) OR ROC(5) < -1.0% OR RSI(2) Avg < 25
+
+# Exit Logic
+1. Primary Exit: RSI(2) > 75
+2. Fallback Exit: Bars Held >= 4
+3. Stoploss - 5 ATR fixed at entry

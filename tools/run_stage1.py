@@ -43,13 +43,26 @@ CONVERSION_CACHE = {}
 
 def parse_symbol_properties(symbol: str):
     """
-    Parse symbol into base and quote currencies.
-    - 6-char symbols (e.g. EURUSD) -> Base=EUR, Quote=USD
-    - 6+ chars ending in USD (e.g. XAUUSD) -> Base=XAU, Quote=USD
-    - Others -> Non-FX (Base=Symbol, Quote=None)
+    Parse symbol into base and quote currencies using broker spec metadata.
+    
+    Priority:
+        1. Broker spec price_unit (authoritative if spec exists)
+        2. Heuristic fallback (alpha-only 6-char = FX, endswith USD = commodity)
     """
     s = symbol.upper()
-    if len(s) == 6:
+    
+    # Try broker spec first (authoritative)
+    broker_spec_path = PROJECT_ROOT / "data_access" / "broker_specs" / BROKER / f"{s}.yaml"
+    if broker_spec_path.exists():
+        import yaml as _yaml
+        with open(broker_spec_path, "r") as f:
+            spec = _yaml.safe_load(f)
+        price_unit = spec.get("calibration", {}).get("price_unit", "")
+        if price_unit == "INDEX_POINT":
+            return s, None  # Non-FX: PnL is already in USD
+    
+    # Heuristic fallback
+    if len(s) == 6 and s.isalpha():
         return s[:3], s[3:]
     elif s.endswith("USD"):
         return s[:-3], "USD"
@@ -205,22 +218,29 @@ def load_broker_spec(symbol: str) -> dict:
     return spec
 
 
-def load_strategy(strategy_id: str):
+def load_strategy(strategy_id: str, run_id: str = None):
     """Dynamically load strategy plugin."""
     import importlib
     
     # Validation
-    plugin_path = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
+    if run_id:
+        plugin_path = PROJECT_ROOT / "runs" / run_id / "strategy.py"
+        module_path = f"runs.{run_id}.strategy"
+    else:
+        plugin_path = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
+        module_path = f"strategies.{strategy_id}.strategy"
+
     if not plugin_path.exists():
         raise FileNotFoundError(f"Strategy plugin not found: {plugin_path}")
 
     # --- INVARIANT 10: Research Layer Boundary Guard ---
     resolved = plugin_path.resolve()
     strategies_root = (PROJECT_ROOT / "strategies").resolve()
-    if not str(resolved).startswith(str(strategies_root)):
+    runs_root = (PROJECT_ROOT / "runs").resolve()
+    if not str(resolved).startswith(str(strategies_root)) and not str(resolved).startswith(str(runs_root)):
         raise RuntimeError(
             f"[FATAL] Boundary Violation: Strategy path '{resolved}' "
-            f"is outside governed strategies/ directory."
+            f"is outside governed directories."
         )
     if "research" in str(resolved).lower():
         raise RuntimeError(
@@ -283,7 +303,7 @@ def run_engine_logic(df, strategy):
     return run_execution_loop(df, strategy)
 
 
-def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, median_bar_seconds=0):
+def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds=0):
     """Emit artifacts for a single symbol run."""
     import pandas as pd
     from engine_dev.universal_research_engine.v1_4_0.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
@@ -454,6 +474,28 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             data = json.load(f)
             data['content_hash'] = content_hash
             data['lineage_string'] = lineage_str
+            
+            # Phase 1: Signature Fingerprinting & Inert Filter Tracking
+            trend_filter_enabled = False
+            sig = getattr(strategy, 'STRATEGY_SIGNATURE', getattr(strategy, 'signature', {}))
+            
+            if isinstance(sig, dict):
+                trend_filter_enabled = sig.get('trend_filter', {}).get('enabled', False)
+                if not trend_filter_enabled:
+                    trend_filter_enabled = sig.get('volatility_filter', {}).get('enabled', False)
+                
+            data['trend_filter_enabled'] = trend_filter_enabled
+            
+            # Tracking blocked bars
+            if hasattr(strategy, 'filter_stack'):
+                fstack = strategy.filter_stack
+                if hasattr(fstack, 'signature_hash'):
+                    data['signature_hash'] = fstack.signature_hash
+                if hasattr(fstack, 'filtered_bars'):
+                    data['filtered_bars'] = fstack.filtered_bars
+                    data['total_bars'] = len(df)
+                    data['filter_coverage'] = float(fstack.filtered_bars) / len(df) if len(df) > 0 else 0.0
+                    
             f.seek(0)
             json.dump(data, f, indent=4)
             f.truncate()
@@ -579,8 +621,21 @@ def main():
         
         print(f"    Geometry: {median_bar_seconds}s per bar")
         
-        # Strategy
-        strategy = load_strategy(strategy_id)
+        # --- PHASE 1 GOVERNANCE GUARDRAIL: Pre-execution Snapshot ---
+        import shutil
+        target_dir = PROJECT_ROOT / "runs" / run_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        source_file = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
+        snapshot_file = target_dir / "strategy.py"
+        
+        if source_file.exists():
+            shutil.copy2(source_file, snapshot_file)
+            print("    [GOVERNANCE] strategy_snapshot_verified: true")
+        else:
+            raise FileNotFoundError(f"Source strategy missing: {source_file}")
+        
+        # Strategy (Load from Snapshot)
+        strategy = load_strategy(strategy_id, run_id=run_id)
         
         # Exec
         trades = run_engine_logic(df, strategy)
@@ -588,23 +643,17 @@ def main():
         
         # Emit
         if trades:
-            out_folder = emit_result(trades, df, broker_spec, target_symbol, run_id, content_hash, lineage_str, directive_content, median_bar_seconds)
+            out_folder = emit_result(trades, df, broker_spec, target_symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds)
             
-            # Persist Strategy
-            from pathlib import Path
-            import shutil
-
-            target_dir = PROJECT_ROOT / "runs" / run_id
-            target_dir.mkdir(parents=True, exist_ok=True)
-
-            # Source plugin file
-            plugin_file = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
-
-            if not plugin_file.exists():
-                raise FileNotFoundError(f"Cannot snapshot strategy — file missing: {plugin_file}")
-
-            # Copy full module file verbatim
-            shutil.copy2(plugin_file, target_dir / "strategy.py")
+            # Phase 1: Store hash in run_state.json
+            state_file = target_dir / "run_state.json"
+            if state_file.exists() and hasattr(strategy, 'filter_stack') and hasattr(strategy.filter_stack, 'signature_hash'):
+                with open(state_file, 'r+', encoding='utf-8') as f:
+                    state_data = json.load(f)
+                    state_data['signature_hash'] = strategy.filter_stack.signature_hash
+                    f.seek(0)
+                    json.dump(state_data, f, indent=4)
+                    f.truncate()
             
             contract_size = float(broker_spec["contract_size"])
             min_lot = float(broker_spec["min_lot"])
@@ -643,6 +692,16 @@ def main():
             
             status = "SUCCESS"
             print(f"    [SUCCESS] Artifacts: {out_folder}")
+            
+            # Phase 1: Artifact existence assertion (Stage-0 governance)
+            REQUIRED_ARTIFACTS = ["results_tradelevel.csv", "results_standard.csv", "results_risk.csv"]
+            for artifact_name in REQUIRED_ARTIFACTS:
+                artifact_path = out_folder / "raw" / artifact_name
+                if not artifact_path.exists():
+                    raise RuntimeError(
+                        f"ABORT_GOVERNANCE: Required artifact missing after emission: {artifact_name}"
+                    )
+            print("    [GOVERNANCE] All required artifacts verified.")
         else:
             status = "NO_TRADES"
             print("    [WARN] No trades generated.")

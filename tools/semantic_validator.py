@@ -24,8 +24,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Import specific tools
 from tools.directive_utils import load_directive_yaml, get_key_ci
 
-SIGNATURE_SCHEMA_VERSION = 1
-
 def _canonicalize(obj):
     """
     Return a structural canonical representation for strict deterministic comparison.
@@ -79,22 +77,9 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     if not isinstance(declared_indicators, list):
          raise ValueError(f"Directive 'Indicators' must be a list. Found {type(declared_indicators)}.")
 
-    # BUILD EXPECTED SIGNATURE (Must match provisioner exactly)
-    vol_filter = get_key_ci(d_conf, "volatility_filter") or get_key_ci(test_block, "volatility_filter") or {}
-    range_def = get_key_ci(d_conf, "range_definition") or get_key_ci(test_block, "range_definition") or {}
-    trade_mgmt = get_key_ci(d_conf, "trade_management") or get_key_ci(test_block, "trade_management") or {}
-    exec_rules = get_key_ci(d_conf, "execution_rules") or get_key_ci(test_block, "execution_rules") or {}
-    order_placement = get_key_ci(d_conf, "order_placement") or get_key_ci(test_block, "order_placement") or {}
-
-    expected_signature = {
-        "signature_version": SIGNATURE_SCHEMA_VERSION,
-        "indicators": declared_indicators,
-        "volatility_filter": vol_filter,
-        "range_definition": range_def,
-        "trade_management": trade_mgmt,
-        "execution_rules": exec_rules,
-        "order_placement": order_placement
-    }
+    # BUILD EXPECTED SIGNATURE (Single Authority: directive_schema.py)
+    from tools.directive_schema import normalize_signature
+    expected_signature = normalize_signature(d_conf)
 
     # 2. Locate Strategy (Implementation)
     # ------------------------------------------------------------------
@@ -179,6 +164,7 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     
     actual_version = visitor.signature_dict.get("signature_version")
 
+    from tools.directive_schema import SIGNATURE_SCHEMA_VERSION
     if actual_version != SIGNATURE_SCHEMA_VERSION:
         raise ValueError(
             f"Signature schema version mismatch. "

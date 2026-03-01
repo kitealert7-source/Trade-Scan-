@@ -101,17 +101,28 @@ def parse_directive(file_path: Path) -> dict:
 
     data = _stringify_dates(data)
 
+    # STRICT: test: wrapper is mandatory (flat directives no longer supported)
+    if "test" not in data:
+        raise ValueError(
+            "INVALID DIRECTIVE STRUCTURE: 'test:' wrapper block is required. "
+            "Flat directives are no longer supported."
+        )
+
     # Mirror test: sub-keys into root for backward-compatible downstream access.
     # Collision detection: raises if a root key would be silently overwritten.
     test_block = data.get("test", {})
     if isinstance(test_block, dict):
+        # Case-insensitive collision check to match downstream get_key_ci() reads.
+        # Prevents ambiguous duplicates like 'Strategy' vs 'strategy' coexisting.
+        existing_keys_lower = {ek.lower() for ek in data.keys()}
         for k, v in test_block.items():
-            if k in data:
+            if k.lower() in existing_keys_lower:
                 raise ValueError(
                     f"KEY COLLISION during test: merge: "
-                    f"'{k}' already exists at root level"
+                    f"'{k}' conflicts with an existing root-level key (case-insensitive check)"
                 )
             data[k] = v
+            existing_keys_lower.add(k.lower())
 
     return data
 
@@ -257,6 +268,15 @@ class PipelineStateManager:
 
     def initialize(self):
         """Creates the run directory and initial state file with Audit Log."""
+        # Idempotency guard: only skip reset when state is exactly
+        # PREFLIGHT_COMPLETE_SEMANTICALLY_VALID — the state provision-only
+        # leaves runs at. All other non-IDLE states fall through to the
+        # existing reset-to-IDLE logic, preserving the re-init contract
+        # tested by TestInitializeResetHistory.
+        current = self.get_state_data().get("current_state")
+        if current == "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID":
+            return  # Provision-only resume — do not reset
+
         self.run_dir.mkdir(parents=True, exist_ok=True)
         
         # 1. State File

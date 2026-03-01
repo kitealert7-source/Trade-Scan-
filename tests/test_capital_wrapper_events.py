@@ -1,16 +1,15 @@
 """Phase 6 validation: Dynamic USD conversion vs static YAML calibration."""
 
 import sys, csv, tempfile, shutil, yaml, json
+import unittest
 from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools.capital_wrapper import (
     load_trades, build_events, sort_events, run_simulation,
-    print_validation_summary, print_comparative_summary,
-    compute_deployable_metrics, ConversionLookup, _parse_fx_currencies,
-    CONVERSION_MAP, BROKER_SPECS_ROOT, PROFILES,
-    get_usd_per_price_unit_static, get_usd_per_price_unit_dynamic,
+    ConversionLookup, _parse_fx_currencies,
+    BROKER_SPECS_ROOT
 )
 
 # Synthetic trades across USD-quote, USD-base, and cross pairs
@@ -31,14 +30,13 @@ FIELDS = [
     "entry_price", "exit_price", "risk_distance",
 ]
 
-
-def main():
-    tmp = Path(tempfile.mkdtemp())
-    try:
-        dirs = []
-        symbols = sorted(set(t[0] for t in TRADES))
-        for sym in symbols:
-            d = tmp / ("TEST_" + sym)
+class TestCapitalWrapperEvents(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.dirs = []
+        self.symbols = sorted(set(t[0] for t in TRADES))
+        for sym in self.symbols:
+            d = self.tmp / ("TEST_" + sym)
             raw = d / "raw"
             raw.mkdir(parents=True)
             rows = [t for t in TRADES if t[0] == sym]
@@ -57,14 +55,18 @@ def main():
                         "exit_price": r[6],
                         "risk_distance": r[7],
                     })
-            dirs.append(d)
+            self.dirs.append(d)
 
-        trades = load_trades(dirs)
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_phase_6_validation(self):
+        trades = load_trades(self.dirs)
         events = build_events(trades)
         sorted_events = sort_events(events)
 
         broker_specs = {}
-        for sym in symbols:
+        for sym in self.symbols:
             with open(BROKER_SPECS_ROOT / f"{sym}.yaml", "r") as f:
                 broker_specs[sym] = yaml.safe_load(f)
 
@@ -73,77 +75,47 @@ def main():
 
         # --- RUN B: Dynamic ---
         quote_ccys = set()
-        for sym in symbols:
+        for sym in self.symbols:
             _, q = _parse_fx_currencies(sym)
             if q:
                 quote_ccys.add(q)
 
         conv = ConversionLookup()
         conv.load(quote_ccys)
-
         states_dynamic = run_simulation(sorted_events, broker_specs, conv_lookup=conv)
 
         # --- RUN C: Dynamic again (determinism) ---
         states_dynamic_2 = run_simulation(sorted_events, broker_specs, conv_lookup=conv)
 
-        print("\n" + "=" * 70)
-        print("  PHASE 6 VALIDATION")
-        print("=" * 70)
-
         # 1. EURUSD: static == dynamic (USD quote, rate = 1.0)
         con_s = states_static["CONSERVATIVE_V1"]
         con_d = states_dynamic["CONSERVATIVE_V1"]
-        # Check per-trade sizing: for EURUSD trades, lot sizes should be identical
         eurusd_static_lots = [t["lot_size"] for t in con_s.closed_trades_log if "EURUSD" in t["trade_id"]]
         eurusd_dynamic_lots = [t["lot_size"] for t in con_d.closed_trades_log if "EURUSD" in t["trade_id"]]
         if eurusd_static_lots and eurusd_dynamic_lots:
-            match = all(abs(a - b) < 1e-8 for a, b in zip(eurusd_static_lots, eurusd_dynamic_lots))
-            print(f"  [{'PASS' if match else 'FAIL'}] EURUSD lot sizes: static={eurusd_static_lots} dynamic={eurusd_dynamic_lots}")
-        else:
-            print(f"  [INFO] EURUSD trades: static={len(eurusd_static_lots)} dynamic={len(eurusd_dynamic_lots)}")
+            for a, b in zip(eurusd_static_lots, eurusd_dynamic_lots):
+                self.assertAlmostEqual(a, b, places=8)
 
         # 2. USDJPY: dynamic should differ from static because rate varies
         usdjpy_static_lots = [t["lot_size"] for t in con_s.closed_trades_log if "USDJPY" in t["trade_id"]]
         usdjpy_dynamic_lots = [t["lot_size"] for t in con_d.closed_trades_log if "USDJPY" in t["trade_id"]]
-        print(f"  [INFO] USDJPY lot sizes: static={usdjpy_static_lots} dynamic={usdjpy_dynamic_lots}")
         if usdjpy_static_lots and usdjpy_dynamic_lots:
             differs = any(abs(a - b) > 1e-8 for a, b in zip(usdjpy_static_lots, usdjpy_dynamic_lots))
-            print(f"  [{'PASS' if differs else 'WARN'}] USDJPY sizing varies by date: {differs}")
-
-        # 3. Overall comparison
-        print(f"\n  STATIC  Conservative: equity=${con_s.equity:,.2f}  accepted={con_s.total_accepted}")
-        print(f"  DYNAMIC Conservative: equity=${con_d.equity:,.2f}  accepted={con_d.total_accepted}")
-        print(f"  Delta equity: ${con_d.equity - con_s.equity:,.2f}")
+            self.assertTrue(differs, "USDJPY sizing should vary by date")
 
         # 4. Invariants
         for label, states in [("STATIC", states_static), ("DYNAMIC", states_dynamic)]:
             for name, s in states.items():
-                assert not s._heat_breach, f"{label}/{name}: HEAT BREACH"
-                assert not s._leverage_breach, f"{label}/{name}: LEVERAGE BREACH"
-                assert not s._equity_negative, f"{label}/{name}: NEGATIVE EQUITY"
-        print(f"  [PASS] All invariants hold (static + dynamic)")
+                self.assertFalse(s._heat_breach, f"{label}/{name}: HEAT BREACH")
+                self.assertFalse(s._leverage_breach, f"{label}/{name}: LEVERAGE BREACH")
+                self.assertFalse(s._equity_negative, f"{label}/{name}: NEGATIVE EQUITY")
 
         # 5. Determinism
         for name in states_dynamic:
             s1 = states_dynamic[name]
             s2 = states_dynamic_2[name]
-            assert round(s1.equity, 2) == round(s2.equity, 2), f"{name}: equity drift"
-            assert s1.total_accepted == s2.total_accepted, f"{name}: accepted drift"
-        print(f"  [PASS] Determinism: DYNAMIC RUN1 == RUN2")
-
-        # 6. Print summaries
-        print(f"\n  --- STATIC ---")
-        print_validation_summary(states_static["CONSERVATIVE_V1"])
-        print(f"  --- DYNAMIC ---")
-        print_validation_summary(states_dynamic["CONSERVATIVE_V1"])
-
-        print("=" * 70)
-        print("  ALL PHASE 6 CHECKS PASSED")
-        print("=" * 70)
-
-    finally:
-        shutil.rmtree(tmp)
-
+            self.assertAlmostEqual(s1.equity, s2.equity, places=2)
+            self.assertEqual(s1.total_accepted, s2.total_accepted)
 
 if __name__ == "__main__":
-    main()
+    unittest.main()

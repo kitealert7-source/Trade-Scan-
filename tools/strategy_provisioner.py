@@ -222,8 +222,7 @@ def _update_existing_strategy(file_path: Path, signature: dict, required_imports
 # ... (removed import yaml below)
 
 from tools.directive_utils import load_directive_yaml, get_key_ci
-
-SIGNATURE_SCHEMA_VERSION = 1
+from tools.directive_schema import normalize_signature, SIGNATURE_SCHEMA_VERSION
 
 def provision_strategy(directive_path: str) -> bool:
     """
@@ -258,32 +257,18 @@ def provision_strategy(directive_path: str) -> bool:
         strategy_dir = PROJECT_ROOT / "strategies" / s_name
         strategy_file = strategy_dir / "strategy.py"
         
-        # 4. Construct Signature Elements (Direct Extraction)
-        # Check root first for specific sections, then test block?
-        # Usually sections like range_definition are at root.
+        # 4. Signature Construction (Single Authority: directive_schema.py)
+        try:
+            signature = normalize_signature(d_conf)
+        except ValueError as e:
+            print(f"[PROVISION] FATAL: {e}")
+            return False
         
-        indicators = get_key_ci(d_conf, "indicators") or get_key_ci(test_block, "indicators") or []
-        if isinstance(indicators, str): indicators = [indicators]
-        
-        vol_filter = get_key_ci(d_conf, "volatility_filter") or get_key_ci(test_block, "volatility_filter") or {}
-        range_def = get_key_ci(d_conf, "range_definition") or get_key_ci(test_block, "range_definition") or {}
-        trade_mgmt = get_key_ci(d_conf, "trade_management") or get_key_ci(test_block, "trade_management") or {}
-        exec_rules = get_key_ci(d_conf, "execution_rules") or get_key_ci(test_block, "execution_rules") or {}
-        
-        # The line below is already present, no change needed based on the instruction's intent
-        # SIGNATURE_SCHEMA_VERSION = 1 
-        
-        order_placement = get_key_ci(d_conf, "order_placement") or get_key_ci(test_block, "order_placement") or {}
-        
-        signature = {
-            "signature_version": SIGNATURE_SCHEMA_VERSION,
-            "indicators": indicators,
-            "volatility_filter": vol_filter,
-            "range_definition": range_def,
-            "trade_management": trade_mgmt,
-            "execution_rules": exec_rules,
-            "order_placement": order_placement  # Add this just in case
-        }
+        # Extract indicators (needed for import generation)
+        indicators = signature.get("indicators", [])
+        if isinstance(indicators, str):
+            indicators = [indicators]
+
         
         # 5. Build Import Requirements
         import_lines = _generate_import_lines(indicators)

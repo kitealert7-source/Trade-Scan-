@@ -1,5 +1,5 @@
 """
-Stage-0.75 — Strategy Dry-Run Validator (Pure, Side-Effect Free)
+Stage-0.75 -- Strategy Dry-Run Validator (Pure, Side-Effect Free)
 Authority: Pipeline Robustness Hardening
 Status: MANDATORY EXECUTION GATE
 
@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.directive_utils import load_directive_yaml, get_key_ci
+from engine_dev.universal_research_engine.v1_4_0.execution_loop import ContextView
 
 
 def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_path) -> bool:
@@ -99,13 +100,27 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
         return False
     
     print(f"[DRYRUN] prepare_indicators() executed successfully")
-    
-    # 5. Iterate check_entry over sample (pure — no state mutation)
+
+    # 4a. Engine Contract Check -- authoritative indicator presence
+    # Source of truth: execution_loop.AUTHORITATIVE_INDICATORS (do NOT duplicate list here)
+    try:
+        from engine_dev.universal_research_engine.v1_4_0.execution_loop import AUTHORITATIVE_INDICATORS
+    except ImportError:
+        # Fallback: engine not importable in this context -- skip check safely
+        AUTHORITATIVE_INDICATORS = []
+
+    missing = [col for col in AUTHORITATIVE_INDICATORS if col not in df.columns]
+    if missing:
+        print(f"[DRYRUN] FATAL: Missing authoritative engine indicators: {missing}")
+        print(f"[DRYRUN] Add these columns in prepare_indicators() before pipeline can proceed.")
+        return False
+
+    # 5. Iterate check_entry over sample (pure -- no state mutation)
     signal_count = 0
     try:
         for i in range(len(df)):
             row = df.iloc[i]
-            ctx = types.SimpleNamespace(
+            ns = types.SimpleNamespace(
                 row=row,
                 index=i,
                 direction=0,
@@ -114,6 +129,7 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
                 entry_index=None,
                 bars_held=0,
             )
+            ctx = ContextView(ns)
             result = strategy.check_entry(ctx)
             if result is not None:
                 signal_count += 1

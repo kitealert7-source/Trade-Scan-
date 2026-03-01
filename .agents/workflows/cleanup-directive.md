@@ -102,3 +102,6 @@ Report **FAIL** with the first unexpected action only.
 - Do not add heuristics or extra cleanup.
 - Treat file locks or transient failures as non-fatal; allow next run to converge.
 - Strategy and Portfolio layers must remain strictly independent.
+- Do NOT touch `runs/*/run_state.json` — run state cleanup is exclusively handled by `tools/reset_directive.py`.
+- Do NOT touch `tools/*.json` (manifests), `vault/` (root-of-trust), or `governance/` (audit logs).
+- Do NOT delete `strategies/<NAME>/deployable/` folders — these are capital wrapper outputs and may be independently consumed.

@@ -1148,6 +1148,7 @@ def main():
     for name, state in states.items():
         profile_dir = deployable_root / name
         metrics = emit_profile_artifacts(state, profile_dir)
+        plot_equity_curve(state, profile_dir)
         all_metrics[name] = metrics
 
     emit_comparison_json(all_metrics, states, deployable_root)

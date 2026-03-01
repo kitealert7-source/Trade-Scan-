@@ -37,18 +37,8 @@ def load_engine():
     return module
 
 
-def verify_hashes(mode="strict"):
-    """Verify engine file hashes against the vaulted manifest."""
-    if mode == "workspace":
-        print("[INFO] Mode: WORKSPACE — Skipping Vault Hash Verification")
-        print(f"[INFO] Engine Root: {ENGINE_ROOT}")
-        # Basic check: Ensure minimal files exist
-        required = ["execution_loop.py", "main.py"]
-        missing = [f for f in required if not (ENGINE_ROOT / f).exists()]
-        if missing:
-            print(f"[FAIL] Missing critical workspace files: {missing}")
-            return False
-        return True
+def verify_hashes():
+    """Verify engine file hashes against the vaulted manifest (strict mode only)."""
 
     if not MANIFEST_PATH.exists():
         print(f"[FAIL] Manifest not found at {MANIFEST_PATH}")
@@ -91,17 +81,31 @@ def verify_hashes(mode="strict"):
         print(f"[PASS] Hash Verification: {len([k for k in file_hashes if not k.endswith('.md')])} engine files match manifest")
         return True
 
-def verify_tools_integrity(mode="strict"):
-    """Verify critical tool hashes against tools_manifest.json."""
-    if mode == "workspace":
-        return True # Skip in workspace mode
-
+def verify_tools_integrity():
+    """Verify critical tool hashes against tools_manifest.json (mandatory)."""
     if not TOOLS_MANIFEST.exists():
-        print(f"[WARN] Tools manifest not found at {TOOLS_MANIFEST}")
-        return True
+        print(f"[FAIL] Tools manifest not found at {TOOLS_MANIFEST}")
+        return False
 
     with open(TOOLS_MANIFEST, 'r', encoding='utf-8') as f:
         manifest = json.load(f)
+
+    # Fix 4: Manifest timing warning — warn if any file was modified after manifest was generated.
+    # Warning-only: does NOT fail verification, does NOT auto-regenerate.
+    generated_at_str = manifest.get("generated_at")
+    if generated_at_str:
+        try:
+            from datetime import datetime, timezone
+            manifest_ts = datetime.fromisoformat(generated_at_str).timestamp()
+            file_hashes_keys = manifest.get("file_hashes", {}).keys()
+            for filename in file_hashes_keys:
+                fpath = TOOLS_ROOT / filename
+                if fpath.exists():
+                    file_mtime = fpath.stat().st_mtime
+                    if file_mtime > manifest_ts:
+                        print(f"[WARN] {filename} modified AFTER last manifest generation. Re-run generate_guard_manifest.py.")
+        except Exception:
+            pass  # Non-fatal — timestamp comparison failure should never block verification
 
     file_hashes = manifest.get("file_hashes", {})
     failures = []
@@ -168,11 +172,11 @@ class IntegrityStrategy:
 
 def run_check():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["strict", "workspace"], default="strict", help="Verification mode")
+    parser.add_argument("--mode", choices=["strict"], default="strict", help="Verification mode (strict only)")
     args = parser.parse_args()
 
     print("="*60)
-    print(f"ENGINE INTEGRITY SELF-TEST (Mode: {args.mode})")
+    print(f"ENGINE INTEGRITY SELF-TEST (Mode: strict)")
     print("="*60)
     
     # 1. Load Engine
@@ -184,12 +188,12 @@ def run_check():
         sys.exit(1)
 
     # 1.5 Verify File Hashes Against Manifest
-    if not verify_hashes(mode=args.mode):
+    if not verify_hashes():
         print("[FAIL] Engine files do not match vaulted manifest. Aborting.")
         sys.exit(1)
 
     # 1.6 Verify Tools Integrity
-    if not verify_tools_integrity(mode=args.mode):
+    if not verify_tools_integrity():
         print("[FAIL] Critical tools do not match tools_manifest. Aborting.")
         sys.exit(1)
 
@@ -201,7 +205,12 @@ def run_check():
         "high": 105.0,
         "low": 95.0,
         "close": 100.0,
-        "volume": 1000
+        "volume": 1000,
+        "volatility_regime": "normal",
+        "trend_score": 0,
+        "trend_regime": 0,
+        "trend_label": "neutral",
+        "atr": 5.0
     })
     
     # 3. Initialize Strategy

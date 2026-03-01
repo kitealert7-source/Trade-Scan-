@@ -76,6 +76,7 @@ def load_all_trades(strategy_id):
     """
     all_trades = []
     symbol_trades = {}
+    meta_records = {}
 
     # 1. Read Master Sheet
     master_path = BACKTESTS_ROOT / "Strategy_Master_Filter.xlsx"
@@ -153,13 +154,16 @@ def load_all_trades(strategy_id):
         # Load Metadata (Preserved Logic)
         strat_name = strategy_id
         meta_path = run_folder / "metadata" / "run_metadata.json"
+        meta_dict = {}
         try:
             if meta_path.exists():
                 with open(meta_path, 'r', encoding='utf-8') as f:
                     meta = json.load(f)
                     strat_name = meta.get('strategy_name', strategy_id)
+                    meta_dict = meta
         except Exception:
             pass
+        meta_records[symbol] = meta_dict
 
         # Load Trade Data
         try:
@@ -188,7 +192,7 @@ def load_all_trades(strategy_id):
     portfolio_df.sort_values('exit_timestamp', inplace=True)
     portfolio_df.reset_index(drop=True, inplace=True)
     
-    return portfolio_df, symbol_trades
+    return portfolio_df, symbol_trades, meta_records
 
 
 def load_symbol_metrics(strategy_id):
@@ -1087,7 +1091,7 @@ def generate_portfolio_tradelevel(portfolio_df, output_dir, total_capital):
     }
 def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
                   dd_anatomy, stress_results, regime_data, cap_util, concurrency_data, 
-                  max_stress_corr, constituent_run_ids, output_dir):
+                  max_stress_corr, constituent_run_ids, inert_warnings, output_dir):
     """Save frozen evaluation snapshot."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1130,7 +1134,8 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'profit_factor': port_metrics.get('profit_factor', 0.0),
         'expectancy': port_metrics.get('expectancy', 0.0),
         'exposure_pct': port_metrics.get('exposure_pct', 0.0),
-        'equity_stability_k_ratio': port_metrics.get('equity_stability_k_ratio', 0.0)
+        'equity_stability_k_ratio': port_metrics.get('equity_stability_k_ratio', 0.0),
+        'inert_filter_warnings': inert_warnings
     }
     with open(output_dir / 'portfolio_summary.json', 'w') as f:
         json.dump(summary, f, indent=4)
@@ -1234,6 +1239,10 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     if concurrency_data['full_load_cluster']:
         overview += """
 ⚠ **Full-load clustering detected**: 95th percentile concurrency equals maximum concurrency. Monitor regime transition risk.
+"""
+    if inert_warnings:
+        overview += f"""
+⚠ **INERT FILTER WARNING**: The following symbols have filters enabled but 0% coverage (0 bars filtered during execution), indicating the filter had no effect vs un-filtered baseline: {', '.join(inert_warnings)}
 """
 
     overview += f"""
@@ -1452,8 +1461,47 @@ def main():
 
     # Load data
     print("\n[1/9] Loading trade data...")
-    portfolio_df, symbol_trades = load_all_trades(strategy_id)
+    portfolio_df, symbol_trades, meta_records = load_all_trades(strategy_id)
     print(f"  Loaded {len(portfolio_df)} trades across {len(symbol_trades)} symbols")
+    
+    # Phase 1: Metadata Contract Enforcement — HARD FAIL
+    REQUIRED_META_KEYS = ["signature_hash", "trend_filter_enabled", "filter_coverage", "filtered_bars", "total_bars"]
+    meta_warnings = []
+    for sym, meta in meta_records.items():
+        missing_keys = [k for k in REQUIRED_META_KEYS if k not in meta]
+        if missing_keys:
+            meta_warnings.append(f"{sym}: missing {missing_keys}")
+    if meta_warnings:
+        for w in meta_warnings:
+            print(f"    - {w}")
+        raise RuntimeError(
+            f"GOVERNANCE_ABORT: {len(meta_warnings)} symbols missing required metadata contract. "
+            f"Re-run backtests with updated pipeline to populate missing fields."
+        )
+    
+    # Phase 1: Signature Hash Consistency Check
+    unique_hashes = set()
+    for sym, meta in meta_records.items():
+        h = meta.get('signature_hash')
+        if h:
+            unique_hashes.add(h)
+    if len(unique_hashes) > 1:
+        raise RuntimeError(
+            f"GOVERNANCE_ABORT: Mixed signature hashes detected across symbols. "
+            f"Found {len(unique_hashes)} unique hashes: {unique_hashes}. "
+            f"All symbols in a portfolio must share the same strategy signature."
+        )
+    print(f"  [GOVERNANCE] Signature hash consistent across {len(meta_records)} symbols.")
+    
+    # Check for Inert Filters
+    inert_warnings = []
+    for sym, meta in meta_records.items():
+        if meta.get('trend_filter_enabled', False):
+            coverage = meta.get('filter_coverage', -1)
+            if coverage == 0.0:
+                inert_warnings.append(sym)
+    if inert_warnings:
+        print(f"  [WARN] Inert filters detected on {len(inert_warnings)} symbols (0% filter coverage)")
 
     # Portfolio construction
     print("[2/9] Building portfolio equity curve...")
@@ -1591,7 +1639,7 @@ def main():
     recommendation = save_snapshot(
         strategy_id, port_metrics, contributions, corr_data,
         dd_anatomy, stress_results, regime_data, cap_util, concurrency_data, 
-        max_stress_corr, unique_runs, output_dir
+        max_stress_corr, unique_runs, inert_warnings, output_dir
     )
 
 

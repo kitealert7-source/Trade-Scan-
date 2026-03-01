@@ -27,7 +27,6 @@ def run_preflight(
     directive_path: str,
     engine_name: str,
     engine_version: str,
-    skip_vault_check: bool = False
 ) -> tuple[str, str, Optional[dict]]:
     """
     Run preflight checks before backtest execution.
@@ -64,22 +63,62 @@ def run_preflight(
     
     # Check if engine is vaulted (modification not allowed)
     vault_path = PROJECT_ROOT / "vault" / "engines" / engine_name
-    if not skip_vault_check and vault_path.exists():
-        pass
     
-    # --- CHECK 2.5: Mandatory Engine Integrity Check ---
+    # --- CHECK 2.25: Root-of-Trust Vault Binding ---
+    # verify_engine_integrity.py is the root-of-trust for all other checks.
+    # Its hash is stored in vault/root_of_trust.json (human-signed, agent-forbidden).
+    # This check MUST execute before invoking the integrity checker.
     integrity_check = PROJECT_ROOT / "tools" / "verify_engine_integrity.py"
-    
+
     if not integrity_check.exists():
         return (
             "HARD_STOP",
             "Engine integrity checker missing: tools/verify_engine_integrity.py",
             None
         )
+
+    rot_path = PROJECT_ROOT / "vault" / "root_of_trust.json"
+    if not rot_path.exists():
+        return (
+            "HARD_STOP",
+            "Root-of-trust manifest missing: vault/root_of_trust.json",
+            None
+        )
+
+    import json as _json
+    import hashlib as _hashlib
+    try:
+        with open(rot_path, "r", encoding="utf-8") as _f:
+            rot_manifest = _json.load(_f)
+        expected_hash = rot_manifest.get("verify_engine_integrity.py")
+        if not expected_hash:
+            return (
+                "HARD_STOP",
+                "Root-of-trust manifest missing hash for verify_engine_integrity.py",
+                None
+            )
+        _sha = _hashlib.sha256()
+        with open(integrity_check, "rb") as _f:
+            for _chunk in iter(lambda: _f.read(8192), b""):
+                _sha.update(_chunk)
+        actual_hash = _sha.hexdigest().upper()
+        if actual_hash != expected_hash.upper():
+            return (
+                "HARD_STOP",
+                f"ROOT-OF-TRUST VIOLATION: verify_engine_integrity.py hash mismatch.\n"
+                f"  Expected: {expected_hash[:16]}...\n"
+                f"  Actual:   {actual_hash[:16]}...\n"
+                f"  vault/root_of_trust.json must be updated by human operator.",
+                None
+            )
+        print("[PREFLIGHT] Root-of-trust binding: VERIFIED")
+    except Exception as e:
+        return ("HARD_STOP", f"Root-of-trust check failed: {e}", None)
+
+    # --- CHECK 2.5: Mandatory Engine Integrity Check ---
     
-    mode = "workspace" if skip_vault_check else "strict"
     result = subprocess.run(
-        [sys.executable, str(integrity_check), "--mode", mode],
+        [sys.executable, str(integrity_check), "--mode", "strict"],
         capture_output=True, text=True
     )
     if result.returncode != 0:

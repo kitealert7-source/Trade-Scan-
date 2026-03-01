@@ -1,8 +1,8 @@
 {
-  "last_run_date": "2026-02-26",
+  "last_run_date": "2026-02-28",
   "status": "SUCCESS",
   "run_type": "STANDARD_DAILY",
-  "timestamp_utc": "2026-02-26T04:59:44.588542+00:00",
+  "timestamp_utc": "2026-02-28T23:51:17.485004+00:00",
   "datasets_validated": 1894,
   "validator": "dataset_validator_sop17",
   "notes": "Full daily pipeline completed successfully (automated)"

@@ -14,6 +14,45 @@ from indicators.trend.efficiency_ratio_regime import efficiency_ratio_regime
 
 ENGINE_ATR_MULTIPLIER = 2.0
 
+class ContextView:
+    """Lightweight adapter wrapping context namespace to unify .get() and attribute access.
+    
+    Protocol: All engine-standard methods (FilterStack, check_entry, check_exit)
+    must receive a ContextView instance. Raw dicts and SimpleNamespace are rejected.
+    """
+    _ENGINE_PROTOCOL = True  # Protocol marker for enforcement
+    
+    def __init__(self, ns):
+        self._ns = ns
+        
+    def get(self, key, default=None):
+        try:
+            val = getattr(self, key)
+            if val is None:
+                return default
+            if pd.isna(val):
+                return default
+            return val
+        except AttributeError:
+            return default
+            
+    def require(self, key):
+        val = self.get(key)
+        if val is None:
+            raise RuntimeError(f"AUTHORITATIVE_INDICATOR_MISSING: '{key}'")
+        return val
+        
+    def __getattr__(self, name):
+        if hasattr(self._ns, name):
+            return getattr(self._ns, name)
+        if hasattr(self._ns, 'row'):
+            row_obj = getattr(self._ns, 'row')
+            if hasattr(row_obj, 'get'):
+                val = row_obj.get(name)
+                if val is not None and not pd.isna(val):
+                    return val
+        raise AttributeError(f"'ContextView' object has no attribute '{name}'")
+
 def run_execution_loop(df, strategy):
     """
     Fixed execution loop. Strategy-agnostic.
@@ -127,6 +166,25 @@ def run_execution_loop(df, strategy):
 
     # ------------------------------------------------------------------
 
+    # === AUTHORITATIVE INDICATOR GOVERNANCE ===
+    # Step 1: Canonicalization
+    if 'ATR' in df.columns:
+        if 'atr' not in df.columns: df['atr'] = df['ATR']
+        del df['ATR']
+    if 'atr_entry' in df.columns:
+        if 'atr' not in df.columns: df['atr'] = df['atr_entry']
+        del df['atr_entry']
+    if 'regime' in df.columns:
+        if 'volatility_regime' not in df.columns: df['volatility_regime'] = df['regime']
+        del df['regime']
+
+    # Step 2: Unconditional Column Assertion
+    AUTHORITATIVE_INDICATORS = ['volatility_regime', 'trend_regime', 'trend_label', 'trend_score', 'atr']
+    for field in AUTHORITATIVE_INDICATORS:
+        if field not in df.columns:
+            raise RuntimeError(f"ABORT_GOVERNANCE: Missing authoritative indicator '{field}'")
+    # ==========================================
+
     trades = []
     
     in_pos = False
@@ -141,7 +199,7 @@ def run_execution_loop(df, strategy):
         row = df.iloc[i]
         
         # Build context
-        ctx = SimpleNamespace(
+        ctx_ns = SimpleNamespace(
             row=row,
             index=i,
             direction=direction,
@@ -150,23 +208,29 @@ def run_execution_loop(df, strategy):
             entry_index=entry_index if in_pos else None,
             bars_held=(i - entry_index) if in_pos else 0
         )
+        ctx = ContextView(ctx_ns)
 
         if not in_pos:
             # --- ENTRY CHECK ---
             entry_signal = strategy.check_entry(ctx)
             if entry_signal:
+                direction = entry_signal.get("signal", 1)
+                
+                # Phase 2: Engine-Level Directional Gating
+                if hasattr(strategy, "filter_stack"):
+                    if not strategy.filter_stack.allow_direction(direction):
+                        direction = 0  # Revert back to flat
+                        continue       # Blocked by directional filter
+                        
                 in_pos = True
                 entry_index = i
                 entry_price = row['close']
-                direction = entry_signal.get("signal", 1)
                 
                 # --- CAPTURE MARKET STATE (AT ENTRY) ---
                 # "Capture and attach to trade dict... No recomputation later."
                 
-                # Volatility: "volatility_regime MUST use existing volatility_regime indicator output."
-                # "No fallback to 'normal'."
-                # Support 'regime' alias as standard indicator output
-                vol_regime = row.get('volatility_regime', row.get('regime'))
+                # Volatility: Must use authoritative name from context
+                vol_regime = ctx.require('volatility_regime')
                 
                 # Mapper for strict schema (int/float/numpy -> string)
                 try:
@@ -180,24 +244,19 @@ def run_execution_loop(df, strategy):
                     else: 
                         vol_regime = "normal"
                 except (ValueError, TypeError):
-                    # Already a string label (e.g. 'high') or None
-                    pass
-                
-                if vol_regime is None:
-                    # Strict Fail? 
-                    # "Raise ValueError on missing." is for the EMITTER. 
-                    # Here we capture what we have. If missing, it will be None.
+                    # Already a string label (e.g. 'high')
                     pass
                 
                 # --- INITIAL STOP CAPTURE (STRATEGY OVERRIDE → ATR FALLBACK) ---
                 stop_price = entry_signal.get("stop_price")
 
                 if stop_price is None:
-                    atr_value = row.get('atr', row.get('ATR'))
+                    # Require canonical ATR
+                    atr_value = ctx.require('atr')
 
-                    if atr_value is None or atr_value <= 0:
+                    if atr_value <= 0:
                         raise ValueError(
-                            "STOP CONTRACT VIOLATION: No strategy stop provided and ATR missing/invalid."
+                            "STOP CONTRACT VIOLATION: No strategy stop provided and ATR invalid (<=0)."
                         )
 
                     if direction == 1:
@@ -223,10 +282,10 @@ def run_execution_loop(df, strategy):
                     )
                 entry_market_state = {
                     "volatility_regime": vol_regime,
-                    "trend_score": int(row.get('trend_score', 0)),
-                    "trend_regime": int(row.get('trend_regime', 0)),
-                    "trend_label": row.get('trend_label', 'neutral'),
-                    "atr_entry": row.get('atr', row.get('ATR', 0.0)), # Best effort
+                    "trend_score": int(ctx.require('trend_score')),
+                    "trend_regime": int(ctx.require('trend_regime')),
+                    "trend_label": ctx.require('trend_label'),
+                    "atr_entry": ctx.require('atr'),
                     "initial_stop_price": stop_price,
                     "risk_distance": risk_distance,
                 }
