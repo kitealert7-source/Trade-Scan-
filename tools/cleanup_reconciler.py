@@ -20,6 +20,7 @@ RUNS_ROOT = PROJECT_ROOT / "runs"
 STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
 MASTER_SHEET_PATH = BACKTESTS_ROOT / "Strategy_Master_Filter.xlsx"
 PORTFOLIO_SHEET_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
+REPORTS_ROOT = PROJECT_ROOT / "reports_summary"
 
 def load_master_index():
     """
@@ -96,6 +97,23 @@ def scan_backtests(valid_strategies, valid_base_strategies):
         if item.is_dir():
             if name.casefold() not in valid_strategies:
                 actions.append(f"DELETE_BACKTEST_STATE backtests/{name}/")
+    return actions
+
+def scan_reports(valid_base_strategies):
+    actions = []
+    if not REPORTS_ROOT.exists():
+        return actions
+
+    for item in REPORTS_ROOT.iterdir():
+        name = item.name
+        if name.startswith("REPORT_") and name.endswith(".md"):
+            base_name = name[len("REPORT_"):-len(".md")]
+            if base_name.casefold() not in valid_base_strategies:
+                actions.append(f"DELETE_REPORT reports_summary/{name}")
+        elif name.startswith("PORTFOLIO_") and name.endswith(".md"):
+            base_name = name[len("PORTFOLIO_"):-len(".md")]
+            if base_name.casefold() not in valid_base_strategies:
+                actions.append(f"DELETE_REPORT reports_summary/{name}")
     return actions
         
 def reconcile_orphaned_rows(rows):
@@ -237,8 +255,11 @@ def main():
     
     zombie_runs = scan_runs(valid_run_ids)
     zombie_bt = scan_backtests(valid_strategies, valid_base_strategies)
+    zombie_reports = scan_reports(valid_base_strategies)
+    
     all_strategies.extend(zombie_runs)
     all_backtests.extend(zombie_bt)
+    all_backtests.extend(zombie_reports)
     
     leftover_runs, orphan_rows = reconcile_orphaned_rows(rows)
     all_strategies.extend(leftover_runs)
@@ -269,7 +290,7 @@ def main():
             path_str = parts[1]
             try:
                 target_path = PROJECT_ROOT / path_str
-                if action_type == "DELETE_BATCH_SUMMARY":
+                if action_type in ["DELETE_BATCH_SUMMARY", "DELETE_REPORT"]:
                     # File deletion
                     if target_path.exists():
                         target_path.unlink()
@@ -280,7 +301,7 @@ def main():
                         shutil.rmtree(target_path)
             except Exception as e:
                 print(f"[ERROR] Failed to delete {path_str}: {e}")
-                if action_type != "DELETE_BATCH_SUMMARY":
+                if action_type not in ["DELETE_BATCH_SUMMARY", "DELETE_REPORT"]:
                     s_name = path_str.split('/')[1]
                     if s_name in strategy_to_run_id:
                         failed_run_ids.add(strategy_to_run_id[s_name])

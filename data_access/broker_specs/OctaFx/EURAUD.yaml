@@ -1,5 +1,5 @@
 broker: OctaFX
-reference_capital_usd: 5000
+reference_capital_usd: 1000
 symbol: EURAUD
 base_currency: EUR
 quote_currency: AUD

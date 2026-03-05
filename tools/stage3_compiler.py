@@ -255,6 +255,13 @@ def extract_from_report(report_path, metadata, run_folder):
     
     for col_name, label in VOLATILITY_METRICS.items():
         row_data[col_name] = metrics.get(label)
+
+    # Daily bars do not have meaningful session attribution.
+    timeframe = str(metadata.get("timeframe", "")).strip().lower()
+    if timeframe in {"1d", "d", "daily"}:
+        row_data["net_profit_asia"] = "Daily_Nan"
+        row_data["net_profit_london"] = "Daily_Nan"
+        row_data["net_profit_ny"] = "Daily_Nan"
         
     # Merge Trend Aggs
     row_data.update(trend_aggs)

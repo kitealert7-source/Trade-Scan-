@@ -1,0 +1,69 @@
+test:
+  name: UltimateC_RegimeFilter_10BZ100C0N_FW
+  family: Forex
+  strategy: UltimateC_RegimeFilter_10BZ100C0N_FW
+  version: RM3ZTP040_OPTIONB_Z100_C0N_FULLWINDOW
+  broker: OctaFX
+  timeframe: 1h
+  session_time_reference: UTC
+  start_date: 2024-01-02
+  end_date: 2026-03-03
+  description: UltimateC regime filter clean experiment with component cap 0 and conditional HTF low-vol gate on full available 1h window.
+  notes: |
+    Engine-tested behavior snapshot:
+    - Z-score TP active in strategy logic using zscore_50 with abs threshold 0.40.
+    - Z-score window set to 100 bars.
+    - Entry hour blocks: UTC 14, 18.
+    - Symbol-specific normal-vol gate: AUDUSD (NZDUSD rule present in code but symbol not in this directive).
+    - Post-exit cooldown: 1 bar.
+    - Component gate uses linreg_regime_htf + kalman_regime, abs(sum) <= 0.
+    - Additional entry block: skip when abs(linreg_regime_htf) == 1 and volatility_regime == low.
+
+indicators:
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.trend.efficiency_ratio_regime
+  - indicators.price.ultimate_c_percent
+  - indicators.volatility.volatility_regime
+  - indicators.volatility.atr
+  - indicators.stats.rolling_zscore
+symbols:
+  - AUDNZD
+  - AUDUSD
+  - EURUSD
+  - GBPUSD
+  - GBPNZD
+  - USDCHF
+  - USDJPY
+
+mean_reversion_rules:
+  entry:
+    long:
+      ultimate_signal: -1
+      max_abs_trend_score: 1
+    short:
+      ultimate_signal: 1
+      max_abs_trend_score: 1
+
+  exit:
+    type: opposite_signal_or_time
+    max_bars: 20
+
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    multiple: 1.35
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+
+trade_management:
+  reentry:
+    allowed: true
+  direction_restriction: none
+
+
+

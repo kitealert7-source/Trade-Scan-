@@ -1,5 +1,5 @@
 broker: OctaFX
-reference_capital_usd: 5000
+reference_capital_usd: 1000
 symbol: GER40
 min_lot: 0.01
 lot_step: 0.01

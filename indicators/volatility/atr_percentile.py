@@ -11,7 +11,10 @@ def atr_percentile(
 
     Percentile definition:
         Percentile rank of the most recent ATR value
-        within the rolling window (0.0 → 1.0 scale).
+        within the rolling window.
+
+    Output Scale: 0.0–1.0
+        Use atr_percentile * 100 for percentage comparison.
 
     Args:
         atr_series: pd.Series of ATR values
@@ -31,5 +34,16 @@ def atr_percentile(
         window=window,
         min_periods=window  # strict window — avoids unstable early values
     ).apply(percentile_last, raw=True)
+
+    # -------------------------------------------------------------------------
+    # GOVERNANCE: Scale Invariant Check
+    # Output must be strictly in [0.0, 1.0] range.
+    # -------------------------------------------------------------------------
+    max_val = percentile.max(skipna=True)
+    if pd.notna(max_val) and max_val > 1.0001:
+        raise RuntimeError(
+            f"atr_percentile invariant violation: max value {max_val:.6f} "
+            f"exceeds expected 0.0–1.0 scale. Scale corruption detected."
+        )
 
     return percentile

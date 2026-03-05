@@ -1,5 +1,5 @@
 broker: OctaFX
-reference_capital_usd: 5000
+reference_capital_usd: 1000
 symbol: SPX500
 
 min_lot: 0.01

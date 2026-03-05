@@ -23,6 +23,8 @@ def _rolling_wma(series: pd.Series, window: int) -> pd.Series:
     Compute rolling Weighted Moving Average.
     Each value at index t depends only on data <= t.
     """
+    # GOVERNANCE: O(n × window) — rolling apply visits n windows, each O(window).
+    # No nested loops; each pass is a single linear scan of window-sized subarray.
     return series.rolling(window=window).apply(_wma_apply, raw=True)
 
 

@@ -22,7 +22,11 @@ STRATEGY LAYER CLEANUP
 
 Task:
 
-Run cleanup reconciler in dry-run mode:
+First, run the strategy filter to non-destructively generate a view of passing strictly governed strategies:
+
+python tools/filter_strategies.py
+
+Then, run cleanup reconciler in dry-run mode:
 
 python tools/cleanup_reconciler.py
 

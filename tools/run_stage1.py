@@ -85,7 +85,7 @@ def get_conversion_price_at_time(target_pair: str, timestamp: pd.Timestamp) -> f
             
             # Optimization: Keep only timestamp and close
             df = df[['timestamp', 'close']].copy()
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, format='mixed')
             df.set_index('timestamp', inplace=True)
             df.sort_index(inplace=True)
             
@@ -189,7 +189,7 @@ def load_market_data(symbol: str) -> pd.DataFrame:
         df['timestamp'] = df['time']
     
     df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, format='mixed')
     
     # Filter
     df = df[(df['timestamp'] >= START_DATE) & (df['timestamp'] <= END_DATE)]

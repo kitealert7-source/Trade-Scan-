@@ -1,0 +1,7 @@
+{
+    "generated_at_utc":  "2026-03-02T17:19:03Z",
+    "baseline_strategy":  "UltimateC_RegimeFilter_09CZ50C5N_RM3",
+    "variant_36h":  "UltimateC_RegimeFilter_09CZ50C5N_RM3L2P36",
+    "variant_48h":  "UltimateC_RegimeFilter_09CZ50C5N_RM3L2P48",
+    "notes":  "Pipeline runs completed through Stage-4 artifact generation; master ledger update blocked due existing strategy_id entries."
+}

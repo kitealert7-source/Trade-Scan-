@@ -11,6 +11,10 @@ This workflow executes all directives in `backtest_directives/active/` through t
 - Directive YAML file(s) placed in `backtest_directives/active/`
 - AGENT.md (Failure Playbook) exists at project root
 
+### Step 0: Read Failure Playbook
+
+Before any execution, you MUST read the `AGENT.md` failure classification and recovery playbook at the project root.
+
 ### Step 1: SOP Ingestion
 
 Read and internalize all governing SOPs before any execution:
@@ -406,6 +410,16 @@ On success:
 
 - Report the path to both generated robustness reports.
 - The directive is fully complete end-to-end.
+
+### Step 11: Artifact Formatting
+
+Run the strict formatting script to stylize all generated Excel artifacts across the workspace.
+
+// turbo
+
+```bash
+python tools/format_excel_artifact.py
+```
 
 ### Protected Infrastructure Policy
 

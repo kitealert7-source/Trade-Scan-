@@ -13,6 +13,12 @@ The filesystem must be reconciled against both ledgers independently.
 
 ---
 
+## Step 0 — Read Failure Playbook
+
+Before any execution, you MUST read the `AGENT.md` failure classification and recovery playbook at the project root.
+
+---
+
 ## Step 1 — Strategy Layer Dry-Run
 
 Run the cleanup reconciler in **dry-run mode** (no deletions):
@@ -92,6 +98,18 @@ Report **PASS** if:
 - No unexpected portfolio discrepancies exist.
 
 Report **FAIL** with the first unexpected action only.
+
+---
+
+## Step 6 — Artifact Formatting
+
+Run the strict formatting script to stylize all generated Excel artifacts across the workspace.
+
+// turbo
+
+```bash
+python tools/format_excel_artifact.py
+```
 
 ---
 

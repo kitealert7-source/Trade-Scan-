@@ -1,5 +1,5 @@
 broker: OctaFX
-reference_capital_usd: 5000
+reference_capital_usd: 1000
 symbol: AUDNZD
 base_currency: AUD
 quote_currency: NZD

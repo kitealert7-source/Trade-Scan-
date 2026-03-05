@@ -1,0 +1,88 @@
+test:
+  name: IDX25_MR_RSIAVG
+  family: Index
+  strategy: IDX25_MR_RSIAVG
+
+  broker: OctaFX
+  timeframe: 1d
+  session_time_reference: UTC
+
+  start_date: 2015-01-01
+  end_date: 2026-01-31
+
+  symbols:
+  - AUS200
+  - ESP35
+  - EUSTX50
+  - FRA40
+  - GER40
+  - JPN225
+  - NAS100
+  - SPX500
+  - UK100
+  - US30
+
+
+indicators:
+  - indicators.momentum.stochastic
+  - indicators.momentum.roc
+  - indicators.momentum.rsi
+
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.volatility.volatility_regime
+  - indicators.volatility.atr
+
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+
+  entry_logic:
+    type: union
+    conditions:
+      - type: three_consecutive_lower_closes
+
+      - type: stochastic_oversold_cross
+        k_length: 14
+        d_length: 3
+        threshold: 20
+
+      - type: roc_oversold_cross
+        roc_length: 5
+        threshold: -1.0
+
+      - type: rsi_deep_oversold
+        rsi_length: 2
+        avg_bars: 2
+        threshold: 25
+
+  exit_logic:
+    type: precedence
+    primary:
+      type: rsi_overbought
+      rsi_length: 2
+      threshold: 75
+    fallback:
+      type: time_exit
+      bars: 4
+
+  stop_loss:
+    type: none
+
+  trailing_stop:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: false

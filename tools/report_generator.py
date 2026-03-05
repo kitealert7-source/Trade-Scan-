@@ -29,6 +29,7 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
     engine_ver = get_engine_version()
     start_date = "YYYY-MM-DD"
     end_date = "YYYY-MM-DD"
+    timeframe = "Unknown"
     
     for s_dir in symbol_dirs:
         symbol = s_dir.name.replace(f"{directive_name}_", "")
@@ -42,6 +43,16 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
         
         if not std_csv.exists() or not risk_csv.exists():
             continue
+            
+        meta_path = s_dir / "metadata" / "run_metadata.json"
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r") as f:
+                    meta = json.load(f)
+                    if meta.get("timeframe"):
+                        timeframe = meta.get("timeframe")
+            except:
+                pass
             
         std_df = pd.read_csv(std_csv)
         if len(std_df) == 0:
@@ -123,7 +134,7 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
     md = [
         f"# Report Summary — {directive_name}\n",
         f"Engine Version: {engine_ver}",
-        f"Timeframe: 4h",
+        f"Timeframe: {timeframe}",
         f"Date Range: {start_date} → {end_date}",
         f"Generated: {now_utc}\n",
         "---\n",

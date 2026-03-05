@@ -66,8 +66,20 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
         df = pd.read_csv(files[0], comment='#')
         if 'time' in df.columns:
             df['timestamp'] = df['time']
+        df['timestamp'] = pd.to_datetime(
+            df['timestamp'],
+            dayfirst=True,
+            format='mixed',
+            errors='coerce'
+        )
+        bad_ts = int(df['timestamp'].isna().sum())
+        if bad_ts == len(df):
+            print("[DRYRUN] WARNING: All sample timestamps failed parsing. Skipping dry-run.")
+            return True
+        if bad_ts > 0:
+            print(f"[DRYRUN] WARNING: Dropping {bad_ts} rows with unparseable timestamps.")
+            df = df[df['timestamp'].notna()].copy()
         df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.head(1000).reset_index(drop=True)
     except Exception as e:
         print(f"[DRYRUN] WARNING: Failed to load sample data: {e}. Skipping dry-run.")

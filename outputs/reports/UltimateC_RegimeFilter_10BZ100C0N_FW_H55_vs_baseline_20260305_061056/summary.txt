@@ -1,0 +1,3 @@
+Baseline artifact: C:\Users\faraw\Documents\Trade_Scan\outputs\reports\UltimateC_RegimeFilter_10BZ100C0N_vs_FW_20260303_163352
+Test strategy: UltimateC_RegimeFilter_10BZ100C0N_FW_H55
+Result: No metric deltas detected at portfolio or deployable profile level.

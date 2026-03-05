@@ -39,7 +39,7 @@ from matplotlib.colors import LinearSegmentedColormap
 PROJECT_ROOT = Path(__file__).parent.parent
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
-CAPITAL_PER_SYMBOL = 5000.0
+TOTAL_PORTFOLIO_CAPITAL = 10000.0
 RISK_FREE_RATE = 0.0  # For Sharpe/Sortino
 
 SYMBOLS = ['AUS200', 'ESP35', 'EUSTX50', 'FRA40', 'GER40',
@@ -170,8 +170,14 @@ def load_all_trades(strategy_id):
             df = pd.read_csv(csv_path)
             df['source_run_id'] = run_id
             df['strategy_name'] = strat_name
-            df['exit_timestamp'] = pd.to_datetime(df['exit_timestamp'])
-            df['entry_timestamp'] = pd.to_datetime(df['entry_timestamp'])
+            # Normalize to a single timezone model (UTC-naive) to avoid
+            # tz-aware vs tz-naive comparison failures in drawdown windows.
+            df['exit_timestamp'] = pd.to_datetime(
+                df['exit_timestamp'], errors='coerce', utc=True
+            ).dt.tz_convert(None)
+            df['entry_timestamp'] = pd.to_datetime(
+                df['entry_timestamp'], errors='coerce', utc=True
+            ).dt.tz_convert(None)
             df['symbol'] = symbol
             
             symbol_trades[symbol] = df
@@ -288,25 +294,25 @@ def build_portfolio_equity(portfolio_df, symbol_trades):
     """Build cumulative equity curves for portfolio and per-symbol."""
     # Per-symbol equity curves (daily, by exit date)
     symbol_equity = {}
+    capital_per_symbol = TOTAL_PORTFOLIO_CAPITAL / len(symbol_trades)
     for sym, df in symbol_trades.items():
         daily_pnl = df.groupby(df['exit_timestamp'].dt.date)['pnl_usd'].sum()
         daily_pnl.index = pd.DatetimeIndex(daily_pnl.index)
-        equity = daily_pnl.cumsum() + CAPITAL_PER_SYMBOL
+        equity = daily_pnl.cumsum() + capital_per_symbol
         symbol_equity[sym] = equity
 
     # Portfolio equity: merge all trades chronologically
     daily_pnl = portfolio_df.groupby(portfolio_df['exit_timestamp'].dt.date)['pnl_usd'].sum()
     daily_pnl.index = pd.DatetimeIndex(daily_pnl.index)
 
-    total_capital = CAPITAL_PER_SYMBOL * len(symbol_trades)
-    portfolio_equity = daily_pnl.cumsum() + total_capital
+    portfolio_equity = daily_pnl.cumsum() + TOTAL_PORTFOLIO_CAPITAL
 
     return portfolio_equity, symbol_equity, daily_pnl
 
 
 def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_symbols):
     """Compute portfolio-level metrics."""
-    total_capital = CAPITAL_PER_SYMBOL * num_symbols
+    total_capital = TOTAL_PORTFOLIO_CAPITAL
     net_pnl = portfolio_equity.iloc[-1] - total_capital
 
     # CAGR
@@ -806,7 +812,7 @@ def stress_test(symbol_trades, portfolio_df):
 
         daily_pnl = subset.groupby(subset['exit_timestamp'].dt.date)['pnl_usd'].sum()
         daily_pnl.index = pd.DatetimeIndex(daily_pnl.index)
-        capital = CAPITAL_PER_SYMBOL * len(syms)
+        capital = TOTAL_PORTFOLIO_CAPITAL
         equity = daily_pnl.cumsum() + capital
         net = equity.iloc[-1] - capital
 
@@ -1101,8 +1107,8 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'evaluation_date': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         'portfolio_engine_version': '1.2.1',
         'data_range': f"{port_metrics['start_date']} to {port_metrics['end_date']}",
-        'capital_per_symbol': CAPITAL_PER_SYMBOL,
-        'total_capital': CAPITAL_PER_SYMBOL * len(contributions),
+        'capital_per_symbol': TOTAL_PORTFOLIO_CAPITAL / len(contributions),
+        'total_capital': TOTAL_PORTFOLIO_CAPITAL,
         'net_pnl_usd': port_metrics['net_pnl_usd'],
         'cagr_pct': port_metrics['cagr'],
         'sharpe': port_metrics['sharpe'],
@@ -1513,7 +1519,7 @@ def main():
     port_metrics = compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, len(symbol_trades))
     
     # Deterministic capital calculation (SOP Issue #2)
-    port_metrics['total_capital'] = CAPITAL_PER_SYMBOL * len(symbol_trades)
+    port_metrics['total_capital'] = TOTAL_PORTFOLIO_CAPITAL
 
     # Regime PnL Calculation (Zero Structural Change Injection)
     if "volatility_regime" in portfolio_df.columns:
@@ -1616,7 +1622,7 @@ def main():
     # Generate Portfolio Trade-Level Artifact (Surgical Addition)
     print("  [ARTIFACT] Generating portfolio_tradelevel.csv...")
     try:
-        transparency = generate_portfolio_tradelevel(portfolio_df, output_dir, CAPITAL_PER_SYMBOL * len(symbol_trades))
+        transparency = generate_portfolio_tradelevel(portfolio_df, output_dir, TOTAL_PORTFOLIO_CAPITAL)
         port_metrics.update(transparency)
     except Exception as e:
         print(f"  [WARN] Failed to generate portfolio_tradelevel.csv: {e}")

@@ -3,6 +3,11 @@
 sha_regime.py
 
 Smoothed Heikin Ashi regime filter (optimized numpy version)
+
+Column Naming:
+    Accepts lowercase open/high/low/close (engine standard) with
+    fallback to capitalized Open/High/Low/Close for legacy compatibility.
+    Raises ValueError if neither is present.
 """
 
 import numpy as np
@@ -10,10 +15,30 @@ import pandas as pd
 
 def sha_regime(df: pd.DataFrame, smooth: int = 3) -> pd.DataFrame:
 
-    o = df["Open"].values
-    h = df["High"].values
-    l = df["Low"].values
-    c = df["Close"].values
+    # -------------------------------------------------------------------------
+    # GOVERNANCE: Column Naming Standardization
+    # Prefer lowercase (engine convention). Fall back to capitalized.
+    # -------------------------------------------------------------------------
+    _lc = {"open", "high", "low", "close"}
+    _uc = {"Open", "High", "Low", "Close"}
+
+    if _lc.issubset(df.columns):
+        o = df["open"].values
+        h = df["high"].values
+        l = df["low"].values
+        c = df["close"].values
+    elif _uc.issubset(df.columns):
+        o = df["Open"].values
+        h = df["High"].values
+        l = df["Low"].values
+        c = df["Close"].values
+    else:
+        present = list(df.columns)
+        raise ValueError(
+            f"sha_regime: All four OHLC columns required. "
+            f"Expected {sorted(_lc)} (lowercase) or {sorted(_uc)} (capitalized). "
+            f"Found: {present}"
+        )
 
     n = len(df)
 
@@ -26,6 +51,8 @@ def sha_regime(df: pd.DataFrame, smooth: int = 3) -> pd.DataFrame:
     ha_high[0] = h[0]
     ha_low[0] = l[0]
 
+    # GOVERNANCE: iterative by design (O(n)), no nested loops.
+    # HA open at bar i depends on prior HA values — inherently sequential.
     for i in range(1, n):
 
         start = max(0, i - smooth)

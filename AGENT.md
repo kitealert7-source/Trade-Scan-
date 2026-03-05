@@ -29,11 +29,12 @@ These are non-negotiable. The agent must never violate any of these.
 12. **Single Signature Authority** — Signature construction is owned exclusively by `tools/directive_schema.py:normalize_signature()`. No other file may construct or compare signatures independently.
 13. **Genesis/Clone Classification** — New strategies (no existing `strategy.py`) use GENESIS_MODE: directive-only implementation, no cross-family behavioral borrowing. Existing strategies use CLONE_MODE.
 14. **No Workspace Mode** — All pipeline executions run in strict integrity mode. Engine hash verification and tools manifest verification are mandatory. There is no development bypass.
-15. **Governance-Authorized Reset Only** — `--force` is removed from the pipeline. Failed directives may only be reset via `tools/reset_directive.py --reason "<justification>"`, which logs to `governance/reset_audit_log.csv`. Use `--to-stage4` to resume at Stage-4 without re-running Stages 0-3 (only from FAILED or PORTFOLIO_COMPLETE). Resets also clean associated per-symbol run states. The agent MUST NOT invoke this tool autonomously.
+15. **Governance-Authorized Reset Only** — `--force` is removed from the pipeline. Failed directives may only be reset via `tools/reset_directive.py --reason "<justification>"`, which logs to `governance/reset_audit_log.csv`. Full resets also clean associated per-symbol run states. The agent MUST NOT invoke this tool autonomously.
 16. **Guard-Layer Manifest** — All Critical Guard Set files (`tools/tools_manifest.json`) are SHA-256 bound. `tools/generate_guard_manifest.py` is human-only; the agent MUST NOT invoke it or modify the manifest.
 17. **Root-of-Trust Vault Binding** — `verify_engine_integrity.py` is hash-bound via `vault/root_of_trust.json`. `preflight.py` verifies this hash before invoking the integrity checker. Vault updates require explicit human action. The agent MUST NOT modify `vault/root_of_trust.json`.
 18. **Engine Manifest Generator** — `tools/generate_engine_manifest.py` is human-only; the agent MUST NOT invoke it. It auto-detects the active engine version and writes `engine_manifest.json`.
 19. **Directive Schema Freeze** — The canonical directive schema is defined in `tools/canonical_schema.py` (FREEZE policy). All directives must conform to this schema. `tools/canonicalizer.py` validates structure at Stage -0.25. Unknown keys, misplaced blocks, type mismatches, and missing required sub-blocks cause HARD FAIL. The canonicalizer moves, renames, or reorders keys only via explicit tables — never via inference or leaf scanning.
+20. **Capital Model Invariant** — Per-symbol reference capital is `$1,000` (defined in `data_access/broker_specs/*/<SYMBOL>.yaml` as `reference_capital_usd: 1000`). Total portfolio capital is `$10,000` (defined in `portfolio_evaluator.py` as `TOTAL_PORTFOLIO_CAPITAL = 10000` and in `capital_wrapper.py` PROFILES). Self-imposed leverage cap is 5× (effective buying power: $5,000 per symbol). These values must remain synchronized across all three systems.
 
 ---
 
@@ -267,7 +268,7 @@ A required output from a prior stage was not produced. This can indicate:
    - If HollowDetector passed → legitimate zero-trade scenario (strategy parameters too restrictive for this symbol/period)
    - If HollowDetector failed → PROVISION_REQUIRED
 2. If Stage-2/3/4 process failed: check stderr for root cause
-3. Re-run pipeline with `--force` after root cause is addressed
+3. After root cause is addressed: reset via `python tools/reset_directive.py <ID> --reason "<fix description>"` then re-run pipeline
 
 **Escalation Required:** YES if hollow strategy. YES if persistent NO_TRADES across all symbols (may indicate strategy logic review needed). NO if process crash (environmental).
 
@@ -303,7 +304,7 @@ The pipeline attempted an illegal state transition, indicating:
 
 **Deterministic Recovery Path:**  
 
-1. If directive is FAILED: use `--force` to reset to INITIALIZED
+1. If directive is FAILED: reset via `python tools/reset_directive.py <ID> --reason "<justification>"`
 2. If individual run has bad state: investigate what caused the premature transition
 3. If state file is corrupted: a full re-provision is required
 
@@ -344,7 +345,7 @@ A runtime error occurred during execution. This is distinct from governance viol
 
 1. Read the exception message and traceback
 2. Fix the root cause (strategy bug, data issue, indicator error)
-3. Re-run with `--force`
+3. Reset via `python tools/reset_directive.py <ID> --reason "<fix description>"` then re-run pipeline
 
 **Escalation Required:** Depends on root cause classification
 
@@ -382,7 +383,7 @@ Stage-3 aggregation produced an incorrect number of rows. Either:
 **Deterministic Recovery Path:**  
 
 1. Verify all symbol runs reached STAGE_2_COMPLETE
-2. If some runs FAILED: fix root cause, re-run with `--force`
+2. If some runs FAILED: fix root cause, reset via `reset_directive.py --reason`, then re-run
 3. If aggregator logic is incorrect: fix `stage3_compiler.py`
 
 **Escalation Required:** YES — Ledger integrity investigation required
@@ -550,11 +551,7 @@ The strategy bypasses the FilterStack abstraction layer and directly accesses re
 
 ### HOLLOW_STRATEGY_DETECTED
 
-------------------------------------------------------------
-
-> **Subtype of PROVISION_REQUIRED.** This is the specific detection mechanism name.
-> All rules, allowed actions, forbidden actions, and recovery path are identical to PROVISION_REQUIRED above.
-> Canonical classification: **PROVISION_REQUIRED**.
+> Subtype of **PROVISION_REQUIRED** above. Same rules, actions, and recovery path apply.
 
 ------------------------------------------------------------
 
@@ -735,7 +732,7 @@ The strategy correctly fired trades, but the resulting trade payload or context 
 
 1. Human updates the directive to include required state indicators (if missing).
 2. Human updates `strategy.py`'s `prepare_indicators` to correctly calculate and attach the indicator outputs to `df`.
-3. Re-run pipeline (`--force`).
+3. Reset via `python tools/reset_directive.py <ID> --reason "<fix description>"` then re-run pipeline.
 
 **Escalation Required:** YES — Strategy code or directive must be fixed by human.
 
@@ -801,7 +798,7 @@ Having historical CSV data in the `data_root` is not enough to execute a new sym
 
 1. Create the missing `<SYMBOL>.yaml` file in `data_access/broker_specs/<BROKER>/`
 2. Ensure ALL mandatory schema fields are populated: `min_lot`, `lot_step`, `max_lot`, `cost_model`, `precision`, `tick_size`, `pip_size`, `margin_currency`, `profit_currency`, and the `calibration` block.
-3. Re-run pipeline with `--force`.
+3. Reset via `python tools/reset_directive.py <ID> --reason "broker spec added"` then re-run pipeline.
 
 **Escalation Required:** NO — Broker specs are defined statically.
 

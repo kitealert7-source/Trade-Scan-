@@ -825,14 +825,17 @@ def run_single_directive(directive_id):
                                 step9_failures.append(f"  [{prof}] Negative equity at row {row_num}")
                                 break
 
-                # 4. Trade log row count matches summary_metrics total_accepted
+                # 4. Trade log row count matches summary_metrics total_accepted minus open trades
                 tl_path = d / "deployable_trade_log.csv"
                 if tl_path.exists() and metrics_path.exists():
                     with open(tl_path, newline="", encoding="utf-8") as cf:
                         tl_rows = sum(1 for _ in cf) - 1  # subtract header
-                    expected = m.get("total_accepted", -1)
-                    if tl_rows != expected:
-                        step9_failures.append(f"  [{prof}] Trade log count {tl_rows} != total_accepted {expected}")
+                    expected_max = m.get("total_accepted", -1)
+                    # Open trades are not written to the closed trade log. Max open is max_concurrent_trades.
+                    expected_min = max(0, expected_max - m.get("max_concurrent_trades", 0))
+                    
+                    if not (expected_min <= tl_rows <= expected_max):
+                        step9_failures.append(f"  [{prof}] Trade log count {tl_rows} not in expected bounds [{expected_min}, {expected_max}]")
 
                 if not step9_failures:
                     print(f"[ORCHESTRATOR] Step 9 [{prof}]: All artifacts verified.")

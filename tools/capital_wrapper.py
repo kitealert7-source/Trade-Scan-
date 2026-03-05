@@ -1,5 +1,5 @@
 """
-Deployable Capital Wrapper — Phases 2–6
+Deployable Capital Wrapper â€” Phases 2â€“6
 Phase 2: Event Queue Builder (load, decompose, sort)
 Phase 3: Single-Profile PortfolioState
 Phase 4: Multi-Profile Parallel Execution
@@ -36,16 +36,25 @@ PROFILES = {
     "CONSERVATIVE_V1": {
         "starting_capital": 10000.0,
         "risk_per_trade": 0.0075,       # 0.75%
-        "heat_cap": 0.04,              # 4.0%
-        "leverage_cap": 5,             # 5×
+        "heat_cap": 0.04,               # 4.0%
+        "leverage_cap": 5,              # 5x
+        "min_lot": 0.01,
+        "lot_step": 0.01,
+    },
+    "CONSERVATIVE_V2": {
+        "starting_capital": 10000.0,
+        "risk_per_trade": 0.0075,       # 0.75%
+        "heat_cap": 1.0,                # no heat throttle
+        "leverage_cap": 1000,           # effectively unbounded
+        "concurrency_cap": 7,           # explicit cap from RM3ZTP040 sweep optimum
         "min_lot": 0.01,
         "lot_step": 0.01,
     },
     "AGGRESSIVE_V1": {
         "starting_capital": 10000.0,
         "risk_per_trade": 0.015,        # 1.5%
-        "heat_cap": 0.06,              # 6.0%
-        "leverage_cap": 5,             # 5×
+        "heat_cap": 0.06,               # 6.0%
+        "leverage_cap": 5,              # 5x
         "min_lot": 0.01,
         "lot_step": 0.01,
     },
@@ -257,7 +266,7 @@ class OpenTrade:
 
 
 # ======================================================================
-# PORTFOLIO STATE (Phase 3 — Single Profile)
+# PORTFOLIO STATE (Phase 3 â€” Single Profile)
 # ======================================================================
 
 @dataclass
@@ -270,7 +279,7 @@ class PortfolioState:
     leverage_cap: float
     min_lot: float
     lot_step: float
-
+    concurrency_cap: Optional[int] = None
     # Running state
     equity: float = 0.0
     realized_pnl: float = 0.0
@@ -341,6 +350,15 @@ class PortfolioState:
           5. Check leverage cap
           6. Accept or reject
         """
+        # 0. Explicit concurrency cap check (if configured).
+        if self.concurrency_cap is not None and len(self.open_trades) >= int(self.concurrency_cap):
+            self._reject(
+                event,
+                "CONCURRENCY_CAP",
+                f"open={len(self.open_trades)} >= cap={int(self.concurrency_cap)}",
+            )
+            return False
+
         # 1. Compute lot size
         lot_size = self.compute_lot_size(event.risk_distance, usd_per_pu_per_lot)
 
@@ -528,6 +546,7 @@ def run_simulation(sorted_events: List[TradeEvent], broker_specs: Dict[str, dict
             leverage_cap=params["leverage_cap"],
             min_lot=params["min_lot"],
             lot_step=params["lot_step"],
+            concurrency_cap=params.get("concurrency_cap"),
         )
 
     # Pre-compute per-symbol static fallbacks and contract sizes
@@ -581,7 +600,7 @@ def print_validation_summary(state: PortfolioState):
     max_dd_pct = (state.max_drawdown_usd / state.peak_equity * 100) if state.peak_equity > 0 else 0.0
 
     print(f"\n{'=' * 70}")
-    print(f"  PORTFOLIO SIMULATION SUMMARY — {state.profile_name}")
+    print(f"  PORTFOLIO SIMULATION SUMMARY â€” {state.profile_name}")
     print(f"{'=' * 70}")
     print(f"  Starting Capital:      ${state.starting_capital:>12,.2f}")
     print(f"  Final Equity:          ${state.equity:>12,.2f}")
@@ -751,6 +770,7 @@ def compute_deployable_metrics(state: PortfolioState) -> dict:
         "total_rejected": state.total_rejected,
         "rejection_rate_pct": round(rejection_rate * 100, 2),
         "max_concurrent_trades": state.max_concurrent,
+        "configured_concurrency_cap": state.concurrency_cap,
         "avg_heat_utilization_pct": round(avg_heat * 100, 4),
         "pct_time_at_full_heat": round(pct_at_full_heat * 100, 4),
         "longest_loss_streak": longest_loss,
@@ -763,13 +783,13 @@ def plot_equity_curve(state: PortfolioState, output_dir: Path) -> None:
     """Render equity-curve + drawdown chart and save as PNG."""
     try:
         import matplotlib
-        matplotlib.use("Agg")  # headless — no display required
+        matplotlib.use("Agg")  # headless â€” no display required
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
         import matplotlib.patches as mpatches
         import numpy as np
     except ImportError:
-        print("[WARN] matplotlib not installed — skipping equity curve plot.")
+        print("[WARN] matplotlib not installed â€” skipping equity curve plot.")
         return
 
     if not state.equity_timeline:
@@ -789,7 +809,7 @@ def plot_equity_curve(state: PortfolioState, output_dir: Path) -> None:
 
     dates = daily.index.to_pydatetime()
 
-    # ── Layout: 2 rows, shared x-axis ────────────────────────────────────
+    # â”€â”€ Layout: 2 rows, shared x-axis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     fig, (ax_eq, ax_dd) = plt.subplots(
         2, 1,
         figsize=(16, 9),
@@ -803,7 +823,7 @@ def plot_equity_curve(state: PortfolioState, output_dir: Path) -> None:
     start_cap     = state.starting_capital
     final_eq      = daily.iloc[-1]
 
-    # ── Upper panel: equity curve ─────────────────────────────────────────
+    # â”€â”€ Upper panel: equity curve â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     ax_eq.set_facecolor("#0d0d12")
     ax_eq.plot(dates, daily.values, color="#00d4aa", linewidth=1.4, zorder=3)
     ax_eq.fill_between(dates, start_cap, daily.values,
@@ -822,11 +842,11 @@ def plot_equity_curve(state: PortfolioState, output_dir: Path) -> None:
 
     # Title
     ax_eq.set_title(
-        f"{profile_label}  |  ${start_cap:,.0f}  →  ${final_eq:,.0f}",
+        f"{profile_label}  |  ${start_cap:,.0f}  â†’  ${final_eq:,.0f}",
         color="#eee", fontsize=13, pad=10,
     )
 
-    # ── Lower panel: drawdown ─────────────────────────────────────────────
+    # â”€â”€ Lower panel: drawdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     ax_dd.set_facecolor("#0d0d12")
     ax_dd.fill_between(dates, dd_pct.values, 0,
                         where=(dd_pct.values < 0),
@@ -1084,7 +1104,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Deployable Capital Wrapper — Phase 3: Single-Profile Simulation"
+        description="Deployable Capital Wrapper â€” Phase 3: Single-Profile Simulation"
     )
     parser.add_argument(
         "strategy_prefix",
@@ -1105,7 +1125,7 @@ def main():
     print(f"[INIT] Strategy prefix: {prefix}")
     print(f"[INIT] Matched {len(run_dirs)} run directories")
 
-    # Phase 2: Load → Build → Sort
+    # Phase 2: Load â†’ Build â†’ Sort
     trades = load_trades(run_dirs)
     events = build_events(trades)
     sorted_events = sort_events(events)

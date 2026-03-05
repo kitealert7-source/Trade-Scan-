@@ -9,6 +9,8 @@ def apply(df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         - is_red (bool)
         - green_streak (int)
         - red_streak (int)
+
+    Output Scale: N/A (boolean and integer counts)
     """
 
     df = df.copy()
@@ -23,6 +25,8 @@ def apply(df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
     g_count = 0
     r_count = 0
 
+    # GOVERNANCE: iterative by design (O(n)), no nested loops.
+    # Streak counting requires sequential state — cannot be vectorized.
     for is_g, is_r in zip(df["is_green"], df["is_red"]):
         if is_g:
             g_count += 1
