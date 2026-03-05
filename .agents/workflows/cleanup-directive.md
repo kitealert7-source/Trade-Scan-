@@ -108,7 +108,9 @@ Run the strict formatting script to stylize all generated Excel artifacts across
 // turbo
 
 ```bash
-python tools/format_excel_artifact.py
+python tools/format_excel_artifact.py --file backtests/Strategy_Master_Filter.xlsx --profile strategy
+python tools/format_excel_artifact.py --file strategies/Master_Portfolio_Sheet.xlsx --profile portfolio
+python tools/format_excel_artifact.py --file strategies/Filtered_Strategies_Passed.xlsx --profile strategy
 ```
 
 ---

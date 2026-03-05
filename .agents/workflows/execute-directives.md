@@ -411,14 +411,28 @@ On success:
 - Report the path to both generated robustness reports.
 - The directive is fully complete end-to-end.
 
-### Step 11: Artifact Formatting
+### Step 11: Profile Selection & Ledger Enrichment
 
-Run the strict formatting script to stylize all generated Excel artifacts across the workspace.
+Select the best-performing capital profile by Return/DD ratio and enrich
+the Master Portfolio Sheet with realized execution metrics.
 
 // turbo
 
 ```bash
-python tools/format_excel_artifact.py
+python tools/profile_selector.py --all
+```
+
+### Step 12: Artifact Formatting
+
+Run the strict formatting script to stylize all generated Excel artifacts across the workspace.
+This MUST run after Step 11 so that the new profile columns get formatted.
+
+// turbo
+
+```bash
+python tools/format_excel_artifact.py --file backtests/Strategy_Master_Filter.xlsx --profile strategy
+python tools/format_excel_artifact.py --file strategies/Master_Portfolio_Sheet.xlsx --profile portfolio
+python tools/format_excel_artifact.py --file strategies/Filtered_Strategies_Passed.xlsx --profile strategy
 ```
 
 ### Protected Infrastructure Policy

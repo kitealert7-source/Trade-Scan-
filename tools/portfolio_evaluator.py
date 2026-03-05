@@ -1303,39 +1303,61 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     """
     ledger_path = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
     
-    # Schema Definition (Col Order matters)
+    # Schema Definition — Logically Grouped Column Order
+    # Profile columns (deployed_profile → realized_vs_theoretical_pnl) are
+    # populated by tools/profile_selector.py (Step 12), not by this evaluator.
     columns = [
+        # ── Identity ──
         "portfolio_id",
-        "creation_timestamp",
-        "constituent_run_ids", # Required Governance Field (SOP 8)
         "source_strategy",
+
+        # ── Capital & Performance ──
         "reference_capital_usd",
-        "net_pnl_usd", # Renamed from net_pnl
+        "net_pnl_usd",
         "sharpe",
         "max_dd_pct",
         "return_dd_ratio",
+        "win_rate",
+        "profit_factor",
+        "expectancy",
+        "total_trades",
+        "exposure_pct",
+        "equity_stability_k_ratio",
+
+        # ── Deployed Profile (Step 12) ──
+        "deployed_profile",
+        "realized_pnl_usd",
+        "trades_accepted",
+        "trades_rejected",
+        "rejection_rate_pct",
+        "realized_vs_theoretical_pnl",
+
+        # ── Capital Utilization ──
         "peak_capital_deployed",
         "capital_overextension_ratio",
+
+        # ── Concurrency ──
         "avg_concurrent",
         "max_concurrent",
         "p95_concurrent",
         "dd_max_concurrent",
         "full_load_cluster",
+
+        # ── Correlation ──
         "avg_pairwise_corr",
         "max_pairwise_corr_stress",
-        "total_trades",
-        "portfolio_engine_version",
+
+        # ── Regime Decomposition ──
         "portfolio_net_profit_low_vol",
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
+
+        # ── Metadata ──
         "signal_timeframes",
         "evaluation_timeframe",
-        # Phase 15 Metrics
-        "win_rate",
-        "profit_factor",
-        "expectancy",
-        "exposure_pct",
-        "equity_stability_k_ratio"
+        "portfolio_engine_version",
+        "creation_timestamp",
+        "constituent_run_ids",
     ]
     
     
