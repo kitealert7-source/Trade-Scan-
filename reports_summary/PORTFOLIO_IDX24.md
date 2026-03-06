@@ -1,7 +1,7 @@
 # Strategy Portfolio Report — IDX24
 
-Date Range: 2016-01-18 → 2026-01-30
-Generated: 2026-03-01 06:05:11 UTC
+Date Range: 2016-12-07 → 2026-01-23
+Generated: 2026-03-06 04:09:40 UTC
 
 ---
 
@@ -9,14 +9,14 @@ Generated: 2026-03-01 06:05:11 UTC
 
 | Metric | Value |
 |--------|-------|
-| Total Trades | 2093 |
-| Net PnL | $3890.98 |
-| Win Rate | 58.3% |
-| Profit Factor | 1.17 |
-| Expectancy | $1.86 |
-| Max Drawdown | -4.29% |
-| Return/DD Ratio | 1.77 |
-| CAGR | 0.75% |
-| Sharpe Ratio | 0.75 |
-| Sortino Ratio | 0.70 |
-| Avg Correlation | 0.2647 |
+| Total Trades | 187 |
+| Net PnL | $1302.26 |
+| Win Rate | 66.3% |
+| Profit Factor | 1.60 |
+| Expectancy | $6.96 |
+| Max Drawdown | -2.72% |
+| Return/DD Ratio | 4.54 |
+| CAGR | 1.35% |
+| Sharpe Ratio | 2.82 |
+| Sortino Ratio | 3.54 |
+| Avg Correlation | 0.0000 |

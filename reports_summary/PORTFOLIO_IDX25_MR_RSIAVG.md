@@ -1,7 +1,7 @@
 # Strategy Portfolio Report — IDX25_MR_RSIAVG
 
-Date Range: 2016-01-13 → 2026-01-26
-Generated: 2026-03-01 09:55:06 UTC
+Date Range: 2016-01-14 → 2026-01-22
+Generated: 2026-03-06 04:09:59 UTC
 
 ---
 
@@ -9,14 +9,14 @@ Generated: 2026-03-01 09:55:06 UTC
 
 | Metric | Value |
 |--------|-------|
-| Total Trades | 1055 |
-| Net PnL | $3985.81 |
-| Win Rate | 61.2% |
-| Profit Factor | 1.44 |
-| Expectancy | $3.78 |
-| Max Drawdown | -2.80% |
-| Return/DD Ratio | 2.80 |
-| CAGR | 0.77% |
-| Sharpe Ratio | 1.44 |
-| Sortino Ratio | 1.47 |
-| Avg Correlation | 0.3238 |
+| Total Trades | 326 |
+| Net PnL | $3174.01 |
+| Win Rate | 63.5% |
+| Profit Factor | 1.59 |
+| Expectancy | $9.74 |
+| Max Drawdown | -8.27% |
+| Return/DD Ratio | 3.53 |
+| CAGR | 2.79% |
+| Sharpe Ratio | 2.23 |
+| Sortino Ratio | 2.55 |
+| Avg Correlation | 0.3739 |

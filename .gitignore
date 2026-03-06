@@ -32,3 +32,5 @@ Thumbs.db
 !vault/engines/**
 
 # (No ignores under vault unless explicitly added later)
+
+tmp/

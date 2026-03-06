@@ -343,38 +343,37 @@ On verification success:
 ### Step 10: Robustness Suite Execution
 
 After deployable artifacts are verified, run the full robustness evaluation suite
-against **both** profiles' deployable artifacts.
+against the **deployed profile** (the winner selected by `profile_selector.py` in Step 11,
+or the profile specified by the human operator).
 
 This step is **observational only** — it reads deployable artifacts and produces
 a markdown research report. It does NOT modify any pipeline state, directive state,
 ledger, or manifest.
 
-**10a. Conservative Profile:**
+**10a. Determine deployed profile:**
+
+Read `Master_Portfolio_Sheet.xlsx` → find the `deployed_profile` value for
+`<DIRECTIVE_NAME>`. If not yet selected (first run), default to `CONSERVATIVE_V1`.
+
+**10b. Run robustness suite:**
 
 // turbo
 
 ```
-python -m tools.robustness.cli <DIRECTIVE_NAME> --profile CONSERVATIVE_V1 --suite full
+python -m tools.robustness.cli <DIRECTIVE_NAME> --profile <DEPLOYED_PROFILE> --suite full
 ```
 
-**10b. Aggressive Profile:**
+Replace `<DIRECTIVE_NAME>` with the actual strategy prefix and `<DEPLOYED_PROFILE>`
+with the selected profile (e.g. `DYNAMIC_V1`, `CONSERVATIVE_V1`, or `FIXED_USD_V1`).
 
-// turbo
+Report destination (determined automatically by `cli.py`):
 
-```
-python -m tools.robustness.cli <DIRECTIVE_NAME> --profile AGGRESSIVE_V1 --suite full
-```
+| Strategy Type | Primary Location | Archive |
+|---|---|---|
+| Multi-asset (portfolio) | `strategies/<NAME>/ROBUSTNESS_<NAME>_<PROFILE>.md` | `outputs/reports/` |
+| Single-asset | `backtests/<STRATEGY_SYMBOL>/ROBUSTNESS_<NAME>_<PROFILE>.md` | `outputs/reports/` |
 
-Replace `<DIRECTIVE_NAME>` with the actual strategy prefix before running.
-
-Outputs emitted (per profile):
-
-| Location | File |
-|---|---|
-| `strategies/<DIRECTIVE_NAME>/ROBUSTNESS_<DIRECTIVE_NAME>_<PROFILE>.md` | Strategy root (primary copy) |
-| `outputs/reports/ROBUSTNESS_<DIRECTIVE_NAME>_<PROFILE>.md` | Archive copy |
-
-Report sections (14 total):
+Report sections (16 total):
 
 1. Edge Metrics Summary
 2. Tail Contribution
@@ -390,6 +389,8 @@ Report sections (14 total):
 12. Symbol Isolation Stress
 13. Per-Symbol PnL Breakdown
 14. Block Bootstrap (100 runs)
+15. Monthly Seasonality
+16. Weekday Seasonality
 
 Constraints:
 
@@ -408,7 +409,7 @@ Failure handling:
 
 On success:
 
-- Report the path to both generated robustness reports.
+- Report the path to the generated robustness report.
 - The directive is fully complete end-to-end.
 
 ### Step 11: Profile Selection & Ledger Enrichment
@@ -422,10 +423,42 @@ the Master Portfolio Sheet with realized execution metrics.
 python tools/profile_selector.py --all
 ```
 
-### Step 12: Artifact Formatting
+### Step 12: Workspace Reconciliation
+
+Run the cleanup reconciler to ensure the filesystem matches authoritative ledgers.
+
+Dry-run first:
+
+// turbo
+
+```bash
+python tools/cleanup_reconciler.py
+```
+
+Validate that only artifacts not represented in `backtests/Strategy_Master_Filter.xlsx` are scheduled for deletion.
+
+If correct, execute cleanup:
+
+```bash
+python tools/cleanup_reconciler.py --execute
+```
+
+Re-run reconciler to confirm convergence:
+
+// turbo
+
+```bash
+python tools/cleanup_reconciler.py
+```
+
+Expected result: **0 actions remaining** (idempotent).
+
+If actions remain → report discrepancy. Do NOT proceed to formatting.
+
+### Step 13: Artifact Formatting
 
 Run the strict formatting script to stylize all generated Excel artifacts across the workspace.
-This MUST run after Step 11 so that the new profile columns get formatted.
+This MUST run after Step 12 so that the new profile columns get formatted.
 
 // turbo
 
@@ -434,6 +467,30 @@ python tools/format_excel_artifact.py --file backtests/Strategy_Master_Filter.xl
 python tools/format_excel_artifact.py --file strategies/Master_Portfolio_Sheet.xlsx --profile portfolio
 python tools/format_excel_artifact.py --file strategies/Filtered_Strategies_Passed.xlsx --profile strategy
 ```
+
+### Appendix — CLONE_MODE Directive Replication
+
+When cloning existing directives for comparison testing (e.g., capital model A/B testing):
+
+1. **Prefix directive ID** with `C_` (e.g., `C_AK36_FX_PORTABILITY_1H.txt`)
+2. **`test.name`** must equal the directive ID (e.g., `C_AK36_FX_PORTABILITY_1H`), NOT the original strategy name. This prevents run ID collisions.
+3. **`test.strategy`** must equal the original strategy folder name (e.g., `AK36_FX_PORTABILITY_1H`)
+4. **Run canonicalizer** to fix any structural drift:
+
+```bash
+python tools/canonicalizer.py backtest_directives/active/<DIRECTIVE_ID>.txt --execute
+```
+
+1. **Copy `strategy.py` exactly** from the original strategy folder — no logic modification:
+
+```bash
+copy strategies\<ORIGINAL>\strategy.py strategies\C_<ORIGINAL>\strategy.py
+```
+
+> [!WARNING]
+> If `test.name` matches the original directive, both will produce **identical run IDs**
+> causing Stage-3 deduplication to silently skip the clone. Always ensure `test.name`
+> includes the `C_` prefix.
 
 ### Protected Infrastructure Policy
 
@@ -464,7 +521,7 @@ The agent MUST NOT modify any file under these paths without:
 |---|---|
 | `strategies/<NAME>/strategy.py` | Strategy logic (still requires Step 3 review) |
 | `backtest_directives/active/*.txt` | Directive files (user-owned content) |
-| `/tmp/*` | Scratch scripts |
+| `tmp/*` | Scratch scripts and temporary artifacts |
 
 > [!IMPORTANT]
 > This policy exists because engine infrastructure changes have cascading
