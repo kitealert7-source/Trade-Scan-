@@ -1,0 +1,45 @@
+execution_rules:
+  entry_logic:
+    atr_length: 14
+    condition: close_less_than_hh_minus_atr
+    lookback_bars: 5
+    type: volatility_pullback
+  entry_when_flat_only: true
+  exit_logic:
+    price_exit: close_greater_than_hh_prev
+    time_exit_bars: 5
+    type: dynamic_or_time
+  pyramiding: false
+  reset_on_exit: true
+  stop_loss:
+    type: none
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.structure.highest_high
+- indicators.volatility.atr
+- indicators.volatility.atr_percentile
+- indicators.volatility.volatility_regime
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: false
+volatility_filter:
+  atr_length: 14
+  atr_percentile_lookback: 100
+  condition: atr_percentile_above_threshold
+  cooldown_bars: 5
+  threshold: 75
+symbols:
+- NAS100
+- US30
+test:
+  name: 02_VOL_FX_1D_VOLEXP_ATRFILT_S01_V1_P00
+  strategy: 02_VOL_FX_1D_VOLEXP_ATRFILT_S01_V1_P00
+  broker: OctaFX
+  timeframe: 1d
+  start_date: '2024-01-02'
+  end_date: '2026-02-28'

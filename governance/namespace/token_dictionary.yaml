@@ -1,0 +1,45 @@
+version: 1
+family:
+  - MR
+  - TREND
+  - VOL
+  - BRK
+  - PA
+  - PORT
+model:
+  - RSIAVG
+  - ZREV
+  - VOLEXP
+  - ATRBRK
+  - BOS
+  - CHOCH
+  - SFP
+  - IBREAK
+  - PINBAR
+  - ENGULF
+  - LIQGRAB
+  - PORT
+  - ULTC
+filter:
+  - ATRFILT
+  - VOLFILT
+  - TRENDFILT
+  - STRUCTFILT
+  - REGFILT
+timeframe:
+  - 1M
+  - 5M
+  - 15M
+  - 30M
+  - 1H
+  - 4H
+  - 1D
+  - 1W
+aliases:
+  family: {}
+  model:
+    VOL_EXP: VOLEXP
+    ATR_BRK: ATRBRK
+  filter:
+    ATR_FILTER: ATRFILT
+  timeframe: {}

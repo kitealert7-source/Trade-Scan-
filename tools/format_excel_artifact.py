@@ -99,6 +99,8 @@ FORMAT_MAP = {
     
     # Legacy / Internal Keys (Keep for compatibility)
     "net_pnl_usd": FMT_CURRENCY,
+    "realized_pnl": FMT_CURRENCY,
+    "theoretical_pnl": FMT_CURRENCY,
     "net_profit": FMT_CURRENCY, 
     "gross_profit": FMT_CURRENCY,
     "gross_loss": FMT_CURRENCY,
@@ -200,6 +202,48 @@ STRATEGY_COLUMN_ORDER = [
     "trades_strong_down",
 ]
 
+# Portfolio Ledger — Preferred Column Order
+# Keep rank out of canonical order so reference_capital remains column C.
+PORTFOLIO_COLUMN_ORDER = [
+    "portfolio_id",
+    "source_strategy",
+    "reference_capital_usd",
+    "theoretical_pnl",
+    "realized_pnl",
+    "sharpe",
+    "max_dd_pct",
+    "return_dd_ratio",
+    "win_rate",
+    "profit_factor",
+    "expectancy",
+    "total_trades",
+    "exposure_pct",
+    "equity_stability_k_ratio",
+    "deployed_profile",
+    "realized_pnl_usd",
+    "trades_accepted",
+    "trades_rejected",
+    "rejection_rate_pct",
+    "realized_vs_theoretical_pnl",
+    "peak_capital_deployed",
+    "capital_overextension_ratio",
+    "avg_concurrent",
+    "max_concurrent",
+    "p95_concurrent",
+    "dd_max_concurrent",
+    "full_load_cluster",
+    "avg_pairwise_corr",
+    "max_pairwise_corr_stress",
+    "portfolio_net_profit_low_vol",
+    "portfolio_net_profit_normal_vol",
+    "portfolio_net_profit_high_vol",
+    "signal_timeframes",
+    "evaluation_timeframe",
+    "portfolio_engine_version",
+    "creation_timestamp",
+    "constituent_run_ids",
+]
+
 # ==========================================================
 # LOGIC
 # ==========================================================
@@ -243,11 +287,13 @@ def apply_formatting(file_path, profile):
                     df["rank"] = range(1, len(df) + 1)
                 print(f"  [RANKED] Sorted by {sort_col} descending ({len(df)} rows)")
 
-            # --- Column Reorder (strategy only) ---
+            # --- Column Reorder ---
             col_order = None
             if profile == "strategy" and STRATEGY_COLUMN_ORDER:
                 # Prepend rank to the order
                 col_order = ["rank"] + STRATEGY_COLUMN_ORDER
+            elif profile == "portfolio" and PORTFOLIO_COLUMN_ORDER:
+                col_order = PORTFOLIO_COLUMN_ORDER
 
             if col_order:
                 existing = df.columns.tolist()

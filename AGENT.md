@@ -9,6 +9,19 @@
 > It MUST NEVER authorize automatic mutation of strategy code, directives, artifacts, `run_state.json`, or Master Ledgers.  
 > It is a diagnostic and remediation guide only.
 
+### Context Loading Requirement
+
+Before performing strategy design, directive creation, or experiment analysis,
+the agent MUST read the following files:
+
+1. `RESEARCH_MEMORY.md` — accumulated research findings
+2. `SYSTEM_STATE.md` — current operational system state
+
+These files provide historical research context and current system status.
+The agent must avoid repeating previously disproven approaches recorded in `RESEARCH_MEMORY.md`.
+
+This ensures the agent uses the memory during reasoning.
+
 ---
 
 ## SYSTEM INVARIANTS
@@ -29,12 +42,15 @@ These are non-negotiable. The agent must never violate any of these.
 12. **Single Signature Authority** — Signature construction is owned exclusively by `tools/directive_schema.py:normalize_signature()`. No other file may construct or compare signatures independently.
 13. **Genesis/Clone Classification** — New strategies (no existing `strategy.py`) use GENESIS_MODE: directive-only implementation, no cross-family behavioral borrowing. Existing strategies use CLONE_MODE.
 14. **No Workspace Mode** — All pipeline executions run in strict integrity mode. Engine hash verification and tools manifest verification are mandatory. There is no development bypass.
-15. **Governance-Authorized Reset Only** — `--force` is removed from the pipeline. Failed directives may only be reset via `tools/reset_directive.py --reason "<justification>"`, which logs to `governance/reset_audit_log.csv`. Full resets also clean associated per-symbol run states. The agent MUST NOT invoke this tool autonomously.
+15. **Governance-Authorized Reset Only** — `--force` is removed from the pipeline. Failed directives may only be reset via `tools/reset_directive.py --reason "<justification>"`, which logs to `governance/reset_audit_log.csv`. Full resets also clean associated per-symbol run states. The agent MUST NOT invoke this tool autonomously. `--to-stage4` is only valid from PORTFOLIO_COMPLETE. FAILED directives cannot resume mid-pipeline because Stage-4 relies on consistent artifacts from Stages 0-3. A FAILED directive must be fully reset before re-execution to guarantee artifact integrity.
 16. **Guard-Layer Manifest** — All Critical Guard Set files (`tools/tools_manifest.json`) are SHA-256 bound. `tools/generate_guard_manifest.py` is human-only; the agent MUST NOT invoke it or modify the manifest.
 17. **Root-of-Trust Vault Binding** — `verify_engine_integrity.py` is hash-bound via `vault/root_of_trust.json`. `preflight.py` verifies this hash before invoking the integrity checker. Vault updates require explicit human action. The agent MUST NOT modify `vault/root_of_trust.json`.
 18. **Engine Manifest Generator** — `tools/generate_engine_manifest.py` is human-only; the agent MUST NOT invoke it. It auto-detects the active engine version and writes `engine_manifest.json`.
 19. **Directive Schema Freeze** — The canonical directive schema is defined in `tools/canonical_schema.py` (FREEZE policy). All directives must conform to this schema. `tools/canonicalizer.py` validates structure at Stage -0.25. Unknown keys, misplaced blocks, type mismatches, and missing required sub-blocks cause HARD FAIL. The canonicalizer moves, renames, or reorders keys only via explicit tables — never via inference or leaf scanning.
 20. **Capital Model Invariant** — Per-symbol reference capital is `$1,000` (defined in `data_access/broker_specs/*/<SYMBOL>.yaml` as `reference_capital_usd: 1000`). Total portfolio capital is `$10,000` (defined in `portfolio_evaluator.py` as `TOTAL_PORTFOLIO_CAPITAL = 10000` and in `capital_wrapper.py` PROFILES). Self-imposed leverage cap is 5× (effective buying power: $5,000 per symbol). These values must remain synchronized across all three systems.
+21. **Namespace Governance** — Directive identity must satisfy `filename == test.name == test.strategy` and pass `tools/namespace_gate.py` (pattern, token dictionaries, alias policy, idea-family registry match) at Stage -0.30.
+22. **Sweep Registry Integrity** — Sweeps are reserved through `tools/sweep_registry_gate.py` at Stage -0.35. Existing sweep reuse is allowed only for exact idempotent matches (same directive + same signature hash); all other reuse is blocked as collision.
+23. **Symbol Universe Admission** — Preflight must confirm each symbol exists in broker specs and has RESEARCH data for the declared broker/timeframe before Stage-1 execution.
 
 ---
 
@@ -53,9 +69,23 @@ Stage -0.25: Structural Canonicalization
     └── Deterministic Diff + Approval Gate
     │
     ▼
+Stage -0.30: Namespace Governance Gate
+    ├── Name pattern enforcement
+    ├── FAMILY/MODEL/FILTER/TF token dictionary enforcement
+    ├── Alias policy enforcement (canonical tokens only)
+    └── Idea registry family binding check
+    │
+    ▼
+Stage -0.35: Sweep Registry Gate
+    ├── Sweep reservation (append-only)
+    ├── Idempotent reuse check (same directive + same signature hash)
+    └── Collision rejection on conflicting reuse
+    │
+    ▼
 Stage-0: Preflight
     ├── Strategy Provisioning (create/update strategy.py shell)
     ├── Dependency Validation (indicators, engine, broker specs)
+    ├── Symbol Universe Validation (broker spec + RESEARCH data presence)
     └── Governance Compliance Check
     │
     ▼
@@ -139,6 +169,27 @@ Step 10: Robustness Suite (observational research)
     ├── Monte Carlo, Bootstrap, Friction Stress
     └── Reports to strategies/ + outputs/reports/
 ```
+
+### Step 11: Research Insight Extraction (Optional, Manual)
+
+Review the generated report:
+`backtests/<DIRECTIVE>/REPORT_SUMMARY.md`
+
+If meaningful strategic insight is discovered, propose appending a structured entry to `RESEARCH_MEMORY.md` including:
+
+- Tags
+- Finding
+- Evidence
+- Conclusion
+- Implication
+
+Rules:
+- Append only
+- Do not modify previous entries
+- Do not record raw experiment logs
+- Only record distilled findings
+
+Important: do not auto-generate insights. The agent should suggest, and human approval is required before append.
 
 ---
 

@@ -1,0 +1,49 @@
+version: 1
+ideas:
+  '01':
+    next_sweep: 3
+    sweeps:
+      S01:
+        directive_name: 01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P00
+        signature_hash: 732e29503ebbf4a7
+        reserved_at_utc: '2026-03-07T09:40:01.781292+00:00'
+      S02:
+        directive_name: 01_MR_FX_1H_ULTC_REGFILT_S02_V1_P00
+        signature_hash: 87b82382c8350cf4
+        reserved_at_utc: '2026-03-07T11:02:07.276714+00:00'
+  '02':
+    next_sweep: 6
+    sweeps:
+      S01:
+        directive_name: 02_VOL_FX_1D_VOLEXP_ATRFILT_S01_V1_P00
+        signature_hash: 0480b5e2839c4f94
+        reserved_at_utc: '2026-03-07T09:40:01.252545+00:00'
+      S02:
+        directive_name: 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S02_V1_P00
+        signature_hash: eae7a264daa16b1c
+        reserved_at_utc: '2026-03-07T09:40:01.428912+00:00'
+      S03:
+        directive_name: 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S03_V1_P00
+        signature_hash: 6ed542d476f0d013
+        reserved_at_utc: '2026-03-07T09:40:01.603296+00:00'
+      S04:
+        directive_name: 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00
+        signature_hash: fe87dac3abac695c
+        reserved_at_utc: '2026-03-07T09:40:01.961163+00:00'
+      S05:
+        directive_name: 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S05_V1_P00
+        signature_hash: b971144b9f32e4cd
+        reserved_at_utc: '2026-03-07T09:40:44.127268+00:00'
+  '03':
+    next_sweep: 1
+    sweeps: {}
+  '04':
+    next_sweep: 1
+    sweeps: {}
+  '05':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 05_PORT_FX_4H_PORT_VOLFILT_S01_V1_P00
+        signature_hash: 1d7d081ae3a13001
+        reserved_at_utc: '2026-03-07T09:40:01.077443+00:00'

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python tools/run_pipeline.py --all)",
+      "Bash(python tools/canonicalizer.py backtest_directives/active/05_PORT_FX_4H_PORT_VOLFILT_S01_V1_P00.txt)",
+      "Bash(python -c \":*)",
+      "Bash(python -m tools.robustness.cli 05_PORT_FX_4H_PORT_VOLFILT_S01_V1_P00 --profile CONSERVATIVE_V1 --suite full)",
+      "Bash(python tools/cleanup_reconciler.py)",
+      "Bash(python tools/run_pipeline.py --all --provision-only)",
+      "Bash(python tools/run_pipeline.py 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S02_V1_P00)",
+      "Bash(python tools/reset_directive.py 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S02_V1_P00 --reason \"Stage-4 file lock on Master_Portfolio_Sheet.xlsx; file closed, full reset for clean re-run\")",
+      "Bash(python tools/run_pipeline.py 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S03_V1_P00)",
+      "Bash(python tools/run_pipeline.py 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00)",
+      "Bash(python -m tools.robustness.cli 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S02_V1_P00 --profile FIXED_USD_V1 --suite full)",
+      "Bash(python -m tools.robustness.cli 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S03_V1_P00 --profile FIXED_USD_V1 --suite full)",
+      "Bash(python -m tools.robustness.cli 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00 --profile FIXED_USD_V1 --suite full)",
+      "Bash(python -m tools.robustness.cli 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S05_V1_P00 --profile FIXED_USD_V1 --suite full)",
+      "Bash(python tools/cleanup_reconciler.py --execute)",
+      "Bash(python tools/format_excel_artifact.py --file backtests/Strategy_Master_Filter.xlsx --profile strategy)",
+      "Bash(python tools/format_excel_artifact.py --file strategies/Master_Portfolio_Sheet.xlsx --profile portfolio)"
+    ]
+  }
+}

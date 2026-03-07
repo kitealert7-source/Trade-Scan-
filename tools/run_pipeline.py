@@ -44,6 +44,7 @@ import json
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
+import datetime as _dt
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -61,6 +62,7 @@ from tools.pipeline_utils import (
     get_engine_version,
     parse_directive
 )
+from tools.directive_schema import normalize_signature
 
 def run_command(cmd_list, step_name):
     print(f"\n{'='*40}")
@@ -82,8 +84,26 @@ def run_command(cmd_list, step_name):
         print(f"\n[FATAL] {step_name} FAILED with error: {e}")
         raise e
 
-def get_directive_path(directive_id):
-    """Locate the directive file."""
+def _json_safe_for_hash(obj):
+    if isinstance(obj, (_dt.date, _dt.datetime)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _json_safe_for_hash(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe_for_hash(v) for v in obj]
+    return obj
+
+def _directive_signature_hash(path: Path):
+    import yaml
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        sig = normalize_signature(_json_safe_for_hash(payload))
+        canonical = json.dumps(sig, sort_keys=True, ensure_ascii=True)
+        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+    except Exception:
+        return None
+
+def _find_directive_path(directive_id):
     candidates = [
         ACTIVE_DIR / directive_id,
         ACTIVE_DIR / f"{directive_id}.txt"
@@ -91,6 +111,38 @@ def get_directive_path(directive_id):
     for c in candidates:
         if c.exists():
             return c
+    return None
+
+def _resolve_directive_id_by_signature(sig_hash):
+    if not sig_hash:
+        return None
+    matches = []
+    for p in ACTIVE_DIR.glob("*.txt"):
+        if _directive_signature_hash(p) == sig_hash:
+            matches.append(p.stem)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+def auto_migrate_active_directives():
+    """
+    Auto-convert legacy directives in active/ into namespace-governed IDs.
+    This removes repeated manual migration steps for grid/variant directives.
+    """
+    cmd = [
+        PYTHON_EXE,
+        "tools/convert_promoted_directives.py",
+        "--source-dir",
+        str(ACTIVE_DIR),
+        "--rename-strategies",
+    ]
+    run_command(cmd, "Auto Namespace Migration")
+
+def get_directive_path(directive_id):
+    """Locate the directive file."""
+    found = _find_directive_path(directive_id)
+    if found:
+        return found
     
     print(f"[ERROR] Directive file not found for ID: {directive_id}")
     print(f"Searched in: {ACTIVE_DIR}")
@@ -240,6 +292,45 @@ def run_single_directive(directive_id):
         sys.exit(1)
     else:
         print("[STAGE -0.25] Directive is in canonical form. [OK]")
+
+    # ----------------------------------------------------------
+    # STAGE -0.30: NAMESPACE GOVERNANCE GATE (PHASE-1)
+    # Enforces naming pattern, token dictionaries, alias policy,
+    # filename/test identity equality, and idea registry match.
+    # ----------------------------------------------------------
+    try:
+        from tools.namespace_gate import validate_namespace
+        ns_details = validate_namespace(d_path)
+        print(
+            "[STAGE -0.30] Namespace Gate PASSED: "
+            f"{ns_details['strategy_name']} "
+            f"(ID={ns_details['idea_id']}, "
+            f"FAMILY={ns_details['family']}, "
+            f"MODEL={ns_details['model']}, "
+            f"FILTER={ns_details.get('filter') or 'NONE'})"
+        )
+    except Exception as e:
+        print("\n[FATAL] STAGE -0.30 NAMESPACE GATE FAILED:")
+        print(f"  {e}")
+        sys.exit(1)
+
+    # ----------------------------------------------------------
+    # STAGE -0.35: SWEEP REGISTRY GATE (PHASE-2)
+    # Enforces unique sweep allocation per idea lineage.
+    # ----------------------------------------------------------
+    try:
+        from tools.sweep_registry_gate import reserve_sweep
+        sw_details = reserve_sweep(d_path, auto_advance=True)
+        print(
+            "[STAGE -0.35] Sweep Gate PASSED: "
+            f"status={sw_details['status']} "
+            f"idea={sw_details['idea_id']} "
+            f"sweep={sw_details['sweep']}"
+        )
+    except Exception as e:
+        print("\n[FATAL] STAGE -0.35 SWEEP GATE FAILED:")
+        print(f"  {e}")
+        sys.exit(1)
 
     # Stage -0.25 passed. Now safe to call parse_directive() with strict validation.
     # This is the earliest correct point: canonical structure is confirmed.
@@ -451,15 +542,14 @@ def run_single_directive(directive_id):
                     continue
 
                 try:
-                    # 1. Execute Atomic Stage-1
-                    cmd = [
-                        PYTHON_EXE, 
-                        "tools/run_stage1.py", 
-                        clean_id, 
-                        "--symbol", symbol,
-                        "--run_id", rid
-                    ]
-                    run_command(cmd, f"Stage-1: {symbol}")
+                    # 1. Execute Atomic Stage-1 using Skill Loader
+                    from tools.skill_loader import run_skill
+                    run_skill(
+                        "backtest_execution",
+                        strategy=clean_id,
+                        symbol=symbol,
+                        run_id=rid
+                    )
                     
                     # --- STAGE-1 ARTIFACT GATE ---
                     out_folder = PROJECT_ROOT / "backtests" / f"{clean_id}_{symbol}"
@@ -798,7 +888,7 @@ def run_single_directive(directive_id):
         try:
             print("[ORCHESTRATOR] Running Step 9: Deployable Artifact Verification...")
             deploy_root = PROJECT_ROOT / "strategies" / clean_id / "deployable"
-            profiles = ["CONSERVATIVE_V1", "AGGRESSIVE_V1"]
+            profiles = ["CONSERVATIVE_V1", "DYNAMIC_V1", "FIXED_USD_V1"]
             step9_failures = []
 
             for prof in profiles:
@@ -904,6 +994,9 @@ def run_batch_mode():
         print(f"[BATCH] Active directory not found: {active_dir}")
         return
 
+    # Auto-namespace migration pass (active directives + strategy folder alignment)
+    auto_migrate_active_directives()
+
     directives = sorted(active_dir.glob("*.txt"))
     if not directives:
         print("[BATCH] No directives found in active/")
@@ -947,6 +1040,18 @@ def main():
         run_batch_mode()
     else:
         directive_id = arg.replace(".txt", "")
+        # Capture pre-migration signature to auto-resolve renamed directive IDs.
+        pre_path = _find_directive_path(directive_id)
+        pre_hash = _directive_signature_hash(pre_path) if pre_path else None
+
+        auto_migrate_active_directives()
+
+        if _find_directive_path(directive_id) is None and pre_hash:
+            migrated_id = _resolve_directive_id_by_signature(pre_hash)
+            if migrated_id:
+                print(f"[AUTO-MIGRATE] Directive renamed: {directive_id} -> {migrated_id}")
+                directive_id = migrated_id
+
         print(f"MASTER PIPELINE EXECUTION -- {directive_id}")
         run_single_directive(directive_id)
         print("\n[SUCCESS] Pipeline Completed Successfully.")

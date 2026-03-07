@@ -1,5 +1,5 @@
 """
-run_portfolio_analysis.py — Governance-Grade Portfolio Engine (v3.0)
+run_portfolio_analysis.py - Governance-Grade Portfolio Engine (v3.0)
 
 Fully compliant with SOP_PORTFOLIO_ANALYSIS_v1_0.md
 
@@ -546,7 +546,8 @@ def main():
 
     summary = {
         "portfolio_id": portfolio_id,
-        "net_pnl_usd": float(trades["pnl"].sum()),
+        "realized_pnl": float(trades["pnl"].sum()),
+        "net_pnl_usd": float(trades["pnl"].sum()),  # backward compatibility
         "max_dd_usd": float(max_dd),
         "max_dd_pct": float(max_dd_pct),
         "return_dd_ratio": float(return_dd_ratio),
@@ -608,7 +609,7 @@ def main():
         "constituent_run_ids",
         "source_strategy",
         "reference_capital_usd",
-        "net_pnl_usd",
+        "realized_pnl",
         "sharpe",
         "max_dd_pct",
         "return_dd_ratio",
@@ -692,7 +693,7 @@ def main():
         "constituent_run_ids": ",".join(run_ids),
         "source_strategy": "AGGREGATED",
         "reference_capital_usd": reference_capital,
-        "net_pnl_usd": summary["net_pnl_usd"],
+        "realized_pnl": summary["realized_pnl"],
         "sharpe": summary["sharpe"],
         "max_dd_pct": summary["max_dd_pct"],
         "return_dd_ratio": summary["return_dd_ratio"],

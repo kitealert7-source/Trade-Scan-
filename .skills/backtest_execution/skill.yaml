@@ -1,0 +1,22 @@
+name: backtest_execution
+version: "1.0"
+
+description: |
+  Executes atomic Stage-1 backtest runs.
+
+entrypoint:
+  type: python
+  script: tools/run_stage1.py
+
+inputs:
+  - strategy
+  - symbol
+  - run_id
+
+outputs:
+  - results_tradelevel.csv
+  - run_metadata.json
+
+properties:
+  deterministic: true
+  side_effects: filesystem_write

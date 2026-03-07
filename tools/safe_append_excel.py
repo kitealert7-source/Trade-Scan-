@@ -7,7 +7,7 @@ sheet structure and triggering the formatter to ensure strict styling.
 Usage:
     python tools/safe_append_excel.py \
         --file strategies/Master_Portfolio_Sheet.xlsx \
-        --data '{"portfolio_id": "IDX27", "net_pnl_usd": 100.0}' \
+        --data '{"portfolio_id": "IDX27", "realized_pnl": 100.0}' \
         --profile portfolio
 """
 

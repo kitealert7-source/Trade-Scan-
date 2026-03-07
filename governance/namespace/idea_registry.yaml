@@ -1,0 +1,44 @@
+version: 1
+ideas:
+  "01":
+    family: MR
+    title: Mean Reversion Research Track
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    status: active
+  "02":
+    family: VOL
+    title: Volatility Expansion Research Track
+    class: volatility_logic
+    regime: transition
+    role: volatility_capture
+    status: active
+  "03":
+    family: TREND
+    title: Trend Following Research Track
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    status: active
+  "04":
+    family: BRK
+    title: Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    status: active
+  "06":
+    family: PA
+    title: Price Action Structure Research
+    class: price_action
+    regime: trend
+    role: entry_edge
+    status: active
+  "05":
+    family: PORT
+    title: Portability Research Track
+    class: portfolio_logic
+    regime: multi
+    role: stabilizer
+    status: active

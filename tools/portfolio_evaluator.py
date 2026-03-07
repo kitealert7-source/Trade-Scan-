@@ -1,5 +1,5 @@
 """
-Portfolio Evaluator — Multi-Instrument Portfolio Analysis + Snapshot Archival
+Portfolio Evaluator - Multi-Instrument Portfolio Analysis + Snapshot Archival
 Usage: python tools/portfolio_evaluator.py <STRATEGY_ID>
 Example: python tools/portfolio_evaluator.py IDX23
 
@@ -890,7 +890,7 @@ def generate_charts(portfolio_equity, symbol_equity, corr_data, contributions,
     for i, (sym, eq) in enumerate(symbol_equity.items()):
         ax.plot(eq.index, eq.values, color=COLORS[i % len(COLORS)],
                 linewidth=0.8, alpha=0.5, label=sym)
-    ax.set_title(f'{strategy_id} — Portfolio Equity Curve', fontweight='bold')
+    ax.set_title(f'{strategy_id} - Portfolio Equity Curve', fontweight='bold')
     ax.set_ylabel('Equity (USD)')
     ax.legend(loc='upper left', fontsize=7, ncol=3)
     ax.grid(True)
@@ -906,7 +906,7 @@ def generate_charts(portfolio_equity, symbol_equity, corr_data, contributions,
     ax.fill_between(dd_pct.index, dd_pct.values, 0,
                     color='#ff4757', alpha=0.6)
     ax.plot(dd_pct.index, dd_pct.values, color='#ff6b81', linewidth=0.8)
-    ax.set_title(f'{strategy_id} — Portfolio Drawdown', fontweight='bold')
+    ax.set_title(f'{strategy_id} - Portfolio Drawdown', fontweight='bold')
     ax.set_ylabel('Drawdown (%)')
     ax.grid(True)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
@@ -929,7 +929,7 @@ def generate_charts(portfolio_equity, symbol_equity, corr_data, contributions,
             ax.text(j, i, f'{val:.2f}', ha='center', va='center',
                     color='white', fontsize=8, fontweight='bold')
     fig.colorbar(im, ax=ax, shrink=0.8)
-    ax.set_title(f'{strategy_id} — Correlation Matrix', fontweight='bold')
+    ax.set_title(f'{strategy_id} - Correlation Matrix', fontweight='bold')
     fig.tight_layout()
     fig.savefig(output_dir / 'correlation_matrix.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -944,7 +944,7 @@ def generate_charts(portfolio_equity, symbol_equity, corr_data, contributions,
         ypos = bar.get_height() + (10 if val >= 0 else -30)
         ax.text(bar.get_x() + bar.get_width()/2, ypos,
                 f'${val:.0f}', ha='center', fontsize=9, fontweight='bold')
-    ax.set_title(f'{strategy_id} — PnL Contribution by Symbol', fontweight='bold')
+    ax.set_title(f'{strategy_id} - PnL Contribution by Symbol', fontweight='bold')
     ax.set_ylabel('Net PnL (USD)')
     ax.axhline(y=0, color='#ffffff44', linewidth=0.8)
     ax.grid(True, axis='y')
@@ -967,7 +967,7 @@ def generate_charts(portfolio_equity, symbol_equity, corr_data, contributions,
             axes[idx].text(v + (xoff if v >= 0 else -xoff),
                           i, f'{v:.0f}' if metric != 'sharpe' else f'{v:.2f}',
                           va='center', fontsize=8)
-    fig.suptitle(f'{strategy_id} — Stress Test Results', fontweight='bold', fontsize=14)
+    fig.suptitle(f'{strategy_id} - Stress Test Results', fontweight='bold', fontsize=14)
     fig.tight_layout()
     fig.savefig(output_dir / 'stress_test_chart.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -978,7 +978,7 @@ def generate_charts(portfolio_equity, symbol_equity, corr_data, contributions,
 def generate_portfolio_tradelevel(portfolio_df, output_dir, total_capital):
     """
     Generate and save portfolio_tradelevel.csv with enriched metrics.
-    Satisfies SOP_PORTFOLIO_ANALYSIS §5.
+    Satisfies SOP_PORTFOLIO_ANALYSIS Section 5.
     """
     df = portfolio_df.copy()
     
@@ -1200,7 +1200,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     us_removed_pnl = us_removed[0]['net_pnl'] if us_removed else 0
     us_dependency = ((baseline_pnl - us_removed_pnl) / baseline_pnl) if baseline_pnl != 0 else 0.0
 
-    overview = f"""# {strategy_id} — Portfolio Evaluation Summary
+    overview = f"""# {strategy_id} - Portfolio Evaluation Summary
 
 ## Key Metrics
 
@@ -1244,11 +1244,11 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
 
     if concurrency_data['full_load_cluster']:
         overview += """
-⚠ **Full-load clustering detected**: 95th percentile concurrency equals maximum concurrency. Monitor regime transition risk.
+[WARN] **Full-load clustering detected**: 95th percentile concurrency equals maximum concurrency. Monitor regime transition risk.
 """
     if inert_warnings:
         overview += f"""
-⚠ **INERT FILTER WARNING**: The following symbols have filters enabled but 0% coverage (0 bars filtered during execution), indicating the filter had no effect vs un-filtered baseline: {', '.join(inert_warnings)}
+[WARN] **INERT FILTER WARNING**: The following symbols have filters enabled but 0% coverage (0 bars filtered during execution), indicating the filter had no effect vs un-filtered baseline: {', '.join(inert_warnings)}
 """
 
     overview += f"""
@@ -1283,7 +1283,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         f.write(overview)
 
     # --- stress_test_report.md ---
-    stress_md = f"# {strategy_id} — Stress Test Report\n\n"
+    stress_md = f"# {strategy_id} - Stress Test Report\n\n"
     stress_md += "| Scenario | Symbols | Net PnL | Sharpe | Max DD | Return/DD |\n"
     stress_md += "|----------|---------|---------|--------|--------|-----------|\n"
     for name, data in stress_results.items():
@@ -1296,24 +1296,121 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     return recommendation
 
 
+def _safe_float(value, default=0.0):
+    """Best-effort numeric coercion for ledger writes."""
+    try:
+        if value is None or pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _profile_return_dd(profile_metrics):
+    """Return/DD helper used to resolve deployed profile deterministically."""
+    realized = _safe_float(profile_metrics.get("realized_pnl"), 0.0)
+    max_dd = abs(_safe_float(profile_metrics.get("max_drawdown_usd"), 0.0))
+    if max_dd <= 1e-12:
+        return float("inf") if realized > 0 else 0.0
+    return realized / max_dd
+
+
+def _load_profile_comparison(strategy_id):
+    """Load strategies/<id>/deployable/profile_comparison.json."""
+    comparison_path = STRATEGIES_ROOT / strategy_id / "deployable" / "profile_comparison.json"
+    if not comparison_path.exists():
+        return None, comparison_path
+    try:
+        payload = json.loads(comparison_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"  [WARN] Failed to parse profile comparison for {strategy_id}: {e}")
+        return None, comparison_path
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, dict) or not profiles:
+        print(f"  [WARN] Invalid profile comparison schema for {strategy_id}: missing non-empty 'profiles'.")
+        return None, comparison_path
+    return profiles, comparison_path
+
+
+def _resolve_deployed_profile(strategy_id, profiles, df_ledger):
+    """
+    Resolve deployed profile with this priority:
+      1) Existing ledger deployed_profile value (if valid).
+      2) Best Return/DD from profile_comparison.json.
+    """
+    if "deployed_profile" in df_ledger.columns and "portfolio_id" in df_ledger.columns:
+        mask = df_ledger["portfolio_id"].astype(str) == str(strategy_id)
+        if mask.any():
+            existing = str(df_ledger.loc[mask, "deployed_profile"].iloc[-1]).strip()
+            if existing and existing.lower() != "nan" and existing in profiles:
+                return existing, profiles[existing], "ledger"
+
+    best_name = None
+    best_metrics = None
+    best_key = (-float("inf"), -float("inf"), "")
+    for name, metrics in profiles.items():
+        if not isinstance(metrics, dict):
+            continue
+        score = _profile_return_dd(metrics)
+        realized = _safe_float(metrics.get("realized_pnl"), 0.0)
+        key = (score, realized, name)
+        if key > best_key:
+            best_key = key
+            best_name = name
+            best_metrics = metrics
+
+    if best_name is None:
+        return None, None, "unresolved"
+    return best_name, best_metrics, "best_return_dd"
+
+
+def _get_deployed_profile_metrics(strategy_id, df_ledger):
+    """Return deployed profile payload for ledger injection, or None."""
+    profiles, comparison_path = _load_profile_comparison(strategy_id)
+    if profiles is None:
+        if comparison_path.exists():
+            print(f"  [WARN] Profile comparison unusable for {strategy_id}: {comparison_path}")
+        else:
+            print(f"  [WARN] Profile comparison not found for {strategy_id}: {comparison_path}")
+        return None
+
+    profile_name, profile_metrics, source = _resolve_deployed_profile(strategy_id, profiles, df_ledger)
+    if profile_name is None or profile_metrics is None:
+        print(f"  [WARN] Could not resolve deployed profile for {strategy_id}.")
+        return None
+
+    deployed = {
+        "profile_name": profile_name,
+        "realized_pnl": round(_safe_float(profile_metrics.get("realized_pnl"), 0.0), 2),
+        "trades_accepted": int(round(_safe_float(profile_metrics.get("total_accepted"), 0.0))),
+        "trades_rejected": int(round(_safe_float(profile_metrics.get("total_rejected"), 0.0))),
+        "rejection_rate_pct": round(_safe_float(profile_metrics.get("rejection_rate_pct"), 0.0), 2),
+        "source": source,
+    }
+    print(
+        f"  [PROFILE] Using {deployed['profile_name']} ({deployed['source']}) "
+        f"for ledger PnL/trade counts."
+    )
+    return deployed
+
+
 def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_corr, concurrency_data, constituent_run_ids):
     """
     Append portfolio result to Master_Portfolio_Sheet.xlsx (SOP 8).
     Enforces append-only logic and schema validation.
     """
     ledger_path = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
-    
-    # Schema Definition — Logically Grouped Column Order
-    # Profile columns (deployed_profile → realized_vs_theoretical_pnl) are
-    # populated by tools/profile_selector.py (Step 12), not by this evaluator.
+
+    # Schema definition: logically grouped column order.
     columns = [
-        # ── Identity ──
+        # Identity
         "portfolio_id",
         "source_strategy",
 
-        # ── Capital & Performance ──
+        # Capital & Performance
         "reference_capital_usd",
-        "net_pnl_usd",
+        "theoretical_pnl",
+        "realized_pnl",
         "sharpe",
         "max_dd_pct",
         "return_dd_ratio",
@@ -1324,7 +1421,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "exposure_pct",
         "equity_stability_k_ratio",
 
-        # ── Deployed Profile (Step 12) ──
+        # Deployed Profile
         "deployed_profile",
         "realized_pnl_usd",
         "trades_accepted",
@@ -1332,101 +1429,131 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "rejection_rate_pct",
         "realized_vs_theoretical_pnl",
 
-        # ── Capital Utilization ──
+        # Capital Utilization
         "peak_capital_deployed",
         "capital_overextension_ratio",
 
-        # ── Concurrency ──
+        # Concurrency
         "avg_concurrent",
         "max_concurrent",
         "p95_concurrent",
         "dd_max_concurrent",
         "full_load_cluster",
 
-        # ── Correlation ──
+        # Correlation
         "avg_pairwise_corr",
         "max_pairwise_corr_stress",
 
-        # ── Regime Decomposition ──
+        # Regime Decomposition
         "portfolio_net_profit_low_vol",
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
 
-        # ── Metadata ──
+        # Metadata
         "signal_timeframes",
         "evaluation_timeframe",
         "portfolio_engine_version",
         "creation_timestamp",
         "constituent_run_ids",
     ]
-    
-    
+
     # Process constituent_run_ids (list -> string)
     if isinstance(constituent_run_ids, list):
         run_ids_str = ",".join(str(x) for x in constituent_run_ids)
     else:
         run_ids_str = str(constituent_run_ids)
 
-    # Construct Row Data
-    row_data = {
-        "portfolio_id": strategy_id,
-        "creation_timestamp": datetime.utcnow().isoformat(),
-        "constituent_run_ids": run_ids_str,
-        "source_strategy": strategy_id, 
-        "reference_capital_usd": metrics['total_capital'], 
-        "net_pnl_usd": metrics['net_pnl_usd'],
-        "sharpe": metrics['sharpe'],
-        "max_dd_pct": metrics['max_dd_pct'],
-        "return_dd_ratio": metrics['return_dd_ratio'],
-        "peak_capital_deployed": metrics.get('peak_capital_deployed', 0.0),
-        "capital_overextension_ratio": metrics.get('capital_overextension_ratio', 0.0),
-        "avg_concurrent": concurrency_data['avg_concurrent'],
-        "max_concurrent": concurrency_data['max_concurrent'],
-        "p95_concurrent": concurrency_data['p95_concurrent'],
-        "dd_max_concurrent": concurrency_data['dd_max_concurrent'],
-        "full_load_cluster": concurrency_data['full_load_cluster'],
-        "avg_pairwise_corr": corr_data['avg_pairwise_corr'],
-        "max_pairwise_corr_stress": max_stress_corr,
-        "total_trades": metrics['total_trades'],
-        "portfolio_engine_version": "1.2.1",
-        "portfolio_net_profit_low_vol": metrics.get('portfolio_net_profit_low_vol', 0.0),
-        "portfolio_net_profit_normal_vol": metrics.get('portfolio_net_profit_normal_vol', 0.0),
-        "portfolio_net_profit_high_vol": metrics.get('portfolio_net_profit_high_vol', 0.0),
-        "signal_timeframes": metrics.get('signal_timeframes', "UNKNOWN"),
-        "evaluation_timeframe": metrics.get('evaluation_timeframe', "1D"),
-        # Phase 15 Metrics
-        "win_rate": metrics.get('win_rate', 0.0),
-        "profit_factor": metrics.get('profit_factor', 0.0),
-        "expectancy": metrics.get('expectancy', 0.0),
-        "exposure_pct": metrics.get('exposure_pct', 0.0),
-        "equity_stability_k_ratio": metrics.get('equity_stability_k_ratio', 0.0)
-    }
-    
     # Load or Create
     if ledger_path.exists():
         try:
             df_ledger = pd.read_excel(ledger_path)
         except Exception:
-            # Corrupt file? Backup and recreate?
-            # For now, duplicate safe logic
             df_ledger = pd.DataFrame(columns=columns)
     else:
         df_ledger = pd.DataFrame(columns=columns)
-        
+
+    # Column migration for existing sheets.
+    if "realized_pnl" not in df_ledger.columns and "net_pnl_usd" in df_ledger.columns:
+        df_ledger["realized_pnl"] = df_ledger["net_pnl_usd"]
+    if "theoretical_pnl" not in df_ledger.columns:
+        if "net_pnl_usd" in df_ledger.columns:
+            df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger["net_pnl_usd"], errors="coerce")
+        else:
+            df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger.get("realized_pnl"), errors="coerce")
+
+    # Baseline "theoretical" portfolio PnL from raw Stage-4 aggregation.
+    # Realized PnL may differ when deployed profiles apply sizing/rejection rules.
+    theoretical_pnl = round(_safe_float(metrics.get("net_pnl_usd"), 0.0), 2)
+    realized_pnl = theoretical_pnl
+    deployed_profile = None
+    trades_accepted = None
+    trades_rejected = None
+    rejection_rate_pct = None
+
+    deployed = _get_deployed_profile_metrics(strategy_id, df_ledger)
+    if deployed is not None:
+        deployed_profile = deployed["profile_name"]
+        realized_pnl = deployed["realized_pnl"]
+        trades_accepted = deployed["trades_accepted"]
+        trades_rejected = deployed["trades_rejected"]
+        rejection_rate_pct = deployed["rejection_rate_pct"]
+
+    if abs(theoretical_pnl) > 1e-12:
+        ratio_realized_vs_theoretical = round(realized_pnl / theoretical_pnl, 4)
+    else:
+        ratio_realized_vs_theoretical = 0.0
+
+    # Construct Row Data
+    row_data = {
+        "portfolio_id": strategy_id,
+        "creation_timestamp": datetime.utcnow().isoformat(),
+        "constituent_run_ids": run_ids_str,
+        "source_strategy": strategy_id,
+        "reference_capital_usd": metrics["total_capital"],
+        "theoretical_pnl": theoretical_pnl,
+        "realized_pnl": realized_pnl,
+        "sharpe": metrics["sharpe"],
+        "max_dd_pct": metrics["max_dd_pct"],
+        "return_dd_ratio": metrics["return_dd_ratio"],
+        "peak_capital_deployed": metrics.get("peak_capital_deployed", 0.0),
+        "capital_overextension_ratio": metrics.get("capital_overextension_ratio", 0.0),
+        "avg_concurrent": concurrency_data["avg_concurrent"],
+        "max_concurrent": concurrency_data["max_concurrent"],
+        "p95_concurrent": concurrency_data["p95_concurrent"],
+        "dd_max_concurrent": concurrency_data["dd_max_concurrent"],
+        "full_load_cluster": concurrency_data["full_load_cluster"],
+        "avg_pairwise_corr": corr_data["avg_pairwise_corr"],
+        "max_pairwise_corr_stress": max_stress_corr,
+        "total_trades": metrics["total_trades"],
+        "portfolio_engine_version": "1.2.1",
+        "portfolio_net_profit_low_vol": metrics.get("portfolio_net_profit_low_vol", 0.0),
+        "portfolio_net_profit_normal_vol": metrics.get("portfolio_net_profit_normal_vol", 0.0),
+        "portfolio_net_profit_high_vol": metrics.get("portfolio_net_profit_high_vol", 0.0),
+        "signal_timeframes": metrics.get("signal_timeframes", "UNKNOWN"),
+        "evaluation_timeframe": metrics.get("evaluation_timeframe", "1D"),
+        "win_rate": metrics.get("win_rate", 0.0),
+        "profit_factor": metrics.get("profit_factor", 0.0),
+        "expectancy": metrics.get("expectancy", 0.0),
+        "exposure_pct": metrics.get("exposure_pct", 0.0),
+        "equity_stability_k_ratio": metrics.get("equity_stability_k_ratio", 0.0),
+        "deployed_profile": deployed_profile,
+        "realized_pnl_usd": realized_pnl,
+        "trades_accepted": trades_accepted,
+        "trades_rejected": trades_rejected,
+        "rejection_rate_pct": rejection_rate_pct,
+        "realized_vs_theoretical_pnl": ratio_realized_vs_theoretical,
+    }
+
     # Check Duplicate & Append-Only Idempotent Guard
-    if strategy_id in df_ledger['portfolio_id'].astype(str).values:
-        existing_row = df_ledger[df_ledger['portfolio_id'].astype(str) == strategy_id].iloc[-1]
-        
+    if strategy_id in df_ledger["portfolio_id"].astype(str).values:
+        existing_row = df_ledger[df_ledger["portfolio_id"].astype(str) == strategy_id].iloc[-1]
         is_identical = True
         for k, v in row_data.items():
             if k in ["creation_timestamp", "portfolio_engine_version"]:
                 continue
-            
             old_val = existing_row.get(k)
-            # Handle nulls
             if pd.isna(old_val) and (v is None or pd.isna(v)):
                 continue
-                
             try:
                 if abs(float(old_val) - float(v)) > 1e-4:
                     is_identical = False
@@ -1435,37 +1562,29 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
                 if str(old_val) != str(v):
                     is_identical = False
                     break
-                    
         if is_identical:
             print(f"  [LEDGER] Portfolio '{strategy_id}' already exists and is identical. Skipping append (idempotent).")
             return
-        else:
-            raise ValueError(
-                f"[FATAL] Attempted modification of existing portfolio entry '{strategy_id}'.\n"
-                f"Explicit human authorization required. No automatic overwrite allowed."
-            )
-        
+        raise ValueError(
+            f"[FATAL] Attempted modification of existing portfolio entry '{strategy_id}'.\n"
+            f"Explicit human authorization required. No automatic overwrite allowed."
+        )
+
     # Append
     new_row = pd.DataFrame([row_data])
-    # Align columns
     for c in columns:
         if c not in new_row.columns:
             new_row[c] = None
-            
     df_final = pd.concat([df_ledger, new_row[columns]], ignore_index=True)
-    
-    # Save
-    # Use pandas default writer (openpyxl engine implied by xlsx extension, but we don't import it directly)
-    # Actually, pandas might need 'openpyxl' installed, which is fine. We just don't use it for styling here.
     df_final.to_excel(ledger_path, index=False)
 
     # Call Unified Formatter
     try:
         cmd = [
-            sys.executable, 
+            sys.executable,
             str(PROJECT_ROOT / "tools" / "format_excel_artifact.py"),
             "--file", str(ledger_path),
-            "--profile", "portfolio"
+            "--profile", "portfolio",
         ]
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
@@ -1482,7 +1601,7 @@ def main():
 
     strategy_id = sys.argv[1]
     print(f"\n{'='*60}")
-    print(f"PORTFOLIO EVALUATION — {strategy_id}")
+    print(f"PORTFOLIO EVALUATION - {strategy_id}")
     print(f"{'='*60}")
 
     output_dir = STRATEGIES_ROOT / strategy_id / "portfolio_evaluation"
@@ -1492,7 +1611,7 @@ def main():
     portfolio_df, symbol_trades, meta_records = load_all_trades(strategy_id)
     print(f"  Loaded {len(portfolio_df)} trades across {len(symbol_trades)} symbols")
     
-    # Phase 1: Metadata Contract Enforcement — HARD FAIL
+    # Phase 1: Metadata Contract Enforcement - HARD FAIL
     REQUIRED_META_KEYS = ["signature_hash", "trend_filter_enabled", "filter_coverage", "filtered_bars", "total_bars"]
     meta_warnings = []
     for sym, meta in meta_records.items():
@@ -1686,7 +1805,7 @@ def main():
         raise
 
     print(f"\n{'='*60}")
-    print(f"PORTFOLIO EVALUATION COMPLETE — {strategy_id}")
+    print(f"PORTFOLIO EVALUATION COMPLETE - {strategy_id}")
     print(f"{'='*60}")
     print(f"\n  Net PnL:     ${port_metrics['net_pnl_usd']:,.2f}")
     print(f"  CAGR:         {port_metrics['cagr']:.2%}")
@@ -1705,3 +1824,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

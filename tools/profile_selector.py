@@ -1,15 +1,9 @@
 """
-Profile Selector — Step 12: Capital Profile Selection & Ledger Enrichment
-
-Selects the best-performing capital profile (by Return/DD ratio) for each
-strategy and enriches the Master Portfolio Sheet with realized execution metrics.
+Profile Selector - Step 8.5: Ledger enrichment from profile_comparison.json.
 
 Usage:
     python tools/profile_selector.py <STRATEGY_ID>
     python tools/profile_selector.py --all
-
-Non-authoritative over directive state. Read-only with respect to all
-pipeline artifacts except Master_Portfolio_Sheet.xlsx.
 """
 
 import sys
@@ -19,16 +13,17 @@ from pathlib import Path
 
 import pandas as pd
 
-# ------------------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).parent.parent
 STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 
-# New columns written by this tool
+LEDGER_PNL_COL = "realized_pnl"
+LEGACY_PNL_COL = "net_pnl_usd"
+
 PROFILE_COLUMNS = [
     "deployed_profile",
+    "theoretical_pnl",
+    "realized_pnl",
     "realized_pnl_usd",
     "trades_accepted",
     "trades_rejected",
@@ -37,117 +32,149 @@ PROFILE_COLUMNS = [
 ]
 
 
-# ------------------------------------------------------------------
-# PROFILE EVALUATION
-# ------------------------------------------------------------------
-def load_profiles(strategy_id):
-    """
-    Scan deployable folders for a strategy and load all profile metrics.
-    Returns list of (profile_name, metrics_dict).
-    """
-    deploy_root = STRATEGIES_ROOT / strategy_id / "deployable"
-    if not deploy_root.exists():
-        return []
+def _safe_float(value, default=0.0):
+    try:
+        if value is None or pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
 
-    profiles = []
-    for profile_dir in sorted(deploy_root.iterdir()):
-        if not profile_dir.is_dir():
+
+def _profile_return_dd(metrics):
+    realized = _safe_float(metrics.get("realized_pnl"), 0.0)
+    max_dd = abs(_safe_float(metrics.get("max_drawdown_usd"), 0.0))
+    if max_dd <= 1e-12:
+        return float("inf") if realized > 0 else 0.0
+    return realized / max_dd
+
+
+def load_profile_comparison(strategy_id):
+    """Load profile_comparison.json and return profile map."""
+    path = STRATEGIES_ROOT / strategy_id / "deployable" / "profile_comparison.json"
+    if not path.exists():
+        return None, path
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"  [WARN] Failed to parse {path}: {e}")
+        return None, path
+
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, dict) or not profiles:
+        print(f"  [WARN] Invalid schema in {path}: missing non-empty 'profiles'.")
+        return None, path
+
+    return profiles, path
+
+
+def select_deployed_profile(profiles, preferred_name=None):
+    """
+    Resolve deployed profile:
+      1) Existing ledger deployed_profile if valid.
+      2) Best Return/DD from profile comparison.
+    """
+    if preferred_name and preferred_name in profiles:
+        return preferred_name, profiles[preferred_name], "ledger"
+
+    best_name = None
+    best_metrics = None
+    best_key = (-float("inf"), -float("inf"), "")
+
+    for name, metrics in profiles.items():
+        if not isinstance(metrics, dict):
             continue
-        metrics_path = profile_dir / "summary_metrics.json"
-        if not metrics_path.exists():
-            continue
-        try:
-            with open(metrics_path, "r", encoding="utf-8") as f:
-                metrics = json.load(f)
-            profiles.append((profile_dir.name, metrics))
-        except Exception as e:
-            print(f"  [WARN] Failed to load {metrics_path}: {e}")
-    return profiles
+        score = _profile_return_dd(metrics)
+        realized = _safe_float(metrics.get("realized_pnl"), 0.0)
+        key = (score, realized, name)
+        if key > best_key:
+            best_key = key
+            best_name = name
+            best_metrics = metrics
+
+    return best_name, best_metrics, "best_return_dd"
 
 
-def select_best_profile(profiles):
-    """
-    Select the profile with the highest Return/DD ratio.
-    Return/DD = realized_pnl / max_drawdown_usd
-    If max_drawdown_usd is 0, treat as infinity (best possible).
-    """
-    best_profile = None
-    best_ratio = -float("inf")
-
-    for name, metrics in profiles:
-        realized = metrics.get("realized_pnl", 0.0)
-        max_dd = metrics.get("max_drawdown_usd", 0.0)
-
-        if max_dd == 0:
-            ratio = float("inf") if realized > 0 else 0.0
+def ensure_ledger_columns(df_ledger):
+    """Backfill renamed columns and ensure profile columns exist."""
+    if LEDGER_PNL_COL not in df_ledger.columns and LEGACY_PNL_COL in df_ledger.columns:
+        df_ledger[LEDGER_PNL_COL] = df_ledger[LEGACY_PNL_COL]
+    if "theoretical_pnl" not in df_ledger.columns:
+        if LEGACY_PNL_COL in df_ledger.columns:
+            df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger[LEGACY_PNL_COL], errors="coerce")
         else:
-            ratio = realized / max_dd
+            df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger.get(LEDGER_PNL_COL), errors="coerce")
 
-        print(f"    {name}: realized_pnl=${realized:,.2f}, "
-              f"max_dd=${max_dd:,.2f}, return_dd={ratio:.4f}")
-
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_profile = (name, metrics)
-
-    return best_profile
-
-
-# ------------------------------------------------------------------
-# LEDGER UPDATE
-# ------------------------------------------------------------------
-def enrich_ledger_row(strategy_id, profile_name, profile_metrics, df_ledger):
-    """
-    Update the Master Portfolio Sheet row for strategy_id with
-    profile-aware metrics. Returns the modified DataFrame.
-    """
-    mask = df_ledger["portfolio_id"].astype(str) == strategy_id
-    if not mask.any():
-        print(f"  [SKIP] '{strategy_id}' not found in Master Portfolio Sheet")
-        return df_ledger
-
-    # Extract values from the winning profile
-    realized_pnl = profile_metrics.get("realized_pnl", 0.0)
-    accepted = profile_metrics.get("total_accepted", 0)
-    rejected = profile_metrics.get("total_rejected", 0)
-    rejection_rate = profile_metrics.get("rejection_rate_pct", 0.0)
-
-    # Compute realized vs theoretical ratio
-    theoretical_pnl = df_ledger.loc[mask, "net_pnl_usd"].iloc[0]
-    if theoretical_pnl and abs(float(theoretical_pnl)) > 0.01:
-        ratio = realized_pnl / float(theoretical_pnl)
-    else:
-        ratio = 0.0
-
-    # Write the 6 new columns
-    df_ledger.loc[mask, "deployed_profile"] = profile_name
-    df_ledger.loc[mask, "realized_pnl_usd"] = realized_pnl
-    df_ledger.loc[mask, "trades_accepted"] = int(accepted)
-    df_ledger.loc[mask, "trades_rejected"] = int(rejected)
-    df_ledger.loc[mask, "rejection_rate_pct"] = rejection_rate
-    df_ledger.loc[mask, "realized_vs_theoretical_pnl"] = round(ratio, 4)
-
-    print(f"  [OK] {strategy_id} -> {profile_name} "
-          f"(realized=${realized_pnl:,.2f}, "
-          f"accepted={accepted}, rejected={rejected}, "
-          f"ratio={ratio:.4f})")
+    for col in PROFILE_COLUMNS:
+        if col not in df_ledger.columns:
+            df_ledger[col] = None
+    if "realized_vs_theoretical_pnl" in df_ledger.columns:
+        df_ledger["realized_vs_theoretical_pnl"] = pd.to_numeric(
+            df_ledger["realized_vs_theoretical_pnl"], errors="coerce"
+        )
 
     return df_ledger
 
 
-# ------------------------------------------------------------------
-# COLUMN REORDERING
-# ------------------------------------------------------------------
+def enrich_ledger_row(strategy_id, df_ledger):
+    mask = df_ledger["portfolio_id"].astype(str) == str(strategy_id)
+    if not mask.any():
+        print(f"  [SKIP] '{strategy_id}' not found in Master Portfolio Sheet")
+        return df_ledger
 
-# Logical column groups for readability
+    profiles, path = load_profile_comparison(strategy_id)
+    if profiles is None:
+        print(f"  [SKIP] Missing/invalid profile comparison: {path}")
+        return df_ledger
+
+    preferred = None
+    if "deployed_profile" in df_ledger.columns:
+        preferred_raw = str(df_ledger.loc[mask, "deployed_profile"].iloc[-1]).strip()
+        if preferred_raw and preferred_raw.lower() != "nan":
+            preferred = preferred_raw
+
+    profile_name, profile_metrics, source = select_deployed_profile(profiles, preferred)
+    if profile_name is None or profile_metrics is None:
+        print("  [SKIP] Could not resolve deployed profile")
+        return df_ledger
+
+    realized = round(_safe_float(profile_metrics.get("realized_pnl"), 0.0), 2)
+    accepted = int(round(_safe_float(profile_metrics.get("total_accepted"), 0.0)))
+    rejected = int(round(_safe_float(profile_metrics.get("total_rejected"), 0.0)))
+    rejection_rate = round(_safe_float(profile_metrics.get("rejection_rate_pct"), 0.0), 2)
+
+    theoretical_base = _safe_float(df_ledger.loc[mask, "theoretical_pnl"].iloc[-1], 0.0)
+    if abs(theoretical_base) <= 1e-12 and LEGACY_PNL_COL in df_ledger.columns:
+        theoretical_base = _safe_float(df_ledger.loc[mask, LEGACY_PNL_COL].iloc[-1], 0.0)
+
+    if abs(theoretical_base) > 1e-12:
+        ratio = round(realized / theoretical_base, 4)
+    else:
+        ratio = 1.0 if abs(realized) > 1e-12 else 0.0
+
+    df_ledger.loc[mask, "deployed_profile"] = profile_name
+    df_ledger.loc[mask, LEDGER_PNL_COL] = realized
+    df_ledger.loc[mask, "realized_pnl_usd"] = realized
+    df_ledger.loc[mask, "trades_accepted"] = accepted
+    df_ledger.loc[mask, "trades_rejected"] = rejected
+    df_ledger.loc[mask, "rejection_rate_pct"] = rejection_rate
+    df_ledger.loc[mask, "realized_vs_theoretical_pnl"] = ratio
+
+    print(
+        f"  [OK] {strategy_id} -> {profile_name} ({source}) "
+        f"realized=${realized:,.2f}, accepted={accepted}, rejected={rejected}, ratio={ratio:.4f}"
+    )
+    return df_ledger
+
+
 COLUMN_ORDER = [
-    # ── Identity ──
     "portfolio_id",
     "source_strategy",
 
-    # ── Capital & Performance ──
     "reference_capital_usd",
-    "net_pnl_usd",
+    "theoretical_pnl",
+    "realized_pnl",
     "sharpe",
     "max_dd_pct",
     "return_dd_ratio",
@@ -158,7 +185,6 @@ COLUMN_ORDER = [
     "exposure_pct",
     "equity_stability_k_ratio",
 
-    # ── Deployed Profile ──
     "deployed_profile",
     "realized_pnl_usd",
     "trades_accepted",
@@ -166,27 +192,22 @@ COLUMN_ORDER = [
     "rejection_rate_pct",
     "realized_vs_theoretical_pnl",
 
-    # ── Capital Utilization ──
     "peak_capital_deployed",
     "capital_overextension_ratio",
 
-    # ── Concurrency ──
     "avg_concurrent",
     "max_concurrent",
     "p95_concurrent",
     "dd_max_concurrent",
     "full_load_cluster",
 
-    # ── Correlation ──
     "avg_pairwise_corr",
     "max_pairwise_corr_stress",
 
-    # ── Regime Decomposition ──
     "portfolio_net_profit_low_vol",
     "portfolio_net_profit_normal_vol",
     "portfolio_net_profit_high_vol",
 
-    # ── Metadata ──
     "signal_timeframes",
     "evaluation_timeframe",
     "portfolio_engine_version",
@@ -196,69 +217,34 @@ COLUMN_ORDER = [
 
 
 def reorder_columns(df):
-    """
-    Reorder DataFrame columns to match the logical grouping.
-    Any columns not in COLUMN_ORDER are appended at the end.
-    """
     existing = df.columns.tolist()
     ordered = [c for c in COLUMN_ORDER if c in existing]
     remaining = [c for c in existing if c not in ordered]
     return df[ordered + remaining]
 
 
-# ------------------------------------------------------------------
-# MAIN
-# ------------------------------------------------------------------
 def process_strategy(strategy_id, df_ledger):
-    """Process a single strategy: load profiles, select best, enrich ledger."""
     print(f"\n[STRATEGY] {strategy_id}")
-
-    profiles = load_profiles(strategy_id)
-    if not profiles:
-        print(f"  [SKIP] No deployable profiles found")
-        return df_ledger
-
-    print(f"  Found {len(profiles)} profile(s): "
-          f"{', '.join(p[0] for p in profiles)}")
-
-    best = select_best_profile(profiles)
-    if best is None:
-        print(f"  [SKIP] No valid profile selected")
-        return df_ledger
-
-    profile_name, profile_metrics = best
-    print(f"  [SELECTED] {profile_name} (best Return/DD)")
-
-    return enrich_ledger_row(strategy_id, profile_name, profile_metrics,
-                             df_ledger)
+    return enrich_ledger_row(strategy_id, df_ledger)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Profile Selector — Step 12")
-    parser.add_argument("strategy_id", nargs="?",
-                        help="Strategy ID to process")
-    parser.add_argument("--all", action="store_true",
-                        help="Process all strategies in the Master Portfolio Sheet")
+    parser = argparse.ArgumentParser(description="Profile Selector - Step 8.5")
+    parser.add_argument("strategy_id", nargs="?", help="Strategy ID to process")
+    parser.add_argument("--all", action="store_true", help="Process all strategies in Master Portfolio Sheet")
     args = parser.parse_args()
 
     if not args.strategy_id and not args.all:
         parser.error("Provide a STRATEGY_ID or use --all")
 
-    # Load ledger
     if not LEDGER_PATH.exists():
         print(f"[FATAL] Master Portfolio Sheet not found: {LEDGER_PATH}")
         sys.exit(1)
 
     df_ledger = pd.read_excel(LEDGER_PATH)
+    df_ledger = ensure_ledger_columns(df_ledger)
     print(f"Loaded {len(df_ledger)} rows from Master Portfolio Sheet")
 
-    # Ensure new columns exist
-    for col in PROFILE_COLUMNS:
-        if col not in df_ledger.columns:
-            df_ledger[col] = None
-
-    # Process
     if args.all:
         strategy_ids = df_ledger["portfolio_id"].astype(str).unique().tolist()
         print(f"Processing {len(strategy_ids)} strategies...")
@@ -267,10 +253,12 @@ def main():
     else:
         df_ledger = process_strategy(args.strategy_id, df_ledger)
 
-    # Reorder columns for readability
     df_ledger = reorder_columns(df_ledger)
 
-    # Save
+    # Remove legacy column after migration to keep naming clear.
+    if LEGACY_PNL_COL in df_ledger.columns:
+        df_ledger = df_ledger.drop(columns=[LEGACY_PNL_COL])
+
     df_ledger.to_excel(LEDGER_PATH, index=False)
     print(f"\n[SAVED] {LEDGER_PATH}")
     print("[DONE] Profile selection complete.")

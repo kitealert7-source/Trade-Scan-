@@ -102,22 +102,45 @@ Overwrite of previously completed directives is permitted in research mode, as e
 
 ---
 
+### 3.4 Directive Namespace Governance (MANDATORY)
+
+Before any Stage-0 preflight activity, directives MUST pass namespace governance gates:
+
+1. **Stage -0.30 Namespace Gate**
+   - Enforce identity equality: `filename == test.name == test.strategy`
+   - Enforce naming pattern: `<ID>_<FAMILY>_<SYMBOL>_<TF>_<MODEL>[_<FILTER>]_S<NN>_V<N>_P<NN>` (optional `C_` prefix)
+   - Enforce token dictionaries for `FAMILY`, `MODEL`, optional `FILTER`, and `TF`
+   - Enforce alias policy: canonical tokens only in directive names
+   - Enforce idea registry binding: ID must exist and `FAMILY` must match registry
+
+2. **Stage -0.35 Sweep Gate**
+   - If sweep exists, allow only exact idempotent reuse (same directive + same signature hash)
+   - If sweep is unused, reserve it atomically
+   - On conflicting reuse, hard fail with collision
+
+These checks are authoritative and fail-fast.
+
+---
+
 ## 4. Execution Model
 
 > **Authoritative Market Data Rule:** All Stage-1 executions MUST use **RESEARCH** market data. CLEAN or derived datasets are non-authoritative and MUST NOT be used for execution or metric computation.
 
 Execution flow is deterministic and pipeline-driven:
 
-1. Preflight validation (governance + safety).
-2. Directive validation.
-3. Enforcement of STRATEGY_PLUGIN_CONTRACT.md.
-4. Enforcement of SOP_INDICATOR.md (repository-only indicators; no inline logic).
-5. Stage-1 execution (including declared deterministic constraints).
-6. Stage-2 compilation.
-7. Stage-3 aggregation.
-8. Stage-3A Strategy Snapshot Finalization (including indicator dependency fingerprinting).
-9. Portfolio evaluation (if applicable).
-10. Stop.
+1. Stage -0.25 structural canonicalization.
+2. Stage -0.30 namespace governance.
+3. Stage -0.35 sweep registry reservation.
+4. Preflight validation (governance + safety + symbol universe).
+5. Directive validation.
+6. Enforcement of STRATEGY_PLUGIN_CONTRACT.md.
+7. Enforcement of SOP_INDICATOR.md (repository-only indicators; no inline logic).
+8. Stage-1 execution (including declared deterministic constraints).
+9. Stage-2 compilation.
+10. Stage-3 aggregation.
+11. Stage-3A Strategy Snapshot Finalization (including indicator dependency fingerprinting).
+12. Portfolio evaluation (if applicable).
+13. Stop.
 
 There is:
 
@@ -161,6 +184,18 @@ During Preflight:
    - No manual edits are preserved if conflicting with directive.
 
 Preflight MUST complete before Stage-0.5 executes.
+
+---
+
+### Stage-0 Preflight Symbol Universe Gate (MANDATORY)
+
+Preflight MUST confirm, for each declared symbol:
+
+1. `data_access/broker_specs/<BROKER>/<SYMBOL>.yaml` exists.
+2. RESEARCH market data exists for declared broker/timeframe under:
+   `data_root/MASTER_DATA/<SYMBOL>_<BROKER>_MASTER/RESEARCH/`
+
+If either check fails, execution is blocked at preflight.
 
 ---
 

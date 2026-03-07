@@ -92,6 +92,60 @@ python tools/canonicalizer.py backtest_directives/active/<DIRECTIVE_ID>.txt --ex
 > If executed via `--all`, the pipeline will halt and exit on structural drift.
 > The standalone CLI is provided for pre-checking directives before pipeline runs.
 
+### Step 1.80: Namespace Governance Gate
+
+Validate directive identity and naming governance:
+
+```bash
+python tools/namespace_gate.py backtest_directives/active/<DIRECTIVE_ID>.txt
+```
+
+Enforcement includes:
+
+- `filename == test.name == test.strategy`
+- Pattern: `<ID>_<FAMILY>_<SYMBOL>_<TF>_<MODEL>[_<FILTER>]_S<NN>_V<N>_P<NN>` (optional `C_` prefix)
+- Token dictionary checks (`FAMILY`, `MODEL`, optional `FILTER`, `TF`)
+- Alias policy (canonical tokens only)
+- Idea registry family binding check
+
+> [!IMPORTANT]
+> This gate also runs automatically inside `run_pipeline.py` (Stage -0.30).
+
+### Step 1.85: Sweep Registry Gate
+
+Validate and reserve sweep allocation:
+
+```bash
+python tools/sweep_registry_gate.py backtest_directives/active/<DIRECTIVE_ID>.txt
+```
+
+Rules:
+
+- Existing sweep: allowed only if idempotent (same directive + same signature hash)
+- Unused sweep: reserved atomically
+- Conflicting reuse: hard fail (`SWEEP_COLLISION`)
+
+> [!IMPORTANT]
+> This gate also runs automatically inside `run_pipeline.py` (Stage -0.35).
+
+### Step 1.90: Automatic Namespace Migration (No Manual Intervention)
+
+`run_pipeline.py` now runs automatic namespace migration on `backtest_directives/active/`
+before execution starts:
+
+```bash
+python tools/convert_promoted_directives.py --source-dir backtest_directives/active --rename-strategies
+```
+
+Implications:
+
+- Legacy directive names are auto-converted to governed namespace IDs.
+- Strategy folders are auto-renamed to match `test.strategy`.
+- Sweep IDs are allocated only through `tools/sweep_registry_gate.py`.
+- No repetitive manual pre-conversion step is required.
+
+Manual invocation of Step 1.80 and Step 1.85 remains optional for pre-checking.
+
 ### Step 2: Provision-Only Run
 
 Execute provisioning and validation ONLY (no backtesting):
@@ -139,6 +193,16 @@ If the strategy needs changes:
 
 After human approval, execute the full pipeline:
 
+> [!IMPORTANT]
+> **Pre-execution checklist:** Ensure the following files are closed in all
+> applications before running `run_pipeline.py --all`:
+>
+> - `strategies/Master_Portfolio_Sheet.xlsx`
+> - `backtests/Strategy_Master_Filter.xlsx`
+>
+> Excel file locks will cause a Stage-4 `PermissionError` and require a
+> full governance reset.
+
 ```text
 python tools/run_pipeline.py --all
 ```
@@ -149,7 +213,7 @@ If a directive is in FAILED state, it must first be reset using the governance t
 python tools/reset_directive.py <DIRECTIVE_ID> --reason "<justification>"
 ```
 
-To resume at Stage-4 without re-running Stages 0-3 (only from FAILED or PORTFOLIO_COMPLETE):
+To resume at Stage-4 without re-running Stages 0-3 (only from PORTFOLIO_COMPLETE):
 
 ```text
 python tools/reset_directive.py <DIRECTIVE_ID> --reason "<justification>" --to-stage4
@@ -160,10 +224,20 @@ python tools/reset_directive.py <DIRECTIVE_ID> --reason "<justification>" --to-s
 > logged to `governance/reset_audit_log.csv`. Full resets also clean associated
 > per-symbol run states. The agent MUST NOT call `reset_directive.py`
 > autonomously — only a human may authorize a reset.
+>
+> `--to-stage4` is only valid from PORTFOLIO_COMPLETE. FAILED directives cannot
+> resume mid-pipeline because Stage-4 relies on consistent artifacts from
+> Stages 0-3. A FAILED directive must be fully reset before re-execution to
+> guarantee artifact integrity.
 
 Monitor execution through all stages:
 
+- Stage-0.20: Automatic Namespace Migration (active directives + strategy rename sync)
+- Stage-0.25: Canonicalization Gate
+- Stage-0.30: Namespace Governance Gate
+- Stage-0.35: Sweep Registry Gate
 - Stage-0: Preflight (root-of-trust + engine + tools integrity)
+- Stage-0: Symbol-universe check (broker spec + RESEARCH data)
 - Stage-0.5: Semantic Validation + Admission Gate
 - Stage-0.55: Semantic Coverage Check (all directive params referenced in code)
 - Stage-0.75: Dry-Run Validator (real ContextView, not mocks)
@@ -261,7 +335,8 @@ Where `<DIRECTIVE_NAME>` is the base strategy prefix (e.g. `AK34_FX_PORTABILITY_
 Profiles executed in a single pass:
 
 - `CONSERVATIVE_V1`
-- `AGGRESSIVE_V1`
+- `DYNAMIC_V1`
+- `FIXED_USD_V1`
 
 Outputs emitted to `strategies/<DIRECTIVE_NAME>/deployable/<PROFILE>/`:
 
@@ -290,7 +365,7 @@ Failure handling:
 
 Verify the outputs emitted in Step 8 are structurally sound before marking the run complete.
 
-For each profile (`CONSERVATIVE_V1`, `AGGRESSIVE_V1`):
+For each profile (`CONSERVATIVE_V1`, `DYNAMIC_V1`, `FIXED_USD_V1`):
 
 1. Confirm all 5 artifact files exist under `strategies/<DIRECTIVE_NAME>/deployable/<PROFILE>/`.
 2. Load `summary_metrics.json` and confirm:
@@ -310,7 +385,7 @@ from pathlib import Path
 directive = '<DIRECTIVE_NAME>'
 deploy_root = Path('strategies') / directive / 'deployable'
 
-for prof in ['CONSERVATIVE_V1', 'AGGRESSIVE_V1']:
+for prof in ['CONSERVATIVE_V1', 'DYNAMIC_V1', 'FIXED_USD_V1']:
     d = deploy_root / prof
     assert d.exists(), f'Missing profile dir: {d}'
     m = json.loads((d / 'summary_metrics.json').read_text())

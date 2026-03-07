@@ -326,6 +326,43 @@ def run_preflight(
     if not date_pattern.match(str(resolved_scope["end_date"])):
         return ("BLOCK_EXECUTION", f"End Date must be explicit YYYY-MM-DD, got: {resolved_scope['end_date']}", None)
 
+    # Validate symbol universe presence (broker specs + RESEARCH data availability)
+    broker_name = str(resolved_scope["broker"])
+    timeframe = str(resolved_scope["timeframe"])
+    broker_specs_dir = PROJECT_ROOT / "data_access" / "broker_specs" / broker_name
+    if not broker_specs_dir.exists():
+        return (
+            "BLOCK_EXECUTION",
+            f"Broker universe missing: data_access/broker_specs/{broker_name}",
+            None
+        )
+
+    for sym in resolved_scope["symbols"]:
+        spec_path = broker_specs_dir / f"{sym}.yaml"
+        if not spec_path.exists():
+            return (
+                "BLOCK_EXECUTION",
+                f"Symbol '{sym}' not found in broker universe for {broker_name}. "
+                f"Missing broker spec: {spec_path}",
+                None
+            )
+
+        data_root = (
+            PROJECT_ROOT
+            / "data_root"
+            / "MASTER_DATA"
+            / f"{sym}_{broker_name.upper()}_MASTER"
+            / "RESEARCH"
+        )
+        pattern = f"{sym}_{broker_name.upper()}_{timeframe}_*_RESEARCH.csv"
+        if not data_root.exists() or not any(data_root.glob(pattern)):
+            return (
+                "BLOCK_EXECUTION",
+                f"Symbol '{sym}' missing RESEARCH data for broker='{broker_name}', "
+                f"timeframe='{timeframe}' (expected pattern: {pattern})",
+                None
+            )
+
     # Validate Existence
     if declared_indicators:
         indicators_root = PROJECT_ROOT / "indicators"
