@@ -94,11 +94,11 @@ ideas:
         reserved_at_utc: '2026-03-07T09:40:01.603296+00:00'
       S04:
         directive_name: 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00
-        signature_hash: fe87dac3abac695c
+        signature_hash: 27c46fc6c8350473
         reserved_at_utc: '2026-03-07T09:40:01.961163+00:00'
       S05:
         directive_name: 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S05_V1_P00
-        signature_hash: b971144b9f32e4cd
+        signature_hash: de7b7339dc59d62a
         reserved_at_utc: '2026-03-07T09:40:44.127268+00:00'
   '03':
     next_sweep: 1
