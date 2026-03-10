@@ -47,7 +47,7 @@ be cited as validated results.
 | `researcher` | string | YES | Author of the hypothesis. |
 | `created_at` | string | YES | ISO 8601 Date (YYYY-MM-DD). |
 | `base_strategy` | string | YES | Name of the parent strategy. |
-| `engine_version` | string | YES | Target Engine Version (e.g. `1.5.2`). |
+| `engine_version` | string | YES | Target Engine Version (e.g. `1.5.3`). |
 
 ### 3.2 Baseline Reference (`baseline`)
 
