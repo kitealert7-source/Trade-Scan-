@@ -9,6 +9,7 @@ Usage:
 import sys
 import json
 import argparse
+import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -262,6 +263,17 @@ def main():
 
     df_ledger.to_excel(LEDGER_PATH, index=False)
     print(f"\n[SAVED] {LEDGER_PATH}")
+
+    # Reapply formatting — to_excel() strips all Excel styles.
+    try:
+        subprocess.run(
+            [sys.executable, str(Path(__file__).parent / "format_excel_artifact.py"),
+             "--file", str(LEDGER_PATH), "--profile", "portfolio"],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"[WARN] Formatting failed: {e}")
+
     print("[DONE] Profile selection complete.")
 
 
