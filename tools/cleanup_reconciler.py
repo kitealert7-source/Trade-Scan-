@@ -25,6 +25,7 @@ STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
 MASTER_SHEET_PATH = BACKTESTS_ROOT / "Strategy_Master_Filter.xlsx"
 PORTFOLIO_SHEET_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 REPORTS_ROOT = PROJECT_ROOT / "reports_summary"
+OUTPUTS_REPORTS_ROOT = PROJECT_ROOT / "outputs" / "reports"
 DIRECTIVES_ROOT = PROJECT_ROOT / "backtest_directives"
 TMP_ROOT = PROJECT_ROOT / "tmp"
 
@@ -114,17 +115,98 @@ def scan_reports(valid_base_strategies):
     if not REPORTS_ROOT.exists():
         return actions
 
+    valid_strats_set = set()
+    valid_bts_set = set()
+    
+    if STRATEGIES_ROOT.exists():
+        for d in STRATEGIES_ROOT.iterdir():
+            if d.is_dir() and not d.name.startswith("."):
+                valid_strats_set.add(d.name)
+    if BACKTESTS_ROOT.exists():
+         for d in BACKTESTS_ROOT.iterdir():
+            if d.is_dir() and not d.name.startswith("."):
+                valid_bts_set.add(d.name)
+
     for item in REPORTS_ROOT.iterdir():
+        if not item.is_file(): continue
         name = item.name
+        base_name = None
         if name.startswith("REPORT_") and name.endswith(".md"):
             base_name = name[len("REPORT_"):-len(".md")]
-            if base_name.casefold() not in valid_base_strategies:
-                actions.append(f"DELETE_REPORT reports_summary/{name}")
         elif name.startswith("PORTFOLIO_") and name.endswith(".md"):
             base_name = name[len("PORTFOLIO_"):-len(".md")]
-            if base_name.casefold() not in valid_base_strategies:
-                actions.append(f"DELETE_REPORT reports_summary/{name}")
+            
+        if not base_name:
+            continue
+            
+        if base_name.casefold() not in valid_base_strategies:
+            actions.append(f"DELETE_REPORT reports_summary/{name}")
+        else:
+            matched_folder = None
+            for folder in list(valid_strats_set) + list(valid_bts_set):
+                if folder.casefold() == base_name.casefold():
+                    matched_folder = folder
+                    break
+                    
+            if matched_folder:
+                if matched_folder in valid_strats_set:
+                    dest = f"strategies/{matched_folder}/{name}"
+                else:
+                    dest = f"backtests/{matched_folder}/{name}"
+                actions.append(f"MOVE_REPORT reports_summary/{name} -> {dest}")
+                
     return actions
+
+def scan_outputs_reports(valid_strategies, valid_portfolios):
+    actions = []
+    if not OUTPUTS_REPORTS_ROOT.exists():
+        return actions
+
+    import re
+    # Determine what folders strictly exist right now
+    valid_strats_set = set()
+    valid_bts_set = set()
+    
+    if STRATEGIES_ROOT.exists():
+        for d in STRATEGIES_ROOT.iterdir():
+            if d.is_dir() and not d.name.startswith("."):
+                valid_strats_set.add(d.name)
+    if BACKTESTS_ROOT.exists():
+         for d in BACKTESTS_ROOT.iterdir():
+            if d.is_dir() and not d.name.startswith("."):
+                valid_bts_set.add(d.name)
+                
+    all_valid_folders = sorted(list(valid_strats_set) + list(valid_bts_set), key=len, reverse=True)
+
+    for item in OUTPUTS_REPORTS_ROOT.iterdir():
+        if not item.is_file() or not item.name.endswith('.md'):
+            continue
+            
+        name = item.name
+        search_name = name
+        if search_name.startswith('ROBUSTNESS_'): search_name = search_name.replace('ROBUSTNESS_', '')
+        if search_name.startswith('USDCHF_ISOLATION_'): search_name = search_name.replace('USDCHF_ISOLATION_', '')
+        if search_name.startswith('Risk_Comparison_'): search_name = search_name.replace('Risk_Comparison_', '')
+        if search_name.startswith('PORTFOLIO_'): search_name = search_name.replace('PORTFOLIO_', '')
+        if search_name.startswith('REPORT_'): search_name = search_name.replace('REPORT_', '')
+        
+        matched_folder = None
+        for f in all_valid_folders:
+            if f in search_name:
+                matched_folder = f
+                break
+                
+        if matched_folder:
+            if matched_folder in valid_strats_set:
+                dest = f"strategies/{matched_folder}/{name}"
+            else:
+                dest = f"backtests/{matched_folder}/{name}"
+            actions.append(f"MOVE_REPORT outputs/reports/{name} -> {dest}")
+        else:
+            actions.append(f"DELETE_ORPHANED_REPORT outputs/reports/{name}")
+            
+    return actions
+
         
 def reconcile_orphaned_rows(rows):
     actions_strategies = []
@@ -366,9 +448,13 @@ def main():
     zombie_bt = scan_backtests(valid_strategies, valid_base_strategies)
     zombie_reports = scan_reports(valid_base_strategies)
     
+    valid_portfolios = load_portfolio_index()
+    outputs_reports_actions = scan_outputs_reports(valid_strategies, valid_portfolios)
+    
     all_strategies.extend(zombie_runs)
     all_backtests.extend(zombie_bt)
     all_backtests.extend(zombie_reports)
+    all_backtests.extend(outputs_reports_actions)
     
     leftover_runs, orphan_rows = reconcile_orphaned_rows(rows)
     all_strategies.extend(leftover_runs)
@@ -399,10 +485,16 @@ def main():
             path_str = parts[1]
             try:
                 target_path = PROJECT_ROOT / path_str
-                if action_type in ["DELETE_BATCH_SUMMARY", "DELETE_REPORT"]:
+                if action_type in ["DELETE_BATCH_SUMMARY", "DELETE_REPORT", "DELETE_ORPHANED_REPORT"]:
                     # File deletion
                     if target_path.exists():
                         target_path.unlink()
+                elif action_type == "MOVE_REPORT":
+                    # parts: MOVE_REPORT src_path -> dest_path
+                    src_path = PROJECT_ROOT / parts[1]
+                    dest_path = PROJECT_ROOT / parts[3]
+                    if src_path.exists():
+                        shutil.move(src_path, dest_path)
                 else:
                     # Directory deletion
                     s_name = path_str.split('/')[1]
@@ -430,7 +522,6 @@ def main():
         execute_removals(valid_row_actions)
 
     print("\n--- PORTFOLIO LAYER (ADVISORY ONLY) ---")
-    valid_portfolios = load_portfolio_index()
     zombie_portfolios = scan_portfolios(valid_portfolios)
     orphan_portfolios = reconcile_portfolio_orphans(valid_portfolios)
 

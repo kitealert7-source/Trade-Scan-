@@ -20,12 +20,15 @@ model:
   - LIQGRAB
   - PORT
   - ULTC
+  - DAYOC
+  - SMI
 filter:
   - ATRFILT
   - VOLFILT
   - TRENDFILT
   - STRUCTFILT
   - REGFILT
+  - SMIFILT
 timeframe:
   - 1M
   - 5M

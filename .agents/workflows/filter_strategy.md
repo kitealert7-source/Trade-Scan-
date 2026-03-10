@@ -23,5 +23,5 @@ python tools/filter_strategies.py
 
 ```bash
 python tools/format_excel_artifact.py --file backtests/Strategy_Master_Filter.xlsx --profile strategy
-python tools/format_excel_artifact.py --file strategies/Filtered_Strategies_Passed.xlsx --profile strategy
+python tools/format_excel_artifact.py --file backtests/Filtered_Strategies_Passed.xlsx --profile strategy
 ```

@@ -5,11 +5,11 @@
 # Purpose:   Capability map, parameter reference, return-schema reference,
 #            reuse contract, governance checkpoint.
 # Generated: 2026-03-01T16:54:09+05:30
-# registry_version: 2
+# registry_version: 3
 # =============================================================================
 
-registry_version: 2
-generated_at: "2026-03-01T16:54:09+05:30"
+registry_version: 3
+generated_at: "2026-03-09T00:00:00+05:30"
 
 # =============================================================================
 # GOVERNANCE CHANGELOG
@@ -25,6 +25,16 @@ governance_updates:
       - "external_dependency_isolation: usd_stress_index path moved to USD_SYNTH_PATH module constant; descriptive FileNotFoundError with rebuild instructions added"
       - "output_scale fields added to all percentile-style indicators in registry metadata"
 
+  version_3:
+    date: "2026-03-09"
+    changes:
+      - "taxonomy_reorganisation: roc, rsi, stochastic, ultimate_c_percent moved from indicators/price/ to indicators/momentum/"
+      - "module_path_updates: four indicators updated from indicators.price.* to indicators.momentum.*"
+      - "new_indicator: stochastic_momentum_index added to indicators/momentum/"
+      - "category_field_added: all 33 indicators now carry a category field (price|momentum|trend|structure|volatility|stats|composite) matching directory structure"
+      - "registry_summary_updated: total_indicators=33, momentum_count=5"
+      - "price_init_cleanup: indicators/price/__init__.py updated to remove moved indicators; indicators/momentum/__init__.py created"
+
 
 # =============================================================================
 # PRICE INDICATORS
@@ -37,6 +47,7 @@ indicators:
   # ---------------------------------------------------------------------------
   candle_state:
     module_path: indicators.price.candle_state
+    category: price
     function_name: apply
     classification: Momentum
     input_requirements:
@@ -72,6 +83,7 @@ indicators:
   # ---------------------------------------------------------------------------
   previous_bar_breakout:
     module_path: indicators.price.previous_bar_breakout
+    category: price
     function_name: apply
     classification: Structure
     input_requirements:
@@ -104,7 +116,8 @@ indicators:
   # price/roc.py
   # ---------------------------------------------------------------------------
   roc:
-    module_path: indicators.price.roc
+    module_path: indicators.momentum.roc
+    category: momentum
     function_name: roc
     classification: Momentum
     input_requirements:
@@ -135,7 +148,8 @@ indicators:
   # price/rsi.py
   # ---------------------------------------------------------------------------
   rsi:
-    module_path: indicators.price.rsi
+    module_path: indicators.momentum.rsi
+    category: momentum
     function_name: rsi
     classification: Momentum
     input_requirements:
@@ -168,7 +182,8 @@ indicators:
   # price/stochastic.py
   # ---------------------------------------------------------------------------
   stochastic_k:
-    module_path: indicators.price.stochastic
+    module_path: indicators.momentum.stochastic
+    category: momentum
     function_name: stochastic_k
     classification: Momentum
     input_requirements:
@@ -202,7 +217,8 @@ indicators:
   # price/ultimate_c_percent.py
   # ---------------------------------------------------------------------------
   ultimate_c_percent:
-    module_path: indicators.price.ultimate_c_percent
+    module_path: indicators.momentum.ultimate_c_percent
+    category: momentum
     function_name: ultimate_c_percent
     classification: Composite
     input_requirements:
@@ -244,6 +260,7 @@ indicators:
   # ---------------------------------------------------------------------------
   usd_stress_index:
     module_path: indicators.price.usd_stress_index
+    category: price
     function_name: apply
     classification: Composite
     input_requirements:
@@ -286,6 +303,7 @@ indicators:
   # ---------------------------------------------------------------------------
   rolling_max:
     module_path: indicators.stats.rolling_max
+    category: stats
     function_name: rolling_max
     classification: Statistical
     input_requirements:
@@ -316,6 +334,7 @@ indicators:
   # ---------------------------------------------------------------------------
   rolling_percentile:
     module_path: indicators.stats.rolling_percentile
+    category: stats
     function_name: rolling_percentile
     classification: Statistical
     input_requirements:
@@ -347,6 +366,7 @@ indicators:
   # ---------------------------------------------------------------------------
   rolling_zscore:
     module_path: indicators.stats.rolling_zscore
+    category: stats
     function_name: rolling_zscore
     classification: Statistical
     input_requirements:
@@ -382,6 +402,7 @@ indicators:
   # ---------------------------------------------------------------------------
   adx:
     module_path: indicators.structure.adx
+    category: structure
     function_name: adx
     classification: Trend
     input_requirements:
@@ -414,6 +435,7 @@ indicators:
   # ---------------------------------------------------------------------------
   daily_pivot_points:
     module_path: indicators.structure.daily_pivot_points
+    category: structure
     function_name: daily_pivot_points
     classification: Structure
     input_requirements:
@@ -446,6 +468,7 @@ indicators:
   # ---------------------------------------------------------------------------
   donchian_channel:
     module_path: indicators.structure.donchian_channel
+    category: structure
     function_name: donchian_channel
     classification: Structure
     input_requirements:
@@ -477,6 +500,7 @@ indicators:
   # ---------------------------------------------------------------------------
   ema_slope:
     module_path: indicators.structure.ema_slope
+    category: structure
     function_name: ema_slope
     classification: Trend
     input_requirements:
@@ -509,6 +533,7 @@ indicators:
   # ---------------------------------------------------------------------------
   highest_high:
     module_path: indicators.structure.highest_high
+    category: structure
     function_name: highest_high
     classification: Structure
     input_requirements:
@@ -541,6 +566,7 @@ indicators:
   # ---------------------------------------------------------------------------
   hull_moving_average:
     module_path: indicators.structure.hull_moving_average
+    category: structure
     function_name: hull_moving_average
     classification: Trend
     input_requirements:
@@ -572,6 +598,7 @@ indicators:
   # ---------------------------------------------------------------------------
   linear_regression_channel:
     module_path: indicators.structure.linear_regression_channel
+    category: structure
     function_name: linear_regression_channel
     classification: Trend
     input_requirements:
@@ -606,6 +633,7 @@ indicators:
   # ---------------------------------------------------------------------------
   lowest_low:
     module_path: indicators.structure.lowest_low
+    category: structure
     function_name: lowest_low
     classification: Structure
     input_requirements:
@@ -638,6 +666,7 @@ indicators:
   # ---------------------------------------------------------------------------
   session_range_structure:
     module_path: indicators.structure.range_breakout_session
+    category: structure
     function_name: session_range_structure
     classification: Structure
     input_requirements:
@@ -682,6 +711,7 @@ indicators:
   # ---------------------------------------------------------------------------
   efficiency_ratio_regime:
     module_path: indicators.trend.efficiency_ratio_regime
+    category: trend
     function_name: efficiency_ratio_regime
     classification: Regime
     input_requirements:
@@ -715,6 +745,7 @@ indicators:
   # ---------------------------------------------------------------------------
   ema_regime:
     module_path: indicators.trend.ema_regime
+    category: trend
     function_name: ema_regime
     classification: Regime
     input_requirements:
@@ -746,6 +777,7 @@ indicators:
   # ---------------------------------------------------------------------------
   kalman_regime:
     module_path: indicators.trend.kalman_regime
+    category: trend
     function_name: kalman_regime
     classification: Regime
     input_requirements:
@@ -786,6 +818,7 @@ indicators:
   # ---------------------------------------------------------------------------
   linreg_regime:
     module_path: indicators.trend.linreg_regime
+    category: trend
     function_name: linreg_regime
     classification: Regime
     input_requirements:
@@ -818,6 +851,7 @@ indicators:
   # ---------------------------------------------------------------------------
   linreg_regime_htf:
     module_path: indicators.trend.linreg_regime_htf
+    category: trend
     function_name: linreg_regime_htf
     classification: Regime
     input_requirements:
@@ -853,6 +887,7 @@ indicators:
   # ---------------------------------------------------------------------------
   sha_regime:
     module_path: indicators.trend.sha_regime
+    category: trend
     function_name: sha_regime
     classification: Regime
     input_requirements:
@@ -889,6 +924,7 @@ indicators:
   # ---------------------------------------------------------------------------
   trend_persistence:
     module_path: indicators.trend.trend_persistence
+    category: trend
     function_name: trend_persistence
     classification: Regime
     input_requirements:
@@ -927,6 +963,7 @@ indicators:
   # ---------------------------------------------------------------------------
   atr:
     module_path: indicators.volatility.atr
+    category: volatility
     function_name: atr
     classification: Volatility
     input_requirements:
@@ -958,6 +995,7 @@ indicators:
   # ---------------------------------------------------------------------------
   atr_percentile:
     module_path: indicators.volatility.atr_percentile
+    category: volatility
     function_name: atr_percentile
     classification: Volatility
     input_requirements:
@@ -991,6 +1029,7 @@ indicators:
   # ---------------------------------------------------------------------------
   bollinger_band_width:
     module_path: indicators.volatility.bollinger_band_width
+    category: volatility
     function_name: bollinger_band_width
     classification: Volatility
     input_requirements:
@@ -1023,6 +1062,7 @@ indicators:
   # ---------------------------------------------------------------------------
   keltner_channel:
     module_path: indicators.volatility.keltner_channel
+    category: volatility
     function_name: keltner_channel
     classification: Volatility
     input_requirements:
@@ -1057,6 +1097,7 @@ indicators:
   # ---------------------------------------------------------------------------
   market_state:
     module_path: indicators.volatility.market_state
+    category: volatility
     function_name: market_state
     classification: Composite
     input_requirements:
@@ -1095,6 +1136,7 @@ indicators:
   # ---------------------------------------------------------------------------
   volatility_regime:
     module_path: indicators.volatility.volatility_regime
+    category: volatility
     function_name: volatility_regime
     classification: Regime
     input_requirements:
@@ -1130,14 +1172,61 @@ indicators:
       risk_of_overfitting: Low
 
 
+  # ---------------------------------------------------------------------------
+  # momentum/stochastic_momentum_index.py
+  # ---------------------------------------------------------------------------
+  stochastic_momentum_index:
+    module_path: indicators.momentum.stochastic_momentum_index
+    category: momentum
+    function_name: stochastic_momentum_index
+    classification: Momentum
+    input_requirements:
+      - high: pd.Series of high prices
+      - low: pd.Series of low prices
+      - close: pd.Series of close prices
+    parameters:
+      period: int - lookback for highest/lowest range
+      smooth1: int - first EMA smoothing period
+      smooth2: int - second EMA smoothing period
+      signal_period: int - EMA period for signal line
+    default_parameters:
+      period: 14
+      smooth1: 3
+      smooth2: 3
+      signal_period: 3
+    output_type: DataFrame
+    output_columns:
+      - smi: float - Stochastic Momentum Index (-100 to +100 scale)
+      - smi_signal: float - EMA signal line
+      - smi_hist: float - momentum spread (smi minus signal)
+    output_scale: "-100 to +100 (smi, smi_signal, smi_hist)"
+    lookahead_safe: true
+    rolling_window_used: Yes
+    vectorized: Yes
+    htf_compatible: Yes
+    dependency_indicators: []
+    typical_use_case: >
+      Overbought/oversold momentum oscillator. SMI crossing above -40 from below
+      as long entry signal; crossing below +40 from above as short/exit signal.
+      Histogram zero-cross used for early momentum shift detection.
+    notes: >
+      Double-smoothed stochastic variant (William Blau). More responsive than
+      standard stochastic due to double EMA smoothing on both numerator and
+      denominator. Safe denominator handling via replace(0, nan).
+    compatibility:
+      suitable_for_intraday: Yes
+      suitable_for_daily: Yes
+      computational_cost: Low
+      risk_of_overfitting: Medium
+
 # =============================================================================
 # REGISTRY SUMMARY
 # =============================================================================
 
 registry_summary:
-  total_indicators: 32
+  total_indicators: 33
   by_category:
-    momentum_count: 4       # roc, rsi, stochastic_k, candle_state
+    momentum_count: 5       # roc, rsi, stochastic_k, ultimate_c_percent, stochastic_momentum_index
     trend_count: 4          # adx, ema_slope, hull_moving_average, linear_regression_channel
     volatility_count: 5     # atr, atr_percentile, bollinger_band_width, keltner_channel, volatility_regime
     regime_count: 7         # efficiency_ratio_regime, ema_regime, kalman_regime, linreg_regime, linreg_regime_htf, sha_regime, trend_persistence

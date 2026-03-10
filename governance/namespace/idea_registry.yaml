@@ -30,10 +30,19 @@ ideas:
     status: active
   "06":
     family: PA
-    title: Price Action Structure Research
+    title: Price Action Research Track
     class: price_action
-    regime: trend
+    regime: multi
     role: entry_edge
+    instruments: any
+    status: active
+  "07":
+    family: MR
+    title: SMI Oscillator Mean Reversion Research Track
+    class: indicator_logic
+    regime: oversold_reversion
+    role: entry_edge
+    instruments: XAUUSD
     status: active
   "05":
     family: PORT
@@ -41,4 +50,12 @@ ideas:
     class: portfolio_logic
     regime: multi
     role: stabilizer
+    status: active
+  "08":
+    family: BRK
+    title: Session Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: XAUUSD
     status: active

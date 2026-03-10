@@ -17,7 +17,18 @@
       "Bash(python -m tools.robustness.cli 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S05_V1_P00 --profile FIXED_USD_V1 --suite full)",
       "Bash(python tools/cleanup_reconciler.py --execute)",
       "Bash(python tools/format_excel_artifact.py --file backtests/Strategy_Master_Filter.xlsx --profile strategy)",
-      "Bash(python tools/format_excel_artifact.py --file strategies/Master_Portfolio_Sheet.xlsx --profile portfolio)"
+      "Bash(python tools/format_excel_artifact.py --file strategies/Master_Portfolio_Sheet.xlsx --profile portfolio)",
+      "Bash(python tools/filter_strategies.py)",
+      "Bash(for dir in c:/Users/faraw/Documents/Trade_Scan/backtests/01_MR_FX_1H_ULTC_REGFILT_S02_V1_P00_*)",
+      "Bash(do basename \"$dir\")",
+      "Read(//c/Users/faraw/Documents/Trade_Scan/$dir/raw/**)",
+      "Read(//c/Users/faraw/Documents/Trade_Scan/**)",
+      "Bash(done)",
+      "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S03_V1_P00 --all)",
+      "Bash(python -m tools.robustness.cli 01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00 --profile CONSERVATIVE_V1 --suite full)",
+      "Bash(python -m tools.robustness.cli 01_MR_FX_1H_ULTC_REGFILT_S09_V1_P00 --profile CONSERVATIVE_V1 --suite full)",
+      "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S10_V1_P00 --steps stage1)",
+      "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S11_V1_P00)"
     ]
   }
 }

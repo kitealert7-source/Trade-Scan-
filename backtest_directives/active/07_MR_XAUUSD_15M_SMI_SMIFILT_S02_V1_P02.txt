@@ -1,0 +1,65 @@
+execution_rules:
+  stop_loss:
+    type: fixed_usd
+    fixed_points: 50
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.trend.linreg_regime
+- indicators.trend.linreg_regime_htf
+- indicators.trend.kalman_regime
+- indicators.trend.trend_persistence
+- indicators.trend.efficiency_ratio_regime
+- indicators.volatility.volatility_regime
+- indicators.volatility.atr
+- indicators.momentum.stochastic_momentum_index
+mean_reversion_rules:
+  setup_timeframe: 1H
+  setup_indicator: smi_1h
+  setup_threshold: -50
+  setup_condition: less_than
+  trigger_timeframe: 15M
+  trigger_type: signal_cross_with_recovery
+  trigger_recovery_threshold: -40
+  exit_reversion_threshold: -10
+volatility_filter:
+  type: volatility_regime
+  allow_regime: LOW,HIGH
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  session_reset: new_day
+  no_reentry_after_stop: true
+exit_rules:
+  type: composite
+  logic: OR
+  condition_1:
+    type: indicator_threshold
+    indicator: smi_1h
+    threshold: -10
+    condition: greater_than
+  condition_2:
+    type: time_based
+    timing: penultimate_bar_of_day
+position_management:
+  lots: 0.01
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_only
+  max_trades_per_session: 1
+  reentry:
+    allowed: false
+symbols:
+- XAUUSD
+test:
+  name: 07_MR_XAUUSD_15M_SMI_SMIFILT_S02_V1_P02
+  strategy: 07_MR_XAUUSD_15M_SMI_SMIFILT_S02_V1_P02
+  broker: OctaFX
+  timeframe: 15m
+  start_date: '2024-01-01'
+  end_date: '2026-03-01'

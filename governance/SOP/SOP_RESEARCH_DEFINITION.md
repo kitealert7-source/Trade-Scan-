@@ -160,3 +160,24 @@ be cited as validated results.
   * Example: `Range_Breakout_VolFilter_v2`
 * **Variant**: Short, descriptive PascalCase (e.g. `MaCrossover`, `StopLossTight`).
 * **Version**: `v1`, `v2` (integer increment).
+
+### 6.1 Sweep vs Patch Naming — `_SXX` vs `_PXX`
+
+Two distinct suffix types govern how experiments are classified and registered:
+
+**`_SXX` — Sweep (independent axis)**
+- Represents a new independent variable or structural change relative to the idea baseline.
+- Consumes a new sweep slot in `sweep_registry.yaml` under the idea's `sweeps:` dict.
+- Each `_SXX` directive gets its own `next_sweep` counter increment.
+- Examples: `S03` tests a new stop-loss width; `S08` tests a new exit mode.
+
+**`_PXX` — Patch (iteration under same sweep)**
+- Represents a controlled parameter variation of an existing sweep, where the structural logic is unchanged and only a single preset/parameter value differs.
+- Does NOT consume a new sweep slot. Registered under the parent sweep's `patches:` sub-dict in the registry (e.g. `S07.patches.P01`).
+- All structural invariants (filters, exits, execution rules) must be identical to the parent `_P00`.
+- `_P00` is the canonical parent; `_P01`, `_P02`, … are ordered patch iterations.
+- Examples: `S07_V1_P01` tests the same strategy with a different oscillator preset mode; `S07_V1_P02` tests another preset.
+
+**Decision rule**: If you are changing *what the strategy does structurally* (new filter, new exit type, new indicator), use `_SXX`. If you are varying a single configuration parameter of an existing sweep while keeping all other logic identical, use `_PXX` under the parent sweep.
+
+**Governance note**: Misclassifying a patch as a sweep permanently consumes a sweep slot and cannot be corrected after registry registration. Confirm classification before running the namespace gate.

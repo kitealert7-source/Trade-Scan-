@@ -142,6 +142,23 @@ def _is_same_lineage(existing_name: str, incoming_name: str) -> bool:
     return _strip_sweep_segment(existing_name) == _strip_sweep_segment(incoming_name)
 
 
+def _is_patch_sibling(existing_name: str, incoming_name: str) -> bool:
+    """True if incoming is a patch of the same sweep (same SXX base, different _PNN).
+
+    NOTE: SNN must NOT be stripped here. Stripping SNN (via _strip_sweep_segment)
+    would make S07_V1_P00 and S08_V1_P00 appear identical, producing false positives.
+    Patch siblings must share the same sweep number — only PNN is stripped.
+    """
+    base_existing = re.sub(r"_P\d{2}$", "", existing_name)
+    base_incoming = re.sub(r"_P\d{2}$", "", incoming_name)
+    return base_existing == base_incoming and existing_name != incoming_name
+
+
+def _patch_key_from_name(name: str) -> str | None:
+    m = re.search(r"_P(\d{2})$", name)
+    return f"P{m.group(1)}" if m else None
+
+
 def reserve_sweep_identity(
     idea_id: str,
     directive_name: str,
@@ -213,6 +230,18 @@ def reserve_sweep_identity(
                     "strategy_name": directive_name,
                     "signature_hash": signature_hash,
                 }
+            # Check patches stored under this sweep slot for idempotency.
+            for p_data in payload.get("patches", {}).values():
+                if not isinstance(p_data, dict):
+                    continue
+                if p_data.get("directive_name") == directive_name and p_data.get("signature_hash") == signature_hash:
+                    return {
+                        "status": "idempotent",
+                        "idea_id": idea_id,
+                        "sweep": key,
+                        "strategy_name": directive_name,
+                        "signature_hash": signature_hash,
+                    }
 
         # Reserve specific requested sweep (used by namespace directives in pipeline)
         if requested_key:
@@ -231,6 +260,44 @@ def reserve_sweep_identity(
                         _write_yaml_atomic(SWEEP_REGISTRY_PATH, registry)
                     return {
                         "status": "idempotent",
+                        "idea_id": idea_id,
+                        "sweep": requested_key,
+                        "strategy_name": directive_name,
+                        "signature_hash": signature_hash,
+                    }
+                # Check if incoming is a patch sibling of the existing sweep owner.
+                if _is_patch_sibling(existing_directive, directive_name):
+                    patch_key = _patch_key_from_name(directive_name)
+                    patches = existing.get("patches", {})
+                    if not isinstance(patches, dict):
+                        patches = {}
+                    if patch_key in patches:
+                        existing_patch = patches[patch_key]
+                        if existing_patch.get("signature_hash") != signature_hash:
+                            raise SweepRegistryError(
+                                f"PATCH_COLLISION: idea_id='{idea_id}' sweep='{requested_key}' "
+                                f"patch='{patch_key}' already registered with a different hash."
+                            )
+                        return {
+                            "status": "idempotent",
+                            "idea_id": idea_id,
+                            "sweep": requested_key,
+                            "strategy_name": directive_name,
+                            "signature_hash": signature_hash,
+                        }
+                    patches[patch_key] = {
+                        "directive_name": directive_name,
+                        "signature_hash": signature_hash,
+                        "reserved_at_utc": _now_utc(),
+                    }
+                    existing["patches"] = patches
+                    sweeps[requested_key] = existing
+                    idea_block["sweeps"] = sweeps
+                    ideas[idea_id] = idea_block
+                    registry["ideas"] = ideas
+                    _write_yaml_atomic(SWEEP_REGISTRY_PATH, registry)
+                    return {
+                        "status": "reserved",
                         "idea_id": idea_id,
                         "sweep": requested_key,
                         "strategy_name": directive_name,

@@ -1,6 +1,6 @@
 # Indicator Capabilities Reference
 
-> **Registry Version:** 1 | **Generated:** 2026-03-01 | **Total Indicators:** 32
+> **Registry Version:** 3 | **Generated:** 2026-03-09 | **Total Indicators:** 33
 >
 > Machine-readable source: [`INDICATOR_REGISTRY.yaml`](./INDICATOR_REGISTRY.yaml)
 
@@ -10,12 +10,13 @@
 
 | Category | Count | Indicators |
 |---|---|---|
-| **Momentum** | 4 | rsi, roc, stochastic_k, candle_state |
+| **Momentum** | 5 | rsi, roc, stochastic_k, ultimate_c_percent, stochastic_momentum_index |
 | **Trend** | 4 | adx, ema_slope, hull_moving_average, linear_regression_channel |
 | **Volatility** | 5 | atr, atr_percentile, bollinger_band_width, keltner_channel, volatility_regime |
 | **Regime** | 7 | efficiency_ratio_regime, ema_regime, kalman_regime, linreg_regime, linreg_regime_htf, sha_regime, trend_persistence |
-| **Structure** | 6 | adx, daily_pivot_points, donchian_channel, highest_high, lowest_low, session_range_structure, previous_bar_breakout |
-| **Composite** | 3 | ultimate_c_percent, usd_stress_index, market_state |
+| **Structure** | 6 | daily_pivot_points, donchian_channel, highest_high, lowest_low, session_range_structure, previous_bar_breakout |
+| **Price** | 3 | candle_state, previous_bar_breakout, usd_stress_index |
+| **Composite** | 2 | usd_stress_index, market_state |
 | **Statistical** | 3 | rolling_max, rolling_percentile, rolling_zscore |
 
 ---
@@ -26,11 +27,12 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | **candle_state** | `indicators.price.candle_state` | `apply` | DataFrame | is_green, is_red, green_streak, red_streak | ✅ | ⚠️ loop | ✅ | ✅ | ✅ | Low | Low |
 | **previous_bar_breakout** | `indicators.price.previous_bar_breakout` | `apply` | DataFrame | prev_high, prev_low, breakout_up_close, breakout_down_close | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
-| **roc** | `indicators.price.roc` | `roc` | Series | roc (%) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
-| **rsi** | `indicators.price.rsi` | `rsi` | Series | rsi (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
-| **stochastic_k** | `indicators.price.stochastic` | `stochastic_k` | Series | stochastic_k (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
-| **ultimate_c_percent** | `indicators.price.ultimate_c_percent` | `ultimate_c_percent` | DataFrame | ultimate_c, ultimate_signal | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium |
 | **usd_stress_index** | `indicators.price.usd_stress_index` | `apply` | DataFrame | usd_stress, usd_stress_percentile | ✅ | ✅ | ⚠️ | ✅ | ✅ | Medium | Low |
+| **roc** | `indicators.momentum.roc` | `roc` | Series | roc (%) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
+| **rsi** | `indicators.momentum.rsi` | `rsi` | Series | rsi (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
+| **stochastic_k** | `indicators.momentum.stochastic` | `stochastic_k` | Series | stochastic_k (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
+| **stochastic_momentum_index** | `indicators.momentum.stochastic_momentum_index` | `stochastic_momentum_index` | DataFrame | smi, smi_signal, smi_hist | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
+| **ultimate_c_percent** | `indicators.momentum.ultimate_c_percent` | `ultimate_c_percent` | DataFrame | ultimate_c, ultimate_signal | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium |
 | **rolling_max** | `indicators.stats.rolling_max` | `rolling_max` | Series | rolling_max | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **rolling_percentile** | `indicators.stats.rolling_percentile` | `rolling_percentile` | Series | percentile (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
 | **rolling_zscore** | `indicators.stats.rolling_zscore` | `rolling_zscore` | Series | zscore | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
@@ -70,8 +72,10 @@
 | **External file dependency** | `usd_stress_index` — requires `data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_return_d1.csv` |
 | **Output scale: 0–1 (not 0–100)** | `atr_percentile` — multiply by 100 for percentage comparison |
 | **Output scale: 0–100** | `rolling_percentile`, `rsi`, `stochastic_k`, `ultimate_c_percent`, `adx` |
+| **Output scale: –100 to +100** | `stochastic_momentum_index` — smi, smi_signal, smi_hist all on this scale |
 | **Composite dependencies** | `market_state` requires `trend_slope` + `volatility_percentile` as pre-computed inputs |
 | **Regime encoding** | `volatility_regime`: -1=low, 0=medium, 1=high. Engine maps to "low"/"normal"/"high" strings. |
+| **Taxonomy change (v3)** | `roc`, `rsi`, `stochastic`, `ultimate_c_percent` moved from `indicators/price/` to `indicators/momentum/` |
 
 ---
 
@@ -91,4 +95,4 @@
 
 ---
 
-*Validation: All 32 `.py` files in `indicators/` (excluding `__init__.py` and `__pycache__`) are represented. Status: **PASS**.*
+*Validation: All 33 `.py` files in `indicators/` (excluding `__init__.py` and `__pycache__`) are represented. Registry v3. Status: **PASS**.*

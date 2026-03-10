@@ -1,3 +1,2 @@
-from .rsi import rsi
-from .stochastic import stochastic_k
-from .roc import roc
+# indicators/price -- remaining price-action indicators
+# (roc, rsi, stochastic, ultimate_c_percent moved to indicators/momentum/)

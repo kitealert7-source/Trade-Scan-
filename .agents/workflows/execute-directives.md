@@ -30,15 +30,25 @@ Confirm understanding of: stage ordering, artifact authority, fail-fast contract
 
 ### Step 1.5: Strategy Generation Mode Classification
 
-Before provisioning, classify each directive by checking whether an implementation exists:
+Before provisioning, classify each directive by checking two things: (1) whether an implementation exists, and (2) whether the directive is a `_PXX` patch of an existing sweep.
 
-**If `strategies/<STRATEGY_NAME>/strategy.py` EXISTS → CLONE_MODE**
+**If directive name ends in `_PXX` where XX > 00 → PATCH_MODE**
+
+- Log: `[MODE] PATCH_MODE: Patch directive detected`
+- The directive is a controlled parameter variation of an existing parent sweep (`_P00`).
+- The parent strategy at `strategies/<PARENT_NAME>/strategy.py` MUST exist and be valid.
+- Behavioral logic inheritance from the parent is **required and expected** — the patch differs only in the single parameter declared in the directive (e.g. `uc_mode`, a stop multiplier, an OB/OS threshold).
+- All structural invariants (filters, exits, execution rules, indicator imports) must be replicated from the parent.
+- The only permitted difference between the parent and patch `strategy.py` is: the varied parameter value(s) declared in the directive and any class-level name/signature fields that reference them.
+- Must pass semantic coverage gate after implementation.
+
+**If `strategies/<STRATEGY_NAME>/strategy.py` EXISTS and not PATCH_MODE → CLONE_MODE**
 
 - Log: `[MODE] CLONE_MODE: Existing strategy found`
 - Modifications to existing code are permitted
 - Must pass semantic coverage gate after any changes
 
-**If `strategies/<STRATEGY_NAME>/strategy.py` DOES NOT EXIST → GENESIS_MODE**
+**If `strategies/<STRATEGY_NAME>/strategy.py` DOES NOT EXIST and not PATCH_MODE → GENESIS_MODE**
 
 - Log: `[MODE] GENESIS_MODE: New strategy required`
 - Implement exclusively from the directive's declared parameters
@@ -56,7 +66,7 @@ Before provisioning, classify each directive by checking whether an implementati
 - Parameter mapping inference (guessing how directive parameters map to code by looking at how a different strategy mapped its parameters)
 - Engine infrastructure patching to accommodate the new strategy
 
-If GENESIS_MODE implementation fails or semantic validation fails → **halt and report**. Do NOT attempt silent fixes.
+If PATCH_MODE or GENESIS_MODE implementation fails or semantic validation fails → **halt and report**. Do NOT attempt silent fixes.
 
 ### Step 1.75: Directive Canonicalization Gate
 
@@ -123,7 +133,8 @@ Rules:
 
 - Existing sweep: allowed only if idempotent (same directive + same signature hash)
 - Unused sweep: reserved atomically
-- Conflicting reuse: hard fail (`SWEEP_COLLISION`)
+- **Patch sibling (`_PXX`)**: registered under the parent sweep's `patches:` sub-dict in the registry — does NOT consume a new sweep slot. Returns `status=reserved` on the parent sweep key. A patch collision (same patch key, different signature) is a hard fail (`PATCH_COLLISION`).
+- Conflicting reuse (different lineage on occupied slot): hard fail (`SWEEP_COLLISION`)
 
 > [!IMPORTANT]
 > This gate also runs automatically inside `run_pipeline.py` (Stage -0.35).

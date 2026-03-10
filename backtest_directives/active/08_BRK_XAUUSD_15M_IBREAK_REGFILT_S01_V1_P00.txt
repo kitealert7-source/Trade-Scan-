@@ -1,0 +1,54 @@
+execution_rules:
+  stop_loss:
+    type: fixed_usd
+    fixed_points: 50
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.trend.linreg_regime
+- indicators.trend.linreg_regime_htf
+- indicators.trend.kalman_regime
+- indicators.trend.trend_persistence
+- indicators.trend.efficiency_ratio_regime
+- indicators.volatility.volatility_regime
+- indicators.volatility.atr
+- indicators.structure.range_breakout_session
+range_definition:
+  session_start: "01:00"
+  session_end: "07:00"
+  range_quality_min: 0.3
+  range_quality_max: 2.0
+  close_confirmation: true
+volatility_filter:
+  type: volatility_regime
+  allow_regime: NORMAL,HIGH
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  session_reset: new_day
+  no_reentry_after_stop: true
+exit_rules:
+  type: time_based
+  timing: penultimate_bar_of_day
+position_management:
+  lots: 0.01
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  max_trades_per_session: 1
+  reentry:
+    allowed: false
+symbols:
+- XAUUSD
+test:
+  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P00
+  strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P00
+  broker: OctaFX
+  timeframe: 15m
+  start_date: '2024-01-01'
+  end_date: '2026-03-01'

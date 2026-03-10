@@ -249,6 +249,7 @@ def run_execution_loop(df, strategy):
                 
                 # --- INITIAL STOP CAPTURE (STRATEGY OVERRIDE → ATR FALLBACK) ---
                 stop_price = entry_signal.get("stop_price")
+                tp_price = entry_signal.get("tp_price")  # Optional; None if strategy doesn't set TP
 
                 if stop_price is None:
                     # Require canonical ATR
@@ -288,6 +289,7 @@ def run_execution_loop(df, strategy):
                     "atr_entry": ctx.require('atr'),
                     "initial_stop_price": stop_price,
                     "risk_distance": risk_distance,
+                    "tp_price": tp_price,  # None if no explicit TP; filled intrabar if present
                 }
                 
                 # Initialize trade extrema with entry bar
@@ -302,10 +304,39 @@ def run_execution_loop(df, strategy):
                 trade_high = bar_high
             if bar_low < trade_low:
                 trade_low = bar_low
-            
-            # --- EXIT CHECK ---
-            if strategy.check_exit(ctx):
+
+            # --- OHLC EXIT ENFORCEMENT ---
+            # Priority: SL (OHLC) → TP (OHLC) → strategy check_exit() (bar close)
+            # Rule: If both SL and TP inside same bar → SL wins (pessimistic model).
+            stop_price = entry_market_state.get('initial_stop_price')
+            tp_price   = entry_market_state.get('tp_price')
+            exit_triggered = False
+            exit_price = None
+
+            # 1. SL OHLC check
+            if stop_price is not None:
+                if direction == 1 and bar_low <= stop_price:
+                    exit_triggered = True
+                    exit_price = stop_price
+                elif direction == -1 and bar_high >= stop_price:
+                    exit_triggered = True
+                    exit_price = stop_price
+
+            # 2. TP OHLC check (only if SL not already hit)
+            if not exit_triggered and tp_price is not None:
+                if direction == 1 and bar_high >= tp_price:
+                    exit_triggered = True
+                    exit_price = tp_price
+                elif direction == -1 and bar_low <= tp_price:
+                    exit_triggered = True
+                    exit_price = tp_price
+
+            # 3. Strategy time/signal exit (bar close fill; SL and TP OHLC take priority)
+            if not exit_triggered and strategy.check_exit(ctx):
+                exit_triggered = True
                 exit_price = row['close']
+
+            if exit_triggered:
                 
                 trade = {
                     "entry_index": entry_index,
