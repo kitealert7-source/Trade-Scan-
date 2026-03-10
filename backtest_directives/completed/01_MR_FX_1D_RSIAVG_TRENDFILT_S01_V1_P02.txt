@@ -1,0 +1,66 @@
+execution_rules:
+  entry_logic:
+    condition: intersection_with_union
+    type: multi_signal_mean_reversion
+  entry_when_flat_only: true
+  exit_logic:
+    time_exit_bars: 4
+    type: dynamic_or_time
+  pyramiding: false
+  reset_on_exit: true
+  stop_loss:
+    type: none
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.momentum.stochastic
+- indicators.momentum.roc
+- indicators.momentum.rsi
+- indicators.structure.highest_high
+- indicators.structure.lowest_low
+- indicators.trend.linreg_regime
+- indicators.trend.linreg_regime_htf
+- indicators.trend.kalman_regime
+- indicators.trend.trend_persistence
+- indicators.volatility.volatility_regime
+- indicators.volatility.atr
+mean_reversion_rules:
+  entry_gate: intersection
+  exit_rsi_overbought:
+    rsi_length: 2
+    threshold: 75
+  primary_condition:
+    type: three_consecutive_lower_closes
+  roc_oversold_cross:
+    roc_length: 5
+    threshold: -1.0
+    event: cross_below
+  rsi_deep_oversold:
+    avg_bars: 2
+    rsi_length: 2
+    threshold: 25
+  secondary_gate: union
+  stochastic_oversold_cross:
+    d_length: 3
+    k_length: 14
+    threshold: 20.0
+    event: cross_above
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction: long_only
+  session_reset: none
+  reentry:
+    allowed: false
+symbols:
+- JPN225
+- NAS100
+- US30
+test:
+  name: 01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P02
+  strategy: 01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P02
+  broker: OctaFX
+  timeframe: 1d
+  start_date: '2024-01-02'
+  end_date: '2026-02-28'

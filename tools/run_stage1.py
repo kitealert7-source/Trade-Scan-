@@ -299,14 +299,40 @@ def load_strategy(strategy_id: str, run_id: str = None):
 
 def run_engine_logic(df, strategy):
     """Run engine execution loop."""
-    from engine_dev.universal_research_engine.v1_4_0.execution_loop import run_execution_loop
-    return run_execution_loop(df, strategy)
+    import importlib
+    engine_ver = get_engine_version()
+    # Normalize version string for path (e.g. 1.5.3 -> v1_5_3)
+    engine_path = f"v{engine_ver.replace('.', '_')}"
+    module_path = f"engine_dev.universal_research_engine.{engine_path}.execution_loop"
+    
+    try:
+        engine_mod = importlib.import_module(module_path)
+    except ModuleNotFoundError:
+         # Fallback for local folder execution
+         print(f"    [WARN] Dynamic engine resolution failed for {module_path}. Using fallback path.")
+         from engine_dev.universal_research_engine.v1_5_3.execution_loop import run_execution_loop
+         return run_execution_loop(df, strategy)
+         
+    return engine_mod.run_execution_loop(df, strategy)
 
 
 def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds=0):
     """Emit artifacts for a single symbol run."""
     import pandas as pd
-    from engine_dev.universal_research_engine.v1_4_0.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
+    import importlib
+    engine_ver = get_engine_version()
+    engine_path = f"v{engine_ver.replace('.', '_')}"
+    module_path = f"engine_dev.universal_research_engine.{engine_path}.execution_emitter_stage1"
+    
+    try:
+        emitter_mod = importlib.import_module(module_path)
+    except ModuleNotFoundError:
+         print(f"    [WARN] Dynamic emitter resolution failed for {module_path}. Using fallback.")
+         from engine_dev.universal_research_engine.v1_5_3.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
+    else:
+        emit_stage1 = emitter_mod.emit_stage1
+        RawTradeRecord = emitter_mod.RawTradeRecord
+        Stage1Metadata = emitter_mod.Stage1Metadata
     
     contract_size = float(broker_spec["contract_size"])
     min_lot = float(broker_spec["min_lot"])

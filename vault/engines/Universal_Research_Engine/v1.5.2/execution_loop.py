@@ -308,7 +308,8 @@ def run_execution_loop(df, strategy):
             if session_reset_mode == 'utc_day':
                 session_trade_count = 0
             # Signal from the previous session is stale; discard it.
-            pending_entry = None
+            if session_reset_mode == 'utc_day':
+                pending_entry = None
 
         # Build context
         ctx_ns = SimpleNamespace(

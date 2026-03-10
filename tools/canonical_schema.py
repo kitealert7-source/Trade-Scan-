@@ -94,6 +94,7 @@ ALLOWED_NESTED_KEYS = {
     "trade_management": {
         "direction", "direction_restriction",
         "reentry", "max_trades_per_session",
+        "session_reset",
         "trade_counting_mode", "max_positions",
         "mode", "no_reentry_after_second_trade",
     },
@@ -151,6 +152,7 @@ CANONICAL_KEY_ORDER = {
     "trade_management": [
         "direction", "direction_restriction", "mode",
         "max_positions", "max_trades_per_session",
+        "session_reset",
         "trade_counting_mode", "reentry",
         "no_reentry_after_second_trade",
     ],

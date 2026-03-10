@@ -21,6 +21,29 @@ from datetime import datetime
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+"""
+Stage-3 Aggregation Engine — Strategy Master Filter Population
+Governed by: SOP_OUTPUT §6
+
+This engine is READ-ONLY (for inputs), COPY-ONLY, and APPEND-ONLY (for Master Sheet).
+No computation, derivation, inference, or ranking is performed.
+Values are treated as opaque scalars — no conversion or cleaning.
+Rewritten to use pandas and Unified Formatter (Zero OpenPyXL Styling / Imports).
+
+Authority: SOP_OUTPUT
+State Gated: Yes (STAGE_3_START)
+"""
+
+import json
+import sys
+import subprocess
+from pathlib import Path
+import pandas as pd
+from datetime import datetime
+
+# Config
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 
 # Governance Imports
@@ -36,6 +59,7 @@ MASTER_FILTER_COLUMNS = [
     "test_end",
     "trading_period",
     "total_trades",
+    "trade_density",
     "total_net_profit",
     "gross_profit",
     "gross_loss",
@@ -252,6 +276,16 @@ def extract_from_report(report_path, metadata, run_folder):
     
     for col_name, label in REQUIRED_METRICS.items():
         row_data[col_name] = metrics.get(label)
+        
+    try:
+        tt = float(row_data.get("total_trades") or 0)
+        tp = float(row_data.get("trading_period") or 365.25)
+        if tp > 0:
+            row_data["trade_density"] = int(round(tt / (tp / 365.25)))
+        else:
+            row_data["trade_density"] = 0
+    except (ValueError, TypeError):
+        row_data["trade_density"] = 0
     
     for col_name, label in VOLATILITY_METRICS.items():
         row_data[col_name] = metrics.get(label)

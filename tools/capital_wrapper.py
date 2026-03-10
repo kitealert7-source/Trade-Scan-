@@ -63,6 +63,32 @@ PROFILES = {
         "min_lot": 0.01,
         "lot_step": 0.01,
     },
+    # Priority 4: Min Lot Fallback (Fixed USD $50 with broker min override)
+    "MIN_LOT_FALLBACK_V1": {
+        "starting_capital": 10000.0,
+        "risk_per_trade": 0.005,
+        "fixed_risk_usd": 50.0,
+        "heat_cap": 0.04,
+        "leverage_cap": 5,
+        "min_lot": 0.01,
+        "lot_step": 0.01,
+        "min_lot_fallback": True,
+        "max_risk_multiple": 3.0,
+        "track_risk_override": True,
+    },
+    # Priority 5: Uncapped Fallback (Research Only)
+    "MIN_LOT_FALLBACK_UNCAPPED_V1": {
+        "starting_capital": 10000.0,
+        "risk_per_trade": 0.005,
+        "fixed_risk_usd": 50.0,
+        "heat_cap": 0.04,
+        "leverage_cap": 5,
+        "min_lot": 0.01,
+        "lot_step": 0.01,
+        "min_lot_fallback": True,
+        "max_risk_multiple": None,
+        "track_risk_override": True,
+    },
 }
 
 # ======================================================================
@@ -268,6 +294,10 @@ class OpenTrade:
     risk_distance: float
     usd_per_price_unit_per_lot: float
     entry_timestamp: Optional[datetime] = None
+    risk_override_flag: bool = False
+    target_risk_usd: float = 0.0
+    actual_risk_usd: float = 0.0
+    risk_multiple: float = 0.0
 
 
 # ======================================================================
@@ -288,6 +318,9 @@ class PortfolioState:
     fixed_risk_usd: Optional[float] = None    # Fixed USD mode (e.g. $50)
     dynamic_scaling: bool = False              # Dynamic heat-aware scaling
     min_position_pct: float = 0.0             # Skip if scaled < X% of base
+    min_lot_fallback: bool = False            # Execute at min_lot if sized < min_lot
+    max_risk_multiple: Optional[float] = 3.0  # Max allowable risk/target ratio (None=Uncapped)
+    track_risk_override: bool = False         # Log override metrics
     # Running state
     equity: float = 0.0
     realized_pnl: float = 0.0
@@ -296,6 +329,8 @@ class PortfolioState:
     peak_equity: float = 0.0
     max_drawdown_usd: float = 0.0
     max_concurrent: int = 0
+    total_risk_overrides: int = 0
+    risk_multiples: List[float] = field(default_factory=list)
 
     open_trades: Dict[str, OpenTrade] = field(default_factory=dict)
     rejection_log: List[dict] = field(default_factory=list)
@@ -395,15 +430,46 @@ class PortfolioState:
         # 1. Compute lot size
         lot_size = self.compute_lot_size(event.risk_distance, usd_per_pu_per_lot)
 
-        # 2. Min lot check
+        # 2. Min lot check with fallback
+        risk_override = False
+        
+        # Step A: Determine base risk capital (Target Risk)
+        if self.fixed_risk_usd is not None:
+            target_risk = self.fixed_risk_usd
+        else:
+            target_risk = self.equity * self.risk_per_trade
+
+        # Step B: Dynamic heat scaling (clamp to remaining heat budget)
+        if self.dynamic_scaling and self.equity > 0:
+            remaining_heat_usd = (self.heat_cap * self.equity) - self.total_open_risk
+            remaining_heat_usd = max(remaining_heat_usd, 0.0)
+            target_risk = min(target_risk, remaining_heat_usd)
+        
+        target_risk = max(target_risk, 0.0)
+
         if lot_size < self.min_lot:
-            self._reject(event, "LOT_TOO_SMALL",
-                         f"computed={lot_size:.4f} < min={self.min_lot}")
-            return False
+            if self.min_lot_fallback:
+                lot_size = self.min_lot
+                risk_override = True
+            else:
+                self._reject(event, "LOT_TOO_SMALL",
+                             f"computed={lot_size:.4f} < min={self.min_lot}")
+                return False
 
         # 3. Compute trade risk and notional
         trade_risk_usd = event.risk_distance * usd_per_pu_per_lot * lot_size
         trade_notional = lot_size * contract_size * event.entry_price
+
+        # 3.5 Risk Multiple Safety Check
+        risk_multiple = trade_risk_usd / target_risk if target_risk > 0 else float("inf")
+        if risk_override:
+            if self.max_risk_multiple is not None:
+                if risk_multiple > self.max_risk_multiple:
+                    self._reject(event, "RISK_MULT_EXCEEDED",
+                                 f"multiple={risk_multiple:.2f} > cap={self.max_risk_multiple}")
+                    return False
+            self.total_risk_overrides += 1
+            self.risk_multiples.append(risk_multiple)
 
         # 4. Heat cap check
         #    When dynamic_scaling is enabled, compute_lot_size already
@@ -441,7 +507,12 @@ class PortfolioState:
             risk_distance=event.risk_distance,
             usd_per_price_unit_per_lot=usd_per_pu_per_lot,
             entry_timestamp=event.timestamp,
+            risk_override_flag=risk_override,
+            target_risk_usd=target_risk,
+            actual_risk_usd=trade_risk_usd,
+            risk_multiple=risk_multiple
         )
+
         self.open_trades[event.trade_id] = trade
         self.total_open_risk += trade_risk_usd
         self.total_notional += trade_notional
@@ -505,7 +576,7 @@ class PortfolioState:
         del self.open_trades[event.trade_id]
 
         # Log completed trade (Phase 5)
-        self.closed_trades_log.append({
+        log_entry = {
             "trade_id": trade.trade_id,
             "symbol": trade.symbol,
             "direction": trade.direction,
@@ -515,7 +586,15 @@ class PortfolioState:
             "pnl_usd": round(pnl_usd, 2),
             "entry_timestamp": str(trade.entry_timestamp) if trade.entry_timestamp else "",
             "exit_timestamp": str(event.timestamp),
-        })
+        }
+        if trade.risk_override_flag:
+            log_entry.update({
+                "risk_override_flag": True,
+                "target_risk_usd": round(trade.target_risk_usd, 2),
+                "actual_risk_usd": round(trade.actual_risk_usd, 2),
+                "risk_multiple": round(trade.risk_multiple, 2),
+            })
+        self.closed_trades_log.append(log_entry)
 
         # Sample heat utilization (Phase 5)
         if self.equity > 0:
@@ -594,6 +673,9 @@ def run_simulation(sorted_events: List[TradeEvent], broker_specs: Dict[str, dict
             fixed_risk_usd=params.get("fixed_risk_usd"),
             dynamic_scaling=params.get("dynamic_scaling", False),
             min_position_pct=params.get("min_position_pct", 0.0),
+            min_lot_fallback=params.get("min_lot_fallback", False),
+            max_risk_multiple=params.get("max_risk_multiple", 3.0),
+            track_risk_override=params.get("track_risk_override", False),
         )
 
     # Pre-compute per-symbol static fallbacks and contract sizes
@@ -804,7 +886,7 @@ def compute_deployable_metrics(state: PortfolioState) -> dict:
         else:
             current_loss = 0
 
-    return {
+    metrics = {
         "profile": state.profile_name,
         "starting_capital": state.starting_capital,
         "final_equity": round(state.equity, 2),
@@ -825,6 +907,14 @@ def compute_deployable_metrics(state: PortfolioState) -> dict:
         "simulation_years": round(years, 2) if len(tl) >= 2 else 0.0,
     }
 
+    if state.min_lot_fallback:
+        metrics.update({
+            "risk_override_rate": round(state.total_risk_overrides / state.total_accepted * 100, 2) if state.total_accepted > 0 else 0.0,
+            "avg_risk_multiple": round(sum(state.risk_multiples) / len(state.risk_multiples), 2) if state.risk_multiples else 0.0,
+            "max_risk_multiple": round(max(state.risk_multiples), 2) if state.risk_multiples else 0.0,
+        })
+
+    return metrics
 
 def plot_equity_curve(state: PortfolioState, output_dir: Path) -> None:
     """Render equity-curve + drawdown chart and save as PNG."""
@@ -934,11 +1024,17 @@ def emit_profile_artifacts(state: PortfolioState, output_dir: Path):
     # deployable_trade_log.csv
     trade_fields = ["trade_id", "symbol", "lot_size", "pnl_usd",
                     "entry_timestamp", "exit_timestamp", "direction"]
+    
+    # Check if overrides exist in log
+    has_overrides = any(t.get("risk_override_flag") for t in state.closed_trades_log)
+    if has_overrides:
+        trade_fields.extend(["risk_override_flag", "target_risk_usd", "actual_risk_usd", "risk_multiple"])
+
     with open(output_dir / "deployable_trade_log.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=trade_fields)
+        w = csv.DictWriter(f, fieldnames=trade_fields, extrasaction='ignore')
         w.writeheader()
         for t in state.closed_trades_log:
-            w.writerow({k: t[k] for k in trade_fields})
+            w.writerow(t)
 
     # rejection_log.csv
     if state.rejection_log:

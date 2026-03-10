@@ -1,96 +1,52 @@
-# Pipeline Robustness Improvements
+# Pipeline Robustness Report (Updated 2026-03-10)
 
-**Source:** IDX22 live run post-mortem — 2026-02-28  
-**Status:** Proposal — awaiting prioritization
-
----
-
-## 🔴 Critical
-
-### 1. Stage-0.75 Must Verify Authoritative Indicators
-
-**Problem:** Dry-run passes even when `prepare_indicators()` doesn't produce the columns the engine requires.  
-`AUTHORITATIVE_INDICATORS = ['volatility_regime', 'trend_regime', 'trend_label', 'trend_score', 'atr']`  
-This surfaces only at Stage-1 runtime — after all run states are initialized — causing a hard crash and requiring a full reset.
-
-**Fix:** After `prepare_indicators()` completes in Stage-0.75, explicitly check:
-
-```python
-missing = [col for col in AUTHORITATIVE_INDICATORS if col not in df.columns]
-if missing:
-    raise RuntimeError(f"DRYRUN_FAIL: Missing authoritative indicators: {missing}")
-```
-
-**Impact:** Catches engine contract violations at dryrun, before any state commits.
+**Source:** Ongoing pipeline hardening initiative.
+**Status:** Living document tracking implemented and future improvements.
 
 ---
 
-### 2. `initialize()` Must Be Idempotent Across Provision-Only + Full Run
+## ✅ Implemented Improvements (as of 2026-03-10)
 
-**Problem:** `--provision-only` leaves run states at `PREFLIGHT_COMPLETE_SEMANTICALLY_VALID`. When the full pipeline then runs, the orchestrator calls `state_mgr.initialize()` for each symbol, resetting them to `IDLE`. Stage-1 then finds `IDLE` and hard-fails with state mismatch.
+This section archives improvements from the original `2026-02-28` report that have since been implemented and verified.
 
-**Fix:** `PipelineStateManager.initialize()` should skip initialization if state already exists beyond `IDLE`:
+### 1. Stage-0.75 Verifies Authoritative Indicators
+- **Status:** ✅ **Implemented**
+- **Details:** The `tools/strategy_dryrun_validator.py` script now explicitly checks that the dataframe produced by `prepare_indicators()` contains all columns listed in the engine's `AUTHORITATIVE_INDICATORS`. This prevents engine contract violations from causing crashes in Stage-1.
 
-```python
-def initialize(self):
-    if self.get_state() not in [None, "IDLE"]:
-        return  # Already initialized — do not reset
-    # ... existing init logic
-```
+### 2. `initialize()` is Idempotent for Provision-Only Workflow
+- **Status:** ✅ **Implemented**
+- **Details:** `PipelineStateManager.initialize()` in `tools/pipeline_utils.py` now includes a guard to prevent resetting the state of a run if it is already in `PREFLIGHT_COMPLETE_SEMANTICALLY_VALID`. This makes the `--provision-only` followed by a full run workflow reliable.
 
-**Impact:** Makes `--provision-only` + separate full run a safe and supported workflow.
+### 3. Flat-Text → YAML Directive Scaffold Utility
+- **Status:** ✅ **Implemented**
+- **Details:** The `tools/convert_directive.py` utility has been created. It reads a legacy flat-text directive and emits a canonical YAML scaffold, easing the migration of old research ideas.
 
----
+### 4. Guard Manifest System
+- **Status:** ✅ **Implemented & Superseded**
+- **Details:** The original proposal for a timing warning has been superseded by a full "Guard-Layer Manifest" system (`tools/tools_manifest.json`), enforced at preflight. This provides cryptographic verification of all critical pipeline tools, which is a much stronger guarantee. A `generate_guard_manifest.py` tool exists for human-initiated updates.
 
-## 🟡 Moderate
+### 5. ASCII-Only Logging
+- **Status:** ✅ **Implemented**
+- **Details:** Pipeline tool logging has been audited to remove non-ASCII characters, preventing `UnicodeEncodeError` crashes on Windows consoles.
 
-### 3. Audit Pipeline Print Statements for Non-ASCII Characters
+### 6. Stage -0.25 Directive Canonicalization
+- **Status:** ✅ **Implemented**
+- **Details:** `tools/canonicalizer.py` is integrated into `run_pipeline.py` as a hard gate.
 
-**Problem:** Characters like `✓` and `→` in `run_pipeline.py` print statements crash on Windows cp1252 encoding. Required post-hoc fixes and multiple manifest regens.
+### 7. Eliminate "Directive Ping-Pong"
+- **Status:** ✅ **Implemented**
+- **Details:** `run_pipeline.py` batch harness now checks for `--provision-only` before moving directives to `completed/`.
 
-**Fix:** Audit all `print()` calls in pipeline tools. Replace Unicode symbols with ASCII equivalents: `[OK]`, `->`, `[PASS]`, `[FAIL]`, `[DONE]`.
+### 8. Reset Tool Run-Level Awareness
+- **Status:** ✅ **Implemented**
+- **Details:** `reset_directive.py` archives associated `run_state.json` files during full reset.
 
-**Files to audit:** `run_pipeline.py`, `exec_preflight.py`, `canonicalizer.py`
-
----
-
-### 4. Guard Manifest Regeneration Timing Warning
-
-**Problem:** If `run_pipeline.py` is modified twice before manifest is regenerated, an intermediate stale hash gets committed. User had to regenerate three times in one session.
-
-**Fix:** `generate_guard_manifest.py` should print timestamps alongside each hash. Optionally: detect if any listed file's mtime is newer than the manifest's write time on next verification and warn explicitly:
-
-```
-[WARN] run_pipeline.py modified AFTER last manifest generation. Re-run generate_guard_manifest.py.
-```
-
----
-
-### 5. Flat-Text → YAML Directive Scaffold Utility
-
-**Problem:** Legacy directives in flat natural-language format are rejected by both `parse_directive` and the canonicalization gate. No conversion path exists — manual YAML authoring required.
-
-**Fix:** `tools/convert_directive.py` — reads a flat-text directive and emits a YAML skeleton with correct block structure. Does NOT fill values — human fills parameters. Outputs to `/tmp/<ID>_scaffold.yaml` for review.
+### 9. Stage-4 Resume Capability
+- **Status:** ✅ **Implemented**
+- **Details:** `reset_directive.py` supports `--to-stage4` to transition `FAILED` -> `SYMBOL_RUNS_COMPLETE`.
 
 ---
 
-## 🟢 Minor
+## 🔴 Current Focus: Next-Level Hardening
 
-### 6. Pandas FutureWarning Noise from `fillna(False)`
-
-**Problem:** `.fillna(False)` on boolean Series emits a FutureWarning in newer pandas versions. On Windows/PowerShell this gets written to stderr, causing the shell to flag the command as errored despite `[SUCCESS]` output.
-
-**Fix:** Use `.fillna(False).infer_objects(copy=False)` in strategy code. Optionally suppress known pandas deprecation warnings in `run_stage1.py`.
-
----
-
-## Priority Order
-
-| # | Fix | Effort | Impact |
-|---|-----|--------|--------|
-| 1 | Dryrun authoritative indicator check | Low | Prevents Stage-1 crash after dryrun PASS |
-| 2 | `initialize()` idempotency | Low | Makes provision-only workflow reliable |
-| 3 | ASCII-only print statements | Low | Prevents Windows encoding crashes |
-| 4 | Manifest regen timing warning | Medium | Reduces guard manifest confusion |
-| 5 | Flat-text scaffold utility | Medium | Eases onboarding of legacy directives |
-| 6 | FutureWarning suppression | Trivial | Cleaner pipeline output |
+*All critical hardening items from the 2026-03-10 review have been implemented.*

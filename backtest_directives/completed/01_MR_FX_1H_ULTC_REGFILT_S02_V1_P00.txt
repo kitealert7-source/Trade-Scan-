@@ -12,8 +12,8 @@ indicators:
 - indicators.trend.kalman_regime
 - indicators.trend.trend_persistence
 - indicators.trend.efficiency_ratio_regime
-- indicators.price.ultimate_c_percent
-- indicators.price.rsi
+- indicators.momentum.ultimate_c_percent
+- indicators.momentum.rsi
 - indicators.volatility.volatility_regime
 - indicators.volatility.atr
 - indicators.stats.rolling_zscore

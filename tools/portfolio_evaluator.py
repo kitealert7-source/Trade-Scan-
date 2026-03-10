@@ -1409,6 +1409,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
 
         # Capital & Performance
         "reference_capital_usd",
+        "trade_density",
         "theoretical_pnl",
         "realized_pnl",
         "sharpe",
@@ -1525,6 +1526,10 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "avg_pairwise_corr": corr_data["avg_pairwise_corr"],
         "max_pairwise_corr_stress": max_stress_corr,
         "total_trades": metrics["total_trades"],
+        
+        # We will populate trade_density below after building the row, since we need to cross-check Master Sheet
+        "trade_density": "NA",
+        
         "portfolio_engine_version": "1.2.1",
         "portfolio_net_profit_low_vol": metrics.get("portfolio_net_profit_low_vol", 0.0),
         "portfolio_net_profit_normal_vol": metrics.get("portfolio_net_profit_normal_vol", 0.0),
@@ -1544,6 +1549,19 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "realized_vs_theoretical_pnl": ratio_realized_vs_theoretical,
     }
 
+    # Calculate Trade Density natively from components
+    if isinstance(constituent_run_ids, list) and len(constituent_run_ids) > 0:
+        master_sheet_path = BACKTESTS_ROOT / 'Strategy_Master_Filter.xlsx'
+        if master_sheet_path.exists():
+            try:
+                ms_df = pd.read_excel(master_sheet_path)
+                if 'run_id' in ms_df.columns and 'trade_density' in ms_df.columns:
+                    valid_density = ms_df[ms_df['run_id'].astype(str).isin([str(x) for x in constituent_run_ids])]['trade_density']
+                    if not valid_density.empty and not valid_density.isna().all():
+                        row_data["trade_density"] = int(valid_density.dropna().sum())
+            except Exception as e:
+                print(f"  [WARN] Failed to aggregate component trade density: {e}")
+                
     # Check Duplicate & Append-Only Idempotent Guard
     if strategy_id in df_ledger["portfolio_id"].astype(str).values:
         existing_row = df_ledger[df_ledger["portfolio_id"].astype(str) == strategy_id].iloc[-1]

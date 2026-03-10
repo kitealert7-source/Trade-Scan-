@@ -173,6 +173,7 @@ COLUMN_ORDER = [
     "source_strategy",
 
     "reference_capital_usd",
+    "trade_density",
     "theoretical_pnl",
     "realized_pnl",
     "sharpe",
