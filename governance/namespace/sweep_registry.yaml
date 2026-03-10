@@ -86,11 +86,11 @@ ideas:
         reserved_at_utc: '2026-03-07T09:40:01.252545+00:00'
       S02:
         directive_name: 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S02_V1_P00
-        signature_hash: eae7a264daa16b1c
+        signature_hash: 8d1ad64e3175337c
         reserved_at_utc: '2026-03-07T09:40:01.428912+00:00'
       S03:
         directive_name: 02_VOL_NAS100_1D_VOLEXP_ATRFILT_S03_V1_P00
-        signature_hash: 6ed542d476f0d013
+        signature_hash: b1599345d062f598
         reserved_at_utc: '2026-03-07T09:40:01.603296+00:00'
       S04:
         directive_name: 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00

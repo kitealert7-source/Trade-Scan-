@@ -28,7 +28,8 @@
       "Bash(python -m tools.robustness.cli 01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00 --profile CONSERVATIVE_V1 --suite full)",
       "Bash(python -m tools.robustness.cli 01_MR_FX_1H_ULTC_REGFILT_S09_V1_P00 --profile CONSERVATIVE_V1 --suite full)",
       "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S10_V1_P00 --steps stage1)",
-      "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S11_V1_P00)"
+      "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S11_V1_P00)",
+      "Bash(python tools/reset_directive.py 01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P00 --reason \"Remove rolling\\(\\) from comment too\")"
     ]
   }
 }
