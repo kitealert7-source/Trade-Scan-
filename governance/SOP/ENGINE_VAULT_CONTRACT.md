@@ -145,10 +145,15 @@ Manifest exists for audit, replay, and forensic validation.
 
 ## 7. Version Discipline
 
-**Naming convention**: `v<Major>.<Minor>.<Patch>` (e.g. `v1.4.0`)
+**Naming convention**: `v<Major>.<Minor>.<Patch>` (e.g. `v1.5.2`)
 
 All directories in both `engine_dev/` and `vault/engines/` must use this format.
 Legacy directories (`1.2.0`, `v1_4_0`) should be normalized at next promotion.
+
+> **Note (2026-03-10):** The current operational engine is v1.5.2 (FROZEN), residing in
+> the legacy-named directory `engine_dev/universal_research_engine/v1_4_0/`. The declared
+> version in `engine_manifest.json` and `execution_loop.py` is authoritative (`v1_5_2`).
+> Directory normalization to `v1.5.2` naming is deferred to the next engine version bump.
 
 Any change to:
 

@@ -76,9 +76,14 @@ class Strategy:
         Must return a dataframe.
         """
 
-    def check_entry(self, ctx) -> bool:
+    def check_entry(self, ctx) -> dict | None:
         """
-        Return True to enter a new position.
+        Return a signal dict to enter a new position, or None/falsy to skip.
+        Mandatory key:  'signal'  (1 = long, -1 = short)
+        Optional keys:  'stop_price'           — overrides ATR fallback stop
+                        'tp_price'             — take-profit level
+                        'entry_reference_price'— reference price for slippage tracking
+                        'entry_reason'         — label logged with trade record
         ctx contains current and historical bar context.
         """
 
@@ -95,7 +100,7 @@ No additional public methods are allowed.
 
 ## 4. Context Object (Read-Only)
 
-The engine supplies a read-only `ctx` object (**implemented as a `types.SimpleNamespace`**) containing:
+The engine supplies a read-only `ctx` object (**implemented as `ContextView`** — a typed adapter over the bar namespace) containing:
 
 - `ctx.row`: current bar data (pandas Series)
 - `ctx.index`: current row index (integer)
