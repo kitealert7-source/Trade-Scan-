@@ -21,7 +21,7 @@ range_definition:
   range_quality_min: 0.3
   range_quality_max: 2.0
   close_confirmation: true
-  r_multiple_target: 1.5
+  exit_time: "16:00"
 volatility_filter:
   type: volatility_regime
   allow_regime: NORMAL,HIGH
@@ -35,8 +35,8 @@ exit_rules:
   type: composite
   logic: OR
   condition_1:
-    type: r_multiple
-    target: 1.5
+    type: time_based
+    timing: london_close_16utc
   condition_2:
     type: time_based
     timing: penultimate_bar_of_day
@@ -53,8 +53,8 @@ trade_management:
 symbols:
 - XAUUSD
 test:
-  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P04
-  strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P04
+  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P31
+  strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P31
   broker: OctaFX
   timeframe: 15m
   start_date: '2024-01-01'

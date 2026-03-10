@@ -17,7 +17,7 @@ indicators:
 - indicators.structure.range_breakout_session
 range_definition:
   close_confirmation: true
-  exit_time: "09:30"
+  exit_time: "12:00"
   range_quality_max: 2.0
   range_quality_min: 0.3
   session_end: "07:00"
@@ -36,7 +36,7 @@ exit_rules:
   logic: OR
   condition_1:
     type: time_based
-    timing: exit_0930utc
+    timing: exit_1200utc
   condition_2:
     type: time_based
     timing: penultimate_bar_of_day
@@ -53,8 +53,8 @@ trade_management:
 symbols:
 - XAUUSD
 test:
-  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P06
-  strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P06
+  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P10__E152
+  strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P10
   broker: OctaFX
   timeframe: 15m
   start_date: '2024-01-01'

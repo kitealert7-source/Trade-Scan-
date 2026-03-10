@@ -172,6 +172,10 @@ ideas:
             directive_name: 06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P15
             signature_hash: a4df25a8b17e7c56
             reserved_at_utc: '2026-03-08T09:50:20.961839+00:00'
+          P61:
+            directive_name: 06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P61
+            signature_hash: a4df25a8b17e7c56
+            reserved_at_utc: '2026-03-10T05:38:27.740858+00:00'
   '07':
     next_sweep: 4
     sweeps:
@@ -253,3 +257,7 @@ ideas:
             directive_name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P11
             signature_hash: f769d1eb72118aaa
             reserved_at_utc: '2026-03-09T18:38:48.392202+00:00'
+          P31:
+            directive_name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P31
+            signature_hash: 24668331de27119c
+            reserved_at_utc: '2026-03-10T05:41:04.642677+00:00'

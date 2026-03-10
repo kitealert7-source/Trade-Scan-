@@ -16,12 +16,14 @@ indicators:
 - indicators.volatility.atr
 - indicators.structure.range_breakout_session
 range_definition:
-  session_start: "01:00"
-  session_end: "07:00"
-  range_quality_min: 0.3
+  buffer_ticks: 10
+  close_confirmation: false
+  entry_trigger: stop_breakout
+  exit_time: "09:30"
   range_quality_max: 2.0
-  close_confirmation: true
-  exit_time: "16:00"
+  range_quality_min: 0.3
+  session_end: "07:00"
+  session_start: "01:00"
 volatility_filter:
   type: volatility_regime
   allow_regime: NORMAL,HIGH
@@ -36,7 +38,7 @@ exit_rules:
   logic: OR
   condition_1:
     type: time_based
-    timing: london_close_16utc
+    timing: exit_0930utc
   condition_2:
     type: time_based
     timing: penultimate_bar_of_day
@@ -53,8 +55,8 @@ trade_management:
 symbols:
 - XAUUSD
 test:
-  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P03
-  strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P03
+  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P08__E152
+  strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P08
   broker: OctaFX
   timeframe: 15m
   start_date: '2024-01-01'

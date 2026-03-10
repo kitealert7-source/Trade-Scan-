@@ -331,7 +331,16 @@ def _is_already_namespaced(path: Path, data: dict[str, Any]) -> bool:
         return False
     t_name = str(test_block.get("name", "")).strip()
     t_strategy = str(test_block.get("strategy", "")).strip()
-    return path.stem == t_name == t_strategy and bool(re.fullmatch(r"(C_)?\d{2}_.+", path.stem))
+    # Stable identity: filename must match test.strategy (the immutable namespace anchor).
+    # test.name may carry an optional __SUFFIX run-context tag (e.g. __E152) — still namespaced.
+    if path.stem != t_strategy:
+        return False
+    if t_name != t_strategy:
+        # Allow test.name = test.strategy + '__' + SUFFIX (uppercase alphanum)
+        suffix = t_name[len(t_strategy):]
+        if not re.fullmatch(r"__[A-Z0-9]+", suffix):
+            return False
+    return bool(re.fullmatch(r"(C_)?\d{2}_.+", path.stem))
 
 
 def convert_promoted(

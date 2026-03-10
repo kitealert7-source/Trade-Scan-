@@ -46,7 +46,7 @@ trade_management:
 symbols:
 - XAUUSD
 test:
-  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P02
+  name: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P02__E152
   strategy: 08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1_P02
   broker: OctaFX
   timeframe: 15m
