@@ -5,8 +5,13 @@ Enforces:
 1. Strategy naming pattern.
 2. Token dictionary membership.
 3. Alias normalization (no alias token allowed in committed names).
-4. filename == test.name == test.strategy.
+4. filename == test.strategy (strict); test.name == filename OR filename + '__<RUN_SUFFIX>'.
 5. Idea registry existence + FAMILY match.
+
+Run suffix convention: test.name may carry a run-context suffix of the form __[A-Z0-9]+
+(e.g. __E152, __ROBUST, __MC1000) to distinguish re-runs under different engines or
+configurations without creating new sweep registry entries. The directive filename and
+test.strategy remain the stable namespace identity.
 """
 
 from __future__ import annotations
@@ -38,8 +43,12 @@ NAME_PATTERN = re.compile(
     r"(?:_(?P<filter>[A-Z0-9]+))?_"
     r"S(?P<sweep>\d{2})_"
     r"V(?P<variant>\d+)_"
-    r"P(?P<parent>\d{2})$"
+    r"P(?P<parent>\d{2})"
+    r"(?:__(?P<run_suffix>[A-Z0-9]+))?$"
 )
+
+# Validated suffix format for run-context tags in test.name (e.g. __E152, __ROBUST).
+_RUN_SUFFIX_RE = re.compile(r"^__[A-Z0-9]+$")
 
 
 class NamespaceValidationError(ValueError):
@@ -98,11 +107,23 @@ def _extract_name_fields(parsed_directive: dict[str, Any], directive_path: Path)
             "must all be present."
         )
 
-    if not (file_stem == test_name == test_strategy):
+    # filename must always equal test.strategy (stable namespace identity).
+    if file_stem != test_strategy:
         raise NamespaceValidationError(
-            "NAMESPACE_IDENTITY_MISMATCH: Require filename == test.name == test.strategy. "
-            f"Found filename='{file_stem}', test.name='{test_name}', test.strategy='{test_strategy}'."
+            "NAMESPACE_IDENTITY_MISMATCH: Require filename == test.strategy. "
+            f"Found filename='{file_stem}', test.strategy='{test_strategy}'."
         )
+
+    # test.name must equal filename exactly, OR filename + '__<RUN_SUFFIX>'
+    # where RUN_SUFFIX matches [A-Z0-9]+ (e.g. __E152, __ROBUST, __MC1000).
+    if test_name != file_stem:
+        suffix = test_name[len(file_stem):]
+        if not _RUN_SUFFIX_RE.fullmatch(suffix):
+            raise NamespaceValidationError(
+                "NAMESPACE_IDENTITY_MISMATCH: test.name must equal filename or "
+                "filename + '__<RUN_SUFFIX>' where RUN_SUFFIX is [A-Z0-9]+. "
+                f"Found filename='{file_stem}', test.name='{test_name}'."
+            )
 
     return file_stem, test_name, test_strategy
 

@@ -217,8 +217,13 @@ def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
 
     engine_ver = get_engine_version()
 
+    # test.name is mirrored to root by parse_directive(); may carry a run-context
+    # suffix (e.g. __E152) that distinguishes re-runs under different engines.
+    # Include it in the lineage string so suffix-tagged runs produce distinct run IDs.
+    test_name = str(parsed_config.get("name", "")).strip()
+
     # Lineage String
-    lineage_str = f"{content_hash}_{symbol}_{timeframe}_{broker}_{engine_ver}"
+    lineage_str = f"{content_hash}_{symbol}_{timeframe}_{broker}_{engine_ver}_{test_name}"
     run_id = hashlib.sha256(lineage_str.encode()).hexdigest()[:12]
 
     return run_id, content_hash
@@ -266,8 +271,15 @@ class PipelineStateManager:
             
         shutil.move(str(temp_file), str(self.state_file))
 
-    def initialize(self):
-        """Creates the run directory and initial state file with Audit Log."""
+    def initialize(self, metadata: dict | None = None):
+        """Creates the run directory and initial state file with Audit Log.
+
+        Args:
+            metadata: Optional dict of non-authoritative run-context fields
+                      (e.g. engine_version, engine_status, engine_model).
+                      Written into the state file under the 'metadata' key.
+                      Append-only; does not participate in governance gates.
+        """
         # Idempotency guard: only skip reset when state is exactly
         # PREFLIGHT_COMPLETE_SEMANTICALLY_VALID — the state provision-only
         # leaves runs at. All other non-IDLE states fall through to the
@@ -278,7 +290,7 @@ class PipelineStateManager:
             return  # Provision-only resume — do not reset
 
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 1. State File
         initial_data = {
             "run_id": self.run_id,
@@ -287,6 +299,8 @@ class PipelineStateManager:
             "history": [],
             "last_updated": datetime.now(timezone.utc).isoformat()
         }
+        if metadata:
+            initial_data["metadata"] = metadata
         
         # Atomic Write (New Runs Only)
         if not self.state_file.exists():
@@ -437,7 +451,7 @@ class DirectiveStateManager:
         "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID": ["SYMBOL_RUNS_COMPLETE", "FAILED"],
         "SYMBOL_RUNS_COMPLETE": ["PORTFOLIO_COMPLETE", "FAILED"],
         "PORTFOLIO_COMPLETE": ["FAILED"], # In case of post-completion failure/invalidation?
-        "FAILED": ["INITIALIZED"] # Allow retry/reset with archival
+        "FAILED": ["INITIALIZED", "SYMBOL_RUNS_COMPLETE"] # Allow retry/reset with archival
     }
 
     def __init__(self, directive_id: str):

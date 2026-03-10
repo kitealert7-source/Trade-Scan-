@@ -129,11 +129,13 @@ def _normalize_sweep_key(requested_sweep: str | None) -> str | None:
 def _strip_sweep_segment(name: str) -> str:
     """
     Normalize directive lineage by removing _SNN segment when present.
+    Handles optional run-context suffix (e.g. __E152) after the P-token.
     Example:
-      02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00 -> 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_V1_P00
+      02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00        -> 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_V1_P00
+      02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S04_V1_P00__E152  -> 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_V1_P00__E152
     """
     token = str(name).strip()
-    return re.sub(r"_S\d{2}(?=_V\d+_P\d{2}$)", "", token)
+    return re.sub(r"_S\d{2}(?=_V\d+_P\d{2}(?:__[A-Z0-9]+)?$)", "", token)
 
 
 def _is_same_lineage(existing_name: str, incoming_name: str) -> bool:
@@ -147,15 +149,16 @@ def _is_patch_sibling(existing_name: str, incoming_name: str) -> bool:
 
     NOTE: SNN must NOT be stripped here. Stripping SNN (via _strip_sweep_segment)
     would make S07_V1_P00 and S08_V1_P00 appear identical, producing false positives.
-    Patch siblings must share the same sweep number — only PNN is stripped.
+    Patch siblings must share the same sweep number — only PNN (and optional run suffix)
+    is stripped before comparison.
     """
-    base_existing = re.sub(r"_P\d{2}$", "", existing_name)
-    base_incoming = re.sub(r"_P\d{2}$", "", incoming_name)
+    base_existing = re.sub(r"_P\d{2}(?:__[A-Z0-9]+)?$", "", existing_name)
+    base_incoming = re.sub(r"_P\d{2}(?:__[A-Z0-9]+)?$", "", incoming_name)
     return base_existing == base_incoming and existing_name != incoming_name
 
 
 def _patch_key_from_name(name: str) -> str | None:
-    m = re.search(r"_P(\d{2})$", name)
+    m = re.search(r"_P(\d{2})(?:__[A-Z0-9]+)?$", name)
     return f"P{m.group(1)}" if m else None
 
 
