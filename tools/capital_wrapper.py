@@ -11,8 +11,10 @@ Authority: CAPITAL_MIGRATION_IMPACT.md, MODULAR_IMPACT_VALIDATION.md
 
 import bisect
 import csv
+import hashlib
 import json
 import math
+import random
 import sys
 import yaml
 from dataclasses import dataclass, field
@@ -97,11 +99,41 @@ PROFILES = {
 
 EVENT_TYPE_ENTRY = "ENTRY"
 EVENT_TYPE_EXIT = "EXIT"
+SIMULATION_SEED = 42          # RNG seed for deterministic collision-randomisation
 
 EVENT_TYPE_PRIORITY = {
     EVENT_TYPE_EXIT: 0,
     EVENT_TYPE_ENTRY: 1,
 }
+
+
+# ===========================================================================
+# SIGNAL INTEGRITY
+# ===========================================================================
+
+def compute_signal_hash(
+    symbol: str,
+    entry_timestamp,        # datetime or str
+    direction: int,
+    entry_price: float,
+    risk_distance: float,
+) -> str:
+    """
+    Compute a 16-char hex fingerprint for a single research signal.
+
+    The hash is deterministic: same inputs always produce the same digest.
+    The live execution engine must recompute this hash for every incoming
+    signal and reject it if the digest does not match the value stored in
+    deployable_trade_log.csv.
+
+    Fields used (order is fixed and must never change):
+        symbol | entry_timestamp | direction | entry_price(5dp) | risk_distance(5dp)
+    """
+    s = (
+        f"{symbol}|{entry_timestamp}|{direction}"
+        f"|{entry_price:.5f}|{risk_distance:.5f}"
+    )
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -456,9 +488,14 @@ class PortfolioState:
                              f"computed={lot_size:.4f} < min={self.min_lot}")
                 return False
 
-        # 3. Compute trade risk and notional
+        # 3. Compute trade risk and notional (USD-normalised)
+        #    usd_per_pu_per_lot = contract_size × quote_ccy_to_USD_rate
+        #    → notional = lot × entry_price × usd_per_pu_per_lot
+        #      = lot × entry_price × contract_size × rate   (USD for all pairs)
+        #    For EURUSD (rate=1): lot × 1.09 × 100000 × 1.0  = USD notional  ✓
+        #    For USDJPY (rate=1/148): lot × 148 × 100000 × (1/148) = lot × 100000 ✓
         trade_risk_usd = event.risk_distance * usd_per_pu_per_lot * lot_size
-        trade_notional = lot_size * contract_size * event.entry_price
+        trade_notional = lot_size * event.entry_price * usd_per_pu_per_lot
 
         # 3.5 Risk Multiple Safety Check
         risk_multiple = trade_risk_usd / target_risk if target_risk > 0 else float("inf")
@@ -576,16 +613,23 @@ class PortfolioState:
         del self.open_trades[event.trade_id]
 
         # Log completed trade (Phase 5)
+        entry_ts_str = str(trade.entry_timestamp) if trade.entry_timestamp else ""
         log_entry = {
-            "trade_id": trade.trade_id,
-            "symbol": trade.symbol,
-            "direction": trade.direction,
-            "lot_size": trade.lot_size,
-            "entry_price": trade.entry_price,
-            "exit_price": trade.exit_price,
-            "pnl_usd": round(pnl_usd, 2),
-            "entry_timestamp": str(trade.entry_timestamp) if trade.entry_timestamp else "",
-            "exit_timestamp": str(event.timestamp),
+            "trade_id":        trade.trade_id,
+            "symbol":          trade.symbol,
+            "direction":       trade.direction,
+            "lot_size":        trade.lot_size,
+            "entry_price":     trade.entry_price,
+            "exit_price":      trade.exit_price,
+            "risk_distance":   trade.risk_distance,
+            "pnl_usd":         round(pnl_usd, 2),
+            "entry_timestamp": entry_ts_str,
+            "exit_timestamp":  str(event.timestamp),
+            "signal_hash":     compute_signal_hash(
+                                   trade.symbol, entry_ts_str,
+                                   trade.direction, trade.entry_price,
+                                   trade.risk_distance,
+                               ),
         }
         if trade.risk_override_flag:
             log_entry.update({
@@ -688,34 +732,58 @@ def run_simulation(sorted_events: List[TradeEvent], broker_specs: Dict[str, dict
         _, quote = _parse_fx_currencies(sym)
         symbol_quote_ccy[sym] = quote if quote else "USD"  # Non-FX defaults to USD
 
-    # Single event loop -> dispatch to all states
-    for event in sorted_events:
-        sym = event.symbol
-        if sym not in symbol_contract_size:
-            raise ValueError(f"No broker spec loaded for symbol: {sym}")
+    # Deterministic RNG for collision-shuffle (seed=42).
+    # Eliminates alphabetical ENTRY priority when multiple symbols fire at the
+    # same timestamp, while keeping results fully reproducible across runs.
+    _rng = random.Random(SIMULATION_SEED)
 
-        cs = symbol_contract_size[sym]
+    # Group events by timestamp and process each group:
+    #   1. All EXIT events first  (preserve existing close-before-open behaviour)
+    #   2. ENTRY events in deterministically shuffled order (remove symbol bias)
+    i = 0
+    n = len(sorted_events)
+    while i < n:
+        # Collect all events sharing the current timestamp
+        ts = sorted_events[i].timestamp
+        j = i
+        while j < n and sorted_events[j].timestamp == ts:
+            j += 1
+        group = sorted_events[i:j]
+        i = j
 
-        if event.event_type == EVENT_TYPE_ENTRY:
-            # Dynamic USD conversion at entry time (Phase 6)
-            if conv_lookup is not None:
-                usd_per_pu, source = get_usd_per_price_unit_dynamic(
-                    contract_size=cs,
-                    quote_ccy=symbol_quote_ccy[sym],
-                    entry_date=event.timestamp.date(),
-                    conv_lookup=conv_lookup,
-                    static_fallback=symbol_static_fallback[sym],
-                    symbol=sym,
-                )
-            else:
-                usd_per_pu = symbol_static_fallback[sym]
+        exits  = [e for e in group if e.event_type == EVENT_TYPE_EXIT]
+        entries = [e for e in group if e.event_type == EVENT_TYPE_ENTRY]
 
-            for state in states.values():
-                state.process_entry(event, usd_per_pu, cs)
+        # Shuffle ENTRY events to remove alphabetical/trade_id ordering bias
+        _rng.shuffle(entries)
 
-        elif event.event_type == EVENT_TYPE_EXIT:
-            for state in states.values():
-                state.process_exit(event)
+        for event in exits + entries:
+            sym = event.symbol
+            if sym not in symbol_contract_size:
+                raise ValueError(f"No broker spec loaded for symbol: {sym}")
+
+            cs = symbol_contract_size[sym]
+
+            if event.event_type == EVENT_TYPE_ENTRY:
+                # Dynamic USD conversion at entry time (Phase 6)
+                if conv_lookup is not None:
+                    usd_per_pu, source = get_usd_per_price_unit_dynamic(
+                        contract_size=cs,
+                        quote_ccy=symbol_quote_ccy[sym],
+                        entry_date=event.timestamp.date(),
+                        conv_lookup=conv_lookup,
+                        static_fallback=symbol_static_fallback[sym],
+                        symbol=sym,
+                    )
+                else:
+                    usd_per_pu = symbol_static_fallback[sym]
+
+                for state in states.values():
+                    state.process_entry(event, usd_per_pu, cs)
+
+            elif event.event_type == EVENT_TYPE_EXIT:
+                for state in states.values():
+                    state.process_exit(event)
 
     return states
 
@@ -1022,9 +1090,13 @@ def emit_profile_artifacts(state: PortfolioState, output_dir: Path):
             w.writerow({"timestamp": str(ts), "equity": round(eq, 2)})
 
     # deployable_trade_log.csv
-    trade_fields = ["trade_id", "symbol", "lot_size", "pnl_usd",
-                    "entry_timestamp", "exit_timestamp", "direction"]
-    
+    trade_fields = [
+        "trade_id", "symbol", "lot_size", "pnl_usd",
+        "entry_timestamp", "exit_timestamp", "direction",
+        "entry_price", "exit_price", "risk_distance",
+        "signal_hash",   # 16-char SHA-256 prefix for signal integrity verification
+    ]
+
     # Check if overrides exist in log
     has_overrides = any(t.get("risk_override_flag") for t in state.closed_trades_log)
     if has_overrides:

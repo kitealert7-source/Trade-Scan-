@@ -27,8 +27,8 @@ ALT_ROW_FILL_COLOR = "DCE6F1"
 
 # Number Formats
 FMT_CURRENCY = "#,##0.00"   # USD (2 decimals, comma)
-FMT_PERCENT = "0.00%"       # Percent ratio (0.1234 -> 12.34%)
-FMT_PCT_RAW = "0.00\"%\""   # Raw percent number (65.24 -> 65.24%)
+FMT_PERCENT = "0.0%"        # Percent ratio (0.1234 -> 12.3%)
+FMT_PCT_RAW = "0.0\"%\""    # Raw percent number (65.24 -> 65.2%)
 FMT_FLOAT = "0.00"          # Ratio/Float (2 decimals: 1.23)
 FMT_INT = "0"               # Integer
 
@@ -153,7 +153,23 @@ HIDDEN_COLS = {
     "genome_id",
     "run_id",
     "creation_timestamp",
-    "timestamp"
+    "timestamp",
+    "source_strategy",   # Redundant with portfolio_id
+}
+
+# Columns with short text values — override text width logic to be data-driven (universal)
+NARROW_TEXT_COLS = {
+    "signal_timeframes",
+    "evaluation_timeframe",
+    "portfolio_engine_version",
+    "timeframe",
+}
+
+# Explicit width overrides — bypass auto-sizing for specific columns (column_name_lower -> width)
+COLUMN_WIDTH_OVERRIDES = {
+    "portfolio_id": 22,   # IDs are 35-44 chars; 22 shows family+asset+timeframe, saves space
+    "strategy":     26,   # Strategy names are long; 26 is a comfortable readable cap
+    "rank":          6,   # 1-3 digit values; header wraps fine
 }
 
 # Dropdown Columns (Column Name -> list of allowed values)
@@ -419,16 +435,22 @@ def apply_formatting(file_path, profile):
                 header_words = header_text.replace("_", " ").split()
                 longest_word = max((len(w) for w in header_words), default=0)
 
-                # Width = max(longest header word, data width) + padding
-                if is_numeric_col:
-                    width = max(max_data_len + 2, longest_word + 2)
-                    width = max(width, 10)   # minimum for numbers
-                    width = min(width, 16)   # cap tight for numbers
+                # Width: numeric columns are data-driven (headers wrap, so longest_word
+                # is not a hard floor). Text columns retain header-word floor, except
+                # known short-value text columns which are also data-driven.
+                is_narrow_text = col_name in NARROW_TEXT_COLS
+                if is_numeric_col or is_narrow_text:
+                    width = max(max_data_len + 2, 6)   # data-driven, small floor
+                    width = min(width, 16)              # cap tight for numbers
                 else:
                     width = max(max_data_len + 2, longest_word + 2)
                     width = max(width, 8)    # minimum for text
                     width = min(width, 28)   # cap for text
                     
+                # Apply explicit override if defined
+                if col_name in COLUMN_WIDTH_OVERRIDES:
+                    width = COLUMN_WIDTH_OVERRIDES[col_name]
+
                 ws.column_dimensions[col_letter].width = width
 
             # 5. Dropdown Data Validation
@@ -450,8 +472,8 @@ def apply_formatting(file_path, profile):
                     ws.add_data_validation(dv)
                     print(f"    [DROPDOWN] {col_name} (col {col_letter}): {options}")
 
-            # 4. Freeze Header
-            ws.freeze_panes = "A2"
+            # 4. Freeze Header (and column A for portfolio — keeps portfolio_id visible)
+            ws.freeze_panes = "B2" if profile == "portfolio" else "A2"
         
         wb.save(path)
         print("[SUCCESS] Formatting complete.")

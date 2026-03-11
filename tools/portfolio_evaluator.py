@@ -32,6 +32,7 @@ matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.colors import LinearSegmentedColormap
+from tools.pipeline_utils import get_engine_version
 
 # ------------------------------------------------------------------
 # CONFIG
@@ -41,6 +42,7 @@ BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
 TOTAL_PORTFOLIO_CAPITAL = 10000.0
 RISK_FREE_RATE = 0.0  # For Sharpe/Sortino
+PORTFOLIO_ENGINE_VERSION = get_engine_version()
 
 SYMBOLS = ['AUS200', 'ESP35', 'EUSTX50', 'FRA40', 'GER40',
            'JPN225', 'NAS100', 'SPX500', 'UK100', 'US30']
@@ -1105,7 +1107,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     summary = {
         'strategy_id': strategy_id,
         'evaluation_date': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-        'portfolio_engine_version': '1.2.1',
+        'portfolio_engine_version': PORTFOLIO_ENGINE_VERSION,
         'data_range': f"{port_metrics['start_date']} to {port_metrics['end_date']}",
         'capital_per_symbol': TOTAL_PORTFOLIO_CAPITAL / len(contributions),
         'total_capital': TOTAL_PORTFOLIO_CAPITAL,
@@ -1155,7 +1157,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
       "constituent_run_ids": constituent_run_ids,
       "reference_capital_usd": summary['total_capital'],
       "capital_model_version": "v1.0_trade_close_compounding",
-      "portfolio_engine_version": "1.2.1",
+      "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
       "schema_version": "1.0",
       "signal_timeframes": port_metrics.get('signal_timeframes', "UNKNOWN"),
       "evaluation_timeframe": port_metrics.get('evaluation_timeframe', "1D")
@@ -1276,7 +1278,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
 {recommendation}
 
 ---
-*Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} | Engine: Universal_Research_Engine v1.2.1*
+*Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} | Engine: Universal_Research_Engine v{PORTFOLIO_ENGINE_VERSION}*
 """
 
     with open(output_dir / 'portfolio_overview.md', 'w', encoding='utf-8') as f:
@@ -1530,7 +1532,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         # We will populate trade_density below after building the row, since we need to cross-check Master Sheet
         "trade_density": "NA",
         
-        "portfolio_engine_version": "1.2.1",
+        "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
         "portfolio_net_profit_low_vol": metrics.get("portfolio_net_profit_low_vol", 0.0),
         "portfolio_net_profit_normal_vol": metrics.get("portfolio_net_profit_normal_vol", 0.0),
         "portfolio_net_profit_high_vol": metrics.get("portfolio_net_profit_high_vol", 0.0),
