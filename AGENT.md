@@ -107,11 +107,14 @@ Stage-0.75: Dry-Run Validation
     └── check_entry() Crash Detection
     │
     ▼
-Stage-1: Execution (per symbol, atomic)
+Stage-1: Run-Registry Worker Execution (per planned run)
+    ├── Plan run set to `runs/<DIRECTIVE_ID>/run_registry.json`
+    ├── Claim `PLANNED` run -> mark `RUNNING`
     ├── Data Load (RESEARCH only)
     ├── Engine Execution Loop
     ├── Artifact Emission (results_tradelevel.csv, results_standard.csv)
-    └── Artifact Gate (physical file existence check)
+    ├── Artifact Gate (physical file existence check)
+    └── Finalize run -> `COMPLETE` or `FAILED` in registry
     │
     ▼
 Stage-2: Compilation (per symbol)

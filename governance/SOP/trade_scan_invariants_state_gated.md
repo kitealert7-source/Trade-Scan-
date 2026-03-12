@@ -14,9 +14,11 @@ Any violation **must abort the run immediately**.
 
 ---
 
-## Invariant 1 — One Directive → One Atomic Run
+## Invariant 1 — One Directive → Planned Run Set
 
-- A run may start **only** with a single explicit human directive.
+- Execution may start **only** from a single explicit human directive.
+- The directive is expanded into an on-disk run registry (`runs/<DIRECTIVE_ID>/run_registry.json`).
+- Each strategy/symbol execution unit is an independent planned run.
 - If no directive exists, execution is forbidden.
 
 ---

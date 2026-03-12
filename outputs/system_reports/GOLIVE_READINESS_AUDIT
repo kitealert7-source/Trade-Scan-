@@ -1,0 +1,182 @@
+# Stage-10 Go-Live Readiness Audit
+## Universal Research Engine v1.5.3 - Strategy: `01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00`
+**Audit Date:** 2026-03-12  
+**Auditor:** Claude Code  
+**Revision:** v5 (control-flow + run-registry documentation alignment)
+
+---
+
+## Revision History
+
+| Version | Date       | Changes |
+|---------|------------|---------|
+| v1      | 2026-03-11 | Initial audit - 10 deployment gaps identified |
+| v2      | 2026-03-11 | Stage-10 safety layer updates - several gaps resolved/partial |
+| v3      | 2026-03-11 | Post-implementation verification - package, determinism, hashing, and manifests updated |
+| v4      | 2026-03-12 | Orchestration control-flow simplification documented; contract and stage-dispatch model recorded |
+| v5      | 2026-03-12 | Governance/report alignment for run-registry execution model and test status refresh |
+
+---
+
+## 1. Implemented Remediations (v3)
+
+### 1.1 Capital Wrapper Hardening
+- Heat/leverage gate comparisons now use floating-point tolerance.
+- Exit-time negative drift is clamped with warning guardrails.
+- Timestamp parsing is UTC-normalized (aware datetimes).
+- Conversion lookup normalizes datetime/date inputs to UTC trading date.
+- Non-FX USD conversion assumption is explicit at runtime.
+- Directive-driven symbol discovery is enforced when directive exists.
+
+### 1.2 Deployable Reconstruction Fields
+- `deployable_trade_log.csv` now carries:
+  - `initial_stop_price`
+  - `atr_entry`
+  - `r_multiple`
+  - `volatility_regime`
+  - `trend_regime`
+  - `trend_label`
+
+### 1.3 Go-Live Package Expansion
+Current package (`strategies/<S>/golive/`) now emits:
+- `run_manifest.json`
+- `symbols_manifest.json`
+- `selected_profile.json`
+- `directive_snapshot.yaml`
+- `enriched_trade_log.csv`
+- `broker_specs_snapshot/`
+- `broker_specs_manifest.json`
+- `conversion_data_snapshot/`
+- `conversion_data_manifest.json`
+- `execution_spec.md`
+- `golive_checklist.md`
+
+### 1.4 Registry Hash Integrity Upgrade
+- Sweep registry gate now supports full SHA-256 directive hashes.
+- Backward compatibility is preserved for legacy 16-char hashes.
+- New allocations can store `signature_hash_full` while retaining short-hash compatibility checks.
+
+---
+
+## 2. Determinism and Reproducibility Status (v3)
+
+### 2.1 Non-Determinism Risk Table
+
+| Risk | Location | Severity | Status v3 | Notes |
+|------|----------|----------|-----------|-------|
+| Float comparison at heat boundary | `process_entry()` | HIGH | RESOLVED | Tolerance-based comparison added |
+| Float drift clamping | `process_exit()` | MEDIUM | RESOLVED | Drift clamp with tolerance and warning |
+| Timezone-naive timestamp parsing | `_parse_ts()` | MEDIUM | RESOLVED | UTC-aware normalization |
+| FX conversion date boundary | `ConversionLookup` | MEDIUM | RESOLVED | UTC-normalized lookup date |
+| Non-FX USD assumption silent | `run_simulation()` | MEDIUM | RESOLVED | Explicit assumption logging and manifest documentation |
+| Alphabetical ENTRY bias | `run_simulation()` | HIGH | RESOLVED | Existing seeded collision shuffle retained |
+| USDJPY leverage phantom | `process_entry()` | HIGH | RESOLVED | Existing USD-normalized notional retained |
+
+### 2.2 Reproducibility Variables
+
+| Variable | Stored in v3 package? | Status |
+|----------|------------------------|--------|
+| Directive snapshot | `directive_snapshot.yaml` | COMPLETE |
+| Selected profile + integrity hash | `selected_profile.json` | COMPLETE |
+| Symbol universe | `symbols_manifest.json` + `run_manifest.json` | COMPLETE |
+| Broker specs snapshot | `broker_specs_snapshot/` + manifest | COMPLETE |
+| FX conversion snapshot | `conversion_data_snapshot/` + manifest | COMPLETE |
+| Simulation seed | `run_manifest.json` | COMPLETE |
+| Session reset behavior | `run_manifest.json.execution_defaults.session_reset` | COMPLETE |
+| Directive SHA-256 | `run_manifest.json.directive_sha256` | COMPLETE |
+
+---
+
+## 3. Deployment Gap Status (v3)
+
+| Gap | Description | Risk | Status v3 | Evidence |
+|-----|-------------|------|-----------|----------|
+| 1 | No Frozen Capital Profile Snapshot | HIGH | RESOLVED | `selected_profile.json` with `profile_hash` |
+| 2 | No Symbols Manifest | HIGH | RESOLVED | `symbols_manifest.json` |
+| 3 | Missing prices/context in deployable logs | HIGH | RESOLVED | deployable log enriched + `enriched_trade_log.csv` |
+| 4 | No Directive Copy in Strategy Folder | MEDIUM | RESOLVED | `directive_snapshot.yaml` |
+| 5 | No Execution Timing Spec Document | MEDIUM | RESOLVED | `execution_spec.md` |
+| 6 | No Live Lot Sizing Formula Artifact | MEDIUM | RESOLVED | `selected_profile.json.sizing` |
+| 7 | No Selected Profile Record | MEDIUM | RESOLVED | `selected_profile.json` |
+| 8 | Broker Spec Not Frozen | MEDIUM | RESOLVED | `broker_specs_snapshot/` + manifest |
+| 9 | No Out-of-Sample Period Designation | LOW-MED | OPEN (deferred) | Process decision pending |
+| 10 | Short-form Directive Hash in Registry | LOW | RESOLVED | Full-hash support and storage added |
+
+### Summary
+- Resolved: 9 / 10
+- Open: 1 / 10 (`Gap 9`, intentionally deferred for now)
+
+---
+
+## 4. Current Go-Live Package Contents (verified)
+
+Location:
+`strategies/01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00/golive/`
+
+Generated with:
+`python tools/generate_golive_package.py 01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00 --profile FIXED_USD_V1`
+
+| Artifact | Present | Notes |
+|----------|---------|-------|
+| `run_manifest.json` | YES | Includes `directive_sha256`, `session_reset`, seed, data window |
+| `symbols_manifest.json` | YES | Frozen symbol/broker list |
+| `selected_profile.json` | YES | Enforcement, sizing, profile hash |
+| `directive_snapshot.yaml` | YES | Frozen directive source |
+| `enriched_trade_log.csv` | YES | 2258 rows, Stage-1 join status tracked |
+| `broker_specs_snapshot/` | YES | Per-symbol YAML snapshot |
+| `broker_specs_manifest.json` | YES | File hashes and sizes |
+| `conversion_data_snapshot/` | YES | Frozen 1d conversion files |
+| `conversion_data_manifest.json` | YES | Pair inventory, file hashes, assumptions |
+| `execution_spec.md` | YES | Human-readable execution card |
+| `golive_checklist.md` | YES | Operator pre-live checklist |
+
+---
+
+## 5. Validation Evidence (v3 run)
+
+Executed successfully:
+- `python -m unittest tests/test_capital_wrapper_events.py -v`
+- `python -m unittest tests/test_sweep_registry_hash_compat.py tests/test_generate_golive_package_helpers.py -v`
+- `python tools/capital_wrapper.py 01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00`
+- `python tools/generate_golive_package.py 01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00 --profile FIXED_USD_V1`
+- `python tools/validate_safety_layers.py` (all 5 tests passed)
+
+Note:
+- Historical note from v3 about `test_provision_only_integration` failure is now stale.
+- Current focused orchestration and compatibility suites are passing after Step-6/Step-7 updates.
+
+---
+
+## 6. Remaining Decision Point
+
+Only deferred item:
+- Gap 9 (`IS/OOS designation`) remains open by process choice.
+
+No additional technical blocker is currently identified for the implemented go-live packaging and safety controls.
+
+---
+
+## 7. Orchestration Control-Flow Status (v4)
+
+Control-flow architecture has been simplified and documented:
+
+- `run_pipeline.py` remains top-level coordinator.
+- `pipeline_stages.py` is dispatcher-only.
+- Stage code is split by pipeline phase:
+  - `stage_preflight.py`
+  - `stage_symbol_execution.py`
+  - `stage_portfolio.py`
+- Stage modules no longer terminate process directly (`sys.exit` removed from stage modules).
+- Failure/pause policy is centralized through typed pipeline errors and top-level mapping.
+- Command execution policy moved to `tools/orchestration/execution_adapter.py`.
+- Operating contract published in `governance/SOP/ORCHESTRATION_CONTRACT.md`.
+
+Impact:
+- lower orchestration complexity risk,
+- improved testability and reuse,
+- clearer operational boundary for go-live change control.
+
+---
+
+*Audit v5 complete.*  
+*Generated: 2026-03-12 | Engine: Universal_Research_Engine v1.5.3*
