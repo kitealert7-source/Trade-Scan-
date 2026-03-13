@@ -18,11 +18,11 @@ The master sheet acts only as a **repository and index** of completed runs.
 
 At run start, the filesystem is the **only authoritative state**.
 
-- Presence of `backtests/<strategy>/` determines overwrite behavior.
+- Presence of `TradeScan_State/backtests/<strategy>/` determines overwrite behavior.
 
 ### 2.2 Master Sheet Authority (Post-Commit)
 
-- **File:** `backtests/Strategy_Master_Filter.xlsx`
+- **File:** `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
 - **Primary Key:** `run_id` (globally unique, immutable)
 
 The master sheet is written **only after successful run completion** and is authoritative for:
@@ -38,21 +38,21 @@ The master sheet is written **only after successful run completion** and is auth
 
 **Authoritative Ledger**
 
-- `Strategy_Master_Filter.xlsx` is the sole authority for historical run retention.
+- `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` is the sole authority for historical run retention.
 
 **Valid Snapshot Definition**
 
-- A `runs/<run_id>/` snapshot is valid if and only if it is indexed in the Master Sheet.
+- A `TradeScan_State/runs/<run_id>/` snapshot is valid if and only if it is indexed in the Master Sheet.
 
 **Zombie Definition**
 
 - A snapshot is classified as a zombie only if:
-    1. It exists in `runs/<run_id>/`
+    1. It exists in `TradeScan_State/runs/<run_id>/`
     2. AND it does not have a corresponding Master Sheet entry.
 
 **Materialized View Independence**
 
-- The presence or absence of a `backtests/<strategy_symbol>/` folder does not determine snapshot validity.
+- The presence or absence of a `TradeScan_State/backtests/<strategy_symbol>/` folder does not determine snapshot validity.
 
 ---
 
@@ -60,11 +60,11 @@ The master sheet is written **only after successful run completion** and is auth
 
 | Artifact | Path | Authority |
 |--------|------|-----------|
-| Strategy State (Latest) | `backtests/<strategy>/` | Derived |
-| Strategy Code Snapshot | `runs/<run_id>/` | Authoritative |
-| Run Identity | `backtests/<strategy>/metadata/run_metadata.json` | Authoritative |
-| Batch Logs | `backtests/batch_summary_*.csv` | Non-authoritative |
-| Master Index | `backtests/Strategy_Master_Filter.xlsx` | Authoritative (post-commit) |
+| Strategy State (Latest) | `TradeScan_State/backtests/<strategy>/` | Derived |
+| Strategy Code Snapshot | `TradeScan_State/runs/<run_id>/` | Authoritative |
+| Run Identity | `TradeScan_State/backtests/<strategy>/metadata/run_metadata.json` | Authoritative |
+| Batch Logs | `TradeScan_State/backtests/batch_summary_*.csv` | Non-authoritative |
+| Master Index | `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` | Authoritative (post-commit) |
 
 ---
 
@@ -74,8 +74,8 @@ After successful execution:
 
 1. Generate new `run_id`.
 2. Write:
-   - `backtests/<strategy>/`
-   - `runs/<run_id>/`
+   - `TradeScan_State/backtests/<strategy>/`
+   - `TradeScan_State/runs/<run_id>/`
 
 3. Upsert the corresponding row in the Strategy Master Sheet.
 
@@ -92,18 +92,18 @@ If the master sheet update fails:
 
 **Execution Order:**
 
-1. `rm -rf runs/<run_id>/`
-2. `rm -rf backtests/<strategy>/`
+1. `rm -rf TradeScan_State/runs/<run_id>/`
+2. `rm -rf TradeScan_State/backtests/<strategy>/`
 3. Persist master sheet update
 
 **Always Preserve:**
 
-- `Strategy_Master_Filter.xlsx`
-- `batch_summary_*.csv`
+- `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
+- `TradeScan_State/backtests/batch_summary_*.csv`
 - directive/source files
 
 Agents MUST derive cleanup targets exclusively by comparing filesystem state
-against the current contents of Strategy_Master_Filter.xlsx at execution time.
+against the current contents of `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` at execution time.
 
 Cleanup must not abort on partial deletion. Remaining artifacts are removed on the next sweep.
 
@@ -114,8 +114,8 @@ Cleanup must not abort on partial deletion. Remaining artifacts are removed on t
 Periodic or startup integrity sweep must detect and resolve:
 
 - Indexed rows with missing folders → remove row
-- `runs/<run_id>/` folders not indexed → delete
-- `backtests/<strategy>/` folders not indexed → delete
+- `TradeScan_State/runs/<run_id>/` folders not indexed → delete
+- `TradeScan_State/backtests/<strategy>/` folders not indexed → delete
 - `run_id` mismatch between metadata and sheet → invalidate row and delete artifacts
 
 The filesystem is trusted for **existence**, the master sheet for **commit validity**.
@@ -129,7 +129,7 @@ The filesystem is trusted for **existence**, the master sheet for **commit valid
 Portfolio artifacts are analytical outputs derived from completed strategy runs.  
 They do not affect strategy retention, overwrite behavior, or registry state.
 
-Portfolio artifacts are independent of `Strategy_Master_Filter.xlsx`.
+Portfolio artifacts are independent of `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`.
 
 ---
 
@@ -192,7 +192,7 @@ in the WORKSPACE HYGIENE section.
 
 **Scope 3 — Archive File Accumulation**
 
-- Location: `runs/**/*.bak*`
+- Location: `TradeScan_State/runs/**/*.bak*`
 - Retention: 7 days from last modification
 - Action: `DELETE_BAK_ARCHIVE` (auto-delete on `--execute` if age > 7d)
 - Source: generated by `reset_directive.py` during pipeline state resets
@@ -205,7 +205,7 @@ in the WORKSPACE HYGIENE section.
 
 **Scope 5 — Failed Pipeline States**
 
-- Location: `runs/*/run_state.json` and `runs/*/directive_state.json`
+- Location: `TradeScan_State/runs/*/run_state.json` and `TradeScan_State/runs/*/directive_state.json`
 - Condition: `current_state == "FAILED"`
 - Action: `FAILED_RUN_STATE` / `FAILED_DIRECTIVE_STATE` (report only)
 - Rationale: FAILED states are terminal and require manual intervention or reset
@@ -222,11 +222,11 @@ Report-only scopes (2, 4, 5) require manual review before action.
 
 ### 9.1 Strategy Layer (Strict Governance)
 
-The following actions are strictly forbidden for strategy artifacts governed by `Strategy_Master_Filter.xlsx`:
+The following actions are strictly forbidden for strategy artifacts governed by `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`:
 
 - No manual deletion of:
-  - `runs/<run_id>/`
-  - `backtests/<strategy>/`
+  - `TradeScan_State/runs/<run_id>/`
+  - `TradeScan_State/backtests/<strategy>/`
 - No timestamp-based cleanup logic
 - No retention of partial or failed runs
 - No artifact persistence without successful master sheet indexing
@@ -281,3 +281,4 @@ When enforced, this SOP ensures:
 Filesystem governs run start.
 Strategy Master Sheet governs completed strategy state.
 Master Portfolio Sheet governs portfolio existence.
+**External State Root:** `TradeScan_State/`

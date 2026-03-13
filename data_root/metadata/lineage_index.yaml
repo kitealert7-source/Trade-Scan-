@@ -1,0 +1,7 @@
+version: 1
+status: initialized
+note: >
+  This index anchors dataset lineage ownership
+  inside Anti_Gravity_DATA_ROOT.
+  Detailed lineage is stored alongside datasets.
+  This file exists to make lineage authority explicit.

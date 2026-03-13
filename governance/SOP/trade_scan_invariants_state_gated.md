@@ -17,7 +17,7 @@ Any violation **must abort the run immediately**.
 ## Invariant 1 — One Directive → Planned Run Set
 
 - Execution may start **only** from a single explicit human directive.
-- The directive is expanded into an on-disk run registry (`runs/<DIRECTIVE_ID>/run_registry.json`).
+- The directive is expanded into an on-disk run registry (`TradeScan_State/registry/run_registry.json`).
 - Each strategy/symbol execution unit is an independent planned run.
 - If no directive exists, execution is forbidden.
 
@@ -30,34 +30,43 @@ A Trade_Scan run exists in exactly one state at any time.
 Allowed states (linear, non-reentrant):
 
 - IDLE
-- PREFLIGHT_COMPLETE
-- PREFLIGHT_COMPLETE_SEMANTICALLY_VALID
+- PREFLIGHT_COMPLETE (Stage 0)
+- STAGE_0_5_SEMANTICALLY_VALID
+- STAGE_0_55_SEMANTIC_COVERAGE_COMPLETE
+- STAGE_0_75_DRY_RUN_COMPLETE
 - STAGE_1_COMPLETE
 - STAGE_2_COMPLETE
 - STAGE_3_COMPLETE
-- STAGE_3A_COMPLETE
+- STAGE_3A_COMPLETE (Manifest Bound)
+- STAGE_4_COMPLETE (Portfolio Evaluation)
 - COMPLETE
 - FAILED
 
 Allowed transitions:
 
 - IDLE → PREFLIGHT_COMPLETE
-- PREFLIGHT_COMPLETE → PREFLIGHT_COMPLETE_SEMANTICALLY_VALID
-- PREFLIGHT_COMPLETE_SEMANTICALLY_VALID → STAGE_1_COMPLETE
+- PREFLIGHT_COMPLETE → STAGE_0_5_SEMANTICALLY_VALID
+- STAGE_0_5_SEMANTICALLY_VALID → STAGE_0_55_SEMANTIC_COVERAGE_COMPLETE
+- STAGE_0_55_SEMANTIC_COVERAGE_COMPLETE → STAGE_0_75_DRY_RUN_COMPLETE
+- STAGE_0_75_DRY_RUN_COMPLETE → STAGE_1_COMPLETE
 - STAGE_1_COMPLETE → STAGE_2_COMPLETE
 - STAGE_2_COMPLETE → STAGE_3_COMPLETE
 - STAGE_3_COMPLETE → STAGE_3A_COMPLETE
-- STAGE_3A_COMPLETE → COMPLETE
+- STAGE_3A_COMPLETE → STAGE_4_COMPLETE
+- STAGE_4_COMPLETE → COMPLETE
 
 Rules:
 
 - Preflight may execute only from IDLE.
 - Stage-0.5 Semantic Validation may execute only from PREFLIGHT_COMPLETE.
-- Stage-1 engine may execute only if state = PREFLIGHT_COMPLETE_SEMANTICALLY_VALID.
+- Stage-0.55 Coverage may execute only from STAGE_0_5_SEMANTICALLY_VALID.
+- Stage-0.75 Dry Run may execute only from STAGE_0_55_SEMANTIC_COVERAGE_COMPLETE.
+- Stage-1 engine may execute only if state = STAGE_0_75_DRY_RUN_COMPLETE.
 - Stage-2 engine may execute only if state = STAGE_1_COMPLETE.
 - Stage-3 engine may execute only if state = STAGE_2_COMPLETE.
 - Stage-3A snapshot finalization may execute only if state = STAGE_3_COMPLETE.
-- COMPLETE may be reached only from STAGE_3A_COMPLETE.
+- Stage-4 portfolio evaluation may execute only from STAGE_3A_COMPLETE.
+- COMPLETE may be reached only from STAGE_4_COMPLETE.
 - FAILED is terminal. No further execution is permitted.
 
 ---
@@ -166,8 +175,8 @@ The `research/` directory is structurally outside the FSM scope.
 No module inside `research/` may:
 
 - Import `PipelineStateManager` or `DirectiveStateManager`
-- Write to `runs/`
-- Modify `Strategy_Master_Filter.xlsx` or any registry artifact
+- Write to `TradeScan_State/runs/`
+- Modify `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` or any registry artifact
 - Alter any `run_state.json` or `directive_state.json`
 
 The boundary is **symmetric and absolute**.
@@ -188,5 +197,15 @@ If an action:
 The run is **invalid and must terminate**.
 
 ---
+
+## Invariant 11 — Clean Repository Rule
+
+- The Trade_Scan repository is immutable during pipeline execution.
+- All runtime artifacts (runs, registries, backtests, reports, sandbox outputs) MUST be written exclusively to `TradeScan_State/`.
+- Any tool or workflow attempting to write runtime artifacts inside the repository constitutes a governance violation.
+
+---
+
+## Final Ruleof Trade_Scan Invariants (STATE‑GATED | FINAL)
 
 End of Trade_Scan Invariants (STATE‑GATED | FINAL)

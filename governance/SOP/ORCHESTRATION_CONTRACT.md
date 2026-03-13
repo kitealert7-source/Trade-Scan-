@@ -35,10 +35,10 @@ Rules:
 
 ## 3. State Ownership
 
-- Run-level state: `PipelineStateManager` (`runs/<RUN_ID>/run_state.json`)
-- Directive-level state: `DirectiveStateManager` (`runs/<DIRECTIVE_ID>/directive_state.json`)
+- Run-level state: `PipelineStateManager` (`TradeScan_State/runs/<RUN_ID>/run_state.json`)
+- Directive-level state: `DirectiveStateManager` (`TradeScan_State/runs/<DIRECTIVE_ID>/directive_state.json`)
 - Transition mediation: `tools/orchestration/transition_service.py`
-- Registry-level execution state: `runs/<DIRECTIVE_ID>/run_registry.json`
+- Registry-level execution state: `TradeScan_State/registry/run_registry.json`
   - run states: `PLANNED`, `RUNNING`, `COMPLETE`, `FAILED`
   - registry is authoritative for executable unit planning/claiming
 

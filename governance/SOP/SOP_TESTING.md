@@ -17,7 +17,7 @@ Trade_Scan:
 - executes back tests
 - computes execution metrics
 - emits Stage-1 artifacts
-- participates in pipeline finalization through Stage-3A snapshot enforcement
+- participates in pipeline finalization through Stage-3A manifest binding
 - stops
 
 All post‑execution presentation, aggregation, and reporting are governed by **SOP_OUTPUT — VERSION 4.1**.
@@ -84,7 +84,7 @@ The pipeline orchestrator is the sole authorized execution entry point.
 Upon atomic completion of all declared execution phases:
 Execution phases include Stage-3A Strategy Snapshot Finalization.
 
-Directive state transition to `completed_run/` MUST occur only after snapshot creation succeeds.
+Directive state transition to `completed_run/` MUST occur only after Stage-3A manifest binding succeeds.
 
 The processed directive MUST be moved to:
 
@@ -128,18 +128,18 @@ These checks are authoritative and fail-fast.
 
 Execution flow is deterministic and pipeline-driven:
 
-1. Stage -0.25 structural canonicalization.
-2. Stage -0.30 namespace governance.
-3. Stage -0.35 sweep registry reservation.
-4. Preflight validation (governance + safety + symbol universe).
-5. Directive validation.
-6. Enforcement of STRATEGY_PLUGIN_CONTRACT.md.
-7. Enforcement of SOP_INDICATOR.md (repository-only indicators; no inline logic).
-8. Stage-1 execution (including declared deterministic constraints).
-9. Stage-2 compilation.
-10. Stage-3 aggregation.
-11. Stage-3A Strategy Snapshot Finalization (including indicator dependency fingerprinting).
-12. Portfolio evaluation (if applicable).
+1. Stage -0.25: Structural Canonicalization.
+2. Stage -0.30: Namespace Governance Gate.
+3. Stage -0.35: Sweep Registry Gate.
+4. Stage 0: Preflight Validation (governance + safety + symbol universe).
+5. Stage 0.5: Semantic Validation (signature + AST).
+6. Stage 0.55: Semantic Coverage Gate (parameter usage).
+7. Stage 0.75: Dry-Run Validation (1000-bar sample).
+8. Stage 1: Execution (bar-by-bar simulation).
+9. Stage 2: Compilation (metric derivation).
+10. Stage 3: Aggregation (master filter update).
+11. Stage 3A: Manifest Binding (artifact locking).
+12. Stage 4: Portfolio Evaluation.
 13. Stop.
 
 There is:
@@ -292,7 +292,7 @@ For each run, Trade_Scan MUST:
 - Place it under:
 
 ```
-backtests/<strategy_name>/
+TradeScan_State/backtests/<strategy_name>/
 ```
 
 This folder is the **sole authoritative container** for the run.
@@ -304,7 +304,7 @@ A run is `RUN_COMPLETE` only if:
 - Stage-1 execution completes successfully
 - Stage-2 compilation completes successfully
 - Stage-3 aggregation completes successfully
-- Stage-3A Strategy Snapshot Finalization completes successfully
+- Stage-3A Manifest Binding completes successfully
 
 If snapshot creation fails:
 
@@ -456,7 +456,7 @@ Stage-1 execution MAY include:
 A run is considered RUN_COMPLETE only after:
 
 - All declared Stage-1 execution phases complete successfully, AND
-- Stage-3A Strategy Snapshot Finalization completes successfully.
+- Stage-3A Manifest Binding completes successfully.
 
 Stage-1 artifacts become immutable only after all declared execution phases are complete.
 
@@ -582,7 +582,7 @@ Iteration is permitted **only if explicitly declared**.
 
 Each iteration:
 
-- is a full folder copy
+- is a full `TradeScan_State/backtests/` copy
 - is isolated
 - is non‑adaptive
 - must independently satisfy RUN_COMPLETE

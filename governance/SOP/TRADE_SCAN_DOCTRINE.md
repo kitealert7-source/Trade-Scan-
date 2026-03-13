@@ -40,8 +40,8 @@ This sandbox:
 
 - Is **not** a co-equal operational plane
 - Has **no** authority over pipeline state, artifacts, or registry
-- May read from `runs/` (read-only)
-- May **never** write to `runs/`, `backtests/`, or any governed output path
+- May read from `TradeScan_State/runs/` (read-only)
+- May **never** write to `TradeScan_State/runs/`, `TradeScan_State/backtests/`, or any governed output path
 - Is structurally **outside** the FSM lifecycle
 
 Research is tolerated — not institutionalized.

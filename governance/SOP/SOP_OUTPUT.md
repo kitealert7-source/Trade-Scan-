@@ -32,18 +32,18 @@ No replay, recomputation, or mutation allowed.
 **Ledger Authority Model**
 
 - The system operates under a **Materialized View + Immutable Ledger** model.
-- `runs/<run_id>/`: Immutable historical snapshot. Append-only. Becomes authoritative once indexed in `Strategy_Master_Filter.xlsx`.
-- `backtests/<strategy_symbol>/`: Represents the latest materialized state for that strategy-symbol pair. May be overwritten during subsequent executions. Does NOT determine historical retention authority.
+- `TradeScan_State/runs/<run_id>/`: Immutable historical snapshot. Append-only. Becomes authoritative once indexed in `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`.
+- `TradeScan_State/backtests/<strategy_symbol>/`: Represents the latest materialized state for that strategy-symbol pair. May be overwritten during subsequent executions. Does NOT determine historical retention authority.
 
 **Retention Authority**
 
-- A run snapshot is considered valid and retained if and only if it has a corresponding row in `Strategy_Master_Filter.xlsx`.
-- Historical snapshots in `runs/<run_id>/` are NOT deleted during overwrite of `backtests/<strategy_symbol>/`.
+- A run snapshot is considered valid and retained if and only if it has a corresponding row in `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`.
+- Historical snapshots in `TradeScan_State/runs/<run_id>/` are NOT deleted during overwrite of `TradeScan_State/backtests/<strategy_symbol>/`.
 
 **Overwrite Semantics**
 
-- Overwrite affects only `backtests/<strategy_symbol>/`.
-- It does NOT imply deletion of historical `runs/<run_id>/` snapshots unless explicitly purged via authorized cleanup.
+- Overwrite affects only `TradeScan_State/backtests/<strategy_symbol>/`.
+- It does NOT imply deletion of historical `TradeScan_State/runs/<run_id>/` snapshots unless explicitly purged via authorized cleanup.
 
 ### 0.3 Metric Ownership Rule (HARD)
 
@@ -54,11 +54,11 @@ Later stages may aggregate but must not redefine metrics.
 
 | Path | Authority | Mutability |
 |------|-----------|------------|
-| `runs/<run_id>/` | Authoritative | Immutable (append-only) |
-| `backtests/<strategy>/` | Materialized View | Overwritable per SOP |
+| `TradeScan_State/runs/<run_id>/` | Authoritative | Immutable (append-only) |
+| `TradeScan_State/backtests/<strategy>/` | Materialized View | Overwritable per SOP |
 | `research/adhoc_experiments/` | Non-Authoritative | Unrestricted |
 
-Research scripts are prohibited from writing to `runs/` or `backtests/`.
+Research scripts are prohibited from writing to `TradeScan_State/runs/` or `TradeScan_State/backtests/`.
 
 ---
 
@@ -371,7 +371,7 @@ Rows MUST appear in this exact order.
 ### 3.1 Strategy Master Filter
 
 **File Location:**  
-`backtests/Strategy_Master_Filter.xlsx`
+`TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
 
 **Scope Rules**
 
@@ -487,7 +487,7 @@ If snapshot generation fails:
 
 - RUN_COMPLETE MUST NOT be emitted
 - No artifacts are considered valid
-- No row may be written to Strategy_Master_Filter.xlsx
+- No row may be written to `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
 
 ### Immutability Rule
 
@@ -514,23 +514,23 @@ System operates under a Materialized View + Immutable Ledger model.
 
 For every folder:
 
-    backtests/<strategy_name>/
+    TradeScan_State/backtests/<strategy_name>/
 
 there MUST exist exactly one valid and indexed `run_id` in:
 
-    Strategy_Master_Filter.xlsx
+    TradeScan_State/backtests/Strategy_Master_Filter.xlsx
 
 and a corresponding immutable snapshot at:
 
-    runs/<run_id>/
+    TradeScan_State/runs/<run_id>/
 
-`backtests/<strategy_name>/` represents only the latest active materialized state.
+`TradeScan_State/backtests/<strategy_name>/` represents only the latest active materialized state.
 
 ### Immutable Snapshot Rules
 
 Each folder under:
 
-    runs/<run_id>/
+    TradeScan_State/runs/<run_id>/
 
 MUST:
 
@@ -539,22 +539,22 @@ MUST:
   - strategy.py
   - **pycache**/
 
-Snapshots are append-only and are NOT deleted during overwrite of `backtests/<strategy_name>/`.
+Snapshots are append-only and are NOT deleted during overwrite of `TradeScan_State/backtests/<strategy_name>/`.
 
 ### Cleanup Authority
 
-A `runs/<run_id>/` snapshot may be deleted ONLY if:
+A `TradeScan_State/runs/<run_id>/` snapshot may be deleted ONLY if:
 
 - Its corresponding Master Sheet row is removed, AND
 - Deterministic cleanup is executed.
 
-Deletion of `backtests/<strategy_name>/` alone does NOT invalidate historical snapshots.
+Deletion of `TradeScan_State/backtests/<strategy_name>/` alone does NOT invalidate historical snapshots.
 
 ### Agent Enforcement
 
 Agents MUST:
 
-- Treat `runs/` as read-only
+- Treat `TradeScan_State/runs/` as read-only
 - Never modify snapshot contents
 - Never create or delete snapshots except via authorized cleanup
 

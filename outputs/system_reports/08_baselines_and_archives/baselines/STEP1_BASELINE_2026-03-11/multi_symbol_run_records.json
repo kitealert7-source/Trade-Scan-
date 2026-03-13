@@ -1,0 +1,92 @@
+﻿[
+    {
+        "run_id":  "030eb57b9354",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\030eb57b9354\\run_state.json",
+        "run_state_sha256":  "9c79bd2b8d469f3cb23a35191f96f4cd148b2de26ada585b61da53b345a3d67b",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\030eb57b9354\\audit.log",
+        "audit_log_sha256":  "30bc463e55e2c5d125a41f8526fa6c788657d1b1353458cdeda38f7d768495cb"
+    },
+    {
+        "run_id":  "0a5b40274571",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\0a5b40274571\\run_state.json",
+        "run_state_sha256":  "8859c0c834b365972bd7ba54d47c2bdfef6dad881c7dc9d4908d0921665f14d3",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\0a5b40274571\\audit.log",
+        "audit_log_sha256":  "6bc9f4fe885c0934abe7e5ec370d775a3b3d6573df04c58fe86f714d96fcb557"
+    },
+    {
+        "run_id":  "33c8dd64b84a",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\33c8dd64b84a\\run_state.json",
+        "run_state_sha256":  "cb978e748cb9c73bb69902752bb6e9c661f96ecbf367621b1d92487338dbe43d",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\33c8dd64b84a\\audit.log",
+        "audit_log_sha256":  "77e317e5e96acd6357dcffbeca9c3e32218415a89030ed405159481d73000c08"
+    },
+    {
+        "run_id":  "3468c7b4dea6",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\3468c7b4dea6\\run_state.json",
+        "run_state_sha256":  "b30485f30588afded0d801a38d8b40ca46b168eb946303a3b6471e6dbc89e69f",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\3468c7b4dea6\\audit.log",
+        "audit_log_sha256":  "89ebc067c6d2d466f506a6a55778ff3f1f68a64bb2b613d30620a84061efd796"
+    },
+    {
+        "run_id":  "3719d00cf6c0",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\3719d00cf6c0\\run_state.json",
+        "run_state_sha256":  "54fb75f273aebb1dd21bf8d2a7775e2e4f32a518d842d610742270f892fc7644",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\3719d00cf6c0\\audit.log",
+        "audit_log_sha256":  "bcf4c14fb7e3770a26e1532f74baa633ed039b3d22303350047d0841e78b936f"
+    },
+    {
+        "run_id":  "3dc146da1b89",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\3dc146da1b89\\run_state.json",
+        "run_state_sha256":  "bc91bc7a2a19f4fc9358e2d077369c2440481cadb0b9b8990458b4268538bcaa",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\3dc146da1b89\\audit.log",
+        "audit_log_sha256":  "ac386e6736a0368423d216410dd08793763917dd83207b13be7ec82277effe87"
+    },
+    {
+        "run_id":  "522efff9b8f8",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\522efff9b8f8\\run_state.json",
+        "run_state_sha256":  "92db54c7c87ffe1de8504236d311c6430c77c2e592c4d453502b6a48e4888dcb",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\522efff9b8f8\\audit.log",
+        "audit_log_sha256":  "1f70ca6e681d2ca2c061601868459539f68915555864db08f76f8a4993b2da34"
+    },
+    {
+        "run_id":  "74b6d12e1843",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\74b6d12e1843\\run_state.json",
+        "run_state_sha256":  "c4077541105f0ec4e1e8f01c0783384cacecb32274bacddca6e2156c64cbd3d5",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\74b6d12e1843\\audit.log",
+        "audit_log_sha256":  "d7a5cee358530445e26240c692c3f5807582b7f3b9de6d41283db397a20e1055"
+    },
+    {
+        "run_id":  "9bd3145419a7",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\9bd3145419a7\\run_state.json",
+        "run_state_sha256":  "ec304909401903644d805fe3f067701f5583e175f2888b9670f9366f8ddf132f",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\9bd3145419a7\\audit.log",
+        "audit_log_sha256":  "026e317663c6e566f360d7ef761163b344b29263a789a4cd37c7ac0220e51937"
+    },
+    {
+        "run_id":  "9ee1203ece47",
+        "current_state":  "COMPLETE",
+        "history_len":  7,
+        "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\9ee1203ece47\\run_state.json",
+        "run_state_sha256":  "b8c6eb2288d90326a41db34d14f70589f305b541b230fd02a10d253687713827",
+        "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\9ee1203ece47\\audit.log",
+        "audit_log_sha256":  "1b0a3d9ca31893b099cff258e028edce08b227200c723f79887757020b46557b"
+    }
+]

@@ -80,11 +80,11 @@ Agents MUST follow SOP_OUTPUT.md as the authoritative source.
 
 For every folder present under:
 
-    backtests/<strategy_name>/
+    TradeScan_State/backtests/<strategy_name>/
 
 the system MUST have:
     - a strategy snapshot under strategies/<DirectiveName>/, AND
-    - an immutable engine snapshot under runs/<RUN_ID>/ (if applicable).
+    - an immutable engine snapshot under TradeScan_State/runs/<RUN_ID>/ (if applicable).
 
 ---
 

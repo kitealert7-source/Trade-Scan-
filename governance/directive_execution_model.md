@@ -4,7 +4,7 @@
 - One directive can contain multiple symbols.
 - Run IDs are generated per symbol via `generate_run_id(...)`.
 - Orchestrator owns directive-level and run-level state transitions.
-- Directive execution units are persisted in `runs/<DIRECTIVE_ID>/run_registry.json`.
+- Directive execution units are persisted in `TradeScan_State/registry/run_registry.json`.
 
 ## Practical Implication
 - `run_pipeline.py` plans runs first, writing registry entries (`PLANNED`).

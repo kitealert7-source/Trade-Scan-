@@ -1,0 +1,84 @@
+version: 1
+generated_by: human
+scope: Anti_Gravity_DATA_ROOT
+
+datasets:
+  - asset: AUDNZD
+    feed: OCTAFX
+    location: MASTER_DATA/AUDNZD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: AUDUSD
+    feed: OCTAFX
+    location: MASTER_DATA/AUDUSD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: BTC
+    feed: DELTA
+    location: MASTER_DATA/BTC_DELTA_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: BTCUSD
+    feed: OCTAFX
+    location: MASTER_DATA/BTC_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: ETH
+    feed: DELTA
+    location: MASTER_DATA/ETH_DELTA_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: ETHUSD
+    feed: OCTAFX
+    location: MASTER_DATA/ETH_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: EURAUD
+    feed: OCTAFX
+    location: MASTER_DATA/EURAUD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: EURUSD
+    feed: OCTAFX
+    location: MASTER_DATA/EURUSD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: GBPAUD
+    feed: OCTAFX
+    location: MASTER_DATA/GBPAUD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: GBPNZD
+    feed: OCTAFX
+    location: MASTER_DATA/GBPNZD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: GBPUSD
+    feed: OCTAFX
+    location: MASTER_DATA/GBPUSD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: NZDUSD
+    feed: OCTAFX
+    location: MASTER_DATA/NZDUSD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: USDCAD
+    feed: OCTAFX
+    location: MASTER_DATA/USDCAD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: USDCHF
+    feed: OCTAFX
+    location: MASTER_DATA/USDCHF_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: USDJPY
+    feed: OCTAFX
+    location: MASTER_DATA/USDJPY_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
+  
+  - asset: XAUUSD
+    feed: OCTAFX
+    location: MASTER_DATA/XAUUSD_OCTAFX_MASTER
+    stages: [RAW, CLEAN, RESEARCH]
