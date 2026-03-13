@@ -15,7 +15,6 @@ import math
 import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
-from collections import defaultdict
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -33,6 +32,10 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.colors import LinearSegmentedColormap
 from tools.pipeline_utils import get_engine_version
+from tools.portfolio_core import (
+    compute_concurrency_series as core_compute_concurrency_series,
+    load_trades_for_portfolio_evaluator as core_load_trades_for_portfolio_evaluator,
+)
 
 # ------------------------------------------------------------------
 # CONFIG
@@ -70,137 +73,13 @@ plt.rcParams.update({
 # ==================================================================
 # DATA LOADING
 # ==================================================================
-def load_all_trades(strategy_id):
+def load_all_trades(run_ids):
     """
-    Load trade-level results for all symbols (Governance-Driven).
-    Replaces auto-discovery with strict Stage-3 Master Filter selection.
-    Uses Run-ID based folder resolution (no folder filtering).
+    Load trade-level results for explicit atomic runs.
+    Bypasses auto-discovery and Excel UI parsing.
+    Sourced purely from runs/<run_id>/data/ results.
     """
-    all_trades = []
-    symbol_trades = {}
-    meta_records = {}
-
-    # 1. Read Master Sheet
-    master_path = BACKTESTS_ROOT / "Strategy_Master_Filter.xlsx"
-    if not master_path.exists():
-        raise FileNotFoundError(f"Strategy Master Filter not found at {master_path}")
-    
-    try:
-        # Read using default engine
-        df_master = pd.read_excel(master_path)
-    except Exception as e:
-        raise ValueError(f"Failed to read Strategy Master Filter: {e}")
-
-    # 2. Filter Rows (strategy starts with strategy_id AND IN_PORTFOLIO == True)
-    if 'strategy' not in df_master.columns or 'IN_PORTFOLIO' not in df_master.columns or 'run_id' not in df_master.columns or 'symbol' not in df_master.columns:
-         raise ValueError("Master Sheet missing required columns: 'strategy', 'IN_PORTFOLIO', 'run_id', or 'symbol'")
-
-    # Using startswith because Master Sheet strategy column often contains {STRATEGY_ID}_{SYMBOL}
-    # Governed by SOP: Strict prefix matching to avoid collisions (e.g. IDX2 vs IDX27)
-    selected_rows = df_master[
-        (df_master['strategy'].astype(str).str.startswith(strategy_id + "_"))
-    ]
-
-    if selected_rows.empty:
-        # Fallback: Try Exact Match
-        selected_rows = df_master[df_master['strategy'] == strategy_id]
-        
-    if selected_rows.empty:
-        raise ValueError(f"No strategies found in Master Filter matching {strategy_id}")
-    
-    # 3. Extract and Load
-    loaded_symbols = []
-    
-    # Pre-scan backtests root to map run_id -> folder (Optimization)
-    # Mapping: run_id -> folder_path
-    run_id_map = {}
-    print("  Indexing backtest folders...")
-    for folder in BACKTESTS_ROOT.iterdir():
-        if folder.is_dir():
-            meta_path = folder / "metadata" / "run_metadata.json"
-            if meta_path.exists():
-                try:
-                    with open(meta_path, 'r', encoding='utf-8') as f:
-                        meta = json.load(f)
-                except Exception:
-                    continue
-
-                rid = str(meta.get("run_id"))
-                
-                # Governance: Detect duplicate run_ids (prevent silent corruption)
-                if rid in run_id_map:
-                    raise ValueError(f"Duplicate run_id detected in backtests: {rid}")
-                    
-                run_id_map[rid] = folder
-    
-    for idx, row in selected_rows.iterrows():
-        run_id = str(row['run_id'])
-        symbol = row['symbol']
-        
-        # Locate folder by run_id
-        run_folder = run_id_map.get(run_id)
-        
-        if run_folder is None:
-            raise ValueError(
-                f"Governance violation: run_id {run_id} selected in Master Sheet "
-                f"but no corresponding backtest folder found."
-            )
-             
-        csv_path = run_folder / "raw" / "results_tradelevel.csv"
-        # Validate CSV existence
-        if not csv_path.exists():
-             raise ValueError(
-                f"Governance violation: results_tradelevel.csv missing for run_id {run_id}."
-            )
-             
-        # Load Metadata (Preserved Logic)
-        strat_name = strategy_id
-        meta_path = run_folder / "metadata" / "run_metadata.json"
-        meta_dict = {}
-        try:
-            if meta_path.exists():
-                with open(meta_path, 'r', encoding='utf-8') as f:
-                    meta = json.load(f)
-                    strat_name = meta.get('strategy_name', strategy_id)
-                    meta_dict = meta
-        except Exception:
-            pass
-        meta_records[symbol] = meta_dict
-
-        # Load Trade Data
-        try:
-            df = pd.read_csv(csv_path)
-            df['source_run_id'] = run_id
-            df['strategy_name'] = strat_name
-            # Normalize to a single timezone model (UTC-naive) to avoid
-            # tz-aware vs tz-naive comparison failures in drawdown windows.
-            df['exit_timestamp'] = pd.to_datetime(
-                df['exit_timestamp'], errors='coerce', utc=True
-            ).dt.tz_convert(None)
-            df['entry_timestamp'] = pd.to_datetime(
-                df['entry_timestamp'], errors='coerce', utc=True
-            ).dt.tz_convert(None)
-            df['symbol'] = symbol
-            
-            symbol_trades[symbol] = df
-            all_trades.append(df)
-            loaded_symbols.append(symbol)
-        except Exception as e:
-            raise ValueError(
-                f"Governance violation: failed to load trade data for run_id {run_id}: {e}"
-            )
-
-    if not all_trades:
-        raise ValueError(f"No valid trade data loaded for {strategy_id} (Governance selected {len(selected_rows)} candidates)")
-
-    print(f"  Loaded symbols (Governance): {loaded_symbols}")
-
-    # 4. Combine and Sort (Preserved Logic)
-    portfolio_df = pd.concat(all_trades, ignore_index=True)
-    portfolio_df.sort_values('exit_timestamp', inplace=True)
-    portfolio_df.reset_index(drop=True, inplace=True)
-    
-    return portfolio_df, symbol_trades, meta_records
+    return core_load_trades_for_portfolio_evaluator(run_ids, PROJECT_ROOT)
 
 
 def load_symbol_metrics(strategy_id):
@@ -456,66 +335,8 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
 
 
 def compute_concurrency_series(portfolio_df):
-    """
-    Compute concurrency metrics using exact timestamp overlap.
-    Returns:
-        - concurrency_series: list of concurrency counts at each trade entry
-        - max_concurrent: global maximum peak
-        - avg_concurrent: time-weighted average
-        - pct_time_at_max: percentage of time at global max
-        - pct_time_deployed: percentage of time with count > 0
-    """
-    if portfolio_df.empty:
-        return [], 0, 0.0, 0.0, 0.0
-
-    # Ensure chronological order by entry time
-    df_sorted = portfolio_df.sort_values('entry_timestamp').copy()
-    
-    events = []
-    for idx, row in df_sorted.iterrows():
-        events.append((row['entry_timestamp'], 1))
-        events.append((row['exit_timestamp'], -1))
-        
-    # Sort events: time asc, then exit(-1) before entry(1)
-    events.sort(key=lambda x: (x[0], x[1]))
-    
-    current_concurrent = 0
-    max_concurrent = 0
-    weighted_sum = 0.0
-    time_deployed = 0.0
-    duration_by_count = defaultdict(float)
-    
-    last_time = events[0][0]
-    total_duration = (events[-1][0] - events[0][0]).total_seconds()
-    
-    series = []
-    
-    for t, type_ in events:
-        delta = (t - last_time).total_seconds()
-        if delta > 0:
-            weighted_sum += current_concurrent * delta
-            duration_by_count[current_concurrent] += delta
-            if current_concurrent > 0:
-                time_deployed += delta
-        
-        if type_ == 1:
-            current_concurrent += 1
-            series.append(current_concurrent)
-        else:
-            current_concurrent -= 1
-            
-        if current_concurrent > max_concurrent:
-            max_concurrent = current_concurrent
-            
-        last_time = t
-        
-    avg_concurrent = weighted_sum / total_duration if total_duration > 0 else 0.0
-    pct_deployed = (time_deployed / total_duration) if total_duration > 0 else 0.0
-    
-    time_at_max = duration_by_count[max_concurrent]
-    pct_at_max = (time_at_max / total_duration) if total_duration > 0 else 0.0
-    
-    return series, max_concurrent, avg_concurrent, pct_at_max, pct_deployed
+    """Delegate deterministic concurrency math to shared portfolio_core."""
+    return core_compute_concurrency_series(portfolio_df)
 
 
 # ==================================================================
@@ -1615,20 +1436,25 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
 # MAIN
 # ==================================================================
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python tools/portfolio_evaluator.py <STRATEGY_ID>")
-        sys.exit(1)
-
-    strategy_id = sys.argv[1]
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("strategy_id", help="The Portfolio ID name (e.g. P001)")
+    parser.add_argument("--run-ids", required=True, nargs="+", help="Explicit atomic runs to construct the portfolio from")
+    args = parser.parse_args()
+    
+    strategy_id = args.strategy_id
+    run_ids = args.run_ids
+    
     print(f"\n{'='*60}")
     print(f"PORTFOLIO EVALUATION - {strategy_id}")
+    print(f"Constituents: {run_ids}")
     print(f"{'='*60}")
 
     output_dir = STRATEGIES_ROOT / strategy_id / "portfolio_evaluation"
 
     # Load data
     print("\n[1/9] Loading trade data...")
-    portfolio_df, symbol_trades, meta_records = load_all_trades(strategy_id)
+    portfolio_df, symbol_trades, meta_records = load_all_trades(run_ids)
     print(f"  Loaded {len(portfolio_df)} trades across {len(symbol_trades)} symbols")
     
     # Phase 1: Metadata Contract Enforcement - HARD FAIL

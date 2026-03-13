@@ -1,7 +1,7 @@
 version: 1
 ideas:
   '01':
-    next_sweep: 13
+    next_sweep: 51
     sweeps:
       S01:
         directive_name: 01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P00
@@ -77,6 +77,11 @@ ideas:
         directive_name: 01_MR_FX_1H_ULTC_REGFILT_S12_V1_P00
         signature_hash: 586596e79f276e91
         reserved_at_utc: '2026-03-08T02:48:47.143586+00:00'
+      S50:
+        directive_name: 01_MR_FX_1D_RSIAVG_TRENDFILT_S50_V1_P00
+        signature_hash: 732e29503ebbf4a7
+        reserved_at_utc: '2026-03-12T08:48:28.163194+00:00'
+        signature_hash_full: 732e29503ebbf4a71ccdb401ed77b4fd92ac2294a053b9ca51107d0c32d3f2bc
   '02':
     next_sweep: 6
     sweeps:
@@ -193,6 +198,7 @@ ideas:
             directive_name: 06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P61
             signature_hash: a4df25a8b17e7c56
             reserved_at_utc: '2026-03-10T05:38:27.740858+00:00'
+        signature_hash_full: feea908d625f002899adffa978bb76e4377ef106240ffd56ee9c1bd5b15f3f88
   '07':
     next_sweep: 4
     sweeps:

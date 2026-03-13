@@ -1,0 +1,24 @@
+{
+    "run_id": "7723d9394e06",
+    "directive_id": "02_VOL_NAS100_1D_VOLEXP_ATRFILT_S02_V1_P00",
+    "current_state": "FAILED",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-10T14:03:08.387478Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-10T14:03:08.416756Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "FAILED",
+            "timestamp": "2026-03-10T14:03:09.066898Z"
+        }
+    ],
+    "last_updated": "2026-03-10T14:03:07.491994+00:00",
+    "last_transition": "2026-03-10T14:03:09.066898Z"
+}

@@ -1,0 +1,30 @@
+{
+    "portfolio_id": "ORB_FX_01",
+    "creation_timestamp_utc": "2026-02-26T14:04:57.381533",
+    "constituent_run_ids": [
+        "12e2880665b3",
+        "181eb19247f1",
+        "187f723e5054",
+        "1a83ddcb1a50",
+        "1c6ce0ca871a",
+        "277cde2c3048",
+        "347ebab6632f",
+        "4bd4003fe4d8",
+        "6781bb85599e",
+        "680084e10466",
+        "68704f0afbee",
+        "6d0ad299108d",
+        "7b71f093872c",
+        "975767d052cd",
+        "b9bc330658a6",
+        "e4372ae02003",
+        "e63c5132c17a",
+        "e82656523351"
+    ],
+    "reference_capital_usd": 90000.0,
+    "capital_model_version": "v1.0_trade_close_compounding",
+    "portfolio_engine_version": "1.2.1",
+    "schema_version": "1.0",
+    "signal_timeframes": "1h",
+    "evaluation_timeframe": "1D"
+}

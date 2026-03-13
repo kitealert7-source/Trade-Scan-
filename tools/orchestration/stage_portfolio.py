@@ -26,10 +26,26 @@ def run_portfolio_and_post_stages(
     run_command,
 ) -> None:
     """Execute stage-4 gates + non-authoritative post steps."""
+    from tools.system_registry import _load_registry
+    
+    print("[ORCHESTRATOR] Verifying Portfolio Dependencies (Guardrail)...")
+    reg_data = _load_registry()
+    
+    for rid in run_ids:
+        # 1. Check Registry Presence
+        if rid not in reg_data:
+            raise RuntimeError(f"[FATAL] Portfolio Dependency Guard: Run {rid} is missing from registry.")
+            
+        # 2. Check Physical Existence
+        run_folder = project_root / "runs" / rid
+        if not run_folder.exists():
+            raise RuntimeError(f"[FATAL] Portfolio Dependency Guard: Run {rid} is missing from filesystem.")
+            
+    print("[ORCHESTRATOR] Dependency Guard Passed.")
     print("[ORCHESTRATOR] Verifying Artifact Integrity before Portfolio Evaluation...")
     for rid, symbol in zip(run_ids, symbols):
         mgr = PipelineStateManager(rid)
-        manifest_path = mgr.run_dir / "STRATEGY_SNAPSHOT.manifest.json"
+        manifest_path = mgr.run_dir / "manifest.json"
         if not manifest_path.exists():
             transition_run_state(rid, "FAILED")
             raise RuntimeError(f"Manifest missing for run {rid}")
@@ -41,6 +57,7 @@ def run_portfolio_and_post_stages(
         required_artifacts = {
             "results_tradelevel.csv": bt_dir / "raw" / "results_tradelevel.csv",
             "results_standard.csv": bt_dir / "raw" / "results_standard.csv",
+            "equity_curve.csv": bt_dir / "raw" / "equity_curve.csv",
             "batch_summary.csv": project_root / "backtests" / f"batch_summary_{clean_id}.csv",
         }
         manifest_keys = set(manifest["artifacts"].keys())

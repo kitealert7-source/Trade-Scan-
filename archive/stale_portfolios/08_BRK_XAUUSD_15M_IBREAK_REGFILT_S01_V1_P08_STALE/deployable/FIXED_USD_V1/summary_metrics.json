@@ -1,0 +1,20 @@
+{
+  "profile": "FIXED_USD_V1",
+  "starting_capital": 10000.0,
+  "final_equity": 9869.27,
+  "cagr": -0.006149,
+  "cagr_pct": -0.6149,
+  "max_drawdown_usd": 438.78,
+  "max_drawdown_pct": 4.3053,
+  "mar": -0.1428,
+  "total_accepted": 126,
+  "total_rejected": 1,
+  "rejection_rate_pct": 0.79,
+  "max_concurrent_trades": 1,
+  "configured_concurrency_cap": null,
+  "avg_heat_utilization_pct": 0.0,
+  "pct_time_at_full_heat": 0.0,
+  "longest_loss_streak": 7,
+  "realized_pnl": -130.73,
+  "simulation_years": 2.13
+}

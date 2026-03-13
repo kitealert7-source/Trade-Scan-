@@ -1,0 +1,19 @@
+{
+    "executed_at_utc":  "2026-03-11T14:26:11.9581946Z",
+    "checks":  [
+                   {
+                       "id":  "check_01",
+                       "command":  "PYTHONPATH=. pytest -q tests/test_provision_only_integration.py",
+                       "exit_code":  0,
+                       "log_file":  "check_01_provision_only_test.log",
+                       "pass":  true
+                   },
+                   {
+                       "id":  "check_02",
+                       "command":  "pytest -q tests/test_sweep_registry_hash_compat.py tests/test_strategy_provisioner_compat.py",
+                       "exit_code":  0,
+                       "log_file":  "check_02_registry_and_provisioner.log",
+                       "pass":  true
+                   }
+               ]
+}

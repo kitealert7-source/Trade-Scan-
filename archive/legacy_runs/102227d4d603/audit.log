@@ -1,0 +1,19 @@
+{"timestamp": "2026-03-10T10:52:30.683159+00:00", "event": "RUN_INITIALIZED", "run_id": "102227d4d603", "initial_state": "IDLE"}
+{"timestamp": "2026-03-10T10:52:31.684191+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "IDLE", "to": "PREFLIGHT_COMPLETE"}
+{"timestamp": "2026-03-10T10:52:31.778700+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "PREFLIGHT_COMPLETE", "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID"}
+{"timestamp": "2026-03-10T10:52:32.786025+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID", "to": "FAILED"}
+{"timestamp": "2026-03-10T10:54:15.996247+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "IDLE", "to": "PREFLIGHT_COMPLETE"}
+{"timestamp": "2026-03-10T10:54:16.049498+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "PREFLIGHT_COMPLETE", "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID"}
+{"timestamp": "2026-03-10T10:54:16.720307+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID", "to": "STAGE_1_COMPLETE"}
+{"timestamp": "2026-03-10T10:54:20.860793+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "STAGE_1_COMPLETE", "to": "STAGE_2_COMPLETE"}
+{"timestamp": "2026-03-10T10:54:20.927537+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "STAGE_2_COMPLETE", "to": "FAILED"}
+{"timestamp": "2026-03-10T10:55:07.708463+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "IDLE", "to": "PREFLIGHT_COMPLETE"}
+{"timestamp": "2026-03-10T10:55:07.789925+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "PREFLIGHT_COMPLETE", "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID"}
+{"timestamp": "2026-03-10T10:55:08.525019+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID", "to": "STAGE_1_COMPLETE"}
+{"timestamp": "2026-03-10T10:55:12.277280+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "STAGE_1_COMPLETE", "to": "STAGE_2_COMPLETE"}
+{"timestamp": "2026-03-10T10:55:13.946309+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "STAGE_2_COMPLETE", "to": "STAGE_3_COMPLETE"}
+{"timestamp": "2026-03-10T10:55:13.946309+00:00", "event": "SNAPSHOT_VERIFIED", "run_id": "102227d4d603", "strategy_hash": "00352a682f0ee2835c16ffda48573c24e5423b464ad6f553317059be05685e40", "source_hash": "00352a682f0ee2835c16ffda48573c24e5423b464ad6f553317059be05685e40"}
+{"timestamp": "2026-03-10T10:55:13.951837+00:00", "event": "ARTIFACT_BOUND", "run_id": "102227d4d603", "manifest_path": "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\102227d4d603\\STRATEGY_SNAPSHOT.manifest.json", "artifact_hashes": {"results_tradelevel.csv": "50c04d21423af6287f14f577e5274adfd8b8ae7e7bc81d243b6c0031e81f3b12", "results_standard.csv": "ef94305127b19ada7f78ac761beb6aec30c8a7de198d41fb5bc8f020b4311041", "batch_summary.csv": "5458802eff005c3faecb0a7b04a925bc9aaeadb8a297a6fd1bdb6bd0d85617f2"}}
+{"timestamp": "2026-03-10T10:55:13.959351+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "STAGE_3_COMPLETE", "to": "STAGE_3A_COMPLETE"}
+{"timestamp": "2026-03-10T10:55:13.969712+00:00", "event": "STATE_TRANSITION", "run_id": "102227d4d603", "from": "STAGE_3A_COMPLETE", "to": "COMPLETE"}
+{"timestamp": "2026-03-10T10:55:13.969712+00:00", "event": "RUN_COMPLETE", "run_id": "102227d4d603", "status": "SUCCESS"}

@@ -1,0 +1,78 @@
+**Confirmed. The bias is real, measurable, and strongly skewed.** Here are the findings:
+
+---
+
+## Verification Report: Cross-Symbol ENTRY Timestamp Collisions
+
+### Collision Frequency
+- **37.5% of all entry events** (933 out of 2,490) occur at timestamps where ≥2 symbols fire simultaneously
+- **416 timestamps** have multi-symbol collisions
+- Breakdown: 332× two-symbol, 68× three-symbol, 15× four-symbol, 1× five-symbol collision
+- Worst case: `2025-07-08 21:00:00` — 5 symbols fire simultaneously (AUDNZD, AUDUSD, EURUSD, GBPUSD, USDJPY)
+
+---
+
+### How the Bias Works
+
+At any collision timestamp, the sort key is:
+```
+(timestamp, event_type_priority=1, trade_id)
+```
+Since all ENTRYs at the same timestamp share identical timestamp and event_type_priority, the **tiebreaker is `trade_id` lexicographic order** — which is the strategy prefix + symbol name. This produces a **permanent alphabetical processing order**:
+
+```
+1. AUDNZD  ← always first, always gets heat priority
+2. AUDUSD
+3. EURUSD
+4. GBPNZD
+5. GBPUSD
+6. USDJPY  ← always last, always absorbs heat rejections
+```
+
+---
+
+### Rejection Evidence (CONSERVATIVE_V1 — heat/leverage at collision timestamps)
+
+| Symbol | Sort Position | Heat/Leverage Rejections at Collisions |
+|--------|--------------|----------------------------------------|
+| AUDNZD | 1st | 2 |
+| AUDUSD | 2nd | 3 |
+| EURUSD | 3rd | 4 |
+| GBPNZD | 4th | 8 |
+| GBPUSD | 5th | 11 |
+| **USDJPY** | **6th** | **136** |
+
+USDJPY receives **68× more heat-cap rejections** than AUDNZD at collision timestamps purely due to processing order. The pattern is monotonic — rejection count increases with alphabetical position.
+
+Across all profiles, **35–40% of all rejections** occur at collision timestamps where ordering determines outcome.
+
+---
+
+### Is This a Problem?
+
+**For research/comparison:** No — the order is deterministic and reproducible across all runs. Results are consistent.
+
+**For live deployment:** Yes — three real risks:
+
+1. **USDJPY is systematically undertraded** relative to what a fair random-order simulation would produce. Its backtested PnL is understated.
+
+2. **Portfolio metrics are order-dependent** — sharpe, drawdown, and correlation figures all reflect this alphabetical bias, not a neutral simulation.
+
+3. **Live execution cannot replicate the order** — in live trading, broker fills arrive in unpredictable order. The live portfolio will have a different trade mix than the backtest at collision bars, making the capital simulation only an approximation.
+
+---
+
+### Recommendation for Stage 10 Manifest
+
+This finding should be documented as a known limitation in the `golive_manifest.json`:
+```json
+"known_limitations": {
+  "collision_bias": {
+    "collision_rate_pct": 37.5,
+    "ordering_rule": "alphabetical by symbol name (trade_id lexicographic)",
+    "most_disadvantaged_symbol": "USDJPY",
+    "heat_rejections_usdjpy_vs_audnzd": "136 vs 2 (CONSERVATIVE_V1)",
+    "live_replication_risk": "live fill order is non-deterministic; actual trade mix will diverge at collision bars"
+  }
+}
+```

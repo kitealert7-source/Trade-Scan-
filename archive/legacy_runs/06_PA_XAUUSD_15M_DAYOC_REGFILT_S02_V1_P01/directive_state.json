@@ -1,0 +1,22 @@
+{
+    "directive_id": "06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P01",
+    "current_state": "FAILED",
+    "last_updated": "2026-03-12T09:07:11.285275+00:00",
+    "history": [
+        {
+            "from": "INITIALIZED",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-12T09:07:10.668650+00:00"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-12T09:07:10.698175+00:00"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "FAILED",
+            "timestamp": "2026-03-12T09:07:11.285275+00:00"
+        }
+    ]
+}

@@ -2,7 +2,7 @@
 ## Universal Research Engine v1.5.3 - Strategy: `01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00`
 **Audit Date:** 2026-03-12  
 **Auditor:** Claude Code  
-**Revision:** v5 (control-flow + run-registry documentation alignment)
+**Revision:** v6 (portfolio path clarification + proposal alignment)
 
 ---
 
@@ -15,6 +15,7 @@
 | v3      | 2026-03-11 | Post-implementation verification - package, determinism, hashing, and manifests updated |
 | v4      | 2026-03-12 | Orchestration control-flow simplification documented; contract and stage-dispatch model recorded |
 | v5      | 2026-03-12 | Governance/report alignment for run-registry execution model and test status refresh |
+| v6      | 2026-03-12 | Clarified automatic vs manual portfolio paths; aligned with lifecycle/decoupling proposal reports |
 
 ---
 
@@ -156,7 +157,7 @@ No additional technical blocker is currently identified for the implemented go-l
 
 ---
 
-## 7. Orchestration Control-Flow Status (v4)
+## 7. Orchestration Control-Flow Status (v6)
 
 Control-flow architecture has been simplified and documented:
 
@@ -171,6 +172,11 @@ Control-flow architecture has been simplified and documented:
 - Command execution policy moved to `tools/orchestration/execution_adapter.py`.
 - Operating contract published in `governance/SOP/ORCHESTRATION_CONTRACT.md`.
 
+Portfolio path clarification:
+- Automatic path (`run_pipeline.py`): Stage-4 invokes `tools/portfolio_evaluator.py` for directive-scoped portfolio evaluation.
+- Manual/on-demand path: `tools/run_portfolio_analysis.py` is an explicit CLI utility requiring `--run-ids`; it is not auto-invoked by `run_pipeline.py`.
+- Related design references: `RUN_LIFECYCLE_PROPOSAL.md` and `PIPELINE_DECOUPLING_EVALUATION.md` are architectural proposals; current runtime behavior follows the automatic Stage-4 path plus optional manual analysis utility.
+
 Impact:
 - lower orchestration complexity risk,
 - improved testability and reuse,
@@ -178,5 +184,5 @@ Impact:
 
 ---
 
-*Audit v5 complete.*  
+*Audit v6 complete.*  
 *Generated: 2026-03-12 | Engine: Universal_Research_Engine v1.5.3*

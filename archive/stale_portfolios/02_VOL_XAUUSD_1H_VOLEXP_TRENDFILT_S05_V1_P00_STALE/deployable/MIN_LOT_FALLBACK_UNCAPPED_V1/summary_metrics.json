@@ -1,0 +1,23 @@
+{
+  "profile": "MIN_LOT_FALLBACK_UNCAPPED_V1",
+  "starting_capital": 10000.0,
+  "final_equity": 9679.78,
+  "cagr": -0.016161,
+  "cagr_pct": -1.6161,
+  "max_drawdown_usd": 553.14,
+  "max_drawdown_pct": 5.4055,
+  "mar": -0.299,
+  "total_accepted": 38,
+  "total_rejected": 0,
+  "rejection_rate_pct": 0.0,
+  "max_concurrent_trades": 1,
+  "configured_concurrency_cap": null,
+  "avg_heat_utilization_pct": 0.0,
+  "pct_time_at_full_heat": 0.0,
+  "longest_loss_streak": 4,
+  "realized_pnl": -320.22,
+  "simulation_years": 2.0,
+  "risk_override_rate": 5.26,
+  "avg_risk_multiple": 1.64,
+  "max_risk_multiple": 1.96
+}

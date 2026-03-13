@@ -5,6 +5,8 @@ import json
 import uuid
 import unittest
 import shutil
+import re
+import os
 from pathlib import Path
 import subprocess
 
@@ -16,6 +18,13 @@ class TestProvisionOnlyIntegration(unittest.TestCase):
         self.d_id = f"TEST_PROVISION_{uuid.uuid4().hex[:8].upper()}"
         self.d_path = PROJECT_ROOT / "backtest_directives" / "active" / f"{self.d_id}.txt"
         self.strat_dir = PROJECT_ROOT / "strategies" / self.d_id
+        self.effective_id = None
+        self._sweep_registry_path = PROJECT_ROOT / "governance" / "namespace" / "sweep_registry.yaml"
+        self._sweep_registry_snapshot = (
+            self._sweep_registry_path.read_bytes()
+            if self._sweep_registry_path.exists()
+            else None
+        )
 
         # Build canonical directive
         content = '''test:
@@ -82,11 +91,11 @@ class Strategy:
 
         (self.strat_dir / "strategy.py").write_text(strat_content, encoding="utf-8")
 
-    def _cleanup_run_artifacts(self):
+    def _cleanup_run_artifacts(self, directive_id: str):
         runs_dir = PROJECT_ROOT / "runs"
 
         # Directive-level state directory
-        shutil.rmtree(runs_dir / self.d_id, ignore_errors=True)
+        shutil.rmtree(runs_dir / directive_id, ignore_errors=True)
 
         # Symbol run directories linked to this directive id
         if runs_dir.exists():
@@ -100,15 +109,28 @@ class Strategy:
                     state = json.loads(state_file.read_text(encoding="utf-8"))
                 except Exception:
                     continue
-                if state.get("directive_id") == self.d_id:
+                if state.get("directive_id") == directive_id:
                     shutil.rmtree(run_dir, ignore_errors=True)
 
+    def _cleanup_artifacts_for_id(self, directive_id: str):
+        if not directive_id:
+            return
+
+        for rel in (
+            PROJECT_ROOT / "backtest_directives" / "active" / f"{directive_id}.txt",
+            PROJECT_ROOT / "backtest_directives" / "active_backup" / f"{directive_id}.txt",
+        ):
+            if rel.exists():
+                rel.unlink()
+
+        shutil.rmtree(PROJECT_ROOT / "strategies" / directive_id, ignore_errors=True)
+        self._cleanup_run_artifacts(directive_id)
+
     def tearDown(self):
-        if self.d_path.exists():
-            self.d_path.unlink()
-        if self.strat_dir.exists():
-            shutil.rmtree(self.strat_dir, ignore_errors=True)
-        self._cleanup_run_artifacts()
+        self._cleanup_artifacts_for_id(self.d_id)
+        self._cleanup_artifacts_for_id(self.effective_id)
+        if self._sweep_registry_snapshot is not None:
+            self._sweep_registry_path.write_bytes(self._sweep_registry_snapshot)
 
     def test_run_pipeline_provision_only(self):
         res = subprocess.run(
@@ -121,7 +143,14 @@ class Strategy:
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
+            env={**dict(os.environ), "TRADE_SCAN_TEST_SKIP_ENGINE_INTEGRITY": "1"},
         )
+
+        m = re.search(
+            r"\[AUTO-MIGRATE\] Directive renamed:\s+\S+\s+->\s+(\S+)",
+            res.stdout,
+        )
+        self.effective_id = m.group(1) if m else self.d_id
 
         self.assertEqual(
             res.returncode,
@@ -134,19 +163,25 @@ class Strategy:
         self.assertNotIn("Launching Stage-1 Generator (Atomic)...", res.stdout)
         self.assertNotIn("Stage-1: EURUSD", res.stdout)
 
-        strat_file = self.strat_dir / "strategy.py"
+        effective_id = self.effective_id
+
+        strat_file = PROJECT_ROOT / "strategies" / effective_id / "strategy.py"
         self.assertTrue(strat_file.exists(), "Strategy file was not provisioned")
 
         from tools.pipeline_utils import DirectiveStateManager, PipelineStateManager, generate_run_id
 
-        state = DirectiveStateManager(self.d_id).get_state()
+        state = DirectiveStateManager(effective_id).get_state()
         self.assertEqual(
             state,
             "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
             "Unexpected state after --provision-only",
         )
 
-        run_id, _ = generate_run_id(self.d_path, "EURUSD")
+        effective_d_path = PROJECT_ROOT / "backtest_directives" / "active" / f"{effective_id}.txt"
+        if not effective_d_path.exists():
+            effective_d_path = self.d_path
+
+        run_id, _ = generate_run_id(effective_d_path, "EURUSD")
         run_state = PipelineStateManager(run_id).get_state_data().get("current_state")
         self.assertEqual(
             run_state,

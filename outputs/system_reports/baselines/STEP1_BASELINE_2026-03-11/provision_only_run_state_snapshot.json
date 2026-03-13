@@ -1,0 +1,19 @@
+{
+    "run_id": "e34cef7c56ae",
+    "directive_id": "03_TREND_EURUSD_1D_RSIAVG_S01_V1_P00",
+    "current_state": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-11T14:27:48.726268Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-11T14:27:48.758280Z"
+        }
+    ],
+    "last_updated": "2026-03-11T14:27:48.161948+00:00",
+    "last_transition": "2026-03-11T14:27:48.758280Z"
+}

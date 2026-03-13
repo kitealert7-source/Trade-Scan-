@@ -1,0 +1,43 @@
+{
+  "broker": "OctaFx",
+  "generated_utc": "2026-03-11T13:32:04Z",
+  "file_count": 6,
+  "files": [
+    {
+      "symbol": "AUDNZD",
+      "file": "AUDNZD.yaml",
+      "sha256": "fb7ca3b7416534222965a6c0c3376d879a87374375fe018fbbe08e8ed0b70c2d",
+      "bytes": 440
+    },
+    {
+      "symbol": "AUDUSD",
+      "file": "AUDUSD.yaml",
+      "sha256": "2c874b8f7abc8125b998c4934d64f82cbeb8ef5bcf35001393abc4eddcc25ebb",
+      "bytes": 437
+    },
+    {
+      "symbol": "EURUSD",
+      "file": "EURUSD.yaml",
+      "sha256": "47de5b23afbaedea8c8e3fa2326f9764975ac46d2a8d7cabb1a080550d6210a7",
+      "bytes": 360
+    },
+    {
+      "symbol": "GBPNZD",
+      "file": "GBPNZD.yaml",
+      "sha256": "94da5e18a2c6e862d3a37f487bb6bf906e16cb0e7649242ff8b1a272b0140420",
+      "bytes": 440
+    },
+    {
+      "symbol": "GBPUSD",
+      "file": "GBPUSD.yaml",
+      "sha256": "4e6b17ca9f3237bbe594b7c2fc42612175019c8487e4c36c5e14aead6bc0c106",
+      "bytes": 360
+    },
+    {
+      "symbol": "USDJPY",
+      "file": "USDJPY.yaml",
+      "sha256": "7c02b29773d9ffe261111063ff8217836a932b804530090c0f9baad0eb6a0434",
+      "bytes": 516
+    }
+  ]
+}

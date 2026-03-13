@@ -1,0 +1,10 @@
+{
+    "run_id": "853e979e44c9",
+    "strategy_hash": "8887f197c374c8a845b824b0fd35a949f24083222d5f821d80dde655867618eb",
+    "artifacts": {
+        "results_tradelevel.csv": "cbbc06ace18d91edb4299f2a6bd72b12a99d00bfbefb07d3ff7ce7c8fa46b4de",
+        "results_standard.csv": "18668324702f5270af18f8b193bd2ab486cf190928c93fbe3adc8186801117e4",
+        "batch_summary.csv": "5bdc3b0f13dd78602450a5970f7c9783c36a5792e63cd85b60fb5faf12b86f9c"
+    },
+    "timestamp": "2026-03-10T11:55:25.353396+00:00"
+}

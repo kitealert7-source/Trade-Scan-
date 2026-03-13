@@ -72,7 +72,7 @@ def _json_safe(obj: Any) -> Any:
 def _signature_hash(directive_data: dict[str, Any]) -> str:
     signature = normalize_signature(_json_safe(directive_data))
     canonical = json.dumps(signature, sort_keys=True, ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _normalize_timeframe(raw_tf: Any) -> str:

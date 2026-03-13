@@ -16,13 +16,21 @@ entry_A < exit_B AND entry_B < exit_A
 
 import sys
 import json
-import hashlib
 from pathlib import Path
 from datetime import datetime
 
 import pandas as pd
 import numpy as np
 import subprocess
+
+from tools.portfolio_core import (
+    build_run_portfolio_summary,
+    compute_concurrency_series,
+    compute_drawdown,
+    compute_equity_curve,
+    deterministic_portfolio_id,
+    load_trades_for_portfolio_analysis,
+)
 
 
 # ==========================================================
@@ -48,116 +56,6 @@ PORTFOLIO_ROOT = PROJECT_ROOT / "strategies"
 def fail(msg):
     print(f"[FATAL] {msg}")
     sys.exit(1)
-
-
-# ==========================================================
-# PORTFOLIO ID
-# ==========================================================
-
-def deterministic_portfolio_id(run_ids):
-    sorted_ids = sorted(run_ids)
-    joined = "|".join(sorted_ids)
-    h = hashlib.sha256(joined.encode()).hexdigest()[:12]
-    return f"PF_{h.upper()}"
-
-
-# ==========================================================
-# CAPITAL ENGINE
-# ==========================================================
-
-def compute_equity_curve(trades, reference_capital):
-    equity = reference_capital
-    equity_before_list = []
-    equity_after_list = []
-    return_list = []
-
-    for _, row in trades.iterrows():
-        equity_before_list.append(equity)
-        pnl = row["pnl"]
-        r = pnl / equity if equity != 0 else 0.0
-        equity += pnl
-        equity_after_list.append(equity)
-        return_list.append(r)
-
-    trades["equity_before_trade"] = equity_before_list
-    trades["equity_after_trade"] = equity_after_list
-    trades["return_t"] = return_list
-
-    return trades
-
-
-# ==========================================================
-# CONCURRENCY ENGINE
-# ==========================================================
-
-from collections import defaultdict
-
-# ==========================================================
-# CONCURRENCY ENGINE (Ported from portfolio_evaluator.py)
-# ==========================================================
-
-def compute_concurrency_series(portfolio_df):
-    """
-    Compute concurrency metrics using exact timestamp overlap.
-    (Strict Port from portfolio_evaluator.py)
-    Returns:
-        - concurrency_series: list of concurrency counts at each trade entry
-        - max_concurrent: global maximum peak
-        - avg_concurrent: time-weighted average
-        - pct_time_at_max: percentage of time at global max
-        - pct_time_deployed: percentage of time with count > 0
-    """
-    if portfolio_df.empty:
-        return [], 0, 0.0, 0.0, 0.0
-
-    # Ensure chronological order by entry time
-    df_sorted = portfolio_df.sort_values('entry_timestamp').copy()
-    
-    events = []
-    for idx, row in df_sorted.iterrows():
-        events.append((row['entry_timestamp'], 1))
-        events.append((row['exit_timestamp'], -1))
-        
-    # Sort events: time asc, then exit(-1) before entry(1)
-    events.sort(key=lambda x: (x[0], x[1]))
-    
-    current_concurrent = 0
-    max_concurrent = 0
-    weighted_sum = 0.0
-    time_deployed = 0.0
-    duration_by_count = defaultdict(float)
-    
-    last_time = events[0][0]
-    total_duration = (events[-1][0] - events[0][0]).total_seconds()
-    
-    series = []
-    
-    for t, type_ in events:
-        delta = (t - last_time).total_seconds()
-        if delta > 0:
-            weighted_sum += current_concurrent * delta
-            duration_by_count[current_concurrent] += delta
-            if current_concurrent > 0:
-                time_deployed += delta
-        
-        if type_ == 1:
-            current_concurrent += 1
-            series.append(current_concurrent)
-        else:
-            current_concurrent -= 1
-            
-        if current_concurrent > max_concurrent:
-            max_concurrent = current_concurrent
-            
-        last_time = t
-        
-    avg_concurrent = weighted_sum / total_duration if total_duration > 0 else 0.0
-    pct_deployed = (time_deployed / total_duration) if total_duration > 0 else 0.0
-    
-    time_at_max = duration_by_count[max_concurrent]
-    pct_at_max = (time_at_max / total_duration) if total_duration > 0 else 0.0
-    
-    return series, max_concurrent, avg_concurrent, pct_at_max, pct_deployed
 
 
 def compute_concurrency_profile(trades, equity_series):
@@ -254,28 +152,6 @@ def compute_concurrency_profile(trades, equity_series):
 
 
 # ==========================================================
-# DRAWDOWN + STRESS WINDOW
-# ==========================================================
-
-def compute_drawdown(trades):
-
-    equity = trades["equity_after_trade"]
-    rolling_peak = equity.cummax()
-    drawdown = equity - rolling_peak
-
-    max_dd = drawdown.min()
-    trough_idx = drawdown.idxmin()
-    peak_idx = equity.loc[:trough_idx].idxmax()
-
-    peak_time = trades.loc[peak_idx, "exit_timestamp"]
-    trough_time = trades.loc[trough_idx, "exit_timestamp"]
-
-    max_dd_pct = max_dd / equity.loc[peak_idx] if equity.loc[peak_idx] != 0 else 0.0
-
-    return max_dd, max_dd_pct, peak_time, trough_time
-
-
-# ==========================================================
 # CORRELATION ENGINE
 # ==========================================================
 
@@ -323,29 +199,15 @@ def compute_correlation(trades, peak_time, trough_time):
 # ==========================================================
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run-ids", required=True, nargs="+", help="Explicit atomic runs to construct the portfolio from")
+    args = parser.parse_args()
 
-    if not STRATEGY_MASTER_PATH.exists():
-        fail("Strategy_Master_Filter.xlsx missing.")
+    run_ids = args.run_ids
+    if not run_ids:
+        fail("No eligible run_ids provided.")
 
-    df_master = pd.read_excel(STRATEGY_MASTER_PATH)
-
-    # Normalize column names to uppercase for consistent access
-    df_master.columns = [c.upper() for c in df_master.columns]
-
-    required_cols = ["IN_PORTFOLIO", "RUN_ID", "STRATEGY"]
-    for col in required_cols:
-        if col not in df_master.columns:
-            fail(f"Missing column in master sheet: {col}")
-
-    # Relaxed filter: implied status from IN_PORTFOLIO
-    selected = df_master[
-        (df_master["IN_PORTFOLIO"] == True)
-    ]
-
-    if selected.empty:
-        fail("No eligible RUN_COMPLETE strategies selected.")
-
-    run_ids = selected["RUN_ID"].astype(str).tolist()
     portfolio_id = deterministic_portfolio_id(run_ids)
 
     reference_capital = CAPITAL_PER_RUN_USD * len(run_ids)
@@ -357,38 +219,10 @@ def main():
     # Load trades
     # --------------------------------------------------
 
-    all_trades = []
-
-    for _, row in selected.iterrows():
-
-        run_id = str(row["RUN_ID"])
-        strategy_id = row["STRATEGY"]
-
-        trade_path = PROJECT_ROOT / "backtests" / strategy_id / "raw" / "results_tradelevel.csv"
-
-        if not trade_path.exists():
-            fail(f"Trade file missing for run {run_id}")
-
-        df_trades = pd.read_csv(trade_path)
-        
-        # Rename pnl_usd to pnl for internal logic consistency if needed, or adjust checks
-        if "pnl_usd" in df_trades.columns:
-            df_trades.rename(columns={"pnl_usd": "pnl"}, inplace=True)
-
-        for col in ["entry_timestamp", "exit_timestamp", "pnl"]:
-            if col not in df_trades.columns:
-                fail(f"Missing column '{col}' in run {run_id}")
-
-        df_trades["entry_timestamp"] = pd.to_datetime(df_trades["entry_timestamp"])
-        df_trades["exit_timestamp"] = pd.to_datetime(df_trades["exit_timestamp"])
-        df_trades["strategy_id"] = strategy_id
-        df_trades["run_id"] = run_id
-
-        all_trades.append(df_trades)
-
-    trades = pd.concat(all_trades, ignore_index=True)
-    trades.sort_values("exit_timestamp", inplace=True)
-    trades.reset_index(drop=True, inplace=True)
+    try:
+        trades, timeframes = load_trades_for_portfolio_analysis(run_ids, PROJECT_ROOT)
+    except (FileNotFoundError, ValueError) as exc:
+        fail(str(exc))
 
     # Regime PnL Calculation (Added for parity with portfolio_evaluator.py)
     if "volatility_regime" in trades.columns:
@@ -406,11 +240,8 @@ def main():
     trades = compute_equity_curve(trades, reference_capital)
 
     # Timeframe Metadata (SOP Requirement)
-    tf_col = 'timeframe' if 'timeframe' in selected.columns else 'TIMEFRAME'
-    if tf_col in selected.columns:
-        # Case insensitive handling if needed, but usually standardized
-        timeframes = sorted(selected[tf_col].astype(str).unique())
-        signal_timeframes_str = "|".join(timeframes)
+    if timeframes:
+        signal_timeframes_str = "|".join(sorted(list(timeframes)))
     else:
         signal_timeframes_str = "UNKNOWN"
     
@@ -544,39 +375,31 @@ def main():
 
     trades.to_csv(output_dir / "portfolio_tradelevel.csv", index=False)
 
-    summary = {
-        "portfolio_id": portfolio_id,
-        "realized_pnl": float(trades["pnl"].sum()),
-        "net_pnl_usd": float(trades["pnl"].sum()),  # backward compatibility
-        "max_dd_usd": float(max_dd),
-        "max_dd_pct": float(max_dd_pct),
-        "return_dd_ratio": float(return_dd_ratio),
-        "sharpe": float(sharpe),
-        "cagr": float(cagr),
-        "avg_concurrent": float(concurrency_data['avg_concurrent']),
-        "max_concurrent": int(concurrency_data['max_concurrent']),
-        "p95_concurrent": float(concurrency_data['p95_concurrent']),
-        "dd_max_concurrent": int(concurrency_data['dd_max_concurrent']),
-        "full_load_cluster": bool(concurrency_data['full_load_cluster']),
-        "peak_capital_deployed": float(concurrency_data['peak_capital_deployed']),
-        "capital_overextension_ratio": float(capital_overextension_ratio),
-        "avg_pairwise_corr": float(avg_pairwise_corr),
-        "max_pairwise_corr_stress": float(max_pairwise_corr_stress),
-        "reference_capital_usd": reference_capital,
-        "total_trades": len(trades),
-        "portfolio_net_profit_low_vol": low_pnl,
-        "portfolio_net_profit_normal_vol": normal_pnl,
-        "portfolio_net_profit_high_vol": high_pnl,
-        "signal_timeframes": signal_timeframes_str,
-        "evaluation_timeframe": evaluation_timeframe,
-        # Phase 16 Metrics
-        "k_ratio": float(k_ratio),
-        "win_rate": float(win_rate),
-        "profit_factor": float(profit_factor),
-        "expectancy": float(expectancy),
-        "exposure_pct": float(exposure_pct),
-        "equity_stability_k_ratio": float(equity_stability_k_ratio)
-    }
+    summary = build_run_portfolio_summary(
+        portfolio_id=portfolio_id,
+        trades=trades,
+        max_dd=max_dd,
+        max_dd_pct=max_dd_pct,
+        return_dd_ratio=return_dd_ratio,
+        sharpe=sharpe,
+        cagr=cagr,
+        concurrency_data=concurrency_data,
+        capital_overextension_ratio=capital_overextension_ratio,
+        avg_pairwise_corr=avg_pairwise_corr,
+        max_pairwise_corr_stress=max_pairwise_corr_stress,
+        reference_capital=reference_capital,
+        low_pnl=low_pnl,
+        normal_pnl=normal_pnl,
+        high_pnl=high_pnl,
+        signal_timeframes_str=signal_timeframes_str,
+        evaluation_timeframe=evaluation_timeframe,
+        k_ratio=k_ratio,
+        win_rate=win_rate,
+        profit_factor=profit_factor,
+        expectancy=expectancy,
+        exposure_pct=exposure_pct,
+        equity_stability_k_ratio=equity_stability_k_ratio,
+    )
 
     with open(output_dir / "portfolio_summary.json", "w") as f:
         json.dump(summary, f, indent=4)

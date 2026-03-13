@@ -1,0 +1,45 @@
+{
+    "run_id": "c1c968dac7df",
+    "directive_id": "06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P10",
+    "current_state": "COMPLETE",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-10T13:05:48.419868Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-10T13:05:48.446158Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "STAGE_1_COMPLETE",
+            "timestamp": "2026-03-10T13:05:58.124454Z"
+        },
+        {
+            "from": "STAGE_1_COMPLETE",
+            "to": "STAGE_2_COMPLETE",
+            "timestamp": "2026-03-10T13:05:59.469676Z"
+        },
+        {
+            "from": "STAGE_2_COMPLETE",
+            "to": "STAGE_3_COMPLETE",
+            "timestamp": "2026-03-10T13:06:01.120386Z"
+        },
+        {
+            "from": "STAGE_3_COMPLETE",
+            "to": "STAGE_3A_COMPLETE",
+            "timestamp": "2026-03-10T13:06:01.149527Z"
+        },
+        {
+            "from": "STAGE_3A_COMPLETE",
+            "to": "COMPLETE",
+            "timestamp": "2026-03-10T13:06:01.161265Z"
+        }
+    ],
+    "last_updated": "2026-03-10T13:05:47.461423+00:00",
+    "last_transition": "2026-03-10T13:06:01.161265Z",
+    "signature_hash": "2713a342473e1a35116c40fa1e7ea3413b10949e46cf0966912dd09df265235f"
+}

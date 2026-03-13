@@ -1,0 +1,20 @@
+{
+  "profile": "DYNAMIC_V1",
+  "starting_capital": 10000.0,
+  "final_equity": 12927.75,
+  "cagr": 0.202557,
+  "cagr_pct": 20.2557,
+  "max_drawdown_usd": 1154.44,
+  "max_drawdown_pct": 8.9198,
+  "mar": 2.2709,
+  "total_accepted": 1953,
+  "total_rejected": 0,
+  "rejection_rate_pct": 0.0,
+  "max_concurrent_trades": 6,
+  "configured_concurrency_cap": null,
+  "avg_heat_utilization_pct": 0.2621,
+  "pct_time_at_full_heat": 0.0,
+  "longest_loss_streak": 7,
+  "realized_pnl": 2927.75,
+  "simulation_years": 1.39
+}

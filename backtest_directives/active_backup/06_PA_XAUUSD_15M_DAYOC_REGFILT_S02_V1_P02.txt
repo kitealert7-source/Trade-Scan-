@@ -1,0 +1,52 @@
+execution_rules:
+  stop_loss:
+    type: fixed_usd
+    fixed_points: 50
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.trend.linreg_regime
+- indicators.trend.linreg_regime_htf
+- indicators.trend.kalman_regime
+- indicators.trend.trend_persistence
+- indicators.trend.efficiency_ratio_regime
+- indicators.volatility.volatility_regime
+- indicators.volatility.atr
+- indicators.volatility.atr_percentile
+volatility_filter:
+  type: atr_percentile
+  atr_period: 14
+  lookback_source: previous_day
+  allow_regime: LOW
+  low_threshold_pct: 25
+  window: 100
+state_machine:
+  entry:
+    trigger: first_bar_of_day
+    direction: long_only
+  session_reset: new_day
+  no_reentry_after_stop: true
+exit_rules:
+  type: time_based
+  timing: penultimate_bar_of_day
+position_management:
+  lots: 0.01
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_only
+  max_trades_per_session: 1
+  reentry:
+    allowed: false
+symbols:
+- XAUUSD
+test:
+  name: 06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P02
+  strategy: 06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P02
+  broker: OctaFX
+  timeframe: 15m
+  start_date: '2023-01-01'
+  end_date: '2026-03-01'

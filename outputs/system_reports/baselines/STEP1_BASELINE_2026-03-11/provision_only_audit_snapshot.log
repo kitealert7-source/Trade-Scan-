@@ -1,0 +1,3 @@
+{"timestamp": "2026-03-11T14:27:48.165978+00:00", "event": "RUN_INITIALIZED", "run_id": "e34cef7c56ae", "initial_state": "IDLE"}
+{"timestamp": "2026-03-11T14:27:48.738872+00:00", "event": "STATE_TRANSITION", "run_id": "e34cef7c56ae", "from": "IDLE", "to": "PREFLIGHT_COMPLETE"}
+{"timestamp": "2026-03-11T14:27:48.771519+00:00", "event": "STATE_TRANSITION", "run_id": "e34cef7c56ae", "from": "PREFLIGHT_COMPLETE", "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID"}

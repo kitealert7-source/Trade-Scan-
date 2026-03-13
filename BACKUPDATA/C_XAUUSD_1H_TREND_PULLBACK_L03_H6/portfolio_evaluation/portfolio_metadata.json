@@ -1,0 +1,13 @@
+{
+    "portfolio_id": "C_XAUUSD_1H_TREND_PULLBACK_L03_H6",
+    "creation_timestamp_utc": "2026-03-06T04:14:20.820913",
+    "constituent_run_ids": [
+        "f9cf24233030"
+    ],
+    "reference_capital_usd": 10000.0,
+    "capital_model_version": "v1.0_trade_close_compounding",
+    "portfolio_engine_version": "1.2.1",
+    "schema_version": "1.0",
+    "signal_timeframes": "1h",
+    "evaluation_timeframe": "1D"
+}

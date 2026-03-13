@@ -486,15 +486,45 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
     # The Emitter takes `Stage1Metadata` dataclass.
     # I will strictly follow Emitter for now to avoid breaking it.)
     
-    output_root = PROJECT_ROOT / "backtests"
+    output_root = PROJECT_ROOT / "runs" / run_id / "tmp_emit"
     
     # Directive filename for backup: {DIRECTIVE}_{SYMBOL}.txt
     out_name = f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}.txt"
     
     out_folder = emit_stage1(raw_trades, metadata, directive_content, out_name, output_root, median_bar_seconds)
+    
+    # Consolidate directly into `runs/<run_id>/data/` to match unified architecture
+    final_data_dir = PROJECT_ROOT / "runs" / run_id / "data"
+    
+    import shutil
+    # Move all files from the emitter's `raw/` and `metadata/` into `data/`
+    raw_dir = out_folder / "raw"
+    meta_dir = out_folder / "metadata"
+    
+    for f in raw_dir.glob("*"):
+        shutil.copy2(f, final_data_dir / f.name)
+        
+    for f in meta_dir.glob("*"):
+        shutil.copy2(f, final_data_dir / f.name)
+        
+    # Create derived UI view for legacy Excel Stage 2/3 Compilers
+    ui_view_dir = PROJECT_ROOT / "backtests" / f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}"
+    ui_raw_dir = ui_view_dir / "raw"
+    ui_meta_dir = ui_view_dir / "metadata"
+    ui_raw_dir.mkdir(parents=True, exist_ok=True)
+    ui_meta_dir.mkdir(parents=True, exist_ok=True)
+    
+    for f in raw_dir.glob("*"):
+        shutil.copy2(f, ui_raw_dir / f.name)
+    for f in meta_dir.glob("*"):
+        shutil.copy2(f, ui_meta_dir / f.name)
+        
+    # Clean up emitter tmp directory
+    shutil.rmtree(output_root)
+    out_folder = final_data_dir
 
     # PATCH 3: Enriched Metadata Injection (Post-Emission)
-    meta_path = out_folder / "metadata" / "run_metadata.json"
+    meta_path = out_folder / "run_metadata.json"
     if meta_path.exists():
         with open(meta_path, 'r+', encoding='utf-8') as f:
             data = json.load(f)
@@ -606,7 +636,7 @@ def main():
     print(f"[CONFIG] Atomic Execution: {target_symbol}")
 
     # 5. Atomic Execution
-    summary_csv = PROJECT_ROOT / "backtests" / f"batch_summary_{DIRECTIVE_FILENAME.replace('.txt', '')}.csv"
+    summary_csv_ui = PROJECT_ROOT / "backtests" / f"batch_summary_{DIRECTIVE_FILENAME.replace('.txt', '')}.csv"
     
     print(f"\n>>> PROCESSING: {target_symbol} ...")
     
@@ -650,7 +680,15 @@ def main():
         # --- PHASE 1 GOVERNANCE GUARDRAIL: Pre-execution Snapshot ---
         import shutil
         target_dir = PROJECT_ROOT / "runs" / run_id
+        
+        # EXACT DIRECTORY STRUCTURE ENFORCEMENT & IMMUTABILITY
+        data_dir = target_dir / "data"
+        if data_dir.exists():
+            raise RuntimeError(f"Global Uniqueness Violation: Run data directory already exists for {run_id}.")
+            
         target_dir.mkdir(parents=True, exist_ok=True)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        
         source_file = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
         snapshot_file = target_dir / "strategy.py"
         
@@ -722,12 +760,33 @@ def main():
             # Phase 1: Artifact existence assertion (Stage-0 governance)
             REQUIRED_ARTIFACTS = ["results_tradelevel.csv", "results_standard.csv", "results_risk.csv"]
             for artifact_name in REQUIRED_ARTIFACTS:
-                artifact_path = out_folder / "raw" / artifact_name
+                artifact_path = out_folder / artifact_name
                 if not artifact_path.exists():
                     raise RuntimeError(
                         f"ABORT_GOVERNANCE: Required artifact missing after emission: {artifact_name}"
                     )
-            print("    [GOVERNANCE] All required artifacts verified.")
+                    
+            # Compute deterministic artifact_hash
+            import hashlib
+            hash_contents = []
+            files_to_hash = ["results_tradelevel.csv", "results_standard.csv", "equity_curve.csv"]
+            for fname in files_to_hash:
+                fpath = out_folder / fname
+                if fpath.exists():
+                    hash_contents.append(fpath.read_bytes())
+            
+            artifact_hash = hashlib.sha256(b"".join(hash_contents)).hexdigest()
+            
+            # Inject artifact_hash into run_state
+            if state_file.exists():
+                with open(state_file, 'r+', encoding='utf-8') as f:
+                    state_d = json.load(f)
+                    state_d['artifact_hash'] = artifact_hash
+                    f.seek(0)
+                    json.dump(state_d, f, indent=4)
+                    f.truncate()
+            
+            print(f"    [GOVERNANCE] All required artifacts verified. Hash: {artifact_hash[:8]}...")
         else:
             status = "NO_TRADES"
             print("    [WARN] No trades generated.")
@@ -743,19 +802,30 @@ def main():
     print("ATOMIC EXECUTION SUMMARY")
     print("=" * 60)
     
-    file_exists = summary_csv.exists()
+    summary_data = {
+        "Symbol": target_symbol,
+        "RunID": run_id,
+        "Status": status,
+        "NetPnL": round(net_pnl, 2),
+        "Error": error_msg
+    }
     
-    with open(summary_csv, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["Symbol", "RunID", "Status", "NetPnL", "Error"])
+    # Write to local Run Container
+    run_summary_csv = PROJECT_ROOT / "runs" / run_id / "data" / "batch_summary.csv"
+    if run_summary_csv.parent.exists():
+        with open(run_summary_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(summary_data.keys()))
+            writer.writeheader()
+            writer.writerow(summary_data)
+    
+    # Write derived UI view
+    file_exists = summary_csv_ui.exists()
+    
+    with open(summary_csv_ui, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(summary_data.keys()))
         if not file_exists:
             writer.writeheader()
-        writer.writerow({
-            "Symbol": target_symbol,
-            "RunID": run_id,
-            "Status": status,
-            "NetPnL": round(net_pnl, 2),
-            "Error": error_msg
-        })
+        writer.writerow(summary_data)
             
     print(f"{target_symbol:<10} | {status:<10} | {run_id:<12} | PnL: ${round(net_pnl, 2)}")
     print("=" * 60)

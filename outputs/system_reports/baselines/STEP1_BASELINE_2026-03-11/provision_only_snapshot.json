@@ -1,0 +1,24 @@
+{
+    "scenario":  "provision_only_runtime_snapshot",
+    "source_directive_id":  "TEST_PROVISION_DF6A98B5",
+    "effective_directive_id":  "03_TREND_EURUSD_1D_RSIAVG_S01_V1_P00",
+    "command":  "python tools/run_pipeline.py TEST_PROVISION_DF6A98B5 --provision-only",
+    "exit_code":  0,
+    "contains_tokens":  {
+                            "strategy_provisioned":  true,
+                            "human_review":  true,
+                            "rerun_without":  true,
+                            "stage1_not_started":  true
+                        },
+    "output_log":  "provision_only_stdout.log",
+    "output_sha256":  "1f1e1d08b5f7641474c70b56612f2ce01bd9166640d8e78e871d0188bdafdee4",
+    "run_state_snapshot":  "provision_only_run_state_snapshot.json",
+    "run_state_snapshot_sha256":  "d8f5471dd1db541e41fb71c2fb7a60c1378b55c179ffaa9af6523c06261916bc",
+    "run_audit_snapshot":  "provision_only_audit_snapshot.log",
+    "run_audit_snapshot_sha256":  "87baa5ac3f30f78c440ecc15e4de63d3e0b1346dee991783900600e2c3da0c98",
+    "directive_state_snapshot":  "provision_only_directive_state_snapshot.json",
+    "directive_state_snapshot_sha256":  "d6e5b6e33d0117fb7f39ff6c59de57448a47d888a9cdff4f70da6e9984cb3abe",
+    "directive_audit_snapshot":  "provision_only_directive_audit_snapshot.log",
+    "directive_audit_snapshot_sha256":  "be5f327676320bb9a5564f5bfed637507466404800a82a1b093835668020ea49",
+    "captured_at_utc":  "2026-03-11T14:28:19.1810360Z"
+}

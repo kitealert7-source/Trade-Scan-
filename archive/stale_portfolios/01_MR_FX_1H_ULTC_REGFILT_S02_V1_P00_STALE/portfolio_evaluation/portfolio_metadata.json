@@ -1,0 +1,18 @@
+{
+    "portfolio_id": "01_MR_FX_1H_ULTC_REGFILT_S02_V1_P00",
+    "creation_timestamp_utc": "2026-03-10T12:31:55.984434",
+    "constituent_run_ids": [
+        "37bf8130e0cf",
+        "5ff89b5bb3a7",
+        "61ebea6600ad",
+        "71bc5b3ea832",
+        "cd96c353c347",
+        "f83b6d11cd62"
+    ],
+    "reference_capital_usd": 10000.0,
+    "capital_model_version": "v1.0_trade_close_compounding",
+    "portfolio_engine_version": "1.2.1",
+    "schema_version": "1.0",
+    "signal_timeframes": "1h",
+    "evaluation_timeframe": "1D"
+}

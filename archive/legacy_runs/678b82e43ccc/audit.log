@@ -1,0 +1,11 @@
+{"timestamp": "2026-03-10T14:14:37.020003+00:00", "event": "RUN_INITIALIZED", "run_id": "678b82e43ccc", "initial_state": "IDLE"}
+{"timestamp": "2026-03-10T14:14:37.858997+00:00", "event": "STATE_TRANSITION", "run_id": "678b82e43ccc", "from": "IDLE", "to": "PREFLIGHT_COMPLETE"}
+{"timestamp": "2026-03-10T14:14:37.882579+00:00", "event": "STATE_TRANSITION", "run_id": "678b82e43ccc", "from": "PREFLIGHT_COMPLETE", "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID"}
+{"timestamp": "2026-03-10T14:14:38.684270+00:00", "event": "STATE_TRANSITION", "run_id": "678b82e43ccc", "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID", "to": "STAGE_1_COMPLETE"}
+{"timestamp": "2026-03-10T14:14:41.731517+00:00", "event": "STATE_TRANSITION", "run_id": "678b82e43ccc", "from": "STAGE_1_COMPLETE", "to": "STAGE_2_COMPLETE"}
+{"timestamp": "2026-03-10T14:14:45.966482+00:00", "event": "STATE_TRANSITION", "run_id": "678b82e43ccc", "from": "STAGE_2_COMPLETE", "to": "STAGE_3_COMPLETE"}
+{"timestamp": "2026-03-10T14:14:45.966482+00:00", "event": "SNAPSHOT_VERIFIED", "run_id": "678b82e43ccc", "strategy_hash": "b1a621de302a495473d0fa219645badc18c5a414b26e5479cdc585846e6bd2a8", "source_hash": "b1a621de302a495473d0fa219645badc18c5a414b26e5479cdc585846e6bd2a8"}
+{"timestamp": "2026-03-10T14:14:45.978232+00:00", "event": "ARTIFACT_BOUND", "run_id": "678b82e43ccc", "manifest_path": "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\678b82e43ccc\\STRATEGY_SNAPSHOT.manifest.json", "artifact_hashes": {"results_tradelevel.csv": "84e0229ea7a695785094c24eb53be499b3c00c216244df8a800697704693ad18", "results_standard.csv": "e1a5ef404c7b6b406209b693f9ede25ffef929d5ed323930e6188ec0707210e2", "batch_summary.csv": "eb5303fa48b6ea44803dec213d92f3ea47691e906475bf4c3a12780d42cac8db"}}
+{"timestamp": "2026-03-10T14:14:46.004935+00:00", "event": "STATE_TRANSITION", "run_id": "678b82e43ccc", "from": "STAGE_3_COMPLETE", "to": "STAGE_3A_COMPLETE"}
+{"timestamp": "2026-03-10T14:14:46.024834+00:00", "event": "STATE_TRANSITION", "run_id": "678b82e43ccc", "from": "STAGE_3A_COMPLETE", "to": "COMPLETE"}
+{"timestamp": "2026-03-10T14:14:46.025844+00:00", "event": "RUN_COMPLETE", "run_id": "678b82e43ccc", "status": "SUCCESS"}

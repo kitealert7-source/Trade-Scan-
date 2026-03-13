@@ -22,7 +22,7 @@ def main():
     print(f"Run ID: {rid}")
     
     mgr = PipelineStateManager(rid)
-    manifest_path = mgr.run_dir / "STRATEGY_SNAPSHOT.manifest.json"
+    manifest_path = mgr.run_dir / "manifest.json"
     
     if not manifest_path.exists():
         print("[FAIL] Manifest not found. Run happy path first.")

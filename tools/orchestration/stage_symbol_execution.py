@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from tools.orchestration.transition_service import (
     transition_run_state_sequence,
 )
 from tools.pipeline_utils import PipelineStateManager
+from tools.system_registry import log_run_to_registry
 
 
 def run_symbol_execution_stages(
@@ -137,6 +139,9 @@ def run_symbol_execution_stages(
                 update_run_state(registry_path, clean_id, rid, "FAILED", last_error=str(err))
             except Exception as reg_err:
                 print(f"[WARN] Failed to update registry state for {rid}: {reg_err}")
+            
+            # Master Ledger Update
+            log_run_to_registry(rid, "failed", clean_id)
             raise err
 
     run_command(
@@ -163,6 +168,7 @@ def run_symbol_execution_stages(
                     "FAILED",
                     last_error="Stage-2 artifact missing (AK_Trade_Report_*.xlsx).",
                 )
+                log_run_to_registry(rid, "failed", clean_id)
 
     run_command([python_exe, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
 
@@ -215,12 +221,14 @@ def run_symbol_execution_stages(
             if not snapshot_path.exists():
                 transition_run_state(rid, "FAILED")
                 update_run_state(registry_path, clean_id, rid, "FAILED", last_error="Snapshot file missing.")
+                log_run_to_registry(rid, "failed", clean_id)
                 raise RuntimeError(f"Snapshot missing for {rid}")
 
             source_path = project_root / "strategies" / strategy_id / "strategy.py"
             if not source_path.exists():
                 transition_run_state(rid, "FAILED")
                 update_run_state(registry_path, clean_id, rid, "FAILED", last_error="Source strategy missing.")
+                log_run_to_registry(rid, "failed", clean_id)
                 raise RuntimeError(f"Source strategy missing: {source_path}")
 
             def get_file_hash(path: Path) -> str:
@@ -235,6 +243,7 @@ def run_symbol_execution_stages(
                     "FAILED",
                     last_error="Snapshot integrity mismatch against source strategy.",
                 )
+                log_run_to_registry(rid, "failed", clean_id)
                 raise RuntimeError(
                     f"Snapshot Integrity Mismatch! {rid}/strategy.py != strategies/{strategy_id}/strategy.py"
                 )
@@ -245,11 +254,32 @@ def run_symbol_execution_stages(
                 {"strategy_hash": get_file_hash(snapshot_path), "source_hash": get_file_hash(source_path)},
             )
 
-            bt_dir = project_root / "backtests" / f"{clean_id}_{symbol}"
+            bt_dir = project_root / "runs" / rid / "data"
+            
+            # --- MANDATORY ARTIFACT: EQUITY CURVE GENERATION ---
+            trade_file = bt_dir / "results_tradelevel.csv"
+            equity_file = bt_dir / "equity_curve.csv"
+            if trade_file.exists() and not equity_file.exists():
+                try:
+                    df_t = pd.read_csv(trade_file)
+                    if "pnl_usd" in df_t.columns:
+                        # Deterministic cumulative PnL series starting from $10,000
+                        pnl_series = df_t["pnl_usd"].fillna(0)
+                        equity_series = 10000.0 + pnl_series.cumsum()
+                        df_eq = pd.DataFrame({
+                            "exit_timestamp": df_t.get("exit_timestamp", []),
+                            "equity": equity_series
+                        })
+                        df_eq.to_csv(equity_file, index=False)
+                        print(f"[ORCHESTRATOR] Generated local equity curve for {rid}")
+                except Exception as e:
+                    print(f"[WARN] Failed to auto-generate equity curve for {rid}: {e}")
+
             required_artifacts = {
-                "results_tradelevel.csv": bt_dir / "raw" / "results_tradelevel.csv",
-                "results_standard.csv": bt_dir / "raw" / "results_standard.csv",
-                "batch_summary.csv": project_root / "backtests" / f"batch_summary_{clean_id}.csv",
+                "results_tradelevel.csv": bt_dir / "results_tradelevel.csv",
+                "results_standard.csv": bt_dir / "results_standard.csv",
+                "equity_curve.csv": bt_dir / "equity_curve.csv",
+                "batch_summary.csv": bt_dir / "batch_summary.csv",
             }
             artifacts_manifest: dict[str, str] = {}
             for name, path in required_artifacts.items():
@@ -262,6 +292,7 @@ def run_symbol_execution_stages(
                         "FAILED",
                         last_error=f"Missing required artifact for binding: {path}",
                     )
+                    log_run_to_registry(rid, "failed", clean_id)
                     raise RuntimeError(f"Missing required artifact for binding: {path}")
                 artifacts_manifest[name] = get_file_hash(path)
 
@@ -271,11 +302,20 @@ def run_symbol_execution_stages(
                 "artifacts": artifacts_manifest,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
-            manifest_path = mgr.run_dir / "STRATEGY_SNAPSHOT.manifest.json"
-            with open(manifest_path, "w", encoding="utf-8") as f:
-                json.dump(manifest, f, indent=4)
-
-            print(f"[ORCHESTRATOR] Manifest Bound: {manifest_path}")
+            manifest_path = mgr.run_dir / "manifest.json"
+            
+            # Manifest Freeze Guard
+            if manifest_path.exists() and current == "COMPLETE":
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    existing_manifest = json.load(f)
+                if existing_manifest.get("run_id") == rid and existing_manifest.get("artifacts") == artifacts_manifest:
+                    print(f"[ORCHESTRATOR] Manifest verified (frozen): {manifest_path}")
+                else:
+                    raise RuntimeError(f"[FATAL] Manifest Immutability Violation: Attempted to modify manifest of COMPLETED run {rid}.")
+            else:
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(manifest, f, indent=4)
+                print(f"[ORCHESTRATOR] Manifest Bound: {manifest_path}")
             mgr._append_audit_log(
                 "ARTIFACT_BOUND",
                 {"manifest_path": str(manifest_path), "artifact_hashes": artifacts_manifest},
@@ -283,5 +323,8 @@ def run_symbol_execution_stages(
 
             transition_run_state_sequence(rid, ["STAGE_3A_COMPLETE", "COMPLETE"])
             mgr._append_audit_log("RUN_COMPLETE", {"status": "SUCCESS"})
+            
+            # SUCCESS Master Ledger log
+            log_run_to_registry(rid, "complete", clean_id)
 
     transition_directive_state(clean_id, "SYMBOL_RUNS_COMPLETE")

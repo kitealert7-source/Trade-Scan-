@@ -203,10 +203,19 @@ def _update_existing_strategy(file_path: Path, signature: dict, required_imports
         pattern = re.compile(f"{re.escape(start_marker)}.*?{re.escape(end_marker)}", re.DOTALL)
         content = pattern.sub(new_block, content, count=1)
         
-        # 3. Inject Imports
+        # 3. Remove legacy import path (kept for backward compatibility only).
+        # Canonical source is engines.filter_stack.
+        content = re.sub(
+            r"^\s*from\s+tools\.pipeline_utils\s+import\s+FilterStack\s*$\n?",
+            "",
+            content,
+            flags=re.MULTILINE,
+        )
+
+        # 4. Inject Imports
         content = _insert_imports(content, required_imports)
 
-        # 4. Idempotency Check
+        # 5. Idempotency Check
         if content != original_content:
             file_path.write_text(content, encoding="utf-8")
             print(f"[PROVISION] Updated strategy signature: {file_path}")

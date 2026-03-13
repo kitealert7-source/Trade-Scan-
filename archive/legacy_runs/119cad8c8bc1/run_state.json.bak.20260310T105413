@@ -1,0 +1,24 @@
+{
+    "run_id": "119cad8c8bc1",
+    "directive_id": "01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P02",
+    "current_state": "FAILED",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-10T10:52:31.719757Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-10T10:52:31.796319Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "FAILED",
+            "timestamp": "2026-03-10T10:52:32.828562Z"
+        }
+    ],
+    "last_updated": "2026-03-10T10:52:30.693281+00:00",
+    "last_transition": "2026-03-10T10:52:32.828562Z"
+}

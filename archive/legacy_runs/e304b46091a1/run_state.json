@@ -1,0 +1,45 @@
+{
+    "run_id": "e304b46091a1",
+    "directive_id": "02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S05_V1_P00",
+    "current_state": "COMPLETE",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-10T13:53:12.724627Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-10T13:53:12.753533Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "STAGE_1_COMPLETE",
+            "timestamp": "2026-03-10T13:53:16.413043Z"
+        },
+        {
+            "from": "STAGE_1_COMPLETE",
+            "to": "STAGE_2_COMPLETE",
+            "timestamp": "2026-03-10T13:53:19.850335Z"
+        },
+        {
+            "from": "STAGE_2_COMPLETE",
+            "to": "STAGE_3_COMPLETE",
+            "timestamp": "2026-03-10T13:53:23.986687Z"
+        },
+        {
+            "from": "STAGE_3_COMPLETE",
+            "to": "STAGE_3A_COMPLETE",
+            "timestamp": "2026-03-10T13:53:24.008764Z"
+        },
+        {
+            "from": "STAGE_3A_COMPLETE",
+            "to": "COMPLETE",
+            "timestamp": "2026-03-10T13:53:24.020246Z"
+        }
+    ],
+    "last_updated": "2026-03-10T13:53:11.850128+00:00",
+    "last_transition": "2026-03-10T13:53:24.020246Z",
+    "signature_hash": "de7b7339dc59d62a92762630c92b937c04396c91dd5b7b583b89de14f725ff90"
+}

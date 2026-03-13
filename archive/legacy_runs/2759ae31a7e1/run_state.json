@@ -1,0 +1,45 @@
+{
+    "run_id": "2759ae31a7e1",
+    "directive_id": "01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00",
+    "current_state": "COMPLETE",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-10T12:37:31.387197Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-10T12:37:31.492838Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "STAGE_1_COMPLETE",
+            "timestamp": "2026-03-10T12:37:41.351183Z"
+        },
+        {
+            "from": "STAGE_1_COMPLETE",
+            "to": "STAGE_2_COMPLETE",
+            "timestamp": "2026-03-10T12:37:59.378209Z"
+        },
+        {
+            "from": "STAGE_2_COMPLETE",
+            "to": "STAGE_3_COMPLETE",
+            "timestamp": "2026-03-10T12:38:01.413485Z"
+        },
+        {
+            "from": "STAGE_3_COMPLETE",
+            "to": "STAGE_3A_COMPLETE",
+            "timestamp": "2026-03-10T12:38:01.429642Z"
+        },
+        {
+            "from": "STAGE_3A_COMPLETE",
+            "to": "COMPLETE",
+            "timestamp": "2026-03-10T12:38:01.442889Z"
+        }
+    ],
+    "last_updated": "2026-03-10T12:37:30.296408+00:00",
+    "last_transition": "2026-03-10T12:38:01.442889Z",
+    "signature_hash": "7c029420626e88089b33ca4f5c8b2ec9944e3387c4d03af91bf0c14e638aa22f"
+}

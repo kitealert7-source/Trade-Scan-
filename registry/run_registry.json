@@ -1,0 +1,66 @@
+{
+    "4c4750b00b01": {
+        "run_id": "4c4750b00b01",
+        "tier": "sandbox",
+        "status": "complete",
+        "created_at": "2026-03-12T08:53:05.813114+00:00",
+        "directive_hash": "06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P00",
+        "artifact_hash": "dbb4751bb5efcaf25a06db0f0279cc3619043ac8e82782df18e44d70a694fd77"
+    },
+    "147daf3df628": {
+        "run_id": "147daf3df628",
+        "tier": "sandbox",
+        "status": "failed",
+        "created_at": "2026-03-12T09:05:27.654936+00:00",
+        "directive_hash": "06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P02",
+        "artifact_hash": null
+    },
+    "17952b4c4c05": {
+        "run_id": "17952b4c4c05",
+        "tier": "sandbox",
+        "status": "failed",
+        "created_at": "2026-03-12T09:05:27.670741+00:00",
+        "directive_hash": "06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P01",
+        "artifact_hash": null
+    },
+    "test_partial_run_integrity": {
+        "run_id": "test_partial_run_integrity",
+        "tier": "sandbox",
+        "status": "failed",
+        "created_at": "2026-03-12T09:21:28.209821+00:00",
+        "directive_hash": "test_directive",
+        "artifact_hash": null
+    },
+    "4c4750b00b02": {
+        "run_id": "4c4750b00b02",
+        "tier": "sandbox",
+        "status": "invalid",
+        "created_at": "2026-03-12T16:53:34.142613+00:00",
+        "directive_hash": "recovered",
+        "artifact_hash": null
+    },
+    "6e5f89875315": {
+        "run_id": "6e5f89875315",
+        "tier": "sandbox",
+        "status": "failed",
+        "created_at": "2026-03-12T08:50:56.959825Z",
+        "directive_hash": "01_MR_FX_1D_RSIAVG_TRENDFILT_S50_V1_P00",
+        "artifact_hash": null
+    },
+    "94a7e52e5462": {
+        "run_id": "94a7e52e5462",
+        "tier": "sandbox",
+        "status": "failed",
+        "created_at": "2026-03-12T08:50:57.003873Z",
+        "directive_hash": "01_MR_FX_1D_RSIAVG_TRENDFILT_S50_V1_P00",
+        "artifact_hash": null
+    },
+    "a82fa6e31403": {
+        "run_id": "a82fa6e31403",
+        "tier": "sandbox",
+        "status": "failed",
+        "created_at": "2026-03-12T08:50:56.983595Z",
+        "directive_hash": "01_MR_FX_1D_RSIAVG_TRENDFILT_S50_V1_P00",
+        "artifact_hash": null
+    }
+}

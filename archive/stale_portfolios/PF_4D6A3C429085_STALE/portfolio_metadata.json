@@ -1,0 +1,15 @@
+{
+    "portfolio_id": "PF_4D6A3C429085",
+    "creation_timestamp_utc": "2026-03-10T11:35:20.054672",
+    "constituent_run_ids": [
+        "42f1748cee80"
+    ],
+    "reference_capital_usd": 5000,
+    "capital_per_run_usd": 5000,
+    "capital_model_version": "v1.0_trade_close_compounding",
+    "portfolio_engine_version": "3.0",
+    "rolling_window_length": 252,
+    "schema_version": "1.0",
+    "signal_timeframes": "1h",
+    "evaluation_timeframe": "1D"
+}

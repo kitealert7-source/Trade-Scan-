@@ -19,16 +19,20 @@ import sys
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from datetime import datetime, date as date_type
+from datetime import datetime, date as date_type, timezone
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+from tools.capital_engine import run_simulation as _engine_run_simulation
 
 BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 BROKER_SPECS_ROOT = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
+DIRECTIVES_ROOT = PROJECT_ROOT / "backtest_directives"
+
+FLOAT_TOLERANCE = 1e-9
 
 # ======================================================================
 # CAPITAL PROFILES
@@ -111,6 +115,29 @@ EVENT_TYPE_PRIORITY = {
 # SIGNAL INTEGRITY
 # ===========================================================================
 
+def _normalize_hash_timestamp(entry_timestamp) -> str:
+    """
+    Normalize timestamp input for stable cross-environment signal hashing.
+
+    Output format is always UTC second precision: YYYY-MM-DD HH:MM:SS
+    """
+    if isinstance(entry_timestamp, datetime):
+        dt = entry_timestamp
+    else:
+        token = str(entry_timestamp).strip()
+        if not token:
+            return ""
+        try:
+            dt = datetime.fromisoformat(token.replace("Z", "+00:00"))
+        except ValueError:
+            return token
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def compute_signal_hash(
     symbol: str,
     entry_timestamp,        # datetime or str
@@ -129,8 +156,9 @@ def compute_signal_hash(
     Fields used (order is fixed and must never change):
         symbol | entry_timestamp | direction | entry_price(5dp) | risk_distance(5dp)
     """
+    ts_norm = _normalize_hash_timestamp(entry_timestamp)
     s = (
-        f"{symbol}|{entry_timestamp}|{direction}"
+        f"{symbol}|{ts_norm}|{direction}"
         f"|{entry_price:.5f}|{risk_distance:.5f}"
     )
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
@@ -147,6 +175,12 @@ class TradeEvent:
     entry_price: float
     exit_price: float
     risk_distance: float
+    initial_stop_price: Optional[float] = None
+    atr_entry: Optional[float] = None
+    r_multiple: Optional[float] = None
+    volatility_regime: str = ""
+    trend_regime: str = ""
+    trend_label: str = ""
 
     @property
     def sort_key(self):
@@ -250,7 +284,7 @@ class ConversionLookup:
                 # Build sorted (date, rate) list
                 entries = []
                 for _, row in df.iterrows():
-                    ts = pd.to_datetime(row.get("timestamp", row.get("date")))
+                    ts = pd.to_datetime(row.get("timestamp", row.get("date")), utc=True)
                     close = float(row["close"])
                     if inverted:
                         rate = 1.0 / close if close != 0 else 0.0
@@ -266,7 +300,24 @@ class ConversionLookup:
             except FileNotFoundError:
                 print(f"[WARN] Conversion data not found for {pair_symbol}. Will use YAML fallback for {ccy}.")
 
-    def get_rate(self, currency: str, lookup_date: date_type) -> Optional[float]:
+    @staticmethod
+    def _normalize_lookup_date(lookup_input) -> date_type:
+        """
+        Normalize date or datetime inputs to UTC-trading date.
+
+        Naive datetimes are treated as UTC by contract.
+        """
+        if isinstance(lookup_input, datetime):
+            if lookup_input.tzinfo is None:
+                lookup_input = lookup_input.replace(tzinfo=timezone.utc)
+            else:
+                lookup_input = lookup_input.astimezone(timezone.utc)
+            return lookup_input.date()
+        if isinstance(lookup_input, date_type):
+            return lookup_input
+        raise TypeError(f"Unsupported lookup date type: {type(lookup_input)}")
+
+    def get_rate(self, currency: str, lookup_input) -> Optional[float]:
         """
         Get quote_ccy -> USD rate for a given date.
         Returns None if data unavailable (caller should use YAML fallback).
@@ -279,6 +330,8 @@ class ConversionLookup:
         if dates is None or series is None:
             return None
 
+        lookup_date = self._normalize_lookup_date(lookup_input)
+
         # Bisect to find nearest date <= lookup_date
         idx = bisect.bisect_right(dates, lookup_date) - 1
         if idx < 0:
@@ -289,7 +342,7 @@ class ConversionLookup:
 def get_usd_per_price_unit_dynamic(
     contract_size: float,
     quote_ccy: str,
-    entry_date: date_type,
+    entry_timestamp,
     conv_lookup: ConversionLookup,
     static_fallback: float,
     symbol: str,
@@ -301,7 +354,7 @@ def get_usd_per_price_unit_dynamic(
 
     Returns (value, source) where source is 'DYNAMIC' or 'STATIC_FALLBACK'.
     """
-    rate = conv_lookup.get_rate(quote_ccy, entry_date)
+    rate = conv_lookup.get_rate(quote_ccy, entry_timestamp)
     if rate is not None:
         return contract_size * rate, "DYNAMIC"
     else:
@@ -330,6 +383,12 @@ class OpenTrade:
     target_risk_usd: float = 0.0
     actual_risk_usd: float = 0.0
     risk_multiple: float = 0.0
+    initial_stop_price: Optional[float] = None
+    atr_entry: Optional[float] = None
+    r_multiple: Optional[float] = None
+    volatility_regime: str = ""
+    trend_regime: str = ""
+    trend_label: str = ""
 
 
 # ======================================================================
@@ -514,7 +573,7 @@ class PortfolioState:
         #    a rounding edge case still causes a breach.
         new_risk = self.total_open_risk + trade_risk_usd
         heat_pct = new_risk / self.equity if self.equity > 0 else float('inf')
-        if heat_pct > self.heat_cap:
+        if heat_pct > self.heat_cap + FLOAT_TOLERANCE:
             if self.dynamic_scaling:
                 self._reject(event, "HEAT_CAP_EDGE",
                              f"dynamic_scaled but rounding breach: {heat_pct:.4f} > {self.heat_cap}")
@@ -526,7 +585,7 @@ class PortfolioState:
         # 5. Leverage cap check
         new_notional = self.total_notional + trade_notional
         leverage_ratio = new_notional / self.equity if self.equity > 0 else float('inf')
-        if leverage_ratio > self.leverage_cap:
+        if leverage_ratio > self.leverage_cap + FLOAT_TOLERANCE:
             self._reject(event, "LEVERAGE_CAP",
                          f"would_be={leverage_ratio:.2f}x > cap={self.leverage_cap}x")
             return False
@@ -547,7 +606,13 @@ class PortfolioState:
             risk_override_flag=risk_override,
             target_risk_usd=target_risk,
             actual_risk_usd=trade_risk_usd,
-            risk_multiple=risk_multiple
+            risk_multiple=risk_multiple,
+            initial_stop_price=event.initial_stop_price,
+            atr_entry=event.atr_entry,
+            r_multiple=event.r_multiple,
+            volatility_regime=event.volatility_regime,
+            trend_regime=event.trend_regime,
+            trend_label=event.trend_label,
         )
 
         self.open_trades[event.trade_id] = trade
@@ -605,8 +670,12 @@ class PortfolioState:
 
         # Clamp floating point drift
         if self.total_open_risk < 0:
+            if abs(self.total_open_risk) > FLOAT_TOLERANCE:
+                print(f"[WARN] total_open_risk drift detected ({self.total_open_risk:.12f}); clamped to 0.")
             self.total_open_risk = 0.0
         if self.total_notional < 0:
+            if abs(self.total_notional) > FLOAT_TOLERANCE:
+                print(f"[WARN] total_notional drift detected ({self.total_notional:.12f}); clamped to 0.")
             self.total_notional = 0.0
 
         # Remove trade
@@ -622,6 +691,12 @@ class PortfolioState:
             "entry_price":     trade.entry_price,
             "exit_price":      trade.exit_price,
             "risk_distance":   trade.risk_distance,
+            "initial_stop_price": trade.initial_stop_price,
+            "atr_entry":       trade.atr_entry,
+            "r_multiple":      trade.r_multiple,
+            "volatility_regime": trade.volatility_regime,
+            "trend_regime":    trade.trend_regime,
+            "trend_label":     trade.trend_label,
             "pnl_usd":         round(pnl_usd, 2),
             "entry_timestamp": entry_ts_str,
             "exit_timestamp":  str(event.timestamp),
@@ -677,10 +752,10 @@ class PortfolioState:
         """Check that caps are never breached."""
         if self.equity > 0:
             heat_pct = self.total_open_risk / self.equity
-            if heat_pct > self.heat_cap + 1e-9:
+            if heat_pct > self.heat_cap + FLOAT_TOLERANCE:
                 self._heat_breach = True
             lev_ratio = self.total_notional / self.equity
-            if lev_ratio > self.leverage_cap + 1e-9:
+            if lev_ratio > self.leverage_cap + FLOAT_TOLERANCE:
                 self._leverage_breach = True
         if self.equity < 0:
             self._equity_negative = True
@@ -693,99 +768,15 @@ class PortfolioState:
 def run_simulation(sorted_events: List[TradeEvent], broker_specs: Dict[str, dict],
                    profiles: Optional[Dict[str, dict]] = None,
                    conv_lookup: Optional[ConversionLookup] = None) -> Dict[str, PortfolioState]:
-    """
-    Process all sorted events through one or more PortfolioState objects.
-
-    Phase 6: Uses dynamic USD conversion at entry time when available.
-    Falls back to static YAML calibration if conversion data missing.
-    """
+    """Compatibility wrapper that delegates simulation execution to capital_engine."""
     if profiles is None:
         profiles = PROFILES
-
-    # Build independent states
-    states: Dict[str, PortfolioState] = {}
-    for name, params in profiles.items():
-        states[name] = PortfolioState(
-            profile_name=name,
-            starting_capital=params["starting_capital"],
-            risk_per_trade=params["risk_per_trade"],
-            heat_cap=params["heat_cap"],
-            leverage_cap=params["leverage_cap"],
-            min_lot=params["min_lot"],
-            lot_step=params["lot_step"],
-            concurrency_cap=params.get("concurrency_cap"),
-            fixed_risk_usd=params.get("fixed_risk_usd"),
-            dynamic_scaling=params.get("dynamic_scaling", False),
-            min_position_pct=params.get("min_position_pct", 0.0),
-            min_lot_fallback=params.get("min_lot_fallback", False),
-            max_risk_multiple=params.get("max_risk_multiple", 3.0),
-            track_risk_override=params.get("track_risk_override", False),
-        )
-
-    # Pre-compute per-symbol static fallbacks and contract sizes
-    symbol_static_fallback: Dict[str, float] = {}
-    symbol_contract_size: Dict[str, float] = {}
-    symbol_quote_ccy: Dict[str, str] = {}
-    for sym, spec in broker_specs.items():
-        symbol_static_fallback[sym] = get_usd_per_price_unit_static(spec)
-        symbol_contract_size[sym] = float(spec["contract_size"])
-        _, quote = _parse_fx_currencies(sym)
-        symbol_quote_ccy[sym] = quote if quote else "USD"  # Non-FX defaults to USD
-
-    # Deterministic RNG for collision-shuffle (seed=42).
-    # Eliminates alphabetical ENTRY priority when multiple symbols fire at the
-    # same timestamp, while keeping results fully reproducible across runs.
-    _rng = random.Random(SIMULATION_SEED)
-
-    # Group events by timestamp and process each group:
-    #   1. All EXIT events first  (preserve existing close-before-open behaviour)
-    #   2. ENTRY events in deterministically shuffled order (remove symbol bias)
-    i = 0
-    n = len(sorted_events)
-    while i < n:
-        # Collect all events sharing the current timestamp
-        ts = sorted_events[i].timestamp
-        j = i
-        while j < n and sorted_events[j].timestamp == ts:
-            j += 1
-        group = sorted_events[i:j]
-        i = j
-
-        exits  = [e for e in group if e.event_type == EVENT_TYPE_EXIT]
-        entries = [e for e in group if e.event_type == EVENT_TYPE_ENTRY]
-
-        # Shuffle ENTRY events to remove alphabetical/trade_id ordering bias
-        _rng.shuffle(entries)
-
-        for event in exits + entries:
-            sym = event.symbol
-            if sym not in symbol_contract_size:
-                raise ValueError(f"No broker spec loaded for symbol: {sym}")
-
-            cs = symbol_contract_size[sym]
-
-            if event.event_type == EVENT_TYPE_ENTRY:
-                # Dynamic USD conversion at entry time (Phase 6)
-                if conv_lookup is not None:
-                    usd_per_pu, source = get_usd_per_price_unit_dynamic(
-                        contract_size=cs,
-                        quote_ccy=symbol_quote_ccy[sym],
-                        entry_date=event.timestamp.date(),
-                        conv_lookup=conv_lookup,
-                        static_fallback=symbol_static_fallback[sym],
-                        symbol=sym,
-                    )
-                else:
-                    usd_per_pu = symbol_static_fallback[sym]
-
-                for state in states.values():
-                    state.process_entry(event, usd_per_pu, cs)
-
-            elif event.event_type == EVENT_TYPE_EXIT:
-                for state in states.values():
-                    state.process_exit(event)
-
-    return states
+    return _engine_run_simulation(
+        sorted_events=sorted_events,
+        broker_specs=broker_specs,
+        profiles=profiles,
+        conv_lookup=conv_lookup,
+    )
 
 
 # ======================================================================
@@ -1094,6 +1085,8 @@ def emit_profile_artifacts(state: PortfolioState, output_dir: Path):
         "trade_id", "symbol", "lot_size", "pnl_usd",
         "entry_timestamp", "exit_timestamp", "direction",
         "entry_price", "exit_price", "risk_distance",
+        "initial_stop_price", "atr_entry", "r_multiple",
+        "volatility_regime", "trend_regime", "trend_label",
         "signal_hash",   # 16-char SHA-256 prefix for signal integrity verification
     ]
 
@@ -1180,10 +1173,38 @@ REQUIRED_COLUMNS = [
     "risk_distance",
 ]
 
+OPTIONAL_RECON_COLUMNS = [
+    "initial_stop_price",
+    "atr_entry",
+    "r_multiple",
+    "volatility_regime",
+    "trend_regime",
+    "trend_label",
+]
+
 
 def _parse_ts(ts_str: str) -> datetime:
-    """Parse ISO-ish timestamp string to datetime."""
+    """
+    Parse timestamp string to timezone-aware UTC datetime.
+
+    Naive timestamps are treated as UTC.
+    """
     ts_str = ts_str.strip()
+    if not ts_str:
+        raise ValueError("Empty timestamp")
+
+    # Fast-path for ISO forms (supports offsets and trailing 'Z').
+    iso_guess = ts_str.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(iso_guess)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed
+    except ValueError:
+        pass
+
     for fmt in (
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%dT%H:%M:%S",
@@ -1192,10 +1213,22 @@ def _parse_ts(ts_str: str) -> datetime:
         "%Y-%m-%d",
     ):
         try:
-            return datetime.strptime(ts_str, fmt)
+            parsed = datetime.strptime(ts_str, fmt)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                parsed = parsed.astimezone(timezone.utc)
+            return parsed
         except ValueError:
             continue
     raise ValueError(f"Cannot parse timestamp: '{ts_str}'")
+
+
+def _optional_float(raw: str) -> Optional[float]:
+    token = str(raw).strip()
+    if token == "" or token.lower() == "none":
+        return None
+    return float(token)
 
 
 def load_trades(run_dirs: List[Path]) -> list:
@@ -1222,6 +1255,9 @@ def load_trades(run_dirs: List[Path]) -> list:
                             f"[FATAL] {csv_path} trade {row.get('parent_trade_id','?')} "
                             f"has empty required field: '{col}'"
                         )
+                for col in OPTIONAL_RECON_COLUMNS:
+                    if col not in row:
+                        row[col] = ""
                 all_trades.append(row)
 
     print(f"[LOAD] Total trades loaded: {len(all_trades)}")
@@ -1243,6 +1279,12 @@ def build_events(trades: list) -> List[TradeEvent]:
         entry_price = float(t["entry_price"])
         exit_price = float(t["exit_price"])
         risk_distance = float(t["risk_distance"])
+        initial_stop_price = _optional_float(t.get("initial_stop_price", ""))
+        atr_entry = _optional_float(t.get("atr_entry", ""))
+        r_multiple = _optional_float(t.get("r_multiple", ""))
+        volatility_regime = str(t.get("volatility_regime", "")).strip()
+        trend_regime = str(t.get("trend_regime", "")).strip()
+        trend_label = str(t.get("trend_label", "")).strip()
         entry_ts = _parse_ts(t["entry_timestamp"])
         exit_ts = _parse_ts(t["exit_timestamp"])
 
@@ -1251,12 +1293,24 @@ def build_events(trades: list) -> List[TradeEvent]:
             trade_id=trade_id, symbol=symbol, direction=direction,
             entry_price=entry_price, exit_price=exit_price,
             risk_distance=risk_distance,
+            initial_stop_price=initial_stop_price,
+            atr_entry=atr_entry,
+            r_multiple=r_multiple,
+            volatility_regime=volatility_regime,
+            trend_regime=trend_regime,
+            trend_label=trend_label,
         ))
         events.append(TradeEvent(
             timestamp=exit_ts, event_type=EVENT_TYPE_EXIT,
             trade_id=trade_id, symbol=symbol, direction=direction,
             entry_price=entry_price, exit_price=exit_price,
             risk_distance=risk_distance,
+            initial_stop_price=initial_stop_price,
+            atr_entry=atr_entry,
+            r_multiple=r_multiple,
+            volatility_regime=volatility_regime,
+            trend_regime=trend_regime,
+            trend_label=trend_label,
         ))
 
     print(f"[BUILD] Total events created: {len(events)}  (expected: {len(trades) * 2})")
@@ -1312,6 +1366,72 @@ def print_events(events: List[TradeEvent], label: str, first_n: int = 20, last_n
 
 
 # ======================================================================
+# DIRECTIVE-DRIVEN RUN DISCOVERY
+# ======================================================================
+
+def _find_directive_file(strategy_prefix: str) -> Optional[Path]:
+    candidates = [
+        DIRECTIVES_ROOT / "completed" / f"{strategy_prefix}.txt",
+        DIRECTIVES_ROOT / "active" / f"{strategy_prefix}.txt",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def _load_declared_symbols(directive_file: Path) -> List[str]:
+    payload = yaml.safe_load(directive_file.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"Directive root is not a mapping: {directive_file}")
+
+    symbols = payload.get("symbols")
+    if symbols is None and isinstance(payload.get("test"), dict):
+        symbols = payload["test"].get("symbols")
+
+    if isinstance(symbols, str):
+        symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+    if not isinstance(symbols, list):
+        raise ValueError(f"Directive has no valid symbols list: {directive_file}")
+
+    clean = sorted({str(s).strip().upper() for s in symbols if str(s).strip()})
+    if not clean:
+        raise ValueError(f"Directive symbols list is empty: {directive_file}")
+    return clean
+
+
+def discover_run_dirs(strategy_prefix: str) -> Tuple[List[Path], Optional[Path], List[str]]:
+    """
+    Resolve run directories from directive-declared symbols.
+
+    Falls back to prefix scan only if no directive file is found.
+    """
+    directive_file = _find_directive_file(strategy_prefix)
+    if directive_file is None:
+        run_dirs = sorted([
+            d for d in BACKTESTS_ROOT.iterdir()
+            if d.is_dir() and d.name.startswith(strategy_prefix)
+        ])
+        return run_dirs, None, []
+
+    declared_symbols = _load_declared_symbols(directive_file)
+    run_dirs: List[Path] = []
+    missing: List[str] = []
+    for sym in declared_symbols:
+        run_dir = BACKTESTS_ROOT / f"{strategy_prefix}_{sym}"
+        if run_dir.is_dir():
+            run_dirs.append(run_dir)
+        else:
+            missing.append(str(run_dir))
+    if missing:
+        raise FileNotFoundError(
+            "Missing backtest directories for directive-declared symbols:\n"
+            + "\n".join(f"  - {m}" for m in missing)
+        )
+    return sorted(run_dirs), directive_file, declared_symbols
+
+
+# ======================================================================
 # MAIN
 # ======================================================================
 
@@ -1329,16 +1449,18 @@ def main():
     prefix = args.strategy_prefix
 
     # Discover run directories
-    run_dirs = sorted([
-        d for d in BACKTESTS_ROOT.iterdir()
-        if d.is_dir() and d.name.startswith(prefix)
-    ])
+    run_dirs, directive_file, declared_symbols = discover_run_dirs(prefix)
     if not run_dirs:
         print(f"[FATAL] No backtest directories found matching prefix: {prefix}")
         sys.exit(1)
 
     print(f"[INIT] Strategy prefix: {prefix}")
     print(f"[INIT] Matched {len(run_dirs)} run directories")
+    if directive_file is not None:
+        print(f"[INIT] Directive source: {directive_file}")
+        print(f"[INIT] Declared symbols: {declared_symbols}")
+    else:
+        print("[WARN] No directive found; using prefix-scan discovery (unfrozen universe).")
 
     # Phase 2: Load â†’ Build â†’ Sort
     trades = load_trades(run_dirs)
@@ -1347,6 +1469,16 @@ def main():
 
     # Discover unique symbols and load broker specs
     symbols = sorted(set(e.symbol for e in sorted_events))
+    if declared_symbols:
+        missing_in_events = sorted(set(declared_symbols) - set(symbols))
+        extra_in_events = sorted(set(symbols) - set(declared_symbols))
+        if missing_in_events or extra_in_events:
+            print("[FATAL] Symbol mismatch between directive and event stream.")
+            if missing_in_events:
+                print(f"  Missing in events: {missing_in_events}")
+            if extra_in_events:
+                print(f"  Unexpected in events: {extra_in_events}")
+            sys.exit(1)
     print(f"[INIT] Symbols detected: {symbols}")
 
     broker_specs = {}

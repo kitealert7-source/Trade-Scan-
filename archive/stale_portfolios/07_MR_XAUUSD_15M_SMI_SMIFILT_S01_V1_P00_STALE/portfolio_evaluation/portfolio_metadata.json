@@ -1,0 +1,13 @@
+{
+    "portfolio_id": "07_MR_XAUUSD_15M_SMI_SMIFILT_S01_V1_P00",
+    "creation_timestamp_utc": "2026-03-10T08:10:03.128101",
+    "constituent_run_ids": [
+        "bb14f9f39e68"
+    ],
+    "reference_capital_usd": 10000.0,
+    "capital_model_version": "v1.0_trade_close_compounding",
+    "portfolio_engine_version": "1.2.1",
+    "schema_version": "1.0",
+    "signal_timeframes": "15m",
+    "evaluation_timeframe": "1D"
+}

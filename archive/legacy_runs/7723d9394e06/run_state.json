@@ -1,0 +1,45 @@
+{
+    "run_id": "7723d9394e06",
+    "directive_id": "02_VOL_NAS100_1D_VOLEXP_ATRFILT_S02_V1_P00",
+    "current_state": "COMPLETE",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-10T14:14:28.686080Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-10T14:14:28.716826Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "STAGE_1_COMPLETE",
+            "timestamp": "2026-03-10T14:14:29.294695Z"
+        },
+        {
+            "from": "STAGE_1_COMPLETE",
+            "to": "STAGE_2_COMPLETE",
+            "timestamp": "2026-03-10T14:14:30.483876Z"
+        },
+        {
+            "from": "STAGE_2_COMPLETE",
+            "to": "STAGE_3_COMPLETE",
+            "timestamp": "2026-03-10T14:14:32.039703Z"
+        },
+        {
+            "from": "STAGE_3_COMPLETE",
+            "to": "STAGE_3A_COMPLETE",
+            "timestamp": "2026-03-10T14:14:32.057958Z"
+        },
+        {
+            "from": "STAGE_3A_COMPLETE",
+            "to": "COMPLETE",
+            "timestamp": "2026-03-10T14:14:32.069932Z"
+        }
+    ],
+    "last_updated": "2026-03-10T14:14:27.840018+00:00",
+    "last_transition": "2026-03-10T14:14:32.069932Z",
+    "signature_hash": "8d1ad64e3175337c012f1be1821ba16935153f0b94d0196b1bca4c97d1535cb4"
+}

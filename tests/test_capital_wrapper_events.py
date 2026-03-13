@@ -8,7 +8,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools.capital_wrapper import (
     load_trades, build_events, sort_events, run_simulation,
-    ConversionLookup, _parse_fx_currencies,
+    ConversionLookup, _parse_fx_currencies, _parse_ts,
     BROKER_SPECS_ROOT
 )
 
@@ -116,6 +116,56 @@ class TestCapitalWrapperEvents(unittest.TestCase):
             s2 = states_dynamic_2[name]
             self.assertAlmostEqual(s1.equity, s2.equity, places=2)
             self.assertEqual(s1.total_accepted, s2.total_accepted)
+
+    def test_parse_ts_normalizes_to_utc(self):
+        naive = _parse_ts("2026-01-01 10:30:00")
+        offset = _parse_ts("2026-01-01T16:00:00+05:30")
+        self.assertIsNotNone(naive.tzinfo)
+        self.assertIsNotNone(offset.tzinfo)
+        self.assertEqual(naive.tzinfo.utcoffset(naive).total_seconds(), 0.0)
+        self.assertEqual(offset.tzinfo.utcoffset(offset).total_seconds(), 0.0)
+        self.assertEqual(naive, offset)
+
+    def test_reconstruction_fields_are_carried_to_closed_log(self):
+        trades = [{
+            "strategy_name": "TEST_STRAT",
+            "parent_trade_id": "1",
+            "symbol": "EURUSD",
+            "entry_timestamp": "2026-01-01 10:00:00",
+            "exit_timestamp": "2026-01-01 12:00:00",
+            "direction": "1",
+            "entry_price": "1.1000",
+            "exit_price": "1.1050",
+            "risk_distance": "0.0050",
+            "initial_stop_price": "1.0950",
+            "atr_entry": "0.0020",
+            "r_multiple": "1.0",
+            "volatility_regime": "normal",
+            "trend_regime": "up",
+            "trend_label": "bullish",
+        }]
+        events = sort_events(build_events(trades))
+        with open(BROKER_SPECS_ROOT / "EURUSD.yaml", "r") as f:
+            broker_specs = {"EURUSD": yaml.safe_load(f)}
+        states = run_simulation(events, broker_specs, profiles={
+            "TEST": {
+                "starting_capital": 10000.0,
+                "risk_per_trade": 0.005,
+                "heat_cap": 0.5,
+                "leverage_cap": 50,
+                "min_lot": 0.01,
+                "lot_step": 0.01,
+            }
+        })
+        closed = states["TEST"].closed_trades_log
+        self.assertEqual(len(closed), 1)
+        row = closed[0]
+        self.assertEqual(float(row["initial_stop_price"]), 1.0950)
+        self.assertEqual(float(row["atr_entry"]), 0.0020)
+        self.assertEqual(float(row["r_multiple"]), 1.0)
+        self.assertEqual(row["volatility_regime"], "normal")
+        self.assertEqual(row["trend_regime"], "up")
+        self.assertEqual(row["trend_label"], "bullish")
 
 if __name__ == "__main__":
     unittest.main()

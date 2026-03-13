@@ -1,0 +1,15 @@
+{
+    "portfolio_id": "01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P02",
+    "creation_timestamp_utc": "2026-03-10T10:55:15.470256",
+    "constituent_run_ids": [
+        "086209fd883f",
+        "102227d4d603",
+        "119cad8c8bc1"
+    ],
+    "reference_capital_usd": 10000.0,
+    "capital_model_version": "v1.0_trade_close_compounding",
+    "portfolio_engine_version": "1.2.1",
+    "schema_version": "1.0",
+    "signal_timeframes": "1d",
+    "evaluation_timeframe": "1D"
+}

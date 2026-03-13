@@ -18,6 +18,10 @@ import yaml
 from yaml.loader import SafeLoader
 from yaml.resolver import BaseResolver
 
+# Backward compatibility: legacy strategy stubs imported FilterStack from
+# tools.pipeline_utils. Canonical location is engines.filter_stack.
+from engines.filter_stack import FilterStack
+
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
@@ -224,7 +228,7 @@ def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
 
     # Lineage String
     lineage_str = f"{content_hash}_{symbol}_{timeframe}_{broker}_{engine_ver}_{test_name}"
-    run_id = hashlib.sha256(lineage_str.encode()).hexdigest()[:12]
+    run_id = hashlib.sha256(lineage_str.encode()).hexdigest()[:24]
 
     return run_id, content_hash
 

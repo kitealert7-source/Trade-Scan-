@@ -1,0 +1,20 @@
+{
+  "profile": "CONSERVATIVE_V1",
+  "starting_capital": 10000.0,
+  "final_equity": 10543.76,
+  "cagr": 0.038742,
+  "cagr_pct": 3.8742,
+  "max_drawdown_usd": 685.22,
+  "max_drawdown_pct": 6.483,
+  "mar": 0.5976,
+  "total_accepted": 2102,
+  "total_rejected": 8,
+  "rejection_rate_pct": 0.38,
+  "max_concurrent_trades": 5,
+  "configured_concurrency_cap": null,
+  "avg_heat_utilization_pct": 0.1619,
+  "pct_time_at_full_heat": 0.0,
+  "longest_loss_streak": 10,
+  "realized_pnl": 543.76,
+  "simulation_years": 1.39
+}

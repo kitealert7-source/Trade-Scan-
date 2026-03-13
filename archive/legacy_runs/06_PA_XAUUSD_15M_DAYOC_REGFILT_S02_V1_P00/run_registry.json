@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "directive_id": "06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P00",
+  "updated_at": "2026-03-12T08:53:03.055178+00:00",
+  "runs": [
+    {
+      "run_id": "4c4750b00b01",
+      "strategy": "06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P00",
+      "symbol": "XAUUSD",
+      "state": "COMPLETE",
+      "attempts": 1,
+      "last_error": null,
+      "updated_at": "2026-03-12T08:53:03.055178+00:00"
+    }
+  ]
+}

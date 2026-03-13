@@ -1,0 +1,13 @@
+{
+    "portfolio_id": "06_PA_XAUUSD_5M_DAYOC_REGFILT_S01_V1_P00",
+    "creation_timestamp_utc": "2026-03-10T13:09:21.924589",
+    "constituent_run_ids": [
+        "ebe59eff9635"
+    ],
+    "reference_capital_usd": 10000.0,
+    "capital_model_version": "v1.0_trade_close_compounding",
+    "portfolio_engine_version": "1.2.1",
+    "schema_version": "1.0",
+    "signal_timeframes": "5m",
+    "evaluation_timeframe": "1D"
+}

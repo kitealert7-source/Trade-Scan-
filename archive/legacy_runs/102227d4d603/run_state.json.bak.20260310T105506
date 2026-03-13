@@ -1,0 +1,35 @@
+{
+    "run_id": "102227d4d603",
+    "directive_id": "01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P02",
+    "current_state": "FAILED",
+    "history": [
+        {
+            "from": "IDLE",
+            "to": "PREFLIGHT_COMPLETE",
+            "timestamp": "2026-03-10T10:54:15.985372Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE",
+            "to": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "timestamp": "2026-03-10T10:54:16.043271Z"
+        },
+        {
+            "from": "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "to": "STAGE_1_COMPLETE",
+            "timestamp": "2026-03-10T10:54:16.704786Z"
+        },
+        {
+            "from": "STAGE_1_COMPLETE",
+            "to": "STAGE_2_COMPLETE",
+            "timestamp": "2026-03-10T10:54:20.850276Z"
+        },
+        {
+            "from": "STAGE_2_COMPLETE",
+            "to": "FAILED",
+            "timestamp": "2026-03-10T10:54:20.915134Z"
+        }
+    ],
+    "last_updated": "2026-03-10T10:54:15.028232+00:00",
+    "last_transition": "2026-03-10T10:54:20.915134Z",
+    "signature_hash": "8dd7beab7f7129640e0889d4b89cc8a11b6f0f591595c36723a713f63c902d15"
+}
