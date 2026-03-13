@@ -25,6 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Governance Imports
 from tools.pipeline_utils import PipelineStateManager
+from config.state_paths import BACKTESTS_DIR, RUNS_DIR
 
 # ==================================================================
 # CONSTANTS & CONFIG
@@ -884,8 +885,8 @@ def main():
     
     if args.scan:
         directive_name = args.scan
-        backtests_root = PROJECT_ROOT / "backtests"
-        runs_root = PROJECT_ROOT / "runs" # For governance
+        backtests_root = BACKTESTS_DIR
+        runs_root = RUNS_DIR # For governance
         
         if not backtests_root.exists():
             print(f"[FAIL] Backtests directory not found: {backtests_root}")

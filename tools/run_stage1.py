@@ -26,6 +26,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Governance Imports
 from tools.pipeline_utils import PipelineStateManager, generate_run_id, parse_directive, get_engine_version
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR
 
 # --- CONFIGURATION TO BE PARSED FROM DIRECTIVE ---
 # Default placeholders, will be overridden by parsing
@@ -224,7 +225,7 @@ def load_strategy(strategy_id: str, run_id: str = None):
     
     # Validation
     if run_id:
-        plugin_path = PROJECT_ROOT / "runs" / run_id / "strategy.py"
+        plugin_path = RUNS_DIR / run_id / "strategy.py"
         module_path = f"runs.{run_id}.strategy"
     else:
         plugin_path = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
@@ -236,7 +237,7 @@ def load_strategy(strategy_id: str, run_id: str = None):
     # --- INVARIANT 10: Research Layer Boundary Guard ---
     resolved = plugin_path.resolve()
     strategies_root = (PROJECT_ROOT / "strategies").resolve()
-    runs_root = (PROJECT_ROOT / "runs").resolve()
+    runs_root = RUNS_DIR.resolve()
     if not str(resolved).startswith(str(strategies_root)) and not str(resolved).startswith(str(runs_root)):
         raise RuntimeError(
             f"[FATAL] Boundary Violation: Strategy path '{resolved}' "
@@ -486,7 +487,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
     # The Emitter takes `Stage1Metadata` dataclass.
     # I will strictly follow Emitter for now to avoid breaking it.)
     
-    output_root = PROJECT_ROOT / "runs" / run_id / "tmp_emit"
+    output_root = RUNS_DIR / run_id / "tmp_emit"
     
     # Directive filename for backup: {DIRECTIVE}_{SYMBOL}.txt
     out_name = f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}.txt"
@@ -494,7 +495,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
     out_folder = emit_stage1(raw_trades, metadata, directive_content, out_name, output_root, median_bar_seconds)
     
     # Consolidate directly into `runs/<run_id>/data/` to match unified architecture
-    final_data_dir = PROJECT_ROOT / "runs" / run_id / "data"
+    final_data_dir = RUNS_DIR / run_id / "data"
     
     import shutil
     # Move all files from the emitter's `raw/` and `metadata/` into `data/`
@@ -508,7 +509,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         shutil.copy2(f, final_data_dir / f.name)
         
     # Create derived UI view for legacy Excel Stage 2/3 Compilers
-    ui_view_dir = PROJECT_ROOT / "backtests" / f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}"
+    ui_view_dir = BACKTESTS_DIR / f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}"
     ui_raw_dir = ui_view_dir / "raw"
     ui_meta_dir = ui_view_dir / "metadata"
     ui_raw_dir.mkdir(parents=True, exist_ok=True)
@@ -636,7 +637,7 @@ def main():
     print(f"[CONFIG] Atomic Execution: {target_symbol}")
 
     # 5. Atomic Execution
-    summary_csv_ui = PROJECT_ROOT / "backtests" / f"batch_summary_{DIRECTIVE_FILENAME.replace('.txt', '')}.csv"
+    summary_csv_ui = BACKTESTS_DIR / f"batch_summary_{DIRECTIVE_FILENAME.replace('.txt', '')}.csv"
     
     print(f"\n>>> PROCESSING: {target_symbol} ...")
     
@@ -679,7 +680,7 @@ def main():
         
         # --- PHASE 1 GOVERNANCE GUARDRAIL: Pre-execution Snapshot ---
         import shutil
-        target_dir = PROJECT_ROOT / "runs" / run_id
+        target_dir = RUNS_DIR / run_id
         
         # EXACT DIRECTORY STRUCTURE ENFORCEMENT & IMMUTABILITY
         data_dir = target_dir / "data"
@@ -811,7 +812,7 @@ def main():
     }
     
     # Write to local Run Container
-    run_summary_csv = PROJECT_ROOT / "runs" / run_id / "data" / "batch_summary.csv"
+    run_summary_csv = RUNS_DIR / run_id / "data" / "batch_summary.csv"
     if run_summary_csv.parent.exists():
         with open(run_summary_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=list(summary_data.keys()))

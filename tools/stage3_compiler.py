@@ -21,33 +21,12 @@ from datetime import datetime
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-"""
-Stage-3 Aggregation Engine — Strategy Master Filter Population
-Governed by: SOP_OUTPUT §6
-
-This engine is READ-ONLY (for inputs), COPY-ONLY, and APPEND-ONLY (for Master Sheet).
-No computation, derivation, inference, or ranking is performed.
-Values are treated as opaque scalars — no conversion or cleaning.
-Rewritten to use pandas and Unified Formatter (Zero OpenPyXL Styling / Imports).
-
-Authority: SOP_OUTPUT
-State Gated: Yes (STAGE_3_START)
-"""
-
-import json
-import sys
-import subprocess
-from pathlib import Path
-import pandas as pd
-from datetime import datetime
-
-# Config
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 
 # Governance Imports
 from tools.pipeline_utils import PipelineStateManager
+from config.state_paths import SANDBOX_DIR, BACKTESTS_DIR, RUNS_DIR
+
+BACKTESTS_ROOT = BACKTESTS_DIR
 
 # Column schema per SOP_OUTPUT §6 (exact order)
 MASTER_FILTER_COLUMNS = [
@@ -311,8 +290,7 @@ def get_existing_master_df(master_filter_path):
         return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
 
 def enforce_strategy_persistence(run_id: str):
-    strategies_root = PROJECT_ROOT / "runs"
-    strategy_dir = strategies_root / run_id
+    strategy_dir = RUNS_DIR / run_id
     if not strategy_dir.exists():
         print(f"  [WARN] Strategy persistence check failed: runs/{run_id} missing. Proceeding (Legacy Run).")
         return
@@ -357,7 +335,7 @@ def compile_stage3(strategy_filter=None):
     if discovery_rejected:
         print(f"Rejected at discovery: {len(discovery_rejected)}")
     
-    master_filter_path = BACKTESTS_ROOT / "Strategy_Master_Filter.xlsx"
+    master_filter_path = SANDBOX_DIR / "Strategy_Master_Filter.xlsx"
     df_master = get_existing_master_df(master_filter_path)
     
     # Ensure IN_PORTFOLIO exists
@@ -381,10 +359,10 @@ def compile_stage3(strategy_filter=None):
              state_mgr = PipelineStateManager(run_id)
              state_mgr.verify_state("STAGE_2_COMPLETE")
         except Exception as e:
-            msg = f"Governance Fail: {e}"
-            skipped.append({"strategy": strategy, "run_id": run_id, "reason": msg})
-            print(f"  SKIPPED: {strategy} [{run_id[:8]}] - {msg}")
-            continue
+             msg = f"Governance Fail: {e}"
+             skipped.append({"strategy": strategy, "run_id": run_id, "reason": msg})
+             print(f"  SKIPPED: {strategy} [{run_id[:8]}] - {msg}")
+             continue
         # ------------------------
         
         if run_id in existing_ids:

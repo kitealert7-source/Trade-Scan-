@@ -6,6 +6,7 @@ import csv as _csv
 import hashlib
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 
 from tools.orchestration.pipeline_errors import PipelineExecutionError
 from tools.orchestration.transition_service import (
@@ -13,6 +14,7 @@ from tools.orchestration.transition_service import (
     transition_run_state,
 )
 from tools.pipeline_utils import PipelineStateManager
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR
 
 
 def run_portfolio_and_post_stages(
@@ -37,7 +39,7 @@ def run_portfolio_and_post_stages(
             raise RuntimeError(f"[FATAL] Portfolio Dependency Guard: Run {rid} is missing from registry.")
             
         # 2. Check Physical Existence
-        run_folder = project_root / "runs" / rid
+        run_folder = RUNS_DIR / rid
         if not run_folder.exists():
             raise RuntimeError(f"[FATAL] Portfolio Dependency Guard: Run {rid} is missing from filesystem.")
             
@@ -53,12 +55,12 @@ def run_portfolio_and_post_stages(
         with open(manifest_path, "r") as f:
             manifest = json.load(f)
 
-        bt_dir = project_root / "backtests" / f"{clean_id}_{symbol}"
+        bt_dir = BACKTESTS_DIR / f"{clean_id}_{symbol}"
         required_artifacts = {
             "results_tradelevel.csv": bt_dir / "raw" / "results_tradelevel.csv",
             "results_standard.csv": bt_dir / "raw" / "results_standard.csv",
             "equity_curve.csv": bt_dir / "raw" / "equity_curve.csv",
-            "batch_summary.csv": project_root / "backtests" / f"batch_summary_{clean_id}.csv",
+            "batch_summary.csv": BACKTESTS_DIR / f"batch_summary_{clean_id}.csv",
         }
         manifest_keys = set(manifest["artifacts"].keys())
         required_keys = set(required_artifacts.keys())
@@ -82,7 +84,7 @@ def run_portfolio_and_post_stages(
 
     run_command([python_exe, "tools/portfolio_evaluator.py", clean_id], "Stage-4 Evaluation")
 
-    portfolio_ledger_path = project_root / "strategies" / "Master_Portfolio_Sheet.xlsx"
+    portfolio_ledger_path = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
     if not portfolio_ledger_path.exists():
         raise PipelineExecutionError(
             f"Stage-4 ledger artifact missing: {portfolio_ledger_path}",
@@ -144,11 +146,11 @@ def run_portfolio_and_post_stages(
     try:
         from tools.report_generator import generate_backtest_report, generate_strategy_portfolio_report
 
-        backtest_root = project_root / "backtests"
+        backtest_root = BACKTESTS_DIR
         strategy_id = p_conf.get("Strategy", p_conf.get("strategy"))
         print("[ORCHESTRATOR] Generating Deterministic Markdown Reports...")
         generate_backtest_report(clean_id, backtest_root)
-        generate_strategy_portfolio_report(clean_id, project_root)
+        generate_strategy_portfolio_report(clean_id, project_root) # project_root here for code? usually reports go to outputs/ or repo
         if strategy_id and strategy_id != clean_id:
             generate_strategy_portfolio_report(strategy_id, project_root)
     except Exception as rep_err:
@@ -185,7 +187,7 @@ def run_portfolio_and_post_stages(
 
     try:
         print("[ORCHESTRATOR] Running Step 9: Deployable Artifact Verification...")
-        deploy_root = project_root / "strategies" / clean_id / "deployable"
+        deploy_root = STRATEGIES_DIR / clean_id / "deployable"
         profiles = ["CONSERVATIVE_V1", "DYNAMIC_V1", "FIXED_USD_V1"]
         step9_failures = []
 

@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 import importlib.util
+from config.state_paths import RUNS_DIR
 
 import yaml
 from yaml.loader import SafeLoader
@@ -27,7 +28,7 @@ from engines.filter_stack import FilterStack
 # ==============================================================================
 
 PROJECT_ROOT = Path(__file__).parent.parent
-RUNS_DIR = PROJECT_ROOT / "runs"
+# RUNS_DIR imported from config.state_paths
 
 # ==============================================================================
 # CANONICAL HASHING & RUN ID
@@ -173,7 +174,7 @@ def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
     # -------------------------------------------------------------------------
     # RUN ID HASH — computed from the LEGACY flat-parser output, frozen.
     #
-    # ⚠️  DO NOT CHANGE THIS LOGIC. Changing it invalidates ALL existing run IDs,
+    # \u26a0\ufe0f  DO NOT CHANGE THIS LOGIC. Changing it invalidates ALL existing run IDs,
     #     requiring a full re-run of every directive. The legacy flat parser is
     #     kept here as an internal private function purely for hash stability.
     #     It is NOT used for directive config access anywhere else.
@@ -285,13 +286,13 @@ class PipelineStateManager:
                       Append-only; does not participate in governance gates.
         """
         # Idempotency guard: only skip reset when state is exactly
-        # PREFLIGHT_COMPLETE_SEMANTICALLY_VALID — the state provision-only
+        # PREFLIGHT_COMPLETE_SEMANTICALLY_VALID \u2014 the state provision-only
         # leaves runs at. All other non-IDLE states fall through to the
         # existing reset-to-IDLE logic, preserving the re-init contract
         # tested by TestInitializeResetHistory.
         current = self.get_state_data().get("current_state")
         if current == "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID":
-            return  # Provision-only resume — do not reset
+            return  # Provision-only resume \u2014 do not reset
 
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -317,8 +318,8 @@ class PipelineStateManager:
                  with open(self.state_file, 'r', encoding='utf-8') as f:
                      existing_data = json.load(f)
                  # Capture old_state BEFORE overwriting current_state so history
-                 # records the true prior state (e.g. STAGE_3_COMPLETE → IDLE)
-                 # not the post-mutation value (IDLE → IDLE).
+                 # records the true prior state (e.g. STAGE_3_COMPLETE \u2192 IDLE)
+                 # not the post-mutation value (IDLE \u2192 IDLE).
                  old_state = existing_data.get("current_state", "UNKNOWN")
                  existing_data["history"].append({
                      "from": old_state,

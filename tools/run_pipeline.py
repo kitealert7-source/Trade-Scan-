@@ -50,7 +50,9 @@ ACTIVE_DIR = DIRECTIVES_DIR / "active"
 COMPLETED_DIR = DIRECTIVES_DIR / "completed"
 
 # Governance Imports
+
 sys.path.insert(0, str(PROJECT_ROOT))
+from config.state_paths import initialize_state_directories, RUNS_DIR, STRATEGIES_DIR, QUARANTINE_DIR
 from tools.pipeline_utils import (
     PipelineStateManager, 
     DirectiveStateManager,
@@ -68,7 +70,6 @@ from tools.orchestration.pipeline_errors import (
 from tools.orchestration.pipeline_stages import (
     run_preflight_semantic_checks,
     run_symbol_execution_stages,
-    run_portfolio_and_post_stages,
 )
 from tools.orchestration.pre_execution import (
     find_directive_path,
@@ -82,8 +83,8 @@ from tools.system_registry import reconcile_registry, _load_registry
 
 def enforce_run_schema(project_root: Path):
     """Guardrail: Verify every run container v2 structure."""
-    runs_dir = project_root / "runs"
-    quarantine_dir = project_root / "quarantine" / "runs"
+    runs_dir = RUNS_DIR
+    quarantine_dir = QUARANTINE_DIR / "runs"
     
     if not runs_dir.exists():
         return
@@ -93,7 +94,10 @@ def enforce_run_schema(project_root: Path):
         if not run_folder.is_dir():
             continue
             
-        # Standard v2 requirements
+        # Standard v2 requirements apply only to run containers (24-char hex IDs)
+        # Directive state folders (e.g. 01_MR_...) should be exempted.
+        if len(run_folder.name) != 24:
+            continue
         required = ["data", "manifest.json", "run_state.json"]
         missing = [req for req in required if not (run_folder / req).exists()]
         
@@ -138,7 +142,7 @@ def gate_registry_consistency():
 def verify_manifest_integrity(project_root: Path):
     """Guardrail: Verify that manifest hashes match physical files at startup."""
     print("[GUARDRAIL] Verifying Manifest Integrity (Startup Hash Check)...")
-    runs_dir = project_root / "runs"
+    runs_dir = RUNS_DIR
     if not runs_dir.exists():
         return
 
@@ -176,9 +180,62 @@ def verify_manifest_integrity(project_root: Path):
         raise PipelineAdmissionPause("Manifest integrity violation. Pipeline halted to prevent corrupt data propagation.")
 
 
+def verify_tools_timestamp_guard(project_root: Path):
+    """Guardrail: Ensure no protected tools were modified after manifest generation."""
+    manifest_path = project_root / "tools" / "tools_manifest.json"
+    if not manifest_path.exists():
+        return
+
+    manifest_mtime = manifest_path.stat().st_mtime
+    
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+            
+        file_hashes = manifest.get("file_hashes", {})
+        for filename in file_hashes:
+            # Resolve relative to PROJECT_ROOT as per hardening scope
+            filepath = project_root / filename
+            # Fallback: maintain compatibility with current manifest (contained in 'tools/')
+            if not filepath.exists():
+                filepath = project_root / "tools" / filename
+                
+            if filepath.exists():
+                if filepath.stat().st_mtime > manifest_mtime:
+                    raise PipelineExecutionError(
+                        f"Tool modified after manifest generation: {filename}. "
+                        "Run python tools/generate_guard_manifest.py",
+                        fail_directive=False,
+                        fail_runs=False
+                    )
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"[WARN] Failed to parse tools manifest for timestamp check: {e}")
+    except PipelineExecutionError:
+        raise
+    except Exception as e:
+        print(f"[WARN] Tools timestamp guard encountered an error: {e}")
+
+
+def verify_directive_uniqueness_guard(directive_id: str):
+    """Guardrail: Prevent reuse of already executed directive names."""
+    registry = _load_registry()
+    if not registry:
+        return
+
+    for entry in registry.values():
+        if entry.get("directive_id") == directive_id:
+            raise PipelineExecutionError(
+                f"Directive already executed: {directive_id}. "
+                "Create a new directive version before running the pipeline.",
+                directive_id=directive_id,
+                fail_directive=False,
+                fail_runs=False
+            )
+
+
 def detect_strategy_drift(project_root: Path):
     """Guardrail: Detect untracked modification in strategies/."""
-    strat_dir = project_root / "strategies"
+    strat_dir = STRATEGIES_DIR
     if not strat_dir.exists():
         return
 
@@ -264,6 +321,9 @@ def run_single_directive(directive_id, provision_only=False):
     # 1. Parsing
     d_path = get_directive_path(directive_id)
     clean_id = d_path.stem 
+    
+    # 1.1 Uniqueness Check
+    verify_directive_uniqueness_guard(clean_id)
     
     print(f"[CONFIG] Directive: {d_path.name}")
     
@@ -488,7 +548,8 @@ def run_single_directive(directive_id, provision_only=False):
                 registry_path=registry_path,
             )
             
-        print("[ORCHESTRATOR] Portfolio Creation Decoupled. Returning.")
+        print("[ORCHESTRATOR] Candidate generation complete. Pipeline stopping at research boundary.")
+        return
     except PipelineError:
         raise
     except Exception as e:
@@ -555,7 +616,9 @@ def main():
     provision_only = "--provision-only" in sys.argv[2:]
 
     try:
+        initialize_state_directories()
         print("[ORCHESTRATOR] Initializing Startup Guardrails...")
+        verify_tools_timestamp_guard(PROJECT_ROOT)
         enforce_run_schema(PROJECT_ROOT)
         detect_strategy_drift(PROJECT_ROOT)
         gate_registry_consistency()
@@ -587,4 +650,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.colors import LinearSegmentedColormap
 from tools.pipeline_utils import get_engine_version
+from config.state_paths import BACKTESTS_DIR, RUNS_DIR
 from tools.portfolio_core import (
     compute_concurrency_series as core_compute_concurrency_series,
     load_trades_for_portfolio_evaluator as core_load_trades_for_portfolio_evaluator,
@@ -41,7 +42,7 @@ from tools.portfolio_core import (
 # CONFIG
 # ------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).parent.parent
-BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
+BACKTESTS_ROOT = BACKTESTS_DIR
 STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
 TOTAL_PORTFOLIO_CAPITAL = 10000.0
 RISK_FREE_RATE = 0.0  # For Sharpe/Sortino

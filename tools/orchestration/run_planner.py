@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tools.orchestration.run_registry import ensure_registry
 from tools.pipeline_utils import generate_run_id
+from config.state_paths import RUNS_DIR
 
 
 def plan_runs_for_directive(
@@ -36,6 +37,6 @@ def plan_runs_for_directive(
             }
         )
 
-    registry_path = project_root / "runs" / directive_id / "run_registry.json"
+    registry_path = RUNS_DIR / directive_id / "run_registry.json"
     merged = ensure_registry(registry_path, directive_id, planned_runs)
     return merged, registry_path

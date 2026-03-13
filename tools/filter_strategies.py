@@ -11,9 +11,16 @@ import os
 import sys
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl import load_workbook
+from pathlib import Path
 
-MASTER_SHEET = "backtests/Strategy_Master_Filter.xlsx"
-PASSED_SHEET = "backtests/Filtered_Strategies_Passed.xlsx"
+# Config
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from config.state_paths import MASTER_FILTER_PATH, CANDIDATE_FILTER_PATH
+
+MASTER_SHEET = MASTER_FILTER_PATH
+PASSED_SHEET = CANDIDATE_FILTER_PATH
 
 def apply_data_validation(file_path):
     """
@@ -125,7 +132,7 @@ def filter_strategies():
     passed_df["IN_PORTFOLIO"] = False
     passed_df = passed_df[master_cols] 
 
-    temp_passed = PASSED_SHEET.replace(".xlsx", "_TEMP.xlsx")
+    temp_passed = str(PASSED_SHEET).replace(".xlsx", "_TEMP.xlsx")
     newly_appended = 0
     total_rows_in_ledger = 0
 

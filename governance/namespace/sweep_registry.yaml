@@ -57,6 +57,12 @@ ideas:
             directive_name: 01_MR_FX_1H_ULTC_REGFILT_S07_V1_P03
             signature_hash: addede29078d087c
             reserved_at_utc: '2026-03-08T03:55:13.625852+00:00'
+          P04:
+            directive_name: 01_MR_FX_1H_ULTC_REGFILT_S07_V1_P04
+            signature_hash: afde04f38e244fd4
+            reserved_at_utc: '2026-03-13T06:36:14.019456+00:00'
+            signature_hash_full: afde04f38e244fd42a997403620f3e53d07e5c5e4479599a4bd8f9b41bd2cdc3
+        signature_hash_full: afde04f38e244fd42a997403620f3e53d07e5c5e4479599a4bd8f9b41bd2cdc3
       S08:
         directive_name: 01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00
         signature_hash: 7c029420626e8808

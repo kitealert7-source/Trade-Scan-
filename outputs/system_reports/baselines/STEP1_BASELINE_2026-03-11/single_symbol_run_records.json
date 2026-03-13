@@ -1,9 +1,0 @@
-﻿{
-    "run_id":  "7723d9394e06",
-    "current_state":  "COMPLETE",
-    "history_len":  7,
-    "run_state_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\7723d9394e06\\run_state.json",
-    "run_state_sha256":  "4c0f825120d5e760eb8508e0fbcd5a5281b8c3062da8aa22d09ff66c702bbbf0",
-    "audit_log_path":  "C:\\Users\\faraw\\Documents\\Trade_Scan\\runs\\7723d9394e06\\audit.log",
-    "audit_log_sha256":  "06e82b99f144ca2b961a4b44b9c5f27017885da9cde6d05299c5631db7801ed4"
-}

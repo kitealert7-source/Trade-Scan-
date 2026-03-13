@@ -34,3 +34,24 @@ Thumbs.db
 # (No ignores under vault unless explicitly added later)
 
 tmp/
+
+# External runtime state
+../TradeScan_State/
+
+# Runtime folders
+sandbox/
+reports_summary/
+
+# Local directive safety
+backtest_directives/active/*.txt
+!backtest_directives/active/README.md
+
+# Data artifacts
+*.parquet
+*.h5
+*.pickle
+
+# Environment metadata
+.claude/
+.agents/
+.vscode/

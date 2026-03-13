@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import importlib
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,8 @@ from tools.orchestration.transition_service import (
 )
 from tools.pipeline_utils import PipelineStateManager
 from tools.system_registry import log_run_to_registry
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, MASTER_FILTER_PATH
+from config.engine_loader import get_active_engine
 
 
 def run_symbol_execution_stages(
@@ -40,7 +43,7 @@ def run_symbol_execution_stages(
     """Execute stage-0.9 through stage-3A and close symbol runs."""
     strategy_id = p_conf.get("Strategy", p_conf.get("strategy")) or clean_id
     if registry_path is None:
-        registry_path = project_root / "runs" / clean_id / "run_registry.json"
+        registry_path = RUNS_DIR / clean_id / "run_registry.json"
 
     if not registry_path.exists():
         ensure_registry(
@@ -71,7 +74,7 @@ def run_symbol_execution_stages(
         in ("IDLE", "PREFLIGHT_COMPLETE", "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID")
         for rid in run_ids
     )
-    summary_csv = project_root / "backtests" / f"batch_summary_{clean_id}.csv"
+    summary_csv = BACKTESTS_DIR / f"batch_summary_{clean_id}.csv"
     if summary_csv.exists() and any_stage1_rerun:
         summary_csv.unlink()
 
@@ -123,7 +126,7 @@ def run_symbol_execution_stages(
 
             run_skill("backtest_execution", strategy=clean_id, symbol=symbol, run_id=rid)
 
-            out_folder = project_root / "backtests" / f"{clean_id}_{symbol}"
+            out_folder = BACKTESTS_DIR / f"{clean_id}_{symbol}"
             if not (out_folder / "raw" / "results_tradelevel.csv").exists():
                 raise RuntimeError(f"[FATAL] Stage-1 artifact missing for {symbol}. (Probable NO_TRADES).")
 
@@ -144,8 +147,25 @@ def run_symbol_execution_stages(
             log_run_to_registry(rid, "failed", clean_id)
             raise err
 
+    # Engine Version Registry Resolution
+    try:
+        active_engine = get_active_engine()
+    except Exception as e:
+        raise PipelineExecutionError(f"Engine Resolution Failed: {e}", directive_id=clean_id)
+
+    engine_module = f"engine_dev.universal_research_engine.{active_engine}.stage2_compiler"
+    
+    # Safety Check: Verify module existence via importlib
+    try:
+        importlib.import_module(engine_module)
+    except ImportError:
+        raise PipelineExecutionError(
+            f"Configured engine version '{active_engine}' does not exist. (Module {engine_module} not found).",
+            directive_id=clean_id
+        )
+
     run_command(
-        [python_exe, "-m", "engine_dev.universal_research_engine.v1_4_0.stage2_compiler", "--scan", clean_id],
+        [python_exe, "-m", engine_module, "--scan", clean_id],
         "Stage-2 Compilation",
     )
 
@@ -153,7 +173,7 @@ def run_symbol_execution_stages(
         mgr = PipelineStateManager(rid)
         current = mgr.get_state_data()["current_state"]
         if current in ("STAGE_1_COMPLETE", "STAGE_2_COMPLETE"):
-            run_folder = project_root / "backtests" / f"{clean_id}_{symbol}"
+            run_folder = BACKTESTS_DIR / f"{clean_id}_{symbol}"
             ak_reports = list(run_folder.glob("AK_Trade_Report_*.xlsx"))
             if ak_reports:
                 if current != "STAGE_2_COMPLETE":
@@ -172,7 +192,7 @@ def run_symbol_execution_stages(
 
     run_command([python_exe, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
 
-    master_filter_path = project_root / "backtests" / "Strategy_Master_Filter.xlsx"
+    master_filter_path = MASTER_FILTER_PATH
     if not master_filter_path.exists():
         raise PipelineExecutionError(
             f"Stage-3 artifact missing: {master_filter_path}",
@@ -222,8 +242,7 @@ def run_symbol_execution_stages(
                 transition_run_state(rid, "FAILED")
                 update_run_state(registry_path, clean_id, rid, "FAILED", last_error="Snapshot file missing.")
                 log_run_to_registry(rid, "failed", clean_id)
-                raise RuntimeError(f"Snapshot missing for {rid}")
-
+                # 2. Binding (Verification of Hash)
             source_path = project_root / "strategies" / strategy_id / "strategy.py"
             if not source_path.exists():
                 transition_run_state(rid, "FAILED")
@@ -254,7 +273,7 @@ def run_symbol_execution_stages(
                 {"strategy_hash": get_file_hash(snapshot_path), "source_hash": get_file_hash(source_path)},
             )
 
-            bt_dir = project_root / "runs" / rid / "data"
+            bt_dir = RUNS_DIR / rid / "data"
             
             # --- MANDATORY ARTIFACT: EQUITY CURVE GENERATION ---
             trade_file = bt_dir / "results_tradelevel.csv"
@@ -279,7 +298,7 @@ def run_symbol_execution_stages(
                 "results_tradelevel.csv": bt_dir / "results_tradelevel.csv",
                 "results_standard.csv": bt_dir / "results_standard.csv",
                 "equity_curve.csv": bt_dir / "equity_curve.csv",
-                "batch_summary.csv": bt_dir / "batch_summary.csv",
+                # "batch_summary.csv": bt_dir / "batch_summary.csv",
             }
             artifacts_manifest: dict[str, str] = {}
             for name, path in required_artifacts.items():
@@ -324,7 +343,7 @@ def run_symbol_execution_stages(
             transition_run_state_sequence(rid, ["STAGE_3A_COMPLETE", "COMPLETE"])
             mgr._append_audit_log("RUN_COMPLETE", {"status": "SUCCESS"})
             
-            # SUCCESS Master Ledger log
+            # SUCCESS Master Ledger update
             log_run_to_registry(rid, "complete", clean_id)
 
     transition_directive_state(clean_id, "SYMBOL_RUNS_COMPLETE")

@@ -301,28 +301,39 @@ def run_preflight(
 
         # --- UPGRADE: Temporal Range Assertion ---
         try:
-            df_start = pd.read_csv(matching_files[0], nrows=1)
-            df_end = pd.read_csv(matching_files[-1]).tail(1)
+            df_start = pd.read_csv(matching_files[0], nrows=1, comment='#')
+            df_end = pd.read_csv(matching_files[-1], comment='#').tail(1)
             
             t_col = 'time' if 'time' in df_start else 'timestamp'
             avail_start = pd.to_datetime(df_start[t_col].iloc[0], dayfirst=True, format='mixed')
             avail_end = pd.to_datetime(df_end[t_col].iloc[0], dayfirst=True, format='mixed')
             
+            # Normalize to naive UTC for comparison
+            if avail_start.tzinfo is not None:
+                avail_start = avail_start.tz_convert('UTC').tz_localize(None)
+            if avail_end.tzinfo is not None:
+                avail_end = avail_end.tz_convert('UTC').tz_localize(None)
+            
             req_start = pd.to_datetime(resolved_scope["start_date"])
             req_end = pd.to_datetime(resolved_scope["end_date"])
+            
+            if req_start.tzinfo is not None:
+                req_start = req_start.tz_convert('UTC').tz_localize(None)
+            if req_end.tzinfo is not None:
+                req_end = req_end.tz_convert('UTC').tz_localize(None)
             
             if avail_start > req_start or avail_end < req_end:
                 error_lines = [
                     "[DATA_GATE] DATA_RANGE_INSUFFICIENT",
                     f"symbol: {sym}",
                     f"timeframe: {timeframe}",
-                    f"requested: {req_start.date()} \u2192 {req_end.date()}",
-                    f"available: {avail_start.date()} \u2192 {avail_end.date()}"
+                    f"requested: {req_start.date()} -> {req_end.date()}",
+                    f"available: {avail_start.date()} -> {avail_end.date()}"
                 ]
                 if avail_start > req_start:
-                    error_lines.append(f"missing start: {req_start.date()} \u2192 {avail_start.date()}")
+                    error_lines.append(f"missing start: {req_start.date()} -> {avail_start.date()}")
                 if avail_end < req_end:
-                    error_lines.append(f"missing end: {avail_end.date()} \u2192 {req_end.date()}")
+                    error_lines.append(f"missing end: {avail_end.date()} -> {req_end.date()}")
                 
                 return ("BLOCK_EXECUTION", "\n".join(error_lines), None)
         except Exception as e:

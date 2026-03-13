@@ -1,2 +1,0 @@
-{"timestamp": "2026-03-12T08:48:28.177724+00:00", "event": "DIRECTIVE_INITIALIZED", "directive_id": "01_MR_FX_1D_RSIAVG_TRENDFILT_S50_V1_P00"}
-{"timestamp": "2026-03-12T08:48:33.087712+00:00", "event": "STATE_TRANSITION", "directive_id": "01_MR_FX_1D_RSIAVG_TRENDFILT_S50_V1_P00", "from": "INITIALIZED", "to": "FAILED"}

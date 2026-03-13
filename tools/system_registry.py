@@ -5,8 +5,10 @@ from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
 
+from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR
+
 PROJECT_ROOT = Path(__file__).parent.parent
-REGISTRY_PATH = PROJECT_ROOT / "registry" / "run_registry.json"
+REGISTRY_PATH = REGISTRY_DIR / "run_registry.json"
 
 def _load_registry() -> dict:
     if not REGISTRY_PATH.exists():
@@ -42,7 +44,7 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
     reg = _load_registry()
     
     # Try to extract the computed artifact_hash from run_state
-    state_file = PROJECT_ROOT / "runs" / run_id / "run_state.json"
+    state_file = RUNS_DIR / run_id / "run_state.json"
     artifact_hash = None
     if state_file.exists():
         try:
@@ -55,7 +57,7 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
     # If the run already exists, update status and possibly hash. Otherwise create new tier: sandbox.
     if status == "complete":
         # Verification Guard: Ensure core artifacts exist physically
-        run_dir = PROJECT_ROOT / "runs" / run_id
+        run_dir = RUNS_DIR / run_id
         required = [
             run_dir / "manifest.json",
             run_dir / "data" / "results_tradelevel.csv",
@@ -84,7 +86,7 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
 
 def get_active_portfolio_runs() -> set:
     """Scan strategies/ for portfolio_composition.json files and collect active dependencies."""
-    strategies_dir = PROJECT_ROOT / "strategies"
+    strategies_dir = STRATEGIES_DIR
     if not strategies_dir.exists():
         return set()
         
@@ -112,7 +114,7 @@ def reconcile_registry() -> dict:
         dict: Mismatch details for callers (e.g., gates).
     """
     reg = _load_registry()
-    runs_dir = PROJECT_ROOT / "runs"
+    runs_dir = RUNS_DIR
     
     results = {
         "orphaned_on_disk": [],
