@@ -31,7 +31,7 @@ These are non-negotiable. The agent must never violate any of these.
 1. **Ledger Supremacy** — `Master_Portfolio_Sheet.xlsx` and `Strategy_Master_Filter.xlsx` are append-only. No deletion. No overwrite.
 2. **Fail-Fast** — Any failure at any stage aborts the entire pipeline. No partial progression. No continuation after error.
 3. **Artifact Authority** — All gating decisions derive from physical artifact existence and content, not memory or cache.
-4. **Snapshot Immutability** — `runs/<RUN_ID>/strategy.py` and `STRATEGY_SNAPSHOT.manifest.json` are write-once. No mutation after creation.
+4. **Snapshot Immutability** — `TradeScan_State/runs/<RUN_ID>/strategy.py` and `STRATEGY_SNAPSHOT.manifest.json` are write-once. No mutation after creation.
 5. **State Machine Integrity** — `run_state.json` transitions are strictly forward. FAILED is terminal. Re-provisioning is the only recovery.
 6. **Directive Integrity** — Directives in `backtest_directives/active/` are not modified by the pipeline. Only moved to `completed/` on success.
 7. **Deterministic Execution** — Same directive + same data = same output. No randomness. No inference. No implicit defaults.
@@ -51,6 +51,7 @@ These are non-negotiable. The agent must never violate any of these.
 21. **Namespace Governance** — Directive identity must satisfy `filename == test.name == test.strategy` and pass `tools/namespace_gate.py` (pattern, token dictionaries, alias policy, idea-family registry match) at Stage -0.30.
 22. **Sweep Registry Integrity** — Sweeps are reserved through `tools/sweep_registry_gate.py` at Stage -0.35. Existing sweep reuse is allowed only for exact idempotent matches (same directive + same signature hash); all other reuse is blocked as collision.
 23. **Symbol Universe Admission** — Preflight must confirm each symbol exists in broker specs and has RESEARCH data for the declared broker/timeframe before Stage-1 execution.
+24. **Clean Repository Rule** — The Trade_Scan repository is immutable during pipeline execution. All runtime artifacts (runs, registries, backtests, reports, sandbox outputs) must be written exclusively to `TradeScan_State/`. Any tool or workflow attempting to write runtime artifacts inside the repository constitutes a governance violation.
 
 ---
 
@@ -108,7 +109,7 @@ Stage-0.75: Dry-Run Validation
     │
     ▼
 Stage-1: Run-Registry Worker Execution (per planned run)
-    ├── Plan run set to `runs/<DIRECTIVE_ID>/run_registry.json`
+    ├── Plan run set to `TradeScan_State/registry/run_registry.json`
     ├── Claim `PLANNED` run -> mark `RUNNING`
     ├── Data Load (RESEARCH only)
     ├── Engine Execution Loop
@@ -176,7 +177,7 @@ Step 10: Robustness Suite (observational research)
 ### Step 11: Research Insight Extraction (Optional, Manual)
 
 Review the generated report:
-`backtests/<DIRECTIVE>/REPORT_SUMMARY.md`
+`TradeScan_State/backtests/<DIRECTIVE>/REPORT_SUMMARY.md`
 
 If meaningful strategic insight is discovered, propose appending a structured entry to `RESEARCH_MEMORY.md` including:
 
