@@ -29,7 +29,11 @@
       "Bash(python -m tools.robustness.cli 01_MR_FX_1H_ULTC_REGFILT_S09_V1_P00 --profile CONSERVATIVE_V1 --suite full)",
       "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S10_V1_P00 --steps stage1)",
       "Bash(python tools/run_pipeline.py 01_MR_FX_1H_ULTC_REGFILT_S11_V1_P00)",
-      "Bash(python tools/reset_directive.py 01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P00 --reason \"Remove rolling\\(\\) from comment too\")"
+      "Bash(python tools/reset_directive.py 01_MR_FX_1D_RSIAVG_TRENDFILT_S01_V1_P00 --reason \"Remove rolling\\(\\) from comment too\")",
+      "Bash(python tools/verify_collision_fix.py)",
+      "Bash(findstr /V \"CONV WARN LOAD\")",
+      "Bash(python -c \"import sys; [print\\(l, end=''''''''\\) for l in sys.stdin if not l.startswith\\(''''[CONV''''\\) and not l.startswith\\(''''[WARN''''\\) and not l.startswith\\(''''[LOAD''''\\) and not l.startswith\\(''''[INIT''''\\)]\")",
+      "Bash(python -c \"import sys; [print\\(l,end=''''''''\\) for l in sys.stdin if not any\\(l.startswith\\(x\\) for x in [''''[CONV'''',''''[WARN'''',''''[LOAD'''',''''[INIT'''']\\)]\")"
     ]
   }
 }
