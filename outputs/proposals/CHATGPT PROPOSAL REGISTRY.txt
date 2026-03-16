@@ -1,0 +1,228 @@
+ID: P-002
+Title: Run Integrity Audit (Automatic Detection of Anomalous Runs)
+
+Status: Proposed
+Origin: ChatGPT
+Date: 2026-03-14
+Priority: High
+
+Description:
+Introduce an automated Run Integrity Audit that validates completed runs for structural anomalies before they are accepted into the research dataset.
+
+The audit will detect abnormal conditions such as:
+- Extremely long trade durations
+- Infinite hold situations
+- Trade timestamps outside session boundaries
+- Unrealistic performance metrics caused by logic errors
+- Trade counts below statistical viability thresholds
+
+The audit would run after Stage-3 aggregation and before candidate promotion.
+
+Reason:
+During the recent pipeline audit an "Infinite Hold" bug caused trades to remain open for months, generating unrealistic metrics (PF > 100). Detecting these anomalies automatically would prevent corrupted runs from entering the research dataset.
+
+Implementation Scope:
+Add a lightweight validation step that checks:
+- max_trade_duration
+- trades_per_day bounds
+- equity curve anomalies
+- timestamp ordering
+- session boundary violations
+
+If violations are detected the run is flagged or rejected before promotion.
+
+Non-Goals:
+This system will not modify trade data or attempt to correct runs. It only flags or blocks structurally invalid results.
+
+Decision:
+Pending implementation once the research pipeline stabilizes after the current lifecycle changes.
+
+
+ID: P-003
+Title: Run Comparison & Series Analysis Tool
+
+Status: Proposed
+Origin: ChatGPT
+Date: 2026-03-14
+Priority: Medium
+
+Description:
+Create a tool that compares multiple runs of the same strategy or parameter series to automatically identify performance improvements or degradations.
+
+The tool will analyze sequences such as:
+
+P00
+P01
+P02
+P03
+
+and produce a structured comparison showing how key metrics evolve across the series.
+
+Outputs may include:
+- Return/DD progression
+- Sharpe progression
+- Trade count stability
+- Drawdown changes
+- Regime sensitivity differences
+
+Reason:
+Currently, run comparison is performed manually in Excel. As the number of runs increases, manual inspection becomes slow and error-prone.
+
+Automating series comparison will significantly accelerate hypothesis testing and parameter tuning.
+
+Implementation Scope:
+A standalone tool (e.g. tools/run_series_compare.py) that:
+
+1. Reads Strategy_Master_Filter.xlsx or the DuckDB results store
+2. Groups runs by strategy prefix
+3. Orders runs by parameter suffix (P00, P01, P02…)
+4. Generates a comparison report or CSV
+
+Example output:
+
+strategy_series_report.csv
+
+Fields could include:
+- run_id
+- parameter_version
+- return_dd_ratio
+- sharpe
+- max_drawdown
+- trade_count
+- delta_vs_previous_run
+
+Non-Goals:
+This tool will not modify runs or perform optimization. It only provides structured analysis of existing results.
+
+Decision:
+Deferred until the pipeline lifecycle and reporting layers are fully stabilized.
+
+
+ID: P-003
+Title: Run Series Comparison Tool
+
+Status: Proposed
+Origin: ChatGPT
+Date: 2026-03-14
+Priority: Medium
+
+Description:
+Develop a tool that automatically compares runs belonging to the same strategy series (e.g., P00, P01, P02, P03) to analyze performance progression across parameter variants.
+
+The tool will read the central results store (DuckDB / Strategy_Master_Filter) and group runs by strategy prefix, then sort by parameter suffix to build a structured comparison report.
+
+Reason:
+Currently run comparison is done manually in Excel. As the number of runs increases, manual inspection becomes slow and inconsistent. Automated comparison will accelerate research iteration and parameter testing.
+
+Implementation Scope:
+Create a standalone tool (e.g., tools/run_series_compare.py) that:
+
+1. Reads strategy runs from the master filter or DuckDB.
+2. Groups runs by strategy prefix.
+3. Orders runs by parameter version (P00, P01, P02…).
+4. Computes progression metrics between runs.
+
+Example metrics:
+- return_dd_ratio progression
+- sharpe progression
+- max_drawdown change
+- trade_count stability
+- delta_vs_previous_run
+
+Example output:
+series_comparison_report.csv
+
+Fields:
+run_id
+strategy
+parameter_version
+return_dd_ratio
+sharpe_ratio
+max_drawdown
+trade_count
+delta_return_dd
+delta_sharpe
+
+Non-Goals:
+The tool will not perform optimization or modify runs. It only analyzes completed runs.
+
+Decision:
+Deferred until the research pipeline lifecycle and reporting layers are fully stabilized.
+
+
+ID: P-004
+Title: HTF Indicator Projection Standardization
+
+Status: Proposed
+Origin: ChatGPT
+Date: 2026-03-16
+Priority: Medium
+
+Description:
+Introduce a centralized engine utility for projecting higher-timeframe (HTF) indicators onto the strategy execution timeframe. Currently, strategies implement HTF indicator logic independently using resample → indicator calculation → shift → reindex → forward-fill patterns.
+
+This proposal standardizes HTF indicator computation through a single deterministic engine function.
+
+Example conceptual interface:
+
+compute_htf_indicator(df, indicator_fn, timeframe="1H")
+
+The engine utility would internally handle:
+
+timeframe resampling
+
+indicator calculation
+
+anti-lookahead shifting
+
+index projection to the base timeframe
+
+forward filling
+
+Strategies would then request HTF indicators through this standardized utility rather than implementing the logic locally.
+
+Reason:
+Currently each strategy embeds its own HTF resample/shift/projection logic. This creates three risks:
+
+Inconsistent HTF implementations across strategies
+
+Potential look-ahead bias if shifting is incorrectly applied
+
+Non-deterministic Strategy Provisioner output due to duplicated code patterns
+
+Centralizing HTF projection ensures that all strategies compute higher timeframe indicators using identical logic.
+
+Implementation Scope:
+
+Create a utility module (for example):
+
+engines/htf_projection.py
+
+Function responsibilities:
+
+Accept base timeframe dataframe
+
+Resample to requested HTF
+
+Compute indicator
+
+Apply mandatory anti-lookahead shift
+
+Project values back to base timeframe
+
+Forward fill safely
+
+Strategies would then call the utility rather than embedding HTF logic.
+
+Example future usage inside strategies:
+
+df['smi_1h'] = compute_htf_indicator(df, stochastic_momentum_index, "1H")
+
+Non-Goals:
+
+This proposal does not modify existing strategies.
+It only standardizes the mechanism for HTF indicator projection in future directives.
+
+Decision:
+
+Deferred until the pipeline stabilization phase is complete and architectural changes are allowed again.

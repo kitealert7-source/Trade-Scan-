@@ -1,4 +1,13 @@
-"""Symbol execution stages (stage-0.9 through stage-3A)."""
+"""Symbol execution stages (stage-0.9 through stage-3A).
+
+Phase 6 Refactor: Split into 4 focused functions that map 1:1 to StageRegistry stages.
+  run_stage1_execution()    — Strategy snapshots + backtest registry worker loop
+  run_stage2_compilation()  — Engine resolution + Stage-2 --scan
+  run_stage3_aggregation()  — Stage-3 aggregation compiler + cardinality gate
+  run_manifest_binding()    — Per-run snapshot verify, artifact hash, manifest write, FSM close
+
+run_symbol_execution_stages() preserved as a backward-compatible orchestrator that calls all 4.
+"""
 
 from __future__ import annotations
 
@@ -23,24 +32,30 @@ from tools.orchestration.transition_service import (
     transition_run_state,
     transition_run_state_sequence,
 )
-from tools.pipeline_utils import PipelineStateManager
+from tools.pipeline_utils import PipelineContext, PipelineStateManager
 from tools.system_registry import log_run_to_registry
 from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, MASTER_FILTER_PATH
 from config.engine_loader import get_active_engine
 
 
-def run_symbol_execution_stages(
-    *,
-    clean_id: str,
-    p_conf: dict,
-    run_ids: list[str],
-    symbols: list[str],
-    project_root: Path,
-    python_exe: str,
-    run_command,
-    registry_path: Path | None = None,
-) -> None:
-    """Execute stage-0.9 through stage-3A and close symbol runs."""
+# ---------------------------------------------------------------------------
+# Stage-1: Backtest Execution Loop
+# ---------------------------------------------------------------------------
+
+def run_stage1_execution(context: PipelineContext) -> None:
+    """
+    Stage-1: Strategy snapshot + registry worker loop.
+
+    Iterates planned runs, executes backtests, transitions run FSM to STAGE_1_COMPLETE.
+    Does NOT invoke Stage-2 or beyond.
+    """
+    clean_id = context.directive_id
+    p_conf = context.directive_config
+    run_ids = context.run_ids
+    symbols = context.symbols
+    project_root = context.project_root
+    registry_path = context.registry_path
+
     strategy_id = p_conf.get("Strategy", p_conf.get("strategy")) or clean_id
     if registry_path is None:
         registry_path = RUNS_DIR / clean_id / "run_registry.json"
@@ -68,6 +83,10 @@ def run_symbol_execution_stages(
         )
     run_ids = [run["run_id"] for run in registry_runs]
     symbols = [run["symbol"] for run in registry_runs]
+
+    # Store resolved run_ids/symbols back into context (registry may reorder)
+    context.run_ids = run_ids
+    context.symbols = symbols
 
     any_stage1_rerun = any(
         PipelineStateManager(rid).get_state_data()["current_state"]
@@ -98,6 +117,13 @@ def run_symbol_execution_stages(
         "COMPLETE",
     }
     while True:
+        # Heartbeat all runs to prevent Watchdog timeouts during long sequential processing
+        for r_id in run_ids:
+            try:
+                PipelineStateManager(r_id).record_heartbeat()
+            except Exception:
+                pass
+
         claim = claim_next_planned_run(registry_path, clean_id)
         if claim is None:
             break
@@ -142,10 +168,33 @@ def run_symbol_execution_stages(
                 update_run_state(registry_path, clean_id, rid, "FAILED", last_error=str(err))
             except Exception as reg_err:
                 print(f"[WARN] Failed to update registry state for {rid}: {reg_err}")
-            
+
             # Master Ledger Update
             log_run_to_registry(rid, "failed", clean_id)
             raise err
+
+
+# ---------------------------------------------------------------------------
+# Stage-2: Compilation
+# ---------------------------------------------------------------------------
+
+def run_stage2_compilation(context: PipelineContext) -> None:
+    """
+    Stage-2: Engine resolution + compilation scan.
+
+    Resolves the active engine module, validates its existence,
+    then invokes the stage-2 compiler across all symbols.
+    Transitions per-run FSM to STAGE_2_COMPLETE.
+    """
+    clean_id = context.directive_id
+    run_ids = context.run_ids
+    symbols = context.symbols
+    python_exe = context.python_exe
+    registry_path = context.registry_path
+    if registry_path is None:
+        registry_path = RUNS_DIR / clean_id / "run_registry.json"
+
+    from tools.orchestration.execution_adapter import run_command
 
     # Engine Version Registry Resolution
     try:
@@ -154,7 +203,7 @@ def run_symbol_execution_stages(
         raise PipelineExecutionError(f"Engine Resolution Failed: {e}", directive_id=clean_id)
 
     engine_module = f"engine_dev.universal_research_engine.{active_engine}.stage2_compiler"
-    
+
     # Safety Check: Verify module existence via importlib
     try:
         importlib.import_module(engine_module)
@@ -189,6 +238,26 @@ def run_symbol_execution_stages(
                     last_error="Stage-2 artifact missing (AK_Trade_Report_*.xlsx).",
                 )
                 log_run_to_registry(rid, "failed", clean_id)
+
+
+# ---------------------------------------------------------------------------
+# Stage-3: Aggregation + Cardinality Gate
+# ---------------------------------------------------------------------------
+
+def run_stage3_aggregation(context: PipelineContext) -> None:
+    """
+    Stage-3: Portfolio aggregation compiler + cardinality enforcement gate.
+
+    Guardrail: cardinality gate is INSIDE this function.
+    If cardinality fails, a PipelineExecutionError is raised → ManifestBindingStage is never reached.
+    This preserves portfolio integrity ordering: aggregate → validate → bind.
+    """
+    clean_id = context.directive_id
+    run_ids = context.run_ids
+    symbols = context.symbols
+    python_exe = context.python_exe
+
+    from tools.orchestration.execution_adapter import run_command
 
     run_command([python_exe, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
 
@@ -231,6 +300,33 @@ def run_symbol_execution_stages(
 
     print(f"[GATE] Stage-3 artifact verified: {actual_count}/{expected_count} rows for {clean_id}")
 
+
+# ---------------------------------------------------------------------------
+# Stage-3a: Manifest Binding + Run Close
+# ---------------------------------------------------------------------------
+
+def run_manifest_binding(context: PipelineContext) -> None:
+    """
+    Stage-3a: Per-run snapshot verification, artifact hashing, manifest write, and FSM close.
+
+    Only runs after Stage-3 aggregation + cardinality gate succeed (StageRunner fail-fast guarantees this).
+    Transitions each run: STAGE_2_COMPLETE -> STAGE_3_COMPLETE -> STAGE_3A_COMPLETE -> COMPLETE.
+    Emits directive FSM transition: SYMBOL_RUNS_COMPLETE.
+    """
+    clean_id = context.directive_id
+    p_conf = context.directive_config
+    run_ids = context.run_ids
+    symbols = context.symbols
+    project_root = context.project_root
+    registry_path = context.registry_path
+    if registry_path is None:
+        registry_path = RUNS_DIR / clean_id / "run_registry.json"
+
+    strategy_id = p_conf.get("Strategy", p_conf.get("strategy")) or clean_id
+
+    def get_file_hash(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
     for rid, symbol in zip(run_ids, symbols):
         mgr = PipelineStateManager(rid)
         current = mgr.get_state_data()["current_state"]
@@ -242,16 +338,14 @@ def run_symbol_execution_stages(
                 transition_run_state(rid, "FAILED")
                 update_run_state(registry_path, clean_id, rid, "FAILED", last_error="Snapshot file missing.")
                 log_run_to_registry(rid, "failed", clean_id)
-                # 2. Binding (Verification of Hash)
+                continue
+
             source_path = project_root / "strategies" / strategy_id / "strategy.py"
             if not source_path.exists():
                 transition_run_state(rid, "FAILED")
                 update_run_state(registry_path, clean_id, rid, "FAILED", last_error="Source strategy missing.")
                 log_run_to_registry(rid, "failed", clean_id)
                 raise RuntimeError(f"Source strategy missing: {source_path}")
-
-            def get_file_hash(path: Path) -> str:
-                return hashlib.sha256(path.read_bytes()).hexdigest()
 
             if get_file_hash(snapshot_path) != get_file_hash(source_path):
                 transition_run_state(rid, "FAILED")
@@ -274,7 +368,7 @@ def run_symbol_execution_stages(
             )
 
             bt_dir = RUNS_DIR / rid / "data"
-            
+
             # --- MANDATORY ARTIFACT: EQUITY CURVE GENERATION ---
             trade_file = bt_dir / "results_tradelevel.csv"
             equity_file = bt_dir / "equity_curve.csv"
@@ -282,7 +376,6 @@ def run_symbol_execution_stages(
                 try:
                     df_t = pd.read_csv(trade_file)
                     if "pnl_usd" in df_t.columns:
-                        # Deterministic cumulative PnL series starting from $10,000
                         pnl_series = df_t["pnl_usd"].fillna(0)
                         equity_series = 10000.0 + pnl_series.cumsum()
                         df_eq = pd.DataFrame({
@@ -291,6 +384,11 @@ def run_symbol_execution_stages(
                         })
                         df_eq.to_csv(equity_file, index=False)
                         print(f"[ORCHESTRATOR] Generated local equity curve for {rid}")
+                        
+                        bt_dest_raw = BACKTESTS_DIR / f"{clean_id}_{symbol}" / "raw"
+                        if bt_dest_raw.exists():
+                            import shutil
+                            shutil.copy2(equity_file, bt_dest_raw / "equity_curve.csv")
                 except Exception as e:
                     print(f"[WARN] Failed to auto-generate equity curve for {rid}: {e}")
 
@@ -298,7 +396,6 @@ def run_symbol_execution_stages(
                 "results_tradelevel.csv": bt_dir / "results_tradelevel.csv",
                 "results_standard.csv": bt_dir / "results_standard.csv",
                 "equity_curve.csv": bt_dir / "equity_curve.csv",
-                # "batch_summary.csv": bt_dir / "batch_summary.csv",
             }
             artifacts_manifest: dict[str, str] = {}
             for name, path in required_artifacts.items():
@@ -322,7 +419,7 @@ def run_symbol_execution_stages(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             manifest_path = mgr.run_dir / "manifest.json"
-            
+
             # Manifest Freeze Guard
             if manifest_path.exists() and current == "COMPLETE":
                 with open(manifest_path, "r", encoding="utf-8") as f:
@@ -342,8 +439,48 @@ def run_symbol_execution_stages(
 
             transition_run_state_sequence(rid, ["STAGE_3A_COMPLETE", "COMPLETE"])
             mgr._append_audit_log("RUN_COMPLETE", {"status": "SUCCESS"})
-            
+
             # SUCCESS Master Ledger update
             log_run_to_registry(rid, "complete", clean_id)
 
     transition_directive_state(clean_id, "SYMBOL_RUNS_COMPLETE")
+
+
+# ---------------------------------------------------------------------------
+# Backward-Compatible Orchestrator Wrapper
+# ---------------------------------------------------------------------------
+
+def run_symbol_execution_stages(
+    *,
+    clean_id: str,
+    p_conf: dict,
+    run_ids: list[str],
+    symbols: list[str],
+    project_root: Path,
+    python_exe: str,
+    run_command,
+    registry_path: Path | None = None,
+) -> None:
+    """
+    Backward-compatible wrapper that calls all 4 stage functions in sequence.
+
+    Used by any callers that have not yet migrated to PipelineContext.
+    Internally constructs a minimal PipelineContext to satisfy the stage function signatures.
+    """
+    # Build a minimal context for the stage functions
+    ctx = PipelineContext(
+        directive_id=clean_id,
+        directive_path=project_root / "backtest_directives" / "active" / f"{clean_id}.txt",
+        project_root=project_root,
+        python_exe=python_exe,
+        provision_only=False,
+    )
+    ctx.directive_config = p_conf
+    ctx.run_ids = run_ids
+    ctx.symbols = symbols
+    ctx.registry_path = registry_path
+
+    run_stage1_execution(ctx)
+    run_stage2_compilation(ctx)
+    run_stage3_aggregation(ctx)
+    run_manifest_binding(ctx)

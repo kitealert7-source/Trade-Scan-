@@ -26,8 +26,10 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 run_execution_loop = mod.run_execution_loop
 
+from engines.indicator_warmup_resolver import resolve_strategy_warmup, extract_indicators_from_strategy
+
 ENGINE_NAME = "Universal_Research_Engine"
-ENGINE_VERSION = "1.4.0"
+ENGINE_VERSION = "1.5.3"
 __version__ = "1.5.3"
 
 
@@ -61,7 +63,44 @@ def run_engine(df, strategy) -> List[dict]:
     if df is None or df.empty:
         raise ValueError("No data provided to engine")
     
-    trades = run_execution_loop(df, strategy)
+    # --- DYNAMIC WARM-UP CALCULATION ---
+    # Resolve required warmup bars based on strategy indicators and registry metadata.
+    indicator_list = extract_indicators_from_strategy(strategy)
+    calculated_warmup = resolve_strategy_warmup(indicator_list)
+    
+    # Fallback to safety floor (e.g. 50 bars) if calculated warmup is suspiciously low
+    # while ensuring it doesn't exceed 250 unless strictly required.
+    warmup_bars = max(calculated_warmup, 50)
+    
+    available_history = len(df)
+    evaluation_start_index = min(warmup_bars, available_history - 1)
+    evaluation_start_index = max(0, evaluation_start_index)
+
+    # Wrap strategy signals to "mute" them during warm-up period.
+    # This enforces the safety gate without modifying the frozen execution loop.
+    original_check_entry = strategy.check_entry
+    original_check_exit = strategy.check_exit
+    
+    def wrapped_check_entry(ctx):
+        if ctx.index < evaluation_start_index:
+            return None
+        return original_check_entry(ctx)
+    
+    def wrapped_check_exit(ctx):
+        if ctx.index < evaluation_start_index:
+            return None
+        return original_check_exit(ctx)
+    
+    strategy.check_entry = wrapped_check_entry
+    strategy.check_exit = wrapped_check_exit
+    
+    try:
+        trades = run_execution_loop(df, strategy)
+    finally:
+        # Restore original methods to prevent side-effects if object is reused.
+        strategy.check_entry = original_check_entry
+        strategy.check_exit = original_check_exit
+        
     return trades
 
 

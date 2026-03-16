@@ -38,6 +38,9 @@ GUARD_FILES = [
     "format_excel_artifact.py",
     "cleanup_reconciler.py",
     "run_portfolio_analysis.py",
+    "skill_loader.py",
+    "orchestration/runner.py",
+    "system_logging/pipeline_failure_logger.py",
 ]
 
 

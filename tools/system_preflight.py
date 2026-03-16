@@ -6,6 +6,8 @@ from pathlib import Path
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, ARCHIVE_DIR, QUARANTINE_DIR, BACKTESTS_DIR, CANDIDATES_DIR
 STRICT_MODE = True # Any error makes overall status RED
 
 def get_hash(p: Path):
@@ -45,22 +47,22 @@ class PreflightCheck:
         self._print_summary()
 
     def _check_root(self):
-        required = ["runs", "strategies", "registry", "archive", "quarantine"]
-        missing = [r for r in required if not (PROJECT_ROOT / r).exists()]
+        required = [RUNS_DIR, STRATEGIES_DIR, REGISTRY_DIR, ARCHIVE_DIR, QUARANTINE_DIR]
+        missing = [str(r) for r in required if not r.exists()]
         if missing:
             self.report("ROOT", "RED", f"Missing critical directories: {missing}")
         else:
             self.report("ROOT", "GREEN", "All critical directories present.")
 
     def _check_runs(self):
-        runs_dir = PROJECT_ROOT / "runs"
-        if not runs_dir.exists(): return
+        if not RUNS_DIR.exists(): return
         
         red_count = 0
         corrupt_count = 0
         total = 0
-        for run_folder in runs_dir.iterdir():
+        for run_folder in RUNS_DIR.iterdir():
             if not run_folder.is_dir(): continue
+            if "_" in run_folder.name: continue
             total += 1
             
             # Step 2: Schema
@@ -91,44 +93,56 @@ class PreflightCheck:
             self.report("RUNS", "GREEN", f"All {total} run containers valid and verified.")
 
     def _check_registry(self):
-        reg_path = PROJECT_ROOT / "registry" / "run_registry.json"
+        reg_path = REGISTRY_DIR / "run_registry.json"
         if not reg_path.exists():
             self.report("REGISTRY", "RED", "Registry file missing.")
             return
 
         try:
             reg = json.loads(reg_path.read_text())
-            disk = set(p.name for p in (PROJECT_ROOT / "runs").iterdir() if p.is_dir())
+            
+            # Disk scan (Combined Sandbox and Candidates)
+            sandbox_disk = set(p.name for p in RUNS_DIR.iterdir() if p.is_dir())
+            candidate_disk = set(p.name for p in CANDIDATES_DIR.iterdir() if p.is_dir())
+            all_disk = sandbox_disk | candidate_disk
+            
             reg_ids = set(reg.keys())
 
-            orphans = disk - reg_ids
-            missing = reg_ids - disk
+            # 1. Orphans (On disk but not in registry)
+            # Filter out directive state folders (they contain underscores, run IDs are hex)
+            orphans = [o for o in (all_disk - reg_ids) if not ("_" in o)]
             
             if orphans:
-                self.report("REGISTRY", "RED", f"DISK_NOT_IN_REGISTRY: {list(orphans)[:3]}...")
+                self.report("REGISTRY", "RED", f"DISK_NOT_IN_REGISTRY: {orphans[:3]}...")
+
+            # 2. Missing (In registry but not on disk)
+            missing = []
+            for rid, entry in reg.items():
+                if entry.get("status") == "invalid": continue
+                
+                target_dir = RUNS_DIR if entry.get("tier") == "sandbox" else CANDIDATES_DIR
+                if not (target_dir / rid).exists():
+                    missing.append(rid)
+            
             if missing:
-                # Filter out 'invalid' status
-                real_missing = [m for m in missing if reg[m].get("status") != "invalid"]
-                if real_missing:
-                    self.report("REGISTRY", "RED", f"REGISTRY_RUN_MISSING_ON_DISK: {real_missing[:3]}...")
+                self.report("REGISTRY", "RED", f"REGISTRY_RUN_MISSING_ON_DISK: {missing[:3]}...")
             
             if not orphans and not missing:
-                self.report("REGISTRY", "GREEN", "Registry and disk are perfectly aligned.")
+                self.report("REGISTRY", "GREEN", "Registry and disk are aligned per tier.")
         except Exception as e:
             self.report("REGISTRY", "RED", f"Error reading registry: {e}")
 
     def _check_portfolios(self):
-        strat_dir = PROJECT_ROOT / "strategies"
-        if not strat_dir.exists(): return
+        if not STRATEGIES_DIR.exists(): return
         
         missing_ids = set()
         portfolio_count = 0
-        for p_file in strat_dir.rglob("portfolio_metadata.json"):
+        for p_file in STRATEGIES_DIR.rglob("portfolio_metadata.json"):
             portfolio_count += 1
             try:
                 data = json.loads(p_file.read_text())
                 for rid in data.get("constituent_run_ids", []):
-                    if not (PROJECT_ROOT / "runs" / rid).exists():
+                    if not (RUNS_DIR / rid).exists():
                         missing_ids.add(rid)
             except Exception: continue
             
@@ -138,11 +152,10 @@ class PreflightCheck:
             self.report("PORTFOLIOS", "GREEN", f"{portfolio_count} portfolios verified for dependencies.")
 
     def _check_strategy_drift(self):
-        strat_dir = PROJECT_ROOT / "strategies"
-        if not strat_dir.exists(): return
+        if not STRATEGIES_DIR.exists(): return
         
         drift = []
-        for item in strat_dir.iterdir():
+        for item in STRATEGIES_DIR.iterdir():
             if item.is_file() and item.name != "Master_Portfolio_Sheet.xlsx":
                 drift.append(item.name)
             elif item.is_dir() and not item.name.startswith("_"):
@@ -156,10 +169,10 @@ class PreflightCheck:
 
     def _check_archives(self):
         paths = {
-            "legacy": PROJECT_ROOT / "archive" / "legacy_runs",
-            "stale": PROJECT_ROOT / "archive" / "stale_portfolios",
-            "invalid": PROJECT_ROOT / "archive" / "invalid_runs",
-            "quarantine": PROJECT_ROOT / "quarantine" / "runs"
+            "legacy": ARCHIVE_DIR / "legacy_runs",
+            "stale": ARCHIVE_DIR / "stale_portfolios",
+            "invalid": ARCHIVE_DIR / "invalid_runs",
+            "quarantine": QUARANTINE_DIR / "runs"
         }
         counts = {k: (len(list(v.iterdir())) if v.exists() else 0) for k, v in paths.items()}
         self.report("ARCHIVE", "GREEN", f"Archive Stats: {counts}")
@@ -182,10 +195,25 @@ class PreflightCheck:
             return "\033[92mGREEN\033[0m"
 
         print(f"{'RUNS':<12} {get_color_tag('RUNS')}")
+        for status, msg in self.results.get("RUNS", []):
+            if status != "GREEN": print(f"  - {msg}")
+            
         print(f"{'REGISTRY':<12} {get_color_tag('REGISTRY')}")
+        for status, msg in self.results.get("REGISTRY", []):
+            if status != "GREEN": print(f"  - {msg}")
+            
         print(f"{'PORTFOLIOS':<12} {get_color_tag('PORTFOLIOS')}")
+        for status, msg in self.results.get("PORTFOLIOS", []):
+            if status != "GREEN": print(f"  - {msg}")
+            
+        print(f"{'STRATEGIES':<12} {get_color_tag('STRATEGIES')}")
+        for status, msg in self.results.get("STRATEGIES", []):
+            if status != "GREEN": print(f"  - {msg}")
+            
         print(f"{'ARCHIVE':<12} {get_color_tag('ARCHIVE')}")
         print(f"{'GUARDRAILS':<12} {get_color_tag('GUARDRAILS')}")
+        for status, msg in self.results.get("GUARDRAILS", []):
+            if status != "GREEN": print(f"  - {msg}")
         
         overall = "GREEN"
         if self.stats["RED"] > 0: overall = "RED"

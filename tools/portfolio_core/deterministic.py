@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
+from config.state_paths import RUNS_DIR
 
 def deterministic_portfolio_id(run_ids):
     sorted_ids = sorted(run_ids)
@@ -27,7 +27,7 @@ def load_trades_for_portfolio_analysis(run_ids, project_root: Path):
     timeframes = set()
 
     for run_id in run_ids:
-        trade_path = project_root / "runs" / run_id / "data" / "results_tradelevel.csv"
+        trade_path = RUNS_DIR / run_id / "data" / "results_tradelevel.csv"
         if not trade_path.exists():
             raise FileNotFoundError(f"Trade file missing for run {run_id}")
 
@@ -43,7 +43,7 @@ def load_trades_for_portfolio_analysis(run_ids, project_root: Path):
         df_trades["entry_timestamp"] = pd.to_datetime(df_trades["entry_timestamp"])
         df_trades["exit_timestamp"] = pd.to_datetime(df_trades["exit_timestamp"])
 
-        meta_path = project_root / "runs" / run_id / "data" / "run_metadata.json"
+        meta_path = RUNS_DIR / run_id / "data" / "run_metadata.json"
         strat_name = f"RUN_{run_id}"
         if meta_path.exists():
             try:
@@ -76,7 +76,7 @@ def load_trades_for_portfolio_evaluator(run_ids, project_root: Path):
     loaded_symbols = []
 
     for rid in run_ids:
-        run_folder = project_root / "runs" / rid / "data"
+        run_folder = RUNS_DIR / rid / "data"
         if not run_folder.exists():
             raise ValueError(f"Governance violation: run_data folder missing for {rid}")
 

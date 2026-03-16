@@ -1,6 +1,6 @@
 # Indicator Capabilities Reference
 
-> **Registry Version:** 3 | **Generated:** 2026-03-09 | **Total Indicators:** 33
+> **Registry Version:** 3 | **Generated:** 2026-03-14 | **Total Indicators:** 35
 >
 > Machine-readable source: [`INDICATOR_REGISTRY.yaml`](./INDICATOR_REGISTRY.yaml)
 
@@ -12,12 +12,12 @@
 |---|---|---|
 | **Momentum** | 5 | rsi, roc, stochastic_k, ultimate_c_percent, stochastic_momentum_index |
 | **Trend** | 4 | adx, ema_slope, hull_moving_average, linear_regression_channel |
-| **Volatility** | 5 | atr, atr_percentile, bollinger_band_width, keltner_channel, volatility_regime |
+| **Volatility** | 6 | atr, atr_percentile, bollinger_band_width, keltner_channel, volatility_regime, realized_vol |
 | **Regime** | 7 | efficiency_ratio_regime, ema_regime, kalman_regime, linreg_regime, linreg_regime_htf, sha_regime, trend_persistence |
 | **Structure** | 6 | daily_pivot_points, donchian_channel, highest_high, lowest_low, session_range_structure, previous_bar_breakout |
 | **Price** | 3 | candle_state, previous_bar_breakout, usd_stress_index |
 | **Composite** | 2 | usd_stress_index, market_state |
-| **Statistical** | 3 | rolling_max, rolling_percentile, rolling_zscore |
+| **Statistical** | 4 | rolling_max, rolling_percentile, rolling_zscore, log_return_autocorr |
 
 ---
 
@@ -36,6 +36,7 @@
 | **rolling_max** | `indicators.stats.rolling_max` | `rolling_max` | Series | rolling_max | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **rolling_percentile** | `indicators.stats.rolling_percentile` | `rolling_percentile` | Series | percentile (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
 | **rolling_zscore** | `indicators.stats.rolling_zscore` | `rolling_zscore` | Series | zscore | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
+| **log_return_autocorr** | `indicators.stats.log_return_autocorr` | `log_return_autocorr` | DataFrame | autocorr, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **adx** | `indicators.structure.adx` | `adx` | Series | adx (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **daily_pivot_points** | `indicators.structure.daily_pivot_points` | `daily_pivot_points` | DataFrame | pivot, r1, s1, r2, s2 | ✅ | ✅ | ⚠️ | ✅ | ✅ | Low | Low |
 | **donchian_channel** | `indicators.structure.donchian_channel` | `donchian_channel` | Tuple | dc_mid, dc_width | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
@@ -58,6 +59,7 @@
 | **keltner_channel** | `indicators.volatility.keltner_channel` | `keltner_channel` | Tuple | kc_mid, kc_upper, kc_lower | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **market_state** | `indicators.volatility.market_state` | `market_state` | DataFrame | state (0–4) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
 | **volatility_regime** | `indicators.volatility.volatility_regime` | `volatility_regime` | DataFrame | atr, percentile, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
+| **realized_vol** | `indicators.volatility.realized_vol` | `realized_vol` | DataFrame | realized_vol, rv_percentile | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
 
 ---
 
@@ -95,4 +97,4 @@
 
 ---
 
-*Validation: All 33 `.py` files in `indicators/` (excluding `__init__.py` and `__pycache__`) are represented. Registry v3. Status: **PASS**.*
+*Validation: All 35 `.py` files in `indicators/` (excluding `__init__.py` and `__pycache__`) are represented. Registry v3. Status: **PASS**.*

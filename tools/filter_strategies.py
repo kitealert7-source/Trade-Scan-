@@ -1,82 +1,17 @@
-"""
-Strict Strategy Filter Script — Append-Only Passed Ledger With Portfolio Flag Authority
-
-Filtered_Strategies_Passed.xlsx is an append-only ledger of passed strategies.
-Column IN_PORTFOLIO (Column AB) is a manual promotion flag used by the portfolio module.
-Agent must NEVER modify existing IN_PORTFOLIO values.
-"""
-
 import pandas as pd
 import os
 import sys
-from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl import load_workbook
+import shutil
 from pathlib import Path
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.state_paths import MASTER_FILTER_PATH, CANDIDATE_FILTER_PATH
+from config.state_paths import MASTER_FILTER_PATH, CANDIDATES_DIR, RUNS_DIR, CANDIDATE_FILTER_PATH
+from tools.system_registry import _load_registry, _save_registry_atomic
 
 MASTER_SHEET = MASTER_FILTER_PATH
-PASSED_SHEET = CANDIDATE_FILTER_PATH
-
-def apply_data_validation(file_path):
-    """
-    Applies an Excel DataValidation dropdown (TRUE/FALSE) to the IN_PORTFOLIO column.
-    Removes existing validations targeting this column to prevent duplication,
-    and extends validation seamlessly to the maximum Excel row (1048576).
-    """
-    try:
-        wb = load_workbook(file_path)
-        ws = wb.active
-        
-        # Find the IN_PORTFOLIO column letter
-        col_letter = None
-        for cell in ws[1]:
-            if cell.value == "IN_PORTFOLIO":
-                col_letter = cell.column_letter
-                break
-                
-        if not col_letter:
-            wb.close()
-            return
-
-        # 2️⃣ Prevent Validation Duplication
-        # Remove any existing DataValidation rules targeting the IN_PORTFOLIO column.
-        clean_validations = []
-        for dv in ws.data_validations.dataValidation:
-            keep_this_dv = True
-            sqref_str = str(dv.sqref)
-            # If the column letter appears in the reference string, we drop this rule
-            # to cleanly replace it. (e.g. 'AB2:AB10000', 'AB')
-            if col_letter in sqref_str:
-                keep_this_dv = False
-            
-            if keep_this_dv:
-                clean_validations.append(dv)
-
-        # Clear existing and reassign
-        ws.data_validations.dataValidation = []
-        for clean_dv in clean_validations:
-            ws.add_data_validation(clean_dv)
-            
-        # Create new validation rule
-        dv = DataValidation(type="list", formula1='"TRUE,FALSE"', allow_blank=True)
-        # dv.error = 'Your entry is not in the list (TRUE, FALSE)'
-        # dv.errorTitle = 'Invalid Entry'
-        # dv.prompt = 'Please select from the list'
-        # dv.promptTitle = 'Select Portfolio Status'
-        
-        # 1️⃣ Expand Data Validation Range to max
-        dv.add(f'{col_letter}2:{col_letter}1048576')
-        ws.add_data_validation(dv)
-        
-        wb.save(file_path)
-    except Exception as e:
-        print(f"ABORT: Failed to apply data validation: {e}")
-        sys.exit(1)
 
 def filter_strategies():
     if not os.path.exists(MASTER_SHEET):
@@ -89,18 +24,22 @@ def filter_strategies():
         print(f"ABORT: Error reading {MASTER_SHEET}: {e}")
         sys.exit(1)
 
+    # Required metrics for promotion
     required_cols = [
         'profit_factor', 
         'return_dd_ratio', 
         'expectancy', 
         'total_trades', 
         'sharpe_ratio', 
-        'run_id'
+        'max_dd_pct',
+        'run_id',
+        'strategy'
     ]
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
         print(f"ABORT: Missing required columns in master sheet: {missing_cols}")
+        print("Ensure Stage-3 compilation includes max_dd_pct.")
         sys.exit(1)
 
     nan_mask = df[required_cols].isna().any(axis=1)
@@ -111,120 +50,76 @@ def filter_strategies():
 
     total_eval_runs = len(df)
     
+    # Relaxed Criteria (User Proposed)
+    # Note: Max DD is typically negative in internal sheets (e.g. -0.15 for 15% DD)
+    # The user threshold "Max DD <= 80%" means the number should be >= -80.0 (or >= -0.80)
     mask = (
-        (df['profit_factor'] >= 1.3) &
-        (df['return_dd_ratio'] >= 1.8) &
-        (df['expectancy'] >= 2.5) &
-        (df['total_trades'] >= 80) &
-        (df['sharpe_ratio'] >= 1.2)
+        (df['total_trades'] >= 40) &
+        (df['profit_factor'] >= 1.05) &
+        (df['return_dd_ratio'] >= 0.6) &
+        (df['expectancy'] >= 0.0) &
+        (df['sharpe_ratio'] >= 0.3) &
+        (df['max_dd_pct'] >= -80.0) 
     )
 
     passed_df = df[mask].copy()
-    master_cols = list(df.columns)
     
-    if "IN_PORTFOLIO" not in master_cols:
-        master_cols.append("IN_PORTFOLIO")
-    
-    for col in master_cols:
-         if col not in passed_df.columns:
-             passed_df[col] = pd.NA
-
-    passed_df["IN_PORTFOLIO"] = False
-    passed_df = passed_df[master_cols] 
-
-    temp_passed = str(PASSED_SHEET).replace(".xlsx", "_TEMP.xlsx")
-    newly_appended = 0
-    total_rows_in_ledger = 0
-
-    if os.path.exists(PASSED_SHEET):
+    # --- CANDIDATE LEDGER GENERATION ---
+    if not passed_df.empty:
         try:
-            existing_df = pd.read_excel(PASSED_SHEET)
-            
-            # 3️⃣ Enforce Column Integrity
-            if "IN_PORTFOLIO" not in existing_df.columns:
-                print(f"ABORT: IN_PORTFOLIO column missing from existing ledger: {PASSED_SHEET}")
-                sys.exit(1)
-
-            total_rows_in_ledger = len(existing_df)
-            
-            existing_run_ids = set(existing_df['run_id'].dropna().astype(str).tolist())
-            passed_df['run_id_str'] = passed_df['run_id'].astype(str)
-            
-            new_runs_df = passed_df[~passed_df['run_id_str'].isin(existing_run_ids)].copy()
-            new_runs_df.drop(columns=['run_id_str'], inplace=True)
-            
-            newly_appended = len(new_runs_df)
-            
-            if newly_appended > 0:
-                for col in existing_df.columns:
-                    if col not in new_runs_df.columns:
-                        new_runs_df[col] = pd.NA
-                
-                new_runs_df = new_runs_df[existing_df.columns]
-                
-                final_df = pd.concat([existing_df, new_runs_df], ignore_index=True)
-                total_rows_in_ledger = len(final_df)
-                
-                final_df.to_excel(temp_passed, index=False, engine='openpyxl')
-                
-                try:
-                    formatter_path = os.path.join(os.path.dirname(__file__), "format_excel_artifact.py")
-                    cmd = [sys.executable, formatter_path, "--file", temp_passed, "--profile", "strategy"]
-                    import subprocess
-                    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-                except Exception:
-                    pass
-                
-                apply_data_validation(temp_passed)
-                
-                try:
-                    os.replace(temp_passed, PASSED_SHEET)
-                except Exception as e:
-                    print(f"ABORT: Replace failed {e}")
-                    if os.path.exists(temp_passed): os.remove(temp_passed)
-                    sys.exit(1)
-            else:
-                 pass
-
+            passed_df.to_excel(CANDIDATE_FILTER_PATH, index=False)
+            print(f"[SUCCESS] Candidate ledger generated: {CANDIDATE_FILTER_PATH}")
         except Exception as e:
-            if str(e).startswith("ABORT"): 
-                print(e)
-            else:
-                print(f"ABORT: Error processing existing passed sheet {PASSED_SHEET}: {e}")
-            sys.exit(1)
-            
-    else:
-        newly_appended = len(passed_df)
-        total_rows_in_ledger = newly_appended
+            print(f"[ERROR] Failed to generate candidate ledger: {e}")
+    # -----------------------------------
+
+    if passed_df.empty:
+        print("Total evaluated:", total_eval_runs)
+        print("Passed this run: 0")
+        return
+
+    # 1. Load Registry
+    reg = _load_registry()
+    promoted_count = 0
+    migration_count = 0
+
+    # 2. Process Passing Strategies
+    for _, row in passed_df.iterrows():
+        run_id = str(row['run_id'])
+        strat_name = str(row['strategy'])
         
-        try:
-            passed_df.to_excel(temp_passed, index=False, engine='openpyxl')
+        if run_id not in reg:
+            continue
             
+        current_tier = reg[run_id].get("tier", "sandbox")
+        if current_tier == "candidate":
+            continue
+            
+        # 1. Update Registry Tier (Authoritative)
+        reg[run_id]["tier"] = "candidate"
+        _save_registry_atomic(reg) # Persist immediately
+        promoted_count += 1
+        
+        # 2. Physical Migration
+        src_path = RUNS_DIR / run_id
+        dest_path = CANDIDATES_DIR / run_id
+        
+        if src_path.exists() and not dest_path.exists():
             try:
-                formatter_path = os.path.join(os.path.dirname(__file__), "format_excel_artifact.py")
-                cmd = [sys.executable, formatter_path, "--file", temp_passed, "--profile", "strategy"]
-                import subprocess
-                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
-            except Exception:
-                pass
-            
-            apply_data_validation(temp_passed)
-                
-            os.replace(temp_passed, PASSED_SHEET)
-        except Exception as e:
-            if str(e).startswith("ABORT"): 
-                print(e)
-            else:
-                print(f"ABORT: Error writing to {PASSED_SHEET}: {e}")
-            if os.path.exists(temp_passed):
-                os.remove(temp_passed)
-            sys.exit(1)
+                CANDIDATES_DIR.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src_path), str(dest_path))
+                migration_count += 1
+                print(f"[MIGRATED] {run_id} -> candidates/")
+            except Exception as e:
+                print(f"[ERROR] Physical migration failed for {run_id}: {e}")
+                # Note: We do NOT revert the tier. The registry is authoritative.
+                # Reconcile or a future run will fix the physical location.
 
-    # Constrain output to confirmation
+    # Final Output Summary
     print("Total evaluated:", total_eval_runs)
-    print("Passed this run:", len(passed_df))
-    print("Newly appended:", newly_appended)
-    print("Total rows in passed ledger:", total_rows_in_ledger)
+    print("Passed criteria:", len(passed_df))
+    print("Newly promoted to candidate:", promoted_count)
+    print("Physically migrated:", migration_count)
 
 if __name__ == "__main__":
     filter_strategies()

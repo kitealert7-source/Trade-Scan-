@@ -15,7 +15,9 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).parent.parent
-STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
+sys.path.insert(0, str(PROJECT_ROOT))
+from config.state_paths import STRATEGIES_DIR
+STRATEGIES_ROOT = STRATEGIES_DIR
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 
 LEDGER_PNL_COL = "realized_pnl"

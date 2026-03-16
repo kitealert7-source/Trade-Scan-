@@ -25,8 +25,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.directive_schema import normalize_signature
-from tools.namespace_gate import validate_namespace
 from tools.pipeline_utils import parse_directive
+from tools.system_registry import _load_registry
 
 
 NAMESPACE_ROOT = PROJECT_ROOT / "governance" / "namespace"
@@ -40,6 +40,47 @@ class SweepRegistryError(ValueError):
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _extract_namespace_info(path: Path) -> dict[str, str]:
+    """Extract namespace info assuming gate validation has already occurred."""
+    name = path.stem
+    m = re.match(r"^(\d{2})_.*_S(\d{2})", name)
+    if not m:
+        raise SweepRegistryError(f"Filename missing SNN prefix or idea ID: {name}")
+    return {
+        "idea_id": m.group(1),
+        "strategy_name": name,
+        "sweep": m.group(2)
+    }
+
+
+def _can_reclaim_sweep(directive_name: str) -> bool:
+    """
+    Check if a sweep slot allocated to `directive_name` can be reclaimed.
+    Reclaim is allowed if ALL existing runs for this directive are in a
+    non-terminal failure state (failed, invalid, aborted, interrupted).
+    If ANY run is 'complete', reclaim is blocked to preserve successful research.
+    Note: If no runs exist, reclaim is allowed.
+    """
+    reg = _load_registry()
+    runs_for_directive = [
+        data for data in reg.values()
+        if data.get("directive_hash") == directive_name
+    ]
+    
+    if not runs_for_directive:
+        return True
+
+    valid_failures = {"failed", "invalid", "aborted", "interrupted"}
+    for r in runs_for_directive:
+        status = r.get("status", "unknown").lower()
+        if status == "complete":
+            return False
+        if status not in valid_failures:
+            return False
+            
+    return True
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -354,6 +395,38 @@ def reserve_sweep_identity(
                         "strategy_name": directive_name,
                         "signature_hash": signature_hash,
                     }
+                # Reclaim Logic
+                if existing_directive == directive_name:
+                    if _can_reclaim_sweep(directive_name):
+                        # Attempt tracking
+                        attempt = existing.get("attempt", 1) + 1
+                        existing["attempt"] = attempt
+                        existing["signature_hash"] = stored_short
+                        if len(stored_hash) == 64:
+                            existing["signature_hash_full"] = stored_hash
+                        else:
+                            existing.pop("signature_hash_full", None)
+                        
+                        sweeps[requested_key] = existing
+                        idea_block["sweeps"] = sweeps
+                        ideas[idea_id] = idea_block
+                        registry["ideas"] = ideas
+                        _write_yaml_atomic(SWEEP_REGISTRY_PATH, registry)
+                        print(f"SWEEP_RECLAIM | directive={directive_name} | attempt={attempt} | previous_status=FAILED")
+                        return {
+                            "status": "reclaimed",
+                            "idea_id": idea_id,
+                            "sweep": requested_key,
+                            "strategy_name": directive_name,
+                            "signature_hash": signature_hash,
+                        }
+                    else:
+                        raise SweepRegistryError(
+                            "SWEEP_IDEMPOTENCY_MISMATCH: "
+                            f"idea_id='{idea_id}' sweep='{requested_key}' cannot reclaim slot for "
+                            f"directive='{directive_name}' because a COMPLETE run exists."
+                        )
+
                 raise SweepRegistryError(
                     "SWEEP_COLLISION: "
                     f"idea_id='{idea_id}' sweep='{requested_key}' already allocated to "
@@ -407,7 +480,7 @@ def reserve_sweep(
     if not d_path.exists():
         raise SweepRegistryError(f"Directive not found: {d_path}")
 
-    ns = validate_namespace(d_path)
+    ns = _extract_namespace_info(d_path)
     idea_id = ns["idea_id"]
     strategy_name = ns["strategy_name"]
     sweep_num = int(ns["sweep"])

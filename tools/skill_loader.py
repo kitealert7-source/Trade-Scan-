@@ -4,6 +4,11 @@ import argparse
 import sys
 from pathlib import Path
 
+try:
+    from tools.system_logging.pipeline_failure_logger import log_pipeline_failure as _log_failure
+except Exception:
+    _log_failure = None
+
 SKILLS_ROOT = Path(".skills")
 
 
@@ -53,7 +58,53 @@ def run_skill(skill_name, **kwargs):
 
     print(f"[SKILL] Executing {skill_name}: {' '.join(cmd)}")
 
-    subprocess.run(cmd, check=True)
+    try:
+        # Capture output for crash diagnostics
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        
+        # Stream stdout explicitly since we captured it
+        if result.stdout:
+            sys.stdout.write(result.stdout)
+            
+        if result.returncode != 0:
+            # Fix 2: Persist Engine Crash Tracebacks
+            if "run_id" in kwargs:
+                from config.state_paths import RUNS_DIR
+                run_dir = RUNS_DIR / str(kwargs["run_id"])
+                if run_dir.exists():
+                    from datetime import datetime, timezone
+                    crash_log = run_dir / "crash_trace.log"
+                    with open(crash_log, "w", encoding="utf-8") as f:
+                        f.write(f"[{datetime.now(timezone.utc).isoformat()}] FATAL CRASH\n")
+                        f.write(f"Command: {' '.join(cmd)}\n")
+                        f.write(f"Exit Code: {result.returncode}\n")
+                        f.write("-" * 80 + "\n")
+                        f.write("STDOUT:\n")
+                        f.write(result.stdout + "\n")
+                        f.write("-" * 80 + "\n")
+                        f.write("STDERR:\n")
+                        f.write(result.stderr + "\n")
+                    print(f"[FATAL] Engine crashed. Full traceback saved to: {crash_log}")
+
+            # Centralized failure log
+            if _log_failure:
+                _log_failure(
+                    directive_id=str(kwargs.get("strategy", "UNKNOWN")),
+                    run_id=str(kwargs.get("run_id")) if kwargs.get("run_id") else None,
+                    stage="SYMBOL_EXECUTION",
+                    error_type="ENGINE_CRASH",
+                    message=f"Exit code {result.returncode}: {(result.stderr or result.stdout or '').strip()[:300]}",
+                )
+
+            # Print stderr to console so it's still visible
+            if result.stderr:
+                sys.stderr.write(result.stderr)
+
+            raise subprocess.CalledProcessError(
+                result.returncode, cmd, output=result.stdout, stderr=result.stderr
+            )
+    except Exception as e:
+        raise
 
 
 if __name__ == "__main__":

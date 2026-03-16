@@ -47,7 +47,62 @@ PROJECT_ROOT = Path(__file__).parent.parent
 PYTHON_EXE = sys.executable
 DIRECTIVES_DIR = PROJECT_ROOT / "backtest_directives"
 ACTIVE_DIR = DIRECTIVES_DIR / "active"
+ACTIVE_BACKUP_DIR = DIRECTIVES_DIR / "active_backup"
 COMPLETED_DIR = DIRECTIVES_DIR / "completed"
+
+def admit_directive(directive_id: str) -> None:
+    """Atomic admission of directive from active/ to active_backup/ with marker."""
+    d_path = find_directive_path(ACTIVE_DIR, directive_id)
+    if not d_path:
+        # Check if already admitted (authoritative)
+        if find_directive_path(ACTIVE_BACKUP_DIR, directive_id):
+            return
+        raise PipelineExecutionError(f"Directive {directive_id} not found in {ACTIVE_DIR}")
+
+    ACTIVE_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = ACTIVE_BACKUP_DIR / d_path.name
+    
+    # Atomic Move
+    os.replace(str(d_path), str(target_path))
+    
+    # Create marker
+    marker_path = target_path.with_suffix(target_path.suffix + ".admitted")
+    marker_path.touch()
+    print(f"[ORCHESTRATOR] Admitted: {d_path.name} -> {ACTIVE_BACKUP_DIR}")
+
+def archive_completed_directive(directive_id: str) -> None:
+    """Move directive and marker from active_backup/ to completed/."""
+    # Source must be active_backup/
+    d_path = find_directive_path(ACTIVE_BACKUP_DIR, directive_id)
+    if not d_path:
+        return
+
+    COMPLETED_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = COMPLETED_DIR / d_path.name
+    
+    if target_path.exists():
+        os.remove(target_path)
+    
+    os.replace(str(d_path), str(target_path))
+    
+    # Move marker if exists
+    marker_path = d_path.with_suffix(d_path.suffix + ".admitted")
+    if marker_path.exists():
+        new_marker = target_path.with_suffix(target_path.suffix + ".admitted")
+        os.replace(str(marker_path), str(new_marker))
+        
+    print(f"[ORCHESTRATOR] Archived: {d_path.name} -> {COMPLETED_DIR}")
+
+def recover_partially_admitted_directives() -> None:
+    """On startup, recreate markers for directives in backup missing them."""
+    if not ACTIVE_BACKUP_DIR.exists():
+        return
+        
+    for item in ACTIVE_BACKUP_DIR.glob("*.txt"):
+        marker = item.with_suffix(item.suffix + ".admitted")
+        if not marker.exists():
+            marker.touch()
+            print(f"[RECOVERY] Recreated admission marker for: {item.name}")
 
 # Governance Imports
 
@@ -77,8 +132,10 @@ from tools.orchestration.pre_execution import (
     prepare_single_directive_for_execution,
 )
 from tools.orchestration.execution_adapter import run_command
-from tools.orchestration.run_planner import plan_runs_for_directive
-from tools.system_registry import reconcile_registry, _load_registry
+from tools.system_registry import reconcile_registry, _load_registry, _save_registry_atomic
+from tools.pipeline_utils import PipelineContext, parse_directive
+from tools.orchestration.bootstrap_controller import BootstrapController
+from tools.orchestration.runner import StageRunner
 
 
 def enforce_run_schema(project_root: Path):
@@ -95,20 +152,49 @@ def enforce_run_schema(project_root: Path):
             continue
             
         # Standard v2 requirements apply only to run containers (24-char hex IDs)
-        # Directive state folders (e.g. 01_MR_...) should be exempted.
         if len(run_folder.name) != 24:
             continue
-        required = ["data", "manifest.json", "run_state.json"]
+            
+        # [FIX] Do not delete freshly provisioned runs (no data yet) 
+        # or runs currently in progress. 
+        # A run is only "Abandoned" if it's been there a while WITHOUT activity.
+        # For now, we only enforce manifest/data for runs that are COMPLETED.
+        
+        required = ["run_state.json"] # Only run_state is strictly required at startup
         missing = [req for req in required if not (run_folder / req).exists()]
         
         if missing:
-            print(f"[GUARDRAIL] Invalid run container: {run_folder.name} (Missing: {', '.join(missing)})")
+            print(f"[GUARDRAIL] Corrupt run container: {run_folder.name} (Missing: {', '.join(missing)})")
+            # Fallback to quarantine for corrupt runs
             quarantine_dir.mkdir(parents=True, exist_ok=True)
             dst = quarantine_dir / run_folder.name
             if dst.exists():
                 shutil.rmtree(dst)
             shutil.move(str(run_folder), str(dst))
             invalid_found.append(run_folder.name)
+            continue
+
+        # If it has a run_state, check if it's old and abandoned
+        try:
+            from tools.pipeline_utils import PipelineStateManager
+            mgr = PipelineStateManager(run_folder.name)
+            state_data = mgr.get_state_data()
+            current_state = state_data.get("current_state", "IDLE")
+            
+            # If it's COMPLETE but missing manifest/data, then it's a schema violation
+            if current_state == "COMPLETE":
+                manifest_exists = (run_folder / "manifest.json").exists()
+                data_exists = (run_folder / "data").exists()
+                if not manifest_exists or not data_exists:
+                    print(f"[GUARDRAIL] Incomplete COMPLETED run: {run_folder.name} (Missing: manifest or data)")
+                    # Quarantine...
+                    quarantine_dir.mkdir(parents=True, exist_ok=True)
+                    dst = quarantine_dir / run_folder.name
+                    if dst.exists(): shutil.rmtree(dst)
+                    shutil.move(str(run_folder), str(dst))
+                    invalid_found.append(run_folder.name)
+        except Exception:
+            pass # Skip if state cannot be read
 
     if invalid_found:
         print(f"[FATAL] Schema enforcement failed for {len(invalid_found)} runs. Quarantined to {quarantine_dir}.")
@@ -127,7 +213,18 @@ def gate_registry_consistency():
             drift_detected = True
         if results["missing_from_disk"]:
             print(f"[DRIFT] REGISTRY_RUN_MISSING_ON_DISK: {results['missing_from_disk']}")
-            drift_detected = True
+            print("[AUTO-HEAL] Automatically purging orphaned registry keys...")
+            reg = _load_registry()
+            for run_id in results["missing_from_disk"]:
+                if run_id in reg:
+                    del reg[run_id]
+            _save_registry_atomic(reg)
+            
+            # Re-run registry reconciliation
+            results = reconcile_registry()
+            # If still missing_from_disk, it will still set drift_detected = True below if not cleared
+            if results["missing_from_disk"]:
+                drift_detected = True
             
         if drift_detected:
             raise PipelineAdmissionPause("Registry drift detected. Manual reconciliation required.")
@@ -248,7 +345,7 @@ def detect_strategy_drift(project_root: Path):
         elif item.is_dir():
             if item.name.startswith("_"):
                 continue
-            if not (item / "portfolio_metadata.json").exists():
+            if not (item / "portfolio_evaluation" / "portfolio_metadata.json").exists() and not any(item.glob("*.py")):
                 drift.append(f"Untracked directory: {item.name}")
 
     if drift:
@@ -263,12 +360,25 @@ def detect_strategy_drift(project_root: Path):
 
 def map_pipeline_error(err):
     """Single top-level mapper for pause/failure outcomes."""
+    try:
+        from tools.system_logging.pipeline_failure_logger import log_pipeline_failure as _log_failure
+    except Exception:
+        _log_failure = None
+
     if isinstance(err, PipelineAdmissionPause):
         print(f"[ORCHESTRATOR] Execution Paused: {err}")
         return err.exit_code
 
     if isinstance(err, PipelineExecutionError):
         print(f"[ORCHESTRATOR] Execution Failed: {err}")
+        if _log_failure:
+            _log_failure(
+                directive_id=getattr(err, "directive_id", None) or "UNKNOWN",
+                run_id=(getattr(err, "run_ids", None) or [None])[0],
+                stage="ORCHESTRATOR",
+                error_type="PIPELINE_ERROR",
+                message=str(err),
+            )
         if err.fail_directive and err.directive_id:
             fail_directive_best_effort(err.directive_id)
 
@@ -314,249 +424,44 @@ def parse_concurrency_config(file_path):
 
 def run_single_directive(directive_id, provision_only=False):
     """Execution logic for a single directive."""
-    run_ids = []
-    clean_id = directive_id
-    registry_path = None
-
-    # 1. Parsing
-    d_path = get_directive_path(directive_id)
-    clean_id = d_path.stem 
-    
+    ctx = None
     # 1.1 Uniqueness Check
-    verify_directive_uniqueness_guard(clean_id)
+    verify_directive_uniqueness_guard(directive_id)
     
-    print(f"[CONFIG] Directive: {d_path.name}")
-    
-    # Directive-to-run mapping rationale is documented in governance/directive_execution_model.md.
-    
-    # We need the symbol list pre-Stage-0.25 only to pre-calculate Run IDs.
-    # Use a raw yaml.safe_load() to extract symbols without invoking parse_directive()
-    # strict validation (which requires test: wrapper, collisions, etc.).
-    # This ensures non-canonical directives still reach Stage -0.25 rather than
-    # failing here with a confusing INVALID DIRECTIVE STRUCTURE error.
-    import yaml as _yaml_pre
-    try:
-        _raw_pre = _yaml_pre.safe_load(d_path.read_text(encoding="utf-8")) or {}
-    except Exception as _pre_err:
-        raise PipelineExecutionError(
-            f"YAML_PARSE_ERROR (pre-Stage-0.25): {_pre_err}",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        ) from _pre_err
-    # Support both canonical (test: wrapper) and flat directives for symbol extraction only
-    _test_block_pre = _raw_pre.get("test", {})
-    symbols = (
-        _raw_pre.get("symbols")
-        or _raw_pre.get("Symbols")
-        or _test_block_pre.get("symbols")
-        or _test_block_pre.get("Symbols")
-        or []
-    )
-    if isinstance(symbols, str):
-        symbols = [symbols]
+    # 1.2 Bootstrap
+    bootstrap = BootstrapController(PROJECT_ROOT)
 
-    if not symbols:
-        raise PipelineExecutionError(
-            "No symbols found in directive.",
-            directive_id=clean_id,
-            run_ids=run_ids,
+    try:
+        ctx = bootstrap.prepare_context(
+            directive_id=directive_id,
+            provision_only=provision_only
         )
-
-    print(f"[ORCHESTRATOR] Found {len(symbols)} symbols: {symbols}")
-
-    # ----------------------------------------------------------
-    # STAGE -0.25: DIRECTIVE CANONICALIZATION GATE
-    # Must run before any state initialization or pipeline stage.
-    # ----------------------------------------------------------
-    from tools.canonicalizer import canonicalize, CanonicalizationError
-    import yaml as _yaml
+    except PipelineExecutionError as e:
+        if "already COMPLETE" in str(e):
+            return  # Clean exit if already done
+        raise
 
     try:
-        raw_yaml = d_path.read_text(encoding="utf-8")
-        parsed_raw = _yaml.safe_load(raw_yaml)
-        canonical, canonical_yaml, diff_lines, violations, has_drift = \
-            canonicalize(parsed_raw)
-    except CanonicalizationError as e:
-        raise PipelineExecutionError(
-            f"STAGE -0.25 CANONICALIZATION FAILED: {e}",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        ) from e
-    except _yaml.YAMLError as e:
-        raise PipelineExecutionError(
-            f"YAML_PARSE_ERROR: {e}",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        ) from e
-
-    if violations:
-        print("[STAGE -0.25] Structural changes detected:")
-        for level, msg in violations:
-            print(f"  [{level}] {msg}")
-
-    if has_drift:
-        print("\n[STAGE -0.25] STRUCTURAL DRIFT -- directive is not canonical.")
-        print("  --- Unified Diff ---")
-        for line in diff_lines:
-            print(f"  {line}", end="")
-        tmp_path = Path("/tmp") / f"{clean_id}_canonical.yaml"
-        tmp_path.write_text(canonical_yaml, encoding="utf-8")
-        print(f"\n  Corrected YAML written to: {tmp_path}")
-        print("  Human must review and approve overwrite.")
-        print("[HALT] Pipeline stopped. Fix directive and re-run.")
-        raise PipelineExecutionError(
-            "Stage -0.25 halted due to structural drift in directive.",
-            directive_id=clean_id,
-            run_ids=run_ids,
-            fail_directive=False,
-            fail_runs=False,
-        )
-    else:
-        print("[STAGE -0.25] Directive is in canonical form. [OK]")
-
-    # ----------------------------------------------------------
-    # STAGE -0.30: NAMESPACE GOVERNANCE GATE (PHASE-1)
-    # Enforces naming pattern, token dictionaries, alias policy,
-    # filename/test identity equality, and idea registry match.
-    # ----------------------------------------------------------
-    try:
-        from tools.namespace_gate import validate_namespace
-        ns_details = validate_namespace(d_path)
-        print(
-            "[STAGE -0.30] Namespace Gate PASSED: "
-            f"{ns_details['strategy_name']} "
-            f"(ID={ns_details['idea_id']}, "
-            f"FAMILY={ns_details['family']}, "
-            f"MODEL={ns_details['model']}, "
-            f"FILTER={ns_details.get('filter') or 'NONE'})"
-        )
-    except Exception as e:
-        raise PipelineExecutionError(
-            f"STAGE -0.30 NAMESPACE GATE FAILED: {e}",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        ) from e
-
-    # ----------------------------------------------------------
-    # STAGE -0.35: SWEEP REGISTRY GATE (PHASE-2)
-    # Enforces unique sweep allocation per idea lineage.
-    # ----------------------------------------------------------
-    try:
-        from tools.sweep_registry_gate import reserve_sweep
-        sw_details = reserve_sweep(d_path, auto_advance=True)
-        print(
-            "[STAGE -0.35] Sweep Gate PASSED: "
-            f"status={sw_details['status']} "
-            f"idea={sw_details['idea_id']} "
-            f"sweep={sw_details['sweep']}"
-        )
-    except Exception as e:
-        raise PipelineExecutionError(
-            f"STAGE -0.35 SWEEP GATE FAILED: {e}",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        ) from e
-
-    # Stage -0.25 passed. Now safe to call parse_directive() with strict validation.
-    # This is the earliest correct point: canonical structure is confirmed.
-    # Fix 3: Previously parse_directive() ran before Stage -0.25, so non-canonical
-    # directives failed with INVALID DIRECTIVE STRUCTURE before reaching the gate.
-    from tools.pipeline_utils import parse_directive
-    p_conf = parse_directive(d_path)
-    # Authoritative symbol resolution from fully parsed config
-    symbols = p_conf.get("Symbols", p_conf.get("symbols", symbols))
-    if isinstance(symbols, str):
-        symbols = [symbols]
-
-    dir_state_mgr = DirectiveStateManager(clean_id)
-    dir_state_mgr.initialize()
-    
-    current_dir_state = dir_state_mgr.get_state()
-    print(f"[ORCHESTRATOR] Directive State: {current_dir_state}")
-    
-    # Resume Safety Logic
-    if current_dir_state == "PORTFOLIO_COMPLETE":
-         print(f"[ORCHESTRATOR] Directive {clean_id} is already COMPLETE. Aborting.")
-         return
-    elif current_dir_state == "FAILED":
-         if provision_only:
-             print(f"[ORCHESTRATOR] Directive {clean_id} is FAILED. Resetting for --provision-only run.")
-             transition_directive_state(clean_id, "INITIALIZED")
-             current_dir_state = dir_state_mgr.get_state()
-             print(f"[ORCHESTRATOR] Directive State after reset: {current_dir_state}")
-         else:
-             print(f"[ORCHESTRATOR] Directive {clean_id} is FAILED.")
-             print(f"[ORCHESTRATOR] To reset, run: python tools/reset_directive.py {clean_id} --reason \"<justification>\"")
-             raise PipelineExecutionError(
-                 f"Directive {clean_id} is FAILED and must be reset before rerun.",
-                 directive_id=clean_id,
-                 run_ids=run_ids,
-                 fail_directive=False,
-                 fail_runs=False,
-             )
-
-    strategy_id = p_conf.get("Strategy", p_conf.get("strategy")) or clean_id
-    planned_runs, registry_path = plan_runs_for_directive(
-        directive_id=clean_id,
-        directive_path=d_path,
-        strategy_id=strategy_id,
-        symbols=symbols,
-        project_root=PROJECT_ROOT,
-    )
-    run_ids = [run["run_id"] for run in planned_runs]
-    symbols = [run["symbol"] for run in planned_runs]
-
-    # 1. Initialize State for All Planned Runs
-    print("[ORCHESTRATOR] Initializing symbol states...")
-    for run in planned_runs:
-        run_id = run["run_id"]
-        symbol = run["symbol"]
-        # Init individual run state (unless we are resuming later stages, but init is idempotent mostly)
-        if current_dir_state not in ["SYMBOL_RUNS_COMPLETE", "PORTFOLIO_COMPLETE"]:
-             print(f"[ORCHESTRATOR] Managing Run ID: {run_id} ({symbol})")
-             state_mgr = PipelineStateManager(run_id, directive_id=clean_id)
-             state_mgr.initialize()
-
-    try:
-        # Resume Check
-        if dir_state_mgr.get_state() == "SYMBOL_RUNS_COMPLETE":  # live fetch -- not stale var
-             print("[ORCHESTRATOR] Resuming at Stage-4 (Portfolio)...")
-        else:
-            should_stop = run_preflight_semantic_checks(
-                clean_id=clean_id,
-                d_path=d_path,
-                p_conf=p_conf,
-                run_ids=run_ids,
-                symbols=symbols,
-                dir_state_mgr=dir_state_mgr,
-                provision_only=provision_only,
-                project_root=PROJECT_ROOT,
-                python_exe=PYTHON_EXE,
-                run_command=run_command,
-            )
-            if should_stop:
-                return
-
-            run_symbol_execution_stages(
-                clean_id=clean_id,
-                p_conf=p_conf,
-                run_ids=run_ids,
-                symbols=symbols,
-                project_root=PROJECT_ROOT,
-                python_exe=PYTHON_EXE,
-                run_command=run_command,
-                registry_path=registry_path,
-            )
-            
-        print("[ORCHESTRATOR] Candidate generation complete. Pipeline stopping at research boundary.")
+        # StageRunner iterates STAGE_REGISTRY, skipping completed_stages on resume.
+        StageRunner(ctx).run()
+        print("[ORCHESTRATOR] Pipeline complete.")
         return
-    except PipelineError:
+    except PipelineError as e:
+        if "PREFLIGHT" in str(e) or "Unhandled orchestration failure" in str(e):
+            from tools.orchestration.run_cleanup import cleanup_provisioned_runs
+            if getattr(ctx, 'run_ids', []):
+                cleanup_provisioned_runs(ctx.run_ids)
         raise
     except Exception as e:
+        from tools.orchestration.run_cleanup import cleanup_provisioned_runs
+        if getattr(ctx, 'run_ids', []):
+            cleanup_provisioned_runs(ctx.run_ids)
+        import traceback
+        traceback.print_exc()
         raise PipelineExecutionError(
             f"Unhandled orchestration failure: {e}",
-            directive_id=clean_id,
-            run_ids=run_ids,
+            directive_id=directive_id,
+            run_ids=getattr(ctx, 'run_ids', []),
         ) from e
 
 
@@ -579,6 +484,37 @@ def run_batch_mode(provision_only=False):
         return
 
     print(f"[BATCH] Found {len(directives)} directives: {[d.name for d in directives]}")
+    
+    # --- ACTIVE Bypass Guard ---
+    try:
+        from tools.sweep_registry_gate import _load_yaml, SWEEP_REGISTRY_PATH
+        registry_data = _load_yaml(SWEEP_REGISTRY_PATH)
+        allocated_names = set()
+        ideas = registry_data.get("ideas", {})
+        if isinstance(ideas, dict):
+            for idea_data in ideas.values():
+                if isinstance(idea_data, dict):
+                    sweeps = idea_data.get("sweeps", idea_data.get("allocated", {}))
+                    if isinstance(sweeps, dict):
+                        for sweep_data in sweeps.values():
+                            if isinstance(sweep_data, dict):
+                                d_name = sweep_data.get("directive_name")
+                                if d_name:
+                                    allocated_names.add(d_name)
+                                patches = sweep_data.get("patches", {})
+                                if isinstance(patches, dict):
+                                    for patch_data in patches.values():
+                                        if isinstance(patch_data, dict):
+                                            p_name = patch_data.get("directive_name")
+                                            if p_name:
+                                                allocated_names.add(p_name)
+        for d_path in directives:
+            if d_path.stem not in allocated_names:
+                print(f"DIRECTIVE_NOT_ADMITTED | directive={d_path.name}")
+    except Exception as e:
+        print(f"[WARN] Failed to run ACTIVE Bypass Guard: {e}")
+    # ---------------------------
+
     completed_dir.mkdir(parents=True, exist_ok=True)
 
     for idx, d_path in enumerate(directives):
@@ -586,13 +522,15 @@ def run_batch_mode(provision_only=False):
         d_id = d_path.stem
         print(f"\n[BATCH] Processing Directive {idx+1}/{len(directives)}: {d_name}")
         try:
-            run_single_directive(d_id, provision_only=provision_only)
+            # Phase 1: Admission (Move from active/ -> active_backup/ + marker)
             if not provision_only:
-                final_dst = completed_dir / d_name
-                if final_dst.exists():
-                    os.remove(final_dst)
-                shutil.move(str(d_path), str(final_dst))
-                print(f"[BATCH] Completed: {d_name} -> {completed_dir}")
+                admit_directive(d_id)
+            
+            run_single_directive(d_id, provision_only=provision_only)
+            
+            if not provision_only:
+                # Phase 2: Archive (Move from active_backup/ -> completed/ + move marker)
+                archive_completed_directive(d_id)
             else:
                 print(f"[BATCH] Provision-only: {d_name} remains in active/")
         except PipelineError:
@@ -605,6 +543,14 @@ def run_batch_mode(provision_only=False):
                 f"Batch directive failed: {d_name}: {e}",
                 directive_id=d_id,
             ) from e
+            
+    if not provision_only:
+        print("\n[BATCH] Running Candidate Promotion (filter_strategies.py)...")
+        try:
+            run_command([PYTHON_EXE, "tools/filter_strategies.py"], "Candidate Promotion")
+        except Exception as e:
+            print(f"[WARN] Candidate promotion failed: {e}")
+
     print("\n[BATCH] All directives processed successfully.")
 
 def main():
@@ -622,6 +568,14 @@ def main():
         enforce_run_schema(PROJECT_ROOT)
         detect_strategy_drift(PROJECT_ROOT)
         gate_registry_consistency()
+        
+        # Phase 10: Watchdog integration
+        from tools.orchestration.run_watchdog import recover_stale_runs
+        recover_stale_runs()
+        
+        # Phase 11: Directive Admission Recovery
+        recover_partially_admitted_directives()
+
         verify_manifest_integrity(PROJECT_ROOT)
         
         print("[ORCHESTRATOR] Performing authoritative registry reconciliation sweep...")
@@ -639,8 +593,23 @@ def main():
                 run_command=run_command,
             )
 
+            # Phase 1: Admission (Move from active/ -> active_backup/ + marker)
+            if not provision_only:
+                admit_directive(directive_id)
+
             print(f"MASTER PIPELINE EXECUTION -- {directive_id}")
             run_single_directive(directive_id, provision_only=provision_only)
+            
+            if not provision_only:
+                # Phase 2: Archive (Move from active_backup/ -> completed/ + move marker)
+                archive_completed_directive(directive_id)
+
+                print("\n[PIPELINE] Running Candidate Promotion (filter_strategies.py)...")
+                try:
+                    run_command([PYTHON_EXE, "tools/filter_strategies.py"], "Candidate Promotion")
+                except Exception as e:
+                    print(f"[WARN] Candidate promotion failed: {e}")
+
             print("\n[SUCCESS] Pipeline Completed Successfully.")
     except PipelineError as err:
         sys.exit(map_pipeline_error(err))

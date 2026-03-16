@@ -1,228 +1,193 @@
-# =============================================================================
-# INDICATOR REGISTRY
-# =============================================================================
-# Authority: Trade_Scan Universal Research Engine
-# Purpose:   Capability map, parameter reference, return-schema reference,
-#            reuse contract, governance checkpoint.
-# Generated: 2026-03-01T16:54:09+05:30
-# registry_version: 3
-# =============================================================================
-
-registry_version: 3
-generated_at: "2026-03-09T00:00:00+05:30"
-
-# =============================================================================
-# GOVERNANCE CHANGELOG
-# =============================================================================
+# INDICATOR REGISTRY (Automated Summary)
 governance_updates:
   version_2:
-    date: "2026-03-01"
+    date: '2026-03-01'
     changes:
-      - "column_normalization: kalman_regime and sha_regime now accept lowercase open/high/low/close (engine standard) with capitalized fallback and explicit ValueError"
-      - "percentile_scale_enforcement: atr_percentile now raises RuntimeError if output exceeds 1.0001 (0–1 scale); rolling_percentile already had 0–100 invariant guard"
-      - "loop_audit: candle_state, kalman_regime, sha_regime, hull_moving_average all annotated with O(n) governance comment confirming no nested loops"
-      - "datetime_index_guards: linreg_regime_htf and session_range_structure already had explicit guards — confirmed in place, no changes required"
-      - "external_dependency_isolation: usd_stress_index path moved to USD_SYNTH_PATH module constant; descriptive FileNotFoundError with rebuild instructions added"
-      - "output_scale fields added to all percentile-style indicators in registry metadata"
-
+    - 'column_normalization: kalman_regime and sha_regime now accept lowercase open/high/low/close
+      (engine standard) with capitalized fallback and explicit ValueError'
+    - 'percentile_scale_enforcement: atr_percentile now raises RuntimeError if output
+      exceeds 1.0001 (0–1 scale); rolling_percentile already had 0–100 invariant guard'
+    - 'loop_audit: candle_state, kalman_regime, sha_regime, hull_moving_average all
+      annotated with O(n) governance comment confirming no nested loops'
+    - 'datetime_index_guards: linreg_regime_htf and session_range_structure already
+      had explicit guards — confirmed in place, no changes required'
+    - 'external_dependency_isolation: usd_stress_index path moved to USD_SYNTH_PATH
+      module constant; descriptive FileNotFoundError with rebuild instructions added'
+    - output_scale fields added to all percentile-style indicators in registry metadata
   version_3:
-    date: "2026-03-09"
+    date: '2026-03-09'
     changes:
-      - "taxonomy_reorganisation: roc, rsi, stochastic, ultimate_c_percent moved from indicators/price/ to indicators/momentum/"
-      - "module_path_updates: four indicators updated from indicators.price.* to indicators.momentum.*"
-      - "new_indicator: stochastic_momentum_index added to indicators/momentum/"
-      - "category_field_added: all 33 indicators now carry a category field (price|momentum|trend|structure|volatility|stats|composite) matching directory structure"
-      - "registry_summary_updated: total_indicators=33, momentum_count=5"
-      - "price_init_cleanup: indicators/price/__init__.py updated to remove moved indicators; indicators/momentum/__init__.py created"
-
-
-# =============================================================================
-# PRICE INDICATORS
-# =============================================================================
-
+    - 'taxonomy_reorganisation: roc, rsi, stochastic, ultimate_c_percent moved from
+      indicators/price/ to indicators/momentum/'
+    - 'module_path_updates: four indicators updated from indicators.price.* to indicators.momentum.*'
+    - 'new_indicator: stochastic_momentum_index added to indicators/momentum/'
+    - 'category_field_added: all 33 indicators now carry a category field (price|momentum|trend|structure|volatility|stats|composite)
+      matching directory structure'
+    - 'registry_summary_updated: total_indicators=33, momentum_count=5'
+    - 'price_init_cleanup: indicators/price/__init__.py updated to remove moved indicators;
+      indicators/momentum/__init__.py created'
+  version_4:
+    date: '2026-03-14'
+    changes:
+    - 'new_indicators: log_return_autocorr and realized_vol added to support the State
+      Machine Regime Model upgrade'
+    - 'registry_summary_updated: total_indicators=35, statistical_count=4, volatility_count=6'
+registry_version: 6
+generated_at: '2026-03-14T11:40:00+05:30'
 indicators:
-
-  # ---------------------------------------------------------------------------
-  # price/candle_state.py
-  # ---------------------------------------------------------------------------
   candle_state:
     module_path: indicators.price.candle_state
     category: price
     function_name: apply
     classification: Momentum
     input_requirements:
-      - df: DataFrame with columns [open, close]
+    - df: DataFrame with columns [open, close]
     parameters:
       params: dict (optional, unused)
     default_parameters:
       params: null
     output_type: DataFrame
     output_columns:
-      - is_green: bool — close > open
-      - is_red: bool — close < open
-      - green_streak: int — consecutive green bars count
-      - red_streak: int — consecutive red bars count
+    - is_green: bool — close > open
+    - is_red: bool — close < open
+    - green_streak: int — consecutive green bars count
+    - red_streak: int — consecutive red bars count
     output_scale: N/A
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: No
-    loop_complexity: "O(n) — iterative by design (annotated)"
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — iterative by design (annotated)
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Detecting sequential momentum bias (e.g., 3 consecutive green bars).
-      Used in mean-reversion and momentum ignition entries.
+    typical_use_case: 'Detecting sequential momentum bias (e.g., 3 consecutive green
+      bars). Used in mean-reversion and momentum ignition entries.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # price/previous_bar_breakout.py
-  # ---------------------------------------------------------------------------
+    lookback: 1
+    warmup: 1
+    input_columns:
+    - open
+    - high
+    - low
+    - close
   previous_bar_breakout:
     module_path: indicators.price.previous_bar_breakout
     category: price
     function_name: apply
     classification: Structure
     input_requirements:
-      - df: DataFrame with columns [high, low, close]
+    - df: DataFrame with columns [high, low, close]
     parameters:
       params: dict (optional, unused)
     default_parameters:
       params: null
     output_type: DataFrame
     output_columns:
-      - prev_high: float — prior bar high
-      - prev_low: float — prior bar low
-      - breakout_up_close: bool — close > prev_high
-      - breakout_down_close: bool — close < prev_low
+    - prev_high: float — prior bar high
+    - prev_low: float — prior bar low
+    - breakout_up_close: bool — close > prev_high
+    - breakout_down_close: bool — close < prev_low
     output_scale: N/A
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Detecting simple 1-bar breakout conditions for entry triggers.
+    typical_use_case: 'Detecting simple 1-bar breakout conditions for entry triggers.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # price/roc.py
-  # ---------------------------------------------------------------------------
+    lookback: 2
+    warmup: 2
+    input_columns:
+    - high
+    - low
+    - close
   roc:
     module_path: indicators.momentum.roc
     category: momentum
     function_name: roc
     classification: Momentum
     input_requirements:
-      - series: pd.Series of prices
+    - series: pd.Series of prices
     parameters:
       period: int — lookback period
     default_parameters:
       period: 5
     output_type: Series
     output_columns:
-      - roc: float — rate of change as percentage (%)
-    output_scale: "unbounded float (%)"
+    - roc: float — rate of change as percentage (%)
+    output_scale: unbounded float (%)
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Short-term momentum measurement. Used in mean-reversion entries
+    typical_use_case: 'Short-term momentum measurement. Used in mean-reversion entries
       (ROC crossing oversold threshold).
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # price/rsi.py
-  # ---------------------------------------------------------------------------
+    lookback: period
+    warmup: period
+    input_columns:
+    - close
   rsi:
     module_path: indicators.momentum.rsi
     category: momentum
     function_name: rsi
     classification: Momentum
     input_requirements:
-      - series: pd.Series of prices (typically close)
+    - series: pd.Series of prices (typically close)
     parameters:
       period: int — RSI period (Wilder's smoothing)
     default_parameters:
       period: 14
     output_type: Series
     output_columns:
-      - rsi: float — RSI value (0–100 scale)
-    output_scale: "0-100"
+    - rsi: float — RSI value (0–100 scale)
+    output_scale: 0-100
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Overbought/oversold detection. RSI(2) < 25 for deep oversold entry;
-      RSI(2) > 75 for mean-reversion exit.
-    notes: >
-      Uses ewm(alpha=1/period, adjust=False) — Wilder's smoothing.
+    typical_use_case: 'Overbought/oversold detection. RSI(2) < 25 for deep oversold
+      entry; RSI(2) > 75 for mean-reversion exit.
+
+      '
+    notes: 'Uses ewm(alpha=1/period, adjust=False) — Wilder''s smoothing.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Medium
-
-  # ---------------------------------------------------------------------------
-  # price/stochastic.py
-  # ---------------------------------------------------------------------------
-  stochastic_k:
-    module_path: indicators.momentum.stochastic
-    category: momentum
-    function_name: stochastic_k
-    classification: Momentum
-    input_requirements:
-      - high: pd.Series of high prices
-      - low: pd.Series of low prices
-      - close: pd.Series of close prices
-    parameters:
-      k_period: int — lookback for raw %K
-      smooth_period: int — smoothing window applied to raw %K
-    default_parameters:
-      k_period: 14
-      smooth_period: 3
-    output_type: Series
-    output_columns:
-      - stochastic_k: float — smoothed stochastic %K (0–100 scale)
-    output_scale: "0-100"
-    lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
-    dependency_indicators: []
-    typical_use_case: >
-      Oversold cross (K crossing below 20) as secondary entry signal.
-    compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
-      computational_cost: Low
-      risk_of_overfitting: Medium
-
-  # ---------------------------------------------------------------------------
-  # price/ultimate_c_percent.py
-  # ---------------------------------------------------------------------------
+    lookback: period
+    warmup: period
+    input_columns:
+    - close
   ultimate_c_percent:
     module_path: indicators.momentum.ultimate_c_percent
     category: momentum
     function_name: ultimate_c_percent
     classification: Composite
     input_requirements:
-      - df: DataFrame with column [close]
+    - df: DataFrame with column [close]
     parameters:
       roc_period: int — ROC period
       lookback: int — short-term percent rank window
@@ -239,272 +204,322 @@ indicators:
       oversold: 25.0
     output_type: DataFrame
     output_columns:
-      - ultimate_c: float — normalized momentum oscillator (0–100)
-      - ultimate_signal: int — 1 (overbought), -1 (oversold), 0 (neutral)
-    output_scale: "0-100 (ultimate_c)"
+    - ultimate_c: float — normalized momentum oscillator (0–100)
+    - ultimate_signal: int — 1 (overbought), -1 (oversold), 0 (neutral)
+    output_scale: 0-100 (ultimate_c)
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Multi-scale momentum oscillator for mean-reversion detection.
+    typical_use_case: 'Multi-scale momentum oscillator for mean-reversion detection.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Medium
-
-  # ---------------------------------------------------------------------------
-  # price/usd_stress_index.py
-  # ---------------------------------------------------------------------------
+    lookback: lookback * factor
+    warmup: (lookback * factor) + smooth
+    input_columns:
+    - open
+    - high
+    - low
+    - close
   usd_stress_index:
     module_path: indicators.price.usd_stress_index
     category: price
     function_name: apply
     classification: Composite
     input_requirements:
-      - df: DataFrame with timestamp/time column
-      - external: USD_SYNTH_PATH constant (data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_return_d1.csv)
+    - df: DataFrame with timestamp/time column
+    - external: USD_SYNTH_PATH constant (data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_return_d1.csv)
     parameters:
       params: dict (optional, unused)
     default_parameters:
       params: null
     output_type: DataFrame
     output_columns:
-      - usd_stress: float — lagged daily USD synthetic return (D-1)
-      - usd_stress_percentile: float — 60-day rolling percentile (0–1 scale)
-    output_scale: "usd_stress: unbounded float; usd_stress_percentile: 0-1"
+    - usd_stress: float — lagged daily USD synthetic return (D-1)
+    - usd_stress_percentile: float — 60-day rolling percentile (0–1 scale)
+    output_scale: 'usd_stress: unbounded float; usd_stress_percentile: 0-1'
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: No
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: false
     external_dependency:
       path_constant: USD_SYNTH_PATH
-      default_location: "data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_return_d1.csv"
-      rebuild_command: "python build_usd_synth.py"
+      default_location: data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_return_d1.csv
+      rebuild_command: python build_usd_synth.py
     dependency_indicators:
-      - USD_SYNTH dataset (external)
-    typical_use_case: >
-      USD stress filter for FX/index strategies. 1-day lag prevents lookahead.
+    - USD_SYNTH dataset (external)
+    typical_use_case: 'USD stress filter for FX/index strategies. 1-day lag prevents
+      lookahead.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Low
-
-
-# =============================================================================
-# STATS INDICATORS
-# =============================================================================
-
-  # ---------------------------------------------------------------------------
-  # stats/rolling_max.py
-  # ---------------------------------------------------------------------------
+    lookback: 60
+    warmup: 60
+    input_columns:
+    - timestamp
   rolling_max:
     module_path: indicators.stats.rolling_max
     category: stats
     function_name: rolling_max
     classification: Statistical
     input_requirements:
-      - series: pd.Series (numeric)
-      - window: int
-    parameters:
-      window: int — rolling window size
-    default_parameters: {}
-    output_type: Series
-    output_columns:
-      - rolling_max: float — maximum value in rolling window
-    output_scale: "unbounded (mirrors input series scale)"
-    lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
-    dependency_indicators: []
-    typical_use_case: >
-      Utility building block for normalization and range computation.
-    compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
-      computational_cost: Low
-      risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # stats/rolling_percentile.py
-  # ---------------------------------------------------------------------------
-  rolling_percentile:
-    module_path: indicators.stats.rolling_percentile
-    category: stats
-    function_name: rolling_percentile
-    classification: Statistical
-    input_requirements:
-      - series: pd.Series (numeric)
-      - window: int
-    parameters:
-      window: int — rolling window size
-    default_parameters: {}
-    output_type: Series
-    output_columns:
-      - percentile: float — percentile rank within window (0–100 scale)
-    output_scale: "0-100"
-    invariant_check: "RuntimeError raised if output exceeds 100.0001"
-    lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
-    dependency_indicators: []
-    typical_use_case: >
-      Canonical 0–100 percentile ranking for any numeric series.
-    compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
-      computational_cost: Medium
-      risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # stats/rolling_zscore.py
-  # ---------------------------------------------------------------------------
-  rolling_zscore:
-    module_path: indicators.stats.rolling_zscore
-    category: stats
-    function_name: rolling_zscore
-    classification: Statistical
-    input_requirements:
-      - series: pd.Series (numeric)
+    - series: pd.Series (numeric)
+    - window: int
     parameters:
       window: int — rolling window size
     default_parameters:
       window: 20
     output_type: Series
     output_columns:
-      - zscore: float — z-score of current value within rolling window
-    output_scale: "unbounded float (mean=0, std=1 target)"
+    - rolling_max: float — maximum value in rolling window
+    output_scale: unbounded (mirrors input series scale)
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Statistical normalization. Uses population std (ddof=0). Inf-safe.
+    typical_use_case: 'Utility building block for normalization and range computation.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
+  rolling_percentile:
+    module_path: indicators.stats.rolling_percentile
+    category: stats
+    function_name: rolling_percentile
+    classification: Statistical
+    input_requirements:
+    - series: pd.Series (numeric)
+    - window: int
+    parameters:
+      window: int — rolling window size
+    default_parameters:
+      window: 100
+    output_type: Series
+    output_columns:
+    - percentile: float — percentile rank within window (0–100 scale)
+    output_scale: 0-100
+    invariant_check: RuntimeError raised if output exceeds 100.0001
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Canonical 0–100 percentile ranking for any numeric series.
 
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Medium
+      risk_of_overfitting: Low
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
+  rolling_zscore:
+    module_path: indicators.stats.rolling_zscore
+    category: stats
+    function_name: rolling_zscore
+    classification: Statistical
+    input_requirements:
+    - series: pd.Series (numeric)
+    parameters:
+      window: int — rolling window size
+    default_parameters:
+      window: 20
+    output_type: Series
+    output_columns:
+    - zscore: float — z-score of current value within rolling window
+    output_scale: unbounded float (mean=0, std=1 target)
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Statistical normalization. Uses population std (ddof=0). Inf-safe.
 
-# =============================================================================
-# STRUCTURE INDICATORS
-# =============================================================================
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
+  log_return_autocorr:
+    module_path: indicators.stats.log_return_autocorr
+    category: stats
+    function_name: log_return_autocorr
+    classification: Statistical
+    input_requirements:
+    - series: pd.Series (numeric prices)
+    parameters:
+      window: int — rolling window size
+      pos_threshold: float — threshold for momentum (1)
+      neg_threshold: float — threshold for mean-reversion (-1)
+    default_parameters:
+      window: 50
+      pos_threshold: 0.05
+      neg_threshold: -0.05
+    output_type: DataFrame
+    output_columns:
+    - autocorr: float — rolling lag-1 log-return autocorrelation
+    - regime: int — 1 (momentum), -1 (reversion), 0 (neutral)
+    output_scale: 'autocorr: -1 to 1; regime: -1/0/1'
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Detecting persistence/momentum vs mean-reversion in price returns.
+      One of the structural inputs for the state-machine regime model.
 
-  # ---------------------------------------------------------------------------
-  # structure/adx.py
-  # ---------------------------------------------------------------------------
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: window
+    warmup: window + 1
+    input_columns:
+    - close
   adx:
     module_path: indicators.structure.adx
     category: structure
     function_name: adx
     classification: Trend
     input_requirements:
-      - high: pd.Series
-      - low: pd.Series
-      - close: pd.Series
+    - high: pd.Series
+    - low: pd.Series
+    - close: pd.Series
     parameters:
       period: int — smoothing period
     default_parameters:
       period: 14
     output_type: Series
     output_columns:
-      - adx: float — ADX value (0–100)
-    output_scale: "0-100"
+    - adx: float — ADX value (0–100)
+    output_scale: 0-100
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Trend strength filter (direction-agnostic). ADX > 25 = trending market.
+    typical_use_case: 'Trend strength filter (direction-agnostic). ADX > 25 = trending
+      market.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # structure/daily_pivot_points.py
-  # ---------------------------------------------------------------------------
+    lookback: period
+    warmup: period * 2
+    input_columns:
+    - high
+    - low
+    - close
   daily_pivot_points:
     module_path: indicators.structure.daily_pivot_points
     category: structure
     function_name: daily_pivot_points
     classification: Structure
     input_requirements:
-      - df: DataFrame with columns [high, low, close]
+    - df: DataFrame with columns [high, low, close]
     parameters: {}
     default_parameters: {}
     output_type: DataFrame
     output_columns:
-      - pivot: float — classic floor pivot (prior session HLC/3)
-      - r1: float — resistance 1
-      - s1: float — support 1
-      - r2: float — resistance 2
-      - s2: float — support 2
-    output_scale: "price units"
+    - pivot: float — classic floor pivot (prior session HLC/3)
+    - r1: float — resistance 1
+    - s1: float — support 1
+    - r2: float — resistance 2
+    - s2: float — support 2
+    output_scale: price units
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: No
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: false
     dependency_indicators: []
-    typical_use_case: >
-      Classic support/resistance levels for intraday strategies.
+    typical_use_case: 'Classic support/resistance levels for intraday strategies.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # structure/donchian_channel.py
-  # ---------------------------------------------------------------------------
+    lookback: 1
+    warmup: 250
+    input_columns:
+    - high
+    - low
+    - close
   donchian_channel:
     module_path: indicators.structure.donchian_channel
     category: structure
     function_name: donchian_channel
     classification: Structure
     input_requirements:
-      - series: pd.Series
-      - window: int
+    - series: pd.Series
+    - window: int
     parameters:
       window: int — rolling window
-    default_parameters: {}
+    default_parameters:
+      window: 20
     output_type: Tuple
     output_columns:
-      - dc_mid: float — channel midpoint
-      - dc_width: float — channel width
-    output_scale: "price units"
+    - dc_mid: float — channel midpoint
+    - dc_width: float — channel width
+    output_scale: price units
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Breakout zone detection and price range compression measurement.
+    typical_use_case: 'Breakout zone detection and price range compression measurement.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # structure/ema_slope.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - high
+    - low
+    - close
   ema_slope:
     module_path: indicators.structure.ema_slope
     category: structure
     function_name: ema_slope
     classification: Trend
     input_requirements:
-      - close: pd.Series
+    - close: pd.Series
     parameters:
       period: int — EMA period
       slope_window: int — diff period
@@ -513,209 +528,175 @@ indicators:
       slope_window: 1
     output_type: Series
     output_columns:
-      - ema_slope: float — slope of EMA (positive = up, negative = down)
-    output_scale: "price units (raw diff)"
+    - ema_slope: float — slope of EMA (positive = up, negative = down)
+    output_scale: price units (raw diff)
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Lightweight trend direction confirmation via EMA momentum.
+    typical_use_case: 'Lightweight trend direction confirmation via EMA momentum.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # structure/highest_high.py
-  # ---------------------------------------------------------------------------
+    lookback: period
+    warmup: period + slope_window
+    input_columns:
+    - close
   highest_high:
     module_path: indicators.structure.highest_high
     category: structure
     function_name: highest_high
     classification: Structure
     input_requirements:
-      - series: pd.Series (typically high prices)
-      - window: int
+    - series: pd.Series (typically high prices)
+    - window: int
     parameters:
       window: int — rolling lookback
       shift: int — bars to shift result
     default_parameters:
+      window: 20
       shift: 0
     output_type: Series
     output_columns:
-      - highest_high: float — rolling maximum
-    output_scale: "price units"
+    - highest_high: float — rolling maximum
+    output_scale: price units
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Swing high reference for stop placement and breakout triggers.
+    typical_use_case: 'Swing high reference for stop placement and breakout triggers.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # structure/hull_moving_average.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window + shift
+    input_columns:
+    - high
   hull_moving_average:
     module_path: indicators.structure.hull_moving_average
     category: structure
     function_name: hull_moving_average
     classification: Trend
     input_requirements:
-      - series: pd.Series (typically close)
-      - period: int
+    - series: pd.Series (typically close)
+    - period: int
     parameters:
       period: int — HMA period
-    default_parameters: {}
+    default_parameters:
+      period: 20
     output_type: Series
     output_columns:
-      - hma: float — Hull Moving Average value
-    output_scale: "price units"
+    - hma: float — Hull Moving Average value
+    output_scale: price units
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: No
-    loop_complexity: "O(n) — rolling apply with O(window) WMA per step, annotated"
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: false
+    loop_complexity: O(n) — rolling apply with O(window) WMA per step, annotated
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Smooth, low-lag trend line. HMA = WMA(2*WMA(n/2) - WMA(n), sqrt(n)).
+    typical_use_case: 'Smooth, low-lag trend line. HMA = WMA(2*WMA(n/2) - WMA(n),
+      sqrt(n)).
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # structure/linear_regression_channel.py
-  # ---------------------------------------------------------------------------
+    lookback: period
+    warmup: period
+    input_columns:
+    - close
   linear_regression_channel:
     module_path: indicators.structure.linear_regression_channel
     category: structure
     function_name: linear_regression_channel
     classification: Trend
     input_requirements:
-      - series: pd.Series
-      - window: int
-      - std_mult: float
+    - series: pd.Series
+    - window: int
+    - std_mult: float
     parameters:
       window: int — regression window
       std_mult: float — std deviation multiplier
-    default_parameters: {}
+    default_parameters:
+      window: 50
+      std_mult: 2.0
     output_type: Tuple
     output_columns:
-      - lr_mid: float — regression midline
-      - lr_upper: float — upper channel
-      - lr_lower: float — lower channel
-    output_scale: "price units"
+    - lr_mid: float — regression midline
+    - lr_upper: float — upper channel
+    - lr_lower: float — lower channel
+    output_scale: price units
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Channel-based trend identification and mean-reversion boundaries.
+    typical_use_case: 'Channel-based trend identification and mean-reversion boundaries.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Medium
-
-  # ---------------------------------------------------------------------------
-  # structure/lowest_low.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
   lowest_low:
     module_path: indicators.structure.lowest_low
     category: structure
     function_name: lowest_low
     classification: Structure
     input_requirements:
-      - series: pd.Series (typically low prices)
-      - window: int
+    - series: pd.Series (typically low prices)
+    - window: int
     parameters:
       window: int — rolling lookback
       shift: int — bars to shift result
     default_parameters:
+      window: 20
       shift: 0
     output_type: Series
     output_columns:
-      - lowest_low: float — rolling minimum
-    output_scale: "price units"
+    - lowest_low: float — rolling minimum
+    output_scale: price units
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Swing low reference for stop placement and support detection.
+    typical_use_case: 'Swing low reference for stop placement and support detection.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # structure/range_breakout_session.py
-  # ---------------------------------------------------------------------------
-  session_range_structure:
-    module_path: indicators.structure.range_breakout_session
-    category: structure
-    function_name: session_range_structure
-    classification: Structure
-    input_requirements:
-      - df: DataFrame with [open, high, low, close] and DatetimeIndex (UTC, intraday)
-    datetime_index_required: true
-    datetime_index_guard: "raises ValueError if not isinstance(df.index, pd.DatetimeIndex)"
-    parameters:
-      session_start: str — session window start (HH:MM)
-      session_end: str — session window end (HH:MM)
-    default_parameters:
-      session_start: "03:00"
-      session_end: "06:00"
-    output_type: DataFrame
-    output_columns:
-      - session_high: float — session high (forward-filled within day)
-      - session_low: float — session low
-      - range_points: float — absolute session range
-      - range_percent: float — range relative to close
-      - break_direction: int — 1 (up), -1 (down), 0 (none)
-      - has_broken: bool — True if breakout occurred
-    output_scale: "range_percent: 0-1 ratio; break_direction: -1/0/1"
-    lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: No
-    dependency_indicators: []
-    typical_use_case: >
-      Opening Range Breakout (ORB) session definition and breakout detection.
-    compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: No
-      computational_cost: Medium
-      risk_of_overfitting: Low
-
-
-# =============================================================================
-# TREND INDICATORS
-# =============================================================================
-
-  # ---------------------------------------------------------------------------
-  # trend/efficiency_ratio_regime.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window + shift
+    input_columns:
+    - low
   efficiency_ratio_regime:
     module_path: indicators.trend.efficiency_ratio_regime
     category: trend
     function_name: efficiency_ratio_regime
     classification: Regime
     input_requirements:
-      - series: pd.Series (typically close)
+    - series: pd.Series (typically close)
     parameters:
       window: int — lookback window
       trend_threshold: float — ER threshold for trending classification
@@ -724,211 +705,226 @@ indicators:
       trend_threshold: 0.4
     output_type: DataFrame
     output_columns:
-      - er: float — efficiency ratio (0–1; 1=trending, 0=choppy)
-      - regime: int — 1 (trending), -1 (ranging)
-    output_scale: "er: 0-1; regime: -1/1"
+    - er: float — efficiency ratio (0–1; 1=trending, 0=choppy)
+    - regime: int — 1 (trending), -1 (ranging)
+    output_scale: 'er: 0-1; regime: -1/1'
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Adaptive regime detection via directional efficiency of price movement.
+    typical_use_case: 'Adaptive regime detection via directional efficiency of price
+      movement.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # trend/ema_regime.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
   ema_regime:
     module_path: indicators.trend.ema_regime
     category: trend
     function_name: ema_regime
     classification: Regime
     input_requirements:
-      - series: pd.Series
+    - series: pd.Series
     parameters:
       window: int — EMA period
     default_parameters:
       window: 20
     output_type: DataFrame
     output_columns:
-      - trend: float — EMA value
-      - regime: int — 1 (rising), -1 (falling), 0 (first bar)
-    output_scale: "trend: price units; regime: -1/0/1"
+    - trend: float — EMA value
+    - regime: int — 1 (rising), -1 (falling), 0 (first bar)
+    output_scale: 'trend: price units; regime: -1/0/1'
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Simplest trend regime classifier. Lightweight EMA slope direction.
+    typical_use_case: 'Simplest trend regime classifier. Lightweight EMA slope direction.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # trend/kalman_regime.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window * 2
+    input_columns:
+    - close
   kalman_regime:
     module_path: indicators.trend.kalman_regime
     category: trend
     function_name: kalman_regime
     classification: Regime
     input_requirements:
-      - df: DataFrame with column [close] (lowercase preferred) or [Close] (fallback)
+    - df: DataFrame with column [close] (lowercase preferred) or [Close] (fallback)
     column_naming:
       standard: lowercase 'close' (engine convention)
       fallback: capitalized 'Close'
-      error: "ValueError raised if neither found"
+      error: ValueError raised if neither found
     parameters:
       price_col: str — column name (auto-detected if None)
       process_var: float — Kalman process variance
       measurement_var: float — Kalman measurement variance
     default_parameters:
-      price_col: null  # auto-detected: 'close' → 'Close' → ValueError
-      process_var: 0.00001
+      price_col: null
+      process_var: 1.0e-05
       measurement_var: 0.01
     output_type: DataFrame
     output_columns:
-      - trend: float — Kalman-smoothed price estimate
-      - regime: int — 1 (rising), -1 (falling), 0 (first bar)
-    output_scale: "trend: price units; regime: -1/0/1"
+    - trend: float — Kalman-smoothed price estimate
+    - regime: int — 1 (rising), -1 (falling), 0 (first bar)
+    output_scale: 'trend: price units; regime: -1/0/1'
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: No
-    loop_complexity: "O(n) — Kalman filter inherently sequential, annotated"
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — Kalman filter inherently sequential, annotated
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Adaptive noise-filtered trend regime. Dynamic smoothing via Kalman gain.
+    typical_use_case: 'Adaptive noise-filtered trend regime. Dynamic smoothing via
+      Kalman gain.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # trend/linreg_regime.py
-  # ---------------------------------------------------------------------------
+    lookback: 0
+    warmup: 30
+    input_columns:
+    - close
   linreg_regime:
     module_path: indicators.trend.linreg_regime
     category: trend
     function_name: linreg_regime
     classification: Regime
     input_requirements:
-      - series: pd.Series (typically close)
+    - series: pd.Series (typically close)
     parameters:
       window: int — rolling regression window
     default_parameters:
       window: 50
     output_type: DataFrame
     output_columns:
-      - trend: float — rolling mean of close
-      - slope: float — linear regression slope
-      - regime: int — 1 (positive slope), -1 (negative slope), 0 (warmup)
-    output_scale: "trend: price units; slope: price/bar; regime: -1/0/1"
+    - trend: float — rolling mean of close
+    - slope: float — linear regression slope
+    - regime: int — 1 (positive slope), -1 (negative slope), 0 (warmup)
+    output_scale: 'trend: price units; slope: price/bar; regime: -1/0/1'
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Robust trend regime via linear regression slope. Standard filter across IDX family.
+    typical_use_case: 'Robust trend regime via linear regression slope. Standard filter
+      across IDX family.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # trend/linreg_regime_htf.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
   linreg_regime_htf:
     module_path: indicators.trend.linreg_regime_htf
     category: trend
     function_name: linreg_regime_htf
     classification: Regime
     input_requirements:
-      - series: pd.Series with DatetimeIndex (intraday close)
+    - series: pd.Series with DatetimeIndex (intraday close)
     datetime_index_required: true
-    datetime_index_guard: "raises ValueError if not isinstance(series.index, pd.DatetimeIndex)"
+    datetime_index_guard: raises ValueError if not isinstance(series.index, pd.DatetimeIndex)
     parameters:
       window: int — rolling window for daily regression
     default_parameters:
       window: 50
     output_type: DataFrame
     output_columns:
-      - trend: float — daily rolling mean (forward-filled to intraday)
-      - slope: float — daily regression slope (forward-filled)
-      - regime: int — 1 (uptrend), -1 (downtrend), 0 (warmup)
-    output_scale: "trend: price units; slope: price/bar; regime: -1/0/1"
+    - trend: float — daily rolling mean (forward-filled to intraday)
+    - slope: float — daily regression slope (forward-filled)
+    - regime: int — 1 (uptrend), -1 (downtrend), 0 (warmup)
+    output_scale: 'trend: price units; slope: price/bar; regime: -1/0/1'
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators:
-      - linreg_regime  # same algorithm, applied to daily resampled close
-    typical_use_case: >
-      Daily trend context injected into intraday strategies. 1-day lag prevents lookahead.
+    - linreg_regime
+    typical_use_case: 'Daily trend context injected into intraday strategies. 1-day
+      lag prevents lookahead.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: No
+      suitable_for_intraday: true
+      suitable_for_daily: false
       computational_cost: Medium
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # trend/sha_regime.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
   sha_regime:
     module_path: indicators.trend.sha_regime
     category: trend
     function_name: sha_regime
     classification: Regime
     input_requirements:
-      - df: DataFrame with columns [open, high, low, close] (lowercase preferred) or [Open, High, Low, Close] (fallback)
+    - df: DataFrame with columns [open, high, low, close] (lowercase preferred) or
+        [Open, High, Low, Close] (fallback)
     column_naming:
       standard: lowercase open/high/low/close (engine convention)
       fallback: capitalized Open/High/Low/Close
-      error: "ValueError raised if neither found"
+      error: ValueError raised if neither found
     parameters:
       smooth: int — smoothing window for HA open
     default_parameters:
       smooth: 3
     output_type: DataFrame
     output_columns:
-      - trend: float — smoothed Heikin-Ashi close
-      - regime: int — 1 (HA rising), -1 (HA falling), 0 (first bar)
-    output_scale: "trend: price units; regime: -1/0/1"
+    - trend: float — smoothed Heikin-Ashi close
+    - regime: int — 1 (HA rising), -1 (HA falling), 0 (first bar)
+    output_scale: 'trend: price units; regime: -1/0/1'
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: No
-    loop_complexity: "O(n) — HA open construction inherently sequential, annotated"
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — HA open construction inherently sequential, annotated
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Smoothed Heikin-Ashi trend regime. Lower noise than raw price regime.
+    typical_use_case: 'Smoothed Heikin-Ashi trend regime. Lower noise than raw price
+      regime.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # trend/trend_persistence.py
-  # ---------------------------------------------------------------------------
+    lookback: smooth + 1
+    warmup: (smooth + 1) * 2
+    input_columns:
+    - open
+    - high
+    - low
+    - close
   trend_persistence:
     module_path: indicators.trend.trend_persistence
     category: trend
     function_name: trend_persistence
     classification: Regime
     input_requirements:
-      - series: pd.Series
+    - series: pd.Series
     parameters:
       window: int — rolling window
       threshold: float — directional consistency threshold
@@ -937,172 +933,184 @@ indicators:
       threshold: 0.7
     output_type: DataFrame
     output_columns:
-      - persistence: float — max(up_frac, down_frac) in window
-      - regime: int — 1 (persistent up), -1 (persistent down), 0 (mixed)
-    output_scale: "persistence: 0-1; regime: -1/0/1"
+    - persistence: float — max(up_frac, down_frac) in window
+    - regime: int — 1 (persistent up), -1 (persistent down), 0 (mixed)
+    output_scale: 'persistence: 0-1; regime: -1/0/1'
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Confirms trend via directional consistency. Complements linreg_regime.
+    typical_use_case: 'Confirms trend via directional consistency. Complements linreg_regime.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-
-# =============================================================================
-# VOLATILITY INDICATORS
-# =============================================================================
-
-  # ---------------------------------------------------------------------------
-  # volatility/atr.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
   atr:
     module_path: indicators.volatility.atr
     category: volatility
     function_name: atr
     classification: Volatility
     input_requirements:
-      - df: DataFrame with columns [high, low, close]
-      - window: int
+    - df: DataFrame with columns [high, low, close]
+    - window: int
     parameters:
       window: int — ATR period (Wilder's RMA)
-    default_parameters: {}
+    default_parameters:
+      window: 14
     output_type: Series
     output_columns:
-      - atr: float — Average True Range
-    output_scale: "price units (unbounded positive)"
+    - atr: float — Average True Range
+    output_scale: price units (unbounded positive)
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Core volatility measurement. Input to atr_percentile and volatility_regime.
-    notes: "Uses ewm(alpha=1/window, adjust=False) — true Wilder's RMA."
+    typical_use_case: 'Core volatility measurement. Input to atr_percentile and volatility_regime.
+
+      '
+    notes: Uses ewm(alpha=1/window, adjust=False) — true Wilder's RMA.
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # volatility/atr_percentile.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - high
+    - low
+    - close
   atr_percentile:
     module_path: indicators.volatility.atr_percentile
     category: volatility
     function_name: atr_percentile
     classification: Volatility
     input_requirements:
-      - atr_series: pd.Series of ATR values
+    - atr_series: pd.Series of ATR values
     parameters:
       window: int — rolling lookback for percentile
     default_parameters:
       window: 100
     output_type: Series
     output_columns:
-      - atr_percentile: float — percentile rank of ATR within window (0.0–1.0)
-    output_scale: "0-1 (multiply by 100 for percentage comparison)"
-    invariant_check: "RuntimeError raised if output exceeds 1.0001"
+    - atr_percentile: float — percentile rank of ATR within window (0.0–1.0)
+    output_scale: 0-1 (multiply by 100 for percentage comparison)
+    invariant_check: RuntimeError raised if output exceeds 1.0001
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators:
-      - atr
-    typical_use_case: >
-      Volatility band classification. Primary entry filter in IDX-family strategies.
-      Compression ≤ 0.60, Expansion ≥ 0.72.
+    - atr
+    typical_use_case: 'Volatility band classification. Primary entry filter in IDX-family
+      strategies. Compression ≤ 0.60, Expansion ≥ 0.72.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # volatility/bollinger_band_width.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - high
+    - low
+    - close
   bollinger_band_width:
     module_path: indicators.volatility.bollinger_band_width
     category: volatility
     function_name: bollinger_band_width
     classification: Volatility
     input_requirements:
-      - series: pd.Series (typically close)
-      - window: int
-      - std_mult: float
+    - series: pd.Series (typically close)
+    - window: int
+    - std_mult: float
     parameters:
       window: int — rolling window
       std_mult: float — std deviation multiplier
-    default_parameters: {}
+    default_parameters:
+      window: 20
+      std_mult: 2.0
     output_type: Series
     output_columns:
-      - bb_width: float — Bollinger Band Width (upper-lower)/mid ratio
-    output_scale: "0+ ratio (0 = zero width, higher = wider bands)"
+    - bb_width: float — Bollinger Band Width (upper-lower)/mid ratio
+    output_scale: 0+ ratio (0 = zero width, higher = wider bands)
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Volatility compression/expansion. Low = squeeze → breakout potential.
+    typical_use_case: 'Volatility compression/expansion. Low = squeeze → breakout
+      potential.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # volatility/keltner_channel.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window * 2
+    input_columns:
+    - close
   keltner_channel:
     module_path: indicators.volatility.keltner_channel
     category: volatility
     function_name: keltner_channel
     classification: Volatility
     input_requirements:
-      - df: DataFrame with columns [high, low, close]
-      - window: int
-      - atr_mult: float
+    - df: DataFrame with columns [high, low, close]
+    - window: int
+    - atr_mult: float
     parameters:
       window: int — EMA and ATR period
       atr_mult: float — ATR multiplier for channel width
-    default_parameters: {}
+    default_parameters:
+      window: 20
+      atr_mult: 2.0
     output_type: Tuple
     output_columns:
-      - kc_mid: float — EMA midline
-      - kc_upper: float — upper channel
-      - kc_lower: float — lower channel
-    output_scale: "price units"
+    - kc_mid: float — EMA midline
+    - kc_upper: float — upper channel
+    - kc_lower: float — lower channel
+    output_scale: price units
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Volatility-adjusted channel. Combined with BB for squeeze detection.
+    typical_use_case: 'Volatility-adjusted channel. Combined with BB for squeeze detection.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Low
-
-  # ---------------------------------------------------------------------------
-  # volatility/market_state.py
-  # ---------------------------------------------------------------------------
+    lookback: window
+    warmup: window
+    input_columns:
+    - high
+    - low
+    - close
   market_state:
     module_path: indicators.volatility.market_state
     category: volatility
     function_name: market_state
     classification: Composite
     input_requirements:
-      - trend_slope: pd.Series — slope from linreg_regime (or equivalent)
-      - volatility_percentile: pd.Series — ATR percentile (0–1 scale from atr_percentile)
+    - trend_slope: pd.Series — slope from linreg_regime (or equivalent)
+    - volatility_percentile: pd.Series — ATR percentile (0–1 scale from atr_percentile)
     parameters:
       slope_thresh: float — absolute slope threshold for trending
       vol_low: float — low-volatility percentile ceiling
@@ -1113,34 +1121,36 @@ indicators:
       vol_high: 0.7
     output_type: DataFrame
     output_columns:
-      - state: int — composite market state (see notes)
-    output_scale: "state codes: 0=undefined, 1=trending_up, 2=trending_down, 3=range_low_vol, 4=range_high_vol"
+    - state: int — composite market state (see notes)
+    output_scale: 'state codes: 0=undefined, 1=trending_up, 2=trending_down, 3=range_low_vol,
+      4=range_high_vol'
     lookahead_safe: true
-    rolling_window_used: No
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
     dependency_indicators:
-      - linreg_regime  # provides trend_slope
-      - atr_percentile  # provides volatility_percentile
-    typical_use_case: >
-      Composite market regime: combines trend direction + volatility level
-      into a single state for strategy gating.
+    - linreg_regime
+    - atr_percentile
+    typical_use_case: 'Composite market regime: combines trend direction + volatility
+      level into a single state for strategy gating.
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Medium
-
-  # ---------------------------------------------------------------------------
-  # volatility/volatility_regime.py
-  # ---------------------------------------------------------------------------
+    lookback: 100
+    warmup: 100
+    input_columns:
+    - close
   volatility_regime:
     module_path: indicators.volatility.volatility_regime
     category: volatility
     function_name: volatility_regime
     classification: Regime
     input_requirements:
-      - atr_series: pd.Series of ATR values
+    - atr_series: pd.Series of ATR values
     parameters:
       window: int — rolling lookback for percentile
       low_thresh: float — percentile ceiling for low regime
@@ -1151,39 +1161,75 @@ indicators:
       high_thresh: 0.66
     output_type: DataFrame
     output_columns:
-      - atr: float — raw ATR values passed through
-      - percentile: float — rolling ATR percentile (0–1 internal scale)
-      - regime: int — -1 (low), 0 (medium), 1 (high)
-    output_scale: "percentile: 0-1 (internal); regime: -1/0/1"
+    - atr: float — raw ATR values passed through
+    - percentile: float — rolling ATR percentile (0–1 internal scale)
+    - regime: int — -1 (low), 0 (medium), 1 (high)
+    output_scale: 'percentile: 0-1 (internal); regime: -1/0/1'
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators:
-      - atr
-    typical_use_case: >
-      Three-bucket volatility regime classifier used across all Index strategies.
-      Engine maps regime codes to "low"/"normal"/"high" strings.
-    notes: "Regime encoding: -1=low, 0=medium, 1=high."
+    - atr
+    typical_use_case: 'Three-bucket volatility regime classifier used across all Index
+      strategies. Engine maps regime codes to "low"/"normal"/"high" strings.
+
+      '
+    notes: 'Regime encoding: -1=low, 0=medium, 1=high.'
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Medium
       risk_of_overfitting: Low
+    lookback: window
+    warmup: window
+    input_columns:
+    - atr
+  realized_vol:
+    module_path: indicators.volatility.realized_vol
+    category: volatility
+    function_name: realized_vol
+    classification: Volatility
+    input_requirements:
+    - series: pd.Series (numeric prices)
+    parameters:
+      window: int — rolling standard deviation window
+      percentile_window: int — window for normalization
+    default_parameters:
+      window: 20
+      percentile_window: 200
+    output_type: DataFrame
+    output_columns:
+    - realized_vol: float — standard deviation of log returns
+    - rv_percentile: float — percentile rank (0–1 scale)
+    output_scale: 'realized_vol: price units; rv_percentile: 0-1'
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Statistical volatility measurement from log returns. Used as
+      a multi-axis input for volatility state detection.
 
-
-  # ---------------------------------------------------------------------------
-  # momentum/stochastic_momentum_index.py
-  # ---------------------------------------------------------------------------
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Medium
+      risk_of_overfitting: Low
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
   stochastic_momentum_index:
     module_path: indicators.momentum.stochastic_momentum_index
     category: momentum
     function_name: stochastic_momentum_index
     classification: Momentum
     input_requirements:
-      - high: pd.Series of high prices
-      - low: pd.Series of low prices
-      - close: pd.Series of close prices
+    - high: pd.Series of high prices
+    - low: pd.Series of low prices
+    - close: pd.Series of close prices
     parameters:
       period: int - lookback for highest/lowest range
       smooth1: int - first EMA smoothing period
@@ -1196,48 +1242,196 @@ indicators:
       signal_period: 3
     output_type: DataFrame
     output_columns:
-      - smi: float - Stochastic Momentum Index (-100 to +100 scale)
-      - smi_signal: float - EMA signal line
-      - smi_hist: float - momentum spread (smi minus signal)
-    output_scale: "-100 to +100 (smi, smi_signal, smi_hist)"
+    - smi: float - Stochastic Momentum Index (-100 to +100 scale)
+    - smi_signal: float - EMA signal line
+    - smi_hist: float - momentum spread (smi minus signal)
+    output_scale: -100 to +100 (smi, smi_signal, smi_hist)
     lookahead_safe: true
-    rolling_window_used: Yes
-    vectorized: Yes
-    htf_compatible: Yes
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
     dependency_indicators: []
-    typical_use_case: >
-      Overbought/oversold momentum oscillator. SMI crossing above -40 from below
-      as long entry signal; crossing below +40 from above as short/exit signal.
-      Histogram zero-cross used for early momentum shift detection.
-    notes: >
-      Double-smoothed stochastic variant (William Blau). More responsive than
-      standard stochastic due to double EMA smoothing on both numerator and
-      denominator. Safe denominator handling via replace(0, nan).
+    typical_use_case: 'Overbought/oversold momentum oscillator. SMI crossing above
+      -40 from below as long entry signal; crossing below +40 from above as short/exit
+      signal. Histogram zero-cross used for early momentum shift detection.
+
+      '
+    notes: 'Double-smoothed stochastic variant (William Blau). More responsive than
+      standard stochastic due to double EMA smoothing on both numerator and denominator.
+      Safe denominator handling via replace(0, nan).
+
+      '
     compatibility:
-      suitable_for_intraday: Yes
-      suitable_for_daily: Yes
+      suitable_for_intraday: true
+      suitable_for_daily: true
       computational_cost: Low
       risk_of_overfitting: Medium
+    lookback: period
+    warmup: period + smooth1 + smooth2
+    input_columns:
+    - high
+    - low
+    - close
+  hurst_regime:
+    module_path: indicators.trend.hurst_regime
+    category: trend
+    function_name: hurst_regime
+    classification: Regime
+    input_requirements:
+    - series: pd.Series (log-price preferred)
+    parameters:
+      window: int - lookback
+      max_lag: int - lag depth
+    default_parameters:
+      window: 200
+      max_lag: 20
+    output_type: DataFrame
+    output_columns:
+    - hurst
+    - regime
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: Detecting persistence regimes using Hurst exponent.
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Medium
+      risk_of_overfitting: Low
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
+  ultimate_c_percent_variant:
+    module_path: indicators.price.ultimate_c_percent_variant
+    category: price
+    function_name: apply
+    lookback: 1
+    warmup: 1
+    input_columns:
+    - open
+    - high
+    - low
+    - close
+    classification: Momentum
+    parameters: {}
+    default_parameters: {}
+    output_type: DataFrame
+    output_columns:
+    - is_peak
+    - is_trough
+    - ultimate_c
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: Peak/trough detection variant.
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+  stochastic:
+    module_path: indicators.momentum.stochastic
+    category: momentum
+    function_name: stochastic_k
+    classification: Momentum
+    input_requirements:
+    - high: pd.Series of high prices
+    - low: pd.Series of low prices
+    - close: pd.Series of close prices
+    parameters:
+      k_period: int — lookback for raw %K
+      smooth_period: int — smoothing window applied to raw %K
+    default_parameters:
+      k_period: 14
+      smooth_period: 3
+    output_type: Series
+    output_columns:
+    - stochastic_k: float — smoothed stochastic %K (0–100 scale)
+    output_scale: 0-100
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Oversold cross (K crossing below 20) as secondary entry signal.
 
-# =============================================================================
-# REGISTRY SUMMARY
-# =============================================================================
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Medium
+    lookback: k_period
+    warmup: k_period + smooth_period
+    input_columns:
+    - high
+    - low
+    - close
+  range_breakout_session:
+    module_path: indicators.structure.range_breakout_session
+    category: structure
+    function_name: session_range_structure
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with [open, high, low, close] and DatetimeIndex (UTC, intraday)
+    datetime_index_required: true
+    datetime_index_guard: raises ValueError if not isinstance(df.index, pd.DatetimeIndex)
+    parameters:
+      session_start: str — session window start (HH:MM)
+      session_end: str — session window end (HH:MM)
+    default_parameters:
+      session_start: 03:00
+      session_end: 06:00
+    output_type: DataFrame
+    output_columns:
+    - session_high: float — session high (forward-filled within day)
+    - session_low: float — session low
+    - range_points: float — absolute session range
+    - range_percent: float — range relative to close
+    - break_direction: int — 1 (up), -1 (down), 0 (none)
+    - has_broken: bool — True if breakout occurred
+    output_scale: 'range_percent: 0-1 ratio; break_direction: -1/0/1'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: false
+    dependency_indicators: []
+    typical_use_case: 'Opening Range Breakout (ORB) session definition and breakout
+      detection.
 
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: false
+      computational_cost: Medium
+      risk_of_overfitting: Low
+    lookback: 1
+    warmup: 250
+    input_columns:
+    - open
+    - high
+    - low
+    - close
 registry_summary:
-  total_indicators: 33
+  total_indicators: 37
   by_category:
-    momentum_count: 5       # roc, rsi, stochastic_k, ultimate_c_percent, stochastic_momentum_index
-    trend_count: 4          # adx, ema_slope, hull_moving_average, linear_regression_channel
-    volatility_count: 5     # atr, atr_percentile, bollinger_band_width, keltner_channel, volatility_regime
-    regime_count: 7         # efficiency_ratio_regime, ema_regime, kalman_regime, linreg_regime, linreg_regime_htf, sha_regime, trend_persistence
-    structure_count: 6      # daily_pivot_points, donchian_channel, highest_high, lowest_low, session_range_structure, previous_bar_breakout
-    composite_count: 3      # ultimate_c_percent, usd_stress_index, market_state
-    statistical_count: 3    # rolling_max, rolling_percentile, rolling_zscore
-  intraday_ready: 31
-  daily_ready: 30
-  htf_ready: 29
-  lookahead_safe: 32
-  vectorized: 28            # candle_state, kalman_regime, sha_regime, hull_moving_average use O(n) loops (annotated)
-  files_validated: 32
+    momentum_count: 6
+    trend_count: 4
+    volatility_count: 5
+    regime_count: 9
+    structure_count: 6
+    composite_count: 3
+    statistical_count: 4
+  intraday_ready: 37
+  daily_ready: 35
+  htf_ready: 34
+  lookahead_safe: 37
+  vectorized: 33
+  files_validated: 37
   validation_status: PASS
   governance_status: PASS

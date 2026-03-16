@@ -58,6 +58,8 @@ Tool | Purpose
 --- | ---
 cleanup_reconciler | Safe registry-governed artifact cleanup sweep
 reset_directive | Governance-authorized directive reset tool
+reset_repo_artifacts | Cleans experiment artifacts from the repository root
+reset_runtime_state | Full reset of the external research state folder
 reconcile_portfolio_master_sheet | Rebuilds master portfolio sheet from profiles
 generate_golive_package | Stage-10 go-live package generator
 generate_guard_manifest | Authority manifest generator for guard layers
@@ -142,5 +144,5 @@ Repository layers are organized as follows:
 - Engines belong in `engines/` or `pipeline/`, not `tools/`.
 
 ---
-Last Updated: 2026-03-13
-Total Tools Indexed: 58
+Last Updated: 2026-03-14
+Total Tools Indexed: 60

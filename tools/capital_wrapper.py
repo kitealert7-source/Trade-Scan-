@@ -28,7 +28,8 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from tools.capital_engine import run_simulation as _engine_run_simulation
 
-BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
+from config.state_paths import BACKTESTS_DIR, STRATEGIES_DIR
+BACKTESTS_ROOT = BACKTESTS_DIR
 BROKER_SPECS_ROOT = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
 DIRECTIVES_ROOT = PROJECT_ROOT / "backtest_directives"
 
@@ -1509,7 +1510,7 @@ def main():
     print_comparative_summary(states)
 
     # Phase 5: Emit artifacts
-    deployable_root = PROJECT_ROOT / "strategies" / args.strategy_prefix / "deployable"
+    deployable_root = STRATEGIES_DIR / args.strategy_prefix / "deployable"
     deployable_root.mkdir(parents=True, exist_ok=True)
     all_metrics = {}
     for name, state in states.items():

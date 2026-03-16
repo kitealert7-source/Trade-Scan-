@@ -15,6 +15,7 @@ Usage:
 import argparse
 import json
 import sys
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, CANDIDATES_DIR
 from pathlib import Path
 from datetime import datetime
 
@@ -64,17 +65,17 @@ def main():
         # Single-asset: save to backtests/<prefix_SYMBOL>/
         symbol = unique_symbols[0]
         backtest_key = f"{args.prefix}_{symbol}"
-        primary_dir = PROJECT_ROOT / "backtests" / backtest_key
+        primary_dir = BACKTESTS_DIR / backtest_key
         if not primary_dir.exists():
             # Fallback: try without symbol suffix
-            primary_dir = PROJECT_ROOT / "backtests" / args.prefix
+            primary_dir = BACKTESTS_DIR / args.prefix
         primary_dir.mkdir(parents=True, exist_ok=True)
         primary_path = primary_dir / report_filename
         primary_path.write_text(report_content, encoding="utf-8")
         print(f"[ROBUSTNESS] Single-asset report: {primary_path}")
     else:
         # Multi-asset (portfolio): save to strategies/<prefix>/
-        strategy_dir = PROJECT_ROOT / "strategies" / args.prefix
+        strategy_dir = STRATEGIES_DIR / args.prefix
         if strategy_dir.exists():
             primary_path = strategy_dir / report_filename
             primary_path.write_text(report_content, encoding="utf-8")

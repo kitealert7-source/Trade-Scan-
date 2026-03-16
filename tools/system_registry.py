@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
 
-from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR
+from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, CANDIDATES_DIR
 
 PROJECT_ROOT = Path(__file__).parent.parent
 REGISTRY_PATH = REGISTRY_DIR / "run_registry.json"
@@ -122,12 +122,16 @@ def reconcile_registry() -> dict:
         "invalid_in_registry": []
     }
     
-    # 1. Physical vs Registry
+    # 1. Physical vs Registry (Across both Sandbox and Candidate boundaries)
     physical_runs = set()
-    if runs_dir.exists():
-        for item in runs_dir.iterdir():
-            if item.is_dir() and (item / "data").exists():
-                physical_runs.add(item.name)
+    for directory in [RUNS_DIR, CANDIDATES_DIR]: # Explicitly check candidates
+        if directory.exists():
+            for item in directory.iterdir():
+                if item.is_dir() and (item / "data").exists():
+                    physical_runs.add(item.name)
+        elif directory == RUNS_DIR:
+             # Runs dir must exist or we have no sandbox
+             pass
                 
     dirty = False
     
@@ -158,6 +162,21 @@ def reconcile_registry() -> dict:
                 results["missing_from_disk"].append(run_id)
                 reg[run_id]["status"] = "invalid"
                 dirty = True
+                
+    # 3. Candidate Location Alignment (Auto-Repair)
+    for run_id, data in reg.items():
+        if data.get("tier") == "candidate" and data.get("status") == "complete":
+            src = RUNS_DIR / run_id
+            dst = CANDIDATES_DIR / run_id
+            if src.exists() and not dst.exists():
+                print(f"[RECONCILE] Detected candidate {run_id} in sandbox. Auto-repairing physical location...")
+                try:
+                    CANDIDATES_DIR.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(src), str(dst))
+                    # We don't need to set dirty here as registry data itself hasn't changed, 
+                    # but reconciliation is about filesystem alignment.
+                except Exception as e:
+                    print(f"[ERROR] Auto-repair migration failed for {run_id}: {e}")
                 
     if dirty:
         _save_registry_atomic(reg)

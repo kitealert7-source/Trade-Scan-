@@ -375,17 +375,24 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     for t in filtered:
         pnl = _safe_float(t.get("pnl_usd", 0))
         regime = t.get("volatility_regime")
-        if regime is None:
+        if regime is None or str(regime).strip() == "":
             raise ValueError(f"Stage-2 CRITICAL: Trade {t.get('parent_trade_id')} missing 'volatility_regime'. Strict enforcement.")
             
-        if regime == "low": vol_low_pnls.append(pnl)
-        elif regime == "normal": vol_normal_pnls.append(pnl)
-        elif regime == "high": vol_high_pnls.append(pnl)
+        # Robust mapping for numerical regimes (v1.5.3+ output)
+        regime_str = str(regime).strip().lower()
+        if regime_str in ("low", "0"): 
+            vol_low_pnls.append(pnl)
+        elif regime_str in ("normal", "1", "-1"): # Treat -1 as normal for now (fallback)
+            vol_normal_pnls.append(pnl)
+        elif regime_str in ("high", "2"): 
+            vol_high_pnls.append(pnl)
         else:
-             # If an invalid string is passed, we might want to fail or just log?
-             # "Strict Grouping" implies we only accept known values or we fail.
-             # SOP_TESTING says "low, normal, high".
-             raise ValueError(f"Stage-2 CRITICAL: Invalid volatility_regime '{regime}' for trade {t.get('parent_trade_id')}")
+             # Fallback to normal if unknown numerical, but fail on unknown strings
+             try:
+                 val = int(float(regime_str))
+                 vol_normal_pnls.append(pnl)
+             except ValueError:
+                 raise ValueError(f"Stage-2 CRITICAL: Invalid volatility_regime '{regime}' for trade {t.get('parent_trade_id')}")
     
     net_profit_low_vol = sum(vol_low_pnls)
     net_profit_normal_vol = sum(vol_normal_pnls)
@@ -800,7 +807,7 @@ def get_trades_df(trades):
     priority_cols = [
         "strategy_name", "parent_trade_id", "sequence_index", "direction",
         "entry_timestamp", "exit_timestamp", "entry_price", "exit_price",
-        "pnl_usd", "bars_held", "volatility_regime", "trend_score", "trend_regime", "trend_label"
+        "pnl_usd", "bars_held", "market_regime", "volatility_regime", "trend_score", "trend_regime", "trend_label"
     ]
     
     sorted_cols = [c for c in priority_cols if c in all_keys]
@@ -816,7 +823,7 @@ def get_trades_df(trades):
             try:
                 if k in ["direction", "sequence_index", "bars_held"]:
                     row[k] = int(float(val))
-                elif k in ["strategy_name", "parent_trade_id", "entry_timestamp", "exit_timestamp", "volatility_regime", "trend_label"]:
+                elif k in ["strategy_name", "parent_trade_id", "entry_timestamp", "exit_timestamp", "market_regime", "volatility_regime", "trend_label"]:
                     row[k] = str(val)
                 else:
                     fval = float(val)

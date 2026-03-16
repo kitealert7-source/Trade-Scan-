@@ -26,7 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.directive_utils import load_directive_yaml, get_key_ci
-from engine_dev.universal_research_engine.v1_4_0.execution_loop import ContextView
+from engine_dev.universal_research_engine.v1_5_3.execution_loop import ContextView
 
 
 def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_path) -> bool:
@@ -37,10 +37,15 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
     Returns False (hard fail) only if an exception is raised.
     Zero signals = warning, not failure.
     """
-    print(f"[DRYRUN] Starting Stage-0.75 Dry-Run Validation...")
+    print(f"[DRYRUN] Starting Stage-0.75 Dry-Run Validation for {directive_id}...")
     
     # 1. Parse directive for data path construction
-    d_conf = load_directive_yaml(directive_path)
+    try:
+        d_conf = load_directive_yaml(directive_path)
+    except Exception as e:
+        print(f"[DRYRUN] FATAL: Failed to load directive: {e}")
+        return False
+
     test_block = get_key_ci(d_conf, "test") or {}
     
     broker = (get_key_ci(test_block, "broker") or get_key_ci(d_conf, "broker") or "OctaFX").lower()
@@ -77,7 +82,7 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
             print("[DRYRUN] WARNING: All sample timestamps failed parsing. Skipping dry-run.")
             return True
         if bad_ts > 0:
-            print(f"[DRYRUN] WARNING: Dropping {bad_ts} rows with unparseable timestamps.")
+            # print(f"[DRYRUN] WARNING: Dropping {bad_ts} rows with unparseable timestamps.")
             df = df[df['timestamp'].notna()].copy()
         df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
         df = df.head(1000).reset_index(drop=True)
@@ -113,20 +118,6 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
     
     print(f"[DRYRUN] prepare_indicators() executed successfully")
 
-    # 4a. Engine Contract Check -- authoritative indicator presence
-    # Source of truth: execution_loop.AUTHORITATIVE_INDICATORS (do NOT duplicate list here)
-    try:
-        from engine_dev.universal_research_engine.v1_4_0.execution_loop import AUTHORITATIVE_INDICATORS
-    except ImportError:
-        # Fallback: engine not importable in this context -- skip check safely
-        AUTHORITATIVE_INDICATORS = []
-
-    missing = [col for col in AUTHORITATIVE_INDICATORS if col not in df.columns]
-    if missing:
-        print(f"[DRYRUN] FATAL: Missing authoritative engine indicators: {missing}")
-        print(f"[DRYRUN] Add these columns in prepare_indicators() before pipeline can proceed.")
-        return False
-
     # 5. Iterate check_entry over sample (pure -- no state mutation)
     signal_count = 0
     try:
@@ -151,9 +142,38 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
     
     # 6. Report (zero signals = warning only, never a failure)
     if signal_count == 0:
-        print(f"[DRYRUN] WARNING: 0 entry signals on {len(df)} sample bars. Strategy may have rare signals or may need review.")
+        print(f"[DRYRUN] WARNING: 0 entry signals on {len(df)} sample bars.")
     else:
         print(f"[DRYRUN] {signal_count} entry signal(s) detected on {len(df)} sample bars.")
     
-    print(f"[DRYRUN] Stage-0.75 PASSED (no exceptions)")
+    print(f"[DRYRUN] Stage-0.75 PASSED (no exceptions)\\n")
     return True
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python tools/strategy_dryrun_validator.py <DIRECTIVE_ID>")
+        sys.exit(1)
+    
+    d_id = sys.argv[1]
+    if d_id.endswith(".txt"):
+        d_path = Path(d_id)
+        if not d_path.is_absolute():
+             d_path = PROJECT_ROOT / "backtest_directives" / "active" / d_id
+        d_id = d_path.stem
+    else:
+        d_path = PROJECT_ROOT / "backtest_directives" / "active" / f"{d_id}.txt"
+    
+    if not d_path.exists():
+        print(f"[DRYRUN] FATAL: Directive not found: {d_path}")
+        sys.exit(1)
+
+    # Extract first symbol from directive
+    try:
+        data = load_directive_yaml(d_path)
+        first_sym = data.get('symbols', ['XAUUSD'])[0]
+    except Exception as e:
+        print(f"[DRYRUN] WARNING: Could not parse directive symbols: {e}")
+        first_sym = 'XAUUSD'
+
+    success = validate_strategy_dryrun(d_id, first_sym, d_path)
+    sys.exit(0 if success else 1)

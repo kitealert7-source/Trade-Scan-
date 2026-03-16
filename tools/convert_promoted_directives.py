@@ -14,6 +14,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -281,12 +282,6 @@ def _namespace_validate(new_name: str, directive_data: dict[str, Any]) -> None:
             raise ConversionError(f"namespace_gate failed: {output.strip()}")
 
 
-def _backup_files(files: list[Path], backup_dir: Path) -> None:
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    for src in files:
-        dst = backup_dir / src.name
-        if not dst.exists():
-            shutil.copy2(src, dst)
 
 
 def _update_strategy_name_attr(strategy_file: Path, new_name: str) -> None:
@@ -316,12 +311,12 @@ def _rename_strategy_folder(strategy_root: Path, old_strategy: str, new_strategy
     if dst.exists():
         raise ConversionError(f"Target strategy folder already exists: {dst}")
 
-    shutil.move(str(src), str(dst))
+    os.replace(str(src), str(dst))
     try:
         _update_strategy_name_attr(dst / "strategy.py", new_strategy)
     except Exception:
         # Rollback on post-move failure.
-        shutil.move(str(dst), str(src))
+        os.replace(str(dst), str(src))
         raise
 
 
@@ -353,7 +348,6 @@ def convert_promoted(
         raise ConversionError(f"Missing folder: {source_dir}")
 
     files = sorted(source_dir.glob("*.txt"))
-    _backup_files(files, backup_dir)
     print(f"[CONFIG] source_dir={source_dir}")
     print(f"[CONFIG] backup_dir={backup_dir}")
     print(f"[CONFIG] rename_strategies={rename_strategies}")
@@ -435,7 +429,7 @@ def convert_promoted(
                     _rename_strategy_folder(strategy_root, old_strategy, new_name)
                 tmp = src.with_suffix(".txt.tmp")
                 tmp.write_text(rendered, encoding="utf-8")
-                shutil.move(str(tmp), str(src))
+                os.replace(str(tmp), str(src))
                 print(f"[WRITE] file updated {src.name}")
             else:
                 with open(target, "x", encoding="utf-8") as f:

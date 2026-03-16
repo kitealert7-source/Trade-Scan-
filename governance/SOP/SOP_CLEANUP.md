@@ -1,284 +1,104 @@
-# SOP_CLEANUP.md (v2)
+# SOP_CLEANUP.md (v2.1)
 
 ## 1. Purpose
 
-This SOP defines how strategy-related artifacts are **retained, overwritten, and cleaned up**
-using a **two-phase authority model**.
+This SOP defines how strategy-related artifacts are **retained, overwritten, and cleaned up** using a **Registry-First Authority Model**.
 
-- The filesystem governs **run start and overwrite behavior**.
-- The Strategy Master Sheet governs **post-run retention, cleanup, and registry state**.
-
-The master sheet acts only as a **repository and index** of completed runs.
+- The **System Registry** (`run_registry.json`) is the **sole authoritative ledger** for determining run validity and retention.
+- The filesystem is used for state alignment and physical execution containers.
+- Excel artifacts and UI reports are **derived observations** and have no governance authority over cleanup decisions.
 
 ---
 
-## 2. Authority Model (Temporal)
+## 2. Authority Hierarchy
 
-### 2.1 Filesystem Authority (Pre-Commit)
+The system follows a strict hierarchy for determining what "exists" and what is "valid":
 
-At run start, the filesystem is the **only authoritative state**.
+1. **Authoritative Layer (Primary Authority)**
+   - `TradeScan_State/registry/run_registry.json`
+   - `TradeScan_State/runs/<run_id>/` (Atomic Execution Artifacts)
+   - `TradeScan_State/candidates/<run_id>/` (Promoted Authoritative Runs)
 
-- Presence of `TradeScan_State/backtests/<strategy>/` determines overwrite behavior.
+2. **Derived / Computation Layer (Non-Authoritative)**
+   - `TradeScan_State/sandbox/Strategy_Master_Filter.xlsx`
+   - `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
+   - `AK_Trade_Report.xlsx`
 
-### 2.2 Master Sheet Authority (Post-Commit)
-
-- **File:** `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
-- **Primary Key:** `run_id` (globally unique, immutable)
-
-The master sheet is written **only after successful run completion** and is authoritative for:
-
-- retention
-- cleanup
-- registry state of completed runs
-- MAY contain multiple rows per strategy, one per completed run.
+3. **UI / Research Layer (Disposable)**
+   - `TradeScan_State/backtests/` folders (Disposable reporting views)
+   - Research Summary reports
 
 ---
 
-## 3. Cleanup Invariants (Ledger Authority)
+## 3. Folder Role Definitions
 
-**Authoritative Ledger**
-
-- `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` is the sole authority for historical run retention.
-
-**Valid Snapshot Definition**
-
-- A `TradeScan_State/runs/<run_id>/` snapshot is valid if and only if it is indexed in the Master Sheet.
-
-**Zombie Definition**
-
-- A snapshot is classified as a zombie only if:
-    1. It exists in `TradeScan_State/runs/<run_id>/`
-    2. AND it does not have a corresponding Master Sheet entry.
-
-**Materialized View Independence**
-
-- The presence or absence of a `TradeScan_State/backtests/<strategy_symbol>/` folder does not determine snapshot validity.
+| Directory | Role | Description |
+| :--- | :--- | :--- |
+| **`runs/`** | **Authoritative (Sandbox)** | Holds execution artifacts for runs in the `sandbox` tier. |
+| **`candidates/`** | **Authoritative (Promoted)** | Holds execution artifacts for runs promoted to the `candidate` tier. |
+| **`backtests/`** | **Disposable UI View** | Materialized reporting views for human consumption. Safely deletable if not registered. |
+| **`sandbox/`** | **Aggregation Workspace** | Temporary staging area for master filter generation. |
 
 ---
 
-## 4. Artifact Mapping
+## 4. Cleanup Invariants (Registry Authority)
 
-| Artifact | Path | Authority |
-|--------|------|-----------|
-| Strategy State (Latest) | `TradeScan_State/backtests/<strategy>/` | Derived |
-| Strategy Code Snapshot | `TradeScan_State/runs/<run_id>/` | Authoritative |
-| Run Identity | `TradeScan_State/backtests/<strategy>/metadata/run_metadata.json` | Authoritative |
-| Batch Logs | `TradeScan_State/backtests/batch_summary_*.csv` | Non-authoritative |
-| Master Index | `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` | Authoritative (post-commit) |
+### Authoritative Ledger
 
----
+- `TradeScan_State/registry/run_registry.json` is the **sole authority** for historical run retention.
 
-## 5. Post-Run Commit Rules
+### Valid Run Definition
 
-After successful execution:
+- A run is valid if and only if it is indexed in the System Registry with a status of `complete`.
 
-1. Generate new `run_id`.
-2. Write:
-   - `TradeScan_State/backtests/<strategy>/`
-   - `TradeScan_State/runs/<run_id>/`
+### Zombie Definition
 
-3. Upsert the corresponding row in the Strategy Master Sheet.
+- Any folder in `runs/` or `candidates/` that is **not** present in the System Registry is a zombie and must be deleted.
+- Any folder in `backtests/` that does not correspond to an active `run_id` in the registry is a disposable orphan.
 
-If the master sheet update fails:
+### Excel Independence
 
-- All newly created artifacts MUST be deleted or quarantined.
-- No unindexed artifacts may persist.
+- Excel artifacts (e.g. `Strategy_Master_Filter.xlsx`) **must never be used as authority** for cleanup or maintenance decisions. They are derived metrics summaries.
 
 ---
 
-## 6. Cleanup Procedure (Deterministic)
+## 5. Maintenance & Reconciliation Procedure
 
-**Trigger:** Removal of a row from the Strategy Master Sheet.
+### 5.1 Reconciliation (Alignment)
 
-**Execution Order:**
+The system enforces consistency between the registry and disk via `reconcile_registry()`.
 
-1. `rm -rf TradeScan_State/runs/<run_id>/`
-2. `rm -rf TradeScan_State/backtests/<strategy>/`
-3. Persist master sheet update
+- Physically present folders missing from the registry are injected as `sandbox` orphans.
+- Registered runs missing physical data are marked as `invalid`.
 
-**Always Preserve:**
+### 5.2 Cleanup Workflow (Safe Execution)
 
-- `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
-- `TradeScan_State/backtests/batch_summary_*.csv`
-- directive/source files
+To maintain workspace hygiene, the following workflow is mandated:
 
-Agents MUST derive cleanup targets exclusively by comparing filesystem state
-against the current contents of `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` at execution time.
-
-Cleanup must not abort on partial deletion. Remaining artifacts are removed on the next sweep.
+1. **Dry Run**: `python tools/cleanup_reconciler.py`
+   - Review the planned deletions and flagged paths.
+2. **Review**: Ensure no authoritative candidate runs are incorrectly flagged.
+3. **Execute**: `python tools/cleanup_reconciler.py --execute`
+   - Deletes zombie runs and orphaned UI views.
 
 ---
 
-## 7. Integrity Enforcement
+## 6. Prohibitions
 
-Periodic or startup integrity sweep must detect and resolve:
-
-- Indexed rows with missing folders → remove row
-- `TradeScan_State/runs/<run_id>/` folders not indexed → delete
-- `TradeScan_State/backtests/<strategy>/` folders not indexed → delete
-- `run_id` mismatch between metadata and sheet → invalidate row and delete artifacts
-
-The filesystem is trusted for **existence**, the master sheet for **commit validity**.
-
----
-
-## 8. Portfolio Evaluation Artifacts (Non-Strategy Layer)
-
-### 8.1 Scope
-
-Portfolio artifacts are analytical outputs derived from completed strategy runs.  
-They do not affect strategy retention, overwrite behavior, or registry state.
-
-Portfolio artifacts are independent of `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`.
+- **Inviolable Artifacts**: The `cleanup_reconciler` MUST NEVER delete:
+  - `TradeScan_State/registry/run_registry.json`
+  - `TradeScan_State/candidates/<run_id>/` folders
+- **Governed Lifecycle**: Authority artifacts must only change through authorized lifecycle tools (e.g., promotional filters or registry management scripts).
+- **No Manual Deletion**: All cleanup must be driven by the reconciler to ensure registry synchronization.
+- **No Excel Authority**: Do not use "deleting a row in Excel" as a method for artifact cleanup. Artifacts must be removed via registry/reconciler logic.
+- **No Retention of Invalids**: Runs marked as `invalid` or missing core artifacts (`manifest.json`, etc.) should be purged during the next maintenance cycle.
 
 ---
 
-### 8.2 Portfolio Snapshot Definition
+## 7. Guarantees
 
-A portfolio snapshot consists of:
+When enforced, this hierarchy ensures:
 
-    strategies/<portfolio_id>/
-
-and must contain:
-
-- portfolio_composition.json
-- portfolio-level evaluation artifacts (metrics, charts, reports)
-
----
-
-### 8.3 Authority Model
-
-- Portfolio existence is governed by `strategies/Master_Portfolio_Sheet.xlsx` (Authoritative).
-- Portfolio folders MUST correspond to a valid row in the Master Portfolio Sheet.
-- Deletion of strategy runs does NOT automatically delete portfolio folders (they are independent layers), BUT:
-- Portfolio folders ARE subject to integrity reconciliation via `tools/cleanup_reconciler.py`.
-
----
-
-### 8.4 Cleanup Rules
-
-Portfolio folders:
-
-- ARE subject to automatic cleanup sweeps by `tools/cleanup_reconciler.py`.
-- Any portfolio folder not indexed in `Master_Portfolio_Sheet.xlsx` is a ZOMBIE and MUST be deleted.
-- Any indexed row without a corresponding folder is an ORPHAN and MUST be removed from the sheet.
-- Manual deletion is permitted, but automated reconciliation is preferred.
-
----
-
-### 8.5 Workspace Hygiene
-
-Beyond ledger-driven cleanup, the reconciler detects workspace artifacts
-that accumulate during pipeline operations but fall outside Strategy or
-Portfolio authority.
-
-Detection and enforcement are handled by `tools/cleanup_reconciler.py`
-in the WORKSPACE HYGIENE section.
-
-**Scope 1 — Temporary Scripts**
-
-- Location: `tmp/`
-- Pattern: all `.py` files
-- Retention: 24 hours from last modification
-- Action: `DELETE_TEMP_SCRIPT` (auto-delete on `--execute` if age > 24h)
-- Stray `tmp_*.py` files at project root are flagged as `STRAY_TEMP_SCRIPT`
-
-**Scope 2 — Orphan Strategy Folders**
-
-- Location: `strategies/*/`
-- Condition: folder name not present in `Master_Portfolio_Sheet.xlsx` or `Strategy_Master_Filter.xlsx`
-- Action: `ORPHAN_STRATEGY_FOLDER` (report only — manual deletion required)
-- Rationale: may contain reference implementations or pending strategies
-
-**Scope 3 — Archive File Accumulation**
-
-- Location: `TradeScan_State/runs/**/*.bak*`
-- Retention: 7 days from last modification
-- Action: `DELETE_BAK_ARCHIVE` (auto-delete on `--execute` if age > 7d)
-- Source: generated by `reset_directive.py` during pipeline state resets
-
-**Scope 4 — Shelved Directives**
-
-- Location: `backtest_directives/*.shelved`
-- Action: `SHELVED_DIRECTIVE_DETECTED` (report only)
-- Purpose: visibility into directives removed from active queue
-
-**Scope 5 — Failed Pipeline States**
-
-- Location: `TradeScan_State/runs/*/run_state.json` and `TradeScan_State/runs/*/directive_state.json`
-- Condition: `current_state == "FAILED"`
-- Action: `FAILED_RUN_STATE` / `FAILED_DIRECTIVE_STATE` (report only)
-- Rationale: FAILED states are terminal and require manual intervention or reset
-
-**Enforcement Rule:**
-
-Workspace hygiene runs as part of every cleanup reconciliation sweep.
-Auto-deletable scopes (1, 3) are executed only with `--execute`.
-Report-only scopes (2, 4, 5) require manual review before action.
-
----
-
-## 9. Prohibitions
-
-### 9.1 Strategy Layer (Strict Governance)
-
-The following actions are strictly forbidden for strategy artifacts governed by `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`:
-
-- No manual deletion of:
-  - `TradeScan_State/runs/<run_id>/`
-  - `TradeScan_State/backtests/<strategy>/`
-- No timestamp-based cleanup logic
-- No retention of partial or failed runs
-- No artifact persistence without successful master sheet indexing
-- No modification of indexed run artifacts outside authorized cleanup
-
-Strategy artifacts are governed exclusively by the Strategy Master Sheet post-commit.
-
----
-
-### 9.2 Portfolio Layer (Advisory Artifacts)
-
-Portfolio artifacts are analytical and non-authoritative.
-
-Therefore:
-
-- Manual deletion of `strategies/<portfolio_id>/` is permitted. Automated cleanup via `tools/cleanup_reconciler.py` is the standard enforcement mechanism.
-
-  If a portfolio folder is manually deleted, the corresponding row in
-  `strategies/Master_Portfolio_Sheet.xlsx` MUST also be removed to
-  maintain registry consistency.
-
-`strategies/Master_Portfolio_Sheet.xlsx` is authoritative for portfolio existence.
-
-- Portfolio folders ARE subject to integrity reconciliation against strategies/Master_Portfolio_Sheet.xlsx.
-- Any portfolio folder without a corresponding Master_Portfolio_Sheet.xlsx entry MUST be deleted automatically during cleanup.
-- Any Master_Portfolio_Sheet.xlsx row without a corresponding folder MUST be removed.
-- Portfolio existence remains independent from strategy retention.
-- Portfolio artifacts must not mutate underlying strategy artifacts.
-
----
-
-## 10. Guarantees
-
-When enforced, this SOP ensures:
-
-### Strategy Layer
-
-- bounded storage growth
-- safe overwrite semantics
-- deterministic cleanup
-- audit-safe registry state
-- single-source-of-truth retention
-
-### Portfolio Layer
-
-- analytical flexibility
-- no cross-layer coupling
-- preservation of strategy integrity
-- clear separation between governance and analysis
-- **auditable existence** via Master Portfolio Sheet
-
-Filesystem governs run start.
-Strategy Master Sheet governs completed strategy state.
-Master Portfolio Sheet governs portfolio existence.
-**External State Root:** `TradeScan_State/`
+- **Registry Integrity**: The registry and disk are always synchronized.
+- **Disposable UI**: The `backtests/` directory remains clean and contains only views relevant to registered runs.
+- **Audit-Safe**: Deletions are logged and follow a deterministic, ledger-authoritative path.

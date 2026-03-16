@@ -28,11 +28,7 @@ v1.5.2 changes (entry diagnostics, 2026-03-10):
 
 import pandas as pd
 from types import SimpleNamespace
-from indicators.trend.linreg_regime import linreg_regime
-from indicators.trend.linreg_regime_htf import linreg_regime_htf
-from indicators.trend.kalman_regime import kalman_regime
-from indicators.trend.trend_persistence import trend_persistence
-from indicators.trend.efficiency_ratio_regime import efficiency_ratio_regime
+from engines.regime_state_machine import apply_regime_model
 
 ENGINE_ATR_MULTIPLIER = 2.0
 ENGINE_VERSION    = "1.5.3"
@@ -166,105 +162,13 @@ def run_execution_loop(df, strategy):
         elif 'time' in df.columns:
             df.index = pd.DatetimeIndex(df['time'])
 
-    # --- INTRINSIC MARKET STATE COMPUTATION ---
-    # Per SOP_TESTING v2.1 Section 7
-
-    close_series = df['close']
-
-    # A) Linear Regression Regime (window=50)
+    # --- INTRINSIC MARKET REGIME DETECTION (STATE MACHINE v2) ---
+    # Replaces legacy hardcoded indicators from Stage 1/2.
+    # Applied once per dataset for performance and determinism.
     try:
-        lr_df = linreg_regime(close_series)
-        df['linreg_regime'] = lr_df['regime']
+        df = apply_regime_model(df)
     except Exception as e:
-        raise RuntimeError(f"Engine Trend Calc Failed (linreg_regime): {e}")
-
-    # B) Linear Regression Regime HTF (window=200)
-    try:
-        lr_htf_df = linreg_regime_htf(close_series, window=200)
-        df['linreg_regime_htf'] = lr_htf_df['regime']
-    except Exception as e:
-        raise RuntimeError(f"Engine Trend Calc Failed (linreg_regime_htf): {e}")
-
-    # C) Kalman Regime
-    try:
-        kr_df = kalman_regime(df, price_col="close")
-        df['kalman_regime'] = kr_df['regime']
-    except Exception as e:
-        raise RuntimeError(f"Engine Trend Calc Failed (kalman_regime): {e}")
-
-    # D) Trend Persistence
-    try:
-        tp_out = trend_persistence(close_series)
-        if isinstance(tp_out, pd.DataFrame):
-            df['trend_persistence'] = tp_out['regime']
-        else:
-            df['trend_persistence'] = tp_out
-    except Exception as e:
-        raise RuntimeError(f"Engine Trend Calc Failed (trend_persistence): {e}")
-
-    # E) Efficiency Ratio Regime
-    try:
-        er_out = efficiency_ratio_regime(close_series)
-        if isinstance(er_out, pd.DataFrame):
-            df['efficiency_ratio_regime'] = er_out['regime']
-        else:
-            df['efficiency_ratio_regime'] = er_out
-    except Exception as e:
-        raise RuntimeError(f"Engine Trend Calc Failed (efficiency_ratio_regime): {e}")
-
-    # ------------------------------------------------------------------
-    # STAGE 2.1: TREND SCORE / REGIME / LABEL
-    # ------------------------------------------------------------------
-    required_trend_components = [
-        'linreg_regime',
-        'linreg_regime_htf',
-        'kalman_regime',
-        'trend_persistence',
-        'efficiency_ratio_regime',
-    ]
-
-    missing = [c for c in required_trend_components if c not in df.columns]
-    if missing:
-        raise ValueError(f"CRITICAL: Missing trend components after calculation: {missing}")
-
-    df['trend_score'] = 0
-    for col in required_trend_components:
-        df['trend_score'] += df[col].fillna(0).astype(int)
-
-    def get_trend_regime(score):
-        if score >= 3:  return  2
-        if score >= 1:  return  1
-        if score == 0:  return  0
-        if score >= -2: return -1
-        return -2
-
-    def get_trend_label(regime):
-        if regime ==  2: return "strong_up"
-        if regime ==  1: return "weak_up"
-        if regime ==  0: return "neutral"
-        if regime == -1: return "weak_down"
-        return "strong_down"
-
-    df['trend_regime'] = df['trend_score'].apply(get_trend_regime)
-    df['trend_label']  = df['trend_regime'].apply(get_trend_label)
-
-    # ------------------------------------------------------------------
-    # AUTHORITATIVE INDICATOR GOVERNANCE
-    # ------------------------------------------------------------------
-    if 'ATR' in df.columns:
-        if 'atr' not in df.columns: df['atr'] = df['ATR']
-        del df['ATR']
-    if 'atr_entry' in df.columns:
-        if 'atr' not in df.columns: df['atr'] = df['atr_entry']
-        del df['atr_entry']
-    if 'regime' in df.columns:
-        if 'volatility_regime' not in df.columns: df['volatility_regime'] = df['regime']
-        del df['regime']
-
-    AUTHORITATIVE_INDICATORS = ['volatility_regime', 'trend_regime', 'trend_label', 'trend_score', 'atr']
-    for field in AUTHORITATIVE_INDICATORS:
-        if field not in df.columns:
-            raise RuntimeError(f"ABORT_GOVERNANCE: Missing authoritative indicator '{field}'")
+        raise RuntimeError(f"Engine Regime Implementation Failed: {e}")
 
     # ==========================================
 

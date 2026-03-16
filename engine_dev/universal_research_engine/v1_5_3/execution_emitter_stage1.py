@@ -52,6 +52,9 @@ class RawTradeRecord:
     symbol: Optional[str] = None
     initial_stop_price: Optional[float] = None
     risk_distance: Optional[float] = None
+    market_regime: Optional[str] = None
+    regime_id: Optional[int] = None
+    regime_age: Optional[int] = None
 
 
 @dataclass
@@ -341,16 +344,18 @@ def emit_stage1(
         "atr_entry", "position_units", "notional_usd", 
         "mfe_price", "mae_price", "mfe_r", "mae_r",
         "volatility_regime", "trend_score", "trend_regime", "trend_label",
-        "symbol", "initial_stop_price", "risk_distance"
+        "symbol", "initial_stop_price", "risk_distance",
+        "market_regime", "regime_id", "regime_age"
     ]
     
     # Validate Intrinsic Market State Presence (SOP_TESTING §7.y)
     # "Missing values → HARD FAIL"
-    for t in trades:
-        if t.volatility_regime is None:
-             raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'volatility_regime'. Engine failure.")
-        if t.trend_regime is None:
-             raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'trend_regime'. Engine failure.")
+    if trades:
+        for t in trades:
+            if t.volatility_regime is None:
+                 raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'volatility_regime'. Engine failure.")
+            if t.trend_regime is None:
+                 raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'trend_regime'. Engine failure.")
 
     with open(raw_dir / "results_tradelevel.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=tradelevel_fields)
@@ -383,7 +388,10 @@ def emit_stage1(
                 "trend_label": t.trend_label,
                 "symbol": t.symbol if t.symbol is not None else "",
                 "initial_stop_price": t.initial_stop_price if t.initial_stop_price is not None else "",
-                "risk_distance": t.risk_distance if t.risk_distance is not None else ""
+                "risk_distance": t.risk_distance if t.risk_distance is not None else "",
+                "market_regime": t.market_regime if t.market_regime is not None else "",
+                "regime_id": t.regime_id if t.regime_id is not None else "",
+                "regime_age": t.regime_age if t.regime_age is not None else ""
             })
     
     # 3. Emit results_standard.csv (SOP 4.2)

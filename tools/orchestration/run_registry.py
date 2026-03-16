@@ -9,13 +9,13 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-REGISTRY_STATES = {"PLANNED", "RUNNING", "COMPLETE", "FAILED"}
+REGISTRY_STATES = {"PLANNED", "RUNNING", "COMPLETE", "FAILED", "ABORTED"}
 STATE_TRANSITIONS = {
-    "PLANNED": {"RUNNING", "FAILED"},
-    "RUNNING": {"PLANNED", "COMPLETE", "FAILED"},
+    "PLANNED": {"RUNNING", "FAILED", "ABORTED"},
+    "RUNNING": {"PLANNED", "COMPLETE", "FAILED", "ABORTED"},
     "COMPLETE": {"FAILED"},
     "FAILED": {"PLANNED"},
+    "ABORTED": set(), # Terminal state
 }
 
 
@@ -172,6 +172,7 @@ def update_run_state(
     new_state: str,
     *,
     last_error: str | None = None,
+    termination_reason: str | None = None,
 ) -> None:
     if new_state not in REGISTRY_STATES:
         raise RuntimeError(f"Invalid registry state: {new_state}")
@@ -187,6 +188,8 @@ def update_run_state(
             run["state"] = new_state
             run["updated_at"] = _utc_now()
             run["last_error"] = last_error
+            if termination_reason is not None:
+                run["termination_reason"] = termination_reason
             reg["updated_at"] = _utc_now()
             _write_atomic(path, reg)
             return

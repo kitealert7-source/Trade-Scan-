@@ -346,11 +346,12 @@ def emit_stage1(
     
     # Validate Intrinsic Market State Presence (SOP_TESTING §7.y)
     # "Missing values → HARD FAIL"
-    for t in trades:
-        if t.volatility_regime is None:
-             raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'volatility_regime'. Engine failure.")
-        if t.trend_regime is None:
-             raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'trend_regime'. Engine failure.")
+    if trades:
+        for t in trades:
+            if t.volatility_regime is None:
+                 raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'volatility_regime'. Engine failure.")
+            if t.trend_regime is None:
+                 raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'trend_regime'. Engine failure.")
 
     with open(raw_dir / "results_tradelevel.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=tradelevel_fields)

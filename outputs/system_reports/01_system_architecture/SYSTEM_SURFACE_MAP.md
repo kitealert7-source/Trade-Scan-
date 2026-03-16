@@ -47,11 +47,11 @@ The system follows a predictable mapping between the physical directory structur
 
 Operational entry points are the primary interfaces for system interaction.
 
-Tool | Primary Stages Triggered | Responsibility
---- | --- | ---
-`run_pipeline.py` | Stage 0 → Stage 3A | Full directive execution from validation to aggregation.
-`run_portfolio_analysis.py` | Stage 4 | Governance-grade portfolio simulation and risk evaluation.
-`rebuild_all_reports.py` | Stage 2, Stage 3 | Re-generating visual artifacts from raw execution data.
+| Entrypoint | Purpose | Primary Stages | Primary Artifacts |
+| :--- | :--- | :--- | :--- |
+| `run_pipeline.py` | Full directive execution | Stage 0 → Stage 3A | `results_tradelevel.csv`, `Strategy_Master_Filter.xlsx` |
+| `run_portfolio_analysis.py` | Governance-grade portfolio simulation | Stage 4 | `portfolio_summary.json` |
+| `format_excel_artifact.py` | Decoupled Excel styling applied to generated ledgers | Post-Pipeline Workflow | Formatted `.xlsx` artifacts |
 
 ---
 
@@ -61,7 +61,7 @@ Safety gates are placed at critical transition boundaries to ensure system integ
 
 Gate | Layer | Protection Provided
 --- | --- | ---
-`preflight.py` | Stage 0 | Admission gate; ensures data availability and system readiness.
+`preflight.py` | Stage 0 | Admission gate; ensures data availability, system readiness, and temporal baseline integrity.
 `semantic_validator.py` | Stage 0.5 | AST-level guard; prevents illegal regime or engine logic access.
 `strategy_dryrun_validator.py` | Stage 0.75 | Dry-Run Strategy Import Validation before execution.
 `semantic_coverage_checker.py` | Stage 0.55 | Logic gate; ensures all directive parameters are used in strategy.
@@ -89,11 +89,12 @@ The system operates as a sequence of governing and executing stages.
 2. **Stage 0.5 — Semantic Validation**: Code-level inspection of strategies (`semantic_validator.py`).
 3. **Stage 0.75 — Dry Run**: Execution smoke test in a sandbox environment.
 4. **Stage 1 — Execution**: Multi-symbol bar-by-bar simulation (`run_stage1.py`).
-5. **Stage 2 — Reporting**: Derivation of trade-level metrics and Excel reports.
-6. **Stage 3 — Aggregation**: Construction of the master strategy filters.
+5. **Stage 2 — Reporting**: Derivation of trade-level metrics and Excel reports, preserving non-standard attributes (e.g., regime classification).
+6. **Stage 3 — Aggregation**: Construction of master strategy filters as pure summaries (strictly isolated from trade-level aggregations).
 7. **Stage 3A — Manifest Binding**: Generation of SHA-256 manifests to lock the run identity.
-8. **Stage 4 — Portfolio Evaluation**: Portfolio-level simulation and risk analysis.
-9. **Stage 5/6 — Capital Wrapper & Robustness**: Event-based capital modeling and stability testing.
+8. **Stage 4 — Portfolio Evaluation**: Portfolio-level simulation, candidate promotion, and ledger consolidation.
+9. **Workflow — Artifact Formatting**: Decoupled presentation styling of output ledgers/reports via standalone orchestrator.
+10. **Stage 5/6 — Capital Wrapper & Robustness**: Event-based capital modeling and stability testing.
 
 *References*: [pipeline_authority_trace.md](file:///c:/Users/faraw/Documents/Trade_Scan/outputs/system_reports/01_system_architecture/pipeline_authority_trace.md), [pipeline_flow.md](file:///c:/Users/faraw/Documents/Trade_Scan/outputs/system_reports/01_system_architecture/pipeline_flow.md)
 
@@ -114,6 +115,47 @@ A fundamental architectural rule is the **separation of Source and State**.
 - `logs/`: Time-series execution logs.
 
 **Rationale**: Keeping state external ensures the repository remains lean, portable, and git-clean, while providing a clear audit trail of research history.
+
+---
+
+## SECTION 7A — Data Authority Hierarchy
+
+While the system strictly separates Source and State, the State layer itself is internally structured into a strict authority hierarchy:
+
+```mermaid
+flowchart TD
+    subgraph AL [Authority Layer]
+        A1[results_tradelevel.csv]
+        A2[manifest.json]
+    end
+
+    subgraph CL [Computation Layer]
+        C1[Trade reports]
+        C2[Master filter]
+    end
+
+    subgraph RL [Research Layer]
+        R1[regime analytics]
+        R2[multi-run studies]
+    end
+
+    AL --> CL
+    CL --> RL
+```
+
+1. **Authority Layer (Immutable System Truth)**: Cryptographically locked run histories and primitive execution footprints. Artifacts here cannot be regenerated without re-running the engine.
+   - `results_tradelevel.csv`
+   - `results_risk.csv`
+   - `manifest.json`
+   - `run_registry.json`
+
+2. **Computation / Reporting Layer (Deterministic Derived Artifacts)**: Human-readable aggregations, metrics, and ledgers explicitly derived from the Authority Layer. If deleted, these can be perfectly and deterministically rebuilt.
+   - `AK_Trade_Report.xlsx`
+   - `Strategy_Master_Filter.xlsx`
+   - `Filtered_Strategies_Passed.xlsx`
+   - `portfolio_summary.json`
+
+3. **Research / Analysis Layer (Exploratory)**: Future analytical datasets including regime analytics, multi-run correlation datasets, and portfolio heatmaps built for pure data science rather than operational pipeline truth.
 
 ---
 
@@ -181,6 +223,7 @@ The system is governed by five core tenets:
 3. **Registry-Based Lifecycle Tracking**: All run states are tracked in authoritative central ledgers.
 4. **Governance-First Pipeline Admission**: No execution occurs without preflight and semantic approval.
 5. **Separation of Source and Runtime State**: Ensures repository integrity and scalable data management.
+6. **Decoupled Presentation Constraints**: Computation must emit clean structuring data; dedicated styling orchestrators apply human-readable formats independently.
 
 ---
 **Status**: Top-Level Authority Map | **Version**: 1.0.0

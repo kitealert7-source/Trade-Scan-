@@ -12,7 +12,7 @@ from tools.pipeline_utils import get_engine_version
 
 ENGINE_NAME = "Universal_Research_Engine"
 ENGINE_VERSION = get_engine_version()
-DIRECTIVES_DIR = PROJECT_ROOT / "backtest_directives" / "active"
+DIRECTIVES_DIR = PROJECT_ROOT / "backtest_directives" / "active_backup"
 
 
 def resolve_directive(directive_id: str | None) -> Path:

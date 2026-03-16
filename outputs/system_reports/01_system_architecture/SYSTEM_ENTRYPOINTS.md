@@ -8,11 +8,13 @@ This document serves as the official registry of operational entrypoints for the
 
 These are the authoritative entrypoints that initiate major research and operational workflows.
 
-Entrypoint | Purpose | Triggered Pipeline Stages
---- | --- | ---
-`tools/run_pipeline.py` | Master pipeline orchestrator | Stage 0 → Stage 3A
-`tools/run_portfolio_analysis.py` | Governance-grade portfolio analysis | Stage 4
-`tools/rebuild_all_reports.py` | Artifact & report reconstruction | Stage 2, Stage 3
+| Entrypoint | Purpose | Triggered Pipeline Stages | Key Artifacts |
+| :--- | :--- | :--- | :--- |
+| `tools/run_pipeline.py` | Master pipeline orchestrator | Stage 0 → Stage 3A | `results_tradelevel.csv`, `Strategy_Master_Filter.xlsx` |
+| `tools/run_portfolio_analysis.py` | Governance-grade portfolio analysis | Stage 4 | `portfolio_summary.json` |
+| `tools/rebuild_all_reports.py` | Artifact & report reconstruction | Stage 2, Stage 3 | Excel ledgers |
+| `tools/filter_strategies.py` | Candidate promotion evaluation | Stage 4 | `Filtered_Strategies_Passed.xlsx` |
+| `tools/format_excel_artifact.py` | Decoupled formatting execution | Post-Pipeline | Formatted `.xlsx` artifacts |
 
 ---
 
@@ -24,6 +26,8 @@ All system tools must be executed as Python modules from the repository root. Th
 ```bash
 python -m tools.run_pipeline <args>
 python -m tools.run_portfolio_analysis <args>
+python -m tools.filter_strategies <args>
+python -m tools.format_excel_artifact <args>
 ```
 
 ---

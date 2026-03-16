@@ -1,25 +1,21 @@
-"""
-cleanup_reconciler.py -- New Extremely Safe Cleanup Sweep (Registry-Governed)
-
-Authority: JSON Run Registry & explicit portfolio dependencies.
-Excel parsing has been completely abandoned for safety.
-"""
-
 import sys
 import shutil
 import argparse
 import time
-from pathlib import Path
 import json
+from pathlib import Path
 
 # Project Paths
 PROJECT_ROOT = Path(__file__).parent.parent
-RUNS_ROOT = PROJECT_ROOT / "runs"
-BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
-STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
-CANDIDATES_ROOT = PROJECT_ROOT / "candidates"  # Phase 2 implementation target
-
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, CANDIDATES_DIR
+
+RUNS_ROOT = RUNS_DIR
+BACKTESTS_ROOT = BACKTESTS_DIR
+STRATEGIES_ROOT = STRATEGIES_DIR
+CANDIDATES_ROOT = CANDIDATES_DIR
+
 from tools.system_registry import _load_registry, get_active_portfolio_runs, reconcile_registry
 
 def get_run_ui_folder(run_id: str) -> Path:
@@ -71,28 +67,26 @@ def main():
         print(f"  - DELETE runs/{r_id}/")
         
     for ui_view in ui_views_to_delete:
-        rel_view = Path(ui_view).relative_to(PROJECT_ROOT)
+        try:
+            rel_view = Path(ui_view).relative_to(PROJECT_ROOT)
+        except ValueError:
+            rel_view = ui_view
         print(f"  - DELETE {rel_view}/ (Disposable UI View)")
 
     def is_path_safe(p: Path) -> bool:
         """Strict physical guardrail for filesystem deletions."""
         p_abs = p.resolve()
-        root_abs = PROJECT_ROOT.resolve()
-        
-        # 1. Must be under PROJECT_ROOT
-        if root_abs not in p_abs.parents:
-            return False
-        
-        # 2. Must NOT be a system-critical folder
+
+        # 1. Must NOT be a system-critical folder
         forbidden = ["strategies", "candidates", "registry", "tools", "data_access"]
         for part in p_abs.parts:
             if part.lower() in forbidden:
                 return False
-        
-        # 3. Must be inside an allowed cleanup scope
+
+        # 2. Must be inside an allowed cleanup scope (RUNS_ROOT or BACKTESTS_ROOT)
         allowed_scopes = [RUNS_ROOT.resolve(), BACKTESTS_ROOT.resolve()]
         in_scope = any(scope in p_abs.parents for scope in allowed_scopes)
-        
+
         return in_scope
 
     if args.execute:
@@ -121,7 +115,11 @@ def main():
 
             if ui_path.exists():
                 shutil.rmtree(ui_path)
-                print(f"  [DELETED] {ui_path.relative_to(PROJECT_ROOT)}/")
+                try:
+                    disp = ui_path.relative_to(PROJECT_ROOT)
+                except ValueError:
+                    disp = ui_path
+                print(f"  [DELETED] {disp}/")
                 
         # Persist cleaned registry
         from tools.system_registry import _save_registry_atomic

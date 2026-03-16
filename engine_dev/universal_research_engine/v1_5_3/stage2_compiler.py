@@ -375,13 +375,13 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     vol_high_pnls = []
     for t in filtered:
         pnl = _safe_float(t.get("pnl_usd", 0))
-        regime = t.get("volatility_regime")
-        if regime is None:
+        regime = str(t.get("volatility_regime")).strip().lower()
+        if regime in ("none", "nan", ""):
             raise ValueError(f"Stage-2 CRITICAL: Trade {t.get('parent_trade_id')} missing 'volatility_regime'. Strict enforcement.")
             
-        if regime == "low": vol_low_pnls.append(pnl)
-        elif regime == "normal": vol_normal_pnls.append(pnl)
-        elif regime == "high": vol_high_pnls.append(pnl)
+        if regime in ("low", "-1", "-1.0"): vol_low_pnls.append(pnl)
+        elif regime in ("normal", "0", "0.0"): vol_normal_pnls.append(pnl)
+        elif regime in ("high", "1", "1.0"): vol_high_pnls.append(pnl)
         else:
              # If an invalid string is passed, we might want to fail or just log?
              # "Strict Grouping" implies we only accept known values or we fail.

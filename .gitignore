@@ -16,6 +16,7 @@ __pycache__/
 *.pyc
 tmp_*
 *_venv/
+*.bak
 
 # OS junk
 .DS_Store

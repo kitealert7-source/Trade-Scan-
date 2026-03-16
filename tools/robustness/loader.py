@@ -4,12 +4,13 @@ Reads CSVs once, parses timestamps once, validates schemas.
 """
 import json
 from pathlib import Path
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, CANDIDATES_DIR
 import pandas as pd
 
 from tools.robustness.schema import validate_trade_df, validate_equity_df
 
 def load_canonical_artifacts(prefix: str, profile: str, project_root: Path):
-    deploy_dir = project_root / "strategies" / prefix / "deployable" / profile
+    deploy_dir = STRATEGIES_DIR / prefix / "deployable" / profile
     if not deploy_dir.exists():
         raise FileNotFoundError(f"Deployable artifacts directory not found: {deploy_dir}")
 

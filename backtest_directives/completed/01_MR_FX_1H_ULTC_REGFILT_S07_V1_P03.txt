@@ -1,0 +1,53 @@
+execution_rules:
+  stop_loss:
+    multiple: 1.35
+    type: atr_multiple
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.trend.linreg_regime
+- indicators.trend.linreg_regime_htf
+- indicators.trend.kalman_regime
+- indicators.trend.trend_persistence
+- indicators.trend.efficiency_ratio_regime
+- indicators.price.ultimate_c_percent_variant
+- indicators.momentum.rsi
+- indicators.volatility.volatility_regime
+- indicators.volatility.atr
+- indicators.stats.rolling_zscore
+mean_reversion_rules:
+  entry:
+    long:
+      max_abs_trend_score: 1
+      ultimate_signal: -1
+    short:
+      max_abs_trend_score: 1
+      ultimate_signal: 1
+    uc_mode: slow
+  exit:
+    max_bars: 20
+    min_bars_before_exit: 3
+    type: opposite_signal_or_time
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: none
+  reentry:
+    allowed: true
+symbols:
+- AUDNZD
+- AUDUSD
+- EURUSD
+- GBPNZD
+- GBPUSD
+- USDJPY
+test:
+  name: 01_MR_FX_1H_ULTC_REGFILT_S07_V1_P03
+  strategy: 01_MR_FX_1H_ULTC_REGFILT_S07_V1_P03
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-02-28'

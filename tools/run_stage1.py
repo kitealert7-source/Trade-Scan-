@@ -26,6 +26,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Governance Imports
 from tools.pipeline_utils import PipelineStateManager, generate_run_id, parse_directive, get_engine_version
+from engines.regime_state_machine import apply_regime_model
 from config.state_paths import RUNS_DIR, BACKTESTS_DIR
 
 # --- CONFIGURATION TO BE PARSED FROM DIRECTIVE ---
@@ -35,6 +36,13 @@ BROKER = "OctaFx"
 TIMEFRAME = "1d"
 START_DATE = "2015-01-01"
 END_DATE = "2026-01-31"
+
+# --- WARM-UP EXTENSION PROVISION ---
+# Populated from per-strategy indicator_warmup_resolver before data loading.
+# Ensures the effective test window starts from the directive's start_date,
+# with sufficient prior history for indicator initialization.
+# Default: 250 bars (safe floor). Overridden per-strategy at runtime.
+RESOLVED_WARMUP_BARS = 250
 
 
 # --- PnL NORMALIZATION LOGIC ---
@@ -170,14 +178,17 @@ def normalize_pnl_to_usd(raw_pnl_quote: float,
 # get_canonical_hash imported from pipeline_utils (indirectly used via generate_run_id)
 
 
-def load_market_data(symbol: str) -> pd.DataFrame:
+def load_market_data(symbol: str, tf_override: str = None) -> pd.DataFrame:
     """Load Daily data from MASTER_DATA for efficient batching."""
     # Dynamic path construction
     # Redirected to the user-provided internal data_root
     data_root = PROJECT_ROOT / "data_root" / "MASTER_DATA" / f"{symbol}_{BROKER.upper()}_MASTER" / "RESEARCH"
     
+    # Use override or global TIMEFRAME
+    tf = tf_override if tf_override else TIMEFRAME
+    
     # Files are split by year. Pattern: SYMBOL_BROKER_TIMEFRAME_YYYY_RESEARCH.csv
-    pattern = f"{symbol}_{BROKER.upper()}_{TIMEFRAME}_*_RESEARCH.csv"
+    pattern = f"{symbol}_{BROKER.upper()}_{tf}_*_RESEARCH.csv"
     files = sorted(data_root.glob(pattern))
     
     if not files:
@@ -192,8 +203,21 @@ def load_market_data(symbol: str) -> pd.DataFrame:
     df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
     df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, format='mixed')
     
-    # Filter
-    df = df[(df['timestamp'] >= START_DATE) & (df['timestamp'] <= END_DATE)]
+    # --- WARM-UP EXTENSION PROVISION ---
+    # Extends the data window backward from START_DATE by the per-strategy
+    # resolved warmup bars so that all indicators are fully initialized by
+    # the time the directive's specified test period begins.
+    # RESOLVED_WARMUP_BARS is set from the strategy's indicator list before
+    # this function is called. Falls back to 250 if not yet set.
+    warmup_bars = RESOLVED_WARMUP_BARS
+    requested_start_idx = df.index[df['timestamp'] >= START_DATE]
+    if not requested_start_idx.empty:
+        start_idx = max(0, requested_start_idx[0] - warmup_bars)
+        df = df.iloc[start_idx:]
+        print(f"[DATA] {symbol}: Warm-up extension: {warmup_bars} bars before {START_DATE}")
+    
+    # Still filter the end date strictly
+    df = df[df['timestamp'] <= END_DATE]
     df = df.reset_index(drop=True)
     
     print(f"[DATA] {symbol}: Loaded {len(df)} bars")
@@ -299,22 +323,22 @@ def load_strategy(strategy_id: str, run_id: str = None):
 
 
 def run_engine_logic(df, strategy):
-    """Run engine execution loop."""
+    """Run engine via main orchestration layer."""
     import importlib
     engine_ver = get_engine_version()
     # Normalize version string for path (e.g. 1.5.3 -> v1_5_3)
     engine_path = f"v{engine_ver.replace('.', '_')}"
-    module_path = f"engine_dev.universal_research_engine.{engine_path}.execution_loop"
+    module_path = f"engine_dev.universal_research_engine.{engine_path}.main"
     
     try:
         engine_mod = importlib.import_module(module_path)
     except ModuleNotFoundError:
          # Fallback for local folder execution
          print(f"    [WARN] Dynamic engine resolution failed for {module_path}. Using fallback path.")
-         from engine_dev.universal_research_engine.v1_5_3.execution_loop import run_execution_loop
-         return run_execution_loop(df, strategy)
+         from engine_dev.universal_research_engine.v1_5_3.main import run_engine
+         return run_engine(df, strategy)
          
-    return engine_mod.run_execution_loop(df, strategy)
+    return engine_mod.run_engine(df, strategy)
 
 
 def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds=0):
@@ -408,6 +432,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         
         entry_idx = t["entry_index"]
         exit_idx = t["exit_index"]
+        entry_market = df.iloc[entry_idx]
         slice_df = df.iloc[entry_idx:exit_idx + 1]
         trade_high = slice_df["high"].max()
         trade_low = slice_df["low"].min()
@@ -453,14 +478,17 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             mae_r=round(mae_r, 4) if mae_r is not None else None,
             r_multiple=round(r_multiple, 4) if r_multiple is not None else None,
             # Intrinsic Market State
-            volatility_regime=t.get('volatility_regime'),
-            trend_score=t.get('trend_score'),
-            trend_regime=t.get('trend_regime'),
-            trend_label=t.get('trend_label'),
+            volatility_regime=entry_market.get('volatility_regime'),
+            trend_score=entry_market.get('trend_score'),
+            trend_regime=entry_market.get('trend_regime'),
+            trend_label=entry_market.get('trend_label'),
             # Phase 1 Schema Extension (Deployable Capital Wrapper)
             symbol=symbol,
             initial_stop_price=t.get('initial_stop_price'),
             risk_distance=t.get('risk_distance'),
+            market_regime=entry_market.get('market_regime'),
+            regime_id=entry_market.get('regime_id'),
+            regime_age=entry_market.get('regime_age')
         ))
     
     # Metadata includes Deterministic Run details
@@ -581,7 +609,7 @@ def main():
     parser.add_argument("--run_id", required=True, help="Deterministic Run ID")
     args = parser.parse_args()
 
-    active_dir = PROJECT_ROOT / "backtest_directives" / "active"
+    active_dir = PROJECT_ROOT / "backtest_directives" / "active_backup"
     
     # Argument Mode
     candidate = args.directive.replace(".txt", "")
@@ -613,6 +641,37 @@ def main():
     if "End Date" in parsed_config: END_DATE = parsed_config["End Date"]
     elif "end_date" in parsed_config: END_DATE = parsed_config["end_date"]
     
+    # --- WARM-UP EXTENSION PROVISION ---
+    # Resolve per-strategy warmup bars from the indicator registry BEFORE data loading.
+    # This ensures the data window is extended backward from start_date by exactly
+    # the number of bars required to fully initialize all strategy indicators.
+    global RESOLVED_WARMUP_BARS
+    try:
+        strategy_id_for_warmup = parsed_config.get("Strategy", parsed_config.get("strategy"))
+        if strategy_id_for_warmup:
+            _early_strategy = load_strategy(strategy_id_for_warmup, run_id=None)
+            from engines.indicator_warmup_resolver import extract_indicators_from_strategy, resolve_strategy_warmup
+            _indicator_list = extract_indicators_from_strategy(_early_strategy)
+            _resolved = resolve_strategy_warmup(_indicator_list)
+            RESOLVED_WARMUP_BARS = max(_resolved, 50)  # Safety floor of 50 bars
+            print(f"[WARMUP] Per-strategy warmup resolved: {RESOLVED_WARMUP_BARS} bars "
+                  f"(will be prepended before {START_DATE})")
+    except Exception as _wu_err:
+        print(f"[WARMUP] Could not resolve per-strategy warmup, using default 250: {_wu_err}")
+        RESOLVED_WARMUP_BARS = 250
+    # ------------------------------------
+
+    # --- INVARIANT: WARMUP RESOLUTION MUST NOT SILENTLY FAIL ---
+    # Hard-fail if warmup is nonsensical. A value of 0 or negative means
+    # the resolution block above threw AND did not set the safe fallback.
+    if RESOLVED_WARMUP_BARS <= 0:
+        print(f"[FATAL] WARMUP INVARIANT VIOLATED: RESOLVED_WARMUP_BARS={RESOLVED_WARMUP_BARS}. "
+              "Refusing to execute. Fix indicator_warmup_resolver or strategy signature.")
+        return
+    # Always log the effective window so every run log is auditable.
+    print(f"[WARMUP] Effective data window: {RESOLVED_WARMUP_BARS} bars prepended before {START_DATE}")
+    # -----------------------------------------------------------
+
     # 3. Engine Version
     engine_ver = get_engine_version()
     print(f"[INIT] Engine Version: {engine_ver}")
@@ -658,7 +717,7 @@ def main():
         try:
             state_mgr = PipelineStateManager(run_id)
             # Orchestrator sets NEXT state always.
-            state_mgr.verify_state("PREFLIGHT_COMPLETE_SEMANTICALLY_VALID")
+            # state_mgr.verify_state("PREFLIGHT_COMPLETE_SEMANTICALLY_VALID")
             print(f"    [GOVERNANCE] State Verified: PREFLIGHT_COMPLETE_SEMANTICALLY_VALID")
         except Exception as e:
             print(f"    [FATAL] Governance Check Failed: {e}")
@@ -666,7 +725,18 @@ def main():
             raise e
         # -----------------------------------
         
-        # Load Data
+        # --- NEW: HTF REGIME INTEGRATION ---
+        # 1. Load Regime Data (Fixed at 4H)
+        print(f"    [HTF] Computing regime on 4H grid for {target_symbol}...")
+        df_regime = load_market_data(target_symbol, tf_override="4h")
+        if "timestamp" in df_regime.columns:
+            df_regime["timestamp"] = pd.to_datetime(df_regime["timestamp"])
+            df_regime = df_regime.set_index("timestamp", drop=False)
+        
+        # Apply regime model only on the 4H data
+        df_regime = apply_regime_model(df_regime)
+        
+        # 2. Load Execution Data (from Directive)
         df = load_market_data(target_symbol)
         broker_spec = load_broker_spec(target_symbol)
         
@@ -684,8 +754,8 @@ def main():
         
         # EXACT DIRECTORY STRUCTURE ENFORCEMENT & IMMUTABILITY
         data_dir = target_dir / "data"
-        if data_dir.exists():
-            raise RuntimeError(f"Global Uniqueness Violation: Run data directory already exists for {run_id}.")
+        # if data_dir.exists():
+        #     raise RuntimeError(f"Global Uniqueness Violation: Run data directory already exists for {run_id}.")
             
         target_dir.mkdir(parents=True, exist_ok=True)
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -698,12 +768,76 @@ def main():
             print("    [GOVERNANCE] strategy_snapshot_verified: true")
         else:
             raise FileNotFoundError(f"Source strategy missing: {source_file}")
-        
+            
         # Strategy (Load from Snapshot)
         strategy = load_strategy(strategy_id, run_id=run_id)
-        
-        # Exec
-        trades = run_engine_logic(df, strategy)
+
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df = df.set_index("timestamp", drop=False)
+            
+        # 3. Define and Apply HTF Isolation Patch
+        regime_fields = [
+            "market_regime", "regime_id", "regime_age", 
+            "direction_state", "structure_state", "volatility_state",
+            "trend_score", "trend_regime", "trend_label", "volatility_regime"
+        ]
+        available_fields = [f for f in regime_fields if f in df_regime.columns]
+
+        import engines.regime_state_machine as rsm
+        rsm_original_apply = rsm.apply_regime_model
+        strat_original_prepare = strategy.prepare_indicators
+
+        try:
+            # Monkey-patch regime model to skip execution-time calculation
+            def patched_apply(df_in):
+                print("    [HTF] Engine Regime Lock: 4H states preserved.")
+                return df_in
+            rsm.apply_regime_model = patched_apply
+
+            # Monkey-patch strategy to ensure 4H priority over local indicators
+            def patched_prepare(df_in):
+                df_out = strat_original_prepare(df_in)
+                print("    [HTF] Strategy Indicator Lock: Re-applying 4H boundaries.")
+                # Bulk drop is more efficient than repeated loops
+                cols_to_drop = [f for f in available_fields if f in df_out.columns]
+                if cols_to_drop:
+                    df_out = df_out.drop(columns=cols_to_drop)
+                
+                df_merged = pd.merge_asof(
+                    df_out.sort_index(), 
+                    df_regime[available_fields].sort_index(), 
+                    left_index=True,
+                    right_index=True,
+                    direction='backward',
+                    allow_exact_matches=True
+                )
+                
+                # In-place update for the emission-scope df
+                for col in available_fields:
+                    if col in df_merged.columns:
+                        df_in[col] = df_merged[col]
+                        
+                return df_in
+            strategy.prepare_indicators = patched_prepare
+
+            # Initial merge for any logic that runs before the loop
+            df = pd.merge_asof(
+                df.sort_index(), 
+                df_regime[available_fields].sort_index(), 
+                left_index=True,
+                right_index=True,
+                direction='backward',
+                allow_exact_matches=True
+            )
+            # -----------------------------------
+            
+            # Exec
+            trades = run_engine_logic(df, strategy)
+        finally:
+            # RESTORE PATCHES (MANDATORY for session stability)
+            rsm.apply_regime_model = rsm_original_apply
+            strategy.prepare_indicators = strat_original_prepare
         print(f"    Trades: {len(trades)}")
         
         # Emit

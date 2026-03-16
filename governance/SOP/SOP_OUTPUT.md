@@ -96,6 +96,7 @@ Research scripts are prohibited from writing to `TradeScan_State/runs/` or `Trad
 | trade_low | Float/NULL | Lowest price during trade |
 | bars_held | Integer/NULL | Bars in position |
 | atr_entry | Float | ATR at entry |
+| market_regime | String | Execution-time regime classification |
 | volatility_regime | String | Execution-time volatility classification ("low" \| "normal" \| "high") |
 | trend_score | Integer | Composite trend score (−5 … +5) captured at entry |
 | trend_regime | Integer | Collapsed trend regime (−2, −1, 0, +1, +2) |
@@ -433,6 +434,10 @@ Trend regime aggregation:
 - MUST use trend_label emitted in Stage-1.
 - MUST NOT reclassify or recompute trend state.
 - MUST operate strictly on emitted trade-level metadata.
+
+> **CRITICAL ARCHITECTURE NOTE (v4.2 Update)**
+> Regime classifications (e.g., `market_regime`, `dominant_regime`) are explicitly **FORBIDDEN** from being dynamically aggregated or reported in the Stage-3 Master Filter.
+> All non-standard regime data MUST remain isolated to the Stage-2 Trade-Level reporting artifacts (`AK_Trade_Report`). The Master Filter must remain a strictly compact summary ledger.
 
 **Population Rule**
 Populated via standard reporting pipeline only.  

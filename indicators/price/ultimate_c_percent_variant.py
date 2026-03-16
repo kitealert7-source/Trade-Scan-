@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 
-def ultimate_c_percent(
+def ultimate_c_percent_variant(
     df: pd.DataFrame,
     mode: str = "baseline"
 ) -> pd.DataFrame:

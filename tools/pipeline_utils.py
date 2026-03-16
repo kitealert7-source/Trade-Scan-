@@ -27,8 +27,54 @@ from engines.filter_stack import FilterStack
 # CONFIGURATION
 # ==============================================================================
 
+from dataclasses import dataclass, field
+
 PROJECT_ROOT = Path(__file__).parent.parent
 # RUNS_DIR imported from config.state_paths
+
+# ==============================================================================
+# PIPELINE CONTEXT
+# ==============================================================================
+
+@dataclass
+class PipelineContext:
+    """
+    Unified execution context passed to StageRunner and all Stage units.
+    Decouples stages from orchestrator globals.
+    """
+    directive_id: str
+    directive_path: Path
+    project_root: Path
+    python_exe: str
+    provision_only: bool = False
+    
+    # Mutable fields populated during Bootstrap or execution
+    directive_config: dict = field(default_factory=dict)
+    run_ids: list[str] = field(default_factory=list)
+    symbols: list[str] = field(default_factory=list)
+    planned_runs: list[dict] = field(default_factory=list)
+    registry_path: Path | None = None
+    current_state: str = "INITIALIZED"
+    # State managers — injected by bootstrap so stages never instantiate directly
+    directive_state_manager: object | None = None
+    # Stage idempotency tracking — stages that have already completed in this run
+    # Populated by StageRunner; persists across crash-restart via context reconstruction.
+    completed_stages: set = field(default_factory=set)
+
+    @staticmethod
+    def from_directive_id(directive_id: str, active_dir: Path, project_root: Path, python_exe: str) -> 'PipelineContext':
+        """Standard factory for creating a context before Bootstrap."""
+        from tools.orchestration.pre_execution import find_directive_path
+        d_path = find_directive_path(active_dir, directive_id)
+        if not d_path:
+            raise FileNotFoundError(f"Directive {directive_id} not found in {active_dir}")
+        
+        return PipelineContext(
+            directive_id=directive_id,
+            directive_path=d_path,
+            project_root=project_root,
+            python_exe=python_exe
+        )
 
 # ==============================================================================
 # CANONICAL HASHING & RUN ID
@@ -159,7 +205,7 @@ def get_engine_version(engine_path=None):
 
     return module.__version__
 
-def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
+def generate_run_id(directive_path: Path, symbol: str, attempt_id: str = "attempt_01") -> tuple[str, str]:
     """
     Generate Deterministic Run ID based on Governance Rules.
     Returns: (run_id, content_hash)
@@ -228,7 +274,7 @@ def generate_run_id(directive_path: Path, symbol: str) -> tuple[str, str]:
     test_name = str(parsed_config.get("name", "")).strip()
 
     # Lineage String
-    lineage_str = f"{content_hash}_{symbol}_{timeframe}_{broker}_{engine_ver}_{test_name}"
+    lineage_str = f"{content_hash}_{symbol}_{timeframe}_{broker}_{engine_ver}_{test_name}_{attempt_id}"
     run_id = hashlib.sha256(lineage_str.encode()).hexdigest()[:24]
 
     return run_id, content_hash
@@ -393,9 +439,27 @@ class PipelineStateManager:
             "from": old_state,
             "to": new_state
         })
-        
         print(f"[STATE] Transition {self.run_id}: {old_state} -> {new_state}")
 
+    def record_heartbeat(self):
+        """Update heartbeat_ts to signify active RUNNING loop safely."""
+        if not self.state_file.exists():
+            return
+            
+        with open(self.state_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        # Only inject heartbeat for currently running tasks.
+        if data.get("current_state") == "STAGE_1_COMPLETE":
+             pass # Allowed to ping during transitions
+             
+        data["heartbeat_ts"] = datetime.now(timezone.utc).timestamp()
+        
+        # Immediate sync
+        temp_file = self.state_file.with_suffix(".tmp")
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        shutil.move(str(temp_file), str(self.state_file))
     def verify_state(self, expected_state: str):
         """
         Verify current state matches expected_state.
@@ -493,34 +557,111 @@ class DirectiveStateManager:
             shutil.move(str(self.audit_log), str(archive_log))
             print(f"[ARCHIVE] Log moved to {archive_log.name}")
 
+    def _get_next_attempt_id(self, data: dict) -> str:
+        attempts = data.get("attempts", {})
+        if not attempts:
+            return "attempt_01"
+        attempt_number = len(attempts) + 1
+        return f"attempt_{attempt_number:02d}"
+
     def initialize(self):
-        """Creates directory and initializes state to INITIALIZED."""
+        """Creates directory and initializes state using attempt hierarchy."""
         self.directive_dir.mkdir(parents=True, exist_ok=True)
         
         initial_data = {
             "directive_id": self.directive_id,
-            "current_state": "INITIALIZED",
-            "last_updated": datetime.now(timezone.utc).isoformat(),
-            "history": []
+            "latest_attempt": "attempt_01",
+            "attempts": {
+                "attempt_01": {
+                    "status": "INITIALIZED",
+                    "history": ["INITIALIZED"]
+                }
+            },
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
         
         # Init State File
         if not self.state_file.exists():
             self._write_atomic(initial_data)
-            self._append_audit_log("DIRECTIVE_INITIALIZED", {})
+            self._append_audit_log("DIRECTIVE_INITIALIZED", {"attempt": "attempt_01"})
         else:
             # Check if we should reset? pipeline triggers initialize() at start.
             # If it exists, we might be resuming. 
             pass
+
+    def create_new_attempt(self):
+        """Rotates the FSM to a new attempt, preserving history."""
+        if not self.state_file.exists():
+            self.initialize()
+            return
+            
+        with open(self.state_file, 'r') as f:
+            data = json.load(f)
+            
+        next_attempt = self._get_next_attempt_id(data)
+        
+        # Reset global state for the pipeline orchestrator loop
+        data["latest_attempt"] = next_attempt
+        if "attempts" not in data:
+            data["attempts"] = {}
+            
+        data["attempts"][next_attempt] = {
+            "status": "INITIALIZED",
+            "history": ["INITIALIZED"]
+        }
+        
+        # Purge legacy flat state fields if present
+        if "current_state" in data:
+            del data["current_state"]
+        if "history" in data:
+            del data["history"]
+            
+        data["last_updated"] = datetime.now(timezone.utc).isoformat()
+        self._write_atomic(data)
+        
+        self._append_audit_log("NEW_ATTEMPT_CREATED", {"attempt": next_attempt})
+        print(f"[ATTEMPT] Provisioning {next_attempt} for directive {self.directive_id}")
 
     def get_state(self) -> str:
         if not self.state_file.exists():
             return "IDLE"
         try:
             with open(self.state_file, 'r') as f:
-                return json.load(f).get("current_state", "IDLE")
+                data = json.load(f)
+                latest_attempt = data.get("latest_attempt", "attempt_01")
+                attempts = data.get("attempts", {})
+                if latest_attempt in attempts:
+                    return attempts[latest_attempt].get("status", "IDLE")
+                # Fallback purely for safety 
+                return data.get("current_state", "IDLE")
         except Exception:
             return "IDLE"
+            
+    def get_latest_attempt(self) -> str:
+        if not self.state_file.exists():
+            return "attempt_01"
+        try:
+            with open(self.state_file, 'r') as f:
+                return json.load(f).get("latest_attempt", "attempt_01")
+        except Exception:
+            return "attempt_01"
+
+    def register_run_ids(self, run_ids: list[str]):
+        """Registers generated run IDs onto the latest attempt payload."""
+        if not self.state_file.exists():
+            return
+        with open(self.state_file, 'r') as f:
+            data = json.load(f)
+        latest_attempt = data.get("latest_attempt", "attempt_01")
+        attempts = data.setdefault("attempts", {})
+        current_attempt = attempts.setdefault(latest_attempt, {"status": "INITIALIZED", "history": ["INITIALIZED"]})
+        
+        current_attempt["run_ids"] = run_ids
+        if len(run_ids) == 1:
+            current_attempt["run_id"] = run_ids[0]
+            
+        data["last_updated"] = datetime.now(timezone.utc).isoformat()
+        self._write_atomic(data)
 
     def transition_to(self, new_state: str):
         """Transitions directive state with strict validation and logging."""
@@ -542,8 +683,12 @@ class DirectiveStateManager:
 
         with open(self.state_file, 'r') as f:
             data = json.load(f)
+            
+        latest_attempt = data.get("latest_attempt", "attempt_01")
+        attempts = data.setdefault("attempts", {})
+        current_attempt = attempts.setdefault(latest_attempt, {"status": "INITIALIZED", "history": ["INITIALIZED"]})
         
-        old_state = data.get("current_state", "IDLE")
+        old_state = current_attempt.get("status", "INITIALIZED")
         
         # Validate
         allowed = self.ALLOWED_TRANSITIONS.get(old_state, [])
@@ -553,23 +698,32 @@ class DirectiveStateManager:
             })
             raise RuntimeError(f"Illegal Directive Transition: {old_state} -> {new_state}")
             
+        # Clean up legacy fields
+        if "current_state" in data:
+            del data["current_state"]
+        if "history" in data:
+            del data["history"]
+            
         # Update
-        data["current_state"] = new_state
+        current_attempt["status"] = new_state
+        if "history" not in current_attempt or not current_attempt["history"]:
+            current_attempt["history"] = ["INITIALIZED"]
+        elif current_attempt["history"][0] != "INITIALIZED":
+            current_attempt["history"].insert(0, "INITIALIZED")
+            
+        if current_attempt["history"][-1] != new_state:
+            current_attempt["history"].append(new_state)
+        
         data["last_updated"] = datetime.now(timezone.utc).isoformat()
-        data["history"].append({
-            "from": old_state,
-            "to": new_state,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        })
         
         # Atomic Write
         self._write_atomic(data)
         
         # Log
         self._append_audit_log("STATE_TRANSITION", {
-            "from": old_state, "to": new_state
+            "from": old_state, "to": new_state, "attempt": latest_attempt
         })
-        print(f"[DIRECTIVE] Transition {self.directive_id}: {old_state} -> {new_state}")
+        print(f"[DIRECTIVE] Transition {self.directive_id} ({latest_attempt}): {old_state} -> {new_state}")
 
     def _append_audit_log(self, event: str, details: dict):
         entry = {

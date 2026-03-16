@@ -60,8 +60,11 @@ def run_portfolio_and_post_stages(
             "results_tradelevel.csv": bt_dir / "raw" / "results_tradelevel.csv",
             "results_standard.csv": bt_dir / "raw" / "results_standard.csv",
             "equity_curve.csv": bt_dir / "raw" / "equity_curve.csv",
-            "batch_summary.csv": BACKTESTS_DIR / f"batch_summary_{clean_id}.csv",
         }
+        batch_summary_file = BACKTESTS_DIR / f"batch_summary_{clean_id}.csv"
+        if not batch_summary_file.exists():
+            transition_run_state(rid, "FAILED")
+            raise RuntimeError(f"Batch summary artifact missing during verification: {batch_summary_file}")
         manifest_keys = set(manifest["artifacts"].keys())
         required_keys = set(required_artifacts.keys())
         if manifest_keys != required_keys:
@@ -82,7 +85,8 @@ def run_portfolio_and_post_stages(
 
         print(f"[ORCHESTRATOR] Verified Integrity: {rid}")
 
-    run_command([python_exe, "tools/portfolio_evaluator.py", clean_id], "Stage-4 Evaluation")
+    cmd_args = [python_exe, "tools/portfolio_evaluator.py", clean_id, "--run-ids"] + run_ids
+    run_command(cmd_args, "Stage-4 Evaluation")
 
     portfolio_ledger_path = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
     if not portfolio_ledger_path.exists():
@@ -92,56 +96,51 @@ def run_portfolio_and_post_stages(
             run_ids=run_ids,
         )
 
-    import openpyxl
+    import pandas as pd
 
-    wb = openpyxl.load_workbook(portfolio_ledger_path, read_only=True)
-    ws = wb.active
     try:
-        headers = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
-        pid_idx = headers.index("portfolio_id")
-        runs_idx = headers.index("constituent_run_ids")
+        df_ledger = pd.read_excel(portfolio_ledger_path)
+        if "portfolio_id" not in df_ledger.columns or "constituent_run_ids" not in df_ledger.columns:
+            raise PipelineExecutionError(
+                f"Failed to resolve columns in Master Ledger.",
+                directive_id=clean_id,
+                run_ids=run_ids,
+            )
+        
+        if df_ledger.empty:
+            raise PipelineExecutionError(
+                f"Stage-4 validation failed: {portfolio_ledger_path.name} is empty (0 data rows).",
+                directive_id=clean_id,
+                run_ids=run_ids,
+            )
+            
+        matching_rows = df_ledger[df_ledger["portfolio_id"].astype(str) == clean_id]
+        if len(matching_rows) != 1:
+            raise PipelineExecutionError(
+                f"Stage-4 validation failed: Expected exactly 1 row for {clean_id} in Master Ledger, found {len(matching_rows)}",
+                directive_id=clean_id,
+                run_ids=run_ids,
+            )
+            
+        portfolio_row = matching_rows.iloc[0]
+        raw_runs_str = str(portfolio_row["constituent_run_ids"]) if pd.notna(portfolio_row["constituent_run_ids"]) else ""
+        saved_runs = [r.strip() for r in raw_runs_str.split(",") if r.strip()]
+        if len(saved_runs) != len(symbols):
+            raise PipelineExecutionError(
+                f"Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}",
+                directive_id=clean_id,
+                run_ids=run_ids,
+            )
+            
+        print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
     except Exception as err:
-        wb.close()
+        if isinstance(err, PipelineExecutionError):
+            raise
         raise PipelineExecutionError(
-            f"Failed to resolve columns in Master Ledger: {err}",
+            f"Failed to read Master Ledger: {err}",
             directive_id=clean_id,
             run_ids=run_ids,
         ) from err
-
-    matching_rows = []
-    row_count = 0
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if any(cell is not None for cell in row):
-            row_count += 1
-        if row and len(row) > max(pid_idx, runs_idx) and str(row[pid_idx]) == clean_id:
-            matching_rows.append(row)
-    wb.close()
-
-    if row_count == 0:
-        raise PipelineExecutionError(
-            f"Stage-4 validation failed: {portfolio_ledger_path.name} is empty (0 data rows).",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        )
-
-    if len(matching_rows) != 1:
-        raise PipelineExecutionError(
-            f"Stage-4 validation failed: Expected exactly 1 row for {clean_id} in Master Ledger, found {len(matching_rows)}",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        )
-
-    portfolio_row = matching_rows[0]
-    raw_runs_str = str(portfolio_row[runs_idx]) if portfolio_row[runs_idx] is not None else ""
-    saved_runs = [r.strip() for r in raw_runs_str.split(",") if r.strip()]
-    if len(saved_runs) != len(symbols):
-        raise PipelineExecutionError(
-            f"Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}",
-            directive_id=clean_id,
-            run_ids=run_ids,
-        )
-
-    print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
 
     try:
         from tools.report_generator import generate_backtest_report, generate_strategy_portfolio_report
