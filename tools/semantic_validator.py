@@ -15,6 +15,7 @@ Rules:
 
 import sys
 import ast
+import re
 from pathlib import Path
 
 # Project root setup
@@ -343,7 +344,25 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
         raise ValueError(f"Architectural Violation: Hardcoded regime comparison detected. strict usage of FilterStack required. Found {len(guard.illegal_nodes)} instance(s).")
 
     print("[SEMANTIC] Behavioral Guard: PASSED (FilterStack Enforced)")
-    
+
+    # 5.5. Forbidden Terms Guard (Stage-0 Inline Indicator Ban)
+    # ------------------------------------------------------------------
+    # Detect inline indicator patterns that must live in repository indicators.
+    # Runs as source-text scan after stripping comments and docstrings.
+    FORBIDDEN_TERMS = ["rolling(", "high_low", "high_close"]
+
+    _scan_source = re.sub(r'""".*?"""|\'\'\'.*?\'\'\'', '', source, flags=re.DOTALL)
+    _scan_source = re.sub(r'#[^\n]*', '', _scan_source)
+
+    found_forbidden = [term for term in FORBIDDEN_TERMS if term in _scan_source]
+    if found_forbidden:
+        raise ValueError(
+            f"FORBIDDEN_TERMS: Strategy contains inline indicator logic: {found_forbidden}. "
+            f"Move rolling/derived computations into a repository indicator under indicators/."
+        )
+
+    print("[SEMANTIC] Forbidden Terms Guard: PASSED")
+
     # 6. Hollow Strategy Detection (Admission Gate)
     # ------------------------------------------------------------------
     # A hollow strategy is one where check_entry() body is strictly:

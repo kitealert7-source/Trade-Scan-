@@ -47,7 +47,7 @@ Trade_Scan exists only while executing explicit instructions.
 Executable directives MUST reside in:
 
 ```
-backtest_directives/active/
+backtest_directives/INBOX/
 ```
 
 Execution may be:

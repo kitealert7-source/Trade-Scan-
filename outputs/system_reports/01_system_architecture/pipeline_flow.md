@@ -3,7 +3,8 @@
 ``` mermaid
 flowchart TD
 
-    A[Start Directive] --> B[Load / Initialize directive_state.json]
+    Z0[INBOX: directive_linter.py] -->|Approve & Move| A[Start Directive from ACTIVE]
+    A --> B[Load / Initialize directive_state.json]
     B --> C{Directive State?}
 
     C -->|PORTFOLIO_COMPLETE| Z1[Abort]
@@ -12,11 +13,13 @@ flowchart TD
     C -->|SYMBOL_RUNS_COMPLETE| P[Go to Stage 4]
     C -->|FAILED| Z2[Abort / Require Explicit Reset]
 
-    D --> D1[directive_state = PREFLIGHT_COMPLETE]
+    D --> D0A[Stage 0.5: Semantic Validation]
+    D0A --> D0B[Stage 0.75: Dry-Run Validation]
+    D0B --> D1[directive_state = PREFLIGHT_COMPLETE]
 
-    D1 --> F[Per-Symbol Execution Loop]
+    D1 --> F[Multi-Asset Batch Execution Harness]
 
-    subgraph SYMBOL_EXECUTION [Per-Symbol FSM]
+    subgraph BATCH_EXECUTION [Multi-Asset Batch]
         F --> S1[STAGE_1_START]
         S1 --> S2[STAGE_1_COMPLETE]
         S2 --> S3[STAGE_2_START]
@@ -29,7 +32,7 @@ flowchart TD
         S9 --> S10[COMPLETE]
     end
 
-    S10 --> G[All Symbols Complete?]
+    S10 --> G[All Assets Evaluated?]
 
     G -->|No| F
     G -->|Yes| H[directive_state = SYMBOL_RUNS_COMPLETE]

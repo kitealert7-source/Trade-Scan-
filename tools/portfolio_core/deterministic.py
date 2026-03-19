@@ -40,8 +40,8 @@ def load_trades_for_portfolio_analysis(run_ids, project_root: Path):
             if col not in df_trades.columns:
                 raise ValueError(f"Missing column '{col}' in run {run_id}")
 
-        df_trades["entry_timestamp"] = pd.to_datetime(df_trades["entry_timestamp"])
-        df_trades["exit_timestamp"] = pd.to_datetime(df_trades["exit_timestamp"])
+        df_trades["entry_timestamp"] = pd.to_datetime(df_trades["entry_timestamp"], utc=True).dt.tz_convert(None)
+        df_trades["exit_timestamp"] = pd.to_datetime(df_trades["exit_timestamp"], utc=True).dt.tz_convert(None)
 
         meta_path = RUNS_DIR / run_id / "data" / "run_metadata.json"
         strat_name = f"RUN_{run_id}"

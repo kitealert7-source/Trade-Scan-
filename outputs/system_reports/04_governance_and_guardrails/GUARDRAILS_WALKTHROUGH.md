@@ -37,6 +37,8 @@ The intended daily workflow for TradeScan operators is as follows:
 | **Dependency Guard** | Stage 4 | `stage_portfolio.py` | Verifies that all runs referenced in a portfolio exist in both the registry and the `runs/` directory before evaluation. |
 | **Data Availability Gate** | Stage 0.5 | `preflight.py` | **[NEW]** Asserts that research data fully covers the directive's `START_DATE` and `END_DATE`. Prevents silent truncation. |
 | **Cleanup Safety Boundary** | Admin | `cleanup_reconciler.py` | Restricts physical deletions to `runs/` and `backtests/` subfolders within the project root. Explicitly forbids system folders. |
+| **Reconciler Auto-Clean** | Admin | `system_registry.py` | After marking runs invalid during reconciliation, automatically removes stale `constituent_run_ids` from all `portfolio_metadata.json` files before the Portfolio Dependency Check fires. Prevents recurring `[FATAL] Consistency Violation` errors on subsequent pipeline runs. |
+| **Atomic Directive Reset** | Admin | `reset_directive.py` | On full reset to `INITIALIZED`, deletes the entire `TradeScan_State/runs/<DIRECTIVE_ID>/` directory (including `run_registry.json` and all latent state) via `shutil.rmtree`. Partial cleanup (individual run folders only) is explicitly forbidden — any less causes phantom completion states, blocked pipelines, and silent failures on re-run. |
 
 ## 3. Verification Results
 
@@ -59,3 +61,7 @@ The system is now "Self-Healing" at the startup layer:
 3. Portfolio dependencies are validated at the physical layer.
 
 **Conclusion**: The pipeline architecture is now fully protected against the manual drift and structural gaps identified during the audit. The new preflight workflow ensures that no execution starts until the system state is verified as healthy.
+
+**2026-03-19 additions:**
+5. Reconciler auto-clean eliminates the manual step of clearing stale `constituent_run_ids` from `portfolio_metadata.json` files after runs are invalidated.
+6. Directive reset is now deterministic and atomic — the entire directive-level run folder is deleted, preventing phantom state from persisting across reset boundaries.

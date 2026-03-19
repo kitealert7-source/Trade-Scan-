@@ -96,50 +96,62 @@ def run_portfolio_and_post_stages(
             run_ids=run_ids,
         )
 
-    import pandas as pd
+    # Mirror the evaluator's ledger-write eligibility check.
+    # Single-run / single-asset strategies intentionally skip the master ledger;
+    # the gate must honour the same condition to avoid a false failure.
+    is_valid_for_master = (
+        len(run_ids) > 1
+        or len(symbols) > 1
+        or clean_id.startswith("PF_")
+    )
 
-    try:
-        df_ledger = pd.read_excel(portfolio_ledger_path)
-        if "portfolio_id" not in df_ledger.columns or "constituent_run_ids" not in df_ledger.columns:
+    if not is_valid_for_master:
+        print(f"[GATE] Stage-4 ledger gate skipped: single-run / single-asset strategy (evaluator intentionally omits ledger write).")
+    else:
+        import pandas as pd
+
+        try:
+            df_ledger = pd.read_excel(portfolio_ledger_path)
+            if "portfolio_id" not in df_ledger.columns or "constituent_run_ids" not in df_ledger.columns:
+                raise PipelineExecutionError(
+                    f"Failed to resolve columns in Master Ledger.",
+                    directive_id=clean_id,
+                    run_ids=run_ids,
+                )
+
+            if df_ledger.empty:
+                raise PipelineExecutionError(
+                    f"Stage-4 validation failed: {portfolio_ledger_path.name} is empty (0 data rows).",
+                    directive_id=clean_id,
+                    run_ids=run_ids,
+                )
+
+            matching_rows = df_ledger[df_ledger["portfolio_id"].astype(str) == clean_id]
+            if len(matching_rows) != 1:
+                raise PipelineExecutionError(
+                    f"Stage-4 validation failed: Expected exactly 1 row for {clean_id} in Master Ledger, found {len(matching_rows)}",
+                    directive_id=clean_id,
+                    run_ids=run_ids,
+                )
+
+            portfolio_row = matching_rows.iloc[0]
+            raw_runs_str = str(portfolio_row["constituent_run_ids"]) if pd.notna(portfolio_row["constituent_run_ids"]) else ""
+            saved_runs = [r.strip() for r in raw_runs_str.split(",") if r.strip()]
+            if len(saved_runs) != len(symbols):
+                raise PipelineExecutionError(
+                    f"Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}",
+                    directive_id=clean_id,
+                    run_ids=run_ids,
+                )
+
+            print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
+        except Exception as err:
+            if isinstance(err, PipelineExecutionError):
+                raise
             raise PipelineExecutionError(
-                f"Failed to resolve columns in Master Ledger.",
+                f"Failed to read Master Ledger: {err}",
                 directive_id=clean_id,
                 run_ids=run_ids,
-            )
-        
-        if df_ledger.empty:
-            raise PipelineExecutionError(
-                f"Stage-4 validation failed: {portfolio_ledger_path.name} is empty (0 data rows).",
-                directive_id=clean_id,
-                run_ids=run_ids,
-            )
-            
-        matching_rows = df_ledger[df_ledger["portfolio_id"].astype(str) == clean_id]
-        if len(matching_rows) != 1:
-            raise PipelineExecutionError(
-                f"Stage-4 validation failed: Expected exactly 1 row for {clean_id} in Master Ledger, found {len(matching_rows)}",
-                directive_id=clean_id,
-                run_ids=run_ids,
-            )
-            
-        portfolio_row = matching_rows.iloc[0]
-        raw_runs_str = str(portfolio_row["constituent_run_ids"]) if pd.notna(portfolio_row["constituent_run_ids"]) else ""
-        saved_runs = [r.strip() for r in raw_runs_str.split(",") if r.strip()]
-        if len(saved_runs) != len(symbols):
-            raise PipelineExecutionError(
-                f"Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}",
-                directive_id=clean_id,
-                run_ids=run_ids,
-            )
-            
-        print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
-    except Exception as err:
-        if isinstance(err, PipelineExecutionError):
-            raise
-        raise PipelineExecutionError(
-            f"Failed to read Master Ledger: {err}",
-            directive_id=clean_id,
-            run_ids=run_ids,
         ) from err
 
     try:
@@ -231,7 +243,7 @@ def run_portfolio_and_post_stages(
                 with open(tl_path, newline="", encoding="utf-8") as cf:
                     tl_rows = sum(1 for _ in cf) - 1
                 expected_max = m.get("total_accepted", -1)
-                expected_min = max(0, expected_max - m.get("max_concurrent_trades", 0))
+                expected_min = max(0, expected_max - m.get("max_concurrent_trades_during_test_period", 0))
                 if not (expected_min <= tl_rows <= expected_max):
                     step9_failures.append(
                         f"  [{prof}] Trade log count {tl_rows} not in expected bounds [{expected_min}, {expected_max}]"

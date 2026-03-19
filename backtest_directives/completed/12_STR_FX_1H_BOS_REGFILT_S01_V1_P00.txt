@@ -1,0 +1,53 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.0
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: bos_pullback
+    swing_lookback: 10
+    min_swing_age_bars: 3
+    pullback_tolerance_atr: 0.5
+    confirmation: close_above_level
+  exit_logic:
+    max_bars: 20
+    type: tp_or_time
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.trend.linreg_regime
+- indicators.trend.linreg_regime_htf
+- indicators.trend.kalman_regime
+- indicators.trend.trend_persistence
+- indicators.trend.efficiency_ratio_regime
+- indicators.structure.highest_high
+- indicators.volatility.atr
+- indicators.volatility.volatility_regime
+volatility_filter:
+  enabled: true
+  operator: gte
+  required_regime: 1
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: false
+symbols:
+- EURUSD
+- GBPUSD
+- XAUUSD
+test:
+  name: 12_STR_FX_1H_BOS_REGFILT_S01_V1_P00
+  strategy: 12_STR_FX_1H_BOS_REGFILT_S01_V1_P00
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-02-28'

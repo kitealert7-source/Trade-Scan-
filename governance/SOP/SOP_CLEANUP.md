@@ -34,7 +34,8 @@ The system follows a strict hierarchy for determining what "exists" and what is 
 
 | Directory | Role | Description |
 | :--- | :--- | :--- |
-| **`runs/`** | **Authoritative (Sandbox)** | Holds execution artifacts for runs in the `sandbox` tier. |
+| **`runs/<run_id>/`** | **Authoritative (Sandbox)** | Holds execution artifacts for a single symbol run. Identified by UUID. |
+| **`runs/<DIRECTIVE_ID>/`** | **Directive Orchestration State** | Directive-level orchestration folder. Contains `run_registry.json` (which symbol runs are PLANNED/COMPLETE) and latent state. **Cleared entirely by `reset_directive.py` on full reset** to prevent phantom completion states. NOT cleared by `--to-stage4`. |
 | **`candidates/`** | **Authoritative (Promoted)** | Holds execution artifacts for runs promoted to the `candidate` tier. |
 | **`backtests/`** | **Disposable UI View** | Materialized reporting views for human consumption. Safely deletable if not registered. |
 | **`sandbox/`** | **Aggregation Workspace** | Temporary staging area for master filter generation. |

@@ -1,0 +1,62 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.0
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: session_range_fade
+  exit_logic:
+    type: tp_or_session_end
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.volatility.atr
+- indicators.volatility.atr_percentile
+- indicators.structure.range_breakout_session
+- indicators.volatility.volatility_regime
+range_definition:
+  session_start: "00:00"
+  session_end: "07:00"
+  extension_atr_multiplier: 0.25
+  direction: counter_extension
+  target: session_midpoint
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  session_reset: new_day
+  no_reentry_after_stop: true
+exit_rules:
+  type: time_based
+  timing: session_end
+  target: session_midpoint
+volatility_filter:
+  atr_length: 14
+  atr_percentile_lookback: 100
+  condition: atr_percentile_below_threshold
+  threshold: 70
+position_management:
+  lots: 0.01
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  max_trades_per_session: 1
+  reentry:
+    allowed: false
+symbols:
+- EURUSD
+- GBPUSD
+- AUDUSD
+test:
+  name: 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P00
+  strategy: 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P00
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-02-28'

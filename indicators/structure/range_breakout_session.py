@@ -46,8 +46,12 @@ def session_range_structure(
             has_broken (bool)
     """
 
+    _original_index = df.index
     if not isinstance(df.index, pd.DatetimeIndex):
-        raise ValueError("DataFrame index must be DatetimeIndex")
+        if 'timestamp' not in df.columns:
+            raise ValueError("session_range_structure requires DatetimeIndex or a 'timestamp' column")
+        df = df.copy()
+        df.index = pd.to_datetime(df['timestamp'], utc=True)
 
     high = df["high"].astype(float)
     low = df["low"].astype(float)
@@ -96,4 +100,10 @@ def session_range_structure(
     if result["session_high"].isna().all():
         raise RuntimeError("session_range_structure invariant violation: session high not computed")
 
+    result.index = _original_index
+
     return result
+
+
+# Alias for provisioner import compatibility (module convention: name matches function)
+range_breakout_session = session_range_structure

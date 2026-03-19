@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from tools.pipeline_utils import PipelineContext, parse_directive, DirectiveStateManager, PipelineStateManager
+from tools.pipeline_utils import PipelineContext, parse_directive, DirectiveStateManager
 from tools.orchestration.admission_controller import AdmissionStage
 from tools.orchestration.planning_stages import DirectivePlanningStage
 from tools.orchestration.pre_execution import find_directive_path
@@ -23,13 +23,17 @@ class BootstrapController:
         self.project_root = project_root
 
     def prepare_context(self, directive_id: str, provision_only: bool) -> PipelineContext:
+        active_dir = self.project_root / "backtest_directives" / "INBOX"
         active_backup_dir = self.project_root / "backtest_directives" / "active_backup"
         python_exe = sys.executable
 
         d_path = find_directive_path(active_backup_dir, directive_id)
         if not d_path:
+            d_path = find_directive_path(active_dir, directive_id)
+            
+        if not d_path:
             raise PipelineExecutionError(
-                f"Directive file not found for ID: {directive_id}. Admitted directives must reside in: {active_backup_dir}",
+                f"Directive file not found for ID: {directive_id}. Admitted directives must reside in: {active_backup_dir} or {active_dir}",
                 directive_id=directive_id,
                 fail_directive=False,
                 fail_runs=False,
@@ -86,16 +90,5 @@ class BootstrapController:
 
         # 4. Planning Stage
         DirectivePlanningStage().run(ctx)
-
-        # 5. Initialize States for Planned Runs
-        print("[ORCHESTRATOR] Initializing symbol states...")
-        for run in ctx.planned_runs:
-            run_id = run["run_id"]
-            symbol = run["symbol"]
-            # Init individual run state (unless we are resuming later stages)
-            if current_dir_state not in ["SYMBOL_RUNS_COMPLETE", "PORTFOLIO_COMPLETE"]:
-                 print(f"[ORCHESTRATOR] Managing Run ID: {run_id} ({symbol})")
-                 state_mgr = PipelineStateManager(run_id, directive_id=directive_id)
-                 state_mgr.initialize()
 
         return ctx

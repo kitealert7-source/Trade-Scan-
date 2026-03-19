@@ -96,6 +96,17 @@ PROFILES = {
         "max_risk_multiple": None,
         "track_risk_override": True,
     },
+    # Priority 6: Bounded Fallback
+    "BOUNDED_MIN_LOT_V1": {
+        "starting_capital": 10000.0,
+        "fixed_risk_usd": 65.0,
+        "heat_cap": 0.04,
+        "leverage_cap": 5,
+        "min_lot": 0.01,
+        "lot_step": 0.01,
+        "min_lot_fallback": True,
+        "max_risk_multiple": 1.5,
+    },
 }
 
 # ======================================================================
@@ -562,7 +573,8 @@ class PortfolioState:
         if risk_override:
             if self.max_risk_multiple is not None:
                 if risk_multiple > self.max_risk_multiple:
-                    self._reject(event, "RISK_MULT_EXCEEDED",
+                    reason_str = "RISK_MULTIPLE_EXCEEDED" if self.profile_name == "BOUNDED_MIN_LOT_V1" else "RISK_MULT_EXCEEDED"
+                    self._reject(event, reason_str,
                                  f"multiple={risk_multiple:.2f} > cap={self.max_risk_multiple}")
                     return False
             self.total_risk_overrides += 1
@@ -799,7 +811,7 @@ def print_validation_summary(state: PortfolioState):
     print(f"  Max Drawdown (%):       {max_dd_pct:>11.2f}%")
     print(f"  Total Accepted:         {state.total_accepted:>12d}")
     print(f"  Total Rejected:         {state.total_rejected:>12d}")
-    print(f"  Max Concurrent Trades:  {state.max_concurrent:>12d}")
+    print(f"  Max Concurrent (Test):  {state.max_concurrent:>12d}")
     print(f"  Open Trades Remaining:  {len(state.open_trades):>12d}")
     print(f"{'=' * 70}")
 
@@ -958,7 +970,7 @@ def compute_deployable_metrics(state: PortfolioState) -> dict:
         "total_accepted": state.total_accepted,
         "total_rejected": state.total_rejected,
         "rejection_rate_pct": round(rejection_rate * 100, 2),
-        "max_concurrent_trades": state.max_concurrent,
+        "max_concurrent_trades_during_test_period": state.max_concurrent,
         "configured_concurrency_cap": state.concurrency_cap,
         "avg_heat_utilization_pct": round(avg_heat * 100, 4),
         "pct_time_at_full_heat": round(pct_at_full_heat * 100, 4),

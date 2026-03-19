@@ -6,6 +6,9 @@ family:
   - BRK
   - PA
   - PORT
+  - CONT
+  - REV
+  - STR
 model:
   - RSIAVG
   - ZREV
@@ -22,6 +25,13 @@ model:
   - ULTC
   - DAYOC
   - SMI
+  - LORB
+  - RSIPULL
+  - SPKFADE
+  - GAPFILL
+  - BBSQZ
+  - ATRSQZ
+  - ASRANGE
 filter:
   - ATRFILT
   - VOLFILT
@@ -29,6 +39,7 @@ filter:
   - STRUCTFILT
   - REGFILT
   - SMIFILT
+  - SESSFILT
 timeframe:
   - 1M
   - 5M

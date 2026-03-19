@@ -14,11 +14,22 @@ import pandas as pd
 import numpy as np
 
 
-def linreg_regime_htf(series: pd.Series,
-                      window: int = 50) -> pd.DataFrame:
-
-    if not isinstance(series.index, pd.DatetimeIndex):
-        raise ValueError("HTF requires DatetimeIndex")
+def linreg_regime_htf(series_or_df, window: int = 50) -> pd.DataFrame:
+    """
+    Accepts either:
+      - pd.Series with DatetimeIndex (legacy / explicit call)
+      - pd.DataFrame with integer index and 'timestamp' + 'close' columns (engine standard)
+    """
+    if isinstance(series_or_df, pd.DataFrame):
+        df = series_or_df
+        if 'close' not in df.columns:
+            raise ValueError("linreg_regime_htf requires 'close' column")
+        ts_idx = pd.to_datetime(df['timestamp'], utc=True)
+        series = pd.Series(df['close'].values, index=ts_idx)
+    else:
+        series = series_or_df
+        if not isinstance(series.index, pd.DatetimeIndex):
+            raise ValueError("HTF requires DatetimeIndex or DataFrame with 'timestamp'+'close'")
 
     # --- Build Daily Close ---
     daily_close = series.resample('1D').last().dropna()

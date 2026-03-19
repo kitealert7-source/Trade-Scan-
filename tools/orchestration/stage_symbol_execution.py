@@ -154,7 +154,26 @@ def run_stage1_execution(context: PipelineContext) -> None:
 
             out_folder = BACKTESTS_DIR / f"{clean_id}_{symbol}"
             if not (out_folder / "raw" / "results_tradelevel.csv").exists():
-                raise RuntimeError(f"[FATAL] Stage-1 artifact missing for {symbol}. (Probable NO_TRADES).")
+                # Engine exited cleanly (no exception) but produced no trade data.
+                # Write a persistent marker so the cardinality gate and cleanup tools
+                # can identify and correctly handle this run (not a crash).
+                marker = {
+                    "run_id": rid,
+                    "symbol": symbol,
+                    "status": "NO_TRADES",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                raw_dir = out_folder / "raw"
+                raw_dir.mkdir(parents=True, exist_ok=True)
+                with open(raw_dir / "status_no_trades.json", "w", encoding="utf-8") as mf:
+                    json.dump(marker, mf, indent=2)
+                with open(RUNS_DIR / rid / "status_no_trades.json", "w", encoding="utf-8") as mf:
+                    json.dump(marker, mf, indent=2)
+                print(f"[STAGE-1] NO_TRADES: {symbol} ({rid[:8]}) produced 0 trades. Run skipped (not a crash).")
+                transition_run_state(rid, "FAILED")
+                update_run_state(registry_path, clean_id, rid, "FAILED", last_error="NO_TRADES")
+                log_run_to_registry(rid, "no_trades", clean_id)
+                continue  # Do NOT raise — proceed to next symbol
 
             transition_run_state(rid, "STAGE_1_COMPLETE")
             update_run_state(registry_path, clean_id, rid, "COMPLETE")
@@ -290,7 +309,13 @@ def run_stage3_aggregation(context: PipelineContext) -> None:
         if row and len(row) > strategy_idx and row[strategy_idx] and str(row[strategy_idx]).startswith(clean_id)
     )
     wb.close()
-    expected_count = len(symbols)
+    no_trades_count = sum(
+        1 for rid in run_ids
+        if (RUNS_DIR / rid / "status_no_trades.json").exists()
+    )
+    expected_count = len(symbols) - no_trades_count
+    if no_trades_count:
+        print(f"[GATE] {no_trades_count} run(s) had NO_TRADES — excluded from cardinality check.")
     if actual_count != expected_count:
         raise PipelineExecutionError(
             f"Stage-3 cardinality mismatch: expected {expected_count}, found {actual_count} for {clean_id}",

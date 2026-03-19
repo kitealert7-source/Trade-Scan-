@@ -336,9 +336,10 @@ class PortfolioState:
         risk_multiple = trade_risk_usd / target_risk if target_risk > 0 else float("inf")
         if risk_override:
             if self.max_risk_multiple is not None and risk_multiple > self.max_risk_multiple:
+                reason_str = "RISK_MULTIPLE_EXCEEDED" if self.profile_name == "BOUNDED_MIN_LOT_V1" else "RISK_MULT_EXCEEDED"
                 self._reject(
                     event,
-                    "RISK_MULT_EXCEEDED",
+                    reason_str,
                     f"multiple={risk_multiple:.2f} > cap={self.max_risk_multiple}",
                 )
                 return False
@@ -511,7 +512,7 @@ def run_simulation(
         states[name] = PortfolioState(
             profile_name=name,
             starting_capital=params["starting_capital"],
-            risk_per_trade=params["risk_per_trade"],
+            risk_per_trade=params.get("risk_per_trade", 0.0),
             heat_cap=params["heat_cap"],
             leverage_cap=params["leverage_cap"],
             min_lot=params["min_lot"],

@@ -29,7 +29,7 @@ FILES_TO_COPY = [
     ("indicators/structure/range_breakout_session.py", "indicators/range_breakout_session.py"),
     
     # Directive
-    ("backtest_directives/active/Range_Breakout02.txt", "directive/Range_Breakout02.txt"),
+    ("backtest_directives/INBOX/Range_Breakout02.txt", "directive/Range_Breakout02.txt"),
 ]
 
 BROKER_SPECS_DIR = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"

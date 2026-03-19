@@ -20,6 +20,7 @@ It is a human-initiated governance intervention tool only.
 import sys
 import csv
 import json
+import shutil
 import argparse
 from pathlib import Path
 from datetime import datetime, timezone
@@ -29,9 +30,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.pipeline_utils import DirectiveStateManager
+from config.state_paths import RUNS_DIR
 
 AUDIT_LOG = PROJECT_ROOT / "governance" / "reset_audit_log.csv"
-RUNS_DIR = PROJECT_ROOT / "runs"
 
 
 def _archive_run_states(directive_id: str, timestamp_suffix: str):
@@ -77,6 +78,16 @@ def _archive_run_states(directive_id: str, timestamp_suffix: str):
         print(f"[RESET] Cleaned {cleaned} associated run state(s)")
     else:
         print(f"[RESET] No associated run states found")
+
+
+def _clear_directive_run_folder(directive_id: str):
+    """Delete the directive-level run folder, including run_registry.json and any latent state."""
+    directive_run_dir = RUNS_DIR / directive_id
+    if directive_run_dir.exists():
+        shutil.rmtree(directive_run_dir)
+        print(f"[RESET] Cleared directive run state: {directive_id} (including run_registry.json)")
+    else:
+        print(f"[RESET] No run state found for {directive_id} (already clean)")
 
 
 def reset_directive(directive_id: str, reason: str, to_stage4: bool = False):
@@ -129,6 +140,7 @@ def reset_directive(directive_id: str, reason: str, to_stage4: bool = False):
     # Clean associated run states (only for full reset, not stage-4 resume)
     if not to_stage4:
         _archive_run_states(directive_id, timestamp_suffix)
+        _clear_directive_run_folder(directive_id)
     else:
         print(f"[RESET] Stage-4 resume: preserving run states")
 

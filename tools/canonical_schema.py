@@ -25,6 +25,7 @@ CANONICAL_BLOCKS = [
     "state_machine",             # AK/Persistence: streak-based state machine
     "usd_stress_filter",         # AK/Persistence: USD stress index filter
     "volatility_filter",         # Volatility-gated strategies
+    "trend_filter",              # Trend regime-gated strategies
     "position_management",       # Stop-and-reverse, max positions
     "mean_reversion_rules",      # MR: mean reversion parameters
     "regime_transition_rules",   # RT: regime transition parameters
@@ -35,7 +36,7 @@ REQUIRED_BLOCKS = {"test", "symbols", "indicators", "execution_rules"}
 OPTIONAL_BLOCKS = {
     "order_placement", "trade_management",
     "range_definition", "exit_rules",
-    "state_machine", "usd_stress_filter", "volatility_filter",
+    "state_machine", "usd_stress_filter", "volatility_filter", "trend_filter",
     "position_management", "mean_reversion_rules",
     "regime_transition_rules", "polarity_override",
 }
@@ -103,6 +104,14 @@ ALLOWED_NESTED_KEYS = {
         "execution_timeframe", "price_validation",
         "orders", "entry_timing", "order_type",
     },
+    "volatility_filter": {
+        "enabled", "atr_length", "atr_percentile_lookback",
+        "condition", "threshold", "required_regime", "operator",
+    },
+    "trend_filter": {
+        "enabled", "required_regime", "operator",
+        "condition", "threshold",
+    },
 }
 
 # === ALLOWED SUB-KEYS — Level 2 (per sub-block) ===
@@ -111,20 +120,29 @@ ALLOWED_SUB_KEYS = {
         "type", "lookback_bars", "atr_length",
         "atr_multiplier", "condition",
         "long_condition", "short_condition",
+        # Spike-fade
+        "confirmation", "direction", "spike_atr_multiplier",
+        # BOS pullback
+        "swing_lookback", "min_swing_age_bars", "pullback_tolerance_atr",
+        # Gap fade
+        "gap_threshold_pct",
+        # BB squeeze breakout
+        "band_std_dev", "breakout_band",
+        "squeeze_atr_percentile_threshold", "squeeze_min_bars",
     },
     "exit_logic": {
         "type", "price_exit", "time_exit_bars", "time_exit",
-        "exit_long_if", "exit_short_if",
+        "exit_long_if", "exit_short_if", "max_bars",
     },
     "stop_loss": {
-        "type", "atr_multiplier", "fixed_points", "multiple",
+        "type", "atr_multiplier", "fixed_points", "multiple", "target", "pct",
     },
     "trailing_stop": {
         "enabled", "type", "atr_multiplier",
         "activation_threshold",
     },
     "take_profit": {
-        "enabled", "type", "atr_multiplier", "fixed_points",
+        "enabled", "type", "atr_multiplier", "fixed_points", "target",
     },
     "reentry": {
         "allowed", "reuse_original_range",

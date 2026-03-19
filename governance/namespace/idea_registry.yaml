@@ -59,3 +59,67 @@ ideas:
     role: entry_edge
     instruments: XAUUSD
     status: active
+  "09":
+    family: BRK
+    title: London Open Range Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX
+    status: active
+  "10":
+    family: CONT
+    title: Trend Continuation RSI Pullback Research Track
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    instruments: FX
+    status: active
+  "11":
+    family: REV
+    title: Spike Fade Reversal Research Track
+    class: indicator_logic
+    regime: high_volatility
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "12":
+    family: STR
+    title: Break of Structure Pullback Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX
+    status: active
+  "13":
+    family: MR
+    title: Gap Fill Mean Reversion Research Track
+    class: price_action
+    regime: range
+    role: entry_edge
+    instruments: IDX
+    status: active
+  "14":
+    family: BRK
+    title: Squeeze Breakout Research Track (BBSQZ / ATRSQZ)
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: failed
+  "15":
+    family: MR
+    title: Asian Session Range Fade Research Track
+    class: structure_logic
+    regime: range
+    role: entry_edge
+    instruments: FX
+    status: active
+  "16":
+    family: BRK
+    title: ATR Squeeze Breakout Research Track
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: failed

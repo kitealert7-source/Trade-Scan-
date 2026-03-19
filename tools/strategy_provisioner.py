@@ -46,7 +46,8 @@ class Strategy:
     # --- STRATEGY SIGNATURE START ---
     STRATEGY_SIGNATURE = {signature_json}
     # --- STRATEGY SIGNATURE END ---
-    
+    # --- SIGNATURE HASH: {signature_hash} ---
+
     def __init__(self):
         self.filter_stack = FilterStack(self.STRATEGY_SIGNATURE)
 
@@ -163,6 +164,13 @@ def _insert_imports(content: str, required_imports: list) -> str:
     
     return "\n".join(lines)
 
+def _hash_sig_dict(signature: dict) -> str:
+    """16-char hex hash of a signature dict — embedded in strategy.py as audit trace."""
+    import hashlib
+    canonical = json.dumps(signature, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
 def _update_existing_strategy(file_path: Path, signature: dict, required_imports: list) -> bool:
     """
     Update existing strategy file:
@@ -190,6 +198,36 @@ def _update_existing_strategy(file_path: Path, signature: dict, required_imports
         if start_idx >= end_idx:
              raise ValueError("Malformed markers: START appears after END.")
 
+        # 1.5. Drift Detection: compare existing vs incoming signature
+        _sig_drifted = True
+        _existing_sig = None
+        try:
+            sig_block_text = content[start_idx + len(start_marker):end_idx]
+            sig_match = re.search(r'STRATEGY_SIGNATURE\s*=\s*(\{.*\})', sig_block_text, re.DOTALL)
+            if sig_match:
+                import ast as _ast
+                _existing_sig = _ast.literal_eval(sig_match.group(1).strip())
+                if json.dumps(_existing_sig, sort_keys=True) == json.dumps(signature, sort_keys=True):
+                    _sig_drifted = False
+        except Exception:
+            pass  # cannot parse existing signature; assume drifted
+
+        # 1.6. Embedded hash audit: detect post-provision manual mutation
+        _hash_marker_re = re.compile(r'# --- SIGNATURE HASH: ([0-9a-f]{16}) ---')
+        _hash_search = _hash_marker_re.search(content)
+        _stored_sig_hash = _hash_search.group(1) if _hash_search else None
+
+        if _stored_sig_hash is not None and _existing_sig is not None:
+            _current_hash = _hash_sig_dict(_existing_sig)
+            if _current_hash != _stored_sig_hash:
+                print(
+                    f"[PROVISION] WARNING: Strategy mutated post-provision (signature drift). "
+                    f"stored_hash={_stored_sig_hash} current_hash={_current_hash}"
+                )
+
+        if _sig_drifted:
+            print("[PROVISION] SIGNATURE DRIFT DETECTED — patching STRATEGY_SIGNATURE block only.")
+
         # 2. Update Signature Block
         sig_json = json.dumps(signature, indent=4, sort_keys=True)
         
@@ -214,6 +252,20 @@ def _update_existing_strategy(file_path: Path, signature: dict, required_imports
 
         # 4. Inject Imports
         content = _insert_imports(content, required_imports)
+
+        # 4.5. Update embedded signature hash comment
+        new_sig_hash = _hash_sig_dict(signature)
+        new_hash_line = f"# --- SIGNATURE HASH: {new_sig_hash} ---"
+        if _hash_marker_re.search(content):
+            content = _hash_marker_re.sub(new_hash_line, content, count=1)
+        else:
+            # No hash comment yet (legacy strategy) — insert after END marker
+            content = content.replace(
+                end_marker,
+                f"{end_marker}\n    {new_hash_line}",
+                1,
+            )
+            print(f"[PROVISION] SIGNATURE HASH INJECTED: {new_sig_hash} (legacy strategy backfilled)")
 
         # 5. Idempotency Check
         if content != original_content:
@@ -301,7 +353,8 @@ def provision_strategy(directive_path: str) -> bool:
                 timestamp=datetime.now().isoformat(),
                 imports_block="\n".join(import_lines),
                 timeframe=timeframe,
-                signature_json=sig_json
+                signature_json=sig_json,
+                signature_hash=_hash_sig_dict(signature),
             )
             
             # 8. Write File

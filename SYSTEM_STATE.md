@@ -1,7 +1,7 @@
 # SYSTEM STATE
 
 ## Active Directives
-- No files found under `backtest_directives/active`.
+- No files found under `backtest_directives/INBOX`.
 
 ## Artifact Health
 - Backtest run directories scanned: **131**

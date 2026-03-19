@@ -18,7 +18,7 @@ What this does:
 What this does NOT do:
     - Auto-fill parameters from the flat text
     - Validate the flat text
-    - Write to backtest_directives/ (that is a human step)
+    - Write to backtest_directives/INBOX/ (that is a human step)
     - Run canonicalization (that is a separate step)
 """
 
@@ -116,7 +116,7 @@ def main():
     print("[INFO] Fill all values manually. No values were inferred.")
     print("[INFO] After filling, run:")
     print(f"         python tools/canonicalizer.py {output_path}")
-    print("       to validate the structure before placing in backtest_directives/active/")
+    print("       to validate the structure before placing in backtest_directives/INBOX/")
     print()
     print("[DONE] Scaffold written.")
 

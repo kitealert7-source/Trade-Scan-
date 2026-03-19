@@ -337,7 +337,7 @@ def emit_stage1(
     # 2. Emit results_tradelevel.csv (SOP 4.1)
     # Updated for SOP_OUTPUT v4.2 Compliance (Intrinsic Market State)
     tradelevel_fields = [
-        "strategy_name", "parent_trade_id", "sequence_index",
+        "run_id", "strategy_name", "parent_trade_id", "sequence_index",
         "entry_timestamp", "exit_timestamp", "direction",
         "entry_price", "exit_price", "pnl_usd", "r_multiple",
         "trade_high", "trade_low", "bars_held", 
@@ -362,6 +362,7 @@ def emit_stage1(
         writer.writeheader()
         for t in trades:
             writer.writerow({
+                "run_id": metadata.run_id,
                 "strategy_name": t.strategy_name,
                 "parent_trade_id": t.parent_trade_id,
                 "sequence_index": t.sequence_index,

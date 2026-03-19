@@ -4,10 +4,10 @@ description: Execute all active directives through the governed pipeline with Ad
 
 ## Core Execution Workflow (The Golden Path)
 
-This workflow executes directives in `backtest_directives/active/` to produce authoritative **Candidates**.
+This workflow executes directives in `backtest_directives/INBOX/` to produce authoritative **Candidates**.
 
 ### Prerequisites
-- Directive YAML file(s) in `backtest_directives/active/`
+- Directive YAML file(s) in `backtest_directives/INBOX/`
 - AGENT.md (Failure Playbook) exists at project root
 
 ---
@@ -19,9 +19,9 @@ Before provisioning, you MUST verify data coverage and administrative alignment.
 1.  **Temporal Coverage**: Verify `MASTER_DATA` timestamps cover the directive range (`avail_start <= req_start` AND `avail_end >= req_end`).
 2.  **Optional Admission Pre-checks**: The following tools run automatically inside `run_pipeline.py`, but can be used for manual pre-validation:
     ```bash
-    python tools/canonicalizer.py backtest_directives/active/<DIRECTIVE_ID>.txt
-    python tools/namespace_gate.py backtest_directives/active/<DIRECTIVE_ID>.txt
-    python tools/sweep_registry_gate.py backtest_directives/active/<DIRECTIVE_ID>.txt
+    python tools/canonicalizer.py backtest_directives/INBOX/<DIRECTIVE_ID>.txt
+    python tools/namespace_gate.py backtest_directives/INBOX/<DIRECTIVE_ID>.txt
+    python tools/sweep_registry_gate.py backtest_directives/INBOX/<DIRECTIVE_ID>.txt
     ```
 
 3.  **Optional Maintenance Check**: If workspace drift is suspected, run the reconciler from the **System Maintenance Workflow** to ensure the `runs/` directory is aligned with `run_registry.json`.

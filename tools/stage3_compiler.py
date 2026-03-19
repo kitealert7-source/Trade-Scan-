@@ -24,7 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Governance Imports
 from tools.pipeline_utils import PipelineStateManager
-from config.state_paths import SANDBOX_DIR, BACKTESTS_DIR, RUNS_DIR
+from config.state_paths import POOL_DIR, BACKTESTS_DIR, RUNS_DIR
 
 BACKTESTS_ROOT = BACKTESTS_DIR
 
@@ -101,6 +101,43 @@ VOLATILITY_METRICS = {
     "net_profit_ny": "Net Profit - New York Session",
 }
 
+# Trend regime metric labels (EXACT) — optional; populated by Stage 2 for new runs only
+TREND_METRICS = {
+    "net_profit_strong_up":   "Net Profit - Strong Up",
+    "net_profit_weak_up":     "Net Profit - Weak Up",
+    "net_profit_neutral":     "Net Profit - Neutral",
+    "net_profit_weak_down":   "Net Profit - Weak Down",
+    "net_profit_strong_down": "Net Profit - Strong Down",
+    "trades_strong_up":       "Trades - Strong Up",
+    "trades_weak_up":         "Trades - Weak Up",
+    "trades_neutral":         "Trades - Neutral",
+    "trades_weak_down":       "Trades - Weak Down",
+    "trades_strong_down":     "Trades - Strong Down",
+}
+TRADE_DENSITY_LABEL = "Trade Density (Trades/Year)"
+
+# ── Report schema constants (single source of truth for Excel layout) ──────────
+_REPORT_SHEET       = "Performance Summary"
+_REPORT_METRIC_COL  = "Metric"
+_REPORT_VALUE_COL   = "All Trades"
+_DAILY_NAN_MARKER   = "Daily_Nan"
+_DAILY_SESSION_COLS = frozenset({"net_profit_asia", "net_profit_london", "net_profit_ny"})
+
+# Optional metrics: present in new runs, absent in old. Extraction never hard-fails.
+# TRADE_DENSITY_LABEL kept as standalone export for stage_schema_validation import compat.
+OPTIONAL_METRICS: dict = {
+    "trade_density": TRADE_DENSITY_LABEL,
+}
+
+# ── Reverse mapping: Excel label → canonical key (built once at load time) ──────
+# Used by extract_performance_metrics() to remap the label-keyed Excel dict to
+# canonical keys so all downstream extraction operates on col_name, not label string.
+_LABEL_TO_CANONICAL: dict = {
+    label: key
+    for d in (REQUIRED_METRICS, VOLATILITY_METRICS, TREND_METRICS, OPTIONAL_METRICS)
+    for key, label in d.items()
+}
+
 # Required metadata fields
 REQUIRED_METADATA_FIELDS = [
     "run_id",
@@ -136,113 +173,37 @@ def find_ak_trade_report(run_folder):
 def extract_performance_metrics(report_path):
     """Extract metrics from AK_Trade_Report using pandas."""
     try:
-        # Stage 2 generates "Performance Summary" sheet with columns: "Metric", "All Trades", ...
-        df = pd.read_excel(report_path, sheet_name="Performance Summary")
-        
-        # Convert to dict: Metric Name -> All Trades Value
-        metrics = {}
-        if "Metric" in df.columns and "All Trades" in df.columns:
-            for _, row in df.iterrows():
-                key = str(row["Metric"]).strip()
-                val = row["All Trades"]
-                metrics[key] = val
-        return metrics
+        # Stage 2 generates _REPORT_SHEET with columns: _REPORT_METRIC_COL, _REPORT_VALUE_COL, ...
+        df = pd.read_excel(report_path, sheet_name=_REPORT_SHEET)
+
+        # Load label-keyed dict, then remap to canonical keys immediately.
+        # Downstream code operates on canonical keys only — no label strings at runtime.
+        if _REPORT_METRIC_COL in df.columns and _REPORT_VALUE_COL in df.columns:
+            df[_REPORT_METRIC_COL] = df[_REPORT_METRIC_COL].astype(str).str.strip()
+            label_metrics = df.set_index(_REPORT_METRIC_COL)[_REPORT_VALUE_COL].to_dict()
+            return {_LABEL_TO_CANONICAL.get(lbl, lbl): val for lbl, val in label_metrics.items()}
+        return {}
     except Exception as e:
         print(f"[WARN] Failed to read metrics from {report_path.name}: {e}")
         return {}
 
 def validate_required_metrics(metrics, run_id):
-    missing = []
-    for label in REQUIRED_METRICS.values():
-        if label not in metrics: missing.append(label)
-    for label in VOLATILITY_METRICS.values():
-        if label not in metrics: missing.append(label)
+    # All three groups are REQUIRED. No optional metrics in the aggregation layer.
+    # Old runs missing trend metrics must be regenerated via: python -m tools.rebuild_all_reports
+    # metrics is canonical-keyed; check by canonical col_name, not label string.
+    missing = [col for col in REQUIRED_METRICS if col not in metrics]
+    missing += [col for col in VOLATILITY_METRICS if col not in metrics]
+    missing += [col for col in TREND_METRICS if col not in metrics]
     return (False, missing) if missing else (True, [])
 
-def compute_trend_metrics(run_folder):
-    """
-    SOP v4.2 Strictly computes Trend Regime metrics from results_tradelevel.csv.
-    Raises ValueError if trend_label is missing.
-    """
-    csv_path = run_folder / "raw" / "results_tradelevel.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(f"results_tradelevel.csv missing in {run_folder}")
-        
-    df = pd.read_csv(csv_path)
-    
-    # Strict Schema Check
-    if "trend_label" not in df.columns:
-        raise ValueError("CRITICAL: 'trend_label' column missing in results_tradelevel.csv")
-    if "pnl_usd" not in df.columns:
-        raise ValueError("CRITICAL: 'pnl_usd' column missing in results_tradelevel.csv")
-        
-    # Initialize Aggregates
-    aggs = {
-        "net_profit_strong_up": 0.0,
-        "net_profit_weak_up": 0.0,
-        "net_profit_neutral": 0.0,
-        "net_profit_weak_down": 0.0,
-        "net_profit_strong_down": 0.0,
-        "trades_strong_up": 0,
-        "trades_weak_up": 0,
-        "trades_neutral": 0,
-        "trades_weak_down": 0,
-        "trades_strong_down": 0,
-    }
-    
-    valid_labels = {
-        "strong_up", "weak_up", "neutral", "weak_down", "strong_down"
-    }
-    
-    # Iterate and Aggregate
-    for _, row in df.iterrows():
-        label = str(row["trend_label"]).strip() # Ensure string
-        # We explicitly rely on the CSV containing the correct string labels.
-        # If null/nan, it becomes "nan" or "None".
-        
-        if label not in valid_labels:
-             # Strict Validation: If we encounter an invalid label, we should probably fail 
-             # OR if the row is empty/malformed.
-             # SOP says "Missing trend_label -> raise ValueError".
-             if pd.isna(row["trend_label"]) or label in ["nan", "None", ""]:
-                 raise ValueError(f"Missing trend_label for trade {row.get('parent_trade_id', '?')}")
-             # We ignore unknown labels? No, strict compliance usually implies only knowns.
-             # But let's assume valid labels filter.
-             pass
-        
-        pnl = float(row["pnl_usd"]) if pd.notnull(row["pnl_usd"]) else 0.0
-        
-        if label == "strong_up":
-            aggs["net_profit_strong_up"] += pnl
-            aggs["trades_strong_up"] += 1
-        elif label == "weak_up":
-            aggs["net_profit_weak_up"] += pnl
-            aggs["trades_weak_up"] += 1
-        elif label == "neutral":
-            aggs["net_profit_neutral"] += pnl
-            aggs["trades_neutral"] += 1
-        elif label == "weak_down":
-            aggs["net_profit_weak_down"] += pnl
-            aggs["trades_weak_down"] += 1
-        elif label == "strong_down":
-            aggs["net_profit_strong_down"] += pnl
-            aggs["trades_strong_down"] += 1
-            
-    return aggs
-
-def extract_from_report(report_path, metadata, run_folder):
+def extract_from_report(report_path, metadata):
     metrics = extract_performance_metrics(report_path)
     run_id = metadata.get("run_id", "UNKNOWN")
-    
+
     is_valid, missing = validate_required_metrics(metrics, run_id)
     if not is_valid:
         return None, f"Missing required metrics: {', '.join(missing)}"
-        
-    try:
-        trend_aggs = compute_trend_metrics(run_folder)
-    except Exception as e:
-        return None, f"Trend Metric Computation Failed: {e}"
-    
+
     row_data = {
         "run_id": metadata.get("run_id"),
         "strategy": metadata.get("strategy_name"),
@@ -252,33 +213,39 @@ def extract_from_report(report_path, metadata, run_folder):
         "test_end": metadata.get("date_range", {}).get("end"),
         "IN_PORTFOLIO": False,
     }
-    
-    for col_name, label in REQUIRED_METRICS.items():
-        row_data[col_name] = metrics.get(label)
-        
-    try:
-        tt = float(row_data.get("total_trades") or 0)
-        tp = float(row_data.get("trading_period") or 365.25)
-        if tp > 0:
-            row_data["trade_density"] = int(round(tt / (tp / 365.25)))
-        else:
-            row_data["trade_density"] = 0
-    except (ValueError, TypeError):
-        row_data["trade_density"] = 0
-    
-    for col_name, label in VOLATILITY_METRICS.items():
-        row_data[col_name] = metrics.get(label)
+
+    # All lookups use canonical col_name — no label strings at runtime.
+    for col_name in REQUIRED_METRICS:
+        row_data[col_name] = metrics.get(col_name)
+
+    for col_name in OPTIONAL_METRICS:
+        if col_name in metrics:
+            val = metrics[col_name]
+            row_data[col_name] = int(val) if pd.notnull(val) else 0
+        elif col_name == "trade_density":
+            # BACKWARD COMPAT ONLY — DO NOT USE FOR NEW RUNS
+            # Old AK_Trade_Reports (pre-schema-update) do not carry Trade Density.
+            # Derive from total_trades and trading_period already extracted above.
+            try:
+                tt = float(row_data.get("total_trades") or 0)
+                tp = float(row_data.get("trading_period") or 365.25)
+                row_data[col_name] = int(round(tt / (tp / 365.25))) if tp > 0 else 0
+            except (ValueError, TypeError):
+                row_data[col_name] = 0
+
+    for col_name in VOLATILITY_METRICS:
+        row_data[col_name] = metrics.get(col_name)
 
     # Daily bars do not have meaningful session attribution.
     timeframe = str(metadata.get("timeframe", "")).strip().lower()
     if timeframe in {"1d", "d", "daily"}:
-        row_data["net_profit_asia"] = "Daily_Nan"
-        row_data["net_profit_london"] = "Daily_Nan"
-        row_data["net_profit_ny"] = "Daily_Nan"
-        
-    # Merge Trend Aggs
-    row_data.update(trend_aggs)
-    
+        for col in _DAILY_SESSION_COLS:
+            row_data[col] = _DAILY_NAN_MARKER
+
+    # Trend metrics: REQUIRED. validate_required_metrics() guarantees all keys present above.
+    for col_name in TREND_METRICS:
+        row_data[col_name] = metrics[col_name]
+
     return row_data, None
 
 def get_existing_master_df(master_filter_path):
@@ -335,7 +302,7 @@ def compile_stage3(strategy_filter=None):
     if discovery_rejected:
         print(f"Rejected at discovery: {len(discovery_rejected)}")
     
-    master_filter_path = SANDBOX_DIR / "Strategy_Master_Filter.xlsx"
+    master_filter_path = POOL_DIR / "Strategy_Master_Filter.xlsx"
     df_master = get_existing_master_df(master_filter_path)
     
     # Ensure IN_PORTFOLIO exists
@@ -369,7 +336,7 @@ def compile_stage3(strategy_filter=None):
             skipped.append({"strategy": strategy, "run_id": run_id, "reason": "Already exists"})
             continue
         
-        row_data, error = extract_from_report(run["report_path"], run["metadata"], run["folder"])
+        row_data, error = extract_from_report(run["report_path"], run["metadata"])
         if error:
             skipped.append({"strategy": strategy, "run_id": run_id, "reason": error})
             print(f"  REJECTED: {strategy} [{run_id[:8]}] - {error}")

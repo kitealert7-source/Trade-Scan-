@@ -94,7 +94,7 @@ def get_conversion_price_at_time(target_pair: str, timestamp: pd.Timestamp) -> f
             
             # Optimization: Keep only timestamp and close
             df = df[['timestamp', 'close']].copy()
-            df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, format='mixed')
+            df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, format='mixed', utc=True)
             df.set_index('timestamp', inplace=True)
             df.sort_index(inplace=True)
             
@@ -201,7 +201,7 @@ def load_market_data(symbol: str, tf_override: str = None) -> pd.DataFrame:
         df['timestamp'] = df['time']
     
     df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, format='mixed')
+    df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=True, format='mixed', utc=True)
     
     # --- WARM-UP EXTENSION PROVISION ---
     # Extends the data window backward from START_DATE by the per-strategy

@@ -15,7 +15,7 @@ Usage:
 import argparse
 import json
 import sys
-from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, CANDIDATES_DIR
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, SELECTED_DIR
 from pathlib import Path
 from datetime import datetime
 
@@ -32,10 +32,29 @@ from tools.robustness.loader import load_canonical_artifacts
 def main():
     parser = argparse.ArgumentParser(description="Unified Robustness Evaluation (v2.2.0)")
     parser.add_argument("prefix", help="Strategy prefix, e.g. AK35_FX_PORTABILITY_4H")
-    parser.add_argument("--profile", default="CONSERVATIVE_V1", help="Profile name")
+    parser.add_argument("--profile", default="auto", help="Profile name or 'auto' to read from best origin profile")
     parser.add_argument("--suite", default="full", choices=["full", "quick"],
                         help="Test suite: full or quick (skips bootstrap)")
     args = parser.parse_args()
+
+    if args.profile == "auto":
+        try:
+            from tools.profile_selector import load_profile_comparison, select_deployed_profile
+            profiles, path = load_profile_comparison(args.prefix)
+            if profiles:
+                best_name, _, source = select_deployed_profile(profiles)
+                if best_name:
+                    print(f"[ROBUSTNESS] Auto-selected profile: {best_name} (Origin: {source})")
+                    args.profile = best_name
+                else:
+                    print("[ROBUSTNESS] Failed to resolve auto profile. Falling back to CONSERVATIVE_V1")
+                    args.profile = "CONSERVATIVE_V1"
+            else:
+                print(f"[ROBUSTNESS] No profile_comparison.json found for {args.prefix}. Falling back to CONSERVATIVE_V1")
+                args.profile = "CONSERVATIVE_V1"
+        except ImportError as e:
+            print(f"[ROBUSTNESS] Failed to load auto profile dependencies ({e}). Falling back to CONSERVATIVE_V1")
+            args.profile = "CONSERVATIVE_V1"
 
     print(f"[ROBUSTNESS] Loading artifacts: {args.prefix} / {args.profile}")
     tr_df, eq_df, metrics = load_canonical_artifacts(args.prefix, args.profile, PROJECT_ROOT)
@@ -74,21 +93,12 @@ def main():
         primary_path.write_text(report_content, encoding="utf-8")
         print(f"[ROBUSTNESS] Single-asset report: {primary_path}")
     else:
-        # Multi-asset (portfolio): save to strategies/<prefix>/
+        # Multi-asset (portfolio): save exclusively to strategies/<prefix>/
         strategy_dir = STRATEGIES_DIR / args.prefix
-        if strategy_dir.exists():
-            primary_path = strategy_dir / report_filename
-            primary_path.write_text(report_content, encoding="utf-8")
-            print(f"[ROBUSTNESS] Portfolio report: {primary_path}")
-        else:
-            print(f"[ROBUSTNESS] WARNING: strategies/{args.prefix}/ not found, skipping primary copy")
-
-    # ── Archive copy (always) ──
-    reports_dir = PROJECT_ROOT / "outputs" / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = reports_dir / report_filename
-    archive_path.write_text(report_content, encoding="utf-8")
-    print(f"[ROBUSTNESS] Archive copy: {archive_path}")
+        strategy_dir.mkdir(parents=True, exist_ok=True)
+        primary_path = strategy_dir / report_filename
+        primary_path.write_text(report_content, encoding="utf-8")
+        print(f"[ROBUSTNESS] Portfolio report: {primary_path}")
 
 
 if __name__ == "__main__":

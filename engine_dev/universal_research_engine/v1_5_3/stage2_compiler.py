@@ -419,7 +419,31 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
     avg_trade_asia = (net_profit_asia / trades_asia) if trades_asia > 0 else 0.0
     avg_trade_london = (net_profit_london / trades_london) if trades_london > 0 else 0.0
     avg_trade_ny = (net_profit_ny / trades_ny) if trades_ny > 0 else 0.0
-    
+
+    # Trend regime breakdown (SOP v4.2)
+    _trend_buckets = {
+        "strong_up": [], "weak_up": [], "neutral": [], "weak_down": [], "strong_down": []
+    }
+    _valid_trend_labels = set(_trend_buckets.keys())
+    for t in filtered:
+        _label = str(t.get("trend_label", "")).strip()
+        if _label in _valid_trend_labels:
+            _trend_buckets[_label].append(_safe_float(t.get("pnl_usd", 0)))
+
+    net_profit_strong_up   = sum(_trend_buckets["strong_up"])
+    net_profit_weak_up     = sum(_trend_buckets["weak_up"])
+    net_profit_neutral     = sum(_trend_buckets["neutral"])
+    net_profit_weak_down   = sum(_trend_buckets["weak_down"])
+    net_profit_strong_down = sum(_trend_buckets["strong_down"])
+    trades_strong_up   = len(_trend_buckets["strong_up"])
+    trades_weak_up     = len(_trend_buckets["weak_up"])
+    trades_neutral     = len(_trend_buckets["neutral"])
+    trades_weak_down   = len(_trend_buckets["weak_down"])
+    trades_strong_down = len(_trend_buckets["strong_down"])
+
+    # Trade density (trades per year) — computed once here so Stage 3 can extract it
+    trade_density = int(round(trade_count / (trading_period_days / 365.25))) if trading_period_days > 0 else 0
+
     return {
         "starting_capital": starting_capital,
         "net_profit": net_profit,
@@ -478,6 +502,17 @@ def _compute_metrics_from_trades(trades, starting_capital, direction_filter=None
         "avg_trade_asia": avg_trade_asia,
         "avg_trade_london": avg_trade_london,
         "avg_trade_ny": avg_trade_ny,
+        "trade_density": trade_density,
+        "net_profit_strong_up": net_profit_strong_up,
+        "net_profit_weak_up": net_profit_weak_up,
+        "net_profit_neutral": net_profit_neutral,
+        "net_profit_weak_down": net_profit_weak_down,
+        "net_profit_strong_down": net_profit_strong_down,
+        "trades_strong_up": trades_strong_up,
+        "trades_weak_up": trades_weak_up,
+        "trades_neutral": trades_neutral,
+        "trades_weak_down": trades_weak_down,
+        "trades_strong_down": trades_strong_down,
     }
 
 
@@ -505,6 +540,11 @@ def _empty_metrics(starting_capital=0.0):
         "net_profit_asia": 0.0, "net_profit_london": 0.0, "net_profit_ny": 0.0,
         "trades_asia": 0, "trades_london": 0, "trades_ny": 0,
         "avg_trade_asia": 0.0, "avg_trade_london": 0.0, "avg_trade_ny": 0.0,
+        "trade_density": 0,
+        "net_profit_strong_up": 0.0, "net_profit_weak_up": 0.0, "net_profit_neutral": 0.0,
+        "net_profit_weak_down": 0.0, "net_profit_strong_down": 0.0,
+        "trades_strong_up": 0, "trades_weak_up": 0, "trades_neutral": 0,
+        "trades_weak_down": 0, "trades_strong_down": 0,
     }
 
 def _compute_yearwise_metrics(trades, year, starting_capital, authoritative_data=None):
@@ -734,6 +774,17 @@ def get_performance_summary_df(trades, starting_capital, standard_metrics, risk_
     add_row("Avg Trade - Asia Session", "avg_trade_asia")
     add_row("Avg Trade - London Session", "avg_trade_london")
     add_row("Avg Trade - New York Session", "avg_trade_ny")
+    add_row("Trade Density (Trades/Year)", "trade_density")
+    add_row("Net Profit - Strong Up", "net_profit_strong_up")
+    add_row("Net Profit - Weak Up", "net_profit_weak_up")
+    add_row("Net Profit - Neutral", "net_profit_neutral")
+    add_row("Net Profit - Weak Down", "net_profit_weak_down")
+    add_row("Net Profit - Strong Down", "net_profit_strong_down")
+    add_row("Trades - Strong Up", "trades_strong_up")
+    add_row("Trades - Weak Up", "trades_weak_up")
+    add_row("Trades - Neutral", "trades_neutral")
+    add_row("Trades - Weak Down", "trades_weak_down")
+    add_row("Trades - Strong Down", "trades_strong_down")
 
     return pd.DataFrame(rows)
 

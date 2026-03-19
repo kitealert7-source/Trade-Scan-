@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
 
-from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, CANDIDATES_DIR
+from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR
 
 PROJECT_ROOT = Path(__file__).parent.parent
 REGISTRY_PATH = REGISTRY_DIR / "run_registry.json"
@@ -124,7 +124,7 @@ def reconcile_registry() -> dict:
     
     # 1. Physical vs Registry (Across both Sandbox and Candidate boundaries)
     physical_runs = set()
-    for directory in [RUNS_DIR, CANDIDATES_DIR]: # Explicitly check candidates
+    for directory in [RUNS_DIR, SELECTED_DIR]: # Explicitly check selected (candidates)
         if directory.exists():
             for item in directory.iterdir():
                 if item.is_dir() and (item / "data").exists():
@@ -167,11 +167,11 @@ def reconcile_registry() -> dict:
     for run_id, data in reg.items():
         if data.get("tier") == "candidate" and data.get("status") == "complete":
             src = RUNS_DIR / run_id
-            dst = CANDIDATES_DIR / run_id
+            dst = SELECTED_DIR / run_id
             if src.exists() and not dst.exists():
                 print(f"[RECONCILE] Detected candidate {run_id} in sandbox. Auto-repairing physical location...")
                 try:
-                    CANDIDATES_DIR.mkdir(parents=True, exist_ok=True)
+                    SELECTED_DIR.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(src), str(dst))
                     # We don't need to set dirty here as registry data itself hasn't changed, 
                     # but reconciliation is about filesystem alignment.
@@ -180,7 +180,25 @@ def reconcile_registry() -> dict:
                 
     if dirty:
         _save_registry_atomic(reg)
-        
+
+    # AUTO-CLEAN: remove newly-invalid run_ids from portfolio_metadata.json files
+    newly_invalid = set(results["missing_from_disk"])
+    if newly_invalid:
+        for meta_file in STRATEGIES_DIR.rglob("portfolio_metadata.json"):
+            try:
+                with open(meta_file, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                original = meta.get("constituent_run_ids", [])
+                cleaned = [r for r in original if r not in newly_invalid]
+                if len(cleaned) != len(original):
+                    meta["constituent_run_ids"] = cleaned
+                    with open(meta_file, "w", encoding="utf-8") as f:
+                        json.dump(meta, f, indent=4)
+                    removed = set(original) - set(cleaned)
+                    print(f"[RECONCILE] Auto-cleaned stale run_ids {removed} from {meta_file}")
+            except Exception as e:
+                print(f"[RECONCILE] Warning: could not clean {meta_file}: {e}")
+
     # 2. Portfolio Dependency Check
     active_portfolio_runs = get_active_portfolio_runs()
     for dep_id in active_portfolio_runs:

@@ -32,6 +32,12 @@ def format_report(
     # Engine signature added per Phase 5 Governance
     out.append(f"Engine: Robustness v{__version__} | Generated: {timestamp}\n")
 
+    out.append("---\n")
+    out.append("## Execution Profile & Assumptions\n")
+    out.append(f"> **Note:** The metrics calculated in this robustness report are based on the **{profile}** capital allocation profile. ")
+    out.append("> They reflect the combined trades **AFTER dynamic position sizing has been applied** by the capital wrapper.\n")
+    out.append("---\n")
+
     out.append("## Section 1 — Edge Metrics Summary\n")
     em = results.get("edge_metrics", {})
     

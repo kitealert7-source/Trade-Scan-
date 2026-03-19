@@ -1,0 +1,54 @@
+execution_rules:
+  stop_loss:
+    type: price_target
+    target: bb_midline
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: bb_squeeze_breakout
+    squeeze_atr_percentile_threshold: 20
+    squeeze_min_bars: 5
+    breakout_band: outer
+    band_std_dev: 2.0
+    confirmation: close
+  exit_logic:
+    type: tp_or_bb_contract
+    time_exit_bars: 20
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.volatility.atr
+- indicators.volatility.atr_percentile
+- indicators.volatility.bb_squeeze
+- indicators.volatility.bollinger_bands
+- indicators.volatility.volatility_regime
+volatility_filter:
+  atr_length: 14
+  atr_percentile_lookback: 100
+  condition: atr_percentile_below_threshold
+  threshold: 20
+  min_bars_compressed: 5
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+symbols:
+- EURUSD
+- GBPUSD
+- AUDUSD
+- USDJPY
+test:
+  name: 14_BRK_FX_4H_BBSQZ_VOLFILT_S01_V1_P00
+  strategy: 14_BRK_FX_4H_BBSQZ_VOLFILT_S01_V1_P00
+  broker: OctaFX
+  timeframe: 4h
+  start_date: '2024-01-02'
+  end_date: '2026-02-28'

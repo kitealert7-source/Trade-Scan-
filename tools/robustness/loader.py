@@ -4,7 +4,7 @@ Reads CSVs once, parses timestamps once, validates schemas.
 """
 import json
 from pathlib import Path
-from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, CANDIDATES_DIR
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, SELECTED_DIR
 import pandas as pd
 
 from tools.robustness.schema import validate_trade_df, validate_equity_df

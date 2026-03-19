@@ -173,16 +173,17 @@ def generate_strategy_portfolio_report(strategy_name: str, root_dir: Path):
     Generates a deterministic markdown report at the strategy level (Stage-5B).
     Reads ONLY from portfolio evaluation json artifacts.
     """
-    # Output goes to centralized reports_summary/ folder
-    report_summary_dir = root_dir / "reports_summary"
-    report_summary_dir.mkdir(parents=True, exist_ok=True)
-    report_path = report_summary_dir / f"PORTFOLIO_{strategy_name}.md"
-    
     # Source data stays in the strategy's portfolio_evaluation directory (read-only)
     source_dir = root_dir / "strategies" / strategy_name / "portfolio_evaluation"
     if not source_dir.exists():
         print(f"[REPORT-WARN] Portfolio evaluation directory missing for {strategy_name}.")
         return
+
+    # Output goes directly to the strategy's root folder
+    report_summary_dir = root_dir / "strategies" / strategy_name
+    report_summary_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_summary_dir / f"PORTFOLIO_{strategy_name}.md"
+
     summary_json = source_dir / "portfolio_summary.json"
     metadata_json = source_dir / "portfolio_metadata.json"
     
@@ -203,11 +204,19 @@ def generate_strategy_portfolio_report(strategy_name: str, root_dir: Path):
         end_date = parts[1].strip()
     
     # Fallback: read metadata if dates are still unresolved
-    if start_date == "YYYY-MM-DD" and metadata_json.exists():
+    constituent_runs = []
+    evaluated_assets = []
+    evaluation_timeframe = summary.get("evaluation_timeframe", "UNKNOWN")
+    if metadata_json.exists():
         with open(metadata_json, "r") as f:
             meta = json.load(f)
-            start_date = meta.get("start_date", start_date)
-            end_date = meta.get("end_date", end_date)
+            if start_date == "YYYY-MM-DD":
+                start_date = meta.get("start_date", start_date)
+                end_date = meta.get("end_date", end_date)
+            constituent_runs = meta.get("constituent_run_ids", [])
+            evaluated_assets = meta.get("evaluated_assets", [])
+            if "evaluation_timeframe" in meta:
+                evaluation_timeframe = meta.get("evaluation_timeframe", evaluation_timeframe)
             
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     
@@ -227,8 +236,32 @@ def generate_strategy_portfolio_report(strategy_name: str, root_dir: Path):
     md = [
         f"# Strategy Portfolio Report — {strategy_name}\n",
         f"Date Range: {start_date} → {end_date}",
+        f"Execution Timeframe: {evaluation_timeframe}",
         f"Generated: {now_utc}\n",
         "---\n",
+        "## Base Model & Assumptions\n",
+        "> **Note:** The metrics calculated in this report are based on the **raw (unscaled) runs prior to the application of the capital wrapper**. ",
+        "> They represent the pure structural edge of the combined trades without dynamic position sizing applied.\n",
+        "---\n",
+        "## Portfolio Composition\n",
+        "**Constituent Runs:**"
+    ]
+    
+    if constituent_runs:
+        for run_id in constituent_runs:
+            md.append(f"- `{run_id}`")
+    else:
+        md.append("- No constituent runs recorded.")
+        
+    md.append("\n**Evaluated Assets:**")
+    if evaluated_assets:
+        for asset in evaluated_assets:
+            md.append(f"- `{asset}`")
+    else:
+        md.append("- No assets recorded.")
+        
+    md.extend([
+        "\n---\n",
         "## Portfolio Metrics\n",
         "| Metric | Value |",
         "|--------|-------|",
@@ -243,7 +276,7 @@ def generate_strategy_portfolio_report(strategy_name: str, root_dir: Path):
         f"| Sharpe Ratio | {sharpe:.2f} |",
         f"| Sortino Ratio | {sortino:.2f} |",
         f"| Avg Correlation | {avg_corr:.4f} |"
-    ]
+    ])
     
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(md))

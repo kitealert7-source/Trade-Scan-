@@ -473,8 +473,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--source-dir",
-        default=str(DEFAULT_SOURCE_DIR),
-        help="Directive folder to migrate (default: backtest_directives/active).",
+        type=str,
+        default="backtest_directives/INBOX",
+        help="Directive folder to migrate (default: backtest_directives/INBOX).",
     )
     parser.add_argument(
         "--backup-dir",

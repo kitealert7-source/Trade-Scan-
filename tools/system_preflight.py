@@ -7,7 +7,7 @@ from pathlib import Path
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, ARCHIVE_DIR, QUARANTINE_DIR, BACKTESTS_DIR, CANDIDATES_DIR
+from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, ARCHIVE_DIR, QUARANTINE_DIR, BACKTESTS_DIR, SELECTED_DIR
 STRICT_MODE = True # Any error makes overall status RED
 
 def get_hash(p: Path):
@@ -103,7 +103,7 @@ class PreflightCheck:
             
             # Disk scan (Combined Sandbox and Candidates)
             sandbox_disk = set(p.name for p in RUNS_DIR.iterdir() if p.is_dir())
-            candidate_disk = set(p.name for p in CANDIDATES_DIR.iterdir() if p.is_dir())
+            candidate_disk = set(p.name for p in SELECTED_DIR.iterdir() if p.is_dir())
             all_disk = sandbox_disk | candidate_disk
             
             reg_ids = set(reg.keys())
@@ -120,7 +120,7 @@ class PreflightCheck:
             for rid, entry in reg.items():
                 if entry.get("status") == "invalid": continue
                 
-                target_dir = RUNS_DIR if entry.get("tier") == "sandbox" else CANDIDATES_DIR
+                target_dir = RUNS_DIR if entry.get("tier") == "sandbox" else SELECTED_DIR
                 if not (target_dir / rid).exists():
                     missing.append(rid)
             

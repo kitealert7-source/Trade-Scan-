@@ -46,7 +46,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 PYTHON_EXE = sys.executable
 DIRECTIVES_DIR = PROJECT_ROOT / "backtest_directives"
-ACTIVE_DIR = DIRECTIVES_DIR / "active"
+ACTIVE_DIR = DIRECTIVES_DIR / "INBOX"
 ACTIVE_BACKUP_DIR = DIRECTIVES_DIR / "active_backup"
 COMPLETED_DIR = DIRECTIVES_DIR / "completed"
 
@@ -467,7 +467,7 @@ def run_single_directive(directive_id, provision_only=False):
 
 def run_batch_mode(provision_only=False):
     """Sequential Batch Execution."""
-    active_dir = PROJECT_ROOT / "backtest_directives" / "active"
+    active_dir = PROJECT_ROOT / "backtest_directives" / "INBOX"
     completed_dir = PROJECT_ROOT / "backtest_directives" / "completed"
     
     if not active_dir.exists():
@@ -532,7 +532,7 @@ def run_batch_mode(provision_only=False):
                 # Phase 2: Archive (Move from active_backup/ -> completed/ + move marker)
                 archive_completed_directive(d_id)
             else:
-                print(f"[BATCH] Provision-only: {d_name} remains in active/")
+                print(f"[BATCH] Provision-only: {d_name} remains in INBOX/")
         except PipelineError:
             print(f"[FAIL-FAST] Stopping batch execution at directive: {d_name}")
             raise

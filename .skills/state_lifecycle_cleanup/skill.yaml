@@ -1,0 +1,13 @@
+name: state_lifecycle_cleanup
+version: "1.0"
+
+description: |
+  Perform State Lifecycle Lineage-Aware Cleanup.
+  Structured 5-phase sequence: hydrate pre-flight state, diagnose/repair structural decay, dry-run quarantine validation, execute formal lineage cleanup, aesthetic formatting.
+
+entrypoint:
+  type: workflow
+  file: prompt.md
+
+properties:
+  side_effects: filesystem_delete

@@ -30,16 +30,19 @@ def resolve_directive(directive_id: str | None) -> Path:
         if directive_id.endswith(".txt"):
             directive_id = directive_id[:-4]
 
+        active_dir = PROJECT_ROOT / "backtest_directives" / "INBOX"
         candidates = [
             DIRECTIVES_DIR / directive_id,
             DIRECTIVES_DIR / f"{directive_id}.txt",
+            active_dir / directive_id,
+            active_dir / f"{directive_id}.txt",
         ]
 
         for path in candidates:
             if path.exists():
                 return path
 
-        print(f"[FATAL] Directive '{directive_id}' not found in active folder.")
+        print(f"[FATAL] Directive '{directive_id}' not found in INBOX folder.")
         sys.exit(1)
 
     # Legacy single-directive mode

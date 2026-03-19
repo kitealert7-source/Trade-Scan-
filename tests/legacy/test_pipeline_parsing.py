@@ -16,7 +16,7 @@ if __name__ == "__main__":
     import run_pipeline
 
     # Create a dummy directive
-    DIRECTIVE_PATH = Path("backtest_directives/active/TEST_PIPELINE.txt")
+    DIRECTIVE_PATH = Path("backtest_directives/INBOX/TEST_PIPELINE.txt")
     with open(DIRECTIVE_PATH, "w") as f:
         f.write("Strategy: TEST\n")
         f.write("Symbols:\n")

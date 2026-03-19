@@ -12,6 +12,7 @@ The execution engine is bound by strict deterministic rules. Given identical inp
 * **Code Immutability**: All executions are driven by a frozen snapshot copy of the strategy class. Future updates to the strategy source *cannot* retroactively change historical state.
 * **Manifest Binding**: Execution footprints are cryptographically locked against unintentional mutations. The pipeline orchestrator forces a SHA-256 hash snapshot of the executed code and parameters.
 * **Stable Event Ordering**: The portfolio capital simulation explicitly resolves asynchronous tick races via a composite sort key `(timestamp, type_priority, trade_id)`. Time-concurrent entries and exits resolve equivalently across all parallel systems.
+* **Registry-First Authority Model**: `run_registry.json` serves as the singular, central source of truth for all run lifecycle tiers. Run execution states and their physical subdirectory locations merely project from this authoritative registry state.
 
 ---
 
@@ -37,6 +38,12 @@ Despite governance coverage, certain edge-cases should be operationally acknowle
 1. **Directive Grammar Whitelist**: Extraneous inputs produce unique lineages, but pass YAML parsing cleanly. The system currently tolerates semantic clutter.
 2. **Family Validation**: `family` metadata is processed structurally, but not functionally validated against physical source code directory scopes.
 3. **Floating Point Accumulation**: Operational logic manages presentation rounding locally, but multi-year compounding tests (>10,000 deep) accumulate minute simulated drag within the portfolio execution wrappers prior to terminal rounding events.
+
+### Resolved Soft Spots (2026-03-19)
+
+4. **~~Stale `run_registry.json` on partial reset~~** *(FIXED)*: Previously, `reset_directive.py` only deleted individual run sub-folders and `run_state.json`, leaving the directive-level `TradeScan_State/runs/<DIRECTIVE_ID>/run_registry.json` intact. On re-run, `claim_next_planned_run` found no `PLANNED` entries and returned `None` silently — Stage 1 exited with no work done. Manifested as phantom completion states and blocked pipelines with no error output. **Fix**: `reset_directive.py` now calls `shutil.rmtree` on the entire directive-level run folder, making reset atomic and deterministic.
+
+5. **~~Stale `constituent_run_ids` in `portfolio_metadata.json`~~** *(FIXED)*: When runs were marked invalid by the reconciler, their run IDs remained in `portfolio_metadata.json` files. On the next pipeline pass, the Portfolio Dependency Check fired a `[FATAL] Consistency Violation` that blocked execution. Required manual cleanup. **Fix**: `reconcile_registry()` in `system_registry.py` now auto-cleans stale run IDs from all `portfolio_metadata.json` files immediately after marking runs invalid, before the Dependency Check fires.
 
 ---
 

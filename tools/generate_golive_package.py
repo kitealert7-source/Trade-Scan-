@@ -27,10 +27,9 @@ import yaml
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
-STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
+from config.state_paths import STRATEGIES_DIR as STRATEGIES_ROOT, BACKTESTS_DIR as BACKTESTS_ROOT
 DIRECTIVES_COMPLETED = PROJECT_ROOT / "backtest_directives" / "completed"
 DIRECTIVES_ACTIVE = PROJECT_ROOT / "backtest_directives" / "active"
-BACKTESTS_ROOT = PROJECT_ROOT / "backtests"
 BROKER_SPECS_ROOT = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
 MASTER_DATA_ROOT = PROJECT_ROOT / "data_root" / "MASTER_DATA"
 

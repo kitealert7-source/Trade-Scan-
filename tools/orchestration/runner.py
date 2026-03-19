@@ -127,6 +127,7 @@ class StageRunner:
 from tools.orchestration.symbol_execution_controller import SymbolExecutionStage  # noqa: E402
 from tools.orchestration.preflight_stage import PreflightStage  # noqa: E402
 from tools.orchestration.reporting_stage import ReportingStage  # noqa: E402
+from tools.orchestration.stage_schema_validation import SchemaValidationStage  # noqa: E402
 from tools.orchestration.aggregation_stage import AggregationStage  # noqa: E402
 from tools.orchestration.manifest_binding_stage import ManifestBindingStage  # noqa: E402
 from tools.orchestration.portfolio_stage import PortfolioStage  # noqa: E402
@@ -138,8 +139,9 @@ from tools.orchestration.portfolio_stage import PortfolioStage  # noqa: E402
 STAGE_REGISTRY: List[Type[PipelineStage]] = [
     PreflightStage,       # ACTIVE -- Phase 5: Semantic validation
     SymbolExecutionStage, # ACTIVE -- Phase 6: Stage-1 backtest execution
-    ReportingStage,       # ACTIVE -- Phase 6: Stage-2 compilation
-    AggregationStage,     # ACTIVE -- Phase 6: Stage-3 aggregation + cardinality gate
+    ReportingStage,         # ACTIVE -- Phase 6: Stage-2 compilation
+    SchemaValidationStage,  # ACTIVE -- Phase 6: Stage-2 schema gate (post-compile)
+    AggregationStage,       # ACTIVE -- Phase 6: Stage-3 aggregation + cardinality gate
     ManifestBindingStage, # ACTIVE -- Phase 6: Stage-3a manifest binding + run close
     PortfolioStage,       # ACTIVE -- Phase 7: Stage-4 portfolio evaluation + post steps
 ]

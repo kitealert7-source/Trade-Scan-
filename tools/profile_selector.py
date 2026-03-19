@@ -58,6 +58,13 @@ def load_profile_comparison(strategy_id):
     if not path.exists():
         return None, path
 
+    # Post-process to inject real capital metrics dynamically
+    try:
+        from tools.post_process_capital import process_profile_comparison
+        process_profile_comparison(strategy_id)
+    except Exception as e:
+        print(f"  [WARN] Failed to post-process real metrics for {strategy_id}: {e}")
+
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
@@ -75,12 +82,8 @@ def load_profile_comparison(strategy_id):
 def select_deployed_profile(profiles, preferred_name=None):
     """
     Resolve deployed profile:
-      1) Existing ledger deployed_profile if valid.
-      2) Best Return/DD from profile comparison.
+      1) Best Return/DD from profile comparison.
     """
-    if preferred_name and preferred_name in profiles:
-        return preferred_name, profiles[preferred_name], "ledger"
-
     best_name = None
     best_metrics = None
     best_key = (-float("inf"), -float("inf"), "")
@@ -88,6 +91,11 @@ def select_deployed_profile(profiles, preferred_name=None):
     for name, metrics in profiles.items():
         if not isinstance(metrics, dict):
             continue
+            
+        avg_risk = _safe_float(metrics.get("avg_risk_multiple"), 0.0)
+        if avg_risk > 1.5:
+            continue
+
         score = _profile_return_dd(metrics)
         realized = _safe_float(metrics.get("realized_pnl"), 0.0)
         key = (score, realized, name)
@@ -177,6 +185,7 @@ COLUMN_ORDER = [
 
     "reference_capital_usd",
     "trade_density",
+    "profile_trade_density",
     "theoretical_pnl",
     "realized_pnl",
     "sharpe",

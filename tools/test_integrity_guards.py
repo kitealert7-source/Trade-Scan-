@@ -13,7 +13,7 @@ from tools.orchestration.stage_symbol_execution import run_symbol_execution_stag
 
 def test_run_id_entropy():
     print("--- Test 1: Run ID Entropy (24-char) ---")
-    directive_path = PROJECT_ROOT / "backtest_directives/active/06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P00.txt"
+    directive_path = PROJECT_ROOT / "backtest_directives/INBOX/06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P00.txt"
     run_id, _ = generate_run_id(directive_path, "XAUUSD")
     print(f"Generated Run ID: {run_id} (Length: {len(run_id)})")
     if len(run_id) == 24:

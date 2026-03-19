@@ -77,9 +77,9 @@ ideas:
         signature_hash_full: 732e29503ebbf4a71ccdb401ed77b4fd92ac2294a053b9ca51107d0c32d3f2bc
       S07:
         directive_name: 01_MR_FX_1H_ULTC_REGFILT_S07_V1_P00
-        signature_hash: 4b20ff4e0b3a6a12
+        signature_hash: afde04f38e244fd4
         reserved_at_utc: '2026-03-15T03:55:17.951863+00:00'
-        signature_hash_full: 4b20ff4e0b3a6a12bc69ef499c32764e59f95493bf951ac62332de56a084f656
+        signature_hash_full: afde04f38e244fd42a997403620f3e53d07e5c5e4479599a4bd8f9b41bd2cdc3
         patches:
           P01:
             directive_name: 01_MR_FX_1H_ULTC_REGFILT_S07_V1_P01
@@ -96,6 +96,7 @@ ideas:
             signature_hash: addede29078d087c
             reserved_at_utc: '2026-03-15T03:57:56.931614+00:00'
             signature_hash_full: addede29078d087c5fc382400ba91669bb045fe45835ade3fcb29eb5ffaf5aa7
+        attempt: 2
       S13:
         directive_name: 01_MR_FX_1H_ULTC_REGFILT_S13_V1_P00
         signature_hash: cdc40a9c401a8100
@@ -127,7 +128,7 @@ ideas:
         reserved_at_utc: '2026-03-16T08:17:28.061657+00:00'
         signature_hash_full: 1ce5e824b8bb576a85d44781760096a2a069c21b22224bff51e9a8ae846abf5f
   '02':
-    next_sweep: 6
+    next_sweep: 7
     sweeps:
       S01:
         directive_name: 02_VOL_FX_1D_VOLEXP_ATRFILT_S01_V1_P00
@@ -154,6 +155,33 @@ ideas:
         signature_hash: d376793b66f52c8d
         reserved_at_utc: '2026-03-15T08:06:16.442604+00:00'
         signature_hash_full: d376793b66f52c8d7fb9f8c9308356cf5c8e53d6a323f76daab644e05f580b7c
+      S00:
+        directive_name: 02_VOL_IDX_1D_VOLEXP_ATRFILT_S00_V1_P00
+        signature_hash: 4bd9f5954a3fc986
+        reserved_at_utc: '2026-03-16T14:28:13.798081+00:00'
+        signature_hash_full: 4bd9f5954a3fc98657fc748e7e4aaf184de54820ae473baaae2c3a4c81a82074
+        patches:
+          P01:
+            directive_name: 02_VOL_IDX_1D_VOLEXP_ATRFILT_S00_V1_P01
+            signature_hash: bbfb2c318181d92c
+            reserved_at_utc: '2026-03-17T04:05:45.753477+00:00'
+            signature_hash_full: bbfb2c318181d92c405db13fe79af60cda5e80db89cb7f3c4f57a3d0299cb8d9
+          P02:
+            directive_name: 02_VOL_IDX_1D_VOLEXP_ATRFILT_S00_V1_P02
+            signature_hash: a33c7b6e92a4eaa3
+            reserved_at_utc: '2026-03-17T05:37:53.016549+00:00'
+            signature_hash_full: a33c7b6e92a4eaa371b6c991043c353aa72b06b57f409b212b9feab486a04e4e
+          P03:
+            directive_name: 02_VOL_IDX_1D_VOLEXP_ATRFILT_S00_V1_P03
+            signature_hash: 6cba5f84104d0e1b
+            reserved_at_utc: '2026-03-17T09:40:31.412480+00:00'
+            signature_hash_full: 6cba5f84104d0e1b81116ec7d4199c8e073101b107f8830cf98ba666c6c9a492
+      S06:
+        directive_name: 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S06_V1_P00
+        signature_hash: de7b7339dc59d62a
+        reserved_at_utc: '2026-03-17T10:11:39.543115+00:00'
+        signature_hash_full: de7b7339dc59d62a92762630c92b937c04396c91dd5b7b583b89de14f725ff90
+        attempt: 2
   '03':
     next_sweep: 1
     sweeps: {}
@@ -353,3 +381,88 @@ ideas:
             signature_hash: 24668331de27119c
             reserved_at_utc: '2026-03-10T05:41:04.642677+00:00'
         signature_hash_full: ddcc7b59848d5dfac3d71f162816087161316ac21fa938a9701e148b3714a273
+  09:
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 09_BRK_FX_1H_LORB_SESSFILT_S01_V1_P00
+        signature_hash: 1c8045b0e6f153cf
+        signature_hash_full: 1c8045b0e6f153cf5f9fe155e3168a6c0aee691fcf1cfe69c60590d2945f1c50
+        reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
+  '10':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 10_CONT_FX_4H_RSIPULL_TRENDFILT_S01_V1_P00
+        signature_hash: efd2a6f4b8fd09c9
+        signature_hash_full: efd2a6f4b8fd09c9c502e6f8dbbd067af51b86506bba8c7a619bde4a66da71de
+        reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
+  '11':
+    next_sweep: 3
+    sweeps:
+      S01:
+        directive_name: 11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S01_V1_P00
+        signature_hash: e9839b200e694211
+        signature_hash_full: e9839b200e694211e23859e84026e43a3b55b920493e830282c344bda175e686
+        reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
+      S02:
+        directive_name: 11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S02_V1_P00
+        signature_hash: b6fcffb756d0ff0f
+        reserved_at_utc: '2026-03-19T04:47:17.848587+00:00'
+        signature_hash_full: b6fcffb756d0ff0f4482adac386695280e5d018d82c7e6da80dfe80071517fcf
+  '12':
+    next_sweep: 4
+    sweeps:
+      S01:
+        directive_name: 12_STR_FX_1H_BOS_REGFILT_S01_V1_P00
+        signature_hash: e3f7c4091df470d3
+        signature_hash_full: e3f7c4091df470d3334109c700e6c33b427489580c0d22391394d5c03411c993
+        reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
+      S02:
+        directive_name: 12_STR_FX_1H_BOS_REGFILT_S02_V1_P00
+        signature_hash: e4c56df9c3b0efdd
+        signature_hash_full: e4c56df9c3b0efdd2575d594fb880da8a9c71dda075bb4095f2bc9a88d9cfe84
+        reserved_at_utc: '2026-03-19T05:35:00.000000+00:00'
+      S03:
+        directive_name: 12_STR_FX_1H_BOS_REGFILT_S03_V1_P00
+        signature_hash: b24dfc361f2f08c2
+        signature_hash_full: b24dfc361f2f08c2ec48827e870ae919a779828ffa9baee2d7227c02581bd39a
+        reserved_at_utc: '2026-03-19T05:40:00.000000+00:00'
+  '13':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 13_MR_IDX_1D_GAPFILL_REGFILT_S01_V1_P00
+        signature_hash: 43f810f82b5909a6
+        signature_hash_full: 43f810f82b5909a6c6411174da1e45e1e82895b7f73ea5cd5cb2c44479cb42f3
+        reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
+        attempt: 3
+  '14':
+    next_sweep: 3
+    sweeps:
+      S01:
+        directive_name: 14_BRK_FX_4H_BBSQZ_VOLFILT_S01_V1_P00
+        signature_hash: 0b77c7d50e32048b
+        signature_hash_full: 0b77c7d50e32048b766cd1ccf5703f31a7812438f751300aeb5ec27a0c960d80
+        reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
+      S02:
+        directive_name: 14_BRK_FX_4H_BBSQZ_VOLFILT_S02_V1_P00
+        signature_hash: 7f75ae3aee2ccc37
+        signature_hash_full: 7f75ae3aee2ccc3743732dcf0a852cc1a69b7704612a46e2769e62326d25be27
+        reserved_at_utc: '2026-03-19T02:55:00.000000+00:00'
+  '16':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 16_BRK_FX_4H_ATRSQZ_VOLFILT_S01_V1_P00
+        signature_hash: 9eed0664b19baa9a
+        signature_hash_full: 9eed0664b19baa9aa92c660cd8b2e4e21195a3e8a605045d018e61d8cd690053
+        reserved_at_utc: '2026-03-19T03:10:00.000000+00:00'
+  '15':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P00
+        signature_hash: bfb31e9c0579cb96
+        signature_hash_full: bfb31e9c0579cb962edebbf7c86319e37469c384227d7144f1f0f77fa3d2ea9e
+        reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'

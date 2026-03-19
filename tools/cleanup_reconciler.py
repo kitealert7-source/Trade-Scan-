@@ -9,12 +9,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, CANDIDATES_DIR
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, SELECTED_DIR
 
 RUNS_ROOT = RUNS_DIR
 BACKTESTS_ROOT = BACKTESTS_DIR
 STRATEGIES_ROOT = STRATEGIES_DIR
-CANDIDATES_ROOT = CANDIDATES_DIR
+CANDIDATES_ROOT = SELECTED_DIR
 
 from tools.system_registry import _load_registry, get_active_portfolio_runs, reconcile_registry
 

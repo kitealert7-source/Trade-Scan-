@@ -22,13 +22,14 @@
 
 | Pipeline Stage / Capability | Entry Script | Inputs | Primary Artifacts (Outputs) | Skill Candidate | Reason |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Stage 0** - Strategy Gen | `tools/strategy_provisioner.py` | Directive | `strategies/<strategy>/strategy.py` | Yes | Deterministic transform with clean I/O boundary. |
-| **Stage 0** - Preflight Gates | `tools/exec_preflight.py`, `tools/orchestration/stage_preflight.py` | Directive, strategy | Pass/Fail state, Canonical forms | Yes | Bounded validation surface and clear outcomes. |
-| **Stage 0** - Run Planning | `tools/orchestration/run_planner.py` | Directive, symbols | Planned run set | Yes | Pure planning logic, no heavy execution side effects. |
+| **Stage 0** - Strategy Gen | `tools/strategy_provisioner.py` | ACTIVE Directive | `strategies/<strategy>/strategy.py` | Yes | Deterministic transform with clean I/O boundary. |
+| **Stage 0** - Admission Gates | `tools/directive_linter.py`, `tools/sweep_registry_gate.py` | INBOX Directive | Canonical ACTIVE Directive, Registry Lock | Yes | Strict INBOX-to-ACTIVE canonical routing and locking. |
+| **Stage 0** - Preflight Gates | `tools/exec_preflight.py`, `tools/orchestration/stage_preflight.py` | ACTIVE Directive, strategy | Pass/Fail state | Yes | Bounded validation surface and clear outcomes. |
+| **Stage 0** - Run Planning | `tools/orchestration/run_planner.py` | ACTIVE Directive, symbols | Planned run set | Yes | Pure planning logic, no heavy execution side effects. |
 | **Stage 0** - Registry | `tools/orchestration/run_registry.py` | `run_registry.json` | Updated `run_registry.json` | No | Core orchestration infra, shared mutable authority. |
 | **Stage 1** - Execution Worker | `tools/orchestration/stage_symbol_execution.py` | Planned run, data | `TradeScan_State/runs/<run_id>/raw/results_tradelevel.csv`, `results_risk.csv` | Partial | Worker logic is skillable; state authority remains infra. |
 | **Stage 2** - Trade Reporting | `tools/stage2_compiler.py` | Stage-1 records | `TradeScan_State/runs/<run_id>/AK_Trade_Report.xlsx` | No | Tight coupling with pipeline gates and artifact contracts. |
-| **Stage 3** - Aggregation | `tools/stage3_compiler.py` | Stage-1 records | `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` | No | Schema enforcement and explicitly isolated summary logic. |
+| **Stage 3** - Aggregation | `tools/stage3_compiler.py` | Stage-2 records | `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` | No | Schema enforcement and explicitly isolated summary logic derived solely from Stage 2. |
 | **Stage 4** - Candidate Promotion | `tools/filter_strategies.py` | Master Filter, Registry | `TradeScan_State/candidates/<run_id>/` & `TradeScan_State/candidates/Filtered_Strategies_Passed.xlsx` | No | System state mutation, ledger authority, sandbox migration. |
 | **Stage 5** - Portfolio Post-Stage | `tools/orchestration/stage_portfolio.py` | Stage-3 Ledgers | `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx` | No | Multi-system side effects and portfolio ledger authority. |
 | **Post-Pipeline** - Formatting | `tools/format_excel_artifact.py` | Target Ledgers | Formatted `.xlsx` artifacts | Yes | Presentation-focused deterministic transformation. |

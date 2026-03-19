@@ -8,7 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.state_paths import MASTER_FILTER_PATH, CANDIDATES_DIR, RUNS_DIR, CANDIDATE_FILTER_PATH
+from config.state_paths import MASTER_FILTER_PATH, POOL_DIR, RUNS_DIR, CANDIDATE_FILTER_PATH
 from tools.system_registry import _load_registry, _save_registry_atomic
 
 MASTER_SHEET = MASTER_FILTER_PATH
@@ -69,6 +69,19 @@ def filter_strategies():
         try:
             passed_df.to_excel(CANDIDATE_FILTER_PATH, index=False)
             print(f"[SUCCESS] Candidate ledger generated: {CANDIDATE_FILTER_PATH}")
+            
+            # Formatter integration
+            import subprocess
+            formatter_path = PROJECT_ROOT / "tools" / "format_excel_artifact.py"
+            try:
+                subprocess.run(
+                    [sys.executable, str(formatter_path), "--file", str(CANDIDATE_FILTER_PATH), "--profile", "strategy"],
+                    check=True,
+                    capture_output=True
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"[WARN] Failed to format candidate ledger: {e.stderr.decode()}")
+
         except Exception as e:
             print(f"[ERROR] Failed to generate candidate ledger: {e}")
     # -----------------------------------
@@ -96,20 +109,20 @@ def filter_strategies():
             continue
             
         # 1. Update Registry Tier (Authoritative)
-        reg[run_id]["tier"] = "candidate"
+        reg[run_id]["tier"] = "sandbox"
         _save_registry_atomic(reg) # Persist immediately
         promoted_count += 1
         
         # 2. Physical Migration
         src_path = RUNS_DIR / run_id
-        dest_path = CANDIDATES_DIR / run_id
-        
+        dest_path = POOL_DIR / run_id
+
         if src_path.exists() and not dest_path.exists():
             try:
-                CANDIDATES_DIR.mkdir(parents=True, exist_ok=True)
+                POOL_DIR.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src_path), str(dest_path))
                 migration_count += 1
-                print(f"[MIGRATED] {run_id} -> candidates/")
+                print(f"[MIGRATED] {run_id} -> sandbox/")
             except Exception as e:
                 print(f"[ERROR] Physical migration failed for {run_id}: {e}")
                 # Note: We do NOT revert the tier. The registry is authoritative.

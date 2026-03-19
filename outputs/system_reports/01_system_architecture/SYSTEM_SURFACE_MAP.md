@@ -61,7 +61,8 @@ Safety gates are placed at critical transition boundaries to ensure system integ
 
 Gate | Layer | Protection Provided
 --- | --- | ---
-`preflight.py` | Stage 0 | Admission gate; ensures data availability, system readiness, and temporal baseline integrity.
+`directive_linter.py` | Stage 0 | Admission Gate: Manages INBOX to ACTIVE canonical routing, preventing unregistered sweep collisions.
+`preflight.py` | Stage 0 | Data health gate; ensures temporal baseline integrity and system readiness.
 `semantic_validator.py` | Stage 0.5 | AST-level guard; prevents illegal regime or engine logic access.
 `strategy_dryrun_validator.py` | Stage 0.75 | Dry-Run Strategy Import Validation before execution.
 `semantic_coverage_checker.py` | Stage 0.55 | Logic gate; ensures all directive parameters are used in strategy.
@@ -72,7 +73,7 @@ Gate | Layer | Protection Provided
 
 ## SECTION 5 — Execution Engine Components
 
-The engine layer ensures that bar-by-bar simulation is 100% deterministic and reproducible.
+The engine layer (currently **Universal Research Engine v1.5.3**) ensures that bar-by-bar simulation is 100% deterministic and reproducible.
 
 - **`engines/filter_stack.py`**: The authoritative gatekeeper for trade entry and exit signals. It enforces regime-aware execution logic.
 - **`execution_loop.py`**: (Located in `engine_dev/`) The core iterator that processes historical bars and emits trade events.
@@ -110,8 +111,8 @@ A fundamental architectural rule is the **separation of Source and State**.
 **Typical State Artifacts (Stored Externally):**
 - `runs/`: Snapshot strategies and raw execution data.
 - `candidates/`: Strategies undergoing research validation.
-- `sandbox/`: Temporary execution artifacts.
-- `backtests/`: Historical backtest states and batch summaries.
+- `registry/`: The authoritative run and sweep lifecycle ledger.
+- `backtests/`: Central reporting artifacts like Master Filter.
 - `logs/`: Time-series execution logs.
 
 **Rationale**: Keeping state external ensures the repository remains lean, portable, and git-clean, while providing a clear audit trail of research history.

@@ -404,7 +404,7 @@ def render_markdown(
 
     lines.append("## Active Directives")
     if not directives:
-        lines.append("- No files found under `backtest_directives/active`.")
+        lines.append("- No files found under `backtest_directives/INBOX`.")
     else:
         lines.append("| Directive | State | Last Updated | Path |")
         lines.append("|---|---|---|---|")

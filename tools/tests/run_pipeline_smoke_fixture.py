@@ -29,10 +29,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from tools.pipeline_utils import generate_run_id  # noqa: E402
 
 
-DEFAULT_FIXTURE_ID = "C_XAUUSD_1H_VOL_EXP_L03_H2_SMOKE1"
+DEFAULT_FIXTURE_ID = "02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S06_V1_P00"
 
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "pipeline_smoke"
-ACTIVE_DIR = PROJECT_ROOT / "backtest_directives" / "active"
+ACTIVE_DIR = PROJECT_ROOT / "backtest_directives" / "INBOX"
+COMPLETED_DIR = PROJECT_ROOT / "backtest_directives" / "completed"
 STRATEGIES_DIR = PROJECT_ROOT / "strategies"
 BACKTESTS_DIR = PROJECT_ROOT / "backtests"
 RUNS_DIR = PROJECT_ROOT / "runs"
@@ -182,6 +183,7 @@ def _cleanup_runtime_artifacts(fixture_id: str, symbols: list[str], directive_pa
 
     # Active directive + staged strategy.
     _remove_file(ACTIVE_DIR / f"{fixture_id}.txt")
+    _remove_file(COMPLETED_DIR / f"{fixture_id}.txt")
     _remove_tree(STRATEGIES_DIR / fixture_id)
 
     # Backtest outputs for fixture prefix.

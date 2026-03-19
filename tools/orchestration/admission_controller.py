@@ -45,6 +45,9 @@ class AdmissionStage:
         # 3. Stage -0.35: Sweep Registry Gate
         self._run_sweep_gate(context)
 
+        # Post-admission cleanup: remove from INBOX_hold (single source of truth in active_backup)
+        self._cleanup_inbox_hold(context)
+
     def _run_canonicalization(self, context: PipelineContext) -> None:
         from tools.canonicalizer import canonicalize, CanonicalizationError
         import yaml
@@ -103,3 +106,10 @@ class AdmissionStage:
             print(f"[{self.stage_id}] Stage -0.35: Sweep Gate PASSED (sweep={sw_details['sweep']})")
         except Exception as e:
             raise PipelineExecutionError(f"STAGE -0.35 SWEEP GATE FAILED: {e}", directive_id=context.directive_id) from e
+
+    def _cleanup_inbox_hold(self, context: PipelineContext) -> None:
+        inbox_hold = Path(__file__).resolve().parent.parent.parent / "backtest_directives" / "INBOX_hold"
+        hold_path = inbox_hold / context.directive_path.name
+        if hold_path.exists():
+            hold_path.unlink()
+            print(f"[{self.stage_id}] INBOX_hold cleanup: removed {context.directive_path.name}")
