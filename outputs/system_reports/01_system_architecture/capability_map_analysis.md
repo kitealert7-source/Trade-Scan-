@@ -19,7 +19,8 @@
 - `tools/orchestration/execution_adapter.py` (process execution adapter — stderr capture added 2026-03-23)
 - `tools/orchestration/run_planner.py` (directive → run units)
 - `tools/orchestration/run_registry.py` (authoritative on-disk run registry)
-- `tools/orchestration/stage_symbol_execution.py` (Stage-1 worker — zero-byte corruption guards added 2026-03-23)
+- `tools/orchestration/stage_symbol_execution.py` (Stage-1 worker — zero-byte corruption guards added 2026-03-23; run_index append call added 2026-03-24)
+- `tools/run_index.py` (append-only run index writer — called at STAGE_1_COMPLETE, added 2026-03-24)
 - `tools/system_logging/pipeline_failure_logger.py` (centralized failure log with 5 MB / 7-day rotation)
 - `tools/canonical_schema.py`, `tools/directive_schema.py` (schema contracts)
 - `tools/namespace_gate.py` (Stage -0.30 token dictionary enforcement)
@@ -39,6 +40,8 @@
 | **Stage 0** - Run Planning | `tools/orchestration/run_planner.py` | ACTIVE Directive, symbols | Planned run set | Yes | Pure planning logic, no heavy execution side effects. |
 | **Stage 0** - Registry | `tools/orchestration/run_registry.py` | `run_registry.json` | Updated `run_registry.json` | No | Core orchestration infra, shared mutable authority. |
 | **Stage 1** - Execution Worker | `tools/orchestration/stage_symbol_execution.py` | Planned run, data | `TradeScan_State/runs/<run_id>/raw/results_tradelevel.csv`, `results_risk.csv` | Partial | Worker logic is skillable; state authority remains infra. Zero-byte corruption guards active. |
+| **Stage 1** - Run Index Append | `tools/run_index.py` | `run_metadata.json` + `results_standard.csv` + `results_risk.csv` | `TradeScan_State/research/index.csv` (one appended row) | No | Append-only infrastructure; FileLock-protected; non-blocking (added 2026-03-24). |
+| **Governance** - Legacy Index Backfill | `tools/backfill_run_index.py` | `BACKTESTS_DIR` scan | `index.csv` legacy rows (`schema_version="legacy"`) | No | Human-only one-time script; duplicate guard makes re-runs safe (added 2026-03-24). |
 | **Stage 2** - Trade Reporting | `tools/stage2_compiler.py` | Stage-1 records | `TradeScan_State/runs/<run_id>/AK_Trade_Report.xlsx` | No | Tight coupling with pipeline gates and artifact contracts. |
 | **Stage 3** - Aggregation | `tools/stage3_compiler.py` | Stage-2 records | `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` | No | Schema enforcement and explicitly isolated summary logic derived solely from Stage 2. |
 | **Stage 4** - Candidate Promotion | `tools/filter_strategies.py` | Master Filter, Registry | `TradeScan_State/candidates/<run_id>/` & `TradeScan_State/candidates/Filtered_Strategies_Passed.xlsx` | No | System state mutation, ledger authority, sandbox migration. |
@@ -71,4 +74,4 @@
 - Function hard limit: `> 120 LOC`
 
 ---
-**Version**: 2.0.0 | **Last Updated**: 2026-03-23
+**Version**: 2.0.1 | **Last Updated**: 2026-03-24

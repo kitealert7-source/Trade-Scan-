@@ -59,32 +59,28 @@ flowchart TD
 ### Stage Outputs
 
 * **Stage -0.35 (sweep_registry_gate.py)**: Sweep reservation and collision enforcement.
-* **Stage -0.30 (
-amespace_gate.py)**: Token dictionary validation for FAMILY, MODEL, FILTER, TF tokens.
+* **Stage -0.30 (namespace_gate.py)**: Token dictionary validation for FAMILY, MODEL, FILTER, TF tokens.
 * **Stage -0.25 (canonicalizer.py)**: Structural schema enforcement and canonical key relocation.
-* **Stage 1 (
-un_stage1.py)**: Raw, immutable trade-level execution data and symbol metadata.
-  * *Output*: TradeScan_State/runs/<run_id>/raw/results_tradelevel.csv
+* **Stage 1 (run_stage1.py)**: Raw, immutable trade-level execution data and symbol metadata.
+  * *Output*: TradeScan_State/runs/&lt;run_id&gt;/raw/results_tradelevel.csv
   * *Guard*: Zero-byte or corrupted artifact files trigger clean FAILED state transition (added 2026-03-23).
+  * *Index append*: At STAGE_1_COMPLETE, `run_index.py` appends one row to `TradeScan_State/research/index.csv` (non-blocking, added 2026-03-24).
 * **Stage 2 (stage2_compiler.py)**: Trade-level metrics enriched with non-standard attributes (e.g., market_regime).
-  * *Output*: TradeScan_State/runs/<run_id>/AK_Trade_Report.xlsx
+  * *Output*: TradeScan_State/runs/&lt;run_id&gt;/AK_Trade_Report.xlsx
 * **Stage 3 (stage3_compiler.py)**: Pure summary aggregates; explicitly isolated from trade-level state.
   * *Output*: TradeScan_State/backtests/Strategy_Master_Filter.xlsx
-* **Stage 4 (ilter_strategies.py)**: Candidate evaluation and promotion to the target ledger.
+* **Stage 4 (filter_strategies.py)**: Candidate evaluation and promotion to the target ledger.
   * *Output*: TradeScan_State/candidates/<run_id>/ & TradeScan_State/candidates/Filtered_Strategies_Passed.xlsx
-* **Step 7 (
-eport_generator.py)**: REPORT_SUMMARY.md from raw results CSVs. Read-only.
+* **Step 7 (report_generator.py)**: REPORT_SUMMARY.md from raw results CSVs. Read-only.
 * **Step 8 (capital_wrapper.py)**: Multi-profile capital simulation producing deployable artifacts.
   * *Output*: summary_metrics.json, profile_comparison.json, equity_curve.png, deployable_trade_log.csv
 * **Step 9 (post_process_capital.py)**: Capital utilization metric enrichment for profile_comparison.json.
-* **Step 10 (
-obustness_suite.py)**: 14-section observational stability analysis.
-* **Post-Pipeline (ormat_excel_artifact.py)**: Application of human-readable formatting to generated ledgers.
+* **Step 10 (robustness_suite.py)**: 14-section observational stability analysis.
+* **Post-Pipeline (format_excel_artifact.py)**: Application of human-readable formatting to generated ledgers.
 
 ### Primary Artifacts
 
-* **
-esults_tradelevel.csv**: The root of truth for all post-execution calculations.
+* **results_tradelevel.csv**: The root of truth for all post-execution calculations.
 * **AK_Trade_Report.xlsx**: Detailed trade ledger for deep-dive analysis.
 * **Strategy_Master_Filter.xlsx**: Dense overview of all executed configurations.
 * **Filtered_Strategies_Passed.xlsx**: The target ledger for promoted candidate strategies.
@@ -94,21 +90,27 @@ esults_tradelevel.csv**: The root of truth for all post-execution calculations.
 
 ### Storage Locations
 
-* **TradeScan_State/runs/<run_id>/**: Immutable per-run execution artifacts.
-* **TradeScan_State/backtests/**: Central reporting artifacts (Master Filter, trade reports).
+* **TradeScan_State/runs/\<run_id\>/**: Immutable per-run execution artifacts.
+* **TradeScan_State/backtests/**: `{strategy_id}_{symbol}/` folders containing `raw/`, `metadata/run_metadata.json` (with full provenance fields as of 2026-03-24), `portfolio_evaluation/`.
+* **TradeScan_State/research/index.csv**: Append-only flat index — 15 columns per run; 167 legacy rows + live append at each STAGE_1_COMPLETE (added 2026-03-24).
 * **TradeScan_State/candidates/**: Promoted strategies that passed the candidate gate.
-* **TradeScan_State/strategies/<PF_ID>/deployable/**: Deployable capital artifacts per strategy (atomic and composite).
+* **TradeScan_State/strategies/\<PF_ID\>/deployable/**: Deployable capital artifacts per strategy (atomic and composite).
 
 ### Registry
 
-* **
-un_registry.json**: Authoritative lifecycle state for sandbox to candidate promotion.
+* **run_registry.json**: Authoritative lifecycle state for sandbox to candidate promotion.
 * **directive_audit.log**: Append-only governance audit trail for all directive operations.
+* **TradeScan_State/research/index.csv**: Append-only cross-run discoverability index (added 2026-03-24 — see Storage Locations above).
 
 ### FSM Notes (2026-03-23)
 
 * PREFLIGHT_COMPLETE may now transition directly to STAGE_1_COMPLETE when semantic validation is cached (skip-path added to ALLOWED_TRANSITIONS).
-* 	ransition_to() now logs a [WARN] and skips gracefully if the run state directory does not exist, instead of crashing the orchestrator.
+* transition_to() now logs a [WARN] and skips gracefully if the run state directory does not exist, instead of crashing the orchestrator.
+
+### Pipeline Notes (2026-03-24)
+
+* At STAGE_1_COMPLETE, `stage_symbol_execution.py` calls `run_index.py:append_run_to_index()` — non-blocking append to `TradeScan_State/research/index.csv`. Failure is caught and logged; pipeline never blocked.
+* `run_metadata.json` in both RUNS_DIR and BACKTESTS_DIR now carries `content_hash`, `git_commit`, `execution_model`, `schema_version="1.3.0"` for all new runs.
 
 ---
-**Version**: 2.0.0 | **Last Updated**: 2026-03-23
+**Version**: 2.0.1 | **Last Updated**: 2026-03-24

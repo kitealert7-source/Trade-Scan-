@@ -36,6 +36,8 @@ These tools are used for system-level governance operations. Most require explic
 | `tools/sweep_registry_gate.py` | Sweep reservation and collision enforcement | Pipeline (Stage -0.35) |
 | `tools/namespace_gate.py` | Token dictionary enforcement | Pipeline (Stage -0.30) |
 | `tools/canonicalizer.py` | Structural schema validation and canonical relocation | Pipeline (Stage -0.25) |
+| `tools/run_index.py` | Append-only run index writer — called automatically at `STAGE_1_COMPLETE`; writes to `TradeScan_State/research/index.csv` | Infrastructure (auto, added 2026-03-24) |
+| `tools/backfill_run_index.py` | One-time legacy backfill of `index.csv` with pre-patch runs (`schema_version="legacy"`); safe to re-run (duplicate guard) | Human-only (added 2026-03-24) |
 
 ---
 
@@ -67,4 +69,4 @@ To maintain system transparency:
 5. Human-only entrypoints must include an explicit note on the INVARIANT that protects them.
 
 ---
-**Status**: Authoritative Entrypoint Registry | **Version**: 2.0.0 | **Last Updated**: 2026-03-23
+**Status**: Authoritative Entrypoint Registry | **Version**: 2.0.1 | **Last Updated**: 2026-03-24
