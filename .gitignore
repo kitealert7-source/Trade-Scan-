@@ -78,9 +78,6 @@ outputs/
 *.uniform_backup_*
 *.uniform_multi_backup_*
 
-# ===== Dry-run backups (local, not tracked) =====
-dry_run_backups/
-
 # ===== Specific tool scripts (local utility, not part of pipeline) =====
 tools/new_pass.py
 tools/regenerate_all_reports.py
