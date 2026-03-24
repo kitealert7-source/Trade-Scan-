@@ -103,3 +103,51 @@ The platform currently relies on **artifact-based reporting** rather than intera
 ---
 
 **RESEARCH_INFRASTRUCTURE_AUDIT_COMPLETE**
+
+---
+
+## Addendum — 2026-03-24
+
+### Discoverability Gap Closed
+
+Section 1 above identifies `Strategy_Master_Filter.xlsx` as the authoritative cross-run index. A parallel programmatic discoverability gap (scanning 223 folders across 3 files each to answer a single filtered query) was formally confirmed by a subsequent artifact storage audit (`08_pipeline_audit/ARTIFACT_STORAGE_AUDIT_2026_03_24.md`).
+
+That gap is now closed. A central flat index has been implemented:
+
+**`TradeScan_State/research/index.csv`** — append-only, 15 columns per run:
+
+| Field | Source |
+|---|---|
+| run_id, strategy_id, symbol, timeframe | run_metadata.json |
+| date_start, date_end | run_metadata.json → date_range |
+| profit_factor, net_pnl_usd, total_trades, win_rate | results_standard.csv |
+| max_drawdown_pct | results_risk.csv |
+| content_hash, git_commit, execution_timestamp_utc | run_metadata.json |
+| schema_version | `"legacy"` for pre-patch runs / `"1.3.0"` for post-patch runs |
+
+**Write mechanism:** `tools/run_index.py` — called automatically in `stage_symbol_execution.py` at `STAGE_1_COMPLETE`. Non-blocking (failure never blocks the pipeline). FileLock-protected for parallel runs.
+
+**Backfill:** `tools/backfill_run_index.py` was run once on 2026-03-24, populating 167 legacy rows (`schema_version="legacy"`, `content_hash=""`, `git_commit=""` intentionally blank — not retroactively guessable).
+
+**Query pattern (no folder scanning):**
+```python
+import csv
+rows = list(csv.DictReader(open(r'TradeScan_State\research\index.csv')))
+hits = [r for r in rows if float(r['profit_factor'] or 0) > 1.5
+        and float(r['max_drawdown_pct'] or 99) < 10]
+```
+
+### Provenance Fields Added to run_metadata.json
+
+The metadata gap identified in Section 2 (no config_hash, no code_version, no execution model) is also closed for all runs from 2026-03-24 onwards. The following fields are now injected into `run_metadata.json` at Stage-1 completion (both `RUNS_DIR` and `BACKTESTS_DIR` views):
+
+| Field | Value |
+|---|---|
+| `content_hash` | SHA256[:8] of directive content — detects silent param drift |
+| `git_commit` | `git rev-parse HEAD` at run time — ties results to exact code state |
+| `execution_model.order_type` | From directive `order_placement.type` |
+| `execution_model.slippage_model` | `"actual_per_trade"` (tracked in results_tradelevel.csv) |
+| `execution_model.spread_model` | `"none_applied"` (no spread model in engine v1.5.3) |
+| `schema_version` | `"1.3.0"` |
+
+Implementation reference: `08_pipeline_audit/ARTIFACT_PROVENANCE_IMPLEMENTATION_PLAN_2026_03_24.md`.
