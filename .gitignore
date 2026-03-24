@@ -7,6 +7,9 @@ research/
 # Market & raw data
 MASTER_DATA/
 data/
+data_root/ohlc_cache/
+data_root/regime_cache/
+data_root/MASTER_DATA/
 
 # Strategy snapshots (runtime mirrors)
 strategies/
@@ -32,20 +35,25 @@ Thumbs.db
 !vault/engines/
 !vault/engines/**
 
-# (No ignores under vault unless explicitly added later)
-
 tmp/
 
 # External runtime state
 ../TradeScan_State/
+TradeScan_State/
 
 # Runtime folders
 sandbox/
 reports_summary/
 
-# Local directive safety
+# ===== Directive rules =====
+# Active directives: never commit (work-in-progress)
 backtest_directives/active/*.txt
+backtest_directives/ACTIVE/
+backtest_directives/active_backup/
 !backtest_directives/active/README.md
+# Completed directives: tracked (they are the specification record)
+# *.admitted: 0-byte pipeline markers, no value in git
+*.admitted
 
 # Data artifacts
 *.parquet
@@ -56,3 +64,27 @@ backtest_directives/active/*.txt
 .claude/
 .agents/
 .vscode/
+
+# ===== Generated outputs =====
+outputs/
+
+# ===== Logs =====
+*.log
+
+# ===== Backups =====
+*.backup
+*.r*_backup_*
+*.scaling_backup_*
+*.uniform_backup_*
+*.uniform_multi_backup_*
+
+# ===== Dry-run backups (local, not tracked) =====
+dry_run_backups/
+
+# ===== Specific tool scripts (local utility, not part of pipeline) =====
+tools/new_pass.py
+tools/regenerate_all_reports.py
+tools/sync_portfolio_flags.py
+
+# ===== Stale renamed files =====
+gitignore.txt
