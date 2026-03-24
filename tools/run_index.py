@@ -67,17 +67,18 @@ def append_run_to_index(strategy_id: str, symbol: str) -> None:
         }
 
         INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-        write_header = not INDEX_PATH.exists()
 
         if _HAVE_FILELOCK:
             lock = _FileLock(str(INDEX_PATH) + ".lock", timeout=30)
             with lock:
+                write_header = not INDEX_PATH.exists()  # check INSIDE lock
                 with open(INDEX_PATH, "a", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
                     if write_header:
                         writer.writeheader()
                     writer.writerow(row)
         else:
+            write_header = not INDEX_PATH.exists()
             with open(INDEX_PATH, "a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
                 if write_header:
