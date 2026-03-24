@@ -45,6 +45,14 @@ Despite governance coverage, certain edge-cases should be operationally acknowle
 
 5. **~~Stale `constituent_run_ids` in `portfolio_metadata.json`~~** *(FIXED)*: When runs were marked invalid by the reconciler, their run IDs remained in `portfolio_metadata.json` files. On the next pipeline pass, the Portfolio Dependency Check fired a `[FATAL] Consistency Violation` that blocked execution. Required manual cleanup. **Fix**: `reconcile_registry()` in `system_registry.py` now auto-cleans stale run IDs from all `portfolio_metadata.json` files immediately after marking runs invalid, before the Dependency Check fires.
 
+### Resolved Soft Spots (2026-03-23)
+
+6. **~~Blind Preflight crash reporting~~** *(FIXED)*: When `exec_preflight.py` crashed with a Python exception, the orchestrator logged only `returned non-zero exit status 1` — the actual traceback was invisible in the failure log, making root-cause diagnosis impossible. **Fix**: `tools/orchestration/execution_adapter.py` now captures `stderr=subprocess.PIPE` and prints the full subprocess traceback before re-raising, making exact exception lines visible in pipeline logs.
+
+7. **~~Aggregation stage crash on truncated/zero-byte CSVs~~** *(FIXED)*: When the engine crashed mid-write during Stage-1, it could leave a 0-byte `results_tradelevel.csv`. The manifest binding stage naively called `pd.read_csv()` producing an unhandled `Truncated file header` crash that propagated up as an orchestrator-level `PIPELINE_ERROR`. **Fix**: `tools/orchestration/stage_symbol_execution.py` now validates `path.stat().st_size > 0` before reading and hashing all required artifacts. Zero-byte files trigger a clean `FAILED` state transition with an actionable error message instead of an unhandled crash.
+
+8. **~~Illegal State Transition on cached semantic validation~~** *(FIXED)*: When the semantic validation step was already cached (state remained `PREFLIGHT_COMPLETE`), Stage-1 attempted `transition_to("STAGE_1_COMPLETE")` from `PREFLIGHT_COMPLETE`, which was illegal per the strict FSM. This produced `[FATAL] Illegal State Transition` errors. **Fix**: `tools/pipeline_utils.py` `ALLOWED_TRANSITIONS` now allows `PREFLIGHT_COMPLETE → STAGE_1_COMPLETE` as a valid skip-path. Additionally, `transition_to()` no longer raises `FileNotFoundError` when a run's state directory is missing — it logs a `[WARN]` and skips gracefully.
+
 ---
 
 *Note: For broader pipeline execution flow and procedural capabilities mapping, reference [pipeline_flow.md](pipeline_flow.md) and [capability_map_analysis.md](capability_map_analysis.md).*
