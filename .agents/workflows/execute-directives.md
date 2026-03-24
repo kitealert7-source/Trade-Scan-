@@ -26,24 +26,34 @@ Before provisioning, you MUST verify data coverage and administrative alignment.
 
 3.  **Optional Maintenance Check**: If workspace drift is suspected, run the reconciler from the **System Maintenance Workflow** to ensure the `runs/` directory is aligned with `run_registry.json`.
 
-### Step 1: Provision-Only Validation
+### Step 1: New Pass Creation (use `new_pass.py` — eliminates EXPERIMENT_DISCIPLINE)
 
-Execute provisioning to generate the strategy skeleton and verify imports.
-
-// turbo
+For any new pass (_PXX), use the creation tool instead of manually writing files:
 
 ```bash
-python tools/run_pipeline.py --all --provision-only
+# Scaffold directive + strategy.py from source pass
+python tools/new_pass.py <source_pass> <new_pass>
+
+# After editing directive and strategy.py with your changes:
+python tools/new_pass.py --rehash <new_pass>
 ```
 
-*Halt if `PROVISION_REQUIRED` is returned.*
+`--rehash` pre-injects the provisioner-canonical hash into strategy.py and touches
+`strategy.py.approved` so the provisioner finds nothing to change on first pipeline run.
+**EXPERIMENT_DISCIPLINE will not fire.**
+
+Skip to Step 5 after `--rehash` completes.
+
+> **Legacy path (GENESIS_MODE only — brand new family):**
+> Use `python tools/run_pipeline.py --all --provision-only` to generate the skeleton,
+> implement check_entry/check_exit, then follow the EXPERIMENT_DISCIPLINE cycle.
 
 ### Step 2: Strategy Admission Gate
 
 Classify the implementation mode based on the directive and existing code:
-- **GENESIS_MODE**: New strategy. Implement exclusively from directive parameters.
-- **PATCH_MODE**: Variation of parent (`_PXX` where XX > 00). Replicate logic from `_P00`.
-- **CLONE_MODE**: Logic comparison. Copy code from original strategy exactly.
+- **GENESIS_MODE**: New strategy (new family, _P00). Implement exclusively from directive parameters. Use legacy path above.
+- **PATCH_MODE**: Variation of parent (`_PXX` where XX > 00). Use `new_pass.py` workflow.
+- **CLONE_MODE**: Logic comparison. Use `new_pass.py` workflow.
 
 ### Step 3: Human Strategy Review & Approval
 
@@ -110,6 +120,17 @@ Physically migrated        : <N>
 ```
 
 **STOP — Mission Complete.**
+
+> **Discoverability note:** Each completed Stage-1 run is automatically appended to
+> `TradeScan_State/research/index.csv`. To query across all runs without folder scanning:
+> ```python
+> import csv
+> rows = list(csv.DictReader(open(r'TradeScan_State\research\index.csv')))
+> hits = [r for r in rows if float(r['profit_factor'] or 0) > 1.5
+>         and float(r['max_drawdown_pct'] or 99) < 10]
+> ```
+> Filter by `schema_version='legacy'` to exclude pre-patch runs from provenance-sensitive queries.
+> Filter by `schema_version='1.3.0'` for runs with full provenance (content_hash + git_commit + execution_model).
 
 ---
 
