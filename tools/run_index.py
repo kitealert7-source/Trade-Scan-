@@ -17,6 +17,7 @@ INDEX_FIELDS = [
     "date_start", "date_end",
     "profit_factor", "max_drawdown_pct", "net_pnl_usd", "total_trades",
     "win_rate", "content_hash", "git_commit", "execution_timestamp_utc",
+    "schema_version",
 ]
 
 try:
@@ -64,6 +65,7 @@ def append_run_to_index(strategy_id: str, symbol: str) -> None:
             "content_hash":            meta.get("content_hash", ""),
             "git_commit":              meta.get("git_commit", ""),
             "execution_timestamp_utc": meta.get("execution_timestamp_utc", ""),
+            "schema_version":          meta.get("schema_version", "1.3.0"),
         }
 
         INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
