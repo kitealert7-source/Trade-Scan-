@@ -161,6 +161,7 @@ def run_stage1_execution(context: PipelineContext) -> None:
                     "run_id": rid,
                     "symbol": symbol,
                     "status": "NO_TRADES",
+                    "valid": False,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 raw_dir = out_folder / "raw"
@@ -177,6 +178,11 @@ def run_stage1_execution(context: PipelineContext) -> None:
 
             transition_run_state(rid, "STAGE_1_COMPLETE")
             update_run_state(registry_path, clean_id, rid, "COMPLETE")
+            try:
+                from tools.run_index import append_run_to_index
+                append_run_to_index(clean_id, symbol)
+            except Exception as idx_err:
+                print(f"[INDEX] append failed (non-blocking): {idx_err}")
         except Exception as err:
             print(f"[ERROR] Stage-1 Failed for {symbol}: {err}")
             try:
@@ -232,6 +238,47 @@ def run_stage2_compilation(context: PipelineContext) -> None:
             directive_id=clean_id
         )
 
+    # --- REC-04: Pre-entry artifact check ---
+    # Verify results_tradelevel.csv exists for every run that should have it before
+    # invoking stage2_compiler. Catches filesystem inconsistency or state drift where
+    # a run's FSM was advanced past FAILED without Stage-1 actually completing.
+    # Skips runs already FAILED (no-trades or prior crash) and STAGE_2_COMPLETE (resume).
+    _artifact_failures: list[tuple[str, str]] = []
+    for rid, symbol in zip(run_ids, symbols):
+        _run_state = PipelineStateManager(rid).get_state_data().get("current_state", "IDLE")
+        if _run_state in ("FAILED", "STAGE_2_COMPLETE"):
+            continue
+        _csv = BACKTESTS_DIR / f"{clean_id}_{symbol}" / "raw" / "results_tradelevel.csv"
+        if not _csv.exists():
+            _artifact_failures.append((rid, symbol))
+            print(
+                f"[STAGE-2] Stage-1 artifact missing for {symbol} ({rid[:8]}): "
+                f"results_tradelevel.csv not found — marking FAILED."
+            )
+            try:
+                transition_run_state(rid, "FAILED")
+            except Exception:
+                pass
+            update_run_state(
+                registry_path,
+                clean_id,
+                rid,
+                "FAILED",
+                last_error="Stage-1 artifact missing before Stage-2 invocation (results_tradelevel.csv not found).",
+            )
+            log_run_to_registry(rid, "failed", clean_id)
+    if _artifact_failures:
+        raise PipelineExecutionError(
+            f"[STAGE-2] Stage-1 artifacts missing for {len(_artifact_failures)} run(s) — "
+            "cannot invoke stage2_compiler:\n"
+            + "\n".join(
+                f"  {sym} ({rid[:8]}): results_tradelevel.csv not found"
+                for rid, sym in _artifact_failures
+            ),
+            directive_id=clean_id,
+            run_ids=[rid for rid, _ in _artifact_failures],
+        )
+
     run_command(
         [python_exe, "-m", engine_module, "--scan", clean_id],
         "Stage-2 Compilation",
@@ -278,9 +325,82 @@ def run_stage3_aggregation(context: PipelineContext) -> None:
 
     from tools.orchestration.execution_adapter import run_command
 
-    run_command([python_exe, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
-
+    # --- IDEMPOTENCY PRE-CHECK ---
+    # If Master Filter already contains the expected number of rows for this
+    # directive, skip the stage3_compiler write entirely. Prevents duplicate row
+    # appends when resuming after a downstream failure (e.g. Portfolio failed after
+    # Aggregation already succeeded). The cardinality gate below still verifies.
     master_filter_path = MASTER_FILTER_PATH
+    _skip_write = False
+    if master_filter_path.exists():
+        # Expected symbol set: all symbols except those with a NO_TRADES marker.
+        _expected_symbols = {
+            sym for rid, sym in zip(run_ids, symbols)
+            if not (RUNS_DIR / rid / "status_no_trades.json").exists()
+        }
+        if _expected_symbols:
+            import openpyxl as _oxl
+            _wb = None
+            try:
+                _wb = _oxl.load_workbook(master_filter_path, read_only=True)
+            except Exception as _load_err:
+                print(f"[AGGREGATION] Master Filter unreadable ({_load_err}) — falling through to full write.")
+            if _wb is not None:
+                _ws = _wb.active
+                try:
+                    _headers = list(next(_ws.iter_rows(min_row=1, max_row=1, values_only=True)))
+                    _strat_idx = _headers.index("strategy")
+                    _sym_idx = _headers.index("symbol")
+                    # Extract symbol strings only — list preserves duplicates for count check.
+                    # _present_syms: List[str], one entry per matching row, NOT full row objects.
+                    _min_col = max(_strat_idx, _sym_idx)
+                    _present_syms = [
+                        str(row[_sym_idx])
+                        for row in _ws.iter_rows(min_row=2, values_only=True)
+                        if row
+                        and len(row) > _min_col
+                        and row[_strat_idx]
+                        and str(row[_strat_idx]).startswith(clean_id)
+                        and row[_sym_idx]
+                    ]
+                    _present_set = set(_present_syms)
+                    _dup_count = len(_present_syms) - len(_present_set)
+
+                    # Guard: row count must equal expected symbol count.
+                    # Checked BEFORE set comparison — a set collapses duplicates and
+                    # would incorrectly approve a skip when duplicates are present.
+                    if len(_present_syms) != len(_expected_symbols):
+                        _missing = _expected_symbols - _present_set
+                        _extra = _present_set - _expected_symbols
+                        if _missing:
+                            print(f"[AGGREGATION] Missing symbols: {sorted(_missing)} — will write.")
+                        if _extra:
+                            print(f"[AGGREGATION] Unexpected symbols: {sorted(_extra)} — will write.")
+                        if _dup_count > 0:
+                            from collections import Counter as _Counter
+                            _dupes = {s: c for s, c in _Counter(_present_syms).items() if c > 1}
+                            print(f"[AGGREGATION] Duplicate rows ({_dup_count} extra): {_dupes} — will write.")
+                    elif _present_set == _expected_symbols:
+                        _skip_write = True
+                        print(
+                            f"[AGGREGATION] Symbol set already complete for {clean_id} "
+                            f"({sorted(_present_set)}) — skipping stage3_compiler write."
+                        )
+                    else:
+                        # Count matches but symbols differ (wrong symbols in filter).
+                        _missing = _expected_symbols - _present_set
+                        _extra = _present_set - _expected_symbols
+                        if _missing:
+                            print(f"[AGGREGATION] Missing symbols: {sorted(_missing)} — will write.")
+                        if _extra:
+                            print(f"[AGGREGATION] Unexpected symbols: {sorted(_extra)} — will write.")
+                except (StopIteration, ValueError):
+                    pass  # Malformed or empty file — fall through to full write
+                finally:
+                    _wb.close()
+
+    if not _skip_write:
+        run_command([python_exe, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
     if not master_filter_path.exists():
         raise PipelineExecutionError(
             f"Stage-3 artifact missing: {master_filter_path}",
@@ -399,6 +519,10 @@ def run_manifest_binding(context: PipelineContext) -> None:
             equity_file = bt_dir / "equity_curve.csv"
             if trade_file.exists() and not equity_file.exists():
                 try:
+                    # Guard: truncated or zero-byte files crash pd.read_csv with
+                    # 'Truncated file header' — catch and skip gracefully.
+                    if trade_file.stat().st_size == 0:
+                        raise pd.errors.EmptyDataError("File is empty (0 bytes)")
                     df_t = pd.read_csv(trade_file)
                     if "pnl_usd" in df_t.columns:
                         pnl_series = df_t["pnl_usd"].fillna(0)
@@ -414,6 +538,8 @@ def run_manifest_binding(context: PipelineContext) -> None:
                         if bt_dest_raw.exists():
                             import shutil
                             shutil.copy2(equity_file, bt_dest_raw / "equity_curve.csv")
+                except pd.errors.EmptyDataError as e:
+                    print(f"[WARN] Skipping equity curve generation for {rid}: file is empty or truncated — {e}")
                 except Exception as e:
                     print(f"[WARN] Failed to auto-generate equity curve for {rid}: {e}")
 
@@ -435,6 +561,18 @@ def run_manifest_binding(context: PipelineContext) -> None:
                     )
                     log_run_to_registry(rid, "failed", clean_id)
                     raise RuntimeError(f"Missing required artifact for binding: {path}")
+                # Guard: zero-byte or truncated files would pass existence check
+                # but crash the hasher / downstream CSV readers with ParserError.
+                if path.stat().st_size == 0:
+                    _err = f"Artifact is empty (0 bytes) — likely from a mid-run crash: {path}"
+                    print(f"[WARN] {_err}")
+                    transition_run_state(rid, "FAILED")
+                    update_run_state(
+                        registry_path, clean_id, rid, "FAILED",
+                        last_error=_err,
+                    )
+                    log_run_to_registry(rid, "failed", clean_id)
+                    raise RuntimeError(_err)
                 artifacts_manifest[name] = get_file_hash(path)
 
             manifest = {

@@ -16,6 +16,7 @@ import traceback
 import re
 from pathlib import Path
 from datetime import datetime
+import subprocess
 import yaml
 import pandas as pd
 import numpy as np
@@ -341,10 +342,24 @@ def run_engine_logic(df, strategy):
     return engine_mod.run_engine(df, strategy)
 
 
+def _git_commit(repo: Path) -> str:
+    """Return HEAD commit hash or 'unknown' if git unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo, capture_output=True, text=True, timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
 def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds=0):
     """Emit artifacts for a single symbol run."""
     import pandas as pd
     import importlib
+    directive_dict = yaml.safe_load(directive_content)
+    git_commit = _git_commit(PROJECT_ROOT)
     engine_ver = get_engine_version()
     engine_path = f"v{engine_ver.replace('.', '_')}"
     module_path = f"engine_dev.universal_research_engine.{engine_path}.execution_emitter_stage1"
@@ -456,6 +471,13 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             mfe_r = None
             mae_r = None
 
+        vol = t.get('volatility_regime')
+        if vol is None:
+            raw = entry_market.get('volatility_regime')
+            # map numeric -> string
+            vol_map = {-1: 'low', 0: 'normal', 1: 'high'}
+            vol = vol_map.get(raw, 'unknown')
+
         raw_trades.append(RawTradeRecord(
             strategy_name=f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}",
             parent_trade_id=i + 1,
@@ -478,10 +500,10 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             mae_r=round(mae_r, 4) if mae_r is not None else None,
             r_multiple=round(r_multiple, 4) if r_multiple is not None else None,
             # Intrinsic Market State
-            volatility_regime=entry_market.get('volatility_regime'),
-            trend_score=entry_market.get('trend_score'),
-            trend_regime=entry_market.get('trend_regime'),
-            trend_label=entry_market.get('trend_label'),
+            volatility_regime=vol,
+            trend_score=t.get('trend_score', entry_market.get('trend_score')),
+            trend_regime=t.get('trend_regime', entry_market.get('trend_regime')),
+            trend_label=t.get('trend_label', entry_market.get('trend_label')),
             # Phase 1 Schema Extension (Deployable Capital Wrapper)
             symbol=symbol,
             initial_stop_price=t.get('initial_stop_price'),
@@ -570,7 +592,14 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
                     trend_filter_enabled = sig.get('volatility_filter', {}).get('enabled', False)
                 
             data['trend_filter_enabled'] = trend_filter_enabled
-            
+            data['git_commit'] = git_commit
+            data['execution_model'] = {
+                'order_type':       directive_dict.get('order_placement', {}).get('type', 'market'),
+                'execution_timing': directive_dict.get('order_placement', {}).get('execution_timing', 'next_bar_open'),
+                'slippage_model':   'actual_per_trade',
+                'spread_model':     'none_applied',
+            }
+
             # Tracking blocked bars
             if hasattr(strategy, 'filter_stack'):
                 fstack = strategy.filter_stack
@@ -584,7 +613,27 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             f.seek(0)
             json.dump(data, f, indent=4)
             f.truncate()
-            
+
+    # Mirror provenance fields to BACKTESTS_DIR (always write — no silent skip)
+    ui_meta_run_metadata = ui_meta_dir / "run_metadata.json"
+    ui_meta_run_metadata.parent.mkdir(parents=True, exist_ok=True)
+    if ui_meta_run_metadata.exists():
+        with open(ui_meta_run_metadata, 'r', encoding='utf-8') as f:
+            ui_data = json.load(f)
+    else:
+        ui_data = {}
+    ui_data['content_hash']    = content_hash
+    ui_data['git_commit']      = git_commit
+    ui_data['execution_model'] = {
+        'order_type':       directive_dict.get('order_placement', {}).get('type', 'market'),
+        'execution_timing': directive_dict.get('order_placement', {}).get('execution_timing', 'next_bar_open'),
+        'slippage_model':   'actual_per_trade',
+        'spread_model':     'none_applied',
+    }
+    ui_data['schema_version'] = "1.3.0"
+    with open(ui_meta_run_metadata, 'w', encoding='utf-8') as f:
+        json.dump(ui_data, f, indent=2)
+
     return out_folder
 
 
@@ -964,7 +1013,14 @@ def main():
             
     print(f"{target_symbol:<10} | {status:<10} | {run_id:<12} | PnL: ${round(net_pnl, 2)}")
     print("=" * 60)
-    
+
+    if status == "SUCCESS":
+        try:
+            from tools.report_generator import generate_backtest_report
+            generate_backtest_report(strategy_id, BACKTESTS_DIR)
+        except Exception as rep_err:
+            print(f"[WARN] Report generation failed (non-blocking): {rep_err}")
+
     if status == "FAILED":
         sys.exit(1)
 
