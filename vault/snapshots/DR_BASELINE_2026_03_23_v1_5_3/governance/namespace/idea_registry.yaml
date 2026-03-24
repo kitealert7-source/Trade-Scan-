@@ -1,0 +1,173 @@
+version: 1
+ideas:
+  "01":
+    family: MR
+    title: Mean Reversion Research Track
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    status: active
+  "02":
+    family: VOL
+    title: Volatility Expansion Research Track
+    class: volatility_logic
+    regime: transition
+    role: volatility_capture
+    status: active
+  "03":
+    family: TREND
+    title: Trend Following Research Track
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    status: active
+  "04":
+    family: BRK
+    title: Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    status: active
+  "06":
+    family: PA
+    title: Price Action Research Track
+    class: price_action
+    regime: multi
+    role: entry_edge
+    instruments: any
+    status: active
+  "07":
+    family: MR
+    title: SMI Oscillator Mean Reversion Research Track
+    class: indicator_logic
+    regime: oversold_reversion
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "05":
+    family: PORT
+    title: Portability Research Track
+    class: portfolio_logic
+    regime: multi
+    role: stabilizer
+    status: active
+  "08":
+    family: BRK
+    title: Session Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "09":
+    family: BRK
+    title: London Open Range Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX
+    status: active
+  "10":
+    family: CONT
+    title: Trend Continuation RSI Pullback Research Track
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    instruments: FX
+    status: active
+  "11":
+    family: REV
+    title: Spike Fade Reversal Research Track
+    class: indicator_logic
+    regime: high_volatility
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "12":
+    family: STR
+    title: Break of Structure Pullback Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX
+    status: active
+  "13":
+    family: MR
+    title: Gap Fill Mean Reversion Research Track
+    class: price_action
+    regime: range
+    role: entry_edge
+    instruments: IDX
+    status: active
+  "14":
+    family: BRK
+    title: Squeeze Breakout Research Track (BBSQZ / ATRSQZ)
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: failed
+  "15":
+    family: MR
+    title: Asian Session Range Fade Research Track
+    class: structure_logic
+    regime: range
+    role: entry_edge
+    instruments: FX
+    status: active
+  "16":
+    family: BRK
+    title: ATR Squeeze Breakout Research Track
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: failed
+  "17":
+    family: REV
+    title: False Break / Stop Hunt Reversal Research Track
+    class: structure_logic
+    regime: range_boundary
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "18":
+    family: REV
+    title: London Open Liquidity Sweep Reversal Research Track
+    class: session_logic
+    regime: session_transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "19":
+    family: BRK
+    title: Volatility Expansion Breakout Research Track
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "20":
+    family: MR
+    title: Z-Score Range Oscillator Research Track
+    class: indicator_logic
+    regime: range
+    role: range_complement
+    instruments: XAUUSD
+    status: active
+  "21":
+    family: MR
+    title: Conditional Mean Reversion — Impulse Exhaustion Research Track
+    class: event_logic
+    regime: multi
+    role: range_complement
+    instruments: XAUUSD
+    status: active
+  "23":
+    family: RSI
+    title: RSI Micro Exhaustion — RSI(2) Reversal Research Track
+    class: indicator_logic
+    regime: neutral_weak
+    role: mean_reversion
+    instruments: XAUUSD
+    status: active

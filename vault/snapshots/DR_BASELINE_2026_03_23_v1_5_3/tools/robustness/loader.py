@@ -1,0 +1,53 @@
+"""
+Canonical artifact loader.
+Reads CSVs once, parses timestamps once, validates schemas.
+"""
+import json
+from pathlib import Path
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, SELECTED_DIR
+import pandas as pd
+
+from tools.robustness.schema import validate_trade_df, validate_equity_df
+
+def load_canonical_artifacts(prefix: str, profile: str, project_root: Path):
+    deploy_dir = STRATEGIES_DIR / prefix / "deployable" / profile
+    if not deploy_dir.exists():
+        raise FileNotFoundError(f"Deployable artifacts directory not found: {deploy_dir}")
+
+    # Load trades
+    tr_df = pd.read_csv(deploy_dir / "deployable_trade_log.csv")
+    validate_trade_df(tr_df)
+    
+    # Parse timestamps computationally once
+    tr_df["entry_timestamp"] = pd.to_datetime(tr_df["entry_timestamp"])
+    tr_df["exit_timestamp"] = pd.to_datetime(tr_df["exit_timestamp"])
+
+    # Load equity
+    eq_df = pd.read_csv(deploy_dir / "equity_curve.csv")
+    validate_equity_df(eq_df)
+    
+    # Parse timestamps computationally once
+    eq_df["timestamp"] = pd.to_datetime(eq_df["timestamp"])
+
+    # Load metrics
+    with open(deploy_dir / "summary_metrics.json", "r") as f:
+        metrics = json.load(f)
+
+    # Canonical deterministic ordering
+    tr_df = tr_df.sort_values("exit_timestamp").reset_index(drop=True)
+    eq_df = eq_df.sort_values("timestamp").reset_index(drop=True)
+
+    # Load all profiles from profile_comparison.json (written by post_process_capital.py)
+    # Located at deployable/ (parent of profile subdir)
+    # Returns full profiles dict so runner can access current profile + RAW_MIN_LOT_V1 baseline
+    all_profiles = {}
+    comp_path = deploy_dir.parent / "profile_comparison.json"
+    if comp_path.exists():
+        try:
+            with open(comp_path, "r") as f:
+                _comp = json.load(f)
+            all_profiles = _comp.get("profiles", {})
+        except Exception:
+            pass
+
+    return tr_df, eq_df, metrics, all_profiles

@@ -1,0 +1,36 @@
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: impulse_exhaustion_fade
+    condition: no_continuation_n3
+  exit_logic:
+    type: atr_target_or_time
+    max_bars: 6
+  stop_loss:
+    type: atr_multiple
+    multiple: 1.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+indicators:
+- indicators.structure.avg_range
+- indicators.volatility.atr
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+symbols:
+- XAUUSD
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+test:
+  name: 21_MR_XAUUSD_1H_CMR_S01_V1_P00
+  strategy: 21_MR_XAUUSD_1H_CMR_S01_V1_P00
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-02-28'

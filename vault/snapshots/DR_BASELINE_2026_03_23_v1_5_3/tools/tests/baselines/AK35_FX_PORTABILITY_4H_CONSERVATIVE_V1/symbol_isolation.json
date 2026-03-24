@@ -1,0 +1,50 @@
+[
+  {
+    "final_equity": 10411.31000000001,
+    "cagr": 0.0021399892930098474,
+    "max_dd_pct": 41.07069167245203,
+    "max_loss_streak": 14,
+    "removed_symbol": "AUDUSD",
+    "remaining_trades": 1156
+  },
+  {
+    "final_equity": 9718.780000000039,
+    "cagr": -0.0015116710079291495,
+    "max_dd_pct": 43.45990980451515,
+    "max_loss_streak": 11,
+    "removed_symbol": "EURUSD",
+    "remaining_trades": 1177
+  },
+  {
+    "final_equity": 7413.15000000002,
+    "cagr": -0.015749517290077564,
+    "max_dd_pct": 54.61689587426333,
+    "max_loss_streak": 14,
+    "removed_symbol": "GBPUSD",
+    "remaining_trades": 1215
+  },
+  {
+    "final_equity": 9145.15000000002,
+    "cagr": -0.004728043232656742,
+    "max_dd_pct": 45.99652596085655,
+    "max_loss_streak": 13,
+    "removed_symbol": "NZDUSD",
+    "remaining_trades": 1231
+  },
+  {
+    "final_equity": 7253.140000000036,
+    "cagr": -0.016887900782485366,
+    "max_dd_pct": 54.12988898042435,
+    "max_loss_streak": 15,
+    "removed_symbol": "USDCAD",
+    "remaining_trades": 1280
+  },
+  {
+    "final_equity": 2303.169999999997,
+    "cagr": -0.07491604492234138,
+    "max_dd_pct": 92.61400000000002,
+    "max_loss_streak": 12,
+    "removed_symbol": "USDCHF",
+    "remaining_trades": 1256
+  }
+]

@@ -44,9 +44,9 @@ trade_management:
 symbols:
 - XAUUSD
 test:
-  name: 12_STR_FX_1H_BOS_REGFILT_S03_V1_P00
+  name: 12_STR_FX_1H_BOS_REGFILT_S03_V1_P00__EXT5Y
   strategy: 12_STR_FX_1H_BOS_REGFILT_S03_V1_P00
   broker: OctaFX
   timeframe: 1h
-  start_date: '2024-01-02'
-  end_date: '2026-02-28'
+  start_date: '2021-01-01'
+  end_date: '2026-03-20'
