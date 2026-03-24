@@ -593,6 +593,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
                 
             data['trend_filter_enabled'] = trend_filter_enabled
             data['git_commit'] = git_commit
+            data['schema_version'] = "1.3.0"
             data['execution_model'] = {
                 'order_type':       directive_dict.get('order_placement', {}).get('type', 'market'),
                 'execution_timing': directive_dict.get('order_placement', {}).get('execution_timing', 'next_bar_open'),
