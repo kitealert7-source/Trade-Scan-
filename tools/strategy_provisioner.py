@@ -51,7 +51,19 @@ class Strategy:
     def __init__(self):
         self.filter_stack = FilterStack(self.STRATEGY_SIGNATURE)
 
-    
+    @staticmethod
+    def _schema_sample() -> dict:
+        \"\"\"Return a representative valid signal dict for Phase 0 schema validation.
+        Must match the structure returned by check_entry() when a signal fires.
+        Required fields: signal (1 or -1), stop_price, entry_reference_price, entry_reason.
+        Optional field:  tp_price.
+        Example: {{"signal": 1, "stop_price": 0.0, "entry_reference_price": 0.0, "entry_reason": "your_reason"}}
+        \"\"\"
+        raise NotImplementedError(
+            "_schema_sample() not implemented. "
+            "Fill in to match check_entry() return structure before deployment."
+        )
+
     def prepare_indicators(self, df):
         \"\"\"
         Compute indicators here.
@@ -61,8 +73,8 @@ class Strategy:
 
     def check_entry(self, ctx):
         \"\"\"
-        Return entry signal dict or None.
-        e.g. {{"signal": 1}} for Long
+        Return signal dict or None. Required fields: signal, stop_price,
+        entry_reference_price, entry_reason. Optional: tp_price.
         \"\"\"
         # Architectural Requirement: Allow FilterStack to gate entry
         if not self.filter_stack.allow_trade(ctx):
@@ -72,7 +84,7 @@ class Strategy:
 
     def check_exit(self, ctx):
         \"\"\"
-        Return True to close position.
+        Return True to close position. Use ctx.get('bars_held', 0) not ctx.bars_held.
         \"\"\"
         return False
 """
@@ -285,6 +297,39 @@ def _update_existing_strategy(file_path: Path, signature: dict, required_imports
 from tools.directive_utils import load_directive_yaml, get_key_ci
 from tools.directive_schema import normalize_signature, SIGNATURE_SCHEMA_VERSION
 
+
+def _check_schema_sample(strategy_file: Path) -> None:
+    """Post-provision gate: inspect strategy file for _schema_sample() compliance.
+
+    Three outcomes:
+      SCHEMA_SAMPLE_OK          — method present and implemented (no NotImplementedError)
+      SCHEMA_SAMPLE_STUB        — method present but still raises NotImplementedError
+      SCHEMA_SAMPLE_MISSING     — method absent entirely
+
+    STUB and MISSING both block Phase 0 startup (ENFORCE_SCHEMA_SAMPLE=True).
+    This warning at provision time gives the developer early notice.
+    """
+    try:
+        content = strategy_file.read_text(encoding="utf-8")
+        has_method = "_schema_sample" in content
+        has_stub   = has_method and "NotImplementedError" in content
+
+        if not has_method:
+            print(
+                f"[PROVISION] SCHEMA_SAMPLE_MISSING  {strategy_file.name}"
+                f" — Phase 0 will block deployment. Add _schema_sample() alongside check_entry()."
+            )
+        elif has_stub:
+            print(
+                f"[PROVISION] SCHEMA_SAMPLE_STUB  {strategy_file.name}"
+                f" — stub detected (NotImplementedError). Implement before deployment."
+            )
+        else:
+            print(f"[PROVISION] SCHEMA_SAMPLE_OK  {strategy_file.name}")
+    except Exception as e:
+        print(f"[PROVISION] WARNING: could not inspect _schema_sample: {e}")
+
+
 def provision_strategy(directive_path: str) -> bool:
     """
     Provision strategy artifacts from directive.
@@ -337,17 +382,19 @@ def provision_strategy(directive_path: str) -> bool:
         
         # 6. Check Existence
         if strategy_file.exists():
-            return _update_existing_strategy(strategy_file, signature, import_lines)
+            ok = _update_existing_strategy(strategy_file, signature, import_lines)
+            _check_schema_sample(strategy_file)
+            return (ok, False)
         else:
             print(f"[PROVISION] Creating new strategy: {s_name}")
             strategy_dir.mkdir(parents=True, exist_ok=True)
 
             # 7. Generate Content
             from datetime import datetime
-            
+
             sig_json = json.dumps(signature, indent=4, sort_keys=True)
             sig_json = sig_json.replace(": true", ": True").replace(": false", ": False").replace(": null", ": None")
-            
+
             content = STRATEGY_TEMPLATE.format(
                 strategy_name=s_name,
                 timestamp=datetime.now().isoformat(),
@@ -356,17 +403,18 @@ def provision_strategy(directive_path: str) -> bool:
                 signature_json=sig_json,
                 signature_hash=_hash_sig_dict(signature),
             )
-            
+
             # 8. Write File
             with open(strategy_file, "w", encoding="utf-8") as f:
                 f.write(content)
-                
+
             print(f"[PROVISION] SUCCESS: {strategy_file}")
-            return True
+            _check_schema_sample(strategy_file)
+            return (True, True)
 
     except Exception as e:
         print(f"[PROVISION] FAILED: {e}")
-        return False
+        return (False, False)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
