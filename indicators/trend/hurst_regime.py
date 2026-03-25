@@ -28,6 +28,7 @@ def hurst_regime(series: pd.Series,
     # Hurst should be estimated on log-price levels; using returns collapses
     # values near zero and makes thresholds like 0.55 non-operational.
     series = pd.to_numeric(series, errors="coerce").astype(float)
+    series = series.replace(0, np.nan).ffill()
     log_price = np.log(series.where(series > 0))
 
     lags = np.arange(2, max_lag)
