@@ -108,21 +108,16 @@ def wait_for_mt5_process() -> bool:
 # Step 2 — MT5 API readiness probe
 # ---------------------------------------------------------------------------
 def wait_for_mt5_api() -> bool:
-    """Probe MT5 API until account_info().connected == True. Returns True on success."""
+    """Probe MT5 API: account logged in + terminal connected to server.
+
+    Correct fields:
+      mt5.account_info()  → not None  means account is logged in
+      mt5.terminal_info().connected   means terminal connected to trade server
+    """
     try:
         import MetaTrader5 as mt5
     except ImportError:
         _log("MT5_API_UNAVAILABLE | MetaTrader5 package not importable | aborting")
-        return False
-
-    try:
-        mt5.initialize()
-    except Exception as e:
-        _log(f"MT5_API_ERROR | mt5.initialize() raised {type(e).__name__}: {e} | aborting")
-        try:
-            mt5.shutdown()
-        except Exception:
-            pass
         return False
 
     elapsed = 0
@@ -130,18 +125,39 @@ def wait_for_mt5_api() -> bool:
     try:
         while elapsed < MT5_API_TIMEOUT:
             try:
-                info = mt5.account_info()
-                if info is not None and getattr(info, "connected", False):
-                    _log(f"MT5_API_OK | connected=True | account={info.login} | server={info.server}")
+                if not mt5.initialize():
+                    _log(f"MT5_INIT_FAIL | {mt5.last_error()} | retrying in {MT5_POLL_S}s")
+                    mt5.shutdown()
+                    time.sleep(MT5_POLL_S)
+                    elapsed += MT5_POLL_S
+                    continue
+
+                acct = mt5.account_info()
+                term = mt5.terminal_info()
+
+                if acct is not None and term is not None and term.connected:
+                    _log(
+                        f"MT5_API_OK | connected=True"
+                        f" | account={acct.login}"
+                        f" | server={acct.server}"
+                        f" | balance={acct.balance}"
+                    )
                     result = True
                     break
-            except Exception:
-                pass
+                else:
+                    acct_ok = acct is not None
+                    term_ok = term is not None and term.connected
+                    _log(f"MT5_NOT_READY_YET | account_logged_in={acct_ok} | server_connected={term_ok} | retrying")
+
+            except Exception as e:
+                _log(f"MT5_API_ERROR | {type(e).__name__}: {e} | retrying")
+
+            mt5.shutdown()
             time.sleep(MT5_POLL_S)
             elapsed += MT5_POLL_S
 
         if not result:
-            _log(f"MT5_NOT_READY | account_info().connected=False after {MT5_API_TIMEOUT}s | aborting")
+            _log(f"MT5_NOT_READY | not ready after {MT5_API_TIMEOUT}s | aborting")
     finally:
         try:
             mt5.shutdown()
