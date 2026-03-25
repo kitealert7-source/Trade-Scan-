@@ -24,7 +24,12 @@ def linreg_regime_htf(series_or_df, window: int = 50) -> pd.DataFrame:
         df = series_or_df
         if 'close' not in df.columns:
             raise ValueError("linreg_regime_htf requires 'close' column")
-        ts_idx = pd.to_datetime(df['timestamp'], utc=True)
+        if isinstance(df.index, pd.DatetimeIndex):
+            # Bridge format: timestamp is the index (set by pipeline.py:build_dataframe)
+            ts_idx = df.index if df.index.tz is not None else df.index.tz_localize('UTC')
+        else:
+            # Engine format: timestamp is a column
+            ts_idx = pd.to_datetime(df['timestamp'], utc=True)
         series = pd.Series(df['close'].values, index=ts_idx)
     else:
         series = series_or_df
