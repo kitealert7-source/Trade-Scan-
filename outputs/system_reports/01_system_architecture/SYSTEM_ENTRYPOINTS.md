@@ -41,6 +41,28 @@ These tools are used for system-level governance operations. Most require explic
 
 ---
 
+## SECTION 2A — Monitoring & Self-Healing Entrypoints
+
+These tools operate externally to the research pipeline and govern the liveness of TS_Execution.
+
+| Entrypoint | Purpose | Authority Level |
+| :--- | :--- | :--- |
+| `tools/orchestration/watchdog_daemon.py` | Continuous heartbeat monitor for `ts_execution/src/main.py`. Polls every 60s. SOFT breach (180s) → warning log. HARD breach (300s) → kill + auto-restart. DEGRADED → heartbeat alive but no bar processed in 2h. Storm guard: max 3 restarts per 10-min window. Single-instance enforced via `watchdog.pid`. | Human-started (must start before execution, once per session) |
+| `tools/orchestration/test_watchdog.py` | Simulation harness for watchdog scenarios (Normal / Kill / Degraded) without requiring MT5. Injects synthetic state files for integration testing. | Human-only (testing) |
+
+**Runtime artifacts** (written to `ts_execution/outputs/logs/`, external to Trade_Scan):
+
+| File | Writer | Purpose |
+| :--- | :--- | :--- |
+| `heartbeat.log` | `ts_execution/src/main.py` heartbeat thread | Liveness signal, written every 60s, rotates at 5 MB |
+| `execution.pid` | `ts_execution/src/main.py` startup | Process ID for watchdog; deleted on clean exit |
+| `execution_state.json` | `ts_execution/src/main.py` per-bar callback | `last_bar_time` for logical stall detection; deleted on clean exit |
+| `watchdog_daemon.log` | `watchdog_daemon.py` | All watchdog decisions and recovery actions, rotates at 5 MB |
+| `watchdog_guard.json` | `watchdog_daemon.py` | Restart storm counter |
+| `watchdog.pid` | `watchdog_daemon.py` | Single-instance guard; deleted on clean exit |
+
+---
+
 ## SECTION 3 — Execution Convention
 
 All system tools must be executed as Python modules from the repository root. This ensures consistent import resolution and environment parity across different operating systems.
@@ -69,4 +91,4 @@ To maintain system transparency:
 5. Human-only entrypoints must include an explicit note on the INVARIANT that protects them.
 
 ---
-**Status**: Authoritative Entrypoint Registry | **Version**: 2.0.1 | **Last Updated**: 2026-03-24
+**Status**: Authoritative Entrypoint Registry | **Version**: 2.0.2 | **Last Updated**: 2026-03-25

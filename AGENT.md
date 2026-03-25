@@ -14,13 +14,53 @@
 Before performing strategy design, directive creation, or experiment analysis,
 the agent MUST read the following files:
 
-1. `RESEARCH_MEMORY.md` — accumulated research findings
-2. `SYSTEM_STATE.md` — current operational system state
+1. `CLAUDE.md` — session brief + topic index (read first; maps all tasks to relevant docs)
+2. `RESEARCH_MEMORY.md` — accumulated research findings
+3. `SYSTEM_STATE.md` — current operational system state
 
 These files provide historical research context and current system status.
 The agent must avoid repeating previously disproven approaches recorded in `RESEARCH_MEMORY.md`.
 
-This ensures the agent uses the memory during reasoning.
+For architectural deep-dives by topic (engine, governance, capital, lifecycle, etc.),
+see the topic index in `CLAUDE.md` → `outputs/system_reports/`.
+
+---
+
+### Pre-Directive Creation Gate (MANDATORY — Zero-Cost Failure Point)
+
+Before creating ANY file (directive, strategy.py, sweep_registry entry, idea_registry entry):
+
+**Step 0: Token Validation**
+
+1. Read `governance/namespace/token_dictionary.yaml`
+2. Confirm the proposed MODEL token exists in the `model:` list
+3. If not found — check `aliases.model` for a canonical mapping
+4. If still not found — STOP. Do not create any files. Resolve the token first:
+   - Select the closest existing token, OR
+   - Propose adding a new token/alias to the dictionary and await human approval
+5. Only proceed to file creation once the token is confirmed valid
+
+**Why this is the zero-cost failure point:**
+Stage -0.30 (Namespace Governance Gate) runs BEFORE Stage-0 (strategy.py provisioning).
+The pipeline will catch token errors before touching strategy.py.
+But the agent creates files manually before INBOX submission — so a wrong token at that
+point requires renaming the directive, strategy directory, strategy.py internals,
+sweep_registry entry, and idea_registry entry before re-running.
+Catching it at Step 0 costs nothing. Catching it at pipeline runtime costs a full reset.
+
+**Valid MODEL tokens (reference — source of truth is token_dictionary.yaml):**
+RSIAVG, ZREV, VOLEXP, ATRBRK, BOS, CHOCH, SFP, IBREAK, PINBAR, ENGULF,
+LIQGRAB, PORT, ULTC, DAYOC, SMI, LORB, RSIPULL, SPKFADE, GAPFILL,
+BBSQZ, ATRSQZ, ASRANGE, FAKEBREAK, LIQSWEEP, CMR, MICROREV, IMPULSE
+
+**New pass creation tool (eliminates EXPERIMENT_DISCIPLINE 2-pass cycle):**
+For any `_PXX` variation, use `tools/new_pass.py` instead of manually writing files:
+```bash
+python tools/new_pass.py <source_pass> <new_pass>   # scaffold
+# Edit directive + strategy.py
+python tools/new_pass.py --rehash <new_pass>         # pre-inject canonical hash → no mtime change → no EXPERIMENT_DISCIPLINE
+```
+GENESIS_MODE (brand new family, _P00): use legacy `python tools/run_pipeline.py --all --provision-only` path.
 
 ---
 
@@ -52,6 +92,7 @@ These are non-negotiable. The agent must never violate any of these.
 22. **Sweep Registry Integrity** — Sweeps are reserved through `tools/sweep_registry_gate.py` at Stage -0.35. Existing sweep reuse is allowed only for exact idempotent matches (same directive + same signature hash); all other reuse is blocked as collision.
 23. **Symbol Universe Admission** — Preflight must confirm each symbol exists in broker specs and has RESEARCH data for the declared broker/timeframe before Stage-1 execution.
 24. **Clean Repository Rule** — The Trade_Scan repository is immutable during pipeline execution. All runtime artifacts (runs, registries, backtests, reports, sandbox outputs) must be written exclusively to `TradeScan_State/`. Any tool or workflow attempting to write runtime artifacts inside the repository constitutes a governance violation.
+25. **Scratch Script Placement** — All ad-hoc, one-off, diagnostic, or batch utility scripts created during agent sessions must be written to `/tmp/` exclusively. The `Trade_Scan/` repository root must remain free of transient scripts. Any script placed in the repository root without being part of the governed toolset is a governance violation.
 
 ---
 

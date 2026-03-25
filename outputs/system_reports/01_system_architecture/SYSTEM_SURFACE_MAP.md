@@ -148,6 +148,9 @@ A fundamental architectural rule is the **separation of Source and State**.
 
 **Rationale**: Keeping state external ensures the repository remains lean, portable, and git-clean, while providing a clear audit trail of research history.
 
+**TS_Execution Integration** (`ts_execution/` — sibling repository, external to Trade_Scan):
+The live execution system (`ts_execution/src/main.py --phase 2`) is governed by `watchdog_daemon.py` in Trade_Scan. Runtime liveness artifacts are written to `ts_execution/outputs/logs/` — outside the Trade_Scan source boundary. The watchdog derives the ts_execution root as a sibling directory (`../ts_execution`) and is configurable via the `TS_EXEC_ROOT` environment variable.
+
 ---
 
 ## SECTION 7A — Data Authority Hierarchy
@@ -206,6 +209,7 @@ Surface | Interaction Point | Primary Actors
 **Pipeline Surface** | `tools/orchestration/` | System Orchestrators
 **Strategy Surface** | `strategies/` | Strategy Generators
 **Capital Surface** | `tools/capital_wrapper.py`, `tools/post_process_capital.py` | Capital Modelers
+**Monitoring Surface** | `tools/orchestration/watchdog_daemon.py` | DevOps / Automated Self-Healing
 
 These layers interact via **Directives** (Inputs) and **Registries/Manifests** (State Handshakes), ensuring no layer bypasses the governance gates.
 
@@ -265,4 +269,4 @@ The system is governed by **25 codified invariants** (see `AGENT.md` SYSTEM INVA
 7. **Scratch Script Placement**: All ad-hoc agent scripts go to `/tmp/` only. The repository root is reserved for governed toolset artifacts.
 
 ---
-**Status**: Top-Level Authority Map | **Version**: 2.0.0 | **Last Updated**: 2026-03-23
+**Status**: Top-Level Authority Map | **Version**: 2.0.1 | **Last Updated**: 2026-03-25
