@@ -21,6 +21,9 @@ tmp_*
 *_venv/
 *.bak
 
+# Canonicalizer staging (cross-platform replacement for /tmp)
+.canonical_staging/
+
 # OS junk
 .DS_Store
 Thumbs.db
@@ -66,7 +69,8 @@ backtest_directives/active_backup/
 .vscode/
 
 # ===== Generated outputs =====
-outputs/
+outputs/logs/
+outputs/proposals/
 
 # ===== Logs =====
 *.log
