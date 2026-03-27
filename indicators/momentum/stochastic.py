@@ -47,7 +47,7 @@ def stochastic_k(
     raw_k = 100.0 * (close - lowest_low) / denominator.replace(0, np.nan)
 
     # Forward fill to maintain continuity
-    raw_k = raw_k.fillna(method="ffill")
+    raw_k = raw_k.ffill()
 
     # Smooth
     smoothed_k = raw_k.rolling(

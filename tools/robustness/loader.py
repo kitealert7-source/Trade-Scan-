@@ -37,4 +37,17 @@ def load_canonical_artifacts(prefix: str, profile: str, project_root: Path):
     tr_df = tr_df.sort_values("exit_timestamp").reset_index(drop=True)
     eq_df = eq_df.sort_values("timestamp").reset_index(drop=True)
 
-    return tr_df, eq_df, metrics
+    # Load all profiles from profile_comparison.json (written by post_process_capital.py)
+    # Located at deployable/ (parent of profile subdir)
+    # Returns full profiles dict so runner can access current profile + RAW_MIN_LOT_V1 baseline
+    all_profiles = {}
+    comp_path = deploy_dir.parent / "profile_comparison.json"
+    if comp_path.exists():
+        try:
+            with open(comp_path, "r") as f:
+                _comp = json.load(f)
+            all_profiles = _comp.get("profiles", {})
+        except Exception:
+            pass
+
+    return tr_df, eq_df, metrics, all_profiles

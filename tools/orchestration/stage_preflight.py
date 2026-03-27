@@ -48,10 +48,9 @@ def run_preflight_semantic_checks(
         except subprocess.CalledProcessError as err:
             if err.returncode == 2:
                 print("\n============================================================")
-                print("[ADMISSION GATE] STRATEGY REQUIRES HUMAN IMPLEMENTATION")
+                print("[ADMISSION GATE] HUMAN ACTION REQUIRED — see details above")
                 print("============================================================")
-                print("ACTION: Please open the generated strategy file and implement `check_entry` and `check_exit`.")
-                print("STATE: Pipeline paused cleanly. Rerun after implementation.")
+                print("STATE: Pipeline paused cleanly. Rerun after completing the required action.")
                 raise PipelineAdmissionPause(
                     "Preflight admission gate paused execution pending human implementation.",
                     directive_id=clean_id,

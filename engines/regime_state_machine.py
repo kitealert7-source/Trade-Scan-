@@ -6,6 +6,9 @@ Implements a 3-axis market regime model (Direction, Structure, Volatility)
 with stability filtering and legacy field preservation.
 """
 
+import hashlib
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from indicators.trend.linreg_regime import linreg_regime
@@ -22,6 +25,9 @@ from indicators.volatility.realized_vol import realized_vol
 from indicators.volatility.volatility_regime import volatility_regime
 from indicators.volatility.atr_percentile import atr_percentile
 from indicators.volatility.atr import atr as compute_atr
+
+REGIME_CACHE_DIR = Path("data_root/regime_cache")
+REGIME_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def compute_indicator_stack(df: pd.DataFrame) -> pd.DataFrame:
@@ -138,6 +144,28 @@ def apply_regime_model(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise RuntimeError(f"REGIME_MODEL_INPUT_ERROR: missing {missing}")
 
+    # --- BUILD CACHE KEY ---
+    hash_series = pd.util.hash_pandas_object(
+        df[['open', 'high', 'low', 'close']], index=True
+    ).values
+    cache_key = hashlib.md5(hash_series.tobytes()).hexdigest()
+    cache_path = REGIME_CACHE_DIR / f"{cache_key}.parquet"
+
+    # --- CACHE HIT (SAFE LOAD) ---
+    if cache_path.exists():
+        try:
+            regime_cols = pd.read_parquet(cache_path)
+            if len(regime_cols) == len(df):
+                for col in regime_cols.columns:
+                    if col not in df.columns:
+                        df[col] = regime_cols[col].values
+                return df
+        except Exception:
+            pass  # corrupted file — fall through to recompute
+
+    # --- CACHE MISS: snapshot columns before computation ---
+    original_cols = set(df.columns)
+
     # 2. Compute Indicator Stack
     df = compute_indicator_stack(df)
 
@@ -247,5 +275,10 @@ def apply_regime_model(df: pd.DataFrame) -> pd.DataFrame:
     
     df['volatility_regime'] = df['regime_vol_legacy']
     df['atr'] = df['val_atr']
+
+    # --- SAVE CACHE ---
+    regime_cols_to_save = [c for c in df.columns if c not in original_cols]
+    if len(regime_cols_to_save) > 0:
+        df[regime_cols_to_save].to_parquet(cache_path)
 
     return df

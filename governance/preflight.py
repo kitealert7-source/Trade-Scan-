@@ -349,21 +349,79 @@ def run_preflight(
                 return ("BLOCK_EXECUTION", f"Declared indicator not found: {target_path}", None)
     
     # --- CHECK 6: Strategy Provisioning ---
+    _is_new_strategy = False
+    _strategy_name = ""
     try:
         from tools.pipeline_utils import parse_directive as _pd
         _parsed_tmp = _pd(directive_full_path)
-        _strategy_name = _parsed_tmp.get("strategy", _parsed_tmp.get("test", {}).get("strategy", ""))
+        _strategy_name = _parsed_tmp.get("strategy", _parsed_tmp.get("test", {}).get("strategy", "")) or ""
         if _strategy_name:
             _existing_strategy = PROJECT_ROOT / "strategies" / _strategy_name / "strategy.py"
             if _existing_strategy.exists():
                 import shutil
                 shutil.copy2(str(_existing_strategy), str(_existing_strategy.with_suffix(".py.bak")))
-        
+
         from tools.strategy_provisioner import provision_strategy
-        if not provision_strategy(str(directive_full_path)):
-             return ("BLOCK_EXECUTION", "Strategy Provisioning Failed.", None)
+        _prov_ok, _is_new_strategy = provision_strategy(str(directive_full_path))
+        if not _prov_ok:
+            return ("BLOCK_EXECUTION", "Strategy Provisioning Failed.", None)
     except Exception as e:
         return ("BLOCK_EXECUTION", f"Strategy Provisioning Exception: {e}", None)
+
+    # --- CHECK 6.5: Human Approval Gate + Experiment Discipline ---
+    # Single marker: strategies/<name>/strategy.py.approved
+    # New strategies always require the marker.
+    # Existing strategies: block if .approved is stale OR if strategy.py was
+    # modified after the directive's first recorded run (registry timestamp).
+    # Both checks use the same reference: was strategy.py touched after execution?
+    if _strategy_name:
+        _strat_py = PROJECT_ROOT / "strategies" / _strategy_name / "strategy.py"
+        _approved = _strat_py.with_name("strategy.py.approved")
+
+        if _is_new_strategy:
+            if not _approved.exists():
+                return (
+                    "AWAITING_HUMAN_APPROVAL",
+                    f"HUMAN_APPROVAL_REQUIRED: New strategy '{_strategy_name}' was just provisioned. "
+                    f"Implement check_entry/check_exit in strategies/{_strategy_name}/strategy.py, "
+                    f"then create 'strategy.py.approved' in that directory to approve execution.",
+                    None,
+                )
+        elif _strat_py.exists():
+            _next_ver = _strategy_name.replace("_V1_", "_V2_") if "_V1_" in _strategy_name else _strategy_name + "_V2"
+            _strat_mtime = _strat_py.stat().st_mtime
+
+            # Fast path: approval marker present and stale
+            if _approved.exists():
+                if _strat_mtime > _approved.stat().st_mtime:
+                    return (
+                        "AWAITING_HUMAN_APPROVAL",
+                        f"EXPERIMENT_DISCIPLINE: strategy.py was modified after last approval. "
+                        f"Do NOT reset and re-run this directive. "
+                        f"Create a new directive version (e.g. {_next_ver}) and run fresh. "
+                        f"If this is intentional and you are starting a new version, "
+                        f"recreate 'strategy.py.approved' in strategies/{_strategy_name}/ to proceed.",
+                        None,
+                    )
+
+            # Primary + fallback: shared helper (registry → RUNS_DIR scan)
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                from tools.system_registry import _get_directive_first_execution_timestamp
+                _first_exec_ts = _get_directive_first_execution_timestamp(_strategy_name)
+                if _first_exec_ts is not None:
+                    _strat_dt = _dt.fromtimestamp(_strat_mtime, tz=_tz.utc)
+                    if _strat_dt > _first_exec_ts:
+                        return (
+                            "AWAITING_HUMAN_APPROVAL",
+                            f"EXPERIMENT_DISCIPLINE: strategy.py was modified after directive first ran "
+                            f"({_first_exec_ts.strftime('%Y-%m-%d %H:%M UTC')}). "
+                            f"Do NOT reset and re-run this directive. "
+                            f"Create a new directive version (e.g. {_next_ver}) and run fresh.",
+                            None,
+                        )
+            except Exception:
+                pass  # fail-safe: allow on any helper read error
 
     # --- CHECK 7: Semantic Validation ---
     from tools.semantic_validator import validate_semantic_signature

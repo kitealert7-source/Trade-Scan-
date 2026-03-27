@@ -21,10 +21,17 @@ class FilterStack:
     def __init__(self, signature: dict):
         self.signature = signature or {}
         self.filtered_bars = 0
-        
+
         # Phase 1: Signature Fingerprinting
         self._initial_sig_str = json.dumps(self.signature, sort_keys=True)
         self.signature_hash = hashlib.sha256(self._initial_sig_str.encode('utf-8')).hexdigest()
+
+        # Direction-gate cache: stores regime values from the most recent
+        # allow_trade(ctx) call. Used by allow_direction() when direction_gate is
+        # enabled. The engine always calls allow_trade() before allow_direction()
+        # for any given signal, so the cached value is always from the signal bar.
+        self._cached_vol_regime   = None
+        self._cached_trend_regime = None
 
     def allow_trade(self, ctx) -> bool:
         # Phase 1: Engine Protocol Enforcement
@@ -38,20 +45,59 @@ class FilterStack:
         current_sig_str = json.dumps(self.signature, sort_keys=True)
         if current_sig_str != self._initial_sig_str:
             raise RuntimeError("ABORT_GOVERNANCE: Strategy signature mutated during runtime.")
-            
+
+        # Cache regime values for direction_gate mode. Runs before the filter loop so
+        # values are always available in allow_direction() even if allow_trade()
+        # returns False early. try/except handles strategies with no regime indicators.
+        try:
+            self._cached_vol_regime = ctx.require('volatility_regime')
+        except Exception:
+            self._cached_vol_regime = None
+        try:
+            self._cached_trend_regime = ctx.require('trend_regime')
+        except Exception:
+            self._cached_trend_regime = None
+
+        # Hard pre-entry gate: market_regime_filter
+        # Blocks trade if current bar's market_regime is in the exclude list.
+        # No fallback — rejection is absolute.
+        mrf = self.signature.get("market_regime_filter", {})
+        if mrf.get("enabled", False):
+            exclude_list = mrf.get("exclude", [])
+            if exclude_list:
+                try:
+                    actual_regime = ctx.require("market_regime")
+                except Exception:
+                    actual_regime = None
+                if actual_regime in exclude_list:
+                    self.filtered_bars += 1
+                    return False
+
         for filter_name, cfg in self.signature.items():
             if not isinstance(cfg, dict):
                 continue
 
+            if filter_name == "market_regime_filter":
+                continue  # Already handled above — skip in generic loop
+
             if not cfg.get("enabled", False):
                 continue
-                
+
             if filter_name == "trend_filter":
+                # direction_gate mode: per-direction gating handled in allow_direction().
+                # Bypass standard field check to avoid double-blocking.
+                if cfg.get("direction_gate"):
+                    continue
                 field = "trend_regime"
                 expected = cfg.get("required_regime")
                 operator = cfg.get("operator", "eq")
                 
             elif filter_name == "volatility_filter":
+                # direction_gate mode: bar-level vol gating is bypassed entirely.
+                # allow_direction() handles conditional direction blocking using the
+                # cached vol_regime. Skipping here prevents double-blocking.
+                if cfg.get("direction_gate"):
+                    continue
                 field = "volatility_regime"
                 expected = cfg.get("required_regime")
                 operator = cfg.get("operator", "eq")
@@ -76,10 +122,18 @@ class FilterStack:
                 )
 
             actual = ctx.require(field)
-            
+
             if not self._evaluate_condition(actual, expected, operator):
                 self.filtered_bars += 1
                 return False
+
+            # Secondary: exclude_regime — explicitly reject a specific regime value.
+            # Supported on trend_filter only. Evaluated only if primary condition passes.
+            if filter_name == "trend_filter":
+                exclude_val = cfg.get("exclude_regime")
+                if exclude_val is not None and actual == exclude_val:
+                    self.filtered_bars += 1
+                    return False
 
         return True
 
@@ -87,8 +141,43 @@ class FilterStack:
         """
         Phase 2: Directional Gating.
         Verifies if the intended trade direction is permitted by the filters.
-        Assumes `allow_trade(ctx)` has already permitted the bar itself.
+        Assumes `allow_trade(ctx)` has already been called for the signal bar.
+
+        direction_gate mode: when volatility_filter has direction_gate=True, the
+        allowed direction is determined by the vol_regime cached during allow_trade().
+        long_when / short_when sub-blocks define the vol condition per direction.
         """
+        # --- Direction-conditional vol gating (direction_gate mode) ---
+        vol_cfg = self.signature.get("volatility_filter", {})
+        if vol_cfg.get("enabled") and vol_cfg.get("direction_gate"):
+            vol = self._cached_vol_regime
+            if vol is None:
+                return False  # Safety: no cached regime → block
+            gate_key = "long_when" if intended_direction > 0 else "short_when"
+            gate = vol_cfg.get(gate_key)
+            if not gate:
+                return False  # No gate defined for this direction → block
+            req = gate.get("required_regime")
+            op = gate.get("operator", "eq")
+            if not self._evaluate_condition(vol, req, op):
+                return False
+
+        # --- Direction-conditional trend gating (direction_gate mode) ---
+        trend_cfg = self.signature.get("trend_filter", {})
+        if trend_cfg.get("enabled") and trend_cfg.get("direction_gate"):
+            trend = self._cached_trend_regime
+            if trend is None:
+                return False  # Safety: no cached regime → block
+            gate_key = "long_when" if intended_direction > 0 else "short_when"
+            gate = trend_cfg.get(gate_key)
+            if not gate:
+                return False  # No gate defined for this direction → block
+            req = gate.get("required_regime")
+            op = gate.get("operator", "eq")
+            if not self._evaluate_condition(trend, req, op):
+                return False
+
+        # --- Static allowed_directions check (existing behaviour) ---
         for filter_key in ["volatility_filter", "trend_filter"]:
             cfg = self.signature.get(filter_key, {})
             if cfg.get("enabled", False):

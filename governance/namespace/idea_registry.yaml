@@ -123,3 +123,51 @@ ideas:
     role: entry_edge
     instruments: FX
     status: failed
+  "17":
+    family: REV
+    title: False Break / Stop Hunt Reversal Research Track
+    class: structure_logic
+    regime: range_boundary
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "18":
+    family: REV
+    title: London Open Liquidity Sweep Reversal Research Track
+    class: session_logic
+    regime: session_transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "19":
+    family: BRK
+    title: Volatility Expansion Breakout Research Track
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "20":
+    family: MR
+    title: Z-Score Range Oscillator Research Track
+    class: indicator_logic
+    regime: range
+    role: range_complement
+    instruments: XAUUSD
+    status: active
+  "21":
+    family: MR
+    title: Conditional Mean Reversion — Impulse Exhaustion Research Track
+    class: event_logic
+    regime: multi
+    role: range_complement
+    instruments: XAUUSD
+    status: active
+  "23":
+    family: RSI
+    title: RSI Micro Exhaustion — RSI(2) Reversal Research Track
+    class: indicator_logic
+    regime: neutral_weak
+    role: mean_reversion
+    instruments: XAUUSD
+    status: active

@@ -7,7 +7,7 @@ Invoked by Windows Task Scheduler on:
   - Every 5 minutes     (periodic watchdog liveness guard)
 
 Responsibilities (in order):
-  1. Poll for terminal64.exe (MT5 process) — abort if not found within 120s
+  1. Check for terminal64.exe — launch it if not running, then poll up to 120s
   2. Probe MT5 API: account_info().connected == True — abort if not ready within 60s
   3. Single-instance guard: skip if watchdog already alive
   4. Start watchdog_daemon.py as detached process
@@ -43,6 +43,12 @@ MT5_PROCESS      = "terminal64.exe"
 MT5_POLL_S       = 10     # seconds between each probe poll
 MT5_PROC_TIMEOUT = 120    # max seconds to wait for terminal64.exe to appear
 MT5_API_TIMEOUT  = 60     # max seconds to wait for account_info().connected
+MT5_EXE_PATH     = Path(os.environ.get(
+    "MT5_EXE_PATH",
+    r"C:\Program Files\OctaFX MT5\terminal64.exe",
+))
+
+_mt5_launch_attempted = False  # launch at most once per launcher run
 
 
 # ---------------------------------------------------------------------------
@@ -90,14 +96,37 @@ def _mt5_proc_alive() -> int | None:
     return None
 
 
+def _try_launch_mt5() -> bool:
+    """Launch terminal64.exe as a detached process. Returns True if launched."""
+    if not MT5_EXE_PATH.exists():
+        _log(f"MT5_EXE_NOT_FOUND | path={MT5_EXE_PATH} | cannot auto-launch")
+        return False
+    try:
+        proc = subprocess.Popen(
+            [str(MT5_EXE_PATH)],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _log(f"MT5_LAUNCHED | pid={proc.pid} | path={MT5_EXE_PATH}")
+        return True
+    except Exception as e:
+        _log(f"MT5_LAUNCH_FAILED | {type(e).__name__}: {e}")
+        return False
+
+
 def wait_for_mt5_process() -> bool:
     """Poll for terminal64.exe. Returns True if found, False on timeout."""
+    global _mt5_launch_attempted
     elapsed = 0
     while elapsed < MT5_PROC_TIMEOUT:
         pid = _mt5_proc_alive()
         if pid is not None:
             _log(f"MT5_PROC_FOUND | pid={pid}")
             return True
+        if not _mt5_launch_attempted:
+            _mt5_launch_attempted = True
+            _try_launch_mt5()
         time.sleep(MT5_POLL_S)
         elapsed += MT5_POLL_S
     _log(f"MT5_PROC_TIMEOUT | {MT5_PROCESS} not found in {MT5_PROC_TIMEOUT}s | aborting")

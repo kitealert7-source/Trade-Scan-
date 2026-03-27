@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import sys
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 # Config
@@ -65,19 +66,51 @@ def filter_strategies():
     passed_df = df[mask].copy()
     
     # --- CANDIDATE LEDGER GENERATION ---
+    # Append+dedup semantics: previously passing strategies are never evicted,
+    # even if they are temporarily absent from the Master Filter (e.g., during
+    # re-run cleanup cycles where old rows are removed before re-running).
     if not passed_df.empty:
         try:
-            passed_df.to_excel(CANDIDATE_FILTER_PATH, index=False)
-            print(f"[SUCCESS] Candidate ledger generated: {CANDIDATE_FILTER_PATH}")
-            
-            # Formatter integration
+            # Step 1: Archive existing candidates file before any mutation.
+            if CANDIDATE_FILTER_PATH.exists():
+                archive_dir = CANDIDATE_FILTER_PATH.parent / "archive"
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+                shutil.copy2(
+                    CANDIDATE_FILTER_PATH,
+                    archive_dir / f"Filtered_Strategies_Passed_{ts}.xlsx",
+                )
+                print(f"[CANDIDATES] Archived previous candidates to {archive_dir.name}/Filtered_Strategies_Passed_{ts}.xlsx")
+
+            # Step 2: Read-modify-write with dedup on run_id (mirrors stage3_compiler pattern).
+            if CANDIDATE_FILTER_PATH.exists():
+                try:
+                    df_existing = pd.read_excel(CANDIDATE_FILTER_PATH)
+                    existing_run_ids = (
+                        set(df_existing["run_id"].astype(str).tolist())
+                        if "run_id" in df_existing.columns
+                        else set()
+                    )
+                    df_new_rows = passed_df[~passed_df["run_id"].astype(str).isin(existing_run_ids)]
+                    df_merged = pd.concat([df_existing, df_new_rows], ignore_index=True)
+                    print(f"[CANDIDATES] Merged: {len(existing_run_ids)} existing + {len(df_new_rows)} new = {len(df_merged)} total")
+                except Exception as read_err:
+                    print(f"[WARN] Could not read existing candidates file ({read_err}) — writing fresh.")
+                    df_merged = passed_df
+            else:
+                df_merged = passed_df
+
+            df_merged.to_excel(CANDIDATE_FILTER_PATH, index=False)
+            print(f"[SUCCESS] Candidate ledger written: {CANDIDATE_FILTER_PATH}")
+
+            # Step 3: Format the merged ledger.
             import subprocess
             formatter_path = PROJECT_ROOT / "tools" / "format_excel_artifact.py"
             try:
                 subprocess.run(
                     [sys.executable, str(formatter_path), "--file", str(CANDIDATE_FILTER_PATH), "--profile", "strategy"],
                     check=True,
-                    capture_output=True
+                    capture_output=True,
                 )
             except subprocess.CalledProcessError as e:
                 print(f"[WARN] Failed to format candidate ledger: {e.stderr.decode()}")

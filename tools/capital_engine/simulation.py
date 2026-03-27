@@ -245,6 +245,7 @@ class PortfolioState:
     min_lot_fallback: bool = False
     max_risk_multiple: Optional[float] = 3.0
     track_risk_override: bool = False
+    raw_lot_mode: bool = False  # If True: bypass all gates, execute every signal at min_lot
     equity: float = 0.0
     realized_pnl: float = 0.0
     total_open_risk: float = 0.0
@@ -300,6 +301,33 @@ class PortfolioState:
         return self._floor_to_step(raw_lots)
 
     def process_entry(self, event: TradeEvent, usd_per_pu_per_lot: float, contract_size: float) -> bool:
+        # RAW mode: bypass all gates — unconditionally accept at min_lot
+        if self.raw_lot_mode:
+            lot_size = self.min_lot
+            trade_risk_usd = event.risk_distance * usd_per_pu_per_lot * lot_size
+            trade_notional  = lot_size * event.entry_price * usd_per_pu_per_lot
+            trade = OpenTrade(
+                trade_id=event.trade_id, symbol=event.symbol, direction=event.direction,
+                entry_price=event.entry_price, exit_price=event.exit_price, lot_size=lot_size,
+                risk_usd=trade_risk_usd, notional_usd=trade_notional,
+                risk_distance=event.risk_distance,
+                usd_per_price_unit_per_lot=usd_per_pu_per_lot,
+                entry_timestamp=event.timestamp,
+                initial_stop_price=event.initial_stop_price, atr_entry=event.atr_entry,
+                r_multiple=event.r_multiple, volatility_regime=event.volatility_regime,
+                trend_regime=event.trend_regime, trend_label=event.trend_label,
+            )
+            self.open_trades[event.trade_id] = trade
+            self.total_open_risk += trade_risk_usd
+            self.total_notional  += trade_notional
+            self.symbol_notional[event.symbol] = self.symbol_notional.get(event.symbol, 0.0) + trade_notional
+            self.total_accepted += 1
+            self.accepted_trade_ids.append(event.trade_id)
+            if len(self.open_trades) > self.max_concurrent:
+                self.max_concurrent = len(self.open_trades)
+            self.equity_timeline.append((event.timestamp, self.equity))
+            return True
+
         if self.concurrency_cap is not None and len(self.open_trades) >= int(self.concurrency_cap):
             self._reject(
                 event,
@@ -524,6 +552,7 @@ def run_simulation(
             min_lot_fallback=params.get("min_lot_fallback", False),
             max_risk_multiple=params.get("max_risk_multiple", 3.0),
             track_risk_override=params.get("track_risk_override", False),
+            raw_lot_mode=params.get("raw_lot_mode", False),
         )
 
     symbol_static_fallback: Dict[str, float] = {}

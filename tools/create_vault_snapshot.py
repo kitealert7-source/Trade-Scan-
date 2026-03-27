@@ -56,10 +56,11 @@ def main():
 
     # Determine snapshot name
     date_str = datetime.now().strftime("%Y_%m_%d")
-    # Try to read robustness version as the engine version marker
+    # Read engine version from pipeline_utils
     try:
-        from tools.robustness import __version__ as rob_ver
-        ver_tag = rob_ver.replace(".", "_")
+        from tools.pipeline_utils import get_engine_version
+        engine_ver = get_engine_version()
+        ver_tag = engine_ver.replace(".", "_")
     except ImportError:
         ver_tag = "0_0_0"
 

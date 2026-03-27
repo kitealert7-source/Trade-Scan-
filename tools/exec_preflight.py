@@ -81,7 +81,7 @@ def main():
 
     if decision == "ALLOW_EXECUTION":
         sys.exit(0)
-    elif decision == "ADMISSION_GATE":
+    elif decision in ("ADMISSION_GATE", "AWAITING_HUMAN_APPROVAL"):
         sys.exit(2)
     else:
         sys.exit(1)

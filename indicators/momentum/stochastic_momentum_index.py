@@ -82,7 +82,7 @@ def stochastic_momentum_index(
     smi = 100.0 * sm_diff / sm_range.replace(0, np.nan)
 
     # Forward fill to prevent NaN propagation
-    smi = smi.fillna(method="ffill")
+    smi = smi.ffill()
 
     # Signal line
     smi_signal = smi.ewm(span=signal_period, adjust=False).mean()

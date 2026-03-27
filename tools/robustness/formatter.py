@@ -89,10 +89,10 @@ def format_report(
             out.append(f"- Regime Distribution: {dist_str}")
     out.append(f"- Simulations: {mc.get('iterations', 500)}")
     out.append(f"- Seed: {mc.get('seed', 42)}\n")
-    out.append(f"- Mean CAGR: {_fmt_pct(mc.get('mean_cagr', 0))}")
-    out.append(f"- Median CAGR: {_fmt_pct(mc.get('median_cagr', 0))}")
-    out.append(f"- 5th pctl CAGR: {_fmt_pct(mc.get('p5_cagr', 0))}")
-    out.append(f"- 95th pctl CAGR: {_fmt_pct(mc.get('p95_cagr', 0))}")
+    out.append(f"- Mean CAGR: {_fmt_pct(mc.get('mean_cagr', 0) * 100)}")
+    out.append(f"- Median CAGR: {_fmt_pct(mc.get('median_cagr', 0) * 100)}")
+    out.append(f"- 5th pctl CAGR: {_fmt_pct(mc.get('p5_cagr', 0) * 100)}")
+    out.append(f"- 95th pctl CAGR: {_fmt_pct(mc.get('p95_cagr', 0) * 100)}")
     out.append(f"- Mean DD: {_fmt_pct(mc.get('mean_dd', 0))}")
     out.append(f"- 95th pctl DD: {_fmt_pct(mc.get('p95_dd', 0))}")
     out.append(f"- Blow-up runs (>90% DD): {mc.get('blowup_runs', 0)}\n")
@@ -336,5 +336,70 @@ def format_report(
         _format_season(results["monthly_seasonality"], "Section 15 — Monthly Seasonality")
     if "weekday_seasonality" in results:
         _format_season(results["weekday_seasonality"], "Section 16 — Weekday Seasonality")
+
+    # ── Section 17: Capital Efficiency Summary + Baseline Comparison ──────────
+    ce = results.get("capital_efficiency")
+    if ce:
+        out.append("## Section 17 — Capital Efficiency Summary\n")
+
+        src = " *(recomputed)*" if ce.get("capital_source") == "recomputed" else ""
+        rouc = ce["return_on_utilized_capital"]
+        out.append("| Metric | Value |")
+        out.append("|---|---|")
+        out.append(f"| Utilized Capital{src} | {_fmt_usd(ce['utilized_capital'])} |")
+        out.append(f"| Net PnL | {_fmt_usd(ce['net_pnl'])} |")
+        out.append(f"| Return on Utilized Capital | {rouc:.4f} ({rouc * 100:.2f}%) |")
+        out.append(f"| Utilization (%) | {ce['utilization_pct']:.2f}% |")
+        out.append(f"| Profit Factor | {ce['profit_factor']:.2f} |")
+        out.append(f"| Total Trades | {ce['total_trades']} |")
+        out.append(f"| Stability Factor (min(1, PF/2)) | {ce['stability_factor']:.4f} |")
+        out.append(f"| Sample Factor (ln(1+N)) | {ce['sample_factor']:.4f} |")
+        out.append(f"| **Efficiency Score** | **{ce['efficiency_score']:.4f}** |")
+        out.append("")
+
+        # Baseline comparison block
+        bc = ce.get("baseline_comparison")
+        if bc:
+            out.append(f"### Baseline Comparison — {bc['baseline_key']}\n")
+            out.append(f"| Metric | {bc['baseline_key']} (Baseline) | {bc['current_key']} |")
+            out.append("|---|---|---|")
+            out.append(f"| Realized PnL | {_fmt_usd(bc['baseline_pnl'])} | {_fmt_usd(bc['current_pnl'])} |")
+            out.append(f"| Return on Utilized Capital | {bc['baseline_rouc']:.4f} | {bc['current_rouc']:.4f} |")
+            out.append(f"| Utilization % | {bc['baseline_util_pct']:.2f}% | {bc['current_util_pct']:.2f}% |")
+            out.append(f"| Max DD % | {bc['baseline_max_dd_pct']:.2f}% | {bc['current_max_dd_pct']:.2f}% |")
+            out.append("")
+
+            pnl_mult  = bc.get("pnl_multiplier")
+            util_mult = bc.get("utilization_multiplier")
+            edge_dlt  = bc["edge_delta"]
+            out.append(f"- PnL Multiplier: {'N/A' if pnl_mult  is None else f'{pnl_mult:.2f}×'}")
+            out.append(f"- Utilization Multiplier: {'N/A' if util_mult is None else f'{util_mult:.2f}×'}")
+            out.append(f"- Edge Delta (RoUC): {edge_dlt:+.4f}")
+            out.append("")
+
+            driver_map = {
+                "utilization":       "primarily driven by utilization",
+                "edge improvement":  "primarily driven by edge improvement",
+                "both":              "driven by both utilization and edge improvement",
+            }
+            driver_label = driver_map.get(bc["driver"], bc["driver"])
+            out.append(f"> Scaling impact: PnL increase is {driver_label}.\n")
+
+        # Per-engine ranking (PF_ composite portfolios only)
+        engine_rows = ce.get("engine_ranking", [])
+        if engine_rows:
+            out.append("### Per-Engine Efficiency Ranking\n")
+            out.append("> **Note:** `Return Proxy / $1K` = net_pnl / $1,000. "
+                       "Proxy metric — per-engine utilized capital not available. "
+                       "Do not compare directly to portfolio-level RoUC.\n")
+            out.append("| Rank | Strategy | Symbol | Trades | Net PnL | Return Proxy / $1K | PF | Efficiency Score |")
+            out.append("|---|---|---|---|---|---|---|---|")
+            for i, row in enumerate(engine_rows, 1):
+                out.append(
+                    f"| {i} | {row['strategy_id']} | {row['symbol']} | {row['trades']} | "
+                    f"{_fmt_usd(row['net_pnl'])} | {row['return_proxy_per_1000']:.4f} | "
+                    f"{row['pf']:.2f} | {row['efficiency_score']:.4f} |"
+                )
+            out.append("")
 
     return "\n".join(out)

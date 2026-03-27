@@ -293,7 +293,7 @@ class PipelineStateManager:
     
     ALLOWED_TRANSITIONS = {
         "IDLE": ["PREFLIGHT_COMPLETE", "FAILED"],
-        "PREFLIGHT_COMPLETE": ["PREFLIGHT_COMPLETE_SEMANTICALLY_VALID", "FAILED"],
+        "PREFLIGHT_COMPLETE": ["PREFLIGHT_COMPLETE_SEMANTICALLY_VALID", "STAGE_1_COMPLETE", "FAILED"],
         "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID": ["STAGE_1_COMPLETE", "FAILED"],
         "STAGE_1_COMPLETE": ["STAGE_2_COMPLETE", "FAILED"],
         "STAGE_2_COMPLETE": ["STAGE_3_COMPLETE", "FAILED"],
@@ -403,9 +403,19 @@ class PipelineStateManager:
         Updates the state machine to new_state if the transition is valid.
         Records history and updates timestamp.
         """
-        # Load current
-        if not self.state_file.exists():
-             raise FileNotFoundError(f"Run state not found: {self.run_id}")
+        # Guard: if the run directory or state file doesn't exist, the run was
+        # deleted or never fully initialized. Log a warning and skip instead of
+        # crashing the orchestrator with an unhandled FileNotFoundError.
+        if not self.run_dir.exists() or not self.state_file.exists():
+            print(
+                f"[WARN] Run state missing for {self.run_id} — "
+                "run directory or state file not found. Skipping transition to avoid orchestrator crash."
+            )
+            self._append_audit_log("MISSING_STATE_SKIP", {
+                "attempted_transition": new_state,
+                "reason": "run_state.json not found"
+            })
+            return
              
         with open(self.state_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -734,3 +744,55 @@ class DirectiveStateManager:
         }
         with open(self.audit_log, 'a') as f:
             f.write(json.dumps(entry) + "\n")
+
+
+# ==============================================================================
+# EXCEL FILE UTILITY
+# ==============================================================================
+
+def ensure_xlsx_writable(path: Path, timeout: int = 15) -> None:
+    """
+    On Windows, detect and kill Excel if it holds a lock on the xlsx file.
+
+    Excel opens .xlsx files with an exclusive write lock. Python's to_excel()
+    raises PermissionError in that case, even if a FileLock is held.
+
+    This function:
+      1. Probes whether the file is writable (tries to open in r+b mode).
+      2. If PermissionError → kills all EXCEL.EXE processes via taskkill.
+      3. Waits up to `timeout` seconds for the file to become writable.
+      4. Raises RuntimeError if still locked after timeout.
+
+    No-op on non-Windows platforms or when the file does not yet exist.
+    """
+    if os.name != "nt":
+        return
+    path = Path(path)
+    if not path.exists():
+        return
+
+    def _is_locked() -> bool:
+        try:
+            with open(path, "r+b"):
+                return False
+        except PermissionError:
+            return True
+
+    if not _is_locked():
+        return
+
+    print(f"[XLSX] '{path.name}' is open in Excel — closing Excel...")
+    import subprocess as _sp
+    _sp.run(["taskkill", "/f", "/im", "EXCEL.EXE"], capture_output=True)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(0.5)
+        if not _is_locked():
+            print(f"[XLSX] '{path.name}' released.")
+            return
+
+    raise RuntimeError(
+        f"XLSX_LOCK_TIMEOUT: '{path.name}' still locked after {timeout}s. "
+        "Close Excel manually and retry."
+    )

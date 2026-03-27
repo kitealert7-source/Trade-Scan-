@@ -95,6 +95,39 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return payload
 
 
+def get_all_allocated_names(registry: dict[str, Any]) -> set[str]:
+    """Return all directive names currently allocated in the sweep registry.
+
+    Traverses sweeps and their nested patches using the canonical schema so
+    that run_pipeline.py and any other consumer share a single traversal path.
+    Schema changes only need to be updated here.
+    """
+    allocated: set[str] = set()
+    ideas = registry.get("ideas", {})
+    if not isinstance(ideas, dict):
+        return allocated
+    for idea_data in ideas.values():
+        if not isinstance(idea_data, dict):
+            continue
+        sweeps = idea_data.get("sweeps", idea_data.get("allocated", {}))
+        if not isinstance(sweeps, dict):
+            continue
+        for sweep_data in sweeps.values():
+            if not isinstance(sweep_data, dict):
+                continue
+            d_name = sweep_data.get("directive_name")
+            if d_name:
+                allocated.add(d_name)
+            patches = sweep_data.get("patches", {})
+            if isinstance(patches, dict):
+                for patch_data in patches.values():
+                    if isinstance(patch_data, dict):
+                        p_name = patch_data.get("directive_name")
+                        if p_name:
+                            allocated.add(p_name)
+    return allocated
+
+
 def _write_yaml_atomic(path: Path, payload: dict[str, Any]) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     data = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
@@ -102,9 +135,28 @@ def _write_yaml_atomic(path: Path, payload: dict[str, Any]) -> None:
     os.replace(str(tmp_path), str(path))
 
 
+def _is_lock_stale(lock_path: Path) -> bool:
+    """Return True if the lock file exists but the owning process is no longer alive."""
+    try:
+        content = lock_path.read_text(encoding="utf-8")
+        m = re.search(r"pid=(\d+)", content)
+        if not m:
+            return False  # Cannot parse PID — treat as live (safe default)
+        pid = int(m.group(1))
+        os.kill(pid, 0)  # Signal 0: existence check only, no actual signal sent
+        return False  # Process is alive
+    except ProcessLookupError:
+        return True  # PID does not exist — lock is stale
+    except PermissionError:
+        return False  # Process exists but we can't signal it — treat as live
+    except Exception:
+        return False  # Unknown error — treat as live (safe default)
+
+
 def _acquire_lock(lock_path: Path, timeout_sec: float = 10.0, poll_sec: float = 0.1) -> int:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.time() + timeout_sec
+    stale_cleared = False  # Only attempt stale-lock removal once per acquire call
 
     while True:
         try:
@@ -112,6 +164,15 @@ def _acquire_lock(lock_path: Path, timeout_sec: float = 10.0, poll_sec: float = 
             os.write(fd, f"pid={os.getpid()} ts={_now_utc()}".encode("utf-8"))
             return fd
         except FileExistsError:
+            # On first contention, check whether the lock belongs to a dead process.
+            if not stale_cleared and _is_lock_stale(lock_path):
+                try:
+                    lock_path.unlink(missing_ok=True)
+                    stale_cleared = True
+                    print(f"[LOCK] Cleared stale lock from dead process: {lock_path}")
+                    continue  # Retry immediately without sleeping
+                except Exception:
+                    pass  # If unlink fails, fall through to normal timeout path
             if time.time() >= deadline:
                 raise SweepRegistryError(
                     f"SWEEP_LOCK_TIMEOUT: Could not acquire lock: {lock_path}"

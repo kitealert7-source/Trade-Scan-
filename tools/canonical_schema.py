@@ -26,6 +26,7 @@ CANONICAL_BLOCKS = [
     "usd_stress_filter",         # AK/Persistence: USD stress index filter
     "volatility_filter",         # Volatility-gated strategies
     "trend_filter",              # Trend regime-gated strategies
+    "market_regime_filter",      # Market regime hard exclusion gate
     "position_management",       # Stop-and-reverse, max positions
     "mean_reversion_rules",      # MR: mean reversion parameters
     "regime_transition_rules",   # RT: regime transition parameters
@@ -37,6 +38,7 @@ OPTIONAL_BLOCKS = {
     "order_placement", "trade_management",
     "range_definition", "exit_rules",
     "state_machine", "usd_stress_filter", "volatility_filter", "trend_filter",
+    "market_regime_filter",
     "position_management", "mean_reversion_rules",
     "regime_transition_rules", "polarity_override",
 }
@@ -107,10 +109,17 @@ ALLOWED_NESTED_KEYS = {
     "volatility_filter": {
         "enabled", "atr_length", "atr_percentile_lookback",
         "condition", "threshold", "required_regime", "operator",
+        # direction_gate mode: long_when / short_when sub-blocks gate direction
+        # based on vol_regime cached at signal time (see engines/filter_stack.py).
+        "direction_gate", "long_when", "short_when",
     },
     "trend_filter": {
         "enabled", "required_regime", "operator",
-        "condition", "threshold",
+        "condition", "threshold", "exclude_regime",
+        "direction_gate", "long_when", "short_when",
+    },
+    "market_regime_filter": {
+        "enabled", "exclude",
     },
 }
 
@@ -129,9 +138,14 @@ ALLOWED_SUB_KEYS = {
         # BB squeeze breakout
         "band_std_dev", "breakout_band",
         "squeeze_atr_percentile_threshold", "squeeze_min_bars",
+        # False break / stop hunt
+        "range_lookback", "break_atr_threshold", "range_min_atr_multiple",
+        # Session sweep reversal (London open liquidity sweep)
+        "session_start", "session_end", "entry_window_start", "entry_window_end",
+        "narrow_range_atr_multiple", "tp_atr_multiple_narrow",
     },
     "exit_logic": {
-        "type", "price_exit", "time_exit_bars", "time_exit",
+        "type", "price_exit", "time_exit_bars", "time_exit", "time_exit_utc",
         "exit_long_if", "exit_short_if", "max_bars",
     },
     "stop_loss": {
@@ -152,6 +166,9 @@ ALLOWED_SUB_KEYS = {
     "price_validation": {
         "ignore_pre_breakouts",
     },
+    # direction_gate sub-blocks for volatility_filter
+    "long_when": {"required_regime", "operator"},
+    "short_when": {"required_regime", "operator"},
 }
 
 # === CANONICAL KEY ORDER (for deterministic serialization) ===

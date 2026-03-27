@@ -14,6 +14,7 @@ def run_robustness_suite(
     tr_df: pd.DataFrame,
     eq_df: pd.DataFrame,
     metrics: dict,
+    all_profiles: dict = None,
     run_bootstrap: bool = True
 ) -> dict:
     """
@@ -290,5 +291,135 @@ def run_robustness_suite(
     
     results["monthly_seasonality"] = seasonality.analyze_monthly(tr_df, tf_str)
     results["weekday_seasonality"] = seasonality.analyze_weekday(tr_df, tf_str)
+
+    # ── Section 17: Capital Efficiency Summary + Baseline Comparison ──────────
+    import math as _math
+
+    if all_profiles is None:
+        all_profiles = {}
+
+    profile_data = all_profiles.get(profile, {})
+    BASELINE_KEY = "RAW_MIN_LOT_V1"
+    baseline_data = all_profiles.get(BASELINE_KEY, {})
+
+    # ── Resolve utilized_capital for current profile ──
+    utilized_capital = profile_data.get("utilized_capital")
+    if utilized_capital is None:
+        avg_heat = float(metrics.get("avg_heat_utilization_pct", 0.0))
+        max_conc = int(metrics.get("max_concurrent_trades_during_test_period", 0))
+        effective_capital = max_conc * 1000.0 if max_conc > 0 else 0.0
+        utilized_capital = effective_capital * avg_heat
+        cap_source = "recomputed"
+    else:
+        cap_source = "profile_comparison"
+
+    # ── Portfolio-level efficiency metrics (current profile) ──
+    n_total   = len(tr_df)
+    net_pnl   = float(tr_df["pnl_usd"].sum())
+    wins_s    = tr_df["pnl_usd"][tr_df["pnl_usd"] > 0]
+    loss_s    = tr_df["pnl_usd"][tr_df["pnl_usd"] < 0]
+    gross_win  = float(wins_s.sum())       if len(wins_s) > 0 else 0.0
+    gross_loss = float(abs(loss_s.sum()))  if len(loss_s) > 0 else 0.0
+    pf_total   = gross_win / gross_loss    if gross_loss > 1e-9 else 999.0
+
+    rouc             = net_pnl / utilized_capital if utilized_capital > 1e-9 else 0.0
+    util_pct         = float(profile_data.get("capital_efficiency_ratio", 0.0)) * 100
+    stability_factor = min(1.0, pf_total / 2.0)
+    sample_factor    = _math.log(1 + n_total)
+    efficiency_score = rouc * stability_factor * sample_factor
+
+    # ── Per-engine ranking (composite PF_ prefix only) ──
+    engine_rows = []
+    is_composite = prefix.startswith("PF_")
+    if is_composite and "trade_id" in tr_df.columns:
+        tr_tmp = tr_df.copy()
+        tr_tmp["_prefix"] = tr_tmp["trade_id"].str.split("|").str[0]
+        for eng_prefix, grp in tr_tmp.groupby("_prefix"):
+            eng_n     = len(grp)
+            eng_net   = float(grp["pnl_usd"].sum())
+            eng_wins  = grp["pnl_usd"][grp["pnl_usd"] > 0]
+            eng_loss  = grp["pnl_usd"][grp["pnl_usd"] < 0]
+            eng_gw    = float(eng_wins.sum())      if len(eng_wins) > 0 else 0.0
+            eng_gl    = float(abs(eng_loss.sum())) if len(eng_loss) > 0 else 0.0
+            eng_pf    = eng_gw / eng_gl            if eng_gl > 1e-9 else 999.0
+            eng_proxy = eng_net / 1000.0           # return_proxy_per_1000
+            eng_stab  = min(1.0, eng_pf / 2.0)
+            eng_samp  = _math.log(1 + eng_n)
+            eng_score = eng_proxy * eng_stab * eng_samp
+            parts = str(eng_prefix).rsplit("_", 1)
+            engine_rows.append({
+                "prefix":               eng_prefix,
+                "strategy_id":          parts[0] if len(parts) == 2 else eng_prefix,
+                "symbol":               parts[1] if len(parts) == 2 else "",
+                "trades":               eng_n,
+                "net_pnl":              eng_net,
+                "pf":                   round(eng_pf, 4),
+                "return_proxy_per_1000": round(eng_proxy, 4),
+                "stability_factor":     round(eng_stab, 4),
+                "sample_factor":        round(eng_samp, 4),
+                "efficiency_score":     round(eng_score, 4),
+            })
+        engine_rows.sort(key=lambda r: r["efficiency_score"], reverse=True)
+
+    # ── Baseline comparison (RAW_MIN_LOT_V1 vs current profile) ──
+    baseline_comparison = None
+    if baseline_data and profile != BASELINE_KEY:
+        b_pnl   = float(baseline_data.get("realized_pnl", 0.0))
+        b_rouc  = float(baseline_data.get("return_on_utilized_capital", 0.0))
+        b_util  = float(baseline_data.get("capital_efficiency_ratio", 0.0)) * 100
+        b_dd    = float(baseline_data.get("max_drawdown_pct", 0.0))
+
+        c_pnl   = float(profile_data.get("realized_pnl", net_pnl))
+        c_rouc  = float(profile_data.get("return_on_utilized_capital", rouc))
+        c_util  = util_pct
+        c_dd    = float(profile_data.get("max_drawdown_pct", 0.0))
+
+        # Derived metrics
+        pnl_multiplier         = c_pnl / b_pnl        if abs(b_pnl)  > 1e-9 else None
+        utilization_multiplier = c_util / b_util       if abs(b_util) > 1e-9 else None
+        edge_delta             = c_rouc - b_rouc
+
+        # Interpretation: what is driving PnL improvement?
+        high_util_lift  = utilization_multiplier is not None and utilization_multiplier >= 1.5
+        large_edge      = abs(edge_delta) >= 0.1
+        if high_util_lift and not large_edge:
+            driver = "utilization"
+        elif large_edge and not high_util_lift:
+            driver = "edge improvement"
+        else:
+            driver = "both"
+
+        baseline_comparison = {
+            "baseline_key":            BASELINE_KEY,
+            "current_key":             profile,
+            "baseline_pnl":            round(b_pnl,  2),
+            "current_pnl":             round(c_pnl,  2),
+            "baseline_rouc":           round(b_rouc, 4),
+            "current_rouc":            round(c_rouc, 4),
+            "baseline_util_pct":       round(b_util, 2),
+            "current_util_pct":        round(c_util, 2),
+            "baseline_max_dd_pct":     round(b_dd,   2),
+            "current_max_dd_pct":      round(c_dd,   2),
+            "pnl_multiplier":          round(pnl_multiplier, 2)          if pnl_multiplier         is not None else None,
+            "utilization_multiplier":  round(utilization_multiplier, 2)  if utilization_multiplier is not None else None,
+            "edge_delta":              round(edge_delta, 4),
+            "driver":                  driver,
+        }
+
+    results["capital_efficiency"] = {
+        "utilized_capital":           round(utilized_capital, 2),
+        "net_pnl":                    round(net_pnl, 2),
+        "return_on_utilized_capital": round(rouc, 4),
+        "utilization_pct":            round(util_pct, 2),
+        "profit_factor":              round(pf_total, 4),
+        "total_trades":               n_total,
+        "stability_factor":           round(stability_factor, 4),
+        "sample_factor":              round(sample_factor, 4),
+        "efficiency_score":           round(efficiency_score, 4),
+        "is_composite":               is_composite,
+        "engine_ranking":             engine_rows,
+        "capital_source":             cap_source,
+        "baseline_comparison":        baseline_comparison,
+    }
 
     return results

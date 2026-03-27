@@ -4,8 +4,7 @@ Consumes deployable artifacts ONLY: deployable_trade_log.csv, equity_curve.csv,
 summary_metrics.json.
 
 Report routing:
-    Multi-asset strategies → strategies/<prefix>/
-    Single-asset strategies → backtests/<prefix_SYMBOL>/
+    All strategies → strategies/<prefix>/
 
 Usage:
     python tools/robustness/cli.py <strategy_prefix> \
@@ -57,18 +56,19 @@ def main():
             args.profile = "CONSERVATIVE_V1"
 
     print(f"[ROBUSTNESS] Loading artifacts: {args.prefix} / {args.profile}")
-    tr_df, eq_df, metrics = load_canonical_artifacts(args.prefix, args.profile, PROJECT_ROOT)
+    tr_df, eq_df, metrics, all_profiles = load_canonical_artifacts(args.prefix, args.profile, PROJECT_ROOT)
     print(f"[ROBUSTNESS] Loaded {len(tr_df)} trades, {len(eq_df)} equity points")
 
     run_bootstrap = args.suite == "full"
-    
+
     # Run central computation layer
     results = run_robustness_suite(
-        prefix=args.prefix, 
-        profile=args.profile, 
-        tr_df=tr_df, 
-        eq_df=eq_df, 
-        metrics=metrics, 
+        prefix=args.prefix,
+        profile=args.profile,
+        tr_df=tr_df,
+        eq_df=eq_df,
+        metrics=metrics,
+        all_profiles=all_profiles,
         run_bootstrap=run_bootstrap
     )
     
@@ -76,29 +76,12 @@ def main():
     report_content = format_report(results, prefix=args.prefix, profile=args.profile)
     report_filename = f"ROBUSTNESS_{args.prefix}_{args.profile}.md"
 
-    # ── Report routing: multi-asset → strategies/, single-asset → backtests/ ──
-    unique_symbols = sorted(tr_df["symbol"].unique()) if "symbol" in tr_df.columns else []
-    is_single_asset = len(unique_symbols) == 1
-
-    if is_single_asset:
-        # Single-asset: save to backtests/<prefix_SYMBOL>/
-        symbol = unique_symbols[0]
-        backtest_key = f"{args.prefix}_{symbol}"
-        primary_dir = BACKTESTS_DIR / backtest_key
-        if not primary_dir.exists():
-            # Fallback: try without symbol suffix
-            primary_dir = BACKTESTS_DIR / args.prefix
-        primary_dir.mkdir(parents=True, exist_ok=True)
-        primary_path = primary_dir / report_filename
-        primary_path.write_text(report_content, encoding="utf-8")
-        print(f"[ROBUSTNESS] Single-asset report: {primary_path}")
-    else:
-        # Multi-asset (portfolio): save exclusively to strategies/<prefix>/
-        strategy_dir = STRATEGIES_DIR / args.prefix
-        strategy_dir.mkdir(parents=True, exist_ok=True)
-        primary_path = strategy_dir / report_filename
-        primary_path.write_text(report_content, encoding="utf-8")
-        print(f"[ROBUSTNESS] Portfolio report: {primary_path}")
+    # ── Report routing: always save to strategies/<prefix>/ ──
+    strategy_dir = STRATEGIES_DIR / args.prefix
+    strategy_dir.mkdir(parents=True, exist_ok=True)
+    primary_path = strategy_dir / report_filename
+    primary_path.write_text(report_content, encoding="utf-8")
+    print(f"[ROBUSTNESS] Report saved: {primary_path}")
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # IMPORTS (numpy/pandas/matplotlib)
 # ------------------------------------------------------------------
 import subprocess
+from filelock import FileLock
 
 import numpy as np
 import pandas as pd
@@ -37,7 +38,7 @@ matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.colors import LinearSegmentedColormap
-from tools.pipeline_utils import get_engine_version
+from tools.pipeline_utils import get_engine_version, ensure_xlsx_writable
 from config.state_paths import BACKTESTS_DIR, RUNS_DIR, STRATEGIES_DIR
 from tools.portfolio_core import (
     compute_concurrency_series as core_compute_concurrency_series,
@@ -933,6 +934,8 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'evaluation_date': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         'portfolio_engine_version': PORTFOLIO_ENGINE_VERSION,
         'data_range': f"{port_metrics['start_date']} to {port_metrics['end_date']}",
+        'total_constituent_runs': len(constituent_run_ids) if isinstance(constituent_run_ids, list) else 1,
+        'total_assets_evaluated': len(contributions),
         'capital_per_symbol': TOTAL_PORTFOLIO_CAPITAL / len(contributions),
         'total_capital': TOTAL_PORTFOLIO_CAPITAL,
         'net_pnl_usd': port_metrics['net_pnl_usd'],
@@ -980,6 +983,8 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
       "creation_timestamp_utc": datetime.utcnow().isoformat(),
       "constituent_run_ids": constituent_run_ids,
       "evaluated_assets": list(contributions.keys()),
+      "total_constituent_runs": len(constituent_run_ids) if isinstance(constituent_run_ids, list) else 1,
+      "total_assets_evaluated": len(contributions),
       "reference_capital_usd": summary['total_capital'],
       "capital_model_version": "v1.0_trade_close_compounding",
       "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
@@ -1420,25 +1425,28 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             f"Explicit human authorization required. No automatic overwrite allowed."
         )
 
-    # Append
+    # Append (FileLock prevents concurrent xlsx corruption when running parallel directives)
     new_row = pd.DataFrame([row_data])
     for c in columns:
         if c not in new_row.columns:
             new_row[c] = None
     df_final = pd.concat([df_ledger, new_row[columns]], ignore_index=True)
-    df_final.to_excel(ledger_path, index=False)
+    _lock_path = ledger_path.with_suffix(".lock")
+    with FileLock(str(_lock_path), timeout=120):
+        ensure_xlsx_writable(ledger_path)
+        df_final.to_excel(ledger_path, index=False)
 
-    # Call Unified Formatter
-    try:
-        cmd = [
-            sys.executable,
-            str(PROJECT_ROOT / "tools" / "format_excel_artifact.py"),
-            "--file", str(ledger_path),
-            "--profile", "portfolio",
-        ]
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"[WARN] Formatting failed: {e}")
+        # Call Unified Formatter
+        try:
+            cmd = [
+                sys.executable,
+                str(PROJECT_ROOT / "tools" / "format_excel_artifact.py"),
+                "--file", str(ledger_path),
+                "--profile", "portfolio",
+            ]
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"[WARN] Formatting failed: {e}")
 
 
 # ==================================================================
@@ -1449,8 +1457,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("strategy_id", help="The Portfolio ID name (e.g. P001)")
     parser.add_argument("--run-ids", required=True, nargs="+", help="Explicit atomic runs to construct the portfolio from")
+    parser.add_argument("--force-ledger", action="store_true", help="Force Master Ledger write even for single-run/single-asset strategies (sweep tracking)")
     args = parser.parse_args()
-    
+
     strategy_id = args.strategy_id
     run_ids = args.run_ids
     
@@ -1647,10 +1656,12 @@ def main():
 
     # 10) Master Ledger Update (SOP 8)
     # User Constraint: Only allow curated composite runs or multi-asset directives into the master sheet.
+    # --force-ledger overrides this gate for single-symbol sweep tracking (explicit operator intent required).
     is_valid_for_master = (
-        len(unique_runs) > 1 or 
-        len(symbol_trades) > 1 or 
-        str(strategy_id).startswith("PF_")
+        len(unique_runs) > 1 or
+        len(symbol_trades) > 1 or
+        str(strategy_id).startswith("PF_") or
+        getattr(args, 'force_ledger', False)
     )
     
     if is_valid_for_master:
@@ -1686,5 +1697,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as _e:
+        _msg = str(_e)
+        if "XLSX_LOCK_TIMEOUT" in _msg or _e.__class__.__name__ == "Timeout":
+            print(f"[FATAL] XLSX_LOCK_TIMEOUT: {_msg}")
+            sys.exit(3)
+        raise
 

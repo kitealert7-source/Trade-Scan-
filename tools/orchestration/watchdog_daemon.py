@@ -20,6 +20,7 @@ Usage:
 """
 
 import os
+import sys
 import json
 import shutil
 import subprocess
@@ -50,6 +51,14 @@ WATCHDOG_LOG = TS_EXEC_ROOT / "outputs" / "logs" / "watchdog_daemon.log"
 WDOG_PID     = TS_EXEC_ROOT / "outputs" / "logs" / "watchdog.pid"
 
 RESTART_CMD  = ["python", "src/main.py", "--phase", "2"]
+
+# --- Alerts (observer-only, silent on failure) ---
+sys.path.insert(0, str(TS_EXEC_ROOT / "src"))
+try:
+    from alerts import send_alert as _send_alert
+except ImportError:
+    def _send_alert(event_type: str, message: str) -> None:  # type: ignore[misc]
+        pass  # fallback no-op if ts_execution/src not reachable
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +243,7 @@ def _do_restart(guard: dict) -> None:
     _save_guard(guard)
     burnin_log = _next_burnin_log()
     _log(f"RESTART_ISSUED | count={guard['restart_count']} | log={burnin_log.name} | cmd={RESTART_CMD}")
+    _send_alert("RESTART_ISSUED", f"count={guard['restart_count']} log={burnin_log.name}")
     with open(burnin_log, "w", encoding="utf-8") as _f:
         subprocess.Popen(
             ["python", "-u"] + RESTART_CMD[1:],  # -u = unbuffered stdout
@@ -299,6 +309,7 @@ def run_watchdog_loop() -> None:
 
             elif hb_age >= HARD_THRESHOLD_S:
                 _log(f"HARD_BREACH | hb_age={hb_age:.1f}s | INITIATING RECOVERY")
+                _send_alert("HARD_BREACH", f"hb_age={hb_age:.0f}s threshold={HARD_THRESHOLD_S}s")
                 guard = _load_guard()
                 if _check_restart_storm(guard):
                     _log(

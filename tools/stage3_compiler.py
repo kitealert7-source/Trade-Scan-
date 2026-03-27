@@ -17,13 +17,14 @@ import subprocess
 from pathlib import Path
 import pandas as pd
 from datetime import datetime
+from filelock import FileLock
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Governance Imports
-from tools.pipeline_utils import PipelineStateManager
+from tools.pipeline_utils import PipelineStateManager, ensure_xlsx_writable
 from config.state_paths import POOL_DIR, BACKTESTS_DIR, RUNS_DIR
 
 BACKTESTS_ROOT = BACKTESTS_DIR
@@ -355,20 +356,63 @@ def compile_stage3(strategy_filter=None):
         df_new = df_new[MASTER_FILTER_COLUMNS]
         
         df_master = pd.concat([df_master, df_new], ignore_index=True)
-        
-        # Save
+
+        # --- IN_PORTFOLIO PERSISTENCE GUARD ---
+        # Selections store: TradeScan_State/sandbox/in_portfolio_selections.json
+        # Survives complete Master Filter rebuilds. Only sync_portfolio_flags.py --clear
+        # can remove an entry — no pipeline code path may flip True → False.
+        _selections_path = master_filter_path.parent / "in_portfolio_selections.json"
+        _stored_true_ids: set = set()
+        if _selections_path.exists():
+            try:
+                _stored = json.loads(_selections_path.read_text(encoding="utf-8"))
+                _stored_true_ids = set(str(x) for x in _stored.get("selections", []))
+            except Exception as _sel_err:
+                print(f"[WARN] Could not load portfolio selections store ({_sel_err}) — treating as empty.")
+        # Restore persisted True values (critical after any Master Filter rebuild)
+        if _stored_true_ids:
+            _restore_mask = df_master["run_id"].astype(str).isin(_stored_true_ids)
+            _restored = int(_restore_mask.sum())
+            if _restored:
+                df_master.loc[_restore_mask, "IN_PORTFOLIO"] = True
+                print(f"[IN_PORTFOLIO] Restored {_restored} persisted selection(s) from store.")
+        # Accumulate any currently-True rows into store (operator just marked via Excel)
+        _currently_true = set(
+            df_master.loc[df_master["IN_PORTFOLIO"] == True, "run_id"].astype(str).tolist()
+        )
+        _all_true = _stored_true_ids | _currently_true
+        if _all_true != _stored_true_ids:
+            try:
+                _selections_path.write_text(
+                    json.dumps({"selections": sorted(_all_true)}, indent=2),
+                    encoding="utf-8",
+                )
+                _new_count = len(_all_true - _stored_true_ids)
+                print(f"[IN_PORTFOLIO] Persisted {_new_count} new selection(s) to store ({len(_all_true)} total).")
+            except Exception as _write_err:
+                print(f"[WARN] Could not update portfolio selections store ({_write_err}).")
+        # ----------------------------------------
+
+        # Save (FileLock prevents concurrent xlsx corruption when running parallel directives)
+        _lock_path = master_filter_path.with_suffix(".lock")
         try:
-            print(f"[DEBUG] df_master shape before save: {df_master.shape}")
-            print(f"[DEBUG] df_new shape: {df_new.shape}")
-            df_master.to_excel(master_filter_path, index=False)
-            
-            # Format
-            project_root = Path(__file__).parent.parent
-            formatter = project_root / "tools" / "format_excel_artifact.py"
-            cmd = [sys.executable, str(formatter), "--file", str(master_filter_path), "--profile", "strategy"]
-            subprocess.run(cmd, check=True)
+            with FileLock(str(_lock_path), timeout=120):
+                ensure_xlsx_writable(master_filter_path)
+                print(f"[DEBUG] df_master shape before save: {df_master.shape}")
+                print(f"[DEBUG] df_new shape: {df_new.shape}")
+                df_master.to_excel(master_filter_path, index=False)
+
+                # Format
+                project_root = Path(__file__).parent.parent
+                formatter = project_root / "tools" / "format_excel_artifact.py"
+                cmd = [sys.executable, str(formatter), "--file", str(master_filter_path), "--profile", "strategy"]
+                subprocess.run(cmd, check=True)
             print("[SUCCESS] Master Filter updated and formatted.")
         except Exception as e:
+            msg = str(e)
+            if "XLSX_LOCK_TIMEOUT" in msg or e.__class__.__name__ == "Timeout":
+                print(f"[FATAL] XLSX_LOCK_TIMEOUT: {msg}")
+                sys.exit(3)
             print(f"[FATAL] Failed to save Master Filter: {e}")
             sys.exit(1)
             

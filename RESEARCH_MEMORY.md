@@ -266,3 +266,704 @@ The edge in P02 and P03 is entirely concentrated in 2025 and fragile under block
 
 Implication:
 Idea 07 (SMI oscillator mean reversion on XAUUSD 15M) is exhausted in its current form. Do not iterate further on threshold, window size, or vol filter variants — the architecture is sound but the instrument-timeframe combination does not support the hypothesis consistently. If revisiting, require either: (a) a secondary directional filter (e.g., daily trend alignment confirming gold is in a range, not a trend) to exclude the 2024 trending-down environment, or (b) a different instrument where SMI oversold conditions are genuinely reverting rather than momentum-continuing.
+
+------------------------------------------------------------------------
+FRAMEWORK REFERENCE (appended 2026-03-19, do not modify)
+------------------------------------------------------------------------
+
+# Research Framework — System & Model
+
+## System Layers
+
+Three layers, strict separation:
+- ENGINE — frozen, deterministic, never modified during research
+- PIPELINE — orchestration, governance, artifact management
+- RESEARCH — strategy discovery, operates entirely within defined boundaries
+
+Engine changes require a version bump and full re-run of affected strategies.
+
+## Data Authority Hierarchy
+
+TradeScan_State/
+  backtests/   → immutable execution results (raw artifacts)
+  sandbox/     → completed runs awaiting evaluation
+  candidates/  → strategies that passed sandbox filter
+  strategies/  → promoted strategies with full capital evaluation
+
+## Discovery Pipeline
+
+INBOX → backtests → sandbox → candidates → strategies
+
+## Three-Pass Research Model
+
+Maximum three passes per strategy concept. Each pass introduces exactly
+one new constraint — combining changes destroys attribution.
+
+Pass 1: Concept validation — does the signal exist?
+  Minimal filtering, wide parameters, maximize discovery throughput.
+
+Pass 2: Structural robustness — does it hold across assets/regimes?
+  Add one regime or asset filter, confirm edge is not instrument-specific.
+
+Pass 3: Parameter refinement — best expression of a proven idea.
+  Limited tuning only; structure must be fixed before optimising params.
+
+## Pass-1 Environment
+
+Timeframes: 15-minute, 1-hour preferred.
+Test window: Jan 2024 → present (rolling).
+Requirements: intraday exit, adequate trade density, minimal filtering.
+
+## Diversity Controls
+
+Sandbox promotion prioritizes idea diversity over run count.
+Family = all sweeps sharing the same concept prefix (instrument + timeframe + mechanism).
+Limits: max 2 runs per family, max 2 runs per asset class.
+Selection within family: highest MAR, or highest PF with drawdown constraint.
+
+## Research Discipline Principles
+
+- Deterministic infrastructure: same directive + data = identical result
+- Clean phase boundaries: no skipping stages, no partial state
+- Orthogonal passes: one change per sweep, traceable attribution
+- Limited parameter optimization: structure must work before tuning
+- Promotion based on idea diversity: avoid single-concept concentration
+
+## Strategic Observation
+
+Platform is capital constrained rather than signal constrained.
+More valid signals exist than can be sized within risk limits.
+Future gains more likely from: capital allocation, regime-aware sizing,
+signal prioritization — not from finding more signals.
+
+------------------------------------------------------------------------
+
+2026-03-19
+Tags:
+volatility_squeeze
+fx_4h
+breakout
+failed_concept
+exit_design
+
+Finding:
+Volatility squeeze breakout on FX 4H has no viable edge in tested form.
+ATR-percentile squeeze detection is sound as a component but the entry
+and exit structure could not be resolved profitably.
+
+Evidence:
+Three variants tested across two concept families (BB-width squeeze and
+ATR-percentile squeeze) on 4H FX. All produced negative PnL. No trend
+filter meant entries were taken in both directions equally. Fixed TP was
+rarely reached — FX 4H breakouts retrace before extending. Midline exit
+cut winners; opposite-band exit widened risk disproportionately. Two
+major FX pairs showed marginal positive residual across all variants.
+
+Conclusion:
+The exit structure is the primary failure point, not the squeeze
+detection. The 3×ATR TP is structurally mismatched to 4H FX breakout
+behavior. Concept is not dead — pair-specific residual edge exists.
+
+Implication:
+If revisited: add trend direction filter (breakouts in trend direction
+only), replace fixed TP with trailing stop, test on higher-volatility
+instruments or shorter timeframe where post-squeeze expansion sustains.
+ATR-percentile squeeze detection is reusable as a pre-filter component
+in other strategy families.
+
+2026-03-19
+Tags:
+regime_filter
+sweep_design
+sharpe_improvement
+edge_concentration
+neutral_regime
+
+Finding:
+Excluding a regime with near-zero PnL across many trades is a
+high-value sweep dimension. It concentrates edge without materially
+reducing total PnL.
+
+Evidence:
+Spike-fade strategy on XAUUSD 1H. Three sequential sweeps each excluding
+one additional regime. First exclusion (strong trending regime): trade
+count fell ~20%, Sharpe improved from 2.98 to 4.08, MaxDD fell from
+8.18% to 7.12%. Second exclusion (neutral regime, ~30 trades, $0.16 net
+PnL): trade count fell further ~26%, Sharpe improved from 4.08 to 5.54,
+MaxDD fell from 7.12% to 4.35%, RetDD improved from 6.96 to 10.64.
+Neutral regime was pure dilution — high noise, no directional conviction.
+
+Conclusion:
+Regimes with high trade count and near-zero net PnL are diluting
+risk-adjusted metrics without contributing returns. Excluding them
+tightens the equity curve without losing the core edge.
+
+Implication:
+For any strategy showing a clearly dead regime in its cross-regime
+breakdown, run regime exclusion as the next sweep before any parameter
+changes. Neutral regimes are the most frequent candidate. One exclusion
+per sweep to maintain attribution.
+
+2026-03-19
+Tags:
+portfolio_construction
+same_instrument
+regime_complementarity
+diversification
+composite_portfolio
+
+Finding:
+Two strategies on the same instrument can produce a more robust combined
+portfolio than either component alone if their edges operate in opposed
+market conditions.
+
+Evidence:
+Spike-fade reversal and structure breakout strategies, both on the same
+instrument (XAUUSD 1H). Combined portfolio produced lower max drawdown
+than either individual strategy. Losing periods did not align — one
+strategy's losing regime is the other's winning regime. Combined Sharpe
+(4.15) exceeded both individual Sharpes. Zero negative rolling 12-month
+windows across the combined test period. Second half of test period
+outperformed first half, indicating improving rather than decaying edge.
+
+Conclusion:
+Instrument overlap is not the same as strategy overlap. Regime
+complementarity matters more than symbol diversification at small
+portfolio scale.
+
+Implication:
+Before rejecting a same-instrument composite, analyse regime breakdown
+correlation across the constituent strategies. If one wins in trending
+regimes and the other in mean-reverting regimes, the composite will be
+more robust than either component alone. This is a valid and productive
+portfolio construction axis even with a small number of instruments.
+
+2026-03-19
+Tags:
+sweep_design
+attribution
+one_change_per_sweep
+research_discipline
+
+Finding:
+Incremental sweeps with one change at a time make marginal contribution
+of each change traceable and allow bad dimensions to be pruned early.
+
+Evidence:
+Three sequential sweeps on spike-fade strategy, each adding one regime
+exclusion. Because each sweep changed exactly one thing, the contribution
+of each exclusion was measurable independently. The neutral regime
+exclusion (third sweep) was confirmed as additive only because the first
+two sweeps were clean. A combined sweep would have obscured whether both
+exclusions were necessary.
+
+Conclusion:
+Attribution requires isolation. Combined changes produce uninterpretable
+results even when the combined outcome is positive.
+
+Implication:
+Enforce one-constraint-per-sweep discipline strictly. If multiple changes
+are tempting, run them sequentially, not together. The cost is one
+additional pipeline run; the benefit is full attribution of every
+improvement.
+
+2026-03-20
+Tags:
+volatility_expansion
+breakout
+xauusd_1h
+failed_concept
+portfolio_overlap
+
+Strategy:
+19_BRK_XAUUSD_1H_VOLEXP_S01_V1_P00
+
+Finding:
+ATR-compression breakout on XAUUSD 1H produces weak aggregate edge
+and overlaps behaviourally with existing IN_PORTFOLIO strategies.
+Family 19 REJECTED — no S02 planned.
+
+Evidence:
+S01 (both directions, 270 trades): PnL $301.68, Sharpe 0.90, PF 1.15,
+Max DD 2.35%, R/DD 1.28, Avg R 0.01. Longs-only projection: ~143 trades,
+~$347 PnL, estimated PF ~1.35 — improvement but still inferior to F18
+P06 (PF 1.68, R/DD 2.27, Avg R 0.39). Avg R of 0.01 versus F18's 0.39
+confirms the per-trade quality gap is structural, not a sample issue.
+Behavioural overlap: long vol-expansion after compression captures the
+same directional impulse that F12 BOS (structure break continuation) and
+F18 LIQSWEEP (London open reversal) already exploit. Adding F19 longs
+would increase correlation with the existing reversal-heavy portfolio
+without adding orthogonal value.
+
+Conclusion:
+The compression-expansion signal has insufficient per-trade edge on
+XAUUSD 1H in its baseline form. Mechanically it is a subset of the
+conditions already covered by F12 and F18. Both the standalone quality
+and the portfolio diversification case are too weak to justify further
+sweeps.
+
+Implication:
+Do not iterate on ATR-compression breakout variants for XAUUSD 1H.
+If revisited on a different instrument or timeframe, require Avg R > 0.20
+and confirmed non-overlap with existing IN_PORTFOLIO strategies before
+proceeding past Pass 1. The atr_percentile component is sound as an
+indicator and is reusable as a regime filter in other families.
+
+2026-03-20
+Tags:
+regime_slice
+pnl_concentration
+fragility_check
+short_bias
+portfolio_complement
+
+Finding:
+A regime-specific slice (shorts in high vol) can appear attractive in
+aggregate but fail a temporal distribution check when PnL is concentrated
+in a single period.
+
+Evidence:
+F19 S01 short/high-vol subset: 43 trades, $136.43, PF 1.39, distributed
+across 18 active months with max 5 trades in any single month — trade
+frequency passes the clustering test. However, Q4 2025 alone contributed
+$124.88 (91.5% of total edge) from 5 trades. Removing Q4 2025, the
+remaining 38 trades over 7 quarters produced $11.55 net — essentially
+flat. Q1 2026 immediately followed with -$51.05 from 5 trades, confirming
+the Q4 2025 result was not the start of a sustained regime.
+The idea was motivated by complementarity with F18 P06 (longs/low-vol):
+the two slices fire in opposite volatility regimes and would not compete
+for the same market conditions. The portfolio construction logic was sound;
+the edge quality was not.
+
+Conclusion:
+Trade distribution across time is a necessary but not sufficient condition
+for robustness. PnL concentration must be checked independently. A
+strategy with evenly distributed entries but a single quarter generating
+>90% of profit is as fragile as one with clustered entries.
+
+Implication:
+For any regime-filtered slice being evaluated as a portfolio complement,
+run both checks before building a new sweep: (1) are entries distributed
+across time (no clustering), and (2) is PnL distributed across quarters
+(no single period dominance). Require that no single quarter contributes
+more than ~40% of cumulative PnL for a slice to be considered structurally
+robust. Apply this check to all candidate sub-strategies before committing
+pipeline cycles.
+
+2026-03-20
+Tags:
+portfolio_gap
+trend_following
+orthogonality
+next_research_priority
+strategy_class
+
+Finding:
+The current IN_PORTFOLIO basket of 4 strategies is structurally skewed
+toward reversal logic, leaving sustained directional trends as an
+unhedged blind spot. Family 03 (Trend Following) has zero sweeps and
+is the highest-priority next research direction.
+
+Evidence:
+IN_PORTFOLIO composition: F11 SPKFADE (reversal, fades spikes),
+F17 FAKEBREAK (reversal, fades stop hunts), F18 LIQSWEEP (reversal,
+fades London sweeps), F12 BOS (continuation, pullback entry after
+structure break). Three of four strategies make money by fading momentum.
+F12 is the only continuation strategy but requires a pullback — it does
+not ride the initial impulse. No strategy in the portfolio profits from
+sustained directional expansion. A pure trend follower (EMA crossover or
+ADX-confirmed breakout with trailing stop) makes money precisely in the
+regimes where the three reversal strategies bleed. Family 03 TREND and
+Family 04 BRK (generic price-level breakout) both have zero sweeps across
+the entire research history.
+
+Conclusion:
+Portfolio diversification at the strategy-class level is incomplete.
+Adding a trend-following strategy on XAUUSD 1H would be regime-
+complementary to the existing basket rather than correlated with it.
+
+Implication:
+Family 03 (Trend Following Research Track) is the next research priority.
+Candidate design: EMA crossover or ADX-confirmed directional breakout on
+XAUUSD 1H, trailing ATR stop, no fixed TP. Pass 1 should be minimal
+filtering and both directions to confirm the signal exists before any
+regime gating.
+
+2026-03-21
+Tags:
+trend_following
+momentum_ignition
+xauusd_1h
+sweep_results
+pass1_validation
+
+Strategy:
+03_TREND_XAUUSD_1H_IMPULSE_S01_V1_P00 through P03
+
+Finding:
+Momentum ignition (large bar closing at extreme, ATR trailing stop, no TP)
+has real and scalable edge on XAUUSD 1H. The raw signal exists at Pass 1
+(P00). Direction filtering via session and regime gating more than doubles
+PnL relative to the baseline. Four-patch sweep: P00 REJECTED, P01 PROMOTE,
+P02 PROMOTE (series winner), P03 REJECTED.
+
+Evidence:
+P00 (max_bars=12, no filter): 314 trades, PnL $361.68, Sharpe 0.82.
+  Winners cut too early — trailing stop never had room to run.
+P01 (max_bars=48, trailing_stop=true): 290 trades, PnL $823.89, Sharpe 1.64.
+  Extending hold time doubled PnL. All vol regimes profitable.
+P02 (+ session/regime direction gate): 209 trades, PnL $1,108.19, PF 1.75,
+  Return/DD 4.67, MAR 2.54. NY session (13-20 UTC) longs only; strong_up
+  (trend_regime=2) longs only; strong_down (trend_regime=-2) shorts only;
+  other regimes both directions. -28% fewer trades, +35% more PnL vs P01.
+P03 (+ close shorts when NY session opens): 212 trades, PnL $876.21.
+  REJECTED — see separate entry below.
+
+Conclusion:
+The momentum ignition signal (bar range > 1.8x avg_range_5, close in top/
+bottom 20% of range) captures genuine directional impulse. Direction gating
+by session + regime is the primary value driver — it removes the bulk of
+losing short trades without cutting profitable long-biased moves.
+
+Implication:
+For XAUUSD 1H trend strategies, always apply direction gating from Pass 1.
+Longs dominate edge (NY session bullish bias, gold upward drift). Strong Down
+shorts should be treated with caution — 10 trades, 20% win rate, PF 0.05
+in the tested period. Time exits beyond 24 bars are necessary for trend
+strategies — do not default to short max_bars without testing.
+
+2026-03-21
+Tags:
+session_filter
+exit_design
+trend_following
+ny_session
+failed_hypothesis
+
+Strategy:
+03_TREND_XAUUSD_1H_IMPULSE_S01_V1_P03
+
+Finding:
+Closing short positions at the start of NY session (bar_hour >= 13) destroys
+the Weak Up short edge rather than protecting it. P03 REJECTED vs P02.
+
+Evidence:
+P02 Weak Up shorts: T:28, PnL +$247.30, PF 2.04.
+P03 Weak Up shorts (same setup + NY exit): T:28, PnL -$34.43, PF 0.81.
+Delta: -$281.73. NY exit cost more in Weak Up shorts alone than the
+Strong Down short losses it partially recovered (+$39.41 improvement).
+Overall: P03 PnL $876 vs P02 PnL $1,108 (-$232 net regression).
+
+Conclusion:
+Shorts entered pre-NY (Asian/London session) that are still profitable
+need NY hours to complete their move — the ATR trailing stop captures
+the reversal after the NY bounce, not before. Forcing an exit at 13:00
+UTC terminates these trades mid-move, converting winners into flat or
+losers.
+
+Implication:
+Do not use session-based exit gates to force-close trend-following positions
+that entered outside the session. Entry restriction (no new shorts in NY) is
+correct. Exit restriction (close existing shorts when NY starts) destroys the
+positions that were working. The -$115 NY session P&L attribution visible in
+the AK report is from positions in transit — not a signal of structural
+session weakness.
+
+2026-03-21
+Tags:
+filter_stack
+direction_gate
+trend_filter
+engine_extension
+governance
+
+Finding:
+FilterStack trend_filter now supports direction_gate mode (long_when /
+short_when sub-blocks), mirroring the existing volatility_filter pattern.
+This enables per-direction regime gating without triggering the semantic
+validator's hardcoded-regime-comparison guard.
+
+Evidence:
+Extending FilterStack required three coordinated changes:
+(1) engines/filter_stack.py: cache trend_regime in allow_trade(), add
+direction_gate bypass in trend_filter block, add trend gate logic in
+allow_direction().
+(2) tools/canonical_schema.py: add direction_gate, long_when, short_when
+to trend_filter allowed nested keys.
+(3) Strategy STRATEGY_SIGNATURE: declare long_when / short_when sub-blocks
+with required_regime and operator fields.
+Directive uses: long_when: {required_regime: -2, operator: gt} (long when
+trend > -2, i.e. not strong_down); short_when: {required_regime: 2,
+operator: lt} (short when trend < 2, i.e. not strong_up).
+
+Conclusion:
+Direction-gated trend filtering is now a first-class capability of the
+engine governance layer, correctly separated from per-bar filtering.
+The semantic validator is satisfied because strategy code calls
+filter_stack.allow_direction() — no direct ctx.get('trend_regime') access.
+
+Implication:
+Any future strategy requiring per-direction regime gating should use
+the direction_gate pattern on volatility_filter or trend_filter rather
+than checking ctx regime values directly in strategy code. Hardcoded
+regime comparisons in strategy.py will be caught by the semantic validator
+and block execution.
+
+2026-03-21
+Tags:
+portfolio_construction
+interaction_audit
+orthogonality
+trend_reversal_complement
+portfolio_gap
+
+Finding:
+Adding 03_IMPULSE (momentum ignition trend follower) to the 4-strategy
+reversal-heavy portfolio produces a materially better composite. The
+addition is genuinely orthogonal but introduces one structural risk: it
+owns the largest drawdown event entirely when gold ranges.
+
+Evidence:
+BASE (PF_101C552D7C04, 4 strategies): CAGR 27.93%, Sharpe 3.80, Net PnL
+$6,982, Max DD $673, Recovery 10.38, MC 5th pctl CAGR 13.85%.
+NEW (PF_8C20B7EC307D, 5 strategies): CAGR 43.42%, Sharpe 3.80 (maintained),
+Net PnL $11,712, Max DD $834, Recovery 14.04, MC 5th pctl CAGR 24.00%.
+Behavioral correlations: P02 vs SPKFADE -0.099, vs BOS +0.073, vs FAKEBREAK
+-0.038, vs LIQSWEEP -0.014. Near-zero to slightly negative — confirmed new edge.
+Interaction audit: P02 contributes 38.7% of portfolio PnL, 31.9% of trades,
+57.3% of aggregate TIM hours. PnL/footprint ratio 0.68x (below avg efficiency
+per hour — expected for trend following). Dec 2025 DD: P02 responsible for
+109% of the $-201 event (base portfolio was +$19 in that window). Long bias
+increased from 10.1% → 22.7% net long hours (XAUUSD bull market tailwind risk).
+
+Conclusion:
+Verdict: ADD (no scaling yet). Three monitoring flags: (1) Dec 2025-type
+ranging market creates an unhedged loss window for P02 with no natural
+offset; (2) portfolio now 22.7% net long on one instrument during a bull
+run — revisit in bear conditions; (3) PnL/time efficiency 0.68x is
+acceptable but below portfolio average.
+
+Implication:
+A range-bound strategy is now the highest-priority portfolio complement.
+The Dec 2025 period (choppy XAUUSD, P02 -$115, reversals flat) identifies
+the exact regime gap. The ideal complement profits in low-directional,
+oscillating market conditions — opposite to when P02 makes money.
+
+2026-03-21
+Tags:
+portfolio_gap
+range_bound
+next_research_priority
+regime_complement
+xauusd
+
+Finding:
+The 5-strategy portfolio has one unhedged regime: ranging / low-momentum
+XAUUSD markets. This is the exact environment where the trend strategy
+(P02) bleeds and the reversal strategies (SPKFADE, FAKEBREAK, LIQSWEEP)
+go flat because there are no spikes or structural breaks to fade.
+
+Evidence:
+Dec 2025 DD audit: P02 -$115, SPKFADE +$10, BOS +$0, FAKEBREAK +$2,
+LIQSWEEP -$3. The reversal strategies could not offset P02 because ranging
+markets produce neither the large candles (SPKFADE) nor the structural
+breaks (FAKEBREAK, LIQSWEEP) that trigger their entries. A strategy
+specifically designed for range oscillation would have been active and
+profitable during this exact window.
+
+Conclusion:
+A range-bound module is the structurally correct next addition. Candidate
+mechanisms: session-defined range (Asian range, trade London retrace),
+SMI/RSI oscillator with neutral regime gate, or Bollinger mid-reversion
+when ATR squeeze is confirmed. The regime gate must ensure the strategy
+activates only when trend_regime is neutral (0) or weak (±1), so it is
+naturally anti-correlated with P02.
+
+Implication:
+Next research priority: range-bound strategy on XAUUSD 1H (or 15M) with
+explicit neutral/weak-trend regime gate. Pass 1 should confirm the signal
+exists in ranging conditions before adding direction filters. Asian session
+range → London retrace is the leading candidate entry mechanism given
+existing Family 15 ASRANGE infrastructure. Confirm Family 15 ASRANGE
+outcome before opening a new family.
+
+2026-03-22
+Tags:
+portfolio_validation
+extended_backtest
+pf_e1fcd12a8ec3
+durability
+xauusd_1h
+
+Finding:
+PF_E1FCD12A8EC3 (6-strategy XAUUSD 1H portfolio) passes all durability criteria over an
+extended 2.2-year window (2024-01-01 to 2026-03-20). Performance did not decay relative
+to the original 2-year baseline (PF_82AEC0F73920).
+
+Evidence:
+Extended run — 900 trades, Win Rate 54.2%, PF 1.62, Net PnL $14,132.80, Max DD $806.67,
+Recovery Factor 17.52. Monte Carlo (1000 sims): Mean CAGR 46.92%, 5th pctl CAGR 27.57%,
+95th pctl Max DD 9.18%, 0 blow-ups. Rolling 1Y (15 windows): 0 negative windows, worst
+window return +40.48%, worst DD 6.18%, mean return 55.81%. Year-wise: 2024 $4,038 (416
+trades), 2025 $8,213 (408 trades), 2026 YTD $1,881 (76 trades). H1/H2 split: H1 CAGR
+42.62% → H2 CAGR 80.47% — accelerating, not decaying. DYNAMIC_V1 capital profile:
+Utilized Capital $409.60, ROUC 34.50 (3450%), Efficiency Score 190.15. Per-engine ranking:
+IMPULSE P02 $4,143 (214 trades, PF 1.65, score 18.37) > BOS S03 $2,585 (127 trades, PF
+1.58, score 9.91) > LIQSWEEP P06 $2,338 (86 trades, PF 1.84, score 9.62) > MICROREV P12
+$1,948 (234 trades, PF 1.67, score 8.88) > SPKFADE S03 $1,718 (90 trades, PF 1.93, score
+7.47) > FAKEBREAK P04 $1,398 (149 trades, PF 1.32, score 4.61). FAKEBREAK is weakest
+engine by efficiency score.
+
+Conclusion:
+Portfolio is durable over the extended window. All success thresholds met: PF ≥ 1.25 ✓,
+Max DD ≤ 10% ✓, 0 negative annual periods ✓. No strategy degraded materially in the
+additional 4 months vs the original 2-year run. FAKEBREAK P04 remains a monitoring flag
+(lowest PF 1.32, lowest efficiency score 4.61).
+
+Implication:
+PF_E1FCD12A8EC3 is confirmed production-ready for the full extended window. No rebalancing
+action required. Next monitoring trigger: FAKEBREAK P04 PF dropping below 1.20 over any
+rolling 6-month window.
+
+2026-03-22
+Tags:
+pipeline_ops
+directive_state
+re_run_procedure
+extended_backtest
+lesson_learned
+
+Finding:
+Reusing directive filenames with different dates (e.g. for extended backtest re-runs) does
+NOT automatically reset directive state. The directive_state.json is keyed by filename stem,
+not by run_id or content hash. Old PORTFOLIO_COMPLETE state blocks the pipeline even if the
+directive has a new date range and new test.name.
+
+Evidence:
+All 6 EXT5Y directives used the same filenames as the original runs. First pipeline invocation
+found all 6 in PORTFOLIO_COMPLETE / SYMBOL_RUNS_COMPLETE state (keyed by filename stem at
+`runs/<DIRECTIVE_ID>/directive_state.json`) and aborted without doing new work. Additionally,
+`admit_directive()` moves files from INBOX to `active_backup/` with `.admitted` markers — a
+second pipeline invocation on an empty INBOX would find no work. Files had to be manually
+restored to INBOX.
+
+Conclusion:
+Two mandatory pre-steps for any re-run with unchanged filenames:
+1. Reset all directive states: `python tools/reset_directive.py <ID> --reason "<why>"` for
+   each directive before invoking the pipeline.
+2. Confirm INBOX contains the directive files before each pipeline invocation. If a previous
+   run admitted them to `active_backup/`, move them back.
+
+Implication:
+Add to re-run SOP: always `reset_directive.py` before re-running any directive whose filename
+is unchanged but whose content (dates, test.name, parameters) has been modified. The signature
+hash is content-based and date-independent, so PATCH_COLLISION is not a risk — but directive
+state is filename-based and will block execution without a reset.
+
+2026-03-23
+Tags:
+meta_filter
+macro_factor
+usd_stress
+portfolio_filter
+failed_concept
+
+Finding:
+USD Stress Index (usd_stress_percentile) has no viable use as a portfolio-level meta-filter
+for the 5Y XAUUSD portfolio. Near-zero correlation with portfolio PnL and an inverse
+relationship between stress zones and portfolio performance make it destructive to apply.
+
+Evidence:
+Offline simulation across 5Y window (2021-01-01 to 2026-03-20), 900 trades.
+Pearson correlation of daily usd_stress_percentile with portfolio daily PnL: -0.016
+(effectively zero). Regime-zone PnL breakdown: extreme_low stress (pct < 20): PF 1.405,
+$3,119 — best zone. extreme_high stress (pct > 80): PF 1.570, $2,657 — second best.
+neutral stress (20-80): PF 1.551. A filter blocking extreme zones would remove 32.5% of
+trades, destroy 43% of PnL, and improve PF by only 0.006. The periods the filter would
+block are when the portfolio performs best — extreme USD moves trigger the structural
+dislocations (spikes, sweeps, impulse moves) that the strategy engines are designed to exploit.
+
+Conclusion:
+A macro factor with no demonstrated correlation to portfolio PnL cannot be justified as a
+regime gate regardless of narrative logic. Extreme USD stress periods are not uniformly
+bad for this portfolio — the macro rationale (USD strength = gold headwind) is structurally
+inverted at the trade-outcome level.
+
+Implication:
+Do not apply macro-level USD filters to XAUUSD 1H strategies without first confirming a
+statistically significant correlation between the macro factor and per-trade outcomes.
+Narrative plausibility does not substitute for demonstrated correlation in the trade sample.
+This experiment axis is closed for the XAUUSD 1H portfolio.
+
+2026-03-23
+Tags:
+regime_filter
+regime_age
+stability_filter
+sweep_parked
+temporal_fragility
+
+Finding:
+Regime age threshold filtering (exclude trades where market_regime has been active fewer
+than N bars) improves portfolio PF marginally but concentrates its cost in a single high-
+return year, making the benefit temporally fragile. Parked without implementation.
+
+Evidence:
+Offline sweep across 7 age thresholds [0, 1, 2, 3, 5, 8, 12] using raw results_tradelevel.csv.
+Best threshold: age >= 2 (+0.072 PF, -13.8% trade reduction, 900 → 776 trades). Year-by-year:
+2024 +$89, 2025 -$535, 2026 YTD +$89. The 2025 cost is not random — it was the portfolio's
+best return year ($8,213) and regimes cycled faster, placing many high-quality trades inside
+the first 2 bars of a new regime. Higher thresholds (age >= 3) compound the 2025 effect with
+worse PF. The +0.072 PF gain is entirely attributable to 2024 and 2026 YTD.
+
+Conclusion:
+A filter whose benefit is temporally concentrated in low-activity periods while its cost is
+concentrated in the best return year fails the distribution test. The gain is period-fitted,
+not structurally robust.
+
+Implication:
+Regime age filtering requires uniform distribution of benefit across years before
+implementation. If improvement is concentrated in low-activity years and cost in
+high-return years, park the axis. Revisit only if a new 12+ month window shows consistent
+improvement without year-specific cost concentration. Minimum requirement before
+implementation: no single year should bear more than 40% of the filter's total cost.
+
+2026-03-23
+Tags:
+market_regime
+engine_specific_filter
+portfolio_improvement
+range_high_vol
+filter_design
+
+Finding:
+Market regime exclusion must be applied per-engine based on that engine's individual regime
+performance, not at the portfolio level. Two engines (IMPULSE, FAKEBREAK) lose money in
+range_high_vol; two others (BOS, MICROREV) are strongly positive in the same regime.
+A portfolio-wide exclusion would destroy the latter.
+
+Evidence:
+Offline per-engine market_regime PnL breakdown (5Y, 900 trades, PF_0DDC45C94672 baseline).
+Portfolio-level range_high_vol: 452 trades, PF 1.130 — worst regime but still net positive.
+Engine breakdown within range_high_vol: IMPULSE: 113 trades, PF 0.682, -$231 (worst combination).
+FAKEBREAK: range_high_vol PF 0.838 (-$103), range_low_vol PF 0.595 (-$67). BOS: PF 1.70,
++$487 in range_high_vol (best combination). MICROREV: PF 1.65, +$348. SPKFADE: PF 1.22.
+LIQSWEEP: PF 1.05 (marginal). Engine-specific filter applied to IMPULSE and FAKEBREAK only:
+projected +0.093 PF at portfolio level, -45.8% max drawdown reduction, only 7.5% trade
+reduction. Implemented as P04 (IMPULSE) and P05 (FAKEBREAK) with market_regime_filter block.
+
+Conclusion:
+The correct application of market regime filtering is engine-specific, not portfolio-wide.
+Aggregating regime PnL at the portfolio level masks per-engine heterogeneity. An engine
+losing money in a regime should exclude it; an engine profiting in that same regime must not
+be affected. The FilterStack market_regime_filter block (added to filter_stack.py and
+canonical_schema.py) is the correct implementation vehicle — per-strategy, declared in
+STRATEGY_SIGNATURE, hard pre-entry gate with no fallback.
+
+Implication:
+For any future portfolio optimization using market_regime exclusion: (1) always run
+per-engine regime breakdown first — never work from portfolio aggregate alone; (2) only
+apply exclusion where engine PF < 1.0 in a regime with at least ~50 trades; (3) confirm
+no other engine is strongly positive in that regime before considering a portfolio-wide gate;
+(4) implement via market_regime_filter in STRATEGY_SIGNATURE — never via shared pipeline
+logic or portfolio-level gating.

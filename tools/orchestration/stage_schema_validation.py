@@ -19,7 +19,7 @@ from pathlib import Path
 
 from config.state_paths import BACKTESTS_DIR
 from tools.orchestration.pipeline_errors import PipelineExecutionError
-from tools.pipeline_utils import PipelineContext
+from tools.pipeline_utils import PipelineContext, PipelineStateManager
 
 # ── Schema source of truth ────────────────────────────────────────────────────
 # Import label sets directly from stage3_compiler so validation is always in
@@ -91,6 +91,27 @@ class SchemaValidationStage:
         symbols = context.symbols
 
         print(f"[{self.stage_id}] Validating AK_Trade_Report schema for: {directive_id}")
+
+        # Pre-entry state check: if any run is FAILED, Stage 2 did not complete for
+        # that run. Fail here with an explicit upstream attribution rather than
+        # surfacing a confusing "AK_Trade_Report not found" artifact error below.
+        failed_runs = [
+            (run_id, symbol)
+            for run_id, symbol in zip(run_ids, symbols)
+            if PipelineStateManager(run_id).get_state_data().get("current_state", "IDLE") == "FAILED"
+        ]
+        if failed_runs:
+            lines = [
+                f"  {sym} ({rid[:8]}): Stage 2 marked FAILED — AK_Trade_Report will not exist"
+                f" → Check stage2_compiler output or Stage 1 artifacts for this run"
+                for rid, sym in failed_runs
+            ]
+            raise PipelineExecutionError(
+                f"[{self.stage_id}] Stage 2 failed for {len(failed_runs)} run(s) "
+                f"— fix Stage 2 before schema validation:\n" + "\n".join(lines),
+                directive_id=directive_id,
+                run_ids=[rid for rid, _ in failed_runs],
+            )
 
         failures: list[str] = []       # human-readable lines
         failing_run_ids: list[str] = []

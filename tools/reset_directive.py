@@ -30,9 +30,50 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.pipeline_utils import DirectiveStateManager
+from tools.system_registry import _get_directive_first_execution_timestamp
 from config.state_paths import RUNS_DIR
 
 AUDIT_LOG = PROJECT_ROOT / "governance" / "reset_audit_log.csv"
+
+
+def _detect_strategy_logic_change(directive_id: str) -> tuple[bool, str]:
+    """
+    Returns (was_modified, reason).
+
+    Compares strategy.py mtime against the earliest run creation timestamp for
+    this directive (registry primary, RUNS_DIR fallback via shared helper).
+    If strategy.py was modified after the directive was first executed, this is
+    a logic change — not an infra failure.
+
+    Returns (False, "") when the check cannot be performed (no strategy.py, no
+    runs found) — treated as an infra failure, reset allowed.
+    """
+    strategy_py = PROJECT_ROOT / "strategies" / directive_id / "strategy.py"
+    if not strategy_py.exists():
+        return (False, "")
+
+    strat_mtime = datetime.fromtimestamp(strategy_py.stat().st_mtime, tz=timezone.utc)
+
+    # Fast path: approval marker present and stale
+    approved = strategy_py.with_name("strategy.py.approved")
+    if approved.exists():
+        approved_mtime = datetime.fromtimestamp(approved.stat().st_mtime, tz=timezone.utc)
+        if strat_mtime > approved_mtime:
+            return (True, "strategy.py was modified after its approval marker.")
+
+    # Primary + fallback: shared helper (registry → RUNS_DIR scan)
+    first_exec_ts = _get_directive_first_execution_timestamp(directive_id)
+    if first_exec_ts is None:
+        return (False, "")
+
+    if strat_mtime > first_exec_ts:
+        return (
+            True,
+            f"strategy.py was modified after directive first ran "
+            f"({first_exec_ts.strftime('%Y-%m-%d %H:%M UTC')}).",
+        )
+
+    return (False, "")
 
 
 def _archive_run_states(directive_id: str, timestamp_suffix: str):
@@ -102,6 +143,33 @@ def reset_directive(directive_id: str, reason: str, to_stage4: bool = False):
     if previous_state == "INITIALIZED":
         print(f"[INFO] Directive {directive_id} is already INITIALIZED. No reset needed.")
         return
+
+    # --- EXPERIMENT DISCIPLINE GUARD ---
+    # If strategy.py was modified after the run's preflight completed, this is a
+    # logic change — not an infra failure.  Reset is forbidden; a new directive
+    # version must be created instead.
+    modified, mod_reason = _detect_strategy_logic_change(directive_id)
+    if modified:
+        next_ver = directive_id.replace("_V1_", "_V2_") if "_V1_" in directive_id else directive_id + "_V2"
+        print()
+        print("=" * 66)
+        print("[EXPERIMENT DISCIPLINE] RESET BLOCKED — LOGIC CHANGE DETECTED")
+        print("=" * 66)
+        print(f"  Directive : {directive_id}")
+        print(f"  Reason    : {mod_reason}")
+        print()
+        print("  Each directive is an immutable experiment.")
+        print("  Re-running the same directive after a logic change corrupts results.")
+        print()
+        print("  REQUIRED ACTION:")
+        print(f"    1. Create a new directive: {next_ver}")
+        print( "    2. Run the pipeline with the NEW directive only.")
+        print( "    3. Abandon or archive the failed directive.")
+        print()
+        print("  Reset is only allowed for infra failures (crash / missing file)")
+        print("  where strategy.py is completely unchanged.")
+        print("=" * 66)
+        sys.exit(1)
 
     # Determine target state
     if to_stage4:

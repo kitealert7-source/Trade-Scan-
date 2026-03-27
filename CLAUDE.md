@@ -11,11 +11,15 @@ Three-repo research-to-execution pipeline:
 
 ---
 
-## Before Acting — Mandatory Reads
+## Before Acting — Read Protocol
 
-1. `AGENT.md` — full failure playbook + 25 system invariants (**read in full before any pipeline action**)
-2. `RESEARCH_MEMORY.md` — disproven approaches + accumulated findings (avoid repeating history)
-3. `SYSTEM_STATE.md` — current system health snapshot
+**Always:**
+1. `AGENT.md` — invariants, lifecycle, engine standards, pre-directive gate
+
+**Task-conditional:**
+2. `SYSTEM_STATE.md` — before any pipeline run
+3. `RESEARCH_MEMORY.md` — before strategy design or directive creation
+4. `FAILURE_PLAYBOOK.md` — when any failure or anomaly occurs
 
 ---
 
@@ -33,7 +37,8 @@ Three-repo research-to-execution pipeline:
 
 | Task | Document |
 |---|---|
-| Any pipeline run or directive work | `AGENT.md` (full) |
+| Any pipeline run or directive work | `AGENT.md` (invariants, lifecycle, pre-directive gate) |
+| Pipeline failure or FSM repair | `FAILURE_PLAYBOOK.md` |
 | Understanding pipeline stage flow | `outputs/system_reports/01_system_architecture/pipeline_flow.md` |
 | Checking what entrypoints exist | `outputs/system_reports/01_system_architecture/SYSTEM_ENTRYPOINTS.md` |
 | Understanding system boundaries + invariants | `outputs/system_reports/01_system_architecture/SYSTEM_SURFACE_MAP.md` |

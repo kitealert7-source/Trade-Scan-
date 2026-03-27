@@ -40,6 +40,16 @@ FLOAT_TOLERANCE = 1e-9
 # ======================================================================
 
 PROFILES = {
+    # Baseline: raw directional edge at minimum lot — no constraints
+    "RAW_MIN_LOT_V1": {
+        "starting_capital": 10000.0,
+        "risk_per_trade": 0.0,
+        "heat_cap": 9999.0,       # unused (raw_lot_mode bypasses all gates)
+        "leverage_cap": 9999,     # unused
+        "min_lot": 0.01,
+        "lot_step": 0.01,
+        "raw_lot_mode": True,     # unconditional execution — every signal at 0.01 lot
+    },
     # Priority 1: Dynamic heat-aware scaling
     "DYNAMIC_V1": {
         "starting_capital": 10000.0,
@@ -424,6 +434,7 @@ class PortfolioState:
     min_lot_fallback: bool = False            # Execute at min_lot if sized < min_lot
     max_risk_multiple: Optional[float] = 3.0  # Max allowable risk/target ratio (None=Uncapped)
     track_risk_override: bool = False         # Log override metrics
+    raw_lot_mode: bool = False                # Bypass all gates — execute every signal at min_lot
     # Running state
     equity: float = 0.0
     realized_pnl: float = 0.0
@@ -510,6 +521,33 @@ class PortfolioState:
 
     def process_entry(self, event: TradeEvent, usd_per_pu_per_lot: float,
                       contract_size: float) -> bool:
+        # RAW mode: bypass all gates — unconditionally accept at min_lot
+        if self.raw_lot_mode:
+            lot_size = self.min_lot
+            trade_risk_usd = event.risk_distance * usd_per_pu_per_lot * lot_size
+            trade_notional  = lot_size * event.entry_price * usd_per_pu_per_lot
+            trade = OpenTrade(
+                trade_id=event.trade_id, symbol=event.symbol, direction=event.direction,
+                entry_price=event.entry_price, exit_price=event.exit_price, lot_size=lot_size,
+                risk_usd=trade_risk_usd, notional_usd=trade_notional,
+                risk_distance=event.risk_distance,
+                usd_per_price_unit_per_lot=usd_per_pu_per_lot,
+                entry_timestamp=event.timestamp,
+                initial_stop_price=event.initial_stop_price, atr_entry=event.atr_entry,
+                r_multiple=event.r_multiple, volatility_regime=event.volatility_regime,
+                trend_regime=event.trend_regime, trend_label=event.trend_label,
+            )
+            self.open_trades[event.trade_id] = trade
+            self.total_open_risk += trade_risk_usd
+            self.total_notional  += trade_notional
+            self.symbol_notional[event.symbol] = self.symbol_notional.get(event.symbol, 0.0) + trade_notional
+            self.total_accepted += 1
+            self.accepted_trade_ids.append(event.trade_id)
+            if len(self.open_trades) > self.max_concurrent:
+                self.max_concurrent = len(self.open_trades)
+            self.equity_timeline.append((event.timestamp, self.equity))
+            return True
+
         """
         Process an ENTRY event. Returns True if accepted, False if rejected.
 
@@ -916,7 +954,7 @@ def print_comparative_summary(states: Dict[str, PortfolioState]):
 # PHASE 5: DEPLOYABLE METRICS + ARTIFACT OUTPUT
 # ======================================================================
 
-def compute_deployable_metrics(state: PortfolioState) -> dict:
+def compute_deployable_metrics(state: PortfolioState, total_runs: int, total_assets: int) -> dict:
     """Compute all deployable metrics from PortfolioState data only."""
     # CAGR (geometric)
     tl = state.equity_timeline
@@ -960,6 +998,10 @@ def compute_deployable_metrics(state: PortfolioState) -> dict:
 
     metrics = {
         "profile": state.profile_name,
+        "total_constituent_runs": total_runs,
+        "actual_max_concurrent_trades": state.max_concurrent,
+        "configured_concurrency_cap": state.concurrency_cap,
+        "total_assets_evaluated": total_assets,
         "starting_capital": state.starting_capital,
         "final_equity": round(state.equity, 2),
         "cagr": round(cagr, 6),
@@ -970,8 +1012,6 @@ def compute_deployable_metrics(state: PortfolioState) -> dict:
         "total_accepted": state.total_accepted,
         "total_rejected": state.total_rejected,
         "rejection_rate_pct": round(rejection_rate * 100, 2),
-        "max_concurrent_trades_during_test_period": state.max_concurrent,
-        "configured_concurrency_cap": state.concurrency_cap,
         "avg_heat_utilization_pct": round(avg_heat * 100, 4),
         "pct_time_at_full_heat": round(pct_at_full_heat * 100, 4),
         "longest_loss_streak": longest_loss,
@@ -1082,7 +1122,7 @@ def plot_equity_curve(state: PortfolioState, output_dir: Path) -> None:
     print(f"[EMIT] {state.profile_name} equity curve plot -> {out_path}")
 
 
-def emit_profile_artifacts(state: PortfolioState, output_dir: Path):
+def emit_profile_artifacts(state: PortfolioState, output_dir: Path, total_runs: int, total_assets: int):
     """Write per-profile CSV and JSON artifacts."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1124,7 +1164,7 @@ def emit_profile_artifacts(state: PortfolioState, output_dir: Path):
                 w.writerow(r)
 
     # summary_metrics.json
-    metrics = compute_deployable_metrics(state)
+    metrics = compute_deployable_metrics(state, total_runs, total_assets)
     with open(output_dir / "summary_metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
@@ -1140,7 +1180,11 @@ def emit_comparison_json(all_metrics: Dict[str, dict], states: Dict[str, Portfol
     """Write unified profile_comparison.json."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    names = sorted(all_metrics.keys())
+    # Pin RAW_MIN_LOT_V1 first (baseline), then sort the rest alphabetically
+    _raw = "RAW_MIN_LOT_V1"
+    names = ([_raw] if _raw in all_metrics else []) + sorted(
+        [k for k in all_metrics.keys() if k != _raw]
+    )
     comparison = {"profiles": {n: all_metrics[n] for n in names}}
 
     # Acceptance set analysis
@@ -1525,13 +1569,35 @@ def main():
     deployable_root = STRATEGIES_DIR / args.strategy_prefix / "deployable"
     deployable_root.mkdir(parents=True, exist_ok=True)
     all_metrics = {}
+    
+    true_constituent_runs = len(run_dirs)
+    if args.strategy_prefix.startswith("PF_"):
+        meta_file = STRATEGIES_DIR / args.strategy_prefix / "portfolio_evaluation" / "portfolio_metadata.json"
+        if meta_file.exists():
+            try:
+                import json
+                with open(meta_file, "r", encoding="utf-8") as f:
+                    m_data = json.load(f)
+                    c_runs = m_data.get("constituent_run_ids", [])
+                    if c_runs:
+                        true_constituent_runs = len(c_runs)
+            except Exception:
+                pass
+                
     for name, state in states.items():
         profile_dir = deployable_root / name
-        metrics = emit_profile_artifacts(state, profile_dir)
+        metrics = emit_profile_artifacts(state, profile_dir, true_constituent_runs, len(symbols))
         plot_equity_curve(state, profile_dir)
         all_metrics[name] = metrics
 
     emit_comparison_json(all_metrics, states, deployable_root)
+
+    try:
+        from tools.post_process_capital import process_profile_comparison
+        process_profile_comparison(args.strategy_prefix)
+    except Exception as e:
+        print(f"[WARN] post_process_capital failed for {args.strategy_prefix}: {e}")
+
     print(f"[DONE] All artifacts emitted to {deployable_root}")
 
 

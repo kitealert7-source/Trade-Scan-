@@ -291,8 +291,10 @@ def main():
         print(f"  {line}", end="")
     print()
 
-    # Write canonical to tmp
-    tmp_path = Path("/tmp") / f"{d_path.stem}_canonical.yaml"
+    # Write canonical to project-local staging directory (cross-platform, auto-cleaned by .gitignore)
+    staging_dir = PROJECT_ROOT / ".canonical_staging"
+    staging_dir.mkdir(exist_ok=True)
+    tmp_path = staging_dir / f"{d_path.stem}_canonical.yaml"
     tmp_path.write_text(canonical_yaml, encoding="utf-8")
     print(f"  Corrected YAML written to: {tmp_path}")
     print()

@@ -9,6 +9,7 @@ family:
   - CONT
   - REV
   - STR
+  - RSI
 model:
   - RSIAVG
   - ZREV
@@ -32,6 +33,11 @@ model:
   - BBSQZ
   - ATRSQZ
   - ASRANGE
+  - FAKEBREAK
+  - LIQSWEEP
+  - IMPULSE
+  - CMR
+  - MICROREV
 filter:
   - ATRFILT
   - VOLFILT

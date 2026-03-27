@@ -4,11 +4,13 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
+from filelock import FileLock
 
-from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR
+from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR, POOL_DIR
 
 PROJECT_ROOT = Path(__file__).parent.parent
 REGISTRY_PATH = REGISTRY_DIR / "run_registry.json"
+LOCK_PATH = REGISTRY_PATH.with_suffix(".lock")
 
 def _load_registry() -> dict:
     if not REGISTRY_PATH.exists():
@@ -41,8 +43,6 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
     Log a run into the master lifecycle ledger.
     Extracts the artifact_hash from the run_state.json if available.
     """
-    reg = _load_registry()
-    
     # Try to extract the computed artifact_hash from run_state
     state_file = RUNS_DIR / run_id / "run_state.json"
     artifact_hash = None
@@ -53,36 +53,39 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
                 artifact_hash = state_data.get("artifact_hash")
         except Exception:
             pass
-            
-    # If the run already exists, update status and possibly hash. Otherwise create new tier: sandbox.
-    if status == "complete":
-        # Verification Guard: Ensure core artifacts exist physically
-        run_dir = RUNS_DIR / run_id
-        required = [
-            run_dir / "manifest.json",
-            run_dir / "data" / "results_tradelevel.csv",
-            run_dir / "data" / "results_standard.csv",
-            run_dir / "data" / "equity_curve.csv"
-        ]
-        if not all(p.exists() for p in required):
-            print(f"[INTEGRITY] Run {run_id} missing core artifacts. Downgrading status to 'failed'.")
-            status = "failed"
 
-    if run_id in reg:
-        reg[run_id]["status"] = status
-        if artifact_hash and not reg[run_id].get("artifact_hash"):
-            reg[run_id]["artifact_hash"] = artifact_hash
-    else:
-        reg[run_id] = {
-            "run_id": run_id,
-            "tier": "sandbox",
-            "status": status,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "directive_hash": directive_id,
-            "artifact_hash": artifact_hash
-        }
-        
-    _save_registry_atomic(reg)
+    with FileLock(str(LOCK_PATH)):
+        reg = _load_registry()
+
+        # If the run already exists, update status and possibly hash. Otherwise create new tier: sandbox.
+        if status == "complete":
+            # Verification Guard: Ensure core artifacts exist physically
+            run_dir = RUNS_DIR / run_id
+            required = [
+                run_dir / "manifest.json",
+                run_dir / "data" / "results_tradelevel.csv",
+                run_dir / "data" / "results_standard.csv",
+                run_dir / "data" / "equity_curve.csv"
+            ]
+            if not all(p.exists() for p in required):
+                print(f"[INTEGRITY] Run {run_id} missing core artifacts. Downgrading status to 'failed'.")
+                status = "failed"
+
+        if run_id in reg:
+            reg[run_id]["status"] = status
+            if artifact_hash and not reg[run_id].get("artifact_hash"):
+                reg[run_id]["artifact_hash"] = artifact_hash
+        else:
+            reg[run_id] = {
+                "run_id": run_id,
+                "tier": "sandbox",
+                "status": status,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "directive_hash": directive_id,
+                "artifact_hash": artifact_hash
+            }
+
+        _save_registry_atomic(reg)
 
 def get_active_portfolio_runs() -> set:
     """Scan strategies/ for portfolio_composition.json files and collect active dependencies."""
@@ -101,6 +104,19 @@ def get_active_portfolio_runs() -> set:
                         active_runs.update(run_ids)
             except Exception:
                 continue
+
+    # Also shield manually grouped static selections
+    static_selections_path = POOL_DIR / "in_portfolio_selections.json"
+    if static_selections_path.exists():
+        try:
+            with open(static_selections_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            selections = data.get("selections", [])
+            if isinstance(selections, list):
+                active_runs.update(selections)
+        except Exception as e:
+            print(f"[WARN] Could not parse static portfolio selections: {e}")
+
     return active_runs
 
 def reconcile_registry() -> dict:
@@ -113,18 +129,17 @@ def reconcile_registry() -> dict:
     Returns:
         dict: Mismatch details for callers (e.g., gates).
     """
-    reg = _load_registry()
     runs_dir = RUNS_DIR
-    
+
     results = {
         "orphaned_on_disk": [],
         "missing_from_disk": [],
         "invalid_in_registry": []
     }
-    
-    # 1. Physical vs Registry (Across both Sandbox and Candidate boundaries)
+
+    # 1. Physical vs Registry (Across sandbox, candidate, and pool boundaries)
     physical_runs = set()
-    for directory in [RUNS_DIR, SELECTED_DIR]: # Explicitly check selected (candidates)
+    for directory in [RUNS_DIR, SELECTED_DIR, POOL_DIR]: # Also check pool (completed/migrated runs)
         if directory.exists():
             for item in directory.iterdir():
                 if item.is_dir() and (item / "data").exists():
@@ -132,9 +147,11 @@ def reconcile_registry() -> dict:
         elif directory == RUNS_DIR:
              # Runs dir must exist or we have no sandbox
              pass
-                
+
+    # 2. Load registry and compute full updated state (OUTSIDE lock)
+    reg = _load_registry()
     dirty = False
-    
+
     # Missing from registry
     for phys_id in physical_runs:
         if phys_id not in reg:
@@ -149,21 +166,27 @@ def reconcile_registry() -> dict:
                 "artifact_hash": None
             }
             dirty = True
-            
+
     # Physically missing but in registry
     for run_id, data in list(reg.items()):
         if run_id not in physical_runs:
             if data.get("status") == "invalid":
                 results["invalid_in_registry"].append(run_id)
                 continue
-                
+
             if not (runs_dir / run_id).exists():
                 print(f"[RECONCILE] Registry entry {run_id} missing physical folder -> marked invalid.")
                 results["missing_from_disk"].append(run_id)
                 reg[run_id]["status"] = "invalid"
                 dirty = True
-                
-    # 3. Candidate Location Alignment (Auto-Repair)
+        else:
+            # Run IS physically present but registry says invalid — stale flag, restore it.
+            if data.get("status") == "invalid":
+                print(f"[RECONCILE] Run {run_id} is physically present but marked invalid -> restored to complete.")
+                reg[run_id]["status"] = "complete"
+                dirty = True
+
+    # 3. Candidate Location Alignment (Auto-Repair) — filesystem moves, no registry lock needed
     for run_id, data in reg.items():
         if data.get("tier") == "candidate" and data.get("status") == "complete":
             src = RUNS_DIR / run_id
@@ -173,13 +196,15 @@ def reconcile_registry() -> dict:
                 try:
                     SELECTED_DIR.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(src), str(dst))
-                    # We don't need to set dirty here as registry data itself hasn't changed, 
+                    # We don't need to set dirty here as registry data itself hasn't changed,
                     # but reconciliation is about filesystem alignment.
                 except Exception as e:
                     print(f"[ERROR] Auto-repair migration failed for {run_id}: {e}")
-                
+
+    # Commit — lock held only for the atomic write (Option A: full overwrite)
     if dirty:
-        _save_registry_atomic(reg)
+        with FileLock(str(LOCK_PATH)):
+            _save_registry_atomic(reg)
 
     # AUTO-CLEAN: remove newly-invalid run_ids from portfolio_metadata.json files
     newly_invalid = set(results["missing_from_disk"])
@@ -207,3 +232,106 @@ def reconcile_registry() -> dict:
             
     print("[RECONCILE] Registry alignment complete.")
     return results
+
+
+def _get_directive_first_execution_timestamp(directive_id: str):
+    """
+    Return the earliest run creation timestamp for a directive.
+
+    Primary source: run_registry.json
+      - Filter entries where directive_hash == directive_id
+      - Parse created_at, return the minimum
+
+    Fallback (registry missing / empty / no matching entries):
+      - Scan RUNS_DIR for run_state.json files with matching directive_id
+      - Extract timestamp with priority:
+          a) history[0]['timestamp']  — definitively the run creation time
+          b) last_updated             — set at initialization
+          c) run_state.json mtime     — last resort
+      - Return the minimum across all matching runs
+
+    Returns None if no runs found → treated as new directive, reset allowed.
+    All exceptions are caught safely; missing data is skipped, never crashes.
+    """
+    # --- PRIMARY: run_registry.json ---
+    registry_ts = None
+    if REGISTRY_PATH.exists():
+        try:
+            reg = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+            for entry in reg.values():
+                if entry.get("directive_hash") != directive_id:
+                    continue
+                raw = entry.get("created_at", "")
+                if not raw:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(raw)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    if registry_ts is None or ts < registry_ts:
+                        registry_ts = ts
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    if registry_ts is not None:
+        return registry_ts
+
+    # --- FALLBACK: scan RUNS_DIR for run_state.json ---
+    fallback_ts = None
+    if not RUNS_DIR.exists():
+        return None
+
+    for run_dir in RUNS_DIR.iterdir():
+        if not run_dir.is_dir():
+            continue
+        rs_file = run_dir / "run_state.json"
+        if not rs_file.exists():
+            continue
+        try:
+            rs = json.loads(rs_file.read_text(encoding="utf-8"))
+            if rs.get("directive_id") != directive_id:
+                continue
+
+            ts = None
+
+            # Priority a: first history entry timestamp (run creation)
+            history = rs.get("history", [])
+            if history:
+                raw = history[0].get("timestamp", "")
+                if raw:
+                    try:
+                        raw = raw.rstrip("Z")
+                        if "+" not in raw:
+                            raw += "+00:00"
+                        ts = datetime.fromisoformat(raw)
+                    except Exception:
+                        pass
+
+            # Priority b: last_updated (set at initialization)
+            if ts is None:
+                raw = rs.get("last_updated", "")
+                if raw:
+                    try:
+                        raw = raw.rstrip("Z")
+                        if "+" not in raw:
+                            raw += "+00:00"
+                        ts = datetime.fromisoformat(raw)
+                    except Exception:
+                        pass
+
+            # Priority c: filesystem mtime of run_state.json
+            if ts is None:
+                ts = datetime.fromtimestamp(rs_file.stat().st_mtime, tz=timezone.utc)
+
+            if ts is not None:
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if fallback_ts is None or ts < fallback_ts:
+                    fallback_ts = ts
+
+        except Exception:
+            continue
+
+    return fallback_ts
