@@ -1,0 +1,51 @@
+execution_rules:
+  stop_loss:
+    type: wick_atr_buffer
+    atr_multiplier: 0.2
+  take_profit:
+    enabled: true
+    type: range_midpoint
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: false_break
+    range_lookback: 20
+    break_atr_threshold: 0.3
+    range_min_atr_multiple: 1.0
+    confirmation: same_bar_close
+  exit_logic:
+    type: tp_or_time
+    max_bars: 6
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.structure.highest_high
+- indicators.structure.lowest_low
+- indicators.volatility.atr
+market_regime_filter:
+  enabled: true
+  exclude:
+  - range_high_vol
+  - range_low_vol
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  required_regime: -2
+  operator: gte
+  exclude_regime: 0
+symbols:
+- XAUUSD
+test:
+  name: 17_REV_XAUUSD_1H_FAKEBREAK_S01_V1_P05
+  strategy: 17_REV_XAUUSD_1H_FAKEBREAK_S01_V1_P05
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2021-01-01'
+  end_date: '2026-03-20'
