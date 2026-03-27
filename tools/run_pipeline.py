@@ -41,6 +41,7 @@ import os
 import json
 import hashlib
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -51,7 +52,7 @@ ACTIVE_BACKUP_DIR = DIRECTIVES_DIR / "active_backup"
 COMPLETED_DIR = DIRECTIVES_DIR / "completed"
 
 def admit_directive(directive_id: str) -> None:
-    """Atomic admission of directive from active/ to active_backup/ with marker."""
+    """Atomic admission of directive from INBOX/ to active_backup/ with marker."""
     d_path = find_directive_path(ACTIVE_DIR, directive_id)
     if not d_path:
         # Check if already admitted (authoritative)
@@ -92,6 +93,24 @@ def archive_completed_directive(directive_id: str) -> None:
         os.replace(str(marker_path), str(new_marker))
         
     print(f"[ORCHESTRATOR] Archived: {d_path.name} -> {COMPLETED_DIR}")
+
+def reconcile_active_backup() -> None:
+    """
+    Archive any directives in active_backup/ that have already reached PORTFOLIO_COMPLETE.
+
+    Called on startup and at the end of every run (including interrupted batch runs) so
+    that a fail-fast abort never permanently strands a completed directive in active_backup/.
+    The DirectiveStateManager is the authority — only PORTFOLIO_COMPLETE directives move.
+    """
+    if not ACTIVE_BACKUP_DIR.exists():
+        return
+    for d_path in sorted(ACTIVE_BACKUP_DIR.glob("*.txt")):
+        directive_id = d_path.stem
+        state = DirectiveStateManager(directive_id).get_state()
+        if state == "PORTFOLIO_COMPLETE":
+            archive_completed_directive(directive_id)
+            print(f"[RECONCILE] Auto-archived PORTFOLIO_COMPLETE directive: {directive_id}")
+
 
 def recover_partially_admitted_directives() -> None:
     """On startup, recreate markers for directives in backup missing them."""
@@ -136,6 +155,58 @@ from tools.system_registry import reconcile_registry, _load_registry, _save_regi
 from tools.pipeline_utils import PipelineContext, parse_directive
 from tools.orchestration.bootstrap_controller import BootstrapController
 from tools.orchestration.runner import StageRunner
+
+
+def validate_inbox_directive_tokens():
+    """
+    Token Gate: validate MODEL token in all INBOX directives against
+    token_dictionary.yaml before any pipeline work begins.
+    Zero state changes on failure — nothing is provisioned, nothing is moved.
+    Name format: {id}_{FAMILY}_{SYMBOL}_{TF}_{MODEL}[_{FILTER}]_{SWEEP}_{V#}_{P##}
+    MODEL is always the 5th component (index 4).
+    """
+    import yaml
+    token_dict_path = PROJECT_ROOT / "governance" / "namespace" / "token_dictionary.yaml"
+    if not token_dict_path.exists():
+        return
+
+    try:
+        token_data = yaml.safe_load(token_dict_path.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        print(f"[TOKEN GATE] Could not read token_dictionary.yaml ({e}) — skipping token check.")
+        return
+
+    valid_models  = {t.upper() for t in token_data.get("model", [])}
+    alias_keys    = {k.upper() for k in token_data.get("aliases", {}).get("model", {})}
+    all_valid     = valid_models | alias_keys
+
+    inbox = PROJECT_ROOT / "backtest_directives" / "INBOX"
+    if not inbox.exists():
+        return
+
+    errors = []
+    for directive_file in sorted(inbox.glob("*.txt")):
+        parts = directive_file.stem.split("_")
+        if len(parts) < 5:
+            continue
+        model_token = parts[4].upper()
+        if model_token not in all_valid:
+            errors.append(
+                f"  {directive_file.name}\n"
+                f"    MODEL='{model_token}' is not a valid token.\n"
+                f"    Valid: {', '.join(sorted(valid_models))}\n"
+                f"    Aliases: {', '.join(sorted(alias_keys)) or 'none'}"
+            )
+
+    if errors:
+        print("[TOKEN GATE] INVALID MODEL TOKEN(S) — pipeline blocked before any state change:")
+        for err in errors:
+            print(err)
+        raise PipelineAdmissionPause(
+            "Invalid namespace token(s) in INBOX. Fix directive filename(s) and re-run."
+        )
+
+    print(f"[TOKEN GATE] All INBOX directive tokens valid.")
 
 
 def enforce_run_schema(project_root: Path):
@@ -209,8 +280,8 @@ def gate_registry_consistency():
         
         drift_detected = False
         if results["orphaned_on_disk"]:
-            print(f"[DRIFT] DISK_NOT_IN_REGISTRY: {results['orphaned_on_disk']}")
-            drift_detected = True
+            # Auto-recovered by reconciler — not actionable drift, just a warning.
+            print(f"[DRIFT] DISK_NOT_IN_REGISTRY (auto-recovered): {results['orphaned_on_disk']}")
         if results["missing_from_disk"]:
             print(f"[DRIFT] REGISTRY_RUN_MISSING_ON_DISK: {results['missing_from_disk']}")
             print("[AUTO-HEAL] Automatically purging orphaned registry keys...")
@@ -339,8 +410,9 @@ def detect_strategy_drift(project_root: Path):
     drift = []
     for item in strat_dir.iterdir():
         if item.is_file():
-            # No files allowed in root of strategies/
-            if item.name != "Master_Portfolio_Sheet.xlsx":
+            # No files allowed in root of strategies/ except the portfolio sheet
+            # and Office temp lock files (~$...) which are transient and harmless.
+            if item.name != "Master_Portfolio_Sheet.xlsx" and not item.name.startswith("~$"):
                 drift.append(f"Unexpected file: {item.name}")
         elif item.is_dir():
             if item.name.startswith("_"):
@@ -487,27 +559,11 @@ def run_batch_mode(provision_only=False):
     
     # --- ACTIVE Bypass Guard ---
     try:
-        from tools.sweep_registry_gate import _load_yaml, SWEEP_REGISTRY_PATH
+        from tools.sweep_registry_gate import (
+            _load_yaml, SWEEP_REGISTRY_PATH, get_all_allocated_names,
+        )
         registry_data = _load_yaml(SWEEP_REGISTRY_PATH)
-        allocated_names = set()
-        ideas = registry_data.get("ideas", {})
-        if isinstance(ideas, dict):
-            for idea_data in ideas.values():
-                if isinstance(idea_data, dict):
-                    sweeps = idea_data.get("sweeps", idea_data.get("allocated", {}))
-                    if isinstance(sweeps, dict):
-                        for sweep_data in sweeps.values():
-                            if isinstance(sweep_data, dict):
-                                d_name = sweep_data.get("directive_name")
-                                if d_name:
-                                    allocated_names.add(d_name)
-                                patches = sweep_data.get("patches", {})
-                                if isinstance(patches, dict):
-                                    for patch_data in patches.values():
-                                        if isinstance(patch_data, dict):
-                                            p_name = patch_data.get("directive_name")
-                                            if p_name:
-                                                allocated_names.add(p_name)
+        allocated_names = get_all_allocated_names(registry_data)
         for d_path in directives:
             if d_path.stem not in allocated_names:
                 print(f"DIRECTIVE_NOT_ADMITTED | directive={d_path.name}")
@@ -517,32 +573,51 @@ def run_batch_mode(provision_only=False):
 
     completed_dir.mkdir(parents=True, exist_ok=True)
 
-    for idx, d_path in enumerate(directives):
-        d_name = d_path.name
-        d_id = d_path.stem
-        print(f"\n[BATCH] Processing Directive {idx+1}/{len(directives)}: {d_name}")
-        try:
-            # Phase 1: Admission (Move from active/ -> active_backup/ + marker)
-            if not provision_only:
-                admit_directive(d_id)
-            
-            run_single_directive(d_id, provision_only=provision_only)
-            
-            if not provision_only:
-                # Phase 2: Archive (Move from active_backup/ -> completed/ + move marker)
-                archive_completed_directive(d_id)
-            else:
-                print(f"[BATCH] Provision-only: {d_name} remains in INBOX/")
-        except PipelineError:
-            print(f"[FAIL-FAST] Stopping batch execution at directive: {d_name}")
-            raise
-        except Exception as e:
-            print(f"[BATCH] FAILED: {d_name} - {e}")
-            print("[FAIL-FAST] Stopping batch execution.")
-            raise PipelineExecutionError(
-                f"Batch directive failed: {d_name}: {e}",
-                directive_id=d_id,
-            ) from e
+    # --- PHASE 1: ADMISSION (SEQUENTIAL) ---
+    admitted = [d_path.stem for d_path in directives]
+    if not provision_only:
+        for d_id in admitted:
+            admit_directive(d_id)
+
+    print(f"[BATCH] Admitted {len(admitted)} directive(s). Starting parallel execution (max_workers=2)...")
+
+    # --- PHASE 2: PARALLEL EXECUTION ---
+    with ProcessPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(run_single_directive, d_id, provision_only): d_id
+            for d_id in admitted
+        }
+        for fut in as_completed(futures):
+            d_id = futures[fut]
+            try:
+                fut.result()
+                print(f"[BATCH] Completed: {d_id}")
+            except PipelineError as e:
+                print(f"[BATCH] FAILED: {d_id} - {e}")
+                print("[FAIL-FAST] Stopping batch execution.")
+                print("[FAIL-FAST] Waiting for running tasks to complete...")
+                for f in futures:
+                    f.cancel()
+                raise
+            except Exception as e:
+                print(f"[BATCH] FAILED: {d_id} - {e}")
+                print("[FAIL-FAST] Stopping batch execution.")
+                print("[FAIL-FAST] Waiting for running tasks to complete...")
+                for f in futures:
+                    f.cancel()
+                raise PipelineExecutionError(
+                    f"Batch directive failed: {d_id}: {e}",
+                    directive_id=d_id,
+                ) from e
+
+    # --- PHASE 3: ARCHIVE (SEQUENTIAL) ---
+    # Only reached if all futures succeeded.
+    if not provision_only:
+        for d_id in admitted:
+            archive_completed_directive(d_id)
+    else:
+        for d_id in admitted:
+            print(f"[BATCH] Provision-only: {d_id} remains in INBOX/")
             
     if not provision_only:
         print("\n[BATCH] Running Candidate Promotion (filter_strategies.py)...")
@@ -564,6 +639,7 @@ def main():
     try:
         initialize_state_directories()
         print("[ORCHESTRATOR] Initializing Startup Guardrails...")
+        validate_inbox_directive_tokens()
         verify_tools_timestamp_guard(PROJECT_ROOT)
         enforce_run_schema(PROJECT_ROOT)
         detect_strategy_drift(PROJECT_ROOT)
@@ -573,8 +649,9 @@ def main():
         from tools.orchestration.run_watchdog import recover_stale_runs
         recover_stale_runs()
         
-        # Phase 11: Directive Admission Recovery
+        # Phase 11: Directive Admission Recovery + stale-backup reconcile
         recover_partially_admitted_directives()
+        reconcile_active_backup()
 
         verify_manifest_integrity(PROJECT_ROOT)
         
@@ -593,13 +670,13 @@ def main():
                 run_command=run_command,
             )
 
-            # Phase 1: Admission (Move from active/ -> active_backup/ + marker)
+            # Phase 1: Admission (Move from INBOX/ -> active_backup/ + marker)
             if not provision_only:
                 admit_directive(directive_id)
 
             print(f"MASTER PIPELINE EXECUTION -- {directive_id}")
             run_single_directive(directive_id, provision_only=provision_only)
-            
+
             if not provision_only:
                 # Phase 2: Archive (Move from active_backup/ -> completed/ + move marker)
                 archive_completed_directive(directive_id)
@@ -616,6 +693,14 @@ def main():
     except Exception as err:
         wrapped = PipelineExecutionError(f"Unhandled pipeline error: {err}")
         sys.exit(map_pipeline_error(wrapped))
+    finally:
+        # Post-run reconcile: archive any PORTFOLIO_COMPLETE directives that
+        # were stranded in active_backup/ by a fail-fast abort or prior crash.
+        if not provision_only:
+            try:
+                reconcile_active_backup()
+            except Exception as e:
+                print(f"[WARN] Post-run reconcile failed: {e}")
 
 if __name__ == "__main__":
     main()
