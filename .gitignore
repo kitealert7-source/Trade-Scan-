@@ -71,6 +71,8 @@ backtest_directives/active_backup/
 # ===== Generated outputs =====
 outputs/logs/
 outputs/proposals/
+outputs/audit_reports/
+outputs/audit\ _reports/
 
 # ===== Logs =====
 *.log
