@@ -3,7 +3,7 @@ import argparse
 import pandas as pd
 from pathlib import Path
 
-STATE_ROOT = Path("C:/Users/faraw/Documents/TradeScan_State")
+STATE_ROOT = Path(__file__).resolve().parents[2].parent / "TradeScan_State"
 MASTER_SHEET_PATH = STATE_ROOT / "strategies" / "Master_Portfolio_Sheet.xlsx"
 FILTERED_SHEET_PATH = STATE_ROOT / "candidates" / "Filtered_Strategies_Passed.xlsx"
 

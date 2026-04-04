@@ -14,6 +14,110 @@ from tools.system_registry import _load_registry, _save_registry_atomic
 
 MASTER_SHEET = MASTER_FILTER_PATH
 
+# TS_Execution portfolio.yaml — source of truth for BURN_IN status.
+# Strategies listed here with enabled=true get BURN_IN; removal reverts to computed status.
+_TS_EXEC_PORTFOLIO = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+
+
+def _load_burnin_ids() -> set[str]:
+    """Read enabled strategy IDs from TS_Execution/portfolio.yaml.
+
+    Returns a set of strategy IDs (e.g. '22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P04_USDCAD').
+    Silent on any error — missing file or parse failure returns empty set.
+    """
+    try:
+        import yaml
+        if not _TS_EXEC_PORTFOLIO.exists():
+            return set()
+        with open(_TS_EXEC_PORTFOLIO, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        strategies = (data.get("portfolio") or {}).get("strategies") or []
+        ids = set()
+        for s in strategies:
+            if s.get("enabled", True) and "id" in s:
+                ids.add(s["id"])
+        return ids
+    except Exception as e:
+        print(f"[WARN] Could not load BURN_IN IDs from portfolio.yaml: {e}")
+        return set()
+
+
+def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
+    """
+    Deterministic classification for candidate ledger rows:
+      BURN_IN : strategy is in TS_Execution/portfolio.yaml (enabled=true)
+      FAIL    : total_trades < 50 OR max_dd_pct > 40
+      CORE    : total_trades >= 200 AND return_dd_ratio >= 2.0 AND sharpe_ratio >= 1.5
+      WATCH   : otherwise
+
+    BURN_IN is fully automated — driven by portfolio.yaml inclusion/exclusion.
+    Adding a strategy to portfolio.yaml sets BURN_IN; removing it reverts to computed status.
+    """
+    total_trades = pd.to_numeric(df.get("total_trades"), errors="coerce").fillna(0.0)
+    max_dd_pct = pd.to_numeric(df.get("max_dd_pct"), errors="coerce").fillna(float("inf"))
+    return_dd_ratio = pd.to_numeric(df.get("return_dd_ratio"), errors="coerce").fillna(float("-inf"))
+    sharpe_ratio = pd.to_numeric(df.get("sharpe_ratio"), errors="coerce").fillna(float("-inf"))
+
+    status = pd.Series("WATCH", index=df.index, dtype="object")
+    fail_mask = (total_trades < 50) | (max_dd_pct > 40)
+    core_mask = (
+        (total_trades >= 200)
+        & (return_dd_ratio >= 2.0)
+        & (sharpe_ratio >= 1.5)
+        & (~fail_mask)
+    )
+    status.loc[fail_mask] = "FAIL"
+    status.loc[core_mask] = "CORE"
+
+    # Auto-set BURN_IN from portfolio.yaml — overrides computed status.
+    # Matches by exact ID or prefix (portfolio ID + "_SYMBOL" pattern in xlsx).
+    burnin_ids = _load_burnin_ids()
+    if burnin_ids and "strategy" in df.columns:
+        def _is_burnin(strat_name: str) -> bool:
+            s = str(strat_name)
+            if s in burnin_ids:
+                return True
+            return any(s.startswith(bid + "_") for bid in burnin_ids)
+
+        burnin_mask = df["strategy"].apply(_is_burnin)
+        if burnin_mask.any():
+            status.loc[burnin_mask] = "BURN_IN"
+            print(f"[CANDIDATES] BURN_IN auto-set for {burnin_mask.sum()} row(s) from portfolio.yaml")
+
+    return status
+
+
+def _apply_candidate_status(df: pd.DataFrame) -> pd.DataFrame:
+    """Add/update candidate_status and IN_PORTFOLIO, keep them adjacent."""
+    out = df.copy()
+    out["candidate_status"] = _compute_candidate_status(out)
+
+    # Sync IN_PORTFOLIO with BURN_IN status:
+    #   BURN_IN → True  (strategy is in portfolio.yaml)
+    #   removed from BURN_IN → False  (strategy no longer in portfolio.yaml)
+    if "IN_PORTFOLIO" in out.columns:
+        burnin = out["candidate_status"] == "BURN_IN"
+        was_true = out["IN_PORTFOLIO"].astype(str).str.strip().str.lower() == "true"
+        newly_true = burnin & ~was_true
+        newly_false = ~burnin & was_true
+        out.loc[burnin, "IN_PORTFOLIO"] = True
+        out.loc[~burnin & was_true, "IN_PORTFOLIO"] = False
+        if newly_true.any():
+            print(f"[CANDIDATES] IN_PORTFOLIO set True for {newly_true.sum()} BURN_IN row(s)")
+        if newly_false.any():
+            print(f"[CANDIDATES] IN_PORTFOLIO set False for {newly_false.sum()} row(s) removed from BURN_IN")
+
+    cols = out.columns.tolist()
+    if "candidate_status" in cols:
+        cols.remove("candidate_status")
+    if "IN_PORTFOLIO" in cols:
+        idx = cols.index("IN_PORTFOLIO") + 1
+    else:
+        idx = len(cols)
+    cols = cols[:idx] + ["candidate_status"] + cols[idx:]
+    return out[cols]
+
+
 def filter_strategies():
     if not os.path.exists(MASTER_SHEET):
         print(f"ABORT: Error: {MASTER_SHEET} not found.")
@@ -69,7 +173,7 @@ def filter_strategies():
     # Append+dedup semantics: previously passing strategies are never evicted,
     # even if they are temporarily absent from the Master Filter (e.g., during
     # re-run cleanup cycles where old rows are removed before re-running).
-    if not passed_df.empty:
+    if not passed_df.empty or CANDIDATE_FILTER_PATH.exists():
         try:
             # Step 1: Archive existing candidates file before any mutation.
             if CANDIDATE_FILTER_PATH.exists():
@@ -99,6 +203,9 @@ def filter_strategies():
                     df_merged = passed_df
             else:
                 df_merged = passed_df
+
+            # Deterministic classification-only field; no filtering side effects.
+            df_merged = _apply_candidate_status(df_merged)
 
             df_merged.to_excel(CANDIDATE_FILTER_PATH, index=False)
             print(f"[SUCCESS] Candidate ledger written: {CANDIDATE_FILTER_PATH}")

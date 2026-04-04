@@ -50,6 +50,8 @@ STRATEGIES_ROOT = STRATEGIES_DIR
 TOTAL_PORTFOLIO_CAPITAL = 10000.0
 RISK_FREE_RATE = 0.0  # For Sharpe/Sortino
 PORTFOLIO_ENGINE_VERSION = get_engine_version()
+RELIABILITY_MIN_ACCEPTED = 50
+RELIABILITY_MIN_SIM_YEARS = 1.0
 
 SYMBOLS = ['AUS200', 'ESP35', 'EUSTX50', 'FRA40', 'GER40',
            'JPN225', 'NAS100', 'SPX500', 'UK100', 'US30']
@@ -346,9 +348,17 @@ def compute_concurrency_series(portfolio_df):
 # ==================================================================
 # 2) CAPITAL UTILIZATION
 # ==================================================================
-def capital_utilization(portfolio_df, symbol_trades):
-    """Analyze capital deployment over time."""
-    series, max_conc, avg_conc, pct_max, pct_deployed = compute_concurrency_series(portfolio_df)
+def capital_utilization(portfolio_df, symbol_trades, _precomputed_concurrency=None):
+    """Analyze capital deployment over time.
+
+    Args:
+        _precomputed_concurrency: Optional tuple from compute_concurrency_series()
+            to avoid recomputing the same series (called again by concurrency_profile).
+    """
+    if _precomputed_concurrency is not None:
+        series, max_conc, avg_conc, pct_max, pct_deployed = _precomputed_concurrency
+    else:
+        series, max_conc, avg_conc, pct_max, pct_deployed = compute_concurrency_series(portfolio_df)
 
     start = portfolio_df['entry_timestamp'].min()
     end = portfolio_df['exit_timestamp'].max()
@@ -365,10 +375,17 @@ def capital_utilization(portfolio_df, symbol_trades):
 # ==================================================================
 # 2.5) CONCURRENCY PROFILE
 # ==================================================================
-def concurrency_profile(portfolio_df, portfolio_equity):
-    """Analyze concurrency distribution and extreme loads."""
-    
-    series, max_conc, avg_conc, pct_at_max, pct_deployed = compute_concurrency_series(portfolio_df)
+def concurrency_profile(portfolio_df, portfolio_equity, _precomputed_concurrency=None):
+    """Analyze concurrency distribution and extreme loads.
+
+    Args:
+        _precomputed_concurrency: Optional tuple from compute_concurrency_series()
+            to avoid recomputing the same series (already called by capital_utilization).
+    """
+    if _precomputed_concurrency is not None:
+        series, max_conc, avg_conc, pct_at_max, pct_deployed = _precomputed_concurrency
+    else:
+        series, max_conc, avg_conc, pct_at_max, pct_deployed = compute_concurrency_series(portfolio_df)
     
     concurrent_values = np.array(series)
     
@@ -972,7 +989,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'equity_stability_k_ratio': port_metrics.get('equity_stability_k_ratio', 0.0),
         'inert_filter_warnings': inert_warnings
     }
-    with open(output_dir / 'portfolio_summary.json', 'w') as f:
+    with open(output_dir / 'portfolio_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary, f, indent=4)
 
 
@@ -992,11 +1009,11 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
       "signal_timeframes": port_metrics.get('signal_timeframes', "UNKNOWN"),
       "evaluation_timeframe": port_metrics.get('evaluation_timeframe', "1D")
     }
-    with open(output_dir / 'portfolio_metadata.json', 'w') as f:
+    with open(output_dir / 'portfolio_metadata.json', 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=4)
 
     # --- portfolio_metrics.csv ---
-    with open(output_dir / 'portfolio_metrics.csv', 'w', newline='') as f:
+    with open(output_dir / 'portfolio_metrics.csv', 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         w.writerow(['metric', 'value'])
         for k, v in port_metrics.items():
@@ -1121,7 +1138,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
     for name, data in stress_results.items():
         stress_md += f"| {name} | {data.get('symbols','?')} | ${data['net_pnl']:,.2f} | {data['sharpe']:.2f} | ${data['max_dd_usd']:,.2f} | {data['return_dd']:.2f} |\n"
 
-    with open(output_dir / 'stress_test_report.md', 'w') as f:
+    with open(output_dir / 'stress_test_report.md', 'w', encoding='utf-8') as f:
         f.write(stress_md)
 
     print(f"  [SNAPSHOT] Saved to {output_dir}")
@@ -1138,13 +1155,60 @@ def _safe_float(value, default=0.0):
         return default
 
 
+def _safe_bool(value, default=False):
+    """Best-effort boolean coercion for profile validity checks."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    token = str(value).strip().lower()
+    if token in {"true", "1", "yes", "y"}:
+        return True
+    if token in {"false", "0", "no", "n"}:
+        return False
+    return default
+
+
+def _execution_health(rejection_rate_pct):
+    """Classify execution regime from rejection rate."""
+    rej = _safe_float(rejection_rate_pct, 0.0)
+    if rej > 60.0:
+        return "DEGRADED"
+    if rej > 30.0:
+        return "WARNING"
+    return "HEALTHY"
+
+
 def _profile_return_dd(profile_metrics):
-    """Return/DD helper used to resolve deployed profile deterministically."""
+    """Base Return/DD helper used to resolve deployed profile deterministically."""
     realized = _safe_float(profile_metrics.get("realized_pnl"), 0.0)
     max_dd = abs(_safe_float(profile_metrics.get("max_drawdown_usd"), 0.0))
-    if max_dd <= 1e-12:
-        return float("inf") if realized > 0 else 0.0
-    return realized / max_dd
+    return realized / max(max_dd, 1.0)
+
+
+def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct):
+    """Deterministic portfolio status classification for ledger rows."""
+    realized = _safe_float(realized_pnl, 0.0)
+    accepted = int(round(_safe_float(total_accepted, 0.0)))
+    rejection = _safe_float(rejection_rate_pct, 0.0)
+
+    if realized <= 0.0 or accepted < 50:
+        return "FAIL"
+    if realized > 1000.0 and accepted >= 200 and rejection <= 30.0:
+        return "CORE"
+    return "WATCH"
+
+
+def _empty_selection_debug(previous_profile=None):
+    """Build default selection diagnostics payload."""
+    return {
+        "candidates": [],
+        "selected_profile": None,
+        "selection_reason": "fallback",
+        "previous_profile": previous_profile,
+        "persistence_used": False,
+        "reliability_override": False,
+    }
 
 
 def _load_profile_comparison(strategy_id):
@@ -1166,50 +1230,202 @@ def _load_profile_comparison(strategy_id):
 
 def _resolve_deployed_profile(strategy_id, profiles, df_ledger):
     """
-    Resolve deployed profile with this priority:
-      1) Existing ledger deployed_profile value (if valid).
-      2) Best Return/DD from profile_comparison.json.
+    Resolve deployed profile using:
+      1) Hard validity filter (realized_pnl > 0 and capital_validity_flag is True).
+      2) Penalized Return/DD score with execution health bands.
+      3) Similar-score stabilization tie-breaks.
+      4) Controlled persistence if previous profile stays close to best.
     """
+    existing = None
     if "deployed_profile" in df_ledger.columns and "portfolio_id" in df_ledger.columns:
         mask = df_ledger["portfolio_id"].astype(str) == str(strategy_id)
         if mask.any():
-            existing = str(df_ledger.loc[mask, "deployed_profile"].iloc[-1]).strip()
-            if existing and existing.lower() != "nan" and existing in profiles:
-                return existing, profiles[existing], "ledger"
+            token = str(df_ledger.loc[mask, "deployed_profile"].iloc[-1]).strip()
+            if token and token.lower() != "nan":
+                existing = token
 
-    best_name = None
-    best_metrics = None
-    best_key = (-float("inf"), -float("inf"), "")
-    for name, metrics in profiles.items():
+    selection_debug = _empty_selection_debug(previous_profile=existing)
+    reliable_candidates = []
+    hard_valid_candidates = []
+    debug_candidates = []
+    for name in sorted(profiles.keys()):
+        metrics = profiles.get(name)
         if not isinstance(metrics, dict):
+            debug_candidates.append(
+                {
+                    "profile": name,
+                    "valid": False,
+                    "flags": {
+                        "pnl_invalid": True,
+                        "capital_invalid": True,
+                        "low_samples": True,
+                        "low_years": True,
+                    },
+                    "base_score": 0.0,
+                    "penalty_multiplier": 0.0,
+                    "final_score": 0.0,
+                    "rejection_rate": 0.0,
+                    "total_accepted": 0,
+                }
+            )
             continue
-        score = _profile_return_dd(metrics)
-        realized = _safe_float(metrics.get("realized_pnl"), 0.0)
-        key = (score, realized, name)
-        if key > best_key:
-            best_key = key
-            best_name = name
-            best_metrics = metrics
 
-    if best_name is None:
-        return None, None, "unresolved"
-    return best_name, best_metrics, "best_return_dd"
+        realized = _safe_float(metrics.get("realized_pnl"), 0.0)
+        capital_valid = _safe_bool(metrics.get("capital_validity_flag"), False)
+        avg_risk = _safe_float(metrics.get("avg_risk_multiple"), 0.0)
+        rej = _safe_float(metrics.get("rejection_rate_pct"), 0.0)
+        accepted = int(round(_safe_float(metrics.get("total_accepted"), 0.0)))
+        sim_years = _safe_float(metrics.get("simulation_years"), 0.0)
+        base_score = _profile_return_dd(metrics)
+
+        health = _execution_health(rej)
+        if health == "DEGRADED":
+            penalty = 0.4
+        elif health == "WARNING":
+            penalty = 0.7
+        else:
+            penalty = 1.0
+        score = base_score * penalty
+
+        flags = {
+            "pnl_invalid": realized <= 0.0,
+            "capital_invalid": not capital_valid,
+            "risk_overextended": avg_risk > 1.5,
+            "low_samples": accepted < RELIABILITY_MIN_ACCEPTED,
+            "low_years": sim_years < RELIABILITY_MIN_SIM_YEARS,
+        }
+        hard_valid = (not flags["pnl_invalid"]) and (not flags["capital_invalid"]) and (not flags["risk_overextended"])
+        reliable_valid = hard_valid and (not flags["low_samples"]) and (not flags["low_years"])
+
+        candidate_row = {
+            "name": name,
+            "metrics": metrics,
+            "score": score,
+            "base_score": base_score,
+            "rejection_rate_pct": rej,
+            "total_accepted": accepted,
+            "health": health,
+            "flags": flags,
+            "hard_valid": hard_valid,
+            "reliable_valid": reliable_valid,
+        }
+
+        debug_candidates.append(
+            {
+                "profile": name,
+                "valid": False,  # finalized after reliability override decision
+                "flags": flags,
+                "base_score": round(base_score, 6),
+                "penalty_multiplier": penalty,
+                "final_score": round(score, 6),
+                "rejection_rate": round(rej, 4),
+                "total_accepted": accepted,
+            }
+        )
+
+        if hard_valid:
+            hard_valid_candidates.append(candidate_row)
+            if reliable_valid:
+                reliable_candidates.append(candidate_row)
+
+    if reliable_candidates:
+        candidates = reliable_candidates
+        reliability_override = False
+    elif hard_valid_candidates:
+        candidates = hard_valid_candidates
+        reliability_override = True
+    else:
+        candidates = []
+        reliability_override = False
+
+    selection_debug["reliability_override"] = reliability_override
+    for dbg in debug_candidates:
+        profile_name = dbg["profile"]
+        src = next((c for c in hard_valid_candidates if c["name"] == profile_name), None)
+        if src is None:
+            dbg["valid"] = False
+        elif reliability_override:
+            dbg["valid"] = True
+        else:
+            dbg["valid"] = bool(src["reliable_valid"])
+    selection_debug["candidates"] = debug_candidates
+
+    if not candidates:
+        return None, None, "no_valid_profiles", selection_debug
+
+    # Stable deterministic ordering for tie handling.
+    candidates.sort(
+        key=lambda c: (
+            -c["score"],
+            c["rejection_rate_pct"],
+            -c["total_accepted"],
+            c["name"],
+        )
+    )
+
+    # Similar-score stabilization window (within 15% of current best score).
+    best = candidates[0]
+    for cand in candidates[1:]:
+        denom = max(best["score"], cand["score"])
+        rel_gap = 0.0 if denom <= 1e-12 else abs(best["score"] - cand["score"]) / denom
+        if rel_gap < 0.15:
+            tie_key_best = (best["rejection_rate_pct"], -best["total_accepted"], best["name"])
+            tie_key_cand = (cand["rejection_rate_pct"], -cand["total_accepted"], cand["name"])
+            if tie_key_cand < tie_key_best:
+                best = cand
+        else:
+            break
+
+    best_name = best["name"]
+    best_metrics = best["metrics"]
+    best_score = best["score"]
+
+    if existing:
+        existing_candidate = next((c for c in candidates if c["name"] == existing), None)
+        if existing_candidate is not None:
+            if existing_candidate["score"] >= 0.85 * best_score:
+                selection_debug["selected_profile"] = existing_candidate["name"]
+                selection_debug["selection_reason"] = "persistence"
+                selection_debug["persistence_used"] = True
+                return existing_candidate["name"], existing_candidate["metrics"], "persisted_85pct", selection_debug
+
+    selection_debug["selected_profile"] = best_name
+    selection_debug["selection_reason"] = "fallback" if reliability_override else "highest_score"
+    selection_debug["persistence_used"] = False
+    return best_name, best_metrics, "best_scored", selection_debug
 
 
 def _get_deployed_profile_metrics(strategy_id, df_ledger):
     """Return deployed profile payload for ledger injection, or None."""
     profiles, comparison_path = _load_profile_comparison(strategy_id)
     if profiles is None:
+        debug = _empty_selection_debug(previous_profile=None)
         if comparison_path.exists():
             print(f"  [WARN] Profile comparison unusable for {strategy_id}: {comparison_path}")
         else:
             print(f"  [WARN] Profile comparison not found for {strategy_id}: {comparison_path}")
-        return None
+        return {
+            "profile_name": None,
+            "realized_pnl": 0.0,
+            "trades_accepted": None,
+            "trades_rejected": None,
+            "rejection_rate_pct": None,
+            "source": "missing_profile_comparison",
+            "selection_debug": debug,
+        }
 
-    profile_name, profile_metrics, source = _resolve_deployed_profile(strategy_id, profiles, df_ledger)
+    profile_name, profile_metrics, source, selection_debug = _resolve_deployed_profile(strategy_id, profiles, df_ledger)
     if profile_name is None or profile_metrics is None:
-        print(f"  [WARN] Could not resolve deployed profile for {strategy_id}.")
-        return None
+        print(f"  [WARN] Could not resolve deployed profile for {strategy_id} (no valid profile).")
+        return {
+            "profile_name": None,
+            "realized_pnl": 0.0,
+            "trades_accepted": None,
+            "trades_rejected": None,
+            "rejection_rate_pct": None,
+            "source": source,
+            "selection_debug": selection_debug,
+        }
 
     deployed = {
         "profile_name": profile_name,
@@ -1218,6 +1434,7 @@ def _get_deployed_profile_metrics(strategy_id, df_ledger):
         "trades_rejected": int(round(_safe_float(profile_metrics.get("total_rejected"), 0.0))),
         "rejection_rate_pct": round(_safe_float(profile_metrics.get("rejection_rate_pct"), 0.0), 2),
         "source": source,
+        "selection_debug": selection_debug,
     }
     print(
         f"  [PROFILE] Using {deployed['profile_name']} ({deployed['source']}) "
@@ -1241,6 +1458,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
 
         # Capital & Performance
         "reference_capital_usd",
+        "portfolio_status",
         "trade_density",
         "profile_trade_density",
         "theoretical_pnl",
@@ -1314,6 +1532,26 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger["net_pnl_usd"], errors="coerce")
         else:
             df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger.get("realized_pnl"), errors="coerce")
+    if "portfolio_status" not in df_ledger.columns:
+        df_ledger["portfolio_status"] = df_ledger.apply(
+            lambda row: _compute_portfolio_status(
+                row.get("realized_pnl", row.get("realized_pnl_usd", 0.0)),
+                row.get("trades_accepted", row.get("total_accepted", 0)),
+                row.get("rejection_rate_pct", 0.0),
+            ),
+            axis=1,
+        )
+    else:
+        missing_status = df_ledger["portfolio_status"].isna() | (df_ledger["portfolio_status"].astype(str).str.strip() == "")
+        if missing_status.any():
+            df_ledger.loc[missing_status, "portfolio_status"] = df_ledger.loc[missing_status].apply(
+                lambda row: _compute_portfolio_status(
+                    row.get("realized_pnl", row.get("realized_pnl_usd", 0.0)),
+                    row.get("trades_accepted", row.get("total_accepted", 0)),
+                    row.get("rejection_rate_pct", 0.0),
+                ),
+                axis=1,
+            )
 
     # Baseline "theoretical" portfolio PnL from raw Stage-4 aggregation.
     # Realized PnL may differ when deployed profiles apply sizing/rejection rules.
@@ -1325,7 +1563,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     rejection_rate_pct = None
 
     deployed = _get_deployed_profile_metrics(strategy_id, df_ledger)
-    if deployed is not None:
+    selection_debug = deployed.get("selection_debug") if isinstance(deployed, dict) else _empty_selection_debug()
+    if deployed is not None and deployed.get("profile_name") is not None:
         deployed_profile = deployed["profile_name"]
         realized_pnl = deployed["realized_pnl"]
         trades_accepted = deployed["trades_accepted"]
@@ -1336,6 +1575,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         ratio_realized_vs_theoretical = round(realized_pnl / theoretical_pnl, 4)
     else:
         ratio_realized_vs_theoretical = 0.0
+    portfolio_status = _compute_portfolio_status(realized_pnl, trades_accepted, rejection_rate_pct)
 
     # Construct Row Data
     row_data = {
@@ -1344,6 +1584,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "constituent_run_ids": run_ids_str,
         "source_strategy": strategy_id,
         "reference_capital_usd": metrics["total_capital"],
+        "portfolio_status": portfolio_status,
         "theoretical_pnl": theoretical_pnl,
         "realized_pnl": realized_pnl,
         "sharpe": metrics["sharpe"],
@@ -1381,6 +1622,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "trades_rejected": trades_rejected,
         "rejection_rate_pct": rejection_rate_pct,
         "realized_vs_theoretical_pnl": ratio_realized_vs_theoretical,
+        "selection_debug": selection_debug,
     }
 
     # Calculate Trade Density natively from components
@@ -1404,7 +1646,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         existing_row = df_ledger[df_ledger["portfolio_id"].astype(str) == strategy_id].iloc[-1]
         is_identical = True
         for k, v in row_data.items():
-            if k in ["creation_timestamp", "portfolio_engine_version"]:
+            if k in ["creation_timestamp", "portfolio_engine_version", "selection_debug"]:
                 continue
             old_val = existing_row.get(k)
             if pd.isna(old_val) and (v is None or pd.isna(v)):
@@ -1434,7 +1676,13 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     _lock_path = ledger_path.with_suffix(".lock")
     with FileLock(str(_lock_path), timeout=120):
         ensure_xlsx_writable(ledger_path)
-        df_final.to_excel(ledger_path, index=False)
+        # Atomic write: tmp → fsync → replace (prevents corruption on crash/kill)
+        _tmp_ledger = ledger_path.with_suffix(".xlsx.tmp")
+        df_final.to_excel(_tmp_ledger, index=False)
+        import os as _os_atomic
+        with open(_tmp_ledger, "r+b") as _fh:
+            _os_atomic.fsync(_fh.fileno())
+        _os_atomic.replace(str(_tmp_ledger), str(ledger_path))
 
         # Call Unified Formatter
         try:
@@ -1569,14 +1817,17 @@ def main():
     
     print(f"  Net PnL: ${port_metrics['net_pnl_usd']:,.2f} | Sharpe: {port_metrics['sharpe']}")
 
+    # Concurrency base (compute once, reuse in capital_utilization + concurrency_profile)
+    _conc_base = compute_concurrency_series(portfolio_df)
+
     # Capital utilization
     print("[3/9] Analyzing capital utilization...")
-    cap_util = capital_utilization(portfolio_df, symbol_trades)
+    cap_util = capital_utilization(portfolio_df, symbol_trades, _precomputed_concurrency=_conc_base)
     print(f"  Deployed: {cap_util['pct_time_deployed']}% | Max concurrent: {cap_util['max_concurrent']}")
 
     # Concurrency
     print("[X/9] Computing concurrency profile...")
-    concurrency_data = concurrency_profile(portfolio_df, portfolio_equity)
+    concurrency_data = concurrency_profile(portfolio_df, portfolio_equity, _precomputed_concurrency=_conc_base)
     print(f"  avg_concurrent: {concurrency_data['avg_concurrent']}")
     print(f"  max_concurrent: {concurrency_data['max_concurrent']}")
     print(f"  p95_concurrent: {concurrency_data['p95_concurrent']}")

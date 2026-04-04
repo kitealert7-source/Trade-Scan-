@@ -40,8 +40,9 @@ import shutil
 import os
 import json
 import hashlib
+import re
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, as_completed
+
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -149,6 +150,7 @@ from tools.orchestration.pre_execution import (
     find_directive_path,
     prepare_batch_directives_for_execution,
     prepare_single_directive_for_execution,
+    enforce_signature_consistency,
 )
 from tools.orchestration.execution_adapter import run_command
 from tools.system_registry import reconcile_registry, _load_registry, _save_registry_atomic
@@ -401,6 +403,83 @@ def verify_directive_uniqueness_guard(directive_id: str):
             )
 
 
+_MULTISYM_NAME_RE = re.compile(r'^(\s*name\s*=\s*")[^"]*(")')
+
+
+def _normalize_strategy_lines(lines: list) -> list:
+    """Replace the name field value with a sentinel for content comparison."""
+    return [_MULTISYM_NAME_RE.sub(r'\g<1>__NAME__\2', line) for line in lines]
+
+
+def _multisymbol_drift_check(strat_dir: Path) -> None:
+    """
+    Detect logic divergence between base strategy.py and per-symbol copies.
+
+    Detection rule:
+      - A directory <BASE> exists with a strategy.py whose `name` field equals <BASE>
+      - One or more sibling directories <BASE>_<SYM> exist
+      → These are per-symbol deployment copies. They must be identical to the base
+        except for the name field.
+
+    Raises PipelineAdmissionPause if any divergence is found.
+    Fix: python tools/sync_multisymbol_strategy.py <BASE> <SYM1> [<SYM2> ...]
+    """
+    dirs = {d.name: d for d in strat_dir.iterdir() if d.is_dir() and not d.name.startswith("_")}
+
+    # Build map: base_id -> [symbol, ...] for all confirmed base+per-symbol sets
+    bases: dict = {}
+    for name, path in dirs.items():
+        strat_py = path / "strategy.py"
+        if not strat_py.exists():
+            continue
+        # Confirm this dir is genuinely a base: its name field must equal the folder name
+        content = strat_py.read_text(encoding="utf-8")
+        m = _MULTISYM_NAME_RE.search(content)
+        if not m:
+            continue
+        declared_name = re.search(r'name\s*=\s*"([^"]+)"', content)
+        if not declared_name or declared_name.group(1) != name:
+            continue
+        # Find all per-symbol siblings
+        siblings = [
+            sib_name[len(name) + 1:]
+            for sib_name, sib_path in dirs.items()
+            if sib_name.startswith(name + "_") and (sib_path / "strategy.py").exists()
+        ]
+        if siblings:
+            bases[name] = siblings
+
+    if not bases:
+        return
+
+    drift_found = []
+    for base_id, symbols in bases.items():
+        base_lines = (strat_dir / base_id / "strategy.py").read_text(encoding="utf-8").splitlines(keepends=True)
+        base_norm = _normalize_strategy_lines(base_lines)
+        for sym in symbols:
+            target_path = strat_dir / f"{base_id}_{sym}" / "strategy.py"
+            if not target_path.exists():
+                drift_found.append(
+                    f"MULTI_SYMBOL_DRIFT: {base_id}_{sym} missing strategy.py. "
+                    f"Run: python tools/sync_multisymbol_strategy.py {base_id} {' '.join(symbols)}"
+                )
+                continue
+            target_lines = target_path.read_text(encoding="utf-8").splitlines(keepends=True)
+            if _normalize_strategy_lines(target_lines) != base_norm:
+                drift_found.append(
+                    f"MULTI_SYMBOL_DRIFT: {base_id}_{sym} differs from base {base_id}. "
+                    f"Run: python tools/sync_multisymbol_strategy.py {base_id} {' '.join(symbols)}"
+                )
+
+    if drift_found:
+        print("[GUARDRAIL] Multi-Symbol Strategy Drift Detected:")
+        for msg in drift_found:
+            print(f"  !! {msg}")
+        raise PipelineAdmissionPause(
+            "Multi-symbol strategy drift detected. Sync per-symbol copies before execution."
+        )
+
+
 def detect_strategy_drift(project_root: Path):
     """Guardrail: Detect untracked modification in strategies/."""
     strat_dir = STRATEGIES_DIR
@@ -417,17 +496,22 @@ def detect_strategy_drift(project_root: Path):
         elif item.is_dir():
             if item.name.startswith("_"):
                 continue
-            if not (item / "portfolio_evaluation" / "portfolio_metadata.json").exists() and not any(item.glob("*.py")):
+            has_portfolio = (item / "portfolio_evaluation" / "portfolio_metadata.json").exists()
+            has_code = any(item.glob("*.py"))
+            has_deployable = (item / "deployable").exists()
+            if not has_portfolio and not has_code and not has_deployable:
                 drift.append(f"Untracked directory: {item.name}")
 
     if drift:
         print("[GUARDRAIL] Strategy Directory Drift Detected:")
         for d in drift:
             print(f"  !! {d}")
-        # Note: We warn but don't necessarily halt unless instructed. 
-        # User said "halt execution" for schema, but "detect" for drift.
-        # I'll make it a hard fail to be safe as per "prevent future filesystem drift".
         raise PipelineAdmissionPause("Strategy directory drift detected. Manual reconciliation required.")
+
+    # --- Multi-symbol logic drift check ---
+    # For every base+per-symbol folder set, verify all per-symbol copies match the base
+    # (ignoring only the name line). Hard fail on any divergence.
+    _multisymbol_drift_check(strat_dir)
 
 
 def map_pipeline_error(err):
@@ -466,33 +550,6 @@ def map_pipeline_error(err):
 
     print(f"[ORCHESTRATOR] Unhandled Error: {err}")
     return 1
-
-def get_directive_path(directive_id):
-    """Locate the directive file."""
-    found = find_directive_path(ACTIVE_DIR, directive_id)
-    if found:
-        return found
-    
-    raise PipelineExecutionError(
-        f"Directive file not found for ID: {directive_id}. Searched in: {ACTIVE_DIR}",
-        directive_id=directive_id,
-        fail_directive=False,
-        fail_runs=False,
-    )
-
-def parse_concurrency_config(file_path):
-    from tools.pipeline_utils import parse_directive
-    config = parse_directive(file_path)
-    # Extract symbols list -- support both cased key variants
-    symbols = config.get("symbols", config.get("Symbols", []))
-    if isinstance(symbols, str):
-        symbols = [s.strip() for s in symbols.split(",") if s.strip()]
-    elif not isinstance(symbols, list):
-        symbols = []
-    max_concurrent = config.get("max_concurrent_positions", len(symbols))
-    if isinstance(max_concurrent, str) and max_concurrent.isdigit():
-        max_concurrent = int(max_concurrent)
-    return max_concurrent, len(symbols)
 
 def run_single_directive(directive_id, provision_only=False):
     """Execution logic for a single directive."""
@@ -537,11 +594,81 @@ def run_single_directive(directive_id, provision_only=False):
         ) from e
 
 
+def _report_data_freshness() -> None:
+    """Read freshness_index.json (via data_root symlink) and print stale-only report.
+    Uses Path.exists() which follows symlinks — returns False for broken links.
+    Never raises.
+    """
+    try:
+        index_path = PROJECT_ROOT / "data_root" / "freshness_index.json"
+        if not index_path.exists():
+            print(
+                "[WARN] freshness_index.json missing — "
+                "data ingestion may have failed or not yet run. "
+                "Run build_freshness_index in DATA_INGRESS to generate it."
+            )
+            return
+        index  = json.loads(index_path.read_text(encoding="utf-8"))
+        buffer = index.get("buffer_days", 3)
+        gen    = index.get("generated_at", "")[:10]
+        stale  = {
+            k: v for k, v in index.get("entries", {}).items()
+            if v.get("days_behind", 0) > buffer
+        }
+        if not stale:
+            return
+        print(f"\n{'='*60}")
+        print(f"DATA FRESHNESS WARNING  (index: {gen}, buffer: {buffer}d)")
+        for key, v in sorted(stale.items(), key=lambda x: -x[1]["days_behind"]):
+            print(f"  {key:<32}  last: {v['latest_date']}   {v['days_behind']}d stale")
+            print(f"    source: {v['source_file']}")
+        print(f"  → Data ingress may have failed for these symbols.")
+        print(f"  → Run build_freshness_index in DATA_INGRESS to verify.")
+        print(f"{'='*60}")
+    except Exception as exc:
+        print(f"[WARN] Data freshness check failed: {exc}")
+
+
+def _assert_pipeline_idle():
+    """PORTFOLIO_COMPLETE gate — Invariant #26.
+    Hard fail if any directive is in a non-terminal state across all runs.
+    Terminal states: PORTFOLIO_COMPLETE, FAILED.
+    """
+    from config.status_enums import DIRECTIVE_TERMINAL
+    _TERMINAL = DIRECTIVE_TERMINAL
+    if not RUNS_DIR.exists():
+        return
+    active = []
+    for state_file in RUNS_DIR.glob("*/directive_state.json"):
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+            latest = data.get("latest_attempt")
+            if not latest:
+                continue
+            status = data["attempts"][latest]["status"]
+            if status not in _TERMINAL:
+                active.append(f"{data['directive_id']} ({status})")
+        except Exception:
+            continue  # corrupt/incomplete state file — do not block on it
+    if active:
+        msg = (
+            f"\n{'='*60}\n"
+            f"PIPELINE_BUSY\n"
+            f"Previous directive still in progress: {active}\n"
+            f"Complete or fail it before starting a new run.\n"
+            f"{'='*60}"
+        )
+        print(msg)
+        raise PipelineExecutionError("PIPELINE_BUSY", directive_id="BATCH")
+
+
 def run_batch_mode(provision_only=False):
     """Sequential Batch Execution."""
     active_dir = PROJECT_ROOT / "backtest_directives" / "INBOX"
     completed_dir = PROJECT_ROOT / "backtest_directives" / "completed"
     
+    _assert_pipeline_idle()
+
     if not active_dir.exists():
         print(f"[BATCH] Active directory not found: {active_dir}")
         return
@@ -556,7 +683,25 @@ def run_batch_mode(provision_only=False):
         return
 
     print(f"[BATCH] Found {len(directives)} directives: {[d.name for d in directives]}")
-    
+
+    # --- SEQUENTIAL EXECUTION GATE (Invariant #26) ---
+    if len(directives) > 1:
+        ids = [d.stem for d in directives]
+        msg = (
+            f"\n{'='*60}\n"
+            f"SEQUENTIAL_EXECUTION_VIOLATION\n"
+            f"Multiple directives detected in INBOX: {ids}\n"
+            f"Only 1 directive is permitted at a time.\n"
+            f"Run one directive to PORTFOLIO_COMPLETE before submitting the next.\n"
+            f"{'='*60}"
+        )
+        print(msg)
+        raise PipelineExecutionError(
+            "SEQUENTIAL_EXECUTION_VIOLATION",
+            directive_id="BATCH",
+        )
+    # --------------------------------------------------
+
     # --- ACTIVE Bypass Guard ---
     try:
         from tools.sweep_registry_gate import (
@@ -573,42 +718,40 @@ def run_batch_mode(provision_only=False):
 
     completed_dir.mkdir(parents=True, exist_ok=True)
 
+    # Auto-Consistency Gate: hash alignment + approved marker (before admission)
+    for d_path in directives:
+        enforce_signature_consistency(
+            directive_id=d_path.stem,
+            project_root=PROJECT_ROOT,
+            active_dir=ACTIVE_DIR,
+        )
+
     # --- PHASE 1: ADMISSION (SEQUENTIAL) ---
     admitted = [d_path.stem for d_path in directives]
     if not provision_only:
         for d_id in admitted:
             admit_directive(d_id)
 
-    print(f"[BATCH] Admitted {len(admitted)} directive(s). Starting parallel execution (max_workers=2)...")
+    print(f"[BATCH] Admitted {len(admitted)} directive(s). Starting sequential execution...")
 
-    # --- PHASE 2: PARALLEL EXECUTION ---
-    with ProcessPoolExecutor(max_workers=2) as executor:
-        futures = {
-            executor.submit(run_single_directive, d_id, provision_only): d_id
-            for d_id in admitted
-        }
-        for fut in as_completed(futures):
-            d_id = futures[fut]
-            try:
-                fut.result()
-                print(f"[BATCH] Completed: {d_id}")
-            except PipelineError as e:
-                print(f"[BATCH] FAILED: {d_id} - {e}")
-                print("[FAIL-FAST] Stopping batch execution.")
-                print("[FAIL-FAST] Waiting for running tasks to complete...")
-                for f in futures:
-                    f.cancel()
-                raise
-            except Exception as e:
-                print(f"[BATCH] FAILED: {d_id} - {e}")
-                print("[FAIL-FAST] Stopping batch execution.")
-                print("[FAIL-FAST] Waiting for running tasks to complete...")
-                for f in futures:
-                    f.cancel()
-                raise PipelineExecutionError(
-                    f"Batch directive failed: {d_id}: {e}",
-                    directive_id=d_id,
-                ) from e
+    # --- PHASE 2: EXECUTION (sequential — Invariant #26) ---
+    # Direct loop — ProcessPoolExecutor(1) was pure overhead (subprocess spawn
+    # + IPC for zero parallelism). Fail-fast on first error.
+    for d_id in admitted:
+        try:
+            run_single_directive(d_id, provision_only)
+            print(f"[BATCH] Completed: {d_id}")
+        except PipelineError:
+            print(f"[BATCH] FAILED: {d_id}")
+            print("[FAIL-FAST] Stopping batch execution.")
+            raise
+        except Exception as e:
+            print(f"[BATCH] FAILED: {d_id} - {e}")
+            print("[FAIL-FAST] Stopping batch execution.")
+            raise PipelineExecutionError(
+                f"Batch directive failed: {d_id}: {e}",
+                directive_id=d_id,
+            ) from e
 
     # --- PHASE 3: ARCHIVE (SEQUENTIAL) ---
     # Only reached if all futures succeeded.
@@ -660,6 +803,7 @@ def main():
         
         if arg == "--all":
             run_batch_mode(provision_only=provision_only)
+            _report_data_freshness()
             print("\n[SUCCESS] Batch Pipeline Completed Successfully.")
         else:
             directive_id = arg.replace(".txt", "")
@@ -668,6 +812,13 @@ def main():
                 active_dir=ACTIVE_DIR,
                 python_exe=PYTHON_EXE,
                 run_command=run_command,
+            )
+
+            # Auto-Consistency Gate: hash alignment + approved marker
+            enforce_signature_consistency(
+                directive_id=directive_id,
+                project_root=PROJECT_ROOT,
+                active_dir=ACTIVE_DIR,
             )
 
             # Phase 1: Admission (Move from INBOX/ -> active_backup/ + marker)
@@ -687,6 +838,14 @@ def main():
                 except Exception as e:
                     print(f"[WARN] Candidate promotion failed: {e}")
 
+                print("\n[PIPELINE] Regenerating run summary view...")
+                try:
+                    run_command([PYTHON_EXE, "tools/generate_run_summary.py", "--quiet"], "Run Summary")
+                    print("[PIPELINE] run_summary.csv updated.")
+                except Exception as e:
+                    print(f"[WARN] Run summary generation failed: {e}")
+
+            _report_data_freshness()
             print("\n[SUCCESS] Pipeline Completed Successfully.")
     except PipelineError as err:
         sys.exit(map_pipeline_error(err))

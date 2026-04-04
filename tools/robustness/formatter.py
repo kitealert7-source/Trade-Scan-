@@ -211,13 +211,37 @@ def format_report(
     out.append(f"| Avg Streak | {strks.get('avg_win_streak', 0):.1f} | {strks.get('avg_loss_streak', 0):.1f} |")
     out.append("")
 
-    # Section 9: Friction
-    out.append("## Section 9 — Friction Stress Test\n")
-    out.append("| Scenario | Net Profit | PF | Degradation |")
-    out.append("|---|---|---|---|")
+    # Section 9: Friction Stress Test (slippage only — spread already in OHLC)
+    tiered = results.get("friction_tiered", {})
+    config_src = tiered.get("config_source", "unknown")
+    out.append(f"## Section 9 — Friction Stress Test (Slippage Only)\n")
+    out.append(f"> Cost model: `{config_src}` | Spread already in OHLC prices — only slippage modeled\n")
+    out.append("| Scenario | Slippage (pips/side) | Net Profit | PF | Degradation | Avg Cost/Trade |")
+    out.append("|---|---|---|---|---|---|")
     for r in results.get("friction", []):
-        out.append(f"| {r.get('scenario')} | {_fmt_usd(r.get('net_profit', 0))} | {r.get('pf', 0):.2f} | {_fmt_pct(r.get('degradation_pct', 0))} |")
+        slip = r.get("slippage_pips", 0.0)
+        avg_cost = r.get("avg_friction_cost", 0.0)
+        out.append(
+            f"| {r.get('scenario')} | {slip:.1f} "
+            f"| {_fmt_usd(r.get('net_profit', 0))} | {r.get('pf', 0):.2f} "
+            f"| {_fmt_pct(r.get('degradation_pct', 0))} | {_fmt_usd(avg_cost)} |"
+        )
     out.append("")
+
+    # Tier-by-tier PnL survival check
+    tiers = tiered.get("tiers", {})
+    if tiers:
+        base_tier = tiers.get("baseline", {})
+        extreme_tier = tiers.get("extreme", {})
+        if base_tier and extreme_tier:
+            base_pf = base_tier.get("pf", 0)
+            extreme_pf = extreme_tier.get("pf", 0)
+            if extreme_pf >= 1.0:
+                out.append("> **PASS**: Strategy survives even extreme slippage.\n")
+            elif base_pf >= 1.0:
+                out.append("> **CAUTION**: Profitable under baseline slippage but breaks under extreme.\n")
+            else:
+                out.append("> **FAIL**: Unprofitable even under baseline slippage.\n")
 
     # Section 10: Directional
     dr = results.get("directional", {})

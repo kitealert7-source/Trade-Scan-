@@ -44,9 +44,13 @@ ROLLING_WINDOW_LENGTH = 252
 CAPITAL_PER_RUN_USD = 5000
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-STRATEGY_MASTER_PATH = PROJECT_ROOT / "backtests" / "Strategy_Master_Filter.xlsx"
-PORTFOLIO_MASTER_PATH = PROJECT_ROOT / "strategies" / "Master_Portfolio_Sheet.xlsx"
-PORTFOLIO_ROOT = PROJECT_ROOT / "strategies"
+from config.state_paths import (
+    POOL_DIR, MASTER_FILTER_PATH, STRATEGIES_DIR,
+)
+
+STRATEGY_MASTER_PATH = MASTER_FILTER_PATH
+PORTFOLIO_MASTER_PATH = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
+PORTFOLIO_ROOT = STRATEGIES_DIR
 
 
 # ==========================================================
@@ -401,7 +405,7 @@ def main():
         equity_stability_k_ratio=equity_stability_k_ratio,
     )
 
-    with open(output_dir / "portfolio_summary.json", "w") as f:
+    with open(output_dir / "portfolio_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=4)
 
     metadata = {
@@ -418,7 +422,7 @@ def main():
         "evaluation_timeframe": evaluation_timeframe
     }
 
-    with open(output_dir / "portfolio_metadata.json", "w") as f:
+    with open(output_dir / "portfolio_metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
 
     # --------------------------------------------------
@@ -492,19 +496,28 @@ def main():
         df_final = df_combined.reindex(columns=LEDGER_SCHEMA)
 
         try:
-            df_final.to_excel(PORTFOLIO_MASTER_PATH, index=False)
-            
-            # Call Unified Formatter
-            cmd = [
-                sys.executable, 
-                str(PROJECT_ROOT / "tools" / "format_excel_artifact.py"),
-                "--file", str(PORTFOLIO_MASTER_PATH),
-                "--profile", "portfolio"
-            ]
-            subprocess.run(cmd, check=True)
+            import os as _os_atomic
+            from filelock import FileLock
+            _lock_path = PORTFOLIO_MASTER_PATH.with_suffix(".lock")
+            with FileLock(str(_lock_path), timeout=120):
+                # Atomic write: tmp -> fsync -> replace
+                _tmp_ledger = PORTFOLIO_MASTER_PATH.with_suffix(".xlsx.tmp")
+                df_final.to_excel(_tmp_ledger, index=False)
+                with open(_tmp_ledger, "r+b") as _fh:
+                    _os_atomic.fsync(_fh.fileno())
+                _os_atomic.replace(str(_tmp_ledger), str(PORTFOLIO_MASTER_PATH))
+
+                # Call Unified Formatter
+                cmd = [
+                    sys.executable,
+                    str(PROJECT_ROOT / "tools" / "format_excel_artifact.py"),
+                    "--file", str(PORTFOLIO_MASTER_PATH),
+                    "--profile", "portfolio"
+                ]
+                subprocess.run(cmd, check=True)
 
             print("[SUCCESS] Master Portfolio Sheet updated and styled.")
-            
+
         except PermissionError:
             fail(f"Permission denied: {PORTFOLIO_MASTER_PATH}. Please close the file.")
         except subprocess.CalledProcessError as e:

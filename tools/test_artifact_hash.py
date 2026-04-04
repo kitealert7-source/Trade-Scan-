@@ -2,7 +2,7 @@ import json
 import hashlib
 from pathlib import Path
 
-PROJECT_ROOT = Path("C:/Users/faraw/Documents/Trade_Scan")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RUNS_DIR = PROJECT_ROOT / "runs"
 REGISTRY_PATH = PROJECT_ROOT / "registry" / "run_registry.json"
 

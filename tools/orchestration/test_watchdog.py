@@ -25,7 +25,7 @@ from pathlib import Path
 # Resolve paths (mirrors watchdog_daemon.py exactly)
 # ---------------------------------------------------------------------------
 _TRADE_SCAN_ROOT = Path(__file__).resolve().parents[2]
-TS_EXEC_ROOT = Path(os.environ.get("TS_EXEC_ROOT", str(_TRADE_SCAN_ROOT.parent / "ts_execution")))
+TS_EXEC_ROOT = Path(os.environ.get("TS_EXEC_ROOT", str(_TRADE_SCAN_ROOT.parent / "TS_Execution")))
 LOGS_DIR     = TS_EXEC_ROOT / "outputs" / "logs"
 
 HB_LOG     = LOGS_DIR / "heartbeat.log"

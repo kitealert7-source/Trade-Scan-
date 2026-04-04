@@ -2,7 +2,7 @@
 import yaml
 from pathlib import Path
 
-REGISTRY_PATH = Path(r"c:\Users\faraw\Documents\Trade_Scan\indicators\INDICATOR_REGISTRY.yaml")
+REGISTRY_PATH = Path(__file__).resolve().parent.parent / "indicators" / "INDICATOR_REGISTRY.yaml"
 
 def update_summary():
     with open(REGISTRY_PATH, 'r', encoding='utf-8') as f:

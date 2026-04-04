@@ -177,6 +177,7 @@ COLUMN_WIDTH_OVERRIDES = {
 # Applied as Excel Data Validation (dropdown) on all data rows
 DROPDOWN_COLS = {
     "in_portfolio": ["True", "False"],
+    "candidate_status": ["CORE", "WATCH", "FAIL", "BURN_IN"],
 }
 
 # Strategy Master Filter — Preferred Column Order
@@ -201,6 +202,7 @@ STRATEGY_COLUMN_ORDER = [
     "max_dd_pct",
     "return_dd_ratio",
     "IN_PORTFOLIO",          # Moved here for quick pick-and-choose
+    "candidate_status",
     "worst_5_loss_pct",
     "longest_loss_streak",
     "pct_time_in_market",
@@ -229,6 +231,7 @@ PORTFOLIO_COLUMN_ORDER = [
     "portfolio_id",
     "source_strategy",
     "reference_capital_usd",
+    "portfolio_status",
     "trade_density",
     "profile_trade_density",
     "theoretical_pnl",
@@ -476,6 +479,8 @@ def apply_formatting(file_path, profile):
 
             # 4. Freeze Header (and column A for portfolio — keeps portfolio_id visible)
             ws.freeze_panes = "B2" if profile == "portfolio" else "A2"
+            if max_col >= 1 and max_row >= 1:
+                ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
         
         wb.save(path)
         print("[SUCCESS] Formatting complete.")

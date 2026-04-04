@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from tools.pipeline_utils import DirectiveStateManager, PipelineStateManager
+from config.status_enums import RUN_TERMINAL_STATES
 
 
 def get_run_state(run_id: str) -> str:
@@ -72,7 +73,7 @@ def fail_run_best_effort(run_id: str, warn_prefix: str = "[WARN]") -> bool:
     if not mgr.state_file.exists():
         return False
     current = get_run_state(run_id)
-    if current in ("COMPLETE", "FAILED"):
+    if current in RUN_TERMINAL_STATES:
         return False
     try:
         transition_run_state(run_id, "FAILED")

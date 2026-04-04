@@ -345,6 +345,119 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
 
     print("[SEMANTIC] Behavioral Guard: PASSED (FilterStack Enforced)")
 
+    # 5.6. Engine-Owned Fields Guard
+    # ------------------------------------------------------------------
+    # From engine v1.5.3 onwards, the regime_state_machine's
+    # apply_regime_model() runs AFTER prepare_indicators() and
+    # authoritatively writes these columns to the df. Any strategy that
+    # re-imports, re-computes, or re-assigns them creates a silent
+    # second source of truth: the strategy's column is overwritten by
+    # the engine, so the gate reads one value while the trade record
+    # stamps another. Strategies must access these fields exclusively
+    # via ctx.require('<field>') at runtime — not ctx.get(), which
+    # silently returns a default on missing data instead of failing fast.
+    #
+    # Central registry — single definition used by all checks below.
+    ENGINE_OWNED_FIELDS = {
+        # field_name: {forbidden_imports, forbidden_callables}
+        "volatility_regime": {
+            "imports": {"indicators.volatility.volatility_regime"},
+            "callables": {"volatility_regime"},
+        },
+        "trend_regime": {
+            "imports": set(),
+            "callables": set(),
+        },
+        "trend_score": {
+            "imports": set(),
+            "callables": set(),
+        },
+        "trend_label": {
+            "imports": set(),
+            "callables": set(),
+        },
+    }
+
+    # Derived flat sets for fast lookup
+    _eof_forbidden_imports = set()
+    _eof_forbidden_callables = set()
+    for _field_def in ENGINE_OWNED_FIELDS.values():
+        _eof_forbidden_imports |= _field_def["imports"]
+        _eof_forbidden_callables |= _field_def["callables"]
+    _eof_forbidden_columns = set(ENGINE_OWNED_FIELDS.keys())
+
+    class EngineOwnedFieldsGuard(ast.NodeVisitor):
+        def __init__(self, forbidden_imports, forbidden_columns, forbidden_callables):
+            self.forbidden_imports_set = forbidden_imports
+            self.forbidden_columns_set = forbidden_columns
+            self.forbidden_callables_set = forbidden_callables
+            self.violations_imports = []
+            self.violations_assignments = []
+            self.violations_calls = []
+
+        def visit_ImportFrom(self, node):
+            if node.module in self.forbidden_imports_set:
+                self.violations_imports.append(node.module)
+            self.generic_visit(node)
+
+        def visit_Assign(self, node):
+            for target in node.targets:
+                if not isinstance(target, ast.Subscript):
+                    continue
+                if not (isinstance(target.value, ast.Name) and target.value.id == "df"):
+                    continue
+                col = self._extract_subscript_key(target.slice)
+                if col in self.forbidden_columns_set:
+                    self.violations_assignments.append(col)
+            self.generic_visit(node)
+
+        def visit_Call(self, node):
+            # Detect bare function calls: atr(...), volatility_regime(...)
+            if isinstance(node.func, ast.Name):
+                if node.func.id in self.forbidden_callables_set:
+                    self.violations_calls.append(node.func.id)
+
+            self.generic_visit(node)
+
+        @staticmethod
+        def _extract_subscript_key(slice_node):
+            if isinstance(slice_node, ast.Constant):
+                return slice_node.value
+            if hasattr(ast, "Index") and isinstance(slice_node, ast.Index):
+                if isinstance(slice_node.value, ast.Constant):
+                    return slice_node.value.value
+            return None
+
+    eof_guard = EngineOwnedFieldsGuard(
+        _eof_forbidden_imports, _eof_forbidden_columns, _eof_forbidden_callables
+    )
+    eof_guard.visit(tree)
+
+    eof_violations = []
+    if eof_guard.violations_imports:
+        eof_violations.append(
+            f"forbidden imports: {sorted(set(eof_guard.violations_imports))}"
+        )
+    if eof_guard.violations_assignments:
+        eof_violations.append(
+            f"forbidden df column writes: {sorted(set(eof_guard.violations_assignments))}"
+        )
+    if eof_guard.violations_calls:
+        eof_violations.append(
+            f"forbidden function calls: {sorted(set(eof_guard.violations_calls))}"
+        )
+    if eof_violations:
+        raise ValueError(
+            f"ENGINE_OWNED_FIELDS: Strategy violates engine-owned field boundary. "
+            f"These fields are computed by apply_regime_model() after "
+            f"prepare_indicators() — re-implementing them causes silent drift "
+            f"between gate logic and trade record labels. "
+            f"Access exclusively via ctx.require('<field>'). "
+            f"Violations: {'; '.join(eof_violations)}"
+        )
+
+    print("[SEMANTIC] Engine-Owned Fields Guard: PASSED")
+
     # 5.5. Forbidden Terms Guard (Stage-0 Inline Indicator Ban)
     # ------------------------------------------------------------------
     # Detect inline indicator patterns that must live in repository indicators.

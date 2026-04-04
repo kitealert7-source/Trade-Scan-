@@ -5,7 +5,7 @@ Baseline: P03 (London close 16:00 exit).
 import os, json
 from datetime import datetime
 
-BASE = r"c:\Users\faraw\Documents\Trade_Scan"
+BASE = str(Path(__file__).resolve().parent.parent)
 PREFIX = "08_BRK_XAUUSD_15M_IBREAK_REGFILT_S01_V1"
 TS = datetime.now().isoformat()
 

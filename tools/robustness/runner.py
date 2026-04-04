@@ -233,8 +233,9 @@ def run_robustness_suite(
         "total_trades": len(pnls),
     }
 
-    # Section 9: Friction
+    # Section 9: Friction Stress Test (tiered: baseline / stress / extreme)
     results["friction"] = friction.run_friction_scenarios(tr_df)
+    results["friction_tiered"] = friction.run_tiered_friction(tr_df)
 
     # Section 10: Directional
     results["directional"] = directional.directional_removal(tr_df)

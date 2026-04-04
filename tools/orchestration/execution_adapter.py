@@ -10,6 +10,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+SUBPROCESS_TIMEOUT_S = 600  # 10-minute hard limit per stage subprocess
+
+
 def run_command(cmd_list, step_name):
     print(f"\n{'='*40}")
     print(f"[{step_name}] Executing: {' '.join(cmd_list)}")
@@ -23,10 +26,18 @@ def run_command(cmd_list, step_name):
             check=True,
             stderr=subprocess.PIPE,
             text=True,
+            timeout=SUBPROCESS_TIMEOUT_S,
         )
         duration = time.time() - start_time
         print(f"[{step_name}] COMPLETED (Time: {duration:.2f}s)")
         return True
+    except subprocess.TimeoutExpired as e:
+        duration = time.time() - start_time
+        print(f"\n[FATAL] {step_name} TIMED OUT after {duration:.0f}s (limit: {SUBPROCESS_TIMEOUT_S}s)")
+        raise RuntimeError(
+            f"SUBPROCESS_TIMEOUT: {step_name} exceeded {SUBPROCESS_TIMEOUT_S}s limit. "
+            f"Possible causes: MT5 hang, infinite loop, or network stall."
+        ) from e
     except subprocess.CalledProcessError as e:
         # Always surface the subprocess stderr so exact tracebacks appear in logs.
         if e.stderr:

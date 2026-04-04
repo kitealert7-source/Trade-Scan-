@@ -17,6 +17,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from config.state_paths import STRATEGIES_DIR
+from config.status_enums import PORTFOLIO_PROFILE_UNRESOLVED
 STRATEGIES_ROOT = STRATEGIES_DIR
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 
@@ -139,15 +140,45 @@ def enrich_ledger_row(strategy_id, df_ledger):
         print(f"  [SKIP] Missing/invalid profile comparison: {path}")
         return df_ledger
 
-    preferred = None
+    # Step 8.5 is a VALIDATOR / ENRICHER — it does NOT re-select the profile.
+    # The authoritative profile choice is made by portfolio_evaluator.py (Step 7).
+    # We read the already-chosen profile from the ledger and enrich metrics only.
+    #
+    # Fallback rule: only trigger when the deployed_profile column is explicitly
+    # absent (column missing or cell is pandas NaN/None).  If Step 7 wrote
+    # *anything* — even an unexpected value — Step 8.5 must respect it.
+    # This prevents hidden divergence from partial writes or bugs.
+    profile_name = None
+    step7_wrote_something = False
     if "deployed_profile" in df_ledger.columns:
-        preferred_raw = str(df_ledger.loc[mask, "deployed_profile"].iloc[-1]).strip()
-        if preferred_raw and preferred_raw.lower() != "nan":
-            preferred = preferred_raw
+        raw_val = df_ledger.loc[mask, "deployed_profile"].iloc[-1]
+        if pd.notna(raw_val):
+            existing_raw = str(raw_val).strip()
+            if existing_raw and existing_raw.lower() != "nan":
+                profile_name = existing_raw
+                step7_wrote_something = True
 
-    profile_name, profile_metrics, source = select_deployed_profile(profiles, preferred)
-    if profile_name is None or profile_metrics is None:
-        print("  [SKIP] Could not resolve deployed profile")
+    # Fallback ONLY when Step 7 genuinely didn't write a profile (column absent
+    # or cell is NaN).  This is the single-asset skip path.  If Step 7 wrote
+    # something invalid, we skip — do NOT silently override with different logic.
+    if profile_name is None:
+        if step7_wrote_something:
+            # Step 7 wrote something but it resolved to empty/invalid — don't override.
+            # Mark the row explicitly so operators see this in the ledger, not just logs.
+            print(f"  [ERROR] Step 7 wrote an unresolvable deployed_profile for {strategy_id} — not overriding")
+            print(f"  [ERROR] Ledger row will have incomplete profile metrics. Manual review required.")
+            if "portfolio_status" in df_ledger.columns:
+                df_ledger.loc[mask, "portfolio_status"] = PORTFOLIO_PROFILE_UNRESOLVED
+            return df_ledger
+        profile_name, _, source = select_deployed_profile(profiles)
+        if profile_name is None:
+            print("  [SKIP] Could not resolve deployed profile (no Step 7 selection, fallback also failed)")
+            return df_ledger
+        print(f"  [FALLBACK] No Step 7 profile found — selected {profile_name} via fallback ({source})")
+
+    profile_metrics = profiles.get(profile_name)
+    if profile_metrics is None or not isinstance(profile_metrics, dict):
+        print(f"  [SKIP] Profile '{profile_name}' not found in profile_comparison.json")
         return df_ledger
 
     realized = round(_safe_float(profile_metrics.get("realized_pnl"), 0.0), 2)
@@ -172,8 +203,40 @@ def enrich_ledger_row(strategy_id, df_ledger):
     df_ledger.loc[mask, "rejection_rate_pct"] = rejection_rate
     df_ledger.loc[mask, "realized_vs_theoretical_pnl"] = ratio
 
+    # --- Fix 1: Recompute portfolio_status with actual profile data ---
+    # Stage-4 writes status before capital wrapper runs, so it's always FAIL.
+    # Now we have the real realized_pnl and trades_accepted from the deployed profile.
+    from tools.portfolio_evaluator import _compute_portfolio_status
+    new_status = _compute_portfolio_status(realized, accepted, rejection_rate)
+    old_status = str(df_ledger.loc[mask, "portfolio_status"].iloc[-1])
+    if "portfolio_status" in df_ledger.columns:
+        df_ledger.loc[mask, "portfolio_status"] = new_status
+    if old_status != new_status:
+        print(f"  [STATUS] {old_status} -> {new_status}")
+
+    # --- Fix 2: Update reference_capital_usd from deployed profile ---
+    # effective_capital = max_concurrent_trades × $1,000 per asset.
+    # This is the real capital footprint, not the $10,000 simulation pool.
+    effective_capital = _safe_float(profile_metrics.get("effective_capital"), 0.0)
+    if effective_capital <= 0:
+        # Fallback: check capital_insights block
+        effective_capital = _safe_float(
+            profile_metrics.get("capital_insights", {}).get("effective_capital", 0.0),
+            0.0,
+        )
+    if effective_capital > 0 and "reference_capital_usd" in df_ledger.columns:
+        df_ledger.loc[mask, "reference_capital_usd"] = effective_capital
+
+    # --- Fix 3: Recompute profile_trade_density with actual rejection rate ---
+    # Stage-4 computes this before capital wrapper, so rejection_rate is None.
+    if "trade_density" in df_ledger.columns and "profile_trade_density" in df_ledger.columns:
+        td_raw = _safe_float(df_ledger.loc[mask, "trade_density"].iloc[-1], 0.0)
+        if td_raw > 0 and rejection_rate > 0:
+            profile_td = int(round(td_raw * (1.0 - rejection_rate / 100.0)))
+            df_ledger.loc[mask, "profile_trade_density"] = profile_td
+
     print(
-        f"  [OK] {strategy_id} -> {profile_name} ({source}) "
+        f"  [OK] {strategy_id} -> {profile_name} (enriched) "
         f"realized=${realized:,.2f}, accepted={accepted}, rejected={rejected}, ratio={ratio:.4f}"
     )
     return df_ledger

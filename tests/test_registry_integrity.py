@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 # Setup project root for imports
-PROJECT_ROOT = Path(r"c:\Users\faraw\Documents\Trade_Scan")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from engines.indicator_warmup_resolver import resolve_strategy_warmup, RegistryFormulaError

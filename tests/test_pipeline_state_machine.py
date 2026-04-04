@@ -49,7 +49,7 @@ class TestValidForwardTransition(unittest.TestCase):
             for state in legal_path:
                 mgr.transition_to(state)
 
-            data = json.loads(mgr.state_file.read_text())
+            data = json.loads(mgr.state_file.read_text(encoding="utf-8"))
             self.assertEqual(data["current_state"], "COMPLETE")
             self.assertEqual(len(data["history"]), len(legal_path))
 
@@ -90,7 +90,7 @@ class TestInitializeResetHistory(unittest.TestCase):
             # Re-initialize (reset to IDLE)
             mgr.initialize()
 
-            data = json.loads(mgr.state_file.read_text())
+            data = json.loads(mgr.state_file.read_text(encoding="utf-8"))
             self.assertEqual(data["current_state"], "IDLE")
 
             # Last history entry must be STAGE_3_COMPLETE -> IDLE

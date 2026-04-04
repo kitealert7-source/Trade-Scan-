@@ -26,7 +26,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.directive_utils import load_directive_yaml, get_key_ci
-from engine_dev.universal_research_engine.v1_5_3.execution_loop import ContextView
+from engine_dev.universal_research_engine.v1_5_4.execution_loop import ContextView
+from engines.regime_state_machine import apply_regime_model
 
 
 def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_path) -> bool:
@@ -118,6 +119,12 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
     
     print(f"[DRYRUN] prepare_indicators() executed successfully")
 
+    # 4b. Apply engine regime model (same as execution loop)
+    try:
+        df = apply_regime_model(df)
+    except Exception as e:
+        print(f"[DRYRUN] WARNING: apply_regime_model() failed: {e}. Continuing without engine fields.")
+
     # 5. Iterate check_entry over sample (pure -- no state mutation)
     signal_count = 0
     try:
@@ -127,8 +134,10 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
                 row=row,
                 index=i,
                 direction=0,
-                trend_regime=row.get('trend_regime', 0),
-                volatility_regime=row.get('volatility_regime', 0),
+                trend_regime=row.get('trend_regime', None),
+                volatility_regime=row.get('volatility_regime', None),
+                trend_score=row.get('trend_score', None),
+                trend_label=row.get('trend_label', None),
                 entry_index=None,
                 bars_held=0,
             )

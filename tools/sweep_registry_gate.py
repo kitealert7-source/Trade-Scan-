@@ -136,21 +136,48 @@ def _write_yaml_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _is_lock_stale(lock_path: Path) -> bool:
-    """Return True if the lock file exists but the owning process is no longer alive."""
+    """Return True if the lock file exists but the owning process is no longer alive.
+
+    Uses a Windows-compatible check: ``os.kill(pid, 0)`` raises PermissionError
+    on Windows for *any* existing process (unlike POSIX where it succeeds for
+    same-user processes), so we cannot distinguish "alive but different user"
+    from "alive, same user".  Instead we use ``ctypes.windll`` / ``OpenProcess``
+    when available, falling back to the POSIX ``os.kill`` path on Linux/macOS.
+    """
     try:
         content = lock_path.read_text(encoding="utf-8")
         m = re.search(r"pid=(\d+)", content)
         if not m:
             return False  # Cannot parse PID — treat as live (safe default)
         pid = int(m.group(1))
-        os.kill(pid, 0)  # Signal 0: existence check only, no actual signal sent
-        return False  # Process is alive
-    except ProcessLookupError:
-        return True  # PID does not exist — lock is stale
-    except PermissionError:
-        return False  # Process exists but we can't signal it — treat as live
+        return not _is_pid_alive(pid)
     except Exception:
         return False  # Unknown error — treat as live (safe default)
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Cross-platform process existence check."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if handle == 0:
+                return False  # Cannot open → process does not exist
+            kernel32.CloseHandle(handle)
+            return True
+        except Exception:
+            return True  # Cannot determine — treat as alive (safe default)
+    else:
+        # POSIX: signal 0 checks existence without sending a real signal
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # Exists but we can't signal it
 
 
 def _acquire_lock(lock_path: Path, timeout_sec: float = 10.0, poll_sec: float = 0.1) -> int:

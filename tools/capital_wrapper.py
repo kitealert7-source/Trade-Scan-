@@ -76,7 +76,7 @@ PROFILES = {
         "risk_per_trade": 0.005,        # Fallback (unused when fixed_risk_usd set)
         "fixed_risk_usd": 50.0,         # $50 per trade
         "heat_cap": 0.04,               # 4.0%
-        "leverage_cap": 5,              # 5x
+        "leverage_cap": 11,             # 11x (calibrated from p99 = 10.67x)
         "min_lot": 0.01,
         "lot_step": 0.01,
     },
@@ -1544,19 +1544,13 @@ def main():
     print(f"[INIT] Broker specs loaded: {len(broker_specs)}")
     print(f"[INIT] Profiles: {list(PROFILES.keys())}")
 
-    # Phase 6: Initialize dynamic USD conversion lookup
-    quote_currencies = set()
-    for sym in symbols:
-        _, quote = _parse_fx_currencies(sym)
-        if quote:
-            quote_currencies.add(quote)
-    print(f"[INIT] Quote currencies: {sorted(quote_currencies)}")
+    # MT5-verified static valuation — no dynamic conversion needed.
+    # All broker specs now have MT5-derived usd_pnl_per_price_unit_0p01 = tick_value/tick_size*0.01
+    # which already accounts for currency conversion (MT5 tick_value is in account currency).
+    print("[INIT] Using MT5-verified static valuation (dynamic conversion disabled)")
 
-    conv_lookup = ConversionLookup()
-    conv_lookup.load(quote_currencies)
-
-    # Phase 4: Run multi-profile simulation (with Phase 6 dynamic conversion)
-    states = run_simulation(sorted_events, broker_specs, conv_lookup=conv_lookup)
+    # Phase 4: Run multi-profile simulation (static MT5 valuation)
+    states = run_simulation(sorted_events, broker_specs, conv_lookup=None)
 
     # Print per-profile validation
     for state in states.values():

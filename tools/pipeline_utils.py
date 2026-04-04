@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import importlib.util
 from config.state_paths import RUNS_DIR
+from config.status_enums import RUN_TERMINAL_STATES, RUN_ABORTED
 
 import yaml
 from yaml.loader import SafeLoader
@@ -185,10 +186,10 @@ def get_canonical_hash(parsed_data: dict) -> str:
 def get_engine_version(engine_path=None):
     """
     Dynamically import engine module and read __version__.
-    Default path: engine_dev/universal_research_engine/v1_5_3/main.py
+    Default path: engine_dev/universal_research_engine/v1_5_4/main.py
     """
     if not engine_path:
-        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_3/main.py"
+        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_4/main.py"
         
     if not engine_path.exists():
         raise RuntimeError(f"Engine main.py not found at {engine_path}")
@@ -281,6 +282,29 @@ def generate_run_id(directive_path: Path, symbol: str, attempt_id: str = "attemp
 
 
 # ==============================================================================
+# RUN ID LOOKUP (SHARED UTILITY)
+# ==============================================================================
+
+def find_run_id_for_directive(directive_id: str) -> str:
+    """Scan TradeScan_State/runs/ to find the run_id for a directive.
+
+    Returns run_id string, or empty string if not found.
+    """
+    if not RUNS_DIR.exists():
+        return ""
+    for d in sorted(RUNS_DIR.iterdir()):
+        rs = d / "run_state.json"
+        if rs.exists():
+            try:
+                data = json.loads(rs.read_text(encoding="utf-8"))
+                if data.get("directive_id") == directive_id:
+                    return data.get("run_id", d.name)
+            except Exception:
+                continue
+    return ""
+
+
+# ==============================================================================
 # STATE MANAGEMENT (SINGLE WRITER, ATOMIC)
 # ==============================================================================
 
@@ -294,13 +318,14 @@ class PipelineStateManager:
     ALLOWED_TRANSITIONS = {
         "IDLE": ["PREFLIGHT_COMPLETE", "FAILED"],
         "PREFLIGHT_COMPLETE": ["PREFLIGHT_COMPLETE_SEMANTICALLY_VALID", "STAGE_1_COMPLETE", "FAILED"],
-        "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID": ["STAGE_1_COMPLETE", "FAILED"],
-        "STAGE_1_COMPLETE": ["STAGE_2_COMPLETE", "FAILED"],
-        "STAGE_2_COMPLETE": ["STAGE_3_COMPLETE", "FAILED"],
-        "STAGE_3_COMPLETE": ["STAGE_3A_COMPLETE", "FAILED"],
-        "STAGE_3A_COMPLETE": ["COMPLETE", "FAILED"],
+        "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID": ["STAGE_1_COMPLETE", "FAILED", "ABORTED"],
+        "STAGE_1_COMPLETE": ["STAGE_2_COMPLETE", "FAILED", "ABORTED"],
+        "STAGE_2_COMPLETE": ["STAGE_3_COMPLETE", "FAILED", "ABORTED"],
+        "STAGE_3_COMPLETE": ["STAGE_3A_COMPLETE", "FAILED", "ABORTED"],
+        "STAGE_3A_COMPLETE": ["COMPLETE", "FAILED", "ABORTED"],
         "COMPLETE": [],
-        "FAILED": []
+        "FAILED": [],
+        "ABORTED": [],  # Terminal — watchdog / recovery only
     }
 
     def __init__(self, run_id: str, directive_id: str = None):
@@ -395,7 +420,7 @@ class PipelineStateManager:
         # Ensure run directory exists for audit log
         self.run_dir.mkdir(parents=True, exist_ok=True)
         # strict append mode
-        with open(self.audit_log, "a") as f:
+        with open(self.audit_log, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
     def transition_to(self, new_state: str):
@@ -450,6 +475,55 @@ class PipelineStateManager:
             "to": new_state
         })
         print(f"[STATE] Transition {self.run_id}: {old_state} -> {new_state}")
+
+    def abort(self, reason: str = "WATCHDOG_TIMEOUT") -> bool:
+        """Transition to ABORTED from any in-progress state.
+
+        Unlike ``transition_to()``, this accepts a ``reason`` string that is
+        persisted alongside the state for post-mortem diagnostics.
+
+        Returns True if the transition succeeded, False if the run was already
+        in a terminal state (COMPLETE, FAILED, ABORTED, IDLE) and was skipped.
+        """
+        if not self.state_file.exists():
+            return False
+
+        with open(self.state_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        old_state = data.get("current_state", "UNKNOWN")
+        # Only abort from in-progress states
+        terminal = RUN_TERMINAL_STATES | {"IDLE"}
+        if old_state in terminal:
+            return False
+
+        allowed = self.ALLOWED_TRANSITIONS.get(old_state, [])
+        if "ABORTED" not in allowed:
+            self._append_audit_log("ABORT_SKIPPED", {
+                "from": old_state,
+                "abort_reason": reason,
+                "detail": "ABORTED not in allowed transitions for this state",
+            })
+            return False
+
+        data["history"].append({
+            "from": old_state,
+            "to": "ABORTED",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        })
+        data["current_state"] = "ABORTED"
+        data["previous_state"] = old_state
+        data["abort_reason"] = reason
+        data["last_transition"] = datetime.now(timezone.utc).isoformat() + "Z"
+
+        self._write_atomic(data)
+        self._append_audit_log("STATE_TRANSITION", {
+            "from": old_state,
+            "to": "ABORTED",
+            "abort_reason": reason,
+        })
+        print(f"[STATE] Abort {self.run_id}: {old_state} -> ABORTED (reason={reason})")
+        return True
 
     def record_heartbeat(self):
         """Update heartbeat_ts to signify active RUNNING loop safely."""
@@ -605,7 +679,7 @@ class DirectiveStateManager:
             self.initialize()
             return
             
-        with open(self.state_file, 'r') as f:
+        with open(self.state_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
         next_attempt = self._get_next_attempt_id(data)
@@ -636,7 +710,7 @@ class DirectiveStateManager:
         if not self.state_file.exists():
             return "IDLE"
         try:
-            with open(self.state_file, 'r') as f:
+            with open(self.state_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 latest_attempt = data.get("latest_attempt", "attempt_01")
                 attempts = data.get("attempts", {})
@@ -651,7 +725,7 @@ class DirectiveStateManager:
         if not self.state_file.exists():
             return "attempt_01"
         try:
-            with open(self.state_file, 'r') as f:
+            with open(self.state_file, 'r', encoding='utf-8') as f:
                 return json.load(f).get("latest_attempt", "attempt_01")
         except Exception:
             return "attempt_01"
@@ -660,7 +734,7 @@ class DirectiveStateManager:
         """Registers generated run IDs onto the latest attempt payload."""
         if not self.state_file.exists():
             return
-        with open(self.state_file, 'r') as f:
+        with open(self.state_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         latest_attempt = data.get("latest_attempt", "attempt_01")
         attempts = data.setdefault("attempts", {})
@@ -691,7 +765,7 @@ class DirectiveStateManager:
         if not self.state_file.exists():
             raise FileNotFoundError(f"Directive state not found: {self.directive_id}")
 
-        with open(self.state_file, 'r') as f:
+        with open(self.state_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
         latest_attempt = data.get("latest_attempt", "attempt_01")
@@ -742,7 +816,7 @@ class DirectiveStateManager:
             "directive_id": self.directive_id,
             **details
         }
-        with open(self.audit_log, 'a') as f:
+        with open(self.audit_log, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry) + "\n")
 
 

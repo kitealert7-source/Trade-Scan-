@@ -3,7 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-PROJECT_ROOT = Path("C:/Users/faraw/Documents/Trade_Scan")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STRATEGIES_DIR = PROJECT_ROOT / "strategies"
 
 def main():

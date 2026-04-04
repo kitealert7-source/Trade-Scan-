@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-PROJECT_ROOT = Path("C:/Users/faraw/Documents/Trade_Scan")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIRECTIVES_DIR = PROJECT_ROOT / "backtest_directives" / "active"
 REGISTRY_PATH = PROJECT_ROOT / "registry" / "run_registry.json"
 

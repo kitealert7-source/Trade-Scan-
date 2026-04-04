@@ -148,43 +148,49 @@ def reconcile_registry() -> dict:
              # Runs dir must exist or we have no sandbox
              pass
 
-    # 2. Load registry and compute full updated state (OUTSIDE lock)
-    reg = _load_registry()
-    dirty = False
+    # 2. Load registry, compute mutations, and save — all under lock to prevent TOCTOU race.
+    #    Filesystem moves (step 3) happen outside the lock since they don't touch the registry file.
+    with FileLock(str(LOCK_PATH)):
+        reg = _load_registry()
+        dirty = False
 
-    # Missing from registry
-    for phys_id in physical_runs:
-        if phys_id not in reg:
-            print(f"[RECONCILE] Recovered orphaned physical run {phys_id} -> sandbox.")
-            results["orphaned_on_disk"].append(phys_id)
-            reg[phys_id] = {
-                "run_id": phys_id,
-                "tier": "sandbox",
-                "status": "complete", # Assume complete if it has a data folder
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "directive_hash": "recovered",
-                "artifact_hash": None
-            }
-            dirty = True
-
-    # Physically missing but in registry
-    for run_id, data in list(reg.items()):
-        if run_id not in physical_runs:
-            if data.get("status") == "invalid":
-                results["invalid_in_registry"].append(run_id)
-                continue
-
-            if not (runs_dir / run_id).exists():
-                print(f"[RECONCILE] Registry entry {run_id} missing physical folder -> marked invalid.")
-                results["missing_from_disk"].append(run_id)
-                reg[run_id]["status"] = "invalid"
+        # Missing from registry
+        for phys_id in physical_runs:
+            if phys_id not in reg:
+                print(f"[RECONCILE] Recovered orphaned physical run {phys_id} -> sandbox.")
+                results["orphaned_on_disk"].append(phys_id)
+                reg[phys_id] = {
+                    "run_id": phys_id,
+                    "tier": "sandbox",
+                    "status": "complete", # Assume complete if it has a data folder
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "directive_hash": "recovered",
+                    "artifact_hash": None
+                }
                 dirty = True
-        else:
-            # Run IS physically present but registry says invalid — stale flag, restore it.
-            if data.get("status") == "invalid":
-                print(f"[RECONCILE] Run {run_id} is physically present but marked invalid -> restored to complete.")
-                reg[run_id]["status"] = "complete"
-                dirty = True
+
+        # Physically missing but in registry
+        for run_id, data in list(reg.items()):
+            if run_id not in physical_runs:
+                if data.get("status") == "invalid":
+                    results["invalid_in_registry"].append(run_id)
+                    continue
+
+                if not (runs_dir / run_id).exists():
+                    print(f"[RECONCILE] Registry entry {run_id} missing physical folder -> marked invalid.")
+                    results["missing_from_disk"].append(run_id)
+                    reg[run_id]["status"] = "invalid"
+                    dirty = True
+            else:
+                # Run IS physically present but registry says invalid — stale flag, restore it.
+                if data.get("status") == "invalid":
+                    print(f"[RECONCILE] Run {run_id} is physically present but marked invalid -> restored to complete.")
+                    reg[run_id]["status"] = "complete"
+                    dirty = True
+
+        # Commit — still under lock, load + mutate + save is now atomic
+        if dirty:
+            _save_registry_atomic(reg)
 
     # 3. Candidate Location Alignment (Auto-Repair) — filesystem moves, no registry lock needed
     for run_id, data in reg.items():
@@ -196,15 +202,8 @@ def reconcile_registry() -> dict:
                 try:
                     SELECTED_DIR.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(src), str(dst))
-                    # We don't need to set dirty here as registry data itself hasn't changed,
-                    # but reconciliation is about filesystem alignment.
                 except Exception as e:
                     print(f"[ERROR] Auto-repair migration failed for {run_id}: {e}")
-
-    # Commit — lock held only for the atomic write (Option A: full overwrite)
-    if dirty:
-        with FileLock(str(LOCK_PATH)):
-            _save_registry_atomic(reg)
 
     # AUTO-CLEAN: remove newly-invalid run_ids from portfolio_metadata.json files
     newly_invalid = set(results["missing_from_disk"])

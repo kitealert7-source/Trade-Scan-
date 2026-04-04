@@ -34,14 +34,14 @@ from pathlib import Path
 POLL_INTERVAL_S       = 60
 SOFT_THRESHOLD_S      = 180    # 3 polls ≈ 2 missed heartbeats → warning only
 HARD_THRESHOLD_S      = 300    # 5 polls ≈ 4 missed heartbeats → kill + restart
-BAR_STALL_THRESHOLD_S = 7200   # 2 × H1 interval — heartbeat OK but no bar processed
+BAR_STALL_THRESHOLD_S = 3600   # 1 × H1 interval — heartbeat OK but no bar processed
 MAX_RESTARTS          = 3
 COOLDOWN_WINDOW_S     = 600    # 10-minute storm guard window
 
 # ts_execution root — defaults to sibling directory of Trade_Scan.
 # Override with TS_EXEC_ROOT env var if the directory layout differs.
 _TRADE_SCAN_ROOT = Path(__file__).resolve().parents[2]
-TS_EXEC_ROOT = Path(os.environ.get("TS_EXEC_ROOT", str(_TRADE_SCAN_ROOT.parent / "ts_execution")))
+TS_EXEC_ROOT = Path(os.environ.get("TS_EXEC_ROOT", str(_TRADE_SCAN_ROOT.parent / "TS_Execution")))
 
 HB_LOG       = TS_EXEC_ROOT / "outputs" / "logs" / "heartbeat.log"
 EXEC_STATE   = TS_EXEC_ROOT / "outputs" / "logs" / "execution_state.json"
@@ -67,7 +67,8 @@ except ImportError:
 def _log(msg: str) -> None:
     """Append a timestamped line to watchdog_daemon.log and print to stdout."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    line = f"{ts} | WATCHDOG | {msg}"
+    _rid = _current_run_id() or "NA"
+    line = f"{ts} | WATCHDOG | run_id={_rid} | {msg}"
     print(line, flush=True)
     try:
         WATCHDOG_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -81,6 +82,19 @@ def _log(msg: str) -> None:
             f.write(line + "\n")
     except Exception:
         pass
+
+
+def _current_run_id() -> str | None:
+    """Read current TS_Execution run_id from execution_state.json if available."""
+    try:
+        if not EXEC_STATE.exists():
+            return None
+        with open(EXEC_STATE, encoding="utf-8") as f:
+            d = json.load(f)
+        rid = d.get("run_id")
+        return str(rid) if rid else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +166,7 @@ def _get_process_uptime() -> float | None:
 def _read_exec_pid() -> int | None:
     """Read PID from execution.pid written by src/main.py on startup."""
     try:
-        return int(EXEC_PID.read_text().strip())
+        return int(EXEC_PID.read_text(encoding="utf-8").strip())
     except Exception:
         return None
 
@@ -265,7 +279,7 @@ def _check_single_instance() -> bool:
     import atexit
     if WDOG_PID.exists():
         try:
-            existing = int(WDOG_PID.read_text().strip())
+            existing = int(WDOG_PID.read_text(encoding="utf-8").strip())
             r = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {existing}", "/NH", "/FO", "CSV"],
                 capture_output=True, text=True, timeout=10
@@ -289,6 +303,8 @@ def run_watchdog_loop() -> None:
     if _check_single_instance():
         return
 
+    observed_run_id: str | None = None
+
     _log(
         f"WATCHDOG_DAEMON_STARTED"
         f" | soft={SOFT_THRESHOLD_S}s"
@@ -300,6 +316,16 @@ def run_watchdog_loop() -> None:
 
     while True:
         try:
+            current_run_id = _current_run_id()
+            if current_run_id and current_run_id != observed_run_id:
+                if observed_run_id:
+                    _log(f"RUN_END | observed_switch_from={observed_run_id}")
+                observed_run_id = current_run_id
+                _log(f"RUN_START | observed_run_id={observed_run_id}")
+            elif current_run_id is None and observed_run_id is not None:
+                _log(f"RUN_END | observed_run_id={observed_run_id} | execution_state_missing")
+                observed_run_id = None
+
             hb_age  = _get_heartbeat_age()
             bar_age = _get_bar_stall()
 
@@ -338,6 +364,8 @@ def run_watchdog_loop() -> None:
                 _log(f"HEARTBEAT_OK | hb_age={hb_age:.1f}s")
 
             # --- Bar stall check (independent of liveness) ---
+            # Escalated to HARD action: heartbeat proves process is alive but bar loop
+            # is stalled (thread crash, feed hang, or MT5 disconnect not detected).
             _proc_uptime = _get_process_uptime()
             if (
                 bar_age is not None
@@ -347,9 +375,29 @@ def run_watchdog_loop() -> None:
                 and (_proc_uptime is None or _proc_uptime >= 3600)
             ):
                 _log(
-                    f"DEGRADED | heartbeat OK but no bar processed in {bar_age:.0f}s"
-                    f" | expected interval ~3600s | MANUAL REVIEW REQUIRED"
+                    f"BAR_STALL_BREACH | heartbeat OK but no bar processed in {bar_age:.0f}s"
+                    f" | threshold={BAR_STALL_THRESHOLD_S}s | INITIATING RECOVERY"
                 )
+                _send_alert("BAR_STALL_BREACH",
+                    f"bar_age={bar_age:.0f}s threshold={BAR_STALL_THRESHOLD_S}s heartbeat_ok")
+                guard = _load_guard()
+                if _check_restart_storm(guard):
+                    _log(
+                        f"STORM_GUARD_ACTIVE"
+                        f" | restart_count={guard.get('restart_count')}"
+                        f" | BLOCKED — manual intervention required"
+                    )
+                else:
+                    if not EXEC_PID.exists():
+                        _log("CLEAN_SHUTDOWN_DETECTED | execution.pid absent | no restart")
+                    else:
+                        pid = _read_exec_pid()
+                        if pid and _pid_is_alive(pid):
+                            killed = _kill_pid(pid)
+                            _log(f"KILL_RESULT | pid={pid} | success={killed}")
+                        else:
+                            _log(f"NO_LIVE_PID | pid={pid} | process may have already exited")
+                        _do_restart(guard)
 
         except Exception as e:
             _log(f"WATCHDOG_LOOP_ERROR | {type(e).__name__}: {e}")

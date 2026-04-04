@@ -12,6 +12,7 @@ State Gated: Yes (STAGE_3_START)
 """
 
 import json
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -400,7 +401,12 @@ def compile_stage3(strategy_filter=None):
                 ensure_xlsx_writable(master_filter_path)
                 print(f"[DEBUG] df_master shape before save: {df_master.shape}")
                 print(f"[DEBUG] df_new shape: {df_new.shape}")
-                df_master.to_excel(master_filter_path, index=False)
+                # Atomic write: tmp → fsync → replace (prevents corruption on crash/kill)
+                _tmp_filter = master_filter_path.with_suffix(".xlsx.tmp")
+                df_master.to_excel(_tmp_filter, index=False)
+                with open(_tmp_filter, "r+b") as _fh:
+                    os.fsync(_fh.fileno())
+                os.replace(str(_tmp_filter), str(master_filter_path))
 
                 # Format
                 project_root = Path(__file__).parent.parent

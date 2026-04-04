@@ -30,6 +30,39 @@ from tools.pipeline_utils import PipelineStateManager, generate_run_id, parse_di
 from engines.regime_state_machine import apply_regime_model
 from config.state_paths import RUNS_DIR, BACKTESTS_DIR
 
+# --- REGIME TIMEFRAME MAP (v1.5.4) ---
+_REGIME_TF_MAP_PATH = PROJECT_ROOT / "config" / "regime_timeframe_map.yaml"
+_REGIME_TF_MAP = None
+
+def _load_regime_tf_map() -> dict:
+    """Load regime timeframe mapping. Cached after first call."""
+    global _REGIME_TF_MAP
+    if _REGIME_TF_MAP is not None:
+        return _REGIME_TF_MAP
+    try:
+        with open(_REGIME_TF_MAP_PATH, encoding="utf-8") as f:
+            _REGIME_TF_MAP = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"    [WARN] regime_timeframe_map.yaml not found — defaulting to 4H regime")
+        _REGIME_TF_MAP = {"mapping": {}, "default": {"regime_tf": "4h", "resample_freq": "1D"}}
+    return _REGIME_TF_MAP
+
+def resolve_regime_config(signal_tf: str) -> tuple:
+    """Resolve (regime_tf, resample_freq) for a given signal timeframe.
+
+    Returns:
+        (regime_tf, resample_freq) e.g. ("4h", "1D") or ("1d", "1W")
+    """
+    cfg = _load_regime_tf_map()
+    tf = signal_tf.lower()
+    mapping = cfg.get("mapping", {})
+    if tf in mapping:
+        entry = mapping[tf]
+        return entry["regime_tf"], entry["resample_freq"]
+    default = cfg.get("default", {})
+    print(f"    [WARN] No regime mapping for '{tf}' — using default 4H/1D")
+    return default.get("regime_tf", "4h"), default.get("resample_freq", "1D")
+
 # --- CONFIGURATION TO BE PARSED FROM DIRECTIVE ---
 # Default placeholders, will be overridden by parsing
 DIRECTIVE_FILENAME = "SPX04.txt"
@@ -327,7 +360,7 @@ def run_engine_logic(df, strategy):
     """Run engine via main orchestration layer."""
     import importlib
     engine_ver = get_engine_version()
-    # Normalize version string for path (e.g. 1.5.3 -> v1_5_3)
+    # Normalize version string for path (e.g. 1.5.4 -> v1_5_4)
     engine_path = f"v{engine_ver.replace('.', '_')}"
     module_path = f"engine_dev.universal_research_engine.{engine_path}.main"
     
@@ -336,7 +369,7 @@ def run_engine_logic(df, strategy):
     except ModuleNotFoundError:
          # Fallback for local folder execution
          print(f"    [WARN] Dynamic engine resolution failed for {module_path}. Using fallback path.")
-         from engine_dev.universal_research_engine.v1_5_3.main import run_engine
+         from engine_dev.universal_research_engine.v1_5_4.main import run_engine
          return run_engine(df, strategy)
          
     return engine_mod.run_engine(df, strategy)
@@ -368,7 +401,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         emitter_mod = importlib.import_module(module_path)
     except ModuleNotFoundError:
          print(f"    [WARN] Dynamic emitter resolution failed for {module_path}. Using fallback.")
-         from engine_dev.universal_research_engine.v1_5_3.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
+         from engine_dev.universal_research_engine.v1_5_4.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
     else:
         emit_stage1 = emitter_mod.emit_stage1
         RawTradeRecord = emitter_mod.RawTradeRecord
@@ -775,16 +808,35 @@ def main():
             raise e
         # -----------------------------------
         
-        # --- NEW: HTF REGIME INTEGRATION ---
-        # 1. Load Regime Data (Fixed at 4H)
-        print(f"    [HTF] Computing regime on 4H grid for {target_symbol}...")
-        df_regime = load_market_data(target_symbol, tf_override="4h")
-        if "timestamp" in df_regime.columns:
-            df_regime["timestamp"] = pd.to_datetime(df_regime["timestamp"])
-            df_regime = df_regime.set_index("timestamp", drop=False)
-        
-        # Apply regime model only on the 4H data
-        df_regime = apply_regime_model(df_regime)
+        # --- HTF REGIME INTEGRATION (v1.5.4: adaptive timeframe) ---
+        # 1. Load Regime Data (mapped from signal TF via regime_timeframe_map.yaml)
+        regime_tf, resample_freq = resolve_regime_config(TIMEFRAME)
+        print(f"    [HTF] Computing regime on {regime_tf.upper()} grid for {target_symbol} (resample->{resample_freq})...")
+
+        # Weekly regime: no 1W data files exist — resample from daily
+        if regime_tf.lower() == "1w":
+            df_regime = load_market_data(target_symbol, tf_override="1d")
+            if "timestamp" in df_regime.columns:
+                df_regime["timestamp"] = pd.to_datetime(df_regime["timestamp"])
+                df_regime = df_regime.set_index("timestamp", drop=False)
+            # Resample daily OHLC → weekly OHLC
+            ohlc_map = {
+                "open": "first", "high": "max", "low": "min", "close": "last"
+            }
+            # Preserve any extra columns by forward-filling
+            df_regime_weekly = df_regime[["open", "high", "low", "close"]].resample("1W").agg(ohlc_map).dropna()
+            df_regime_weekly["timestamp"] = df_regime_weekly.index
+            df_regime = df_regime_weekly
+            print(f"    [HTF] Resampled {len(df_regime)} weekly bars from daily data")
+        else:
+            df_regime = load_market_data(target_symbol, tf_override=regime_tf)
+            if "timestamp" in df_regime.columns:
+                df_regime["timestamp"] = pd.to_datetime(df_regime["timestamp"])
+                df_regime = df_regime.set_index("timestamp", drop=False)
+
+        # Apply regime model on the regime-TF data
+        df_regime = apply_regime_model(df_regime, resample_freq=resample_freq,
+                                       symbol_hint=target_symbol)
         
         # 2. Load Execution Data (from Directive)
         df = load_market_data(target_symbol)

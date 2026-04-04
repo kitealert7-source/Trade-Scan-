@@ -143,6 +143,8 @@ ALLOWED_SUB_KEYS = {
         # Session sweep reversal (London open liquidity sweep)
         "session_start", "session_end", "entry_window_start", "entry_window_end",
         "narrow_range_atr_multiple", "tp_atr_multiple_narrow",
+        # Engulfing at structure
+        "structure_lookback", "min_body_ratio",
     },
     "exit_logic": {
         "type", "price_exit", "time_exit_bars", "time_exit", "time_exit_utc",
@@ -153,10 +155,11 @@ ALLOWED_SUB_KEYS = {
     },
     "trailing_stop": {
         "enabled", "type", "atr_multiplier",
-        "activation_threshold",
+        "activation_threshold", "activation_r", "lock_to",
     },
     "take_profit": {
         "enabled", "type", "atr_multiplier", "fixed_points", "target",
+        "r_multiple",
     },
     "reentry": {
         "allowed", "reuse_original_range",

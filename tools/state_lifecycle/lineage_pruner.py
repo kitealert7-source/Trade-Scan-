@@ -4,12 +4,13 @@ import shutil
 import datetime
 import json
 import argparse
+import yaml
 import pandas as pd
 from pathlib import Path
 
 # Paths to core state repositories
-PROJECT_ROOT = Path("C:/Users/faraw/Documents/Trade_Scan")
-STATE_ROOT = Path("C:/Users/faraw/Documents/TradeScan_State")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+STATE_ROOT   = PROJECT_ROOT.parent / "TradeScan_State"
 
 MASTER_SHEET_PATH = STATE_ROOT / "strategies" / "Master_Portfolio_Sheet.xlsx"
 FILTERED_SHEET_PATH = STATE_ROOT / "candidates" / "Filtered_Strategies_Passed.xlsx"
@@ -21,6 +22,79 @@ STRATEGIES_DIR = STATE_ROOT / "strategies"
 DEPLOYED_STRATEGIES_DIR = PROJECT_ROOT / "strategies"
 SANDBOX_DIR = STATE_ROOT / "sandbox"
 QUARANTINE_DIR = STATE_ROOT / "quarantine"
+REGISTRY_PATH = STATE_ROOT / "registry" / "run_registry.json"
+
+def execution_pid_exists() -> bool:
+    """Returns True if TS_Execution appears to be running.
+
+    Two-layer check:
+      1. PID file — if the recorded PID is alive, definitely running.
+      2. Heartbeat file — if modified within last 5 minutes, treat as running
+         even if PID file is stale (process may have been re-launched with a
+         new PID without updating the old file).
+    """
+    import time
+    ts_exec_logs = PROJECT_ROOT.parent / "TS_Execution" / "outputs" / "logs"
+
+    # Layer 1: PID file
+    pid_path = ts_exec_logs / "execution.pid"
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except ValueError:
+            print("[BLOCK] execution.pid is corrupt")
+            sys.exit(1)
+        if sys.platform == "win32":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+        else:
+            try:
+                os.kill(pid, 0)
+                return True
+            except PermissionError:
+                return True
+            except OSError:
+                pass  # PID is dead — fall through to heartbeat check
+
+    # Layer 2: Heartbeat freshness (catches stale PID + re-launched process)
+    hb_path = ts_exec_logs / "heartbeat.log"
+    if hb_path.exists():
+        age_seconds = time.time() - hb_path.stat().st_mtime
+        if age_seconds < 300:  # 5 minutes
+            return True
+
+    return False
+
+
+def build_execution_shield() -> set:
+    """
+    Returns set of strategy IDs currently deployed in TS_Execution/portfolio.yaml
+    """
+    portfolio_path = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+    if not portfolio_path.exists():
+        print("[BLOCK] portfolio.yaml not found or invalid")
+        sys.exit(1)
+    try:
+        with open(portfolio_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        strategies = data.get("portfolio", {}).get("strategies", []) or []
+        if not strategies:
+            print("[BLOCK] portfolio.yaml parsed but no strategies found")
+            sys.exit(1)
+        return {
+            s["id"]
+            for s in strategies
+            if s.get("enabled", False) and s.get("id")
+        }
+    except Exception:
+        print("[BLOCK] portfolio.yaml not found or invalid")
+        sys.exit(1)
+
 
 def build_keep_runs() -> tuple[set, set]:
     """Build union index from candidates and active portfolio subsets."""
@@ -115,6 +189,8 @@ def verify_referential_integrity(keep_runs: set, active_portfolios: set):
 
 def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
     """Map the filesystem strictly to identify quaratine candidates."""
+    execution_set = build_execution_shield()
+
     targets = {
         "runs": [],
         "backtests": [],
@@ -185,6 +261,15 @@ def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
             if f.is_dir() and f.name not in keep_runs:
                 targets["sandbox"].append(f)
 
+    relevant = targets["portfolios"] + targets["deployed_portfolios"]
+    to_quarantine = [p.name for p in relevant]
+    conflicts = [x for x in to_quarantine if x in execution_set]
+    if conflicts:
+        print("[BLOCK] Attempted to quarantine deployed strategies:")
+        for c in conflicts:
+            print(f"  - {c}")
+        sys.exit(1)
+
     return targets
 
 
@@ -228,6 +313,38 @@ def dry_run_simulation(keep_runs: set, active_portfolios: set, targets: dict):
     print("\n[PASS] No KEEP_RUNS ID appears in delete list.")
 
 
+def batch_update_registry_status(run_ids: list, new_status: str):
+    """Batch-update status field in run_registry.json for multiple run_ids.
+
+    Single load → N mutations in memory → single atomic write.
+
+    Safety rules:
+      - run_ids not in registry are silently skipped (no new entries created).
+      - Only modifies the 'status' field. All other fields are untouched.
+      - Atomic write: tmp file + os.replace to prevent partial writes on crash.
+    """
+    if not REGISTRY_PATH.exists() or not run_ids:
+        return
+    try:
+        reg = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+        changed = 0
+        for rid in run_ids:
+            if rid in reg:
+                reg[rid]["status"] = new_status
+                changed += 1
+        if changed == 0:
+            return
+        tmp_path = REGISTRY_PATH.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(reg, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(str(tmp_path), str(REGISTRY_PATH))
+        print(f"  -> Registry: {changed} entries marked '{new_status}'")
+    except Exception as e:
+        print(f"[WARN] Registry batch update failed: {e}")
+
+
 def execute_purge(targets: dict):
     print("\n--- Phase 4: Execution (Quarantine Migration) ---")
     
@@ -236,19 +353,26 @@ def execute_purge(targets: dict):
     sandbox_dir = QUARANTINE_DIR / f"{ts}_cleanup"
     sandbox_dir.mkdir(exist_ok=True)
     counts = {k: 0 for k in targets.keys()}
+    quarantined_run_ids = []
     for category, path_list in targets.items():
         cat_dir = sandbox_dir / category
         cat_dir.mkdir(exist_ok=True)
-        
+
         for p in path_list:
             try:
                 # Hard strict OS move
                 shutil.move(str(p), str(cat_dir / p.name))
                 counts[category] += 1
+                if category in ("runs", "sandbox"):
+                    quarantined_run_ids.append(p.name)
             except Exception as e:
                 print(f"[WARN] Failed to move {p.name}: {e}")
-                
+
     print(f"[SUCCESS] Migrated {sum(counts.values())} artifacts to {sandbox_dir.name}")
+
+    # Batch registry sync — single atomic write after all moves complete
+    if quarantined_run_ids:
+        batch_update_registry_status(quarantined_run_ids, "quarantined")
     
     # Emitting reporting output
     report_data = {
@@ -269,6 +393,10 @@ def main():
     parser = argparse.ArgumentParser(description="State Lifecycle Lineage Pruner")
     parser.add_argument("--execute", action="store_true", help="Acknowledge destructive move and bypass dry-run.")
     args = parser.parse_args()
+
+    if execution_pid_exists():
+        print("[BLOCK] TS_Execution is running")
+        sys.exit(1)
 
     keep_runs, active_portfolios = build_keep_runs()
     

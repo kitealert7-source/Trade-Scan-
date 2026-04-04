@@ -3,7 +3,7 @@ import os
 import yaml
 from pathlib import Path
 
-PROJECT_ROOT = Path(r"c:\Users\faraw\Documents\Trade_Scan")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 INDICATORS_DIR = PROJECT_ROOT / "indicators"
 REGISTRY_PATH = INDICATORS_DIR / "INDICATOR_REGISTRY.yaml"
 

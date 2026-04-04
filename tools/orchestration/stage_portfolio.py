@@ -52,7 +52,7 @@ def run_portfolio_and_post_stages(
             transition_run_state(rid, "FAILED")
             raise RuntimeError(f"Manifest missing for run {rid}")
 
-        with open(manifest_path, "r") as f:
+        with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
 
         bt_dir = BACKTESTS_DIR / f"{clean_id}_{symbol}"
@@ -85,8 +85,20 @@ def run_portfolio_and_post_stages(
 
         print(f"[ORCHESTRATOR] Verified Integrity: {rid}")
 
-    cmd_args = [python_exe, "tools/portfolio_evaluator.py", clean_id, "--run-ids"] + run_ids
-    run_command(cmd_args, "Stage-4 Evaluation")
+    # Gate: skip full portfolio evaluation for single-asset strategies.
+    # Portfolio evaluation (correlation matrix, contribution charts, stress tests)
+    # is meaningless with 1 constituent. Capital wrapper + profile selector still run.
+    is_multi_asset = (
+        len(run_ids) > 1
+        or len(symbols) > 1
+        or clean_id.startswith("PF_")
+    )
+
+    if is_multi_asset:
+        cmd_args = [python_exe, "tools/portfolio_evaluator.py", clean_id, "--run-ids"] + run_ids
+        run_command(cmd_args, "Stage-4 Evaluation")
+    else:
+        print(f"[GATE] Portfolio evaluation skipped: single-asset strategy ({symbols[0] if symbols else '?'}). No composite metrics to compute.")
 
     portfolio_ledger_path = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
     if not portfolio_ledger_path.exists():
@@ -99,11 +111,7 @@ def run_portfolio_and_post_stages(
     # Mirror the evaluator's ledger-write eligibility check.
     # Single-run / single-asset strategies intentionally skip the master ledger;
     # the gate must honour the same condition to avoid a false failure.
-    is_valid_for_master = (
-        len(run_ids) > 1
-        or len(symbols) > 1
-        or clean_id.startswith("PF_")
-    )
+    is_valid_for_master = is_multi_asset
 
     if not is_valid_for_master:
         print(f"[GATE] Stage-4 ledger gate skipped: single-run / single-asset strategy (evaluator intentionally omits ledger write).")

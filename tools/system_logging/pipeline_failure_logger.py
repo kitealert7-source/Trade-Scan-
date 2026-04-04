@@ -10,7 +10,7 @@ _MAX_BYTES    = 5 * 1024 * 1024   # 5 MB primary trigger
 _BACKUP_COUNT = 4                  # keep 4 archives (~1 month)
 _MAX_AGE_DAYS = 7                  # rotate weekly even if under size
 
-LOG_DIR  = Path(r"C:\Users\faraw\Documents\Trade_Scan\outputs\logs")
+LOG_DIR  = Path(__file__).resolve().parents[2] / "outputs" / "logs"
 LOG_FILE = LOG_DIR / "pipeline_failures.log"
 
 

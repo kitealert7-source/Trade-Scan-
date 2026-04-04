@@ -530,7 +530,7 @@ def run_simulation(
     sorted_events: List[TradeEvent],
     broker_specs: Dict[str, dict],
     profiles: Optional[Dict[str, dict]] = None,
-    conv_lookup: Optional[ConversionLookup] = None,
+    conv_lookup: Optional[ConversionLookup] = None,  # DEPRECATED: ignored, kept for API compat
 ) -> Dict[str, PortfolioState]:
     if profiles is None:
         raise ValueError("profiles must be provided")
@@ -555,18 +555,14 @@ def run_simulation(
             raw_lot_mode=params.get("raw_lot_mode", False),
         )
 
-    symbol_static_fallback: Dict[str, float] = {}
+    # MT5-verified static valuation: usd_per_pu_per_lot = tick_value / tick_size
+    # This is the universal path for ALL instruments (FX, indices, commodities, crypto).
+    # No dynamic conversion lookup needed — MT5 tick_value already accounts for currency.
+    symbol_usd_per_pu: Dict[str, float] = {}
     symbol_contract_size: Dict[str, float] = {}
-    symbol_quote_ccy: Dict[str, str] = {}
     for sym, spec in broker_specs.items():
-        symbol_static_fallback[sym] = get_usd_per_price_unit_static(spec)
+        symbol_usd_per_pu[sym] = get_usd_per_price_unit_static(spec)
         symbol_contract_size[sym] = float(spec["contract_size"])
-        _, quote = _parse_fx_currencies(sym)
-        if quote:
-            symbol_quote_ccy[sym] = quote
-        else:
-            symbol_quote_ccy[sym] = "USD"
-            print(f"[ASSUMPTION] Non-FX symbol '{sym}' treated as USD-quoted for conversion.")
 
     rng = random.Random(SIMULATION_SEED)
     i = 0
@@ -591,17 +587,7 @@ def run_simulation(
             cs = symbol_contract_size[sym]
 
             if event.event_type == EVENT_TYPE_ENTRY:
-                if conv_lookup is not None:
-                    usd_per_pu, _ = get_usd_per_price_unit_dynamic(
-                        contract_size=cs,
-                        quote_ccy=symbol_quote_ccy[sym],
-                        entry_timestamp=event.timestamp,
-                        conv_lookup=conv_lookup,
-                        static_fallback=symbol_static_fallback[sym],
-                        symbol=sym,
-                    )
-                else:
-                    usd_per_pu = symbol_static_fallback[sym]
+                usd_per_pu = symbol_usd_per_pu[sym]
 
                 for state in states.values():
                     state.process_entry(event, usd_per_pu, cs)

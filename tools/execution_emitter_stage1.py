@@ -42,7 +42,6 @@ class RawTradeRecord:
     mfe_price: Optional[float] = None
     mae_price: Optional[float] = None
     mfe_r: Optional[float] = None
-    mfe_r: Optional[float] = None
     mae_r: Optional[float] = None
     volatility_regime: Optional[str] = None  # "low", "normal", "high" per SOP_TESTING §7.y
     trend_score: Optional[int] = None
