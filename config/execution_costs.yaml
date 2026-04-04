@@ -1,0 +1,29 @@
+# Execution Cost Model — Robustness Suite
+# Source of truth for all friction/slippage assumptions.
+#
+# IMPORTANT: Spread is NOT modeled here. OctaFX OHLC data already includes
+# the spread in candle prices — backtest PnL already reflects spread cost.
+# Only slippage (execution delay, market impact) is unmodeled friction.
+#
+# slippage_pips: expected slippage per side (entry OR exit)
+#   Round-trip slippage = 2x per-side value.
+#   Typical 15M FX market orders on OctaFX: 0.1–0.3 pips per side.
+
+default:
+  slippage_pips: 0.2
+
+tiers:
+  baseline:
+    label: "Baseline (normal slippage)"
+    slippage_pips: 0.2
+  stress:
+    label: "Stress (fast market)"
+    slippage_pips: 0.5
+  extreme:
+    label: "Extreme (news/illiquid)"
+    slippage_pips: 1.0
+
+# Validation bounds — values outside these trigger warnings
+bounds:
+  min_pips: 0.0
+  max_pips: 3.0

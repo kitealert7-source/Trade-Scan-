@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+__all__ = ["get_active_engine"]
+
+
 def get_active_engine() -> str:
     """Load the active engine version from config/engine_registry.json."""
     # Assuming this file is in config/, the registry is in the same directory

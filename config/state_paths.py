@@ -1,5 +1,23 @@
 from pathlib import Path
 
+__all__ = [
+    "PROJECT_ROOT",
+    "STATE_ROOT",
+    "RUNS_DIR",
+    "STRATEGIES_DIR",
+    "REGISTRY_DIR",
+    "ARCHIVE_DIR",
+    "QUARANTINE_DIR",
+    "LOGS_DIR",
+    "BACKTESTS_DIR",
+    "POOL_DIR",
+    "SELECTED_DIR",
+    "MASTER_FILTER_PATH",
+    "CANDIDATE_FILTER_PATH",
+    "initialize_state_directories",
+    "resolve_base_strategy_dir",
+]
+
 # Repository Root
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,6 +45,37 @@ SELECTED_DIR = CANDIDATES_DIR # strategies selected for portfolio consideration
 # Derived Paths
 MASTER_FILTER_PATH    = POOL_DIR     / "Strategy_Master_Filter.xlsx"
 CANDIDATE_FILTER_PATH = SELECTED_DIR / "Filtered_Strategies_Passed.xlsx"
+
+def resolve_base_strategy_dir(sid: str, artifact: str = "portfolio_evaluation") -> Path | None:
+    """Resolve a per-symbol strategy ID to its base artifact directory.
+
+    Multi-symbol strategies share artifacts under the base directive ID.
+    E.g. ``22_CONT_..._P06_AUDUSD`` resolves to ``strategies/22_CONT_..._P06/``.
+
+    Returns the first ``STRATEGIES_DIR / candidate / artifact`` that exists,
+    walking backwards through underscore-separated tokens.  Returns *None*
+    if no match is found.
+
+    Usage::
+
+        pe_dir = resolve_base_strategy_dir(sid, "portfolio_evaluation")
+        deploy = resolve_base_strategy_dir(sid, "deployable")
+    """
+    # Direct match first (most common case — single-symbol or base ID itself)
+    direct = STRATEGIES_DIR / sid / artifact
+    if direct.exists() and any(direct.iterdir()):
+        return direct
+
+    # Walk backwards: strip trailing tokens until a base match is found
+    parts = sid.split("_")
+    for i in range(len(parts) - 1, 0, -1):
+        candidate = "_".join(parts[:i])
+        candidate_dir = STRATEGIES_DIR / candidate / artifact
+        if candidate_dir.exists() and any(candidate_dir.iterdir()):
+            return candidate_dir
+
+    return None
+
 
 def initialize_state_directories():
     """Silent initialization of the research state infrastructure."""

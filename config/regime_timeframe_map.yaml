@@ -1,0 +1,49 @@
+# regime_timeframe_map.yaml — Adaptive regime timeframe mapping
+#
+# Maps each signal timeframe to its appropriate regime timeframe.
+# Target ratio: 4-6x (regime TF should be 4-6x the signal TF).
+#
+# The regime model is timeframe-agnostic — it just needs OHLC bars.
+# This mapping ensures the regime always provides genuine HTF context.
+#
+# linreg_regime_htf resamples regime-TF bars to resample_freq internally
+# (default: 1D). For higher regime TFs, resample to weekly/monthly.
+#
+# Added in Engine v1.5.4 (was hardcoded to 4H in v1.5.3)
+# Updated: 2026-03-31
+
+mapping:
+  "5m":
+    regime_tf: "1h"
+    resample_freq: "1D"     # 1H → Daily (200 daily bars = ~10 months)
+    ratio: 12
+
+  "15m":
+    regime_tf: "1h"
+    resample_freq: "1D"     # 1H → Daily (200 daily bars = ~10 months)
+    ratio: 4
+
+  "30m":
+    regime_tf: "4h"
+    resample_freq: "1D"     # 4H → Daily (200 daily bars = ~10 months)
+    ratio: 8
+
+  "1h":
+    regime_tf: "4h"
+    resample_freq: "1D"     # 4H → Daily — NO CHANGE from v1.5.3
+    ratio: 4
+
+  "4h":
+    regime_tf: "1d"
+    resample_freq: "1W"     # 1D → Weekly (50 weekly bars = ~1 year)
+    ratio: 6
+
+  "1d":
+    regime_tf: "1w"
+    resample_freq: "1ME"    # 1W → Monthly (24 monthly bars = ~2 years)
+    ratio: 5
+
+# Default fallback (unknown timeframes)
+default:
+  regime_tf: "4h"
+  resample_freq: "1D"

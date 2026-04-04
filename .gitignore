@@ -1,3 +1,10 @@
+# ===== Secrets & Credentials (CRITICAL — never commit) =====
+.secrets/
+*.env
+*.key
+*.pem
+*.secret
+
 # Runtime artifacts (never commit)
 backtests/
 runs/
@@ -17,8 +24,13 @@ strategies/
 # Python junk
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 tmp_*
+venv/
+.venv/
 *_venv/
+*.egg-info/
 *.bak
 
 # Canonicalizer staging (cross-platform replacement for /tmp)
@@ -67,6 +79,7 @@ backtest_directives/active_backup/
 .claude/
 .agents/
 .vscode/
+.idea/
 
 # ===== Generated outputs =====
 outputs/logs/

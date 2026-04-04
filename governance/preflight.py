@@ -29,6 +29,115 @@ REQUIRED_SOPS = [
 ]
 
 
+_FIXED_START    = pd.Timestamp("2024-01-02")
+_FRESHNESS_INDEX = PROJECT_ROOT / "data_root" / "freshness_index.json"
+
+
+def resolve_data_range(symbols: list, broker: str, timeframe: str) -> tuple[str, str]:
+    """
+    Detect the safe date range for a directive given its symbols/broker/timeframe.
+
+    start_date = max(2024-01-02, max(first_date per symbol))
+    end_date   = min(latest_date per symbol)
+
+    Primary path: reads freshness_index.json (1 JSON read, no pandas, no CSV parsing).
+    Fallback: direct CSV scan if index is missing or a symbol is absent from it.
+
+    Raises ValueError if data is missing for any symbol.
+    Returns (start_date, end_date) as 'YYYY-MM-DD' strings.
+    """
+    # ── Primary: freshness index (fast path) ──────────────────────────────────
+    if _FRESHNESS_INDEX.exists():
+        try:
+            import json as _json
+            index   = _json.loads(_FRESHNESS_INDEX.read_text(encoding="utf-8"))
+            entries = index.get("entries", {})
+            all_starts: list[pd.Timestamp] = []
+            all_ends:   list[pd.Timestamp] = []
+            missing = []
+
+            for sym in symbols:
+                key = f"{sym}_{broker.upper()}_{timeframe}"
+                if key not in entries:
+                    missing.append(sym)
+                    continue
+                e = entries[key]
+                if not e.get("first_date") or not e.get("latest_date"):
+                    missing.append(sym)
+                    continue
+                all_starts.append(pd.Timestamp(e["first_date"]))
+                all_ends.append(pd.Timestamp(e["latest_date"]))
+
+            if not missing:
+                resolved_start = max(_FIXED_START, max(all_starts))
+                resolved_end   = min(all_ends)
+                return resolved_start.strftime("%Y-%m-%d"), resolved_end.strftime("%Y-%m-%d")
+
+            # Some symbols missing from index — fall through to CSV scan
+            print(f"[resolve_data_range] {missing} not in freshness index — falling back to CSV scan")
+
+        except Exception as exc:
+            print(f"[resolve_data_range] freshness index read failed ({exc}) — falling back to CSV scan")
+
+    # ── Fallback: direct CSV scan ──────────────────────────────────────────────
+    # IMPORTANT: Data is stored in ISO format (YYYY-MM-DD HH:MM:SS).
+    # NEVER pass dayfirst=True to pd.to_datetime here — it silently corrupts
+    # ISO timestamps by swapping day and month (e.g. 2026-01-12 -> Dec 1, 2026;
+    # day > 12 -> NaT). Confirmed failure mode 2026-03-28.
+    all_starts = []
+    all_ends   = []
+
+    for sym in symbols:
+        data_root = (
+            PROJECT_ROOT / "data_root" / "MASTER_DATA"
+            / f"{sym}_{broker.upper()}_MASTER" / "RESEARCH"
+        )
+        pattern = f"{sym}_{broker.upper()}_{timeframe}_*_RESEARCH.csv"
+        matching_files = sorted(data_root.glob(pattern)) if data_root.exists() else []
+
+        if not matching_files:
+            raise ValueError(
+                f"resolve_data_range: no RESEARCH data for {sym}/{broker}/{timeframe}\n"
+                f"Expected: {data_root / pattern}"
+            )
+
+        df_head = pd.read_csv(matching_files[0],  nrows=1, comment="#")
+        df_tail = pd.read_csv(matching_files[-1],          comment="#")
+
+        t_col       = "time" if "time" in df_head.columns else "timestamp"
+        avail_start = pd.to_datetime(df_head[t_col].iloc[0], format="mixed")
+
+        ts = pd.to_datetime(df_tail[t_col], errors="coerce")
+        ts = ts[ts.notna()]
+        ts = ts[(ts > "2010-01-01") & (ts < pd.Timestamp.now())]
+        if ts.empty:
+            raise ValueError(f"resolve_data_range: no valid timestamps in last file for {sym}")
+        avail_end = ts.max()
+
+        # Sanity check: future timestamp means a parse error slipped through.
+        # 5-minute buffer absorbs clock drift and ingestion timing edge cases
+        # while still catching real errors (dayfirst bug fails by months, not minutes).
+        now = pd.Timestamp.utcnow().tz_localize(None)
+        if avail_end > now + pd.Timedelta(minutes=5):
+            raise ValueError(
+                f"resolve_data_range: avail_end {avail_end} is in the future for {sym} — "
+                f"possible dayfirst/format parse error"
+            )
+
+        if avail_start.tzinfo is not None:
+            avail_start = avail_start.tz_convert("UTC").tz_localize(None)
+        if avail_end.tzinfo is not None:
+            avail_end = avail_end.tz_convert("UTC").tz_localize(None)
+
+        all_starts.append(avail_start)
+        all_ends.append(avail_end)
+
+    resolved_start = max(_FIXED_START, max(all_starts))
+    resolved_end   = min(all_ends)
+
+    return resolved_start.strftime("%Y-%m-%d"), resolved_end.strftime("%Y-%m-%d")
+
+
 def run_preflight(
     directive_path: str,
     engine_name: str,
@@ -305,8 +414,8 @@ def run_preflight(
             df_end = pd.read_csv(matching_files[-1], comment='#').tail(1)
             
             t_col = 'time' if 'time' in df_start else 'timestamp'
-            avail_start = pd.to_datetime(df_start[t_col].iloc[0], dayfirst=True, format='mixed')
-            avail_end = pd.to_datetime(df_end[t_col].iloc[0], dayfirst=True, format='mixed')
+            avail_start = pd.to_datetime(df_start[t_col].iloc[0], format='mixed')
+            avail_end = pd.to_datetime(df_end[t_col].iloc[0], format='mixed')
             
             # Normalize to naive UTC for comparison
             if avail_start.tzinfo is not None:

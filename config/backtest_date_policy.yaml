@@ -1,0 +1,31 @@
+# backtest_date_policy.yaml — Timeframe-based date ranges for initial backtests
+#
+# Initial screening uses shorter windows for high-frequency timeframes to keep
+# trade counts manageable (~500-3000) and robustness tests fast.
+#
+# Extended validation (Stage B) always uses full available data — applied only
+# to PROMOTE candidates after initial screening passes.
+#
+# end_date is always auto-resolved from data_root/freshness_index.json.
+# If freshness_index.json is unavailable, falls back to today's date.
+#
+# Updated: 2026-03-31
+
+# Stage A — Initial Screening
+initial:
+  "1d":
+    start_date: "2024-01-02"    # Full period (~2.25Y, ~570 candles)
+  "4h":
+    start_date: "2024-01-02"    # Full period (~2.25Y, ~3,400 candles)
+  "1h":
+    start_date: "2024-10-01"    # 1.5 years (~9,400 candles)
+  "30m":
+    start_date: "2025-01-02"    # 1.25 years (~15,600 candles)
+  "15m":
+    start_date: "2025-01-02"    # 1 year (~25,000 candles)
+  "5m":
+    start_date: "2025-10-01"    # 6 months (~37,400 candles)
+
+# Stage B — Extended Validation (PROMOTE candidates only)
+extended:
+  start_date: "2024-01-02"      # Always full available history
