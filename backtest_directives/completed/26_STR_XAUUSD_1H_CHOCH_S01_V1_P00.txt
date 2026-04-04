@@ -1,0 +1,49 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.0
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: change_of_character
+    swing_lookback: 20
+    min_swing_age_bars: 3
+    confirmation: close_beyond_level
+    long_condition: first_higher_low_after_3_swing_downtrend
+    short_condition: first_lower_high_after_3_swing_uptrend
+  exit_logic:
+    type: tp_or_time
+    max_bars: 20
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.structure.highest_high
+- indicators.structure.lowest_low
+- indicators.volatility.atr
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+symbols:
+- XAUUSD
+test:
+  name: 26_STR_XAUUSD_1H_CHOCH_S01_V1_P00
+  strategy: 26_STR_XAUUSD_1H_CHOCH_S01_V1_P00
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-03-31'
+  description: >
+    Change of Character probe. Detects first structural break against
+    an established trend (HH/HL sequence, minimum 3 swings deep).
+    Single break = single trade, no chaining. No regime or volatility
+    filters. Single hypothesis: does the first structural failure in
+    a mature trend produce follow-through in the opposite direction?

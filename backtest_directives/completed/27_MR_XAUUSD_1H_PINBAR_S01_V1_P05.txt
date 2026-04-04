@@ -1,0 +1,50 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: true
+    type: delayed_atr_trail
+    activation_threshold: 1.0
+  entry_logic:
+    type: pin_bar_reversal
+    long_condition: bullish_pin_bar_wick_rejection_from_below
+    short_condition: bearish_pin_bar_wick_rejection_from_above
+  exit_logic:
+    type: tp_or_time
+    max_bars: 10
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.volatility.atr
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  required_regime: 1
+  operator: gte
+symbols:
+- XAUUSD
+test:
+  name: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P05
+  strategy: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P05
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-04-01'
+  description: >
+    Pin bar P05 — hybrid exit on P03 base. Keeps fixed TP at 2.0R (engine-managed).
+    Adds delayed trailing that activates ONLY after +1.0R MFE, locking floor at
+    +0.5R. Trail does not interfere with runners heading to TP. Purpose: protect
+    trades that stall between 1.0R and 2.0R instead of giving back to time exit.
+    P03 baseline: 443 trades, PF 1.42, mean R +0.225, 77% time exits gave back 0.71R.

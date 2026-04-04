@@ -1,0 +1,44 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    multiple: 1.5
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: engulfing_at_structure
+    structure_lookback: 20
+    min_body_ratio: 0.6
+    long_condition: bullish_engulfing_at_swing_low
+    short_condition: bearish_engulfing_at_swing_high
+  exit_logic:
+    type: time_or_unprofitable
+    max_bars: 5
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.structure.highest_high
+- indicators.structure.lowest_low
+- indicators.volatility.atr
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+symbols:
+- XAUUSD
+test:
+  name: 28_PA_XAUUSD_30M_ENGULF_S02_V1_P00
+  strategy: 28_PA_XAUUSD_30M_ENGULF_S02_V1_P00
+  broker: OctaFX
+  timeframe: 30m
+  start_date: '2024-01-01'
+  end_date: '2026-04-01'
+  description: >
+    Engulfing at Structure Level — 30M timeframe dependency test.
+    Identical logic to S01 (1H). Tests whether higher bar frequency
+    produces more signals and whether the edge scales down.

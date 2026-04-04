@@ -1,0 +1,49 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: pin_bar_reversal
+    long_condition: bullish_pin_bar_wick_rejection_from_below
+    short_condition: bearish_pin_bar_wick_rejection_from_above
+  exit_logic:
+    type: tp_or_time
+    max_bars: 10
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.volatility.atr
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  required_regime: -2
+  operator: gte
+  exclude_regime: 0
+symbols:
+- XAUUSD
+test:
+  name: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P01
+  strategy: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P01
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-04-01'
+  description: >
+    Pin bar P01 — isolation pass. Long only, exclude neutral trend.
+    Eliminates: all shorts (PF<1.0 in 3/5 regimes), neutral trend longs
+    (PF 0.81). Retains StrongUp, WeakUp, WeakDn, StrongDn longs.
+    Expected: ~476 trades, PF ~1.40. Single change from P00: direction
+    + trend filter elimination.

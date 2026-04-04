@@ -1,0 +1,49 @@
+execution_rules:
+  stop_loss:
+    type: wick_atr_buffer
+    atr_multiplier: 0.1
+  take_profit:
+    enabled: true
+    type: asian_range_opposite_side
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: session_sweep_reversal
+    session_start: "00:00"
+    session_end: "07:00"
+    entry_window_start: "07:00"
+    entry_window_end: "09:00"
+    lookback_bars: 3
+  exit_logic:
+    type: tp_or_time
+    time_exit_utc: "12:00"
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.structure.range_breakout_session
+- indicators.structure.lowest_low
+- indicators.structure.highest_high
+- indicators.volatility.atr
+order_placement:
+  execution_timing: bar_close
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  max_trades_per_session: 1
+  reentry:
+    allowed: false
+symbols:
+- XAUUSD
+test:
+  name: 25_REV_XAUUSD_15M_LIQGRAB_S01_V1_P00
+  strategy: 25_REV_XAUUSD_15M_LIQGRAB_S01_V1_P00
+  broker: OctaFX
+  timeframe: 15m
+  start_date: '2024-01-02'
+  end_date: '2026-03-31'
+  description: >
+    Asian liquidity grab probe on 15M. London open sweeps Asian session
+    high/low then reverses within 3 bars. Entry on close of reversal bar.
+    No volatility filters. No range size gate. Single hypothesis:
+    is the London sweep of Asian extremes a real fakeout on this feed?

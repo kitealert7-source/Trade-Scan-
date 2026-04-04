@@ -1,0 +1,48 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: pin_bar_reversal
+    long_condition: bullish_pin_bar_wick_rejection_from_below
+    short_condition: bearish_pin_bar_wick_rejection_from_above
+  exit_logic:
+    type: tp_or_time
+    max_bars: 10
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.volatility.atr
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  required_regime: -1
+  operator: gte
+  exclude_regime: 0
+symbols:
+- XAUUSD
+test:
+  name: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P02
+  strategy: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P02
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-04-01'
+  description: >
+    Pin bar P02 — tighter isolation. Long only, trend in {StrongUp, WeakUp,
+    WeakDn} only. Drops neutral (PF 0.81) AND StrongDn (PF 0.97, 40 trades,
+    -$3.55). Expected: ~436 trades, PF ~1.44. Tests whether StrongDn longs
+    are noise or edge — comparison with P01 isolates the StrongDn contribution.

@@ -1,0 +1,49 @@
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    multiple: 1.5
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: engulfing_at_structure
+    structure_lookback: 80
+    min_body_ratio: 0.6
+    long_condition: bullish_engulfing_at_swing_low
+    short_condition: bearish_engulfing_at_swing_high
+  exit_logic:
+    type: time_or_unprofitable
+    max_bars: 5
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.structure.highest_high
+- indicators.structure.lowest_low
+- indicators.volatility.atr
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  required_regime: -2
+  operator: gte
+  exclude_regime: -1
+symbols:
+- XAUUSD
+test:
+  name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
+  strategy: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
+  broker: OctaFX
+  timeframe: 15m
+  start_date: '2024-01-01'
+  end_date: '2026-04-01'
+  description: >
+    Engulfing at Structure Level — 15M P02 base + directional regime gate.
+    Excludes WeakDn trend (P02) + blocks shorts in LOW vol and STRONG UP trend.
+    Targets the two worst short cells: Short+LOW PF 0.56, Short+StrongUp PF 0.54.

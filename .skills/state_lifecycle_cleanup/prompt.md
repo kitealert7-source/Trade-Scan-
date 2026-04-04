@@ -2,9 +2,13 @@
 
 This workflow executes the structured Lineage-Aware State Lifecycle sequence to safely identify, map, and prune abandoned pipelines, backtests, and artifacts while maintaining absolute referential integrity.
 
-**Critical Authority Note:** Absolute deletion and preservation authority originates SOLELY from two top-down tracking sheets: `Master_Portfolio_Sheet.xlsx` and `Filtered_Strategies_Passed.xlsx`.
-If a run or portfolio identifier is documented in these two active spreadsheets, all its corresponding staging footprint directories across `TradeScan_State/runs`, `TradeScan_State/backtests`, `TradeScan_State/sandbox`, `TradeScan_State/strategies`, and `Trade_Scan/strategies` are natively shielded.
-Anything absent from these central lists is mathematically defined as "abandoned" and will be formally pruned by Phase 4.
+**Critical Authority Note:** Preservation authority originates from three sources:
+1. `Master_Portfolio_Sheet.xlsx` and `Filtered_Strategies_Passed.xlsx` — define `KEEP_RUNS` and `active_portfolios`.
+2. `TS_Execution/portfolio.yaml` — **execution shield**. Any enabled strategy in this file is unconditionally protected from quarantine regardless of spreadsheet presence. Violation triggers `[BLOCK]` + hard abort.
+
+If a run or portfolio identifier is documented in these sources, all its corresponding staging footprint directories across `TradeScan_State/runs`, `TradeScan_State/backtests`, `TradeScan_State/sandbox`, `TradeScan_State/strategies`, and `Trade_Scan/strategies` are natively shielded.
+
+**Safety gates (2026-04-02):** `lineage_pruner.py` blocks execution if TS_Execution is running (PID + heartbeat check). After quarantine, registry is atomically updated (`status: "quarantined"`).
 
 ### Phase 1: Hydrate Pre-Flight State
 

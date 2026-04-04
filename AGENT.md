@@ -40,10 +40,31 @@ BBSQZ, ATRSQZ, ASRANGE, FAKEBREAK, LIQSWEEP, CMR, MICROREV, IMPULSE
 **New pass creation tool (eliminates EXPERIMENT_DISCIPLINE 2-pass cycle):**
 For any `_PXX` variation, use `tools/new_pass.py` instead of manually writing files:
 ```bash
-python tools/new_pass.py <source_pass> <new_pass>   # scaffold
-# Edit directive + strategy.py
-python tools/new_pass.py --rehash <new_pass>         # pre-inject canonical hash → no mtime change → no EXPERIMENT_DISCIPLINE
+python tools/new_pass.py <source_pass> <new_pass>   # scaffold from existing pass
+# Edit directive in INBOX + strategy.py as needed
+python tools/new_pass.py --rehash <new_pass>         # ONE command: cleans state, rehashes, approves
+python tools/run_pipeline.py <new_pass>              # clean run, no EXPERIMENT_DISCIPLINE
 ```
+**Iteration workflow (editing existing pass):**
+After ANY edit to strategy.py or directive (parameter change, filter change, symbol list change):
+```bash
+# 1. Edit strategy.py and/or directive .txt (ensure directive is in INBOX)
+# 2. Run pipeline — auto-consistency gate handles hash alignment + approved marker
+python tools/run_pipeline.py <strategy_name>
+```
+The pipeline's **Auto-Consistency Gate** (`pre_execution.py:enforce_signature_consistency`) fires
+automatically before admission — detects hash drift between directive, strategy.py, and sweep
+registry, auto-fixes all three, refreshes the approved marker, and regenerates the tools manifest.
+No manual `--rehash` step needed for simple edits.
+
+For **re-runs** (same directive after PORTFOLIO_COMPLETE), use `--rehash` to also clean stale state:
+```bash
+python tools/new_pass.py --rehash <strategy_name>   # cleans state + hashes + approves
+python tools/run_pipeline.py <strategy_name>
+```
+NEVER manually edit sweep_registry.yaml hashes, strategy.py hash comments, or manually
+clean run directories. The auto-consistency gate and `--rehash` command handle all of this.
+
 GENESIS_MODE (brand new family, _P00): use legacy `python tools/run_pipeline.py --all --provision-only` path.
 
 ---
@@ -77,6 +98,17 @@ These are non-negotiable. The agent must never violate any of these.
 23. **Symbol Universe Admission** — Preflight must confirm each symbol exists in broker specs and has RESEARCH data for the declared broker/timeframe before Stage-1 execution.
 24. **Clean Repository Rule** — The Trade_Scan repository is immutable during pipeline execution. All runtime artifacts (runs, registries, backtests, reports, sandbox outputs) must be written exclusively to `TradeScan_State/`. Any tool or workflow attempting to write runtime artifacts inside the repository constitutes a governance violation.
 25. **Scratch Script Placement** — All ad-hoc, one-off, diagnostic, or batch utility scripts created during agent sessions must be written to `/tmp/` exclusively. The `Trade_Scan/` repository root must remain free of transient scripts. Any script placed in the repository root without being part of the governed toolset is a governance violation.
+26. **Sequential Execution Only** — Directives are executed one at a time, in strict sequence. One directive must reach PORTFOLIO_COMPLETE and all artifacts verified present before the next directive is submitted to INBOX. Batch submission of multiple directives is prohibited. A minimum 15-second cooldown between pipeline runs is mandatory to allow OS file handles and write buffers to flush before the next run begins. Preflight must be clean before execution: strategy.py must exist, tools manifest must be current, and no pending build steps may remain. *Rationale: concurrent runs cause sweep registry lock contention, artifact I/O races (truncated file headers), and ledger cardinality mismatches — all undefined behavior.*
+27. **Multi-Symbol Deployment Contract** — A multi-symbol research strategy (single `strategy.py`, multiple symbols in one backtest run) MUST be split into per-symbol instances before live deployment to TS_Execution. For each symbol S, create `Trade_Scan/strategies/<BASE_ID>_<S>/strategy.py` as a copy of the base with only `name` changed to `"<BASE_ID>_<S>"`. The base strategy.py is never modified. portfolio.yaml entries use `<BASE_ID>_<S>` as `id` and point to the per-symbol path. Pointing multiple portfolio entries at the base strategy.py violates the `strategy.name == id` invariant enforced by `strategy_loader.py` and causes immediate process abort. *(Established: 2026-03-28, P02 AUDUSD/NZDUSD/AUDNZD. Procedure: TS_Execution/docs/ADDENDUM_PLUG_AND_PLAY_ONBOARDING.md §Multi-Symbol Strategy Deployment)*
+
+28. **Live Deployment Pre-Gate** — Before adding any strategy to `TS_Execution/portfolio.yaml`, ALL four checks must pass. No exceptions.
+    1. **Phase 0 smoke test** — Run `python src/main.py --phase 0` from TS_Execution root. All strategies must show `PHASE0_SMOKE_OK`. Any failure blocks deployment.
+    2. **Schema sample validation** — Run `signal_schema.validate(strategy._schema_sample(), strategy.name, "AUTHORING_CHECK")` and confirm non-None return. `stop_price=0.0` or `entry_reference_price=0.0` are invalid and will fail production smoke test.
+    3. **ENGINE_FALLBACK parity** — If the research backtest used `ENGINE_FALLBACK` stop (i.e. `check_entry()` returned only `{"signal": ±1}`), the live strategy's explicit `stop_price` formula must replicate the engine exactly. Verify: (a) multiplier matches `ENGINE_ATR_MULTIPLIER` in `execution_loop.py` line 33 (currently `2.0`), (b) ATR source and window match `prepare_indicators()`, (c) calculation timing is signal-bar close price.
+    4. **Spot-check** — Confirm `abs(entry_reference_price - stop_price) == ENGINE_ATR_MULTIPLIER × ATR` on a live or recent bar before first live session.
+    `ENGINE_ATR_MULTIPLIER` in `execution_loop.py` is the single source of truth — the strategy must not define an independent multiplier.
+    *Rationale: P02 ran 0 effective bar-loop hours due to smoke test failure from step 1; had it passed smoke test, it would have run at 2× leverage due to step 3 violation. Both failures were preventable with a 5-minute pre-deployment check. (Established: 2026-03-30)*
+    *Procedure: TS_Execution/docs/ADDENDUM_PLUG_AND_PLAY_ONBOARDING.md §Pre-Deployment Gate*
 
 ### On Failure: Use the Playbook
 
@@ -214,26 +246,27 @@ Step 10: Robustness Suite (observational research)
     └── Reports to strategies/ + outputs/reports/
 ```
 
-### Step 11: Research Insight Extraction (Optional, Manual)
+### Step 11: Research Suggestion Layer (Mandatory after Pipeline)
 
-Review the generated report:
-`TradeScan_State/backtests/<DIRECTIVE>/REPORT_SUMMARY.md`
+After every completed pipeline execution, the agent MUST automatically act as the Research Suggestion Layer:
 
-If meaningful strategic insight is discovered, propose appending a structured entry to `RESEARCH_MEMORY.md` including:
-
-- Tags
-- Finding
-- Evidence
-- Conclusion
-- Implication
+1. Analyze newly completed runs in `TradeScan_State/research/index.csv`.
+2. Generate **EXACTLY 0 OR 1** candidate research entry.
+   - If no structural/decisive insight exists, output: "No high-signal research insight identified from this batch."
+3. The single candidate must adhere to the severe constraint template:
+   - **Tags, Strategy, Run IDs** (no padded spacing)
+   - **Finding:** Pure observation of what changed.
+   - **Evidence:** MAX 2 lines. MAX 2 key metrics. Must show dominant delta clearly.
+   - **Conclusion:** Mechanism (why it happened), not repetitive of the finding.
+   - **Implication:** Clear actionable future constraint.
+4. Present the single candidate to the human and await approval.
+   - Example prompt: "Append this entry? (yes/no or suggest modification)"
+5. Upon human approval, append using `python -m tools.research_memory_append`.
 
 Rules:
-- Append only
-- Do not modify previous entries
-- Do not record raw experiment logs
-- Only record distilled findings
-
-Important: do not auto-generate insights. The agent should suggest, and human approval is required before append.
+- NEVER generate multiple entries per batch.
+- NEVER append without explicitly waiting for the human "yes".
+- Quality threshold is absolute: only signal that changes future decisions.
 
 ---
 

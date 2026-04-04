@@ -1,0 +1,46 @@
+execution_rules:
+  stop_loss:
+    type: wick_atr_buffer
+    atr_multiplier: 0.1
+  take_profit:
+    enabled: true
+    type: opposite_swing
+  trailing_stop:
+    enabled: false
+  entry_logic:
+    type: swing_failure_pattern
+    swing_lookback: 6
+    min_swing_age_bars: 3
+    confirmation: close_inside
+    long_condition: price_wicked_below_prior_swing_low_and_closed_above
+    short_condition: price_wicked_above_prior_swing_high_and_closed_below
+  exit_logic:
+    type: tp_or_time
+    max_bars: 12
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+indicators:
+- indicators.structure.highest_high
+- indicators.structure.lowest_low
+- indicators.volatility.atr
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+symbols:
+- XAUUSD
+test:
+  name: 24_PA_XAUUSD_1H_SFP_S01_V1_P03
+  strategy: 24_PA_XAUUSD_1H_SFP_S01_V1_P03
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2015-01-02'
+  end_date: '2023-12-31'
+  description: >
+    Out-of-sample validation of P01 (Normal vol SFP). Same logic, 9-year
+    OOS window 2015-2023. Tests whether the Normal-vol SFP edge is
+    structural or regime-specific to 2024-2026.
