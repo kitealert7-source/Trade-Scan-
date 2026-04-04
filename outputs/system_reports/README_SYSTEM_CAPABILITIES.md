@@ -28,3 +28,9 @@ Authoritative snapshots of system state. Stores historical manifests and run rec
 
 ## 09_experiment_logs
 Specific trial run reviews and experimental separation plans. Includes engine reviews and go-live readiness assessments.
+
+## 10_State Lifecycle Management
+Directive state lifecycle, workflow design, and cleanup reconciliation.
+
+## 11_deployment_and_burnin
+Deployment pipeline from research completion to live execution. Covers promotion logic, burn-in workflows, dry-run vault, go-live package compatibility, strategy guard integration, and orchestration layer (MT5 launch, watchdog, market hours gate).

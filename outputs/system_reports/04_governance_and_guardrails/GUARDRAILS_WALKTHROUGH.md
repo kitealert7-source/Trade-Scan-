@@ -10,8 +10,9 @@ This check performs a deep audit of:
 - **Project Structure**: Ensures all critical root folders exist.
 - **Run Containers**: Validates schema and physical presence of core artifacts.
 - **Manifest Integrity**: Re-verifies every hash for completed runs at the starting line.
-- **Registry Alignment**: Detects `DISK_NOT_IN_REGISTRY` drifts.
-- **Data Availability**: **[NEW]** Asserts that historical data fully covers requested date range.
+- **Registry Alignment**: Tier-aware resolution across `runs/`, `sandbox/`, and `quarantine/`. Detects orphans, truly missing runs, and quarantined-but-lost entries.
+- **Data Availability**: Asserts that historical data fully covers requested date range.
+- **Execution Contract**: **[NEW]** Verifies every enabled strategy in `TS_Execution/portfolio.yaml` has `strategy.py`, `portfolio_evaluation/`, and passes `signal_schema.validate(_schema_sample())`.
 
 ## 1. Operator Lifecycle
 
@@ -39,6 +40,9 @@ The intended daily workflow for TradeScan operators is as follows:
 | **Cleanup Safety Boundary** | Admin | `cleanup_reconciler.py` | Restricts physical deletions to `runs/` and `backtests/` subfolders within the project root. Explicitly forbids system folders. |
 | **Reconciler Auto-Clean** | Admin | `system_registry.py` | After marking runs invalid during reconciliation, automatically removes stale `constituent_run_ids` from all `portfolio_metadata.json` files before the Portfolio Dependency Check fires. Prevents recurring `[FATAL] Consistency Violation` errors on subsequent pipeline runs. |
 | **Atomic Directive Reset** | Admin | `reset_directive.py` | On full reset to `INITIALIZED`, deletes the entire `TradeScan_State/runs/<DIRECTIVE_ID>/` directory (including `run_registry.json` and all latent state) via `shutil.rmtree`. Partial cleanup (individual run folders only) is explicitly forbidden — any less causes phantom completion states, blocked pipelines, and silent failures on re-run. |
+| **Execution Contract** | Preflight | `system_preflight.py` | **[NEW]** For every enabled strategy in `TS_Execution/portfolio.yaml`: verifies `strategy.py` exists, `portfolio_evaluation/` exists, and `_schema_sample()` passes `signal_schema.validate()`. Blocks pipeline if any deployed strategy would fail at TS_Execution startup. |
+| **Execution Shield** | Cleanup | `lineage_pruner.py` | **[NEW]** `build_execution_shield()` reads `portfolio.yaml` and unconditionally blocks quarantine of any deployed strategy. `execution_pid_exists()` blocks cleanup while TS_Execution is running (PID + heartbeat two-layer check). |
+| **Quarantine Registry Sync** | Cleanup | `lineage_pruner.py` | **[NEW]** `batch_update_registry_status()` atomically marks quarantined runs as `status: "quarantined"` in `run_registry.json` after all moves complete. Prevents registry–filesystem divergence. |
 
 ## 3. Verification Results
 
@@ -65,3 +69,9 @@ The system is now "Self-Healing" at the startup layer:
 **2026-03-19 additions:**
 5. Reconciler auto-clean eliminates the manual step of clearing stale `constituent_run_ids` from `portfolio_metadata.json` files after runs are invalidated.
 6. Directive reset is now deterministic and atomic — the entire directive-level run folder is deleted, preventing phantom state from persisting across reset boundaries.
+
+**2026-04-02 additions (post-quarantine incident):**
+7. Execution Contract check in preflight verifies every deployed strategy in `portfolio.yaml` has `strategy.py`, `portfolio_evaluation/`, and a valid `_schema_sample()`. Detects post-cleanup breakage before TS_Execution restart.
+8. Execution Shield in `lineage_pruner.py` unconditionally blocks quarantine of deployed strategies. Running-process guard blocks cleanup while TS_Execution is active.
+9. Quarantine Registry Sync atomically updates `run_registry.json` after quarantine moves, preventing registry–filesystem divergence.
+10. Tier-aware run resolution in preflight correctly locates runs across `runs/`, `sandbox/`, and `quarantine/` — eliminates false positives from sandbox routing.

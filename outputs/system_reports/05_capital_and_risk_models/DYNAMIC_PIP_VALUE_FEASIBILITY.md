@@ -1,5 +1,9 @@
 # DYNAMIC PIP VALUE FEASIBILITY ANALYSIS
 
+> **OUTCOME (2026-04-03):** This analysis recommended Option C (dynamic conversion). That approach was **not implemented**. Instead, MT5-verified static valuation was adopted: `usd_per_pu_per_lot = tick_value / tick_size` extracted directly from MT5 `symbol_info()` for all 31 symbols. This eliminates the YAML calibration anomalies identified below (AUDNZD, GBPAUD, EURGBP, JPN225, SPX500) without runtime FX rate dependencies. Frozen rate drift (~5-12% on non-USD symbols) is accepted. See `CAPITAL_SIZING_AUDIT.md` Sections 1 and 8 for the implemented design and `CAPITAL_WRAPPER_SAFETY_AUDIT.md` Section 9 for migration details.
+
+---
+
 ## SECTION 1 — Required Data
 
 ### Traded Symbols — RESEARCH Data Availability
@@ -145,4 +149,35 @@ For USD-quote pairs: **NO change** (rate = 1.0, same as static).
 7. USD-quote pairs are unaffected (rate = 1.0 always).
 
 The wrapper was designed to simulate realistic deployable capital. Using the actual conversion rate at entry time is not an optimization — it is a correctness requirement.
-", "Complexity": 1, "Description": "Dynamic pip value feasibility analysis report.", "EmptyFile": false, "IsArtifact": false, "Overwrite": false, "TargetFile": "c:\\Users\\faraw\\Documents\\Trade_Scan\\outputs\\reports\\DYNAMIC_PIP_VALUE_FEASIBILITY.md"}
+
+---
+
+## SECTION 6 — ACTUAL OUTCOME (2026-04-03)
+
+### What Was Implemented Instead
+
+**Option D: MT5 Static Valuation (not considered in original analysis)**
+
+Rather than implementing dynamic conversion from RESEARCH daily close data (Option C), the system now extracts `tick_value` and `tick_size` directly from MT5 `symbol_info()` at a fixed point in time and stores them in broker spec YAMLs.
+
+| Dimension | Option C (proposed) | Option D (implemented) |
+|-----------|-------------------|----------------------|
+| Source | RESEARCH daily close CSVs | MT5 `symbol_info()` extraction |
+| Rate freshness | Per-trade (entry date) | Frozen at extraction date |
+| Runtime dependency | 7 daily CSV series | None (YAML lookup) |
+| Code complexity | Moderate (bisect lookup) | Minimal (dict read) |
+| Drift | None | ~5-12% on non-USD over 2yr |
+| Correctness | Exact | Bounded approximation |
+
+### Why Option C Was Not Chosen
+
+1. **MT5 tick_value is authoritative.** It is the value the broker uses for margin and PnL computation. Deriving conversion rates from RESEARCH close prices introduces a secondary data source that may disagree with the broker's own valuation.
+
+2. **Static is simpler and sufficient.** The bounded drift (~5-12% on JPY over 2 years) affects risk sizing by a proportional amount. For $50 fixed risk, this means $47-$56 effective risk — within tolerance for research.
+
+3. **No runtime dependencies.** Static valuation requires no conversion pair data availability, no bisect lookups, no missing-pair fallback logic.
+
+4. **The anomalies this analysis identified are fixed.** JPN225 (16x overestimate), SPX500 (10x), EURGBP (1057x underestimate), USDCAD (99x underestimate) — all corrected by MT5 extraction, not by dynamic conversion.
+
+### Status
+This document is retained as a historical feasibility study. The recommendation (Option C) is superseded by the MT5 static approach. The analysis of required data, complexity, and performance impact remains valid reference material for any future reconsideration of dynamic conversion.

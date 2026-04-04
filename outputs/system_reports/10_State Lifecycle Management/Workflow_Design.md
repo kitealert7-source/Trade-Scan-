@@ -38,8 +38,9 @@
 *   **Purpose:** Physically mutate the filesystem state by sequestering abandoned artifacts out of active processing layers.
 *   **Inputs:** `paths_to_quarantine`.
 *   **Outputs:** Populated `TradeScan_State/quarantine/` directory.
-*   **Actions Performed:** Utilizing `shutil.move`, migrate every path listed in `paths_to_quarantine` from its origin directory to a timestamped subfolder inside `quarantine/`. 
+*   **Actions Performed:** Utilizing `shutil.move`, migrate every path listed in `paths_to_quarantine` from its origin directory to a timestamped subfolder inside `quarantine/`. After all moves complete, `batch_update_registry_status()` atomically marks all quarantined `runs` and `sandbox` entries as `status: "quarantined"` in `run_registry.json` (single load → N mutations → atomic write via tmp + `os.replace`).
 *   **Failure Conditions:** Abort and log if OS-level filesystem permissions deny a move operation.
+*   **Pre-execution guards (2026-04-02):** `execution_pid_exists()` blocks if TS_Execution is running. `build_execution_shield()` blocks if any target is deployed in `portfolio.yaml`.
 
 ### Stage 5: Post-Cleanup Verification & Reporting
 *   **Purpose:** Prove systemic integrity. 
@@ -89,6 +90,8 @@
 1.  No artifact explicitly linked to `KEEP_RUNS` is ever moved, modified, or deleted.
 2.  All `run_ids` securely resting in `KEEP_RUNS` must possess required artifacts (`runs/<id>/`, and a `backtests/{strategy_id}_{symbol}/metadata/run_metadata.json` where the `run_id` field matches). *(corrected 2026-03-24 — backtests are folder-based, not flat .json files)*
 3.  Active portfolio subfolders must exactly shadow active `portfolio_ids` defined in the Master Sheet.
+4.  **Execution Shield (2026-04-02):** No strategy deployed in `TS_Execution/portfolio.yaml` is ever quarantined. Violation triggers `[BLOCK]` + `sys.exit(1)`. No `--force` override.
+5.  **Running-Process Guard (2026-04-02):** Cleanup is blocked while TS_Execution is running (PID file + heartbeat freshness two-layer check).
 
 **Pre-Checks / Referential Integrity (Before Scan):**
 *   Verify `Master_Portfolio_Sheet.xlsx` exists.

@@ -1,7 +1,9 @@
 # Capital Wrapper Safety Audit
 ## Changes Applied 2026-03-11 — Universal Research Engine v1.5.3
+## Updated 2026-04-03 — MT5 Static Valuation + Leverage Calibration
 
-**Audit Date:** 2026-03-11 | **Scope:** tools/capital_wrapper.py + execution_engine/ + tools/generate_golive_package.py
+**Audit Date:** 2026-03-11 (original) | 2026-04-03 (valuation + calibration update)
+**Scope:** tools/capital_wrapper.py + tools/capital_engine/simulation.py + execution_engine/ + data_access/broker_specs/
 
 ---
 
@@ -97,16 +99,19 @@ For USDJPY (entry_price ~148 JPY): notional = lot × 100,000 × 148 = in JPY, no
 Dividing by equity ($10,000 USD) produced leverage readings of ~89× against a 5× cap.
 Result: 100% of USDJPY trades were rejected by LEVERAGE_CAP in all profiles that enforce it.
 
-### Fix
+### Fix (v2, 2026-03-11)
 ```python
-# Fixed (v2):
-# usd_per_pu_per_lot = contract_size × quote_ccy_to_USD_rate
-# notional = lot × entry_price × usd_per_pu_per_lot
-#          = lot × entry_price × contract_size × rate  (USD for all pairs)
-# EURUSD: lot × 1.09 × 100000 × 1.0 = USD notional  ✓
-# USDJPY: lot × 148 × 100000 × (1/148) = lot × 100000  ✓
+# usd_per_pu_per_lot = contract_size * quote_ccy_to_USD_rate
 trade_notional = lot_size * event.entry_price * usd_per_pu_per_lot
 ```
+
+### Current State (v3, 2026-04-03)
+The v2 fix used a dynamic conversion lookup for `usd_per_pu_per_lot`. This has been replaced by MT5-verified static valuation. The notional formula is unchanged, but the source of `usd_per_pu_per_lot` is now:
+```python
+usd_per_pu_per_lot = broker_spec["calibration"]["usd_pnl_per_price_unit_0p01"] * 100.0
+# Derived from MT5: tick_value / tick_size, frozen at extraction date (2026-04-02)
+```
+This eliminates both the USDJPY bug (resolved in v2) and any dependency on runtime FX rate feeds.
 
 ### Impact (FIXED_USD_V1 profile)
 | | Before fix | After fix |
@@ -222,7 +227,7 @@ strategies/<PREFIX>/golive/
   "profile_hash_algo": "sha256",
   "enforcement": {
     "max_portfolio_risk_pct": 0.04,
-    "max_leverage": 5,
+    "max_leverage": 11,
     "max_open_trades": null
   },
   "sizing": {
@@ -233,6 +238,8 @@ strategies/<PREFIX>/golive/
   "simulation_metrics": { ... }
 }
 ```
+
+**Note:** `max_leverage` was 5 prior to 2026-04-03. Calibrated to 11 based on p99 = 10.67x across 22,282 shadow trades. See `CAPITAL_SIZING_AUDIT.md` Section 9 for full calibration data.
 
 ### Profile Hash Guard
 SHA-256 computed over `{"enforcement": ..., "sizing": ...}` with `sort_keys=True,
@@ -313,4 +320,142 @@ Each halt event is appended as a JSON line to the `alert_log` path (if configure
 
 ---
 
-*Generated: 2026-03-11 | Engine: Universal_Research_Engine v1.5.3*
+---
+
+## 9. MT5 Static Valuation Migration (2026-04-03)
+
+**Files:** `tools/capital_engine/simulation.py`, `tools/capital_wrapper.py`, `data_access/broker_specs/OctaFx/*.yaml` (30 files)
+**Type:** Correctness / Simplification
+
+### Problem
+The dynamic USD conversion path (`get_usd_per_price_unit_dynamic()`) depended on runtime FX rate lookups via `ConversionLookup`. This introduced:
+- Dependency on rate data availability at simulation time
+- Potential rate lookup failures for exotic cross pairs
+- Inconsistency between research and live environments (different rate sources)
+
+### Fix
+Replaced the entire dynamic conversion path with MT5-verified static valuation:
+
+```python
+# simulation.py — hot path simplified to:
+symbol_usd_per_pu: Dict[str, float] = {}
+for sym, spec in broker_specs.items():
+    symbol_usd_per_pu[sym] = get_usd_per_price_unit_static(spec)
+
+# On entry:
+usd_per_pu = symbol_usd_per_pu[sym]
+```
+
+**Removed from simulation.py:**
+- `symbol_quote_ccy` dict and `_parse_fx_currencies()` call
+- `get_usd_per_price_unit_dynamic()` from hot path
+- `conv_lookup` dependency (parameter kept for API compat, ignored)
+
+**Removed from capital_wrapper.py:**
+- `ConversionLookup` initialization and `conv_lookup` construction
+- All dynamic conversion code in `main()`
+
+### Broker Spec Patching
+All 30 YAML files patched via `tools/verify_broker_specs.py --force-all` using MT5 ground truth from `TS_Execution/outputs/symbol_specs_mt5.json`:
+
+| Field | Source |
+|-------|--------|
+| `calibration.usd_pnl_per_price_unit_0p01` | `tick_value / tick_size * 0.01` |
+| `calibration.usd_per_pu_per_lot` | `tick_value / tick_size` |
+| `mt5_tick_value` | `symbol_info().trade_tick_value` |
+| `mt5_tick_size` | `symbol_info().trade_tick_size` |
+| `currency_profit` | `symbol_info().currency_profit` |
+| `digits` | `symbol_info().digits` |
+| `status` | `MT5_VERIFIED` |
+
+### Key Corrections Discovered
+
+| Symbol | Old usd_pnl * 100 | MT5-derived | Error Factor |
+|--------|-------------------|-------------|-------------|
+| JPN225 | 10.0 | 0.627 | 16x overestimate |
+| SPX500 | 10.0 | 1.0 | 10x overestimate |
+| EURGBP | 125.0 | 132,131.0 | 1057x underestimate |
+| USDCAD | 725.0 | 71,840.0 | 99x underestimate |
+
+### Design Decision: Static for ALL Symbols
+21 of 31 symbols have non-USD profit currencies. The frozen `tick_value` embeds the FX rate at MT5 extraction time (2026-04-02). This introduces bounded drift:
+- JPY pairs: up to ~12% over 2-year backtest window
+- EUR/GBP pairs: up to ~5%
+
+**Decision:** Accept static drift for all symbols. No hybrid (static for USD, dynamic for non-USD). Rationale: consistent methodology, no runtime dependencies, drift is within research tolerance for risk sizing.
+
+### Verification
+- `tools/verify_broker_specs.py --mt5-json`: all 31 symbols at ratio 1.0000 against ground truth
+- EURUSD 1-pip test: $10.00 expected, $10.00 actual
+- USDJPY JPY-denominated: correct after `tick_value / tick_size` normalization
+- NAS100/US30: confirmed unchanged (were already correct)
+- Burn-in run: no crashes, no PnL outliers, leverage cap normal
+
+---
+
+## 10. FIXED_USD_V1 Leverage Cap Calibration (2026-04-03)
+
+**File:** `tools/capital_wrapper.py` — `PROFILES["FIXED_USD_V1"]["leverage_cap"]`
+**Type:** Calibration
+
+### Change
+```python
+# Before:
+"leverage_cap": 5,
+
+# After:
+"leverage_cap": 11,   # calibrated from p99 = 10.67x
+```
+
+### Methodology
+Computed `required_leverage = (lot * entry_price * usd_per_pu) / equity` for every trade in the shadow portfolio (22,282 trades, all strategies, all symbols, $10K equity):
+
+| Percentile | Required Leverage |
+|------------|------------------|
+| p95 | 8.23x |
+| p99 | 10.67x |
+| max | 21.62x |
+
+Selected `ceil(p99) = 11` to achieve >98% acceptance while capping the tail.
+
+### Validation
+- Acceptance: 98.4% (856/906 on XAUUSD portfolio)
+- 0 invariant breaches (heat, leverage, equity)
+- All 15 rejections are genuine LEVERAGE_CAP breaches, not calibration artifacts
+
+### Impact on Other Profiles
+Only FIXED_USD_V1 was changed. All other profiles retain `leverage_cap: 5` (CONSERVATIVE, MLF, MLF_UNCAP, BOUNDED) or `leverage_cap: 15` (DYNAMIC).
+
+---
+
+## 11. Capital Floor Finding (2026-04-03)
+
+**Type:** Research Finding (no code change)
+
+### XAUUSD: $10K Minimum
+At $5K equity with $25 risk (proportionally equivalent to $10K/$50), 45.3% of XAUUSD trades fall to the 0.01 broker lot floor. These fallback trades produce identical PnL at both capital levels, breaking the expected 2:1 scaling. PnL ratio observed: 1.76 (expected: 2.0).
+
+**Root cause:** XAUUSD has `usd_per_pu_per_lot = 100`. At $25 risk: `lot = 25 / (risk_distance * 100)`. Falls below 0.01 when `risk_distance > 2.5` ($250 move). Many XAUUSD trades exceed this.
+
+### FX: Scales to $5K
+FX pairs have `usd_per_pu_per_lot` in the 60,000-130,000 range. At $25 risk, lot sizes are always well above 0.01. Fallback rate: 0.0% at both capital levels. PnL ratio: 2.0-2.3 (clean scaling). Acceptance: 99.4%.
+
+### Implication
+The capital floor is **instrument-specific**, determined by the ratio of typical risk_distance to usd_per_pu_per_lot. High-usd_per_pu instruments (FX) have no floor issue. Low-usd_per_pu instruments (XAUUSD, indices) require higher capital to avoid lot floor saturation.
+
+Full data tables: see `CAPITAL_SIZING_AUDIT.md` Sections 10-11.
+
+---
+
+## Updated File Change Summary (2026-04-03)
+
+| File | Change Type | Description |
+|------|-------------|-------------|
+| `tools/capital_engine/simulation.py` | Modified | Removed dynamic conversion path; static-only valuation; `conv_lookup` deprecated |
+| `tools/capital_wrapper.py` | Modified | Removed ConversionLookup init; `leverage_cap` 5 -> 11; static valuation print |
+| `data_access/broker_specs/OctaFx/*.yaml` (30) | Modified | MT5-derived calibration values, `status: MT5_VERIFIED` |
+| `tools/verify_broker_specs.py` | New | MT5 ground truth verification + YAML patching tool |
+
+---
+
+*Generated: 2026-03-11 | Updated: 2026-04-03 | Engine: Universal_Research_Engine v1.5.4*

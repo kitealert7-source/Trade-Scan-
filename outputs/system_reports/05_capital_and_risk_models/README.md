@@ -1,13 +1,26 @@
-# 05_capital_and_risk_models
+﻿# 05_capital_and_risk_models
 
-Read before touching capital formulas, lot sizing, pip values, or risk model logic.
+Read before changing capital formulas, lot sizing, profile selection, or risk model controls.
 
-| Document | When to read |
-|---|---|
-| `CAPITAL_AUDIT_REPORT.md` | **Start here.** Full formula transparency for all capital metrics (`effective_capital`, drawdown, etc). |
-| `CAPITAL_ALLOCATION_REPORT.md` | Portfolio-level allocation logic and constraints. |
-| `CAPITAL_SIZING_AUDIT.md` | Lot sizing formulas and validation rules. |
-| `CAPITAL_WRAPPER_SAFETY_AUDIT.md` | Safety invariants in `tools/capital_wrapper.py` — equity floor, leverage cap. |
-| `DYNAMIC_PIP_VALUE_FEASIBILITY.md` | Research on dynamic pip value — read before changing pip computation. |
+## Active Documents
 
-**Capital model invariant:** $1,000 per-symbol, $10,000 total portfolio, 5× leverage cap (AGENT.md §20).
+| Document | Contents |
+|----------|----------|
+| `CAPITAL_SIZING_AUDIT.md` | **Primary reference.** Valuation layer (MT5 static), all 7 profiles with formulas, comparison matrix, rejection conditions, leverage calibration, capital sensitivity, XAUUSD vs FX capital floor analysis |
+| `CAPITAL_AND_SELECTION_CURRENT_2026-03-29.md` | Profile selection logic, portfolio evaluation, candidate scoring |
+| `CAPITAL_WRAPPER_SAFETY_AUDIT.md` | Safety invariants, gate ordering, heat/leverage breach guards, MT5 migration details |
+| `DYNAMIC_PIP_VALUE_FEASIBILITY.md` | Feasibility study for dynamic FX conversion (rejected -- static MT5 chosen) |
+
+## See Also
+
+- `11_deployment_and_burnin/` -- Go-live package audit, deployment pipeline topology, dry-run vault, strategy guard integration
+
+## Key Decisions (2026-04-03)
+
+- **Valuation:** MT5-verified static `tick_value/tick_size` for all 31 symbols. No dynamic FX conversion. Frozen rate drift accepted.
+- **Deployment profile:** FIXED_USD_V1, $50 risk, leverage_cap = 11x (calibrated from p99 = 10.67x)
+- **Capital floor:** $10K minimum for XAUUSD (broker lot floor binds at lower capital). FX scales cleanly to $5K.
+- **Acceptance rate:** 98.4% at $10K on XAUUSD portfolio; 99.4% on FX at both $5K and $10K.
+
+## Archived Documents
+See `archive/2026-03-29/` for historical reports.

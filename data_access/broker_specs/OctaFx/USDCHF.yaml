@@ -6,7 +6,7 @@ quote_currency: CHF
 notional_base_per_lot: 100000
 min_lot: 0.01
 lot_step: 0.01
-max_lot: 50.0
+max_lot: 500.0
 cost_model: embedded
 apply_additional_costs: false
 infer_missing_fields: false
@@ -14,6 +14,11 @@ allow_manual_override: false
 contract_size: 100000.0
 calibration:
   base_lot: 0.01
-  usd_pnl_per_price_unit_0p01: 1294.06
+  usd_pnl_per_price_unit_0p01: 1250.609672
   price_unit: CHF
-  status: DERIVED_BACKTEST_ONLY
+  status: MT5_VERIFIED
+  currency_profit: CHF
+  mt5_tick_value: 1.250609672215205
+  mt5_tick_size: 1.0e-05
+  usd_per_pu_per_lot: 125060.967222
+  digits: 5

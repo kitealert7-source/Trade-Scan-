@@ -1,27 +1,26 @@
 broker: OctaFX
 reference_capital_usd: 1000
 symbol: GBPJPY
-
 min_lot: 0.01
 lot_step: 0.01
-max_lot: 50.0
-
+max_lot: 500.0
 cost_model: embedded
 apply_additional_costs: false
-
 infer_missing_fields: false
 allow_manual_override: false
-
 contract_size: 100000.0
-
 precision: 3
 tick_size: 0.001
 pip_size: 0.01
 margin_currency: GBP
 profit_currency: JPY
-
 calibration:
   base_lot: 0.01
-  usd_pnl_per_price_unit_0p01: 6.33
+  usd_pnl_per_price_unit_0p01: 6.270143
   price_unit: JPY
-  status: PASS
+  status: MT5_VERIFIED
+  currency_profit: JPY
+  mt5_tick_value: 0.6270142833853756
+  mt5_tick_size: 0.001
+  usd_per_pu_per_lot: 627.014283
+  digits: 3

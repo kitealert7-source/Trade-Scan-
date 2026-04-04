@@ -3,7 +3,7 @@ reference_capital_usd: 1000
 symbol: EUSTX50
 min_lot: 0.01
 lot_step: 0.01
-max_lot: 100.0
+max_lot: 500.0
 cost_model: embedded
 apply_additional_costs: false
 infer_missing_fields: false
@@ -11,6 +11,11 @@ allow_manual_override: false
 contract_size: 10.0
 calibration:
   base_lot: 0.01
-  usd_pnl_per_price_unit_0p01: 0.1
+  usd_pnl_per_price_unit_0p01: 0.115316
   price_unit: INDEX_POINT
-  status: DERIVED_BACKTEST_ONLY
+  status: MT5_VERIFIED
+  currency_profit: EUR
+  mt5_tick_value: 1.1531600000000002
+  mt5_tick_size: 0.1
+  usd_per_pu_per_lot: 11.5316
+  digits: 1
