@@ -200,4 +200,53 @@ Anti-Gravity SOPs and all market datasets always live under ANTI_GRAVITY_DATA_RO
 Never search alternate folders for governance or data.
 If something is not found there, stop and ask.
 
+---
+
+## 13. Timestamp Parsing Safety (MANDATORY)
+
+All Anti-Gravity datasets store timestamps in ISO format: `YYYY-MM-DD HH:MM:SS` (UTC).
+
+When reading timestamps programmatically:
+
+**NEVER use `dayfirst=True`** with `pd.to_datetime` on these files.
+
+With `dayfirst=True`, pandas/dateutil swaps day and month in ISO strings:
+- `2026-01-12` is parsed as December 1, 2026 (future) — silently wrong
+- `2026-01-13` produces NaT (month=13 is invalid) — silently dropped
+
+The failure is silent: no exception, plausible-looking results, wrong dates.
+Confirmed failure mode: 2026-03-28 — all 234 freshness entries reported stale
+at 2026-03-03 when actual data was current to 2026-03-27.
+
+**Correct pattern:**
+```python
+ts = pd.to_datetime(df["time"], errors="coerce")          # no dayfirst
+ts = ts[ts.notna()]
+ts = ts[(ts > "2010-01-01") & (ts < pd.Timestamp.now())]
+latest = ts.max()
+
+# Sanity check — catches parse errors immediately
+now = pd.Timestamp.utcnow().tz_localize(None)
+if latest > now + pd.Timedelta(minutes=5):
+    raise ValueError(f"Parsed timestamp {latest} exceeds current time — parse error")
+```
+
+This sanity check is mandatory in any code that derives a "last valid timestamp"
+from Anti-Gravity data files.
+
+---
+
+## 14. Freshness Index
+
+A freshness index is maintained at:
+
+`ANTI_GRAVITY_DATA_ROOT/freshness_index.json`
+
+This file is rebuilt by DATA_INGRESS at the end of each daily pipeline run.
+It records the last valid timestamp per (symbol, broker, timeframe) combination.
+Consumers (e.g. Trade_Scan) read this file to detect stale data without
+scanning all 2000+ RESEARCH folders.
+
+Do NOT manually edit this file. It is a generated artifact.
+
 End of document.
