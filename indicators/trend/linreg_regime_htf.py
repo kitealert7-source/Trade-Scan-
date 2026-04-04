@@ -1,20 +1,23 @@
 """
-Linear Regression Regime HTF — True Daily (Engine-Compatible)
---------------------------------------------------------------
-Computes DAILY regression internally from intraday close series.
-No changes required in execution_loop.
+Linear Regression Regime HTF — Adaptive Resample (Engine-Compatible)
+---------------------------------------------------------------------
+Computes regression on a higher-timeframe resample of the close series.
+Default: daily (1D). Supports weekly (1W) and monthly (1ME) for higher
+regime timeframes (e.g. 1D regime → weekly resample, 1W regime → monthly).
 
-- Uses daily resampling of close
-- Computes regression on daily closes
-- Shifts by 1 day (no lookahead)
-- Forward-fills back to intraday
+- Resamples close to resample_freq (default '1D')
+- Computes regression on resampled closes
+- Shifts by 1 period (no lookahead)
+- Forward-fills back to input resolution
+
+v1.5.4: Added resample_freq parameter (was hardcoded to '1D').
 """
 
 import pandas as pd
 import numpy as np
 
 
-def linreg_regime_htf(series_or_df, window: int = 50) -> pd.DataFrame:
+def linreg_regime_htf(series_or_df, window: int = 50, resample_freq: str = "1D") -> pd.DataFrame:
     """
     Accepts either:
       - pd.Series with DatetimeIndex (legacy / explicit call)
@@ -36,8 +39,8 @@ def linreg_regime_htf(series_or_df, window: int = 50) -> pd.DataFrame:
         if not isinstance(series.index, pd.DatetimeIndex):
             raise ValueError("HTF requires DatetimeIndex or DataFrame with 'timestamp'+'close'")
 
-    # --- Build Daily Close ---
-    daily_close = series.resample('1D').last().dropna()
+    # --- Build HTF Close (Daily by default, Weekly/Monthly for higher regime TFs) ---
+    daily_close = series.resample(resample_freq).last().dropna()
 
     x = np.arange(window)
     x_mean = x.mean()
@@ -75,7 +78,7 @@ def linreg_regime_htf(series_or_df, window: int = 50) -> pd.DataFrame:
         "regime": regime
     })
 
-    # --- Map back to intraday ---
+    # --- Map back to input resolution ---
     intraday_dates = series.index.normalize()
     daily_result.index = daily_result.index.normalize()
 

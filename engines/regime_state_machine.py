@@ -5,9 +5,14 @@ TradeScan Professional Baseline
 Implements a 3-axis market regime model (Direction, Structure, Volatility)
 with stability filtering and legacy field preservation.
 """
+from __future__ import annotations
 
 import hashlib
+import os
+import uuid
 from pathlib import Path
+
+__all__ = ["apply_regime_model"]
 
 import pandas as pd
 import numpy as np
@@ -26,14 +31,18 @@ from indicators.volatility.volatility_regime import volatility_regime
 from indicators.volatility.atr_percentile import atr_percentile
 from indicators.volatility.atr import atr as compute_atr
 
-REGIME_CACHE_DIR = Path("data_root/regime_cache")
-REGIME_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+_ENGINE_ROOT = Path(__file__).resolve().parents[1]  # Trade_Scan/
+REGIME_CACHE_DIR = _ENGINE_ROOT / "data_root" / "regime_cache"
 
 
-def compute_indicator_stack(df: pd.DataFrame) -> pd.DataFrame:
+def compute_indicator_stack(df: pd.DataFrame, resample_freq: str = "1D") -> pd.DataFrame:
     """
     Computes the full indicator stack required for regime detection.
     This replaces the scattered computations previously in execution_loop.py.
+
+    Args:
+        resample_freq: HTF resample frequency for linreg_regime_htf.
+            '1D' for 1H/4H regime input, '1W' for 1D regime, '1ME' for 1W regime.
     """
     close = df['close']
     high = df['high']
@@ -41,7 +50,7 @@ def compute_indicator_stack(df: pd.DataFrame) -> pd.DataFrame:
 
     # 1. Directional Indicators
     df['regime_lr'] = linreg_regime(close, window=50)['regime']
-    df['regime_lr_htf'] = linreg_regime_htf(close, window=200)['regime']
+    df['regime_lr_htf'] = linreg_regime_htf(close, window=200, resample_freq=resample_freq)['regime']
     df['regime_kalman'] = kalman_regime(df, price_col="close")['regime']
     df['regime_sha'] = sha_regime(df)['regime']
     df['regime_ema'] = ema_regime(close, window=20)['regime']
@@ -133,10 +142,18 @@ def resolve_market_regime(direction, structure, volatility, autocorr_regime):
             return "range_high_vol"
 
 
-def apply_regime_model(df: pd.DataFrame) -> pd.DataFrame:
+def apply_regime_model(df: pd.DataFrame, resample_freq: str = "1D",
+                       symbol_hint: str = "") -> pd.DataFrame:
     """
     Main entry point for the execution engine.
     Applied once per dataset before bar iteration.
+
+    Args:
+        resample_freq: HTF resample frequency passed to linreg_regime_htf.
+            Driven by config/regime_timeframe_map.yaml via run_stage1.py.
+        symbol_hint: Symbol identifier included in cache key to prevent
+            cross-symbol cache collisions.  Callers should pass this whenever
+            possible.  When empty, a content-derived fallback is used.
     """
     # 1. Validation Guard
     required_columns = ["close", "high", "low", "open"]
@@ -144,11 +161,23 @@ def apply_regime_model(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise RuntimeError(f"REGIME_MODEL_INPUT_ERROR: missing {missing}")
 
-    # --- BUILD CACHE KEY ---
-    hash_series = pd.util.hash_pandas_object(
-        df[['open', 'high', 'low', 'close']], index=True
-    ).values
-    cache_key = hashlib.md5(hash_series.tobytes()).hexdigest()
+    # --- BUILD CACHE KEY (v1.5.4: stable across consecutive bars) ---
+    # Key = (symbol_hint, resample_freq, last_bar_time, bar_count)
+    # This avoids full-DataFrame hashing which causes cache miss every new bar.
+    # Falls back to content hash if timestamp column is missing.
+    if "timestamp" in df.columns:
+        last_ts = str(df["timestamp"].iloc[-1])
+    elif isinstance(df.index, pd.DatetimeIndex):
+        last_ts = str(df.index[-1])
+    else:
+        # Fallback: content hash (legacy behavior)
+        hash_series = pd.util.hash_pandas_object(
+            df[['open', 'high', 'low', 'close']], index=True
+        ).values
+        last_ts = hashlib.md5(hash_series.tobytes()).hexdigest()
+    cache_key = hashlib.md5(
+        f"{symbol_hint}|{last_ts}|{len(df)}|{resample_freq}".encode()
+    ).hexdigest()
     cache_path = REGIME_CACHE_DIR / f"{cache_key}.parquet"
 
     # --- CACHE HIT (SAFE LOAD) ---
@@ -160,14 +189,37 @@ def apply_regime_model(df: pd.DataFrame) -> pd.DataFrame:
                     if col not in df.columns:
                         df[col] = regime_cols[col].values
                 return df
-        except Exception:
-            pass  # corrupted file — fall through to recompute
+            else:
+                print(f"  REGIME_CACHE_LEN_MISMATCH  key={cache_key[:12]}..."
+                      f"  cache={len(regime_cols)}  df={len(df)}  recomputing")
+        except (OSError, IOError) as e:
+            # Disk error or corrupt parquet (ArrowInvalid wraps as OSError) — delete and recompute
+            print(f"  REGIME_CACHE_IO_ERROR  key={cache_key[:12]}...  {type(e).__name__}: {e}")
+            try:
+                cache_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        except (ValueError, TypeError, KeyError) as e:
+            # Corrupted parquet structure (ArrowInvalid subclasses ValueError) — delete and recompute
+            print(f"  REGIME_CACHE_CORRUPT  key={cache_key[:12]}...  {type(e).__name__}: {e}")
+            try:
+                cache_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        except Exception as e:
+            # Unexpected error — log loudly, delete corrupt file, recompute
+            print(f"  REGIME_CACHE_ERROR  key={cache_key[:12]}...  {type(e).__name__}: {e}"
+                  f"  — deleting and recomputing")
+            try:
+                cache_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     # --- CACHE MISS: snapshot columns before computation ---
     original_cols = set(df.columns)
 
     # 2. Compute Indicator Stack
-    df = compute_indicator_stack(df)
+    df = compute_indicator_stack(df, resample_freq=resample_freq)
 
     # 3. Compute Axis States
     df = compute_axis_states(df)
@@ -276,9 +328,22 @@ def apply_regime_model(df: pd.DataFrame) -> pd.DataFrame:
     df['volatility_regime'] = df['regime_vol_legacy']
     df['atr'] = df['val_atr']
 
-    # --- SAVE CACHE ---
+    # --- SAVE CACHE (atomic: tmp → fsync → replace) ---
     regime_cols_to_save = [c for c in df.columns if c not in original_cols]
     if len(regime_cols_to_save) > 0:
-        df[regime_cols_to_save].to_parquet(cache_path)
+        REGIME_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = cache_path.with_suffix(f".{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            df[regime_cols_to_save].to_parquet(tmp_path)
+            with open(tmp_path, "r+b") as f:
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(str(tmp_path), str(cache_path))
+        except Exception as e:
+            print(f"  REGIME_CACHE_WRITE_ERROR  key={cache_key[:12]}...  {type(e).__name__}: {e}")
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     return df

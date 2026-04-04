@@ -1,6 +1,6 @@
 # Indicator Capabilities Reference
 
-> **Registry Version:** 3 | **Generated:** 2026-03-14 | **Total Indicators:** 35
+> **Registry Version:** 7 | **Generated:** 2026-04-02 | **Total Indicators:** 39
 >
 > Machine-readable source: [`INDICATOR_REGISTRY.yaml`](./INDICATOR_REGISTRY.yaml)
 
@@ -13,9 +13,9 @@
 | **Momentum** | 5 | rsi, roc, stochastic_k, ultimate_c_percent, stochastic_momentum_index |
 | **Trend** | 4 | adx, ema_slope, hull_moving_average, linear_regression_channel |
 | **Volatility** | 6 | atr, atr_percentile, bollinger_band_width, keltner_channel, volatility_regime, realized_vol |
-| **Regime** | 7 | efficiency_ratio_regime, ema_regime, kalman_regime, linreg_regime, linreg_regime_htf, sha_regime, trend_persistence |
-| **Structure** | 6 | daily_pivot_points, donchian_channel, highest_high, lowest_low, session_range_structure, previous_bar_breakout |
-| **Price** | 3 | candle_state, previous_bar_breakout, usd_stress_index |
+| **Regime** | 8 | efficiency_ratio_regime, ema_regime, hurst_regime, kalman_regime, linreg_regime, linreg_regime_htf, sha_regime, trend_persistence |
+| **Structure** | 8 | compute_choch_state, apply_choch_state, daily_pivot_points, donchian_channel, highest_high, lowest_low, session_range_structure, previous_bar_breakout |
+| **Price** | 4 | candle_state, previous_bar_breakout, ultimate_c_percent_variant, usd_stress_index |
 | **Composite** | 2 | usd_stress_index, market_state |
 | **Statistical** | 4 | rolling_max, rolling_percentile, rolling_zscore, log_return_autocorr |
 
@@ -33,6 +33,7 @@
 | **stochastic_k** | `indicators.momentum.stochastic` | `stochastic_k` | Series | stochastic_k (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
 | **stochastic_momentum_index** | `indicators.momentum.stochastic_momentum_index` | `stochastic_momentum_index` | DataFrame | smi, smi_signal, smi_hist | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
 | **ultimate_c_percent** | `indicators.momentum.ultimate_c_percent` | `ultimate_c_percent` | DataFrame | ultimate_c, ultimate_signal | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium |
+| **ultimate_c_percent_variant** | `indicators.price.ultimate_c_percent_variant` | `apply` | DataFrame | is_peak, is_trough, ultimate_c | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **rolling_max** | `indicators.stats.rolling_max` | `rolling_max` | Series | rolling_max | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **rolling_percentile** | `indicators.stats.rolling_percentile` | `rolling_percentile` | Series | percentile (0–100) | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
 | **rolling_zscore** | `indicators.stats.rolling_zscore` | `rolling_zscore` | Series | zscore | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
@@ -46,10 +47,13 @@
 | **linear_regression_channel** | `indicators.structure.linear_regression_channel` | `linear_regression_channel` | Tuple | lr_mid, lr_upper, lr_lower | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Medium |
 | **lowest_low** | `indicators.structure.lowest_low` | `lowest_low` | Series | lowest_low | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **session_range_structure** | `indicators.structure.range_breakout_session` | `session_range_structure` | DataFrame | session_high, session_low, range_points, range_percent, break_direction, has_broken | ✅ | ✅ | ❌ | ❌ | ✅ | Medium | Low |
+| **compute_choch_state** | `indicators.structure.choch` | `compute_choch_state` | DataFrame | swing_high, swing_low, lh_streak, hl_streak, choch_event | ✅ | ⚠️ loop | ✅ | ✅ | ✅ | Medium | Medium |
+| **apply_choch_state** | `indicators.structure.choch` | `apply_choch_state` | DataFrame | choch_active, choch_direction, choch_bars_since | ✅ | ⚠️ loop | ✅ | ✅ | ✅ | Low | Low |
 | **efficiency_ratio_regime** | `indicators.trend.efficiency_ratio_regime` | `efficiency_ratio_regime` | DataFrame | er, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **ema_regime** | `indicators.trend.ema_regime` | `ema_regime` | DataFrame | trend, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
 | **kalman_regime** | `indicators.trend.kalman_regime` | `kalman_regime` | DataFrame | trend, regime | ✅ | ⚠️ loop | ✅ | ✅ | ✅ | Medium | Low |
 | **linreg_regime** | `indicators.trend.linreg_regime` | `linreg_regime` | DataFrame | trend, slope, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
+| **hurst_regime** | `indicators.trend.hurst_regime` | `hurst_regime` | DataFrame | hurst, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
 | **linreg_regime_htf** | `indicators.trend.linreg_regime_htf` | `linreg_regime_htf` | DataFrame | trend, slope, regime | ✅ | ✅ | ✅ | ❌ | ✅ | Medium | Low |
 | **sha_regime** | `indicators.trend.sha_regime` | `sha_regime` | DataFrame | trend, regime | ✅ | ⚠️ loop | ✅ | ✅ | ✅ | Medium | Low |
 | **trend_persistence** | `indicators.trend.trend_persistence` | `trend_persistence` | DataFrame | persistence, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Low |
@@ -68,8 +72,10 @@
 | Issue | Indicators Affected |
 |---|---|
 | **Capital column names** (Open/High/Low/Close) | `kalman_regime`, `sha_regime` — incompatible with engine default lowercase |
-| **Python loop (not vectorized)** | `candle_state`, `kalman_regime`, `sha_regime`, `hull_moving_average` — slower on large datasets |
-| **Requires DatetimeIndex** | `linreg_regime_htf`, `session_range_structure` |
+| **Python loop (not vectorized)** | `candle_state`, `kalman_regime`, `sha_regime`, `hull_moving_average`, `compute_choch_state`, `apply_choch_state` — slower on large datasets |
+| **Two-stage API (must call in order)** | `compute_choch_state` then `apply_choch_state` — apply_choch_state raises ValueError if choch_event column absent |
+| **Requires DatetimeIndex** | `session_range_structure` (strict); `linreg_regime_htf` (constructs from 'timestamp' column if DataFrame supplied) |
+| **resample_freq parameter (v1.5.4)** | `linreg_regime_htf` — default '1D'; use '1W' for 4H strategies, '1H' for 15M strategies to match adaptive regime TF |
 | **Intraday only** | `session_range_structure` — meaningless on daily bars |
 | **External file dependency** | `usd_stress_index` — requires `data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_return_d1.csv` |
 | **Output scale: 0–1 (not 0–100)** | `atr_percentile` — multiply by 100 for percentage comparison |
@@ -78,6 +84,7 @@
 | **Composite dependencies** | `market_state` requires `trend_slope` + `volatility_percentile` as pre-computed inputs |
 | **Regime encoding** | `volatility_regime`: -1=low, 0=medium, 1=high. Engine maps to "low"/"normal"/"high" strings. |
 | **Taxonomy change (v3)** | `roc`, `rsi`, `stochastic`, `ultimate_c_percent` moved from `indicators/price/` to `indicators/momentum/` |
+| **Log-price handled internally** | `hurst_regime` — input is close prices; indicator converts to log-price internally; do not pre-transform |
 
 ---
 
@@ -91,10 +98,11 @@
 | `linreg_regime_htf` | uptrend | warmup | downtrend |
 | `sha_regime` | HA trend rising | first bar | HA trend falling |
 | `trend_persistence` | persistent up | mixed | persistent down |
+| `hurst_regime` | persistent trend (H>0.55) | neutral/warmup | mean-reverting (H<0.45) |
 | `efficiency_ratio_regime` | trending | — | ranging/choppy |
 | `volatility_regime` | high vol | medium vol | low vol |
 | `market_state` | trending up | undefined/NaN | — (uses 2=down, 3=range-low, 4=range-high) |
 
 ---
 
-*Validation: All 35 `.py` files in `indicators/` (excluding `__init__.py` and `__pycache__`) are represented. Registry v3. Status: **PASS**.*
+*Validation: All 39 registry entries represented. Includes 37 pre-existing + compute_choch_state + apply_choch_state (new, v5). Registry v7. Status: **PASS**.*

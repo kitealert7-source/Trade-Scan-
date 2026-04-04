@@ -1,5 +1,12 @@
+from __future__ import annotations
+
 import hashlib
 import json
+
+from engines.protocols import ContextViewProtocol
+
+__all__ = ["FilterStack"]
+
 
 class FilterStack:
     """
@@ -19,7 +26,8 @@ class FilterStack:
     }
     
     def __init__(self, signature: dict):
-        self.signature = signature or {}
+        import copy
+        self.signature = copy.deepcopy(signature) if signature else {}
         self.filtered_bars = 0
 
         # Phase 1: Signature Fingerprinting
@@ -33,12 +41,13 @@ class FilterStack:
         self._cached_vol_regime   = None
         self._cached_trend_regime = None
 
-    def allow_trade(self, ctx) -> bool:
-        # Phase 1: Engine Protocol Enforcement
-        if not getattr(ctx, '_ENGINE_PROTOCOL', False):
+    def allow_trade(self, ctx: ContextViewProtocol) -> bool:
+        # Phase 1: Engine Protocol Enforcement (type-system backed)
+        if not isinstance(ctx, ContextViewProtocol):
             raise TypeError(
-                "ABORT_GOVERNANCE: FilterStack.allow_trade() requires a ContextView object. "
-                "Raw dicts or SimpleNamespace objects are no longer permitted."
+                "ABORT_GOVERNANCE: FilterStack.allow_trade() requires a ContextViewProtocol-"
+                "compatible object (must implement get() and require()). "
+                "Raw dicts or SimpleNamespace objects are not permitted."
             )
             
         # Runtime mutation check
@@ -121,7 +130,14 @@ class FilterStack:
                     f"Supported: {self.SUPPORTED_OPERATORS}"
                 )
 
-            actual = ctx.require(field)
+            try:
+                actual = ctx.require(field)
+            except Exception:
+                # Field unavailable (e.g. regime fields during dry-run validation
+                # where HTF computation is skipped). Block the trade safely —
+                # during real execution, authoritative fields are always populated.
+                self.filtered_bars += 1
+                return False
 
             if not self._evaluate_condition(actual, expected, operator):
                 self.filtered_bars += 1

@@ -32,8 +32,21 @@ governance_updates:
     - 'new_indicators: log_return_autocorr and realized_vol added to support the State
       Machine Regime Model upgrade'
     - 'registry_summary_updated: total_indicators=35, statistical_count=4, volatility_count=6'
-registry_version: 6
-generated_at: '2026-03-14T11:40:00+05:30'
+  version_5:
+    date: '2026-04-02'
+    changes:
+    - 'new_indicator: compute_choch_state added to indicators/structure/choch.py — Stage
+      1 CHOCH structural event detection (swing streaks + close-beyond-mature-level)'
+    - 'new_indicator: apply_choch_state added to indicators/structure/choch.py — Stage
+      2 persistent context window (choch_active, choch_direction, choch_bars_since)'
+    - 'linreg_regime_htf: resample_freq parameter added (v1.5.4 adaptive regime TF);
+      now accepts pd.DataFrame with timestamp+close columns in addition to pd.Series;
+      datetime_index_required downgraded to false (index constructed from column when needed)'
+    - 'hurst_regime: input_requirements corrected — accepts close price series; log-price
+      conversion handled internally; output_columns and output_scale annotations added'
+    - 'registry_summary_updated: total_indicators=39, structure_count=8'
+registry_version: 7
+generated_at: '2026-04-02T00:00:00+05:30'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -843,17 +856,22 @@ indicators:
     function_name: linreg_regime_htf
     classification: Regime
     input_requirements:
-    - series: pd.Series with DatetimeIndex (intraday close)
-    datetime_index_required: true
-    datetime_index_guard: raises ValueError if not isinstance(series.index, pd.DatetimeIndex)
+    - series: pd.Series with DatetimeIndex (intraday close) OR pd.DataFrame with
+        integer index and 'timestamp' + 'close' columns (engine standard)
+    datetime_index_required: false
+    datetime_index_guard: DatetimeIndex constructed from 'timestamp' column when DataFrame
+      supplied; raises ValueError if neither DatetimeIndex nor timestamp column present
     parameters:
-      window: int — rolling window for daily regression
+      window: int — rolling window for HTF regression
+      resample_freq: str — target resample frequency ('1D' default; '1W' for weekly,
+        '1ME' for monthly — use when regime TF is one step above strategy TF)
     default_parameters:
       window: 50
+      resample_freq: 1D
     output_type: DataFrame
     output_columns:
-    - trend: float — daily rolling mean (forward-filled to intraday)
-    - slope: float — daily regression slope (forward-filled)
+    - trend: float — HTF rolling mean (forward-filled to input resolution)
+    - slope: float — HTF regression slope (forward-filled)
     - regime: int — 1 (uptrend), -1 (downtrend), 0 (warmup)
     output_scale: 'trend: price units; slope: price/bar; regime: -1/0/1'
     lookahead_safe: true
@@ -862,8 +880,10 @@ indicators:
     htf_compatible: true
     dependency_indicators:
     - linreg_regime
-    typical_use_case: 'Daily trend context injected into intraday strategies. 1-day
-      lag prevents lookahead.
+    typical_use_case: 'HTF trend context injected into lower-TF strategies. 1-period
+      lag prevents lookahead. v1.5.4: resample_freq enables adaptive regime timeframe
+      (1H strategy → 1D regime default; 15M strategy → 1H regime via resample_freq=1H;
+      4H strategy → 1W regime via resample_freq=1W).
 
       '
     compatibility:
@@ -1278,23 +1298,30 @@ indicators:
     function_name: hurst_regime
     classification: Regime
     input_requirements:
-    - series: pd.Series (log-price preferred)
+    - series: pd.Series of close prices (log-price conversion handled internally;
+        series must be positive; zeros are forward-filled before log transform)
     parameters:
-      window: int - lookback
-      max_lag: int - lag depth
+      window: int — rolling lookback window for Hurst estimation
+      max_lag: int — maximum lag depth for variance scaling (lags 2..max_lag-1)
     default_parameters:
       window: 200
       max_lag: 20
     output_type: DataFrame
     output_columns:
-    - hurst
-    - regime
+    - hurst: float — estimated Hurst exponent (H<0.45 mean-reverting, 0.45-0.55
+        neutral/random, H>0.55 persistent trend)
+    - regime: int — 1 (persistent trend), 0 (neutral/warmup), -1 (mean-reverting)
+    output_scale: 'hurst: ~0.0–1.0 float; regime: -1/0/1'
     lookahead_safe: true
     rolling_window_used: true
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: Detecting persistence regimes using Hurst exponent.
+    typical_use_case: 'Detecting persistence regimes using Hurst exponent. regime=1
+      confirms trending conditions (use with trend-following entries); regime=-1 confirms
+      mean-reversion conditions (use with mean-reversion entries).
+
+      '
     compatibility:
       suitable_for_intraday: true
       suitable_for_daily: true
@@ -1417,21 +1444,111 @@ indicators:
     - high
     - low
     - close
+  compute_choch_state:
+    module_path: indicators.structure.choch
+    category: structure
+    function_name: compute_choch_state
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with columns [high, low, close] and DatetimeIndex (UTC-normalised
+        or timezone-aware); index is constructed from 'timestamp' or 'time' column
+        if not already DatetimeIndex
+    datetime_index_required: false
+    datetime_index_guard: constructs DatetimeIndex from 'timestamp' or 'time' column
+      if df.index is not pd.DatetimeIndex
+    parameters: {}
+    default_parameters:
+      SWING_LOOKBACK: 20
+      MIN_SWING_AGE: 3
+      MIN_SWINGS: 3
+    output_type: DataFrame
+    output_columns:
+    - swing_high: float — rolling highest high (lookback=20, shifted 3 bars for minimum
+        swing age)
+    - swing_low: float — rolling lowest low (lookback=20, shifted 3 bars)
+    - lh_streak: int — consecutive lower-highs count (downtrend depth)
+    - hl_streak: int — consecutive higher-lows count (uptrend depth)
+    - choch_event: int — +1 bullish CHOCH / -1 bearish CHOCH / 0 no event
+    output_scale: 'swing_high/swing_low: price units; lh_streak/hl_streak: non-negative
+      int; choch_event: -1/0/1'
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: false
+    loop_complexity: O(n) — streak counters require sequential state (annotated)
+    htf_compatible: true
+    dependency_indicators:
+    - highest_high
+    - lowest_low
+    typical_use_case: 'Stage 1 of two-stage CHOCH API. Detects structural failure:
+      close beyond a mature swing level after MIN_SWINGS consecutive lower-highs (bullish
+      CHOCH) or higher-lows (bearish CHOCH). Must be called before apply_choch_state.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Medium
+      risk_of_overfitting: Medium
+    lookback: 20
+    warmup: 23
+    input_columns:
+    - high
+    - low
+    - close
+  apply_choch_state:
+    module_path: indicators.structure.choch
+    category: structure
+    function_name: apply_choch_state
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'choch_event' column (output of compute_choch_state)
+    parameters:
+      persistence_bars: int — bars a CHOCH event remains active after the event bar
+    default_parameters:
+      persistence_bars: 15
+    output_type: DataFrame
+    output_columns:
+    - choch_active: bool — True while within persistence window after a CHOCH event
+    - choch_direction: int — +1 bullish / -1 bearish / 0 inactive
+    - choch_bars_since: int — bars elapsed since last CHOCH event (-1 if never triggered)
+    output_scale: 'choch_direction: -1/0/1; choch_bars_since: int (-1=never triggered,
+      0+=bars elapsed since last event)'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — persistent state window requires sequential state (annotated)
+    htf_compatible: true
+    dependency_indicators:
+    - compute_choch_state
+    typical_use_case: 'Stage 2 of two-stage CHOCH API. Converts discrete CHOCH events
+      into a persistent directional context window. Use choch_active + choch_direction
+      as entry filters. Requires compute_choch_state() to be called first.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: persistence_bars
+    warmup: 23
+    input_columns:
+    - choch_event
 registry_summary:
-  total_indicators: 37
+  total_indicators: 39
   by_category:
     momentum_count: 6
     trend_count: 4
     volatility_count: 5
     regime_count: 9
-    structure_count: 6
+    structure_count: 8
     composite_count: 3
     statistical_count: 4
-  intraday_ready: 37
-  daily_ready: 35
-  htf_ready: 34
-  lookahead_safe: 37
+  intraday_ready: 39
+  daily_ready: 37
+  htf_ready: 36
+  lookahead_safe: 39
   vectorized: 33
-  files_validated: 37
+  files_validated: 39
   validation_status: PASS
   governance_status: PASS

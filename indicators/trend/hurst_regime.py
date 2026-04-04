@@ -20,6 +20,8 @@ regime  : -1 (mean-reversion), 0 (neutral), 1 (persistent trend)
 import pandas as pd
 import numpy as np
 
+__all__ = ["hurst_regime"]
+
 
 def hurst_regime(series: pd.Series,
                  window: int = 200,
