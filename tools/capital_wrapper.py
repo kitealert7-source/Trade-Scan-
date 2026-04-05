@@ -476,7 +476,30 @@ class PortfolioState:
         steps = math.floor(lots / self.lot_step)
         return round(steps * self.lot_step, 8)
 
-    def compute_lot_size(self, risk_distance: float, usd_per_pu_per_lot: float) -> float:
+    def _compute_risk_capital(self) -> tuple:
+        """Single source of truth for risk capital computation.
+
+        Returns (base_risk_capital, risk_capital) where:
+          - base_risk_capital: pre-scaling amount (fixed USD or fractional)
+          - risk_capital: after dynamic heat scaling + clamp
+        """
+        if self.fixed_risk_usd is not None:
+            base_risk_capital = self.fixed_risk_usd
+        else:
+            base_risk_capital = self.equity * self.risk_per_trade
+
+        risk_capital = base_risk_capital
+
+        if self.dynamic_scaling and self.equity > 0:
+            remaining_heat_usd = (self.heat_cap * self.equity) - self.total_open_risk
+            remaining_heat_usd = max(remaining_heat_usd, 0.0)
+            risk_capital = min(risk_capital, remaining_heat_usd)
+
+        risk_capital = max(risk_capital, 0.0)
+        return base_risk_capital, risk_capital
+
+    def compute_lot_size(self, risk_distance: float, usd_per_pu_per_lot: float,
+                         _precomputed_risk: tuple = None) -> float:
         """
         Multi-mode position sizing.
 
@@ -486,23 +509,15 @@ class PortfolioState:
           - Dynamic Scaling:  risk_capital = min(base, remaining_heat)
 
         Min position filter: skip if scaled risk < min_position_pct of base.
+
+        Args:
+            _precomputed_risk: Optional (base_risk_capital, risk_capital) tuple
+                from _compute_risk_capital(). When provided, skips recomputation.
         """
-        # Step A: Determine base risk capital
-        if self.fixed_risk_usd is not None:
-            base_risk_capital = self.fixed_risk_usd
+        if _precomputed_risk is not None:
+            base_risk_capital, risk_capital = _precomputed_risk
         else:
-            base_risk_capital = self.equity * self.risk_per_trade
-
-        risk_capital = base_risk_capital
-
-        # Step B: Dynamic heat scaling (clamp to remaining heat budget)
-        if self.dynamic_scaling and self.equity > 0:
-            remaining_heat_usd = (self.heat_cap * self.equity) - self.total_open_risk
-            remaining_heat_usd = max(remaining_heat_usd, 0.0)
-            risk_capital = min(risk_capital, remaining_heat_usd)
-
-        # Clamp risk_capital >= 0
-        risk_capital = max(risk_capital, 0.0)
+            base_risk_capital, risk_capital = self._compute_risk_capital()
 
         # Step C: Min position filter
         if self.min_position_pct > 0 and base_risk_capital > 0:
@@ -568,25 +583,15 @@ class PortfolioState:
             )
             return False
 
-        # 1. Compute lot size
-        lot_size = self.compute_lot_size(event.risk_distance, usd_per_pu_per_lot)
+        # 1. Compute risk capital once — used for both lot sizing and risk multiple check
+        _risk = self._compute_risk_capital()
+        target_risk = _risk[1]
+
+        lot_size = self.compute_lot_size(event.risk_distance, usd_per_pu_per_lot,
+                                         _precomputed_risk=_risk)
 
         # 2. Min lot check with fallback
         risk_override = False
-        
-        # Step A: Determine base risk capital (Target Risk)
-        if self.fixed_risk_usd is not None:
-            target_risk = self.fixed_risk_usd
-        else:
-            target_risk = self.equity * self.risk_per_trade
-
-        # Step B: Dynamic heat scaling (clamp to remaining heat budget)
-        if self.dynamic_scaling and self.equity > 0:
-            remaining_heat_usd = (self.heat_cap * self.equity) - self.total_open_risk
-            remaining_heat_usd = max(remaining_heat_usd, 0.0)
-            target_risk = min(target_risk, remaining_heat_usd)
-        
-        target_risk = max(target_risk, 0.0)
 
         if lot_size < self.min_lot:
             if self.min_lot_fallback:

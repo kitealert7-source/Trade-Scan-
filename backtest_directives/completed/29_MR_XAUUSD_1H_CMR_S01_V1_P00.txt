@@ -1,0 +1,55 @@
+test:
+  name: 29_MR_XAUUSD_1H_CMR_S01_V1_P00
+  strategy: 29_MR_XAUUSD_1H_CMR_S01_V1_P00
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-01'
+  end_date: '2026-04-02'
+  description: >
+    London Close Mean Reversion — session-constrained VWAP fade.
+    Compute London-session anchored VWAP (typical price cumulative average
+    from 08:00 UTC). During the London close window (16:00-16:59 UTC),
+    if price is extended beyond 1.5x ATR(14) from VWAP, enter toward the
+    mean. Institutional profit-taking and position squaring at session end
+    creates predictable counter-moves. Fixed TP at VWAP, ATR-based SL,
+    strict time exit before Asian open. No structural filters in P00 —
+    isolate the time-constrained edge first. Volume column is empty in
+    OctaFX data so VWAP uses equal-weighted typical price (TWAP proxy).
+    Diagnostic logging: entry_reason encodes extension magnitude in ATR
+    units for post-run reversion probability analysis.
+symbols:
+- XAUUSD
+indicators:
+- indicators.volatility.atr
+execution_rules:
+  entry_logic:
+    type: session_vwap_fade
+    session_start: '08:00'
+    session_end: '17:00'
+    entry_window_start: '16:00'
+    entry_window_end: '17:00'
+    atr_multiplier: 1.5
+    long_condition: close_below_vwap_minus_atr
+    short_condition: close_above_vwap_plus_atr
+  exit_logic:
+    type: time_or_tp
+    time_exit_utc: '21:00'
+    max_bars: 6
+  stop_loss:
+    type: atr_multiple
+    multiple: 2.0
+  take_profit:
+    enabled: true
+    type: vwap_reversion
+    target: session_vwap
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  max_trades_per_session: 1
+  reentry:
+    allowed: false

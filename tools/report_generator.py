@@ -5,9 +5,130 @@ from datetime import datetime, timezone
 import json
 from tools.pipeline_utils import get_engine_version
 
+# Session boundaries (UTC hours) — mirrored from stage2_compiler.py
+_ASIA_START, _ASIA_END = 0, 8
+_LONDON_START, _LONDON_END = 8, 16
+_NY_START, _NY_END = 16, 24
+
+
+def _classify_session(ts) -> str:
+    """Classify entry_timestamp string → session label. Mirrors stage2 _get_session."""
+    if pd.isna(ts):
+        return "unknown"
+    try:
+        dt = pd.Timestamp(ts)
+        hour = dt.hour
+    except Exception:
+        return "unknown"
+    if _ASIA_START <= hour < _ASIA_END:
+        return "asia"
+    elif _LONDON_START <= hour < _LONDON_END:
+        return "london"
+    else:
+        return "ny"
+
+_OVERLAP_START, _OVERLAP_END = 13, 16  # London-NY overlap window (UTC)
+_LATE_NY_START, _LATE_NY_END = 21, 24  # Late NY / off-hours window (UTC)
+
+
+def _is_overlap(ts) -> bool:
+    """True if entry_timestamp falls in London-NY overlap (13:00-15:59 UTC)."""
+    if pd.isna(ts):
+        return False
+    try:
+        hour = pd.Timestamp(ts).hour
+    except Exception:
+        return False
+    return _OVERLAP_START <= hour < _OVERLAP_END
+
+
+def _is_late_ny(ts) -> bool:
+    """True if entry_timestamp falls in Late NY window (21:00-23:59 UTC)."""
+    if pd.isna(ts):
+        return False
+    try:
+        hour = pd.Timestamp(ts).hour
+    except Exception:
+        return False
+    return _LATE_NY_START <= hour < _LATE_NY_END
+
+
+def _conf_tag(trades: int) -> str:
+    """Confidence tag based on primary trade count: High (>=50), Medium (20-49), Low (<20)."""
+    if trades >= 50:
+        return "High"
+    elif trades >= 20:
+        return "Medium"
+    return "Low"
+
+
+_WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+
+def _classify_weekday(ts) -> str:
+    """Classify entry_timestamp → weekday name."""
+    if pd.isna(ts):
+        return "unknown"
+    try:
+        return _WEEKDAY_NAMES[pd.Timestamp(ts).weekday()]
+    except Exception:
+        return "unknown"
+
+
+def _build_cross_tab(df, target_col, col_keys):
+    """Build a Direction x <target_col> markdown cross-tab from trade-level data."""
+    if target_col not in df.columns or 'direction' not in df.columns or 'pnl_usd' not in df.columns:
+        return ["| Data Unavailable |"]
+
+    df_c = df.copy()
+    df_c[target_col] = df_c[target_col].astype(str).str.lower().str.strip()
+
+    # Map direction safely and drop nulls to avoid silent misclassification
+    df_c['dir_label'] = pd.to_numeric(df_c['direction'], errors='coerce')
+    if df_c['dir_label'].isnull().any():
+        print("[WARN] Dropping null direction mappings in cross-tab for {}".format(target_col))
+    df_c = df_c[df_c['dir_label'].notnull()]
+    df_c['dir_label'] = df_c['dir_label'].apply(lambda x: 'Long' if x > 0 else 'Short')
+
+    headers = ["Direction"] + list(col_keys.keys())
+    lines = ["| " + " | ".join(headers) + " |", "|-" + "-|-".join(["-" * len(h) for h in headers]) + "-|"]
+
+    for dir_val in ['Long', 'Short']:
+        dir_df = df_c[df_c['dir_label'] == dir_val]
+        row_vals = [dir_val]
+        for nice_name, raw_val in col_keys.items():
+            cell_df = dir_df[dir_df[target_col] == raw_val]
+            if len(cell_df) == 0:
+                row_vals.append("-")
+                continue
+            trades = len(cell_df)
+            net_pnl = cell_df['pnl_usd'].sum()
+            wins = sum((cell_df['pnl_usd'] > 0).astype(int))
+            wr = (wins / trades) * 100
+            g_prof = float(cell_df[cell_df['pnl_usd'] > 0]['pnl_usd'].sum())
+            g_loss = abs(float(cell_df[cell_df['pnl_usd'] < 0]['pnl_usd'].sum()))
+            if g_loss == 0:
+                pf = float('inf') if g_prof > 0 else 0.0
+            else:
+                pf = g_prof / g_loss
+
+            flag = ""
+            if trades >= 20 and pf >= 1.5:
+                 flag = "✔ "
+            elif trades >= 20 and pf <= 0.9:
+                 flag = "✖ "
+
+            pf_str = "∞" if pf == float('inf') else f"{pf:.2f}"
+            row_vals.append("{flag}T:{t} P:${pnl:.2f} W:{wr:.1f}% PF:{pf}".format(
+                flag=flag, t=trades, pnl=net_pnl, wr=wr, pf=pf_str))
+        lines.append("| " + " | ".join(row_vals) + " |")
+    return lines
+
+
 def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_trades, port_pf):
-    """Auto-derive 3-5 mechanical insights from existing report data. No narrative."""
-    insights = []
+    """Auto-derive mechanical insights from existing report data, ranked by strength. No narrative."""
+    # Each insight is (score, text). Higher score = more actionable. Sorted descending at return.
+    scored = []
     if not all_trades_dfs:
         return ["Insufficient data for insights."]
 
@@ -50,13 +171,17 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
 
     if strong_cells:
         top = strong_cells[:2]
+        _best_pf = min(top[0][0], 5.0)
+        _best_trades = top[0][2]
+        _sc = _best_pf * min(1.0, _best_trades / 30)
         parts = [f"{c[3]} (PF {c[0]:.2f}, {c[2]}T)" for c in top]
-        insights.append(f"Strong edge: {', '.join(parts)}")
+        scored.append((_sc, f"Strong edge ({_conf_tag(_best_trades)}): {', '.join(parts)}"))
 
     if weak_cells:
         w = weak_cells[0]
         action = "candidate for exclusion" if w[1] < 0 else "drag on portfolio"
-        insights.append(f"Weak cell: {w[3]} (PF {w[0]:.2f}, {w[2]}T, ${w[1]:.0f}) — {action}")
+        _wsc = min(1.0 / max(w[0], 0.01), 10.0) * min(1.0, w[2] / 30)
+        scored.append((_wsc, f"Weak cell ({_conf_tag(w[2])}): {w[3]} (PF {w[0]:.2f}, {w[2]}T, ${w[1]:.0f}) — {action}"))
 
     # --- 2. Direction asymmetry ---
     if "direction" in df.columns:
@@ -73,8 +198,10 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
             if ratio >= 1.5:
                 stronger = "Long" if l_pf > s_pf else "Short"
                 weaker = "Short" if stronger == "Long" else "Long"
-                insights.append(
-                    f"Direction bias: {stronger} PF {max(l_pf, s_pf):.2f} vs {weaker} PF {min(l_pf, s_pf):.2f} — asymmetric edge"
+                _dir_weight = min(1.0, min(len(longs), len(shorts)) / 30)
+                scored.append(
+                    (ratio * _dir_weight,
+                     f"Direction bias ({_conf_tag(min(len(longs), len(shorts)))}): {stronger} PF {max(l_pf, s_pf):.2f} vs {weaker} PF {min(l_pf, s_pf):.2f} — asymmetric edge")
                 )
 
     # --- 3. Exit structure ---
@@ -87,16 +214,19 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
         avg_bars = df["bars_held"].mean()
 
         if time_pct >= 90:
-            insights.append(
-                f"Exit dependency: {time_pct:.0f}% TIME exits, avg {avg_bars:.1f} bars — edge is short-lived"
+            scored.append(
+                (time_pct / 100,
+                 f"Exit dependency ({_conf_tag(len(time_exits))}): {time_pct:.0f}% TIME exits, avg {avg_bars:.1f} bars — edge is short-lived")
             )
         if sl_pct <= 3 and len(df) >= 50:
-            insights.append(
-                f"Low SL rate ({sl_pct:.1f}%) — risk distribution compressed, DD may understate tail exposure"
+            scored.append(
+                (0.5,
+                 f"Low SL rate ({_conf_tag(len(df))}): {sl_pct:.1f}% — risk distribution compressed, DD may understate tail exposure")
             )
         elif sl_pct >= 20:
-            insights.append(
-                f"High SL rate ({sl_pct:.1f}%) — {len(sl_exits)} stop-outs, check entry timing or stop distance"
+            scored.append(
+                (sl_pct / 100,
+                 f"High SL rate ({_conf_tag(len(sl_exits))}): {sl_pct:.1f}% — {len(sl_exits)} stop-outs, check entry timing or stop distance")
             )
 
     # --- 4. MFE giveback ---
@@ -107,8 +237,9 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
             high_mfe = time_exits[time_exits["mfe_r"] >= 1.0]
             if len(high_mfe) >= 3:
                 avg_giveback = (high_mfe["mfe_r"] - high_mfe["r_multiple"]).mean()
-                insights.append(
-                    f"MFE waste: {len(high_mfe)} trades reached >= 1.0R MFE, gave back {avg_giveback:+.2f}R avg — TP or trail opportunity"
+                scored.append(
+                    (avg_giveback,
+                     f"MFE waste ({_conf_tag(len(high_mfe))}): {len(high_mfe)} trades reached >= 1.0R MFE, gave back {avg_giveback:+.2f}R avg — TP or trail opportunity")
                 )
 
     # --- 5. Trade density ---
@@ -119,9 +250,83 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
         if days > 0:
             trades_per_month = portfolio_trades / (days / 30.44)
             if trades_per_month < 3:
-                insights.append(
-                    f"Low density: {trades_per_month:.1f} trades/month — statistical significance requires longer test window"
+                scored.append(
+                    (0.3,
+                     f"Low density ({_conf_tag(portfolio_trades)}): {trades_per_month:.1f} trades/month — statistical significance requires longer test window")
                 )
+
+    # --- 6. Session divergence ---
+    if "entry_timestamp" in df.columns and "pnl_usd" in df.columns:
+        df_s = df.copy()
+        df_s['_session'] = df_s['entry_timestamp'].apply(_classify_session)
+        sess_pfs = {}
+        sess_counts = {}
+        for sl in ['asia', 'london', 'ny']:
+            ss = df_s[df_s['_session'] == sl]
+            if len(ss) < 5:
+                continue
+            gp = float(ss[ss['pnl_usd'] > 0]['pnl_usd'].sum())
+            gl = abs(float(ss[ss['pnl_usd'] < 0]['pnl_usd'].sum()))
+            sess_pfs[sl] = (gp / gl) if gl > 0 else (gp if gp > 0 else 0.0)
+            sess_counts[sl] = len(ss)
+        if len(sess_pfs) >= 2:
+            best_s = max(sess_pfs, key=sess_pfs.get)
+            worst_s = min(sess_pfs, key=sess_pfs.get)
+            _sess_gap = sess_pfs[best_s] - sess_pfs[worst_s]
+            if _sess_gap > 0.5:
+                nice = {"asia": "Asia", "london": "London", "ny": "NY"}
+                _sess_weight = min(1.0, min(sess_counts[best_s], sess_counts[worst_s]) / 30)
+                _sess_min_t = min(sess_counts[best_s], sess_counts[worst_s])
+                scored.append(
+                    (_sess_gap * _sess_weight,
+                     f"Session divergence ({_conf_tag(_sess_min_t)}): {nice[best_s]} PF {sess_pfs[best_s]:.2f} vs {nice[worst_s]} PF {sess_pfs[worst_s]:.2f} — filter candidate")
+                )
+
+    # --- 7. Late NY directional asymmetry ---
+    if "entry_timestamp" in df.columns and "direction" in df.columns and "pnl_usd" in df.columns:
+        df_lny = df.copy()
+        df_lny['_is_late_ny'] = df_lny['entry_timestamp'].apply(_is_late_ny)
+        df_lny['_session'] = df_lny['entry_timestamp'].apply(_classify_session)
+        _ny_trades = df_lny[df_lny['_session'] == 'ny']
+        _ny_core = _ny_trades[~_ny_trades['_is_late_ny']]
+        _ny_late = _ny_trades[_ny_trades['_is_late_ny']]
+        if len(_ny_late) >= 10:
+            for _dv, _dl in [(1, "Long"), (-1, "Short")]:
+                _late_d = _ny_late[_ny_late['direction'] == _dv]
+                _core_d = _ny_core[_ny_core['direction'] == _dv]
+                _opp = -_dv
+                _late_opp = _ny_late[_ny_late['direction'] == _opp]
+                # Min 10 trades per direction in Late NY
+                if len(_late_d) < 10 or len(_late_opp) < 10 or len(_core_d) < 10:
+                    continue
+                _lg = float(_late_d[_late_d['pnl_usd'] > 0]['pnl_usd'].sum())
+                _ll = abs(float(_late_d[_late_d['pnl_usd'] < 0]['pnl_usd'].sum()))
+                _late_pf = (_lg / _ll) if _ll > 0 else (_lg if _lg > 0 else 0.0)
+                _cg = float(_core_d[_core_d['pnl_usd'] > 0]['pnl_usd'].sum())
+                _cl = abs(float(_core_d[_core_d['pnl_usd'] < 0]['pnl_usd'].sum()))
+                _core_pf = (_cg / _cl) if _cl > 0 else 0.0
+                # Skip if core baseline is below breakeven — no valid reference
+                if _core_pf < 1.0:
+                    continue
+                _og = float(_late_opp[_late_opp['pnl_usd'] > 0]['pnl_usd'].sum())
+                _ol = abs(float(_late_opp[_late_opp['pnl_usd'] < 0]['pnl_usd'].sum()))
+                _opp_pf = (_og / _ol) if _ol > 0 else (_og if _og > 0 else 0.0)
+                if _late_pf >= _core_pf * 1.5 and _opp_pf < 1.0:
+                    _opp_label = "Short" if _dv == 1 else "Long"
+                    # score = clamped(late_pf / core_pf) * (1 - opp_pf) * trade_weight
+                    _late_pf_c = min(_late_pf, 5.0)
+                    _asym_score = (_late_pf_c / _core_pf) * (1.0 - _opp_pf) * min(1.0, len(_late_d) / 30)
+                    _lny_min_t = min(len(_late_d), len(_late_opp))
+                    scored.append(
+                        (_asym_score,
+                         f"Late NY asymmetry ({_conf_tag(_lny_min_t)}): {_dl} PF {_late_pf:.2f} (late) vs {_core_pf:.2f} (core), "
+                         f"{_opp_label} PF {_opp_pf:.2f} — directional filter candidate")
+                    )
+                    break  # one insight is enough
+
+    # Sort by strength (descending) and extract text
+    scored.sort(key=lambda x: -x[0])
+    insights = [text for _, text in scored]
 
     # Fallback if nothing triggered
     if not insights:
@@ -133,11 +338,18 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
     return insights
 
 
-def generate_backtest_report(directive_name: str, backtest_root: Path):
+def generate_backtest_report(directive_name: str, backtest_root: Path, *,
+                             show_overlap: bool = False, show_late_ny: bool = False,
+                             show_weekday: bool = False):
     """
     Generates a deterministic markdown report from raw CSV artifacts without altering state.
     Provides run-level metrics (Stage-5A).
     The generated report is saved inside each matching symbol directory within the backtest namespace.
+
+    Args:
+        show_overlap: If True, append London-NY overlap analysis (13-16 UTC) to Session Breakdown.
+        show_late_ny: If True, append Late NY analysis (21-24 UTC) to Session Breakdown.
+        show_weekday: If True, append weekday breakdown + Direction × Day cross-tab.
     """
     # The report will be saved inside each symbol directory later in the function.
     pass
@@ -164,6 +376,7 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
     risk_data_list = []  # Collect per-symbol risk rows for aggregation
     vol_data = []
     trend_data = []
+    session_data = []
     all_trades_dfs = []
 
     engine_ver = get_engine_version()
@@ -323,6 +536,21 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
         vol_data.append({"Symbol": symbol, "High": h_vol, "Normal": n_vol, "Low": l_vol, "High_T": h_vol_t, "Normal_T": n_vol_t, "Low_T": l_vol_t})
         trend_data.append({"Symbol": symbol, "StrongUp": s_up, "WeakUp": w_up, "Neutral": neu, "WeakDn": w_dn, "StrongDn": s_dn, "StrongUp_T": s_up_t, "WeakUp_T": w_up_t, "Neutral_T": neu_t, "WeakDn_T": w_dn_t, "StrongDn_T": s_dn_t})
 
+        # Session breakdown (computed from trade-level entry_timestamp)
+        asia_pnl = 0.0; london_pnl = 0.0; ny_pnl = 0.0
+        asia_t = 0; london_t = 0; ny_t = 0
+        if tdf is not None and len(tdf) > 0 and 'entry_timestamp' in tdf.columns:
+            tdf['_session'] = tdf['entry_timestamp'].apply(_classify_session)
+            sess_groups = tdf.groupby('_session')['pnl_usd'].sum()
+            sess_counts = tdf.groupby('_session')['pnl_usd'].count()
+            asia_pnl = float(sess_groups.get('asia', 0.0))
+            london_pnl = float(sess_groups.get('london', 0.0))
+            ny_pnl = float(sess_groups.get('ny', 0.0))
+            asia_t = int(sess_counts.get('asia', 0))
+            london_t = int(sess_counts.get('london', 0))
+            ny_t = int(sess_counts.get('ny', 0))
+        session_data.append({"Symbol": symbol, "Asia": asia_pnl, "London": london_pnl, "NY": ny_pnl, "Asia_T": asia_t, "London_T": london_t, "NY_T": ny_t})
+
         if has_stage1 and start_date == "YYYY-MM-DD":
             if tdf is not None and len(tdf) > 0 and 'entry_timestamp' in tdf.columns:
                 start_date = str(tdf['entry_timestamp'].min())[:10]
@@ -462,6 +690,39 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
         md.append(f"| {row['Symbol']} | {row['Trades']} | ${row['Net PnL']:.2f} | {pf_str} | {max_dd_str} | {ret_dd_str} | {win_str} | {row['Avg R']:.2f} |")
     md.append("\n---\n")
     
+    # --- Yearwise Performance (always on) ---
+    md.append("## Yearwise Performance\n")
+    if all_trades_dfs:
+        _yr_df = pd.concat(all_trades_dfs, ignore_index=True)
+        if 'entry_timestamp' in _yr_df.columns and 'pnl_usd' in _yr_df.columns:
+            _yr_df['_year'] = pd.to_datetime(_yr_df['entry_timestamp'], errors='coerce').dt.year
+            _yr_df = _yr_df[_yr_df['_year'].notna()]
+            _yr_df['_year'] = _yr_df['_year'].astype(int)
+            _years = sorted(_yr_df['_year'].unique())
+            md.append("| Year | Trades | Net PnL | PF | Win % | Max DD |")
+            md.append("|------|--------|---------|-----|-------|--------|")
+            for _y in _years:
+                _ys = _yr_df[_yr_df['_year'] == _y]
+                _yt = len(_ys)
+                _ypnl = _ys['pnl_usd'].sum()
+                _ygp = float(_ys[_ys['pnl_usd'] > 0]['pnl_usd'].sum())
+                _ygl = abs(float(_ys[_ys['pnl_usd'] < 0]['pnl_usd'].sum()))
+                _ypf = (_ygp / _ygl) if _ygl > 0 else (_ygp if _ygp > 0 else 0.0)
+                _ypf_s = f"{_ypf:.2f}" if _ypf != float('inf') else "inf"
+                _ywr = (_ys['pnl_usd'] > 0).mean() * 100
+                # Compute intra-year max drawdown from cumulative PnL
+                _cum = _ys['pnl_usd'].cumsum()
+                _peak = _cum.cummax()
+                _dd = _cum - _peak
+                _max_dd = abs(float(_dd.min())) if len(_dd) > 0 else 0.0
+                md.append(f"| {_y} | {_yt} | ${_ypnl:.2f} | {_ypf_s} | {_ywr:.1f}% | ${_max_dd:.2f} |")
+            md.append("")
+        else:
+            md.append("> No timestamp data available for Yearwise Performance.\n")
+    else:
+        md.append("> No trade-level data available for Yearwise Performance.\n")
+    md.append("\n---\n")
+
     md.append("## Volatility Edge\n")
     md.append("| Symbol | High | Normal | Low |")
     md.append("|--------|------|--------|-----|")
@@ -474,7 +735,221 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
     md.append("|--------|----------|--------|---------|--------|----------|")
     for row in trend_data:
         md.append(f"| {row['Symbol']} | T:{row['StrongUp_T']} ${row['StrongUp']:.2f} | T:{row['WeakUp_T']} ${row['WeakUp']:.2f} | T:{row['Neutral_T']} ${row['Neutral']:.2f} | T:{row['WeakDn_T']} ${row['WeakDn']:.2f} | T:{row['StrongDn_T']} ${row['StrongDn']:.2f} |")
-    
+    md.append("\n---\n")
+
+    # --- Session Breakdown ---
+    md.append("## Session Breakdown\n")
+    if all_trades_dfs:
+        _sess_df = pd.concat(all_trades_dfs, ignore_index=True)
+        if 'entry_timestamp' in _sess_df.columns and 'pnl_usd' in _sess_df.columns:
+            _sess_df['_session'] = _sess_df['entry_timestamp'].apply(_classify_session)
+            md.append("| Session | Trades | Net PnL | PF | Win % | Avg R | Avg Bars |")
+            md.append("|---------|--------|---------|-----|-------|-------|----------|")
+            for _sl, _sn in [('asia', 'Asia'), ('london', 'London'), ('ny', 'New York')]:
+                _ss = _sess_df[_sess_df['_session'] == _sl]
+                if len(_ss) == 0:
+                    md.append(f"| {_sn} | 0 | - | - | - | - | - |")
+                    continue
+                _s_trades = len(_ss)
+                _s_pnl = _ss['pnl_usd'].sum()
+                _s_gp = float(_ss[_ss['pnl_usd'] > 0]['pnl_usd'].sum())
+                _s_gl = abs(float(_ss[_ss['pnl_usd'] < 0]['pnl_usd'].sum()))
+                _s_pf = (_s_gp / _s_gl) if _s_gl > 0 else (_s_gp if _s_gp > 0 else 0.0)
+                _s_pf_str = f"{_s_pf:.2f}" if _s_pf != float('inf') else "∞"
+                _s_wr = (_ss['pnl_usd'] > 0).mean() * 100
+                _s_avg_r = f"{_ss['r_multiple'].mean():+.3f}" if 'r_multiple' in _ss.columns else "N/A"
+                _s_bars = f"{_ss['bars_held'].mean():.1f}" if 'bars_held' in _ss.columns else "N/A"
+                md.append(f"| {_sn} | {_s_trades} | ${_s_pnl:.2f} | {_s_pf_str} | {_s_wr:.1f}% | {_s_avg_r} | {_s_bars} |")
+            md.append("")
+
+            # Per-symbol session grid (only if multi-symbol)
+            if len(session_data) > 1:
+                md.append("### Per-Symbol Session Grid\n")
+                md.append("| Symbol | Asia | London | NY |")
+                md.append("|--------|------|--------|-----|")
+                for row in session_data:
+                    md.append(f"| {row['Symbol']} | T:{row['Asia_T']} ${row['Asia']:.2f} | T:{row['London_T']} ${row['London']:.2f} | T:{row['NY_T']} ${row['NY']:.2f} |")
+                md.append("")
+
+            # --- Optional: London-NY Overlap Analysis ---
+            if show_overlap:
+                _sess_df['_is_overlap'] = _sess_df['entry_timestamp'].apply(_is_overlap)
+                _ov = _sess_df[_sess_df['_is_overlap']]
+                _non_ov = _sess_df[~_sess_df['_is_overlap']]
+
+                md.append("### Overlap Analysis (London-NY, 13-16 UTC)\n")
+
+                if len(_ov) < 10:
+                    md.append(f"> Only {len(_ov)} trades in overlap window — insufficient for analysis.\n")
+                else:
+                    md.append("| Segment | Trades | Net PnL | PF | Win % | Avg R | Avg Bars |")
+                    md.append("|---------|--------|---------|-----|-------|-------|----------|")
+                    for _label, _sub in [('Overlap (13-16)', _ov), ('Non-overlap', _non_ov)]:
+                        _t = len(_sub)
+                        if _t == 0:
+                            md.append(f"| {_label} | 0 | - | - | - | - | - |")
+                            continue
+                        _pnl = _sub['pnl_usd'].sum()
+                        _gp = float(_sub[_sub['pnl_usd'] > 0]['pnl_usd'].sum())
+                        _gl = abs(float(_sub[_sub['pnl_usd'] < 0]['pnl_usd'].sum()))
+                        _pf = (_gp / _gl) if _gl > 0 else (_gp if _gp > 0 else 0.0)
+                        _pf_s = f"{_pf:.2f}" if _pf != float('inf') else "∞"
+                        _wr = (_sub['pnl_usd'] > 0).mean() * 100
+                        _ar = f"{_sub['r_multiple'].mean():+.3f}" if 'r_multiple' in _sub.columns else "N/A"
+                        _ab = f"{_sub['bars_held'].mean():.1f}" if 'bars_held' in _sub.columns else "N/A"
+                        md.append(f"| {_label} | {_t} | ${_pnl:.2f} | {_pf_s} | {_wr:.1f}% | {_ar} | {_ab} |")
+                    md.append("")
+
+                    # Session × Overlap cross-tab (London and NY only — Asia can't overlap)
+                    md.append("### Session x Overlap\n")
+                    md.append("| Session | Core (no overlap) | Overlap (13-16) |")
+                    md.append("|---------|-------------------|-----------------|")
+                    for _sl, _sn in [('london', 'London'), ('ny', 'New York')]:
+                        _s_all = _sess_df[_sess_df['_session'] == _sl]
+                        _s_core = _s_all[~_s_all['_is_overlap']]
+                        _s_ov = _s_all[_s_all['_is_overlap']]
+                        parts = []
+                        for _sub in [_s_core, _s_ov]:
+                            if len(_sub) == 0:
+                                parts.append("-")
+                                continue
+                            _gp = float(_sub[_sub['pnl_usd'] > 0]['pnl_usd'].sum())
+                            _gl = abs(float(_sub[_sub['pnl_usd'] < 0]['pnl_usd'].sum()))
+                            _pf = (_gp / _gl) if _gl > 0 else (_gp if _gp > 0 else 0.0)
+                            _pf_s = "∞" if _pf == float('inf') else f"{_pf:.2f}"
+                            parts.append(f"T:{len(_sub)} ${_sub['pnl_usd'].sum():.2f} PF:{_pf_s}")
+                        md.append(f"| {_sn} | {parts[0]} | {parts[1]} |")
+                    md.append("")
+
+            # --- Optional: Late NY Analysis ---
+            if show_late_ny:
+                _sess_df['_is_late_ny'] = _sess_df['entry_timestamp'].apply(_is_late_ny)
+                _lny = _sess_df[_sess_df['_is_late_ny']]
+                _non_lny = _sess_df[~_sess_df['_is_late_ny']]
+
+                md.append("### Late NY Analysis (21-24 UTC)\n")
+
+                if len(_lny) < 10:
+                    md.append(f"> Only {len(_lny)} trades in Late NY window — insufficient for analysis.\n")
+                else:
+                    md.append("| Segment | Trades | Net PnL | PF | Win % | Avg R | Avg Bars |")
+                    md.append("|---------|--------|---------|-----|-------|-------|----------|")
+                    for _label, _sub in [('Late NY (21-24)', _lny), ('Rest', _non_lny)]:
+                        _t = len(_sub)
+                        if _t == 0:
+                            md.append(f"| {_label} | 0 | - | - | - | - | - |")
+                            continue
+                        _pnl = _sub['pnl_usd'].sum()
+                        _gp = float(_sub[_sub['pnl_usd'] > 0]['pnl_usd'].sum())
+                        _gl = abs(float(_sub[_sub['pnl_usd'] < 0]['pnl_usd'].sum()))
+                        _pf = (_gp / _gl) if _gl > 0 else (_gp if _gp > 0 else 0.0)
+                        _pf_s = f"{_pf:.2f}" if _pf != float('inf') else "∞"
+                        _wr = (_sub['pnl_usd'] > 0).mean() * 100
+                        _ar = f"{_sub['r_multiple'].mean():+.3f}" if 'r_multiple' in _sub.columns else "N/A"
+                        _ab = f"{_sub['bars_held'].mean():.1f}" if 'bars_held' in _sub.columns else "N/A"
+                        md.append(f"| {_label} | {_t} | ${_pnl:.2f} | {_pf_s} | {_wr:.1f}% | {_ar} | {_ab} |")
+                    md.append("")
+
+                    # NY core vs Late NY split
+                    md.append("### NY x Late Session\n")
+                    md.append("| Segment | Core NY (16-21) | Late NY (21-24) |")
+                    md.append("|---------|-----------------|-----------------|")
+                    _ny_all = _sess_df[_sess_df['_session'] == 'ny']
+                    _ny_core = _ny_all[~_ny_all['_is_late_ny']]
+                    _ny_late = _ny_all[_ny_all['_is_late_ny']]
+                    parts = []
+                    for _sub in [_ny_core, _ny_late]:
+                        if len(_sub) == 0:
+                            parts.append("-")
+                            continue
+                        _gp = float(_sub[_sub['pnl_usd'] > 0]['pnl_usd'].sum())
+                        _gl = abs(float(_sub[_sub['pnl_usd'] < 0]['pnl_usd'].sum()))
+                        _pf = (_gp / _gl) if _gl > 0 else (_gp if _gp > 0 else 0.0)
+                        _pf_s = "∞" if _pf == float('inf') else f"{_pf:.2f}"
+                        parts.append(f"T:{len(_sub)} ${_sub['pnl_usd'].sum():.2f} PF:{_pf_s}")
+                    md.append(f"| NY | {parts[0]} | {parts[1]} |")
+                    md.append("")
+
+                    # Direction × Late NY
+                    if 'direction' in _sess_df.columns:
+                        md.append("### Direction x Late NY\n")
+                        md.append("| Direction | Core NY (16-21) | Late NY (21-24) |")
+                        md.append("|-----------|-----------------|-----------------|")
+                        for _dv, _dl in [(1, 'Long'), (-1, 'Short')]:
+                            _d_ny = _ny_all[_ny_all['direction'] == _dv]
+                            _d_core = _d_ny[~_d_ny['_is_late_ny']]
+                            _d_late = _d_ny[_d_ny['_is_late_ny']]
+                            parts = []
+                            for _sub in [_d_core, _d_late]:
+                                if len(_sub) == 0:
+                                    parts.append("-")
+                                    continue
+                                _gp = float(_sub[_sub['pnl_usd'] > 0]['pnl_usd'].sum())
+                                _gl = abs(float(_sub[_sub['pnl_usd'] < 0]['pnl_usd'].sum()))
+                                _pf = (_gp / _gl) if _gl > 0 else (_gp if _gp > 0 else 0.0)
+                                _pf_s = "∞" if _pf == float('inf') else f"{_pf:.2f}"
+                                _wr = (_sub['pnl_usd'] > 0).mean() * 100
+                                parts.append(f"T:{len(_sub)} ${_sub['pnl_usd'].sum():.2f} PF:{_pf_s} W:{_wr:.0f}%")
+                            md.append(f"| {_dl} | {parts[0]} | {parts[1]} |")
+                        md.append("")
+        else:
+            md.append("> No entry_timestamp data available for Session Breakdown.\n")
+    else:
+        md.append("> No trade-level data available for Session Breakdown.\n")
+
+    # --- Optional: Weekday Breakdown ---
+    if show_weekday and all_trades_dfs:
+        _wd_df = pd.concat(all_trades_dfs, ignore_index=True)
+        if 'entry_timestamp' in _wd_df.columns and 'pnl_usd' in _wd_df.columns:
+            _wd_df['_weekday'] = _wd_df['entry_timestamp'].apply(_classify_weekday)
+            _wd_valid = _wd_df[_wd_df['_weekday'] != 'unknown']
+            if len(_wd_valid) >= 10:
+                md.append("\n---\n")
+                md.append("## Weekday Breakdown\n")
+                md.append("| Day | Trades | Net PnL | PF | Win % | Avg R | Avg Bars |")
+                md.append("|-----|--------|---------|-----|-------|-------|----------|")
+                for _day in _WEEKDAY_NAMES[:5]:  # Mon-Fri only (Sat/Sun typically empty)
+                    _ds = _wd_valid[_wd_valid['_weekday'] == _day]
+                    if len(_ds) == 0:
+                        md.append(f"| {_day} | 0 | - | - | - | - | - |")
+                        continue
+                    _dt = len(_ds)
+                    _dpnl = _ds['pnl_usd'].sum()
+                    _dgp = float(_ds[_ds['pnl_usd'] > 0]['pnl_usd'].sum())
+                    _dgl = abs(float(_ds[_ds['pnl_usd'] < 0]['pnl_usd'].sum()))
+                    _dpf = (_dgp / _dgl) if _dgl > 0 else (_dgp if _dgp > 0 else 0.0)
+                    _dpf_s = f"{_dpf:.2f}" if _dpf != float('inf') else "inf"
+                    _dwr = (_ds['pnl_usd'] > 0).mean() * 100
+                    _dar = f"{_ds['r_multiple'].mean():+.3f}" if 'r_multiple' in _ds.columns else "N/A"
+                    _dab = f"{_ds['bars_held'].mean():.1f}" if 'bars_held' in _ds.columns else "N/A"
+                    md.append(f"| {_day} | {_dt} | ${_dpnl:.2f} | {_dpf_s} | {_dwr:.1f}% | {_dar} | {_dab} |")
+                # Weekend rows only if trades exist
+                for _day in _WEEKDAY_NAMES[5:]:
+                    _ds = _wd_valid[_wd_valid['_weekday'] == _day]
+                    if len(_ds) > 0:
+                        _dt = len(_ds)
+                        _dpnl = _ds['pnl_usd'].sum()
+                        _dgp = float(_ds[_ds['pnl_usd'] > 0]['pnl_usd'].sum())
+                        _dgl = abs(float(_ds[_ds['pnl_usd'] < 0]['pnl_usd'].sum()))
+                        _dpf = (_dgp / _dgl) if _dgl > 0 else (_dgp if _dgp > 0 else 0.0)
+                        _dpf_s = f"{_dpf:.2f}" if _dpf != float('inf') else "inf"
+                        _dwr = (_ds['pnl_usd'] > 0).mean() * 100
+                        _dar = f"{_ds['r_multiple'].mean():+.3f}" if 'r_multiple' in _ds.columns else "N/A"
+                        _dab = f"{_ds['bars_held'].mean():.1f}" if 'bars_held' in _ds.columns else "N/A"
+                        md.append(f"| {_day} | {_dt} | ${_dpnl:.2f} | {_dpf_s} | {_dwr:.1f}% | {_dar} | {_dab} |")
+                md.append("")
+
+                # Direction × Day cross-tab
+                _wd_valid['_weekday_lc'] = _wd_valid['_weekday'].str.lower()
+                _day_cols = {d: d.lower() for d in _WEEKDAY_NAMES[:5]}
+                # Add weekend if trades exist
+                for _day in _WEEKDAY_NAMES[5:]:
+                    if len(_wd_valid[_wd_valid['_weekday'] == _day]) > 0:
+                        _day_cols[_day] = _day.lower()
+                md.append("### Direction &times; Day\n")
+                md.extend(_build_cross_tab(_wd_valid, "_weekday_lc", _day_cols))
+                md.append("")
+
     # --- Exit Analysis ---
     md.append("\n---\n")
     md.append("## Exit Analysis\n")
@@ -569,71 +1044,88 @@ def generate_backtest_report(directive_name: str, backtest_root: Path):
 
     if all_trades_dfs:
         all_trades_df = pd.concat(all_trades_dfs, ignore_index=True)
-        
-        def build_cross_tab(df, target_col, col_keys):
-            if target_col not in df.columns or 'direction' not in df.columns or 'pnl_usd' not in df.columns:
-                return ["| Data Unavailable |"]
-            
-            df_c = df.copy()
-            df_c[target_col] = df_c[target_col].astype(str).str.lower().str.strip()
-            
-            # Map direction safely and drop nulls to avoid silent misclassification
-            df_c['dir_label'] = pd.to_numeric(df_c['direction'], errors='coerce')
-            if df_c['dir_label'].isnull().any():
-                print(f"[WARN] Dropping null direction mappings in cross-tab for {target_col}")
-            df_c = df_c[df_c['dir_label'].notnull()]
-            df_c['dir_label'] = df_c['dir_label'].apply(lambda x: 'Long' if x > 0 else 'Short')
-            
-            headers = ["Direction"] + list(col_keys.keys())
-            lines = ["| " + " | ".join(headers) + " |", "|-" + "-|-".join(["-" * len(h) for h in headers]) + "-|"]
-            
-            for dir_val in ['Long', 'Short']:
-                dir_df = df_c[df_c['dir_label'] == dir_val]
-                row_vals = [dir_val]
-                for nice_name, raw_val in col_keys.items():
-                    cell_df = dir_df[dir_df[target_col] == raw_val]
-                    if len(cell_df) == 0:
-                        row_vals.append("-")
-                        continue
-                    trades = len(cell_df)
-                    net_pnl = cell_df['pnl_usd'].sum()
-                    wins = sum((cell_df['pnl_usd'] > 0).astype(int))
-                    wr = (wins / trades) * 100
-                    g_prof = float(cell_df[cell_df['pnl_usd'] > 0]['pnl_usd'].sum())
-                    g_loss = abs(float(cell_df[cell_df['pnl_usd'] < 0]['pnl_usd'].sum()))
-                    if g_loss == 0:
-                        pf = float('inf') if g_prof > 0 else 0.0
-                    else:
-                        pf = g_prof / g_loss
-                    
-                    flag = ""
-                    if trades >= 20 and pf >= 1.5:
-                         flag = "✔ "
-                    elif trades >= 20 and pf <= 0.9:
-                         flag = "✖ "
-                    
-                    pf_str = "∞" if pf == float('inf') else f"{pf:.2f}"
-                    row_vals.append(f"{flag}T:{trades} P:${net_pnl:.2f} W:{wr:.1f}% PF:{pf_str}")
-                lines.append("| " + " | ".join(row_vals) + " |")
-            return lines
-        
+
         md.append("### A) Direction &times; Volatility\n")
         vol_cols = {"High": "high", "Normal": "normal", "Low": "low"}
-        md.extend(build_cross_tab(all_trades_df, "volatility_regime", vol_cols))
+        md.extend(_build_cross_tab(all_trades_df, "volatility_regime", vol_cols))
         md.append("\n")
-        
+
         md.append("### B) Direction &times; Trend\n")
         trend_cols = {"Strong Up": "strong_up", "Weak Up": "weak_up", "Neutral": "neutral", "Weak Down": "weak_down", "Strong Down": "strong_down"}
-        md.extend(build_cross_tab(all_trades_df, "trend_label", trend_cols))
+        md.extend(_build_cross_tab(all_trades_df, "trend_label", trend_cols))
         md.append("\n")
+
+        # C) Direction × Session
+        if 'entry_timestamp' in all_trades_df.columns:
+            all_trades_df['_session'] = all_trades_df['entry_timestamp'].apply(_classify_session)
+            md.append("### C) Direction &times; Session\n")
+            session_cols = {"Asia": "asia", "London": "london", "NY": "ny"}
+            md.extend(_build_cross_tab(all_trades_df, "_session", session_cols))
+            md.append("\n")
     else:
         md.append("> No trade-level data available for Edge Decomposition.\n")
+
+    # --- Risk Characteristics ---
+    md.append("---\n")
+    md.append("## Risk Characteristics\n")
+    if all_trades_dfs:
+        _risk_df = pd.concat(all_trades_dfs, ignore_index=True)
+        if 'pnl_usd' in _risk_df.columns and len(_risk_df) > 0:
+            md.append("| Metric | Value |")
+            md.append("|--------|-------|")
+
+            # Max Consecutive Losses
+            _losses = (_risk_df['pnl_usd'] <= 0).astype(int)
+            _max_consec = 0
+            _cur = 0
+            for _v in _losses:
+                if _v == 1:
+                    _cur += 1
+                    _max_consec = max(_max_consec, _cur)
+                else:
+                    _cur = 0
+            md.append(f"| Max Consecutive Losses | {_max_consec} |")
+
+            # Longest Flat Period (calendar days between equity highs)
+            if 'entry_timestamp' in _risk_df.columns:
+                _risk_df_sorted = _risk_df.sort_values('entry_timestamp').copy()
+                _cum_pnl = _risk_df_sorted['pnl_usd'].cumsum()
+                _peak = _cum_pnl.cummax()
+                _ts = pd.to_datetime(_risk_df_sorted['entry_timestamp'], errors='coerce')
+                _at_peak = _cum_pnl >= _peak
+                _peak_dates = _ts[_at_peak]
+                if len(_peak_dates) >= 2:
+                    _gaps = _peak_dates.diff().dt.days.dropna()
+                    _flat_days = int(_gaps.max()) if len(_gaps) > 0 else 0
+                else:
+                    _flat_days = 0
+                md.append(f"| Longest Flat Period | {_flat_days} days |")
+
+            # Top-5 Trade Concentration (% of total PnL from top-5 winners)
+            _total_abs_pnl = abs(_risk_df['pnl_usd'].sum())
+            if _total_abs_pnl > 0:
+                _top5 = _risk_df.nlargest(5, 'pnl_usd')['pnl_usd'].sum()
+                _top5_pct = (_top5 / _total_abs_pnl) * 100
+                md.append(f"| Top-5 Trade Concentration | {_top5_pct:.1f}% of Net PnL |")
+
+            # Edge Ratio (avg MFE / avg MAE)
+            if 'mfe_r' in _risk_df.columns and 'mae_r' in _risk_df.columns:
+                _avg_mfe = _risk_df['mfe_r'].mean()
+                _avg_mae = abs(_risk_df['mae_r'].mean())
+                _edge_ratio = (_avg_mfe / _avg_mae) if _avg_mae > 0 else 0.0
+                md.append(f"| Edge Ratio (MFE/MAE) | {_edge_ratio:.2f} |")
+
+            md.append("")
+        else:
+            md.append("> Insufficient data for Risk Characteristics.\n")
+    else:
+        md.append("> No trade-level data available for Risk Characteristics.\n")
 
     # --- Actionable Insights (auto-derived, max 5 bullets) ---
     md.append("---\n")
     md.append("## Actionable Insights\n")
     insights = _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_trades, port_pf)
-    for bullet in insights[:5]:
+    for bullet in insights[:7]:
         md.append(f"- {bullet}")
     md.append("")
 

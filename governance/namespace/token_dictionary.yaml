@@ -38,6 +38,7 @@ model:
   - IMPULSE
   - CMR
   - MICROREV
+  - EMAXO
 filter:
   - ATRFILT
   - VOLFILT

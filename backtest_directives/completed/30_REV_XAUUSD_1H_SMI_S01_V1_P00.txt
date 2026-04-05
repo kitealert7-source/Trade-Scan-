@@ -1,0 +1,51 @@
+test:
+  name: 30_REV_XAUUSD_1H_SMI_S01_V1_P00
+  strategy: 30_REV_XAUUSD_1H_SMI_S01_V1_P00
+  broker: OctaFX
+  timeframe: 1h
+  start_date: '2024-01-01'
+  end_date: '2026-04-02'
+  description: >
+    SMI Divergence Counter-Trend — momentum exhaustion reversal.
+    Detect divergence using pivot-based structure (pivot_len=3) by
+    comparing the last two confirmed swing highs/lows in price and SMI.
+    Bearish divergence: price higher high + SMI lower high in uptrend.
+    Bullish divergence: price lower low + SMI higher low in downtrend.
+    Enter on the next bar if price closes beyond the prior pivot level
+    in the reversal direction. Structure-based SL beyond latest pivot,
+    fixed TP at 1.0R, max holding time 5 bars. No additional filters
+    in P00 — isolate the divergence signal. Diagnostic entry_reason
+    encodes divergence magnitude (SMI delta) and pivot spacing.
+symbols:
+- XAUUSD
+indicators:
+- indicators.momentum.stochastic_momentum_index
+- indicators.volatility.atr
+execution_rules:
+  entry_logic:
+    type: smi_divergence
+    lookback_bars: 3
+    condition: pivot_divergence
+    long_condition: bullish_divergence_higher_smi_low
+    short_condition: bearish_divergence_lower_smi_high
+  exit_logic:
+    type: time_or_tp
+    max_bars: 5
+  stop_loss:
+    type: atr_multiple
+    multiple: 2.0
+  take_profit:
+    enabled: true
+    type: r_multiple
+    r_multiple: 1.0
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+trade_management:
+  direction_restriction: long_and_short
+  max_trades_per_session: 1
+  reentry:
+    allowed: false

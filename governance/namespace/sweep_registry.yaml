@@ -963,10 +963,6 @@ ideas:
           P05:
             directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P05
             signature_hash: aa7caf67a24045d4
-            reserved_at_utc: '2026-04-04T11:00:00.000000+00:00'
-          P05:
-            directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P05
-            signature_hash: aa7caf67a24045d4
             signature_hash_full: aa7caf67a24045d4091500fb39d9065ebcc5635220edce6116c69e7104f2b2a7
             reserved_at_utc: '2026-04-04T00:06:36.534231+00:00'
           P06:
@@ -977,9 +973,83 @@ ideas:
           P07:
             directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P07
             signature_hash: 2542c084d1ddeab0
-            reserved_at_utc: '2026-04-04T12:00:00.000000+00:00'
-          P07:
-            directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P07
-            signature_hash: 2542c084d1ddeab0
             signature_hash_full: 2542c084d1ddeab0d95f4905a930dc9a8970ac01cb326b42650cde36c2b52815
             reserved_at_utc: '2026-04-04T00:35:19.619100+00:00'
+  '29':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 29_MR_XAUUSD_1H_CMR_S01_V1_P00
+        signature_hash: 4b4989f91999e53a
+        signature_hash_full: 4b4989f91999e53aa8d88a8be90cf9a26de740c9b7d53eba5237812aa5f02e0b
+        reserved_at_utc: '2026-04-04T18:00:00.000000+00:00'
+        patches:
+          P01:
+            directive_name: 29_MR_XAUUSD_1H_CMR_S01_V1_P01
+            signature_hash: 607cdaf6e897226a
+            signature_hash_full: 607cdaf6e897226a5fd2d52c146272eb77755f51e95f46d91c273c16edb544be
+            reserved_at_utc: '2026-04-04T06:17:55.206810+00:00'
+        attempt: 2
+  '30':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 30_REV_XAUUSD_1H_SMI_S01_V1_P00
+        signature_hash: 33941dbfaeb34c05
+        signature_hash_full: 33941dbfaeb34c05109ca56c7ff363da2b0d5e0fdaf29af45c5367f9b482d859
+        reserved_at_utc: '2026-04-04T19:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+  '31':
+    next_sweep: 4
+    sweeps:
+      S01:
+        directive_name: 31_BRK_XAUUSD_1H_ATRSQZ_S01_V1_P00
+        signature_hash: a5d85803ccb464fc
+        signature_hash_full: a5d85803ccb464fc47c9b2f28211a05d8e8deeb785148e00967f044546fb132d
+        reserved_at_utc: '2026-04-04T20:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S02:
+        directive_name: 31_BRK_XAUUSD_30M_ATRSQZ_S02_V1_P00
+        signature_hash: a531c860fd8f0da7
+        signature_hash_full: a531c860fd8f0da7b9ef6a2a1af6d0cacf1bf9469de3e87e4d42280faf4751a9
+        reserved_at_utc: '2026-04-04T21:00:00.000000+00:00'
+        patches:
+          P01:
+            directive_name: 31_BRK_XAUUSD_30M_ATRSQZ_S02_V1_P01
+            signature_hash: 7b6d10c1f9d3d9a5
+            signature_hash_full: 7b6d10c1f9d3d9a5852d6c879ebcd199f03324a3186bd02af0da76f21e6e6bb9
+            reserved_at_utc: '2026-04-04T07:08:16.919955+00:00'
+        attempt: 2
+      S03:
+        directive_name: 31_BRK_XAUUSD_15M_ATRSQZ_S03_V1_P00
+        signature_hash: 14a071afe406c292
+        signature_hash_full: 14a071afe406c292190b55a965bd2aeb01e34c2953e4befb15d4cde008c5c0c3
+        reserved_at_utc: '2026-04-04T21:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+  '32':
+    next_sweep: 4
+    sweeps:
+      S01:
+        directive_name: 32_TREND_XAUUSD_1H_EMAXO_S01_V1_P00
+        signature_hash: 13ba5f9a5409bfaf
+        signature_hash_full: 13ba5f9a5409bfaf6a5ace54787ce4a67697ff7f49a6db48dfca5ac2d43acfc6
+        reserved_at_utc: '2026-04-04T22:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S02:
+        directive_name: 32_TREND_XAUUSD_30M_EMAXO_S02_V1_P00
+        signature_hash: 13ba5f9a5409bfaf
+        signature_hash_full: 13ba5f9a5409bfaf6a5ace54787ce4a67697ff7f49a6db48dfca5ac2d43acfc6
+        reserved_at_utc: '2026-04-04T22:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S03:
+        directive_name: 32_TREND_XAUUSD_15M_EMAXO_S03_V1_P00
+        signature_hash: 13ba5f9a5409bfaf
+        signature_hash_full: 13ba5f9a5409bfaf6a5ace54787ce4a67697ff7f49a6db48dfca5ac2d43acfc6
+        reserved_at_utc: '2026-04-04T22:00:00.000000+00:00'
+        patches: {}
+        attempt: 2

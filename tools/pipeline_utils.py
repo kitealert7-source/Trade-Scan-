@@ -462,10 +462,10 @@ class PipelineStateManager:
         data["history"].append({
             "from": old_state,
             "to": new_state,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
         data["current_state"] = new_state
-        data["last_transition"] = datetime.utcnow().isoformat() + "Z"
+        data["last_transition"] = datetime.now(timezone.utc).isoformat()
         
         self._write_atomic(data)
         

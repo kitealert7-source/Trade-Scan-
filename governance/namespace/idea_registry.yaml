@@ -219,3 +219,35 @@ ideas:
     role: entry_edge
     instruments: XAUUSD
     status: active
+  "29":
+    family: MR
+    title: London Close Mean Reversion — Session VWAP Fade Research Track
+    class: session_logic
+    regime: session
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "30":
+    family: REV
+    title: SMI Divergence Counter-Trend — Momentum Exhaustion Reversal
+    class: divergence_logic
+    regime: trending
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "31":
+    family: BRK
+    title: ATR Squeeze Breakout — Compression-to-Expansion Momentum
+    class: volatility_breakout
+    regime: low_volatility
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "32":
+    family: TREND
+    title: EMA Crossover — Baseline Trend Signal Evaluation
+    class: indicator_logic
+    regime: multi
+    role: entry_edge
+    instruments: XAUUSD
+    status: active

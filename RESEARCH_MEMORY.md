@@ -440,3 +440,78 @@ Implication:
 1. When a strategy works on one TF, test adjacent TFs as portfolio diversifiers. 15M added $254 PnL while reducing combined DD below 1H standalone.
 2. Same-instrument multi-TF portfolios should be evaluated as a unit -- individual metrics understate combined value.
 3. Temporal separation (24/210 overlap days) explains diversification: strategies rarely compete for the same price action.
+2026-04-04
+Tags:
+session_close
+mean_reversion
+vwap_fade
+exit_timing
+regime_dependency
+
+Strategy: 29_MR_XAUUSD_1H_CMR_S01
+Run IDs: ad3d27bf3d884a47398364d4, cbb5b0c79f00f51e9c6999f6
+
+Finding:
+London close VWAP fade (16:00 UTC, 1.5x ATR extension) does not produce a universal mean-reversion edge on XAUUSD 1H. P00 (VWAP TP): PF 0.64. P01 (0.5R fixed TP): PF 0.87. The pullback exists but is shallow (<0.5R) and regime-dependent: Short x High Vol (PF 2.44, 33T) and Long x Low Vol (PF 3.62, 18T) are the only viable cells.
+
+Evidence:
+P00->P01: PnL -$436 -> -$135, WR 41%->49%, DD $547->$376. TP hit rate stayed ~3% in both. Time exit bleed is the primary loss mechanism (70%->43%).
+
+Conclusion:
+The London close extension is not a session-anchored mean reversion -- it is a volatility-regime directional signal. Shorts work in high vol (institutional unwind), longs work in low vol (range compression snap). VWAP is not a valid TP anchor; extension remains a valid trigger.
+
+Implication:
+Do not pursue VWAP-based TP for session-close strategies. If revisiting, test as a regime-gated directional strategy (Short+HighVol only) with fixed 0.5R TP and 2-bar max hold. The 51-trade combined subset (~23/yr) needs at least 3 years of data to validate.
+2026-04-04
+Tags:
+SMI
+divergence
+direction_asymmetry
+counter_trend
+XAUUSD
+1H
+
+Strategy: 30_REV_XAUUSD_1H_SMI_S01
+Run IDs: c983098dd875e9fa0ced28a0
+
+Finding:
+SMI pivot divergence on XAUUSD 1H produces strong directional asymmetry: longs PF 1.04 (92T, +$27), shorts PF 0.51 (152T, -$723). Bearish divergence fires 66% more often but wins only 41% vs 61% for bullish. Zero TP exits (0/244) at 1.0R target.
+
+Evidence:
+Long x Normal Vol: PF 5.71 but only 20T (statistically fragile). Long x WeakUp: PF 1.73, 31T. Short x any cell: PF <= 0.78 except StrongDn (PF 1.07, 14T). 36% of time exits had MFE >= 0.5R.
+
+Conclusion:
+Signal shows directional asymmetry; long-side behavior may contain weak edge but not yet validated. Bullish divergence aligns with mean-reverting behavior after downside exhaustion, while bearish divergence conflicts with persistent upward drift and continuation bias in XAUUSD. Reversal magnitude is insufficient to reach 1.0R within observed holding window, indicating shallow counter-moves rather than full reversals.
+
+Implication:
+P01 should test longs only + 0.5R TP to match observed MFE distribution. If long-only PF stays near 1.0 after TP change, the divergence signal lacks sufficient edge for deployment. The bottom-detection asymmetry may generalize to other trending instruments -- worth testing on indices if validated here.
+
+---
+
+### Entry: Family 31 — BRK XAUUSD ATRSQZ — Cross-Timeframe Finding
+Tags: ATRSQZ, family-31, cross-timeframe, XAUUSD
+Date: 2026-04-04
+Strategies: S01_P00 (1H), S02_P00 (30M), S02_P01 (30M long-only), S03_P00 (15M)
+
+Finding:
+The ATR squeeze breakout strategy is the only tested class on XAUUSD showing stable expectancy across timeframes and regimes, with edge entirely driven by long-side expansion; short-side participation is structurally invalid.
+
+---
+
+### Entry: Family 32 — TREND XAUUSD EMAXO — Regime Filter Meta-Insight
+Tags: EMAXO, family-32, regime-filters, meta-insight, XAUUSD
+Date: 2026-04-04
+Strategies: S01_P00 (1H), S02_P00 (30M), S03_P00 (15M)
+Run IDs: 732772dc867e82892dc92d50, a8cafb275069f1bb5e1a1583, a3f73d2563dbd9bcabdffde9
+
+Finding:
+EMA(10/30) crossover on XAUUSD produces no raw edge (PF 0.83-1.13 across 15M/30M/1H). Conditional profitability appears in specific regime intersections, but is attributable to underlying market structure rather than the crossover signal. EMA crossover demonstrates that regime filters do not create edge but can isolate conditions where weak signals align with underlying market behavior. The observed edge in Long x WeakDn (PF 1.93-2.05, 36-99T) is not attributable to the crossover itself but to a broader pattern of mean-reverting bounces after trend exhaustion.
+
+Evidence:
+Unfiltered PF: 1H 1.13, 30M 0.83, 15M 1.08. Long x WeakDn isolated: 1H PF 2.05 (36T, $193), 15M PF 1.93 (99T, $335). Short x StrongUp consistently PF 0.38-0.43 across all TFs.
+
+Conclusion:
+This experiment confirms that filter stacks are effective for segmentation and analysis, but not for transforming non-edge signals into robust strategies. Regime-conditioned profitability in a weak signal reflects the regime's own behavior, not the signal's predictive power.
+
+Implication:
+When evaluating new signal classes, raw unfiltered PF < 1.0 should disqualify the signal before regime decomposition. Regime filters should refine existing edge, not rescue absent edge. The Long x WeakDn pattern may generalize as a structural feature of XAUUSD rather than a signal-specific finding -- future strategies showing this cell as dominant should be scrutinized for false attribution.
