@@ -270,6 +270,14 @@ PORTFOLIO_COLUMN_ORDER = [
     "constituent_run_ids",
 ]
 
+# Display-only header renames for portfolio profile.
+# Column keys in DataFrames and code stay unchanged — this only affects
+# what the user sees in the Excel header row.
+PORTFOLIO_HEADER_DISPLAY = {
+    "sharpe": "sharpe (ann.)",
+    "equity_stability_k_ratio": "k_ratio (log)",
+}
+
 # ==========================================================
 # LOGIC
 # ==========================================================
@@ -359,7 +367,11 @@ def apply_formatting(file_path, profile):
                 cell = ws.cell(row=1, column=col_idx)
                 val = str(cell.value).lower().strip() if cell.value else ""
                 col_map[col_idx] = val
-                
+
+                # Portfolio profile: display-only header renames
+                if profile == "portfolio" and val in PORTFOLIO_HEADER_DISPLAY:
+                    cell.value = PORTFOLIO_HEADER_DISPLAY[val]
+
                 # Header Styling
                 cell.font = header_font
                 cell.fill = header_fill
@@ -482,6 +494,25 @@ def apply_formatting(file_path, profile):
             if max_col >= 1 and max_row >= 1:
                 ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
         
+        # Portfolio profile: add a "Notes" sheet with metric clarifications.
+        # Helps when the sheet is exported, viewed out of context, or shared externally.
+        if profile == "portfolio":
+            notes_name = "Notes"
+            if notes_name in wb.sheetnames:
+                del wb[notes_name]
+            ns = wb.create_sheet(notes_name)
+            notes_lines = [
+                "Metric Notes — Portfolio Sheet",
+                "",
+                "Sharpe: daily-return based, annualized (x sqrt(252)). Stage 2 Sharpe is trade-level (mean PnL / stdev), non-annualized. Values are not comparable.",
+                "K-Ratio: computed on log(daily equity). Stage 2 K-Ratio uses cumulative trade PnL (linear). Values are not comparable.",
+                "max_dd_pct: decimal fraction (0..1), negative sign. Filter sheets use positive 0..100 scale.",
+            ]
+            for row_idx, line in enumerate(notes_lines, start=1):
+                ns.cell(row=row_idx, column=1, value=line)
+            ns.cell(row=1, column=1).font = Font(bold=True)
+            ns.column_dimensions["A"].width = 120
+
         wb.save(path)
         print("[SUCCESS] Formatting complete.")
         

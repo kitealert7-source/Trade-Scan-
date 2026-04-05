@@ -221,6 +221,8 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
     # Return/DD
     return_dd = abs(net_pnl / max_dd_usd) if max_dd_usd != 0 else 0.0
 
+    # NOTE: 'sharpe' here is DAILY RETURN BASED and ANNUALIZED (sqrt(252) scaling).
+    # This is NOT comparable to trade-level Sharpe in Stage 2 (mean(trade_pnl)/stdev).
     # Sharpe (annualized from daily returns)
     equity_series = portfolio_equity.shift(1)
     # Avoid division by zero/NaN at start
@@ -244,6 +246,9 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
     else:
         sortino = 0.0
 
+    # NOTE: 'equity_stability_k_ratio' is computed on LOG DAILY EQUITY.
+    # Stage 2 K-Ratio is based on cumulative TRADE PnL (linear).
+    # Values are not comparable.
     # K-Ratio (slope of log equity / std error)
     log_eq = np.log(portfolio_equity.values)
     x = np.arange(len(log_eq))

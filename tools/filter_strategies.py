@@ -156,15 +156,19 @@ def filter_strategies():
     total_eval_runs = len(df)
     
     # Relaxed Criteria (User Proposed)
-    # Note: Max DD is typically negative in internal sheets (e.g. -0.15 for 15% DD)
-    # The user threshold "Max DD <= 80%" means the number should be >= -80.0 (or >= -0.80)
+    # max_dd_pct is stored as a POSITIVE percentage (0..100) in the Master Filter.
+    # E.g. 3.18 means 3.18% drawdown.  Threshold: exclude strategies with DD > 80%.
+    _dd_col = pd.to_numeric(df['max_dd_pct'], errors='coerce').fillna(0.0)
+    assert (_dd_col >= 0).all(), (
+        f"SIGN_GUARD: max_dd_pct contains negative values — expected positive 0..100 scale"
+    )
     mask = (
         (df['total_trades'] >= 40) &
         (df['profit_factor'] >= 1.05) &
         (df['return_dd_ratio'] >= 0.6) &
         (df['expectancy'] >= 0.0) &
         (df['sharpe_ratio'] >= 0.3) &
-        (df['max_dd_pct'] >= -80.0) 
+        (_dd_col <= 80.0)
     )
 
     passed_df = df[mask].copy()
