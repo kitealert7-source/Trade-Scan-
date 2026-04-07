@@ -324,6 +324,29 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
                     )
                     break  # one insight is enough
 
+    # --- 8. Regime age gradient ---
+    if "regime_age" in df.columns and "pnl_usd" in df.columns:
+        from tools.metrics_core import compute_regime_age_breakdown
+        age_rows = compute_regime_age_breakdown(df.to_dict("records"))
+        qualified = [r for r in age_rows if r["trades"] >= 10]
+        if len(qualified) >= 2:
+            best = max(qualified, key=lambda r: r["profit_factor"])
+            worst = min(qualified, key=lambda r: r["profit_factor"])
+            gap = best["profit_factor"] - worst["profit_factor"]
+            if gap >= 0.5:
+                _age_min_t = min(best["trades"], worst["trades"])
+                _age_weight = min(1.0, _age_min_t / 30)
+                if worst["profit_factor"] < 1.0 and worst["net_pnl"] < 0:
+                    action = "exclusion candidate"
+                else:
+                    action = "weaker bucket"
+                scored.append(
+                    (gap * _age_weight,
+                     f"Regime age gradient ({_conf_tag(_age_min_t)}): "
+                     f"{best['label']} PF {best['profit_factor']:.2f} ({best['trades']}T) vs "
+                     f"{worst['label']} PF {worst['profit_factor']:.2f} ({worst['trades']}T, ${worst['net_pnl']:.0f}) — {action}")
+                )
+
     # Sort by strength (descending) and extract text
     scored.sort(key=lambda x: -x[0])
     insights = [text for _, text in scored]
@@ -376,6 +399,7 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
     risk_data_list = []  # Collect per-symbol risk rows for aggregation
     vol_data = []
     trend_data = []
+    age_data = []
     session_data = []
     all_trades_dfs = []
 
@@ -535,6 +559,20 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
 
         vol_data.append({"Symbol": symbol, "High": h_vol, "Normal": n_vol, "Low": l_vol, "High_T": h_vol_t, "Normal_T": n_vol_t, "Low_T": l_vol_t})
         trend_data.append({"Symbol": symbol, "StrongUp": s_up, "WeakUp": w_up, "Neutral": neu, "WeakDn": w_dn, "StrongDn": s_dn, "StrongUp_T": s_up_t, "WeakUp_T": w_up_t, "Neutral_T": neu_t, "WeakDn_T": w_dn_t, "StrongDn_T": s_dn_t})
+
+        # Regime Lifecycle (Age) breakdown
+        if tdf is not None and len(tdf) > 0 and 'regime_age' in tdf.columns and 'pnl_usd' in tdf.columns:
+            from tools.metrics_core import compute_regime_age_breakdown
+            trade_dicts = tdf.to_dict('records')
+            age_rows = compute_regime_age_breakdown(trade_dicts)
+            age_entry = {"Symbol": symbol}
+            for r in age_rows:
+                key = r["label"].replace(" ", "_").replace("-", "_").replace("+", "plus")
+                age_entry[f"{key}_T"] = r["trades"]
+                age_entry[f"{key}_PnL"] = r["net_pnl"]
+                age_entry[f"{key}_PF"] = r["profit_factor"]
+                age_entry[f"{key}_WR"] = r["win_rate"]
+            age_data.append(age_entry)
 
         # Session breakdown (computed from trade-level entry_timestamp)
         asia_pnl = 0.0; london_pnl = 0.0; ny_pnl = 0.0
@@ -736,6 +774,23 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
     for row in trend_data:
         md.append(f"| {row['Symbol']} | T:{row['StrongUp_T']} ${row['StrongUp']:.2f} | T:{row['WeakUp_T']} ${row['WeakUp']:.2f} | T:{row['Neutral_T']} ${row['Neutral']:.2f} | T:{row['WeakDn_T']} ${row['WeakDn']:.2f} | T:{row['StrongDn_T']} ${row['StrongDn']:.2f} |")
     md.append("\n---\n")
+
+    if age_data:
+        md.append("## Regime Lifecycle (Age)\n")
+        _age_buckets = ["Age_0", "Age_1", "Age_2", "Age_3_5", "Age_6_10", "Age_11plus"]
+        _age_labels = ["Age 0", "Age 1", "Age 2", "Age 3-5", "Age 6-10", "Age 11+"]
+        md.append("| Symbol | " + " | ".join(_age_labels) + " |")
+        md.append("|--------" + "|-------" * len(_age_labels) + "|")
+        for row in age_data:
+            cells = []
+            for bk in _age_buckets:
+                t = row.get(f"{bk}_T", 0)
+                pnl = row.get(f"{bk}_PnL", 0.0)
+                pf = row.get(f"{bk}_PF", 0.0)
+                wr = row.get(f"{bk}_WR", 0.0)
+                cells.append(f"T:{t} ${pnl:.2f} PF:{pf:.2f} WR:{wr:.0f}%")
+            md.append(f"| {row['Symbol']} | " + " | ".join(cells) + " |")
+        md.append("\n---\n")
 
     # --- Session Breakdown ---
     md.append("## Session Breakdown\n")

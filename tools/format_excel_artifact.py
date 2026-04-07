@@ -107,7 +107,7 @@ FORMAT_MAP = {
     "gross_profit": FMT_CURRENCY,
     "gross_loss": FMT_CURRENCY,
     "max_dd_usd": FMT_CURRENCY,
-    "max_dd_pct": FMT_PERCENT,
+    "max_dd_pct": FMT_PCT_RAW,
     "win_rate": FMT_PCT_RAW,
     "sharpe": FMT_FLOAT,
     "profit_factor": FMT_FLOAT,
@@ -144,7 +144,13 @@ FORMAT_MAP = {
     "portfolio_net_profit_high_vol": FMT_CURRENCY,
     "exposure_pct": FMT_PCT_RAW,
     "equity_stability_k_ratio": FMT_FLOAT,
-    "expectancy": FMT_CURRENCY
+    "expectancy": FMT_CURRENCY,
+
+    # Single-Asset Composites — Regime-Aware Metrics
+    "n_strategies": FMT_INT,
+    "activation_rate_pct": FMT_PCT_RAW,
+    "regime_blocked_trades": FMT_INT,
+    "blocked_pnl_raw": FMT_CURRENCY,
 }
 
 # Hidden Columns (SOP Auditing Fields)
@@ -156,12 +162,12 @@ HIDDEN_COLS = {
     "creation_timestamp",
     "timestamp",
     "source_strategy",   # Redundant with portfolio_id
+    "parsed_fields",     # JSON blob — machine-readable, not for visual inspection
 }
 
 # Columns with short text values — override text width logic to be data-driven (universal)
 NARROW_TEXT_COLS = {
     "signal_timeframes",
-    "evaluation_timeframe",
     "portfolio_engine_version",
     "timeframe",
 }
@@ -225,8 +231,9 @@ STRATEGY_COLUMN_ORDER = [
     "trades_strong_down",
 ]
 
-# Portfolio Ledger — Preferred Column Order
+# Portfolio Ledger — Preferred Column Orders
 # Keep rank out of canonical order so reference_capital remains column C.
+# Multi-asset ("Portfolios" tab)
 PORTFOLIO_COLUMN_ORDER = [
     "portfolio_id",
     "source_strategy",
@@ -264,7 +271,57 @@ PORTFOLIO_COLUMN_ORDER = [
     "portfolio_net_profit_normal_vol",
     "portfolio_net_profit_high_vol",
     "signal_timeframes",
-    "evaluation_timeframe",
+    "parsed_fields",
+    "portfolio_engine_version",
+    "creation_timestamp",
+    "constituent_run_ids",
+]
+
+# Single-asset ("Single-Asset Composites" tab)
+# Drops correlation columns (meaningless for single asset).
+# Adds regime-aware metrics + n_strategies.
+SINGLE_ASSET_COLUMN_ORDER = [
+    "portfolio_id",
+    "source_strategy",
+    "reference_capital_usd",
+    "portfolio_status",
+    "n_strategies",
+    "trade_density",
+    "profile_trade_density",
+    "theoretical_pnl",
+    "realized_pnl",
+    "sharpe",
+    "max_dd_pct",
+    "return_dd_ratio",
+    "win_rate",
+    "profit_factor",
+    "expectancy",
+    "total_trades",
+    "exposure_pct",
+    "equity_stability_k_ratio",
+    "deployed_profile",
+    "realized_pnl_usd",
+    "trades_accepted",
+    "trades_rejected",
+    "rejection_rate_pct",
+    "realized_vs_theoretical_pnl",
+    "peak_capital_deployed",
+    "capital_overextension_ratio",
+    "avg_concurrent",
+    "max_concurrent",
+    "p95_concurrent",
+    "dd_max_concurrent",
+    "full_load_cluster",
+    "readable_alias",
+    "regime_gate_enabled",
+    "activation_rate_pct",
+    "regime_blocked_trades",
+    "blocked_pnl_raw",
+    "portfolio_net_profit_low_vol",
+    "portfolio_net_profit_normal_vol",
+    "portfolio_net_profit_high_vol",
+    "signal_timeframes",
+    "parsed_fields",
     "portfolio_engine_version",
     "creation_timestamp",
     "constituent_run_ids",
@@ -298,49 +355,79 @@ def apply_formatting(file_path, profile):
         xl = pd.ExcelFile(path)
         sheet_names = xl.sheet_names
 
-        if len(sheet_names) == 1:
-            sheet_name = sheet_names[0]
-            df = pd.read_excel(path, sheet_name=sheet_name)
+        # Portfolio workbooks may have multiple data sheets (Portfolios,
+        # Single-Asset Composites) — process each independently.
+        _PORTFOLIO_DATA_SHEETS = {"Portfolios", "Single-Asset Composites"}
+        _is_portfolio_multi = (profile == "portfolio"
+                               and any(s in _PORTFOLIO_DATA_SHEETS for s in sheet_names))
 
-            # --- Sort by return_dd_ratio (descending) ---
-            sort_col = None
-            if profile == "strategy" and "return_dd_ratio" in df.columns:
-                sort_col = "return_dd_ratio"
-            elif profile == "portfolio" and "return_dd_ratio" in df.columns:
-                sort_col = "return_dd_ratio"
+        if _is_portfolio_multi or len(sheet_names) == 1:
+            # Determine which sheets to process
+            if _is_portfolio_multi:
+                _sheets_to_process = [s for s in sheet_names
+                                      if s in _PORTFOLIO_DATA_SHEETS]
+            else:
+                _sheets_to_process = [sheet_names[0]]
 
-            if sort_col:
-                df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce")
-                df = df.sort_values(by=sort_col, ascending=False, na_position="last")
-                df = df.reset_index(drop=True)
+            _all_dfs = {}  # sheet_name -> processed df
+            # Load non-data sheets (Notes, etc.) for preservation
+            _preserve_sheets = [s for s in sheet_names
+                                if s not in _PORTFOLIO_DATA_SHEETS
+                                and (_is_portfolio_multi or s != sheet_names[0])]
 
-                # Add/update rank column (1-based)
-                if "rank" not in df.columns:
-                    df.insert(0, "rank", range(1, len(df) + 1))
-                else:
-                    df["rank"] = range(1, len(df) + 1)
-                print(f"  [RANKED] Sorted by {sort_col} descending ({len(df)} rows)")
+            for sheet_name in _sheets_to_process:
+                df = pd.read_excel(path, sheet_name=sheet_name)
 
-            # --- Column Reorder ---
-            col_order = None
-            if profile == "strategy" and STRATEGY_COLUMN_ORDER:
-                # Prepend rank to the order
-                col_order = ["rank"] + STRATEGY_COLUMN_ORDER
-            elif profile == "portfolio" and PORTFOLIO_COLUMN_ORDER:
-                col_order = PORTFOLIO_COLUMN_ORDER
+                # --- Sort by return_dd_ratio (descending) ---
+                sort_col = None
+                if "return_dd_ratio" in df.columns:
+                    sort_col = "return_dd_ratio"
 
-            if col_order:
-                existing = df.columns.tolist()
-                ordered = [c for c in col_order if c in existing]
-                remaining = [c for c in existing if c not in ordered]
-                new_order = ordered + remaining
-                if new_order != existing:
-                    df = df[new_order]
-                    print(f"  [REORDER] Columns reordered ({len(ordered)} matched, {len(remaining)} appended)")
+                if sort_col:
+                    df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce")
+                    df = df.sort_values(by=sort_col, ascending=False, na_position="last")
+                    df = df.reset_index(drop=True)
 
-            # Save back while preserving the original sheet name.
+                    # Add/update rank column (1-based, independent per sheet)
+                    if "rank" not in df.columns:
+                        df.insert(0, "rank", range(1, len(df) + 1))
+                    else:
+                        df["rank"] = range(1, len(df) + 1)
+                    print(f"  [RANKED] {sheet_name}: Sorted by {sort_col} descending ({len(df)} rows)")
+
+                # --- Column Reorder ---
+                col_order = None
+                if profile == "strategy" and STRATEGY_COLUMN_ORDER:
+                    col_order = ["rank"] + STRATEGY_COLUMN_ORDER
+                elif profile == "portfolio":
+                    if sheet_name == "Single-Asset Composites":
+                        col_order = SINGLE_ASSET_COLUMN_ORDER
+                    else:
+                        col_order = PORTFOLIO_COLUMN_ORDER
+
+                if col_order:
+                    existing = df.columns.tolist()
+                    ordered = [c for c in col_order if c in existing]
+                    remaining = [c for c in existing if c not in ordered]
+                    new_order = ordered + remaining
+                    if new_order != existing:
+                        df = df[new_order]
+                        print(f"  [REORDER] {sheet_name}: Columns reordered ({len(ordered)} matched, {len(remaining)} appended)")
+
+                _all_dfs[sheet_name] = df
+
+            # Save all processed sheets back.
             with pd.ExcelWriter(path, engine="openpyxl", mode="w") as writer:
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                for sname, sdf in _all_dfs.items():
+                    sdf.to_excel(writer, sheet_name=sname, index=False)
+                # Preserve non-data sheets (will be re-created by notes pass, but
+                # keep existing content if notes pass doesn't run)
+                for ps in _preserve_sheets:
+                    try:
+                        pdf = pd.read_excel(xl, sheet_name=ps)
+                        pdf.to_excel(writer, sheet_name=ps, index=False)
+                    except Exception:
+                        pass
         else:
             print(f"  [INFO] Pre-processing skipped (multi-sheet workbook: {len(sheet_names)} sheets)")
     except Exception as e:
@@ -354,8 +441,11 @@ def apply_formatting(file_path, profile):
         header_font = Font(bold=True, color=HEADER_FONT_COLOR)
         alt_row_fill = PatternFill(start_color=ALT_ROW_FILL_COLOR, end_color=ALT_ROW_FILL_COLOR, fill_type="solid")
         
-        # Iterate over ALL sheets
+        # Iterate over ALL sheets (skip Notes — managed by --notes-type)
         for ws in wb.worksheets:
+            if ws.title == "Notes":
+                print(f"  [INFO] Skipping sheet: {ws.title} (managed by --notes-type)")
+                continue
             print(f"  [INFO] Processing sheet: {ws.title}")
             
             # 1. Header & Column ID Mapping
@@ -368,9 +458,13 @@ def apply_formatting(file_path, profile):
                 val = str(cell.value).lower().strip() if cell.value else ""
                 col_map[col_idx] = val
 
-                # Portfolio profile: display-only header renames
+                # Portfolio profile: add clarification comments (NOT renames —
+                # renaming headers causes column-name collisions when the evaluator
+                # appends new rows with the canonical column names).
                 if profile == "portfolio" and val in PORTFOLIO_HEADER_DISPLAY:
-                    cell.value = PORTFOLIO_HEADER_DISPLAY[val]
+                    from openpyxl.comments import Comment
+                    note = {"sharpe": "Annualized (x √252)", "equity_stability_k_ratio": "Computed on log(daily equity)"}
+                    cell.comment = Comment(note.get(val, PORTFOLIO_HEADER_DISPLAY[val]), "System")
 
                 # Header Styling
                 cell.font = header_font
@@ -489,29 +583,73 @@ def apply_formatting(file_path, profile):
                     ws.add_data_validation(dv)
                     print(f"    [DROPDOWN] {col_name} (col {col_letter}): {options}")
 
+            # 6. Portfolio composition comments on column A (portfolio_id)
+            if profile == "portfolio" and col_map.get(1, "") == "portfolio_id":
+                import json as _json, re as _re, csv as _csv
+                from openpyxl.comments import Comment as _Comment
+                _strat_root = path.parent
+                _commented = 0
+                for row_idx in range(2, max_row + 1):
+                    pid = str(ws.cell(row=row_idx, column=1).value or "")
+                    if not pid:
+                        continue
+                    _eval_dir = _strat_root / pid / "portfolio_evaluation"
+                    _assets = None
+                    # Source 1: evaluated_assets from metadata/summary JSON
+                    for _fname in ("portfolio_metadata.json", "portfolio_summary.json"):
+                        _fp = _eval_dir / _fname
+                        if _fp.exists():
+                            try:
+                                with open(_fp, encoding="utf-8") as _f:
+                                    _d = _json.load(_f)
+                                _assets = _d.get("evaluated_assets")
+                                if _assets:
+                                    break
+                            except Exception:
+                                pass
+                    # Source 2: extract from trade-level CSV strategy_name (symbol = last segment)
+                    if not _assets:
+                        _tl = _eval_dir / "portfolio_tradelevel.csv"
+                        if _tl.exists():
+                            try:
+                                import pandas as _pd
+                                _tdf = _pd.read_csv(_tl, usecols=["strategy_name"])
+                                _syms = set()
+                                for _sn in _tdf["strategy_name"].dropna().unique():
+                                    _last = str(_sn).split("_")[-1]
+                                    if _re.match(r"^[A-Za-z0-9]{4,}$", _last):
+                                        _syms.add(_last.upper())
+                                if _syms:
+                                    _assets = sorted(_syms)
+                            except Exception:
+                                pass
+                    if _assets and isinstance(_assets, list):
+                        _text = " | ".join(str(a).upper() for a in _assets)
+                        ws.cell(row=row_idx, column=1).comment = _Comment(_text, "System")
+                        _commented += 1
+                print(f"    [COMMENTS] Portfolio composition added to column A ({_commented}/{max_row - 1} rows)")
+
             # 4. Freeze Header (and column A for portfolio — keeps portfolio_id visible)
             ws.freeze_panes = "B2" if profile == "portfolio" else "A2"
             if max_col >= 1 and max_row >= 1:
                 ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
         
-        # Portfolio profile: add a "Notes" sheet with metric clarifications.
-        # Helps when the sheet is exported, viewed out of context, or shared externally.
+        # Portfolio profile: preserve existing Notes sheet if present (generated by
+        # --notes-type portfolio). Only create the legacy 4-line Notes if none exists.
         if profile == "portfolio":
-            notes_name = "Notes"
-            if notes_name in wb.sheetnames:
-                del wb[notes_name]
-            ns = wb.create_sheet(notes_name)
-            notes_lines = [
-                "Metric Notes — Portfolio Sheet",
-                "",
-                "Sharpe: daily-return based, annualized (x sqrt(252)). Stage 2 Sharpe is trade-level (mean PnL / stdev), non-annualized. Values are not comparable.",
-                "K-Ratio: computed on log(daily equity). Stage 2 K-Ratio uses cumulative trade PnL (linear). Values are not comparable.",
-                "max_dd_pct: decimal fraction (0..1), negative sign. Filter sheets use positive 0..100 scale.",
-            ]
-            for row_idx, line in enumerate(notes_lines, start=1):
-                ns.cell(row=row_idx, column=1, value=line)
-            ns.cell(row=1, column=1).font = Font(bold=True)
-            ns.column_dimensions["A"].width = 120
+            if "Notes" not in wb.sheetnames:
+                ns = wb.create_sheet("Notes")
+                notes_lines = [
+                    "Metric Notes — Portfolio Sheet",
+                    "",
+                    "Sharpe: daily-return based, annualized (x sqrt(252)). Stage 2 Sharpe is trade-level (mean PnL / stdev), non-annualized. Values are not comparable.",
+                    "K-Ratio: computed on log(daily equity). Stage 2 K-Ratio uses cumulative trade PnL (linear). Values are not comparable.",
+                    "max_dd_pct: decimal fraction (0..1), negative sign. Filter sheets use positive 0..100 scale.",
+                ]
+                for row_idx, line in enumerate(notes_lines, start=1):
+                    ns.cell(row=row_idx, column=1, value=line)
+                ns.cell(row=1, column=1).font = Font(bold=True)
+                ns.column_dimensions["A"].width = 120
 
         wb.save(path)
         print("[SUCCESS] Formatting complete.")
@@ -520,14 +658,335 @@ def apply_formatting(file_path, profile):
         print(f"[FATAL] Formatting failed: {e}")
         sys.exit(1)
 
+def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
+    """
+    Append a 'Notes' sheet to an aggregate ledger Excel file.
+
+    sheet_type:
+      "master_filter" — Strategy_Master_Filter.xlsx (Stage-3 raw aggregation)
+      "candidates"    — Filtered_Strategies_Passed.xlsx (promotion-filtered + classified)
+      "portfolio"     — Master_Portfolio_Sheet.xlsx (multi-symbol portfolio evaluations)
+
+    Thresholds are sourced from:
+      candidates  → filter_strategies._compute_candidate_status() and mask
+      portfolio   → portfolio_evaluator._compute_portfolio_status()
+    No logic is redefined; constants are reproduced here for display only.
+    """
+    from openpyxl import load_workbook
+
+    # ── Classification thresholds per sheet type ──────────────────────────────
+    # candidates: promotion mask (filter_strategies.py lines 165–172)
+    PROMO_MIN_TRADES   = 40
+    PROMO_MIN_PF       = 1.05
+    PROMO_MIN_RET_DD   = 0.6
+    PROMO_MIN_EXP      = 0.0
+    PROMO_MIN_SHARPE   = 0.3
+    PROMO_MAX_DD_PCT   = 80.0
+
+    # candidates: candidate_status rules (filter_strategies._compute_candidate_status)
+    CAND_FAIL_TRADES   = 50
+    CAND_FAIL_DD       = 40.0
+    CAND_FAIL_EXP_FX   = 0.15   # FX expectancy FAIL gate (USD/trade)
+    CAND_FAIL_EXP_XAU  = 0.50   # XAU expectancy FAIL gate (3.3x FX)
+    CAND_FAIL_EXP_BTC  = 0.50   # BTC/crypto expectancy FAIL gate (3.3x FX)
+    CAND_FAIL_EXP_IDX  = 0.50   # INDEX expectancy FAIL gate (3.0-3.8x FX)
+    CAND_CORE_TRADES   = 200
+    CAND_CORE_RET_DD   = 2.0
+    CAND_CORE_SHARPE   = 1.5
+    CAND_CORE_MAX_DD   = 30.0
+    CAND_CORE_DENSITY  = 50
+    CAND_CORE_PF       = 1.25
+
+    # portfolio: portfolio_status rules (portfolio_evaluator._compute_portfolio_status)
+    PORT_FAIL_PNL      = 0.0
+    PORT_FAIL_TRADES   = 50
+    PORT_FAIL_EXP_FX   = 0.15   # Same gates as candidates (min-lot basis)
+    PORT_FAIL_EXP_XAU  = 0.50
+    PORT_FAIL_EXP_BTC  = 0.50
+    PORT_FAIL_EXP_IDX  = 0.50
+    PORT_CORE_PNL      = 1000.0
+    PORT_CORE_TRADES   = 200
+    PORT_CORE_REJ_MAX  = 30.0
+
+    try:
+        wb = load_workbook(file_path)
+    except Exception as e:
+        print(f"[WARN] Notes sheet skipped — cannot open {file_path}: {e}")
+        return
+
+    if "Notes" in wb.sheetnames:
+        del wb["Notes"]
+    ws = wb.create_sheet("Notes")
+
+    bold   = Font(bold=True, size=10)
+    header = Font(bold=True, size=11)
+    normal = Font(size=10)
+
+    r = 1
+
+    def _w(row, col, value, font=None):
+        c = ws.cell(row=row, column=col, value=value)
+        if font:
+            c.font = font
+
+    # ── Section 1: Sheet Purpose ──────────────────────────────────────────────
+    _w(r, 1, "SECTION 1 — SHEET PURPOSE", header); r += 1
+
+    if sheet_type == "master_filter":
+        _w(r, 1,
+           "Strategy_Master_Filter.xlsx — Raw Stage-3 aggregation of all completed backtest runs. "
+           "Every run that completes Stage 1→3 is written here. No promotion filter applied. "
+           "Rows are keyed by run_id and are append-only (existing rows never modified).",
+           normal); r += 2
+
+    elif sheet_type == "candidates":
+        _w(r, 1,
+           "Filtered_Strategies_Passed.xlsx — Candidate ledger. Contains all strategies that passed "
+           "the promotion criteria gate. Rows are append-only (strategies that once passed are "
+           "never evicted). Each row carries a candidate_status classification.",
+           normal); r += 2
+
+    elif sheet_type == "portfolio":
+        _w(r, 1,
+           "Master_Portfolio_Sheet.xlsx — Portfolio evaluation ledger. Two data tabs: "
+           "'Portfolios' (multi-asset, 2+ symbols) and 'Single-Asset Composites' "
+           "(single symbol, multiple strategies). Each row is evaluated through the "
+           "capital wrapper and deployed profile selector. Append-only; explicit human "
+           "authorization required to modify an existing entry. "
+           "Rankings are independent per tab — scores are not compared across types.",
+           normal); r += 2
+
+    # ── Section 2: Inclusion / Promotion Criteria ─────────────────────────────
+    _w(r, 1, "SECTION 2 — INCLUSION CRITERIA", header); r += 1
+    _w(r, 1, "Condition", bold); _w(r, 2, "Threshold", bold); r += 1
+
+    if sheet_type == "master_filter":
+        for cond, val in [
+            ("All Stage-3 completed runs",          "No filter — everything included"),
+            ("Deduplication key",                   "run_id (one row per backtest run)"),
+            ("Row mutation policy",                 "Append-only — rows never modified after write"),
+        ]:
+            _w(r, 1, cond, normal); _w(r, 2, val, normal); r += 1
+
+    elif sheet_type == "candidates":
+        for cond, val in [
+            ("Total Trades",         f">= {PROMO_MIN_TRADES}"),
+            ("Profit Factor",        f">= {PROMO_MIN_PF}"),
+            ("Return / DD Ratio",    f">= {PROMO_MIN_RET_DD}"),
+            ("Expectancy (USD)",     f">= {PROMO_MIN_EXP}"),
+            ("Sharpe Ratio",         f">= {PROMO_MIN_SHARPE}"),
+            ("Max Drawdown (%)",     f"<= {PROMO_MAX_DD_PCT:.0f}%"),
+        ]:
+            _w(r, 1, cond, normal); _w(r, 2, val, normal); r += 1
+
+    elif sheet_type == "portfolio":
+        for cond, val in [
+            ("All strategies evaluated through Stage 4+",  "No promotion filter"),
+            ("Deduplication key",                          "portfolio_id (append-only)"),
+            ("Overwrite policy",                           "BLOCKED — requires explicit human authorization"),
+        ]:
+            _w(r, 1, cond, normal); _w(r, 2, val, normal); r += 1
+    r += 1
+
+    # ── Section 3: Classification Rules ───────────────────────────────────────
+    _w(r, 1, "SECTION 3 — CLASSIFICATION RULES", header); r += 1
+
+    if sheet_type in ("master_filter", "candidates"):
+        _w(r, 1, "candidate_status", bold); r += 1
+        _w(r, 1, "Class", bold); _w(r, 2, "Rule", bold); r += 1
+        for cls, rule in [
+            ("FAIL",
+             f"Total Trades < {CAND_FAIL_TRADES}  OR  Max Drawdown (%) > {CAND_FAIL_DD:.0f}  "
+             f"OR  expectancy below asset-class gate"),
+            ("",
+             f"  Expectancy FAIL gates (logic-driven from broker spread/slippage ratios):  "
+             f"FX < ${CAND_FAIL_EXP_FX}  |  XAU < ${CAND_FAIL_EXP_XAU}  |  BTC < ${CAND_FAIL_EXP_BTC}  |  INDEX < ${CAND_FAIL_EXP_IDX}"),
+            ("CORE",
+             f"Total Trades >= {CAND_CORE_TRADES}  AND  Return/DD >= {CAND_CORE_RET_DD}  AND  Sharpe >= {CAND_CORE_SHARPE}  AND  Max DD <= {CAND_CORE_MAX_DD:.0f}%  AND  Trade Density >= {CAND_CORE_DENSITY}  AND  PF >= {CAND_CORE_PF}  (and not FAIL)"),
+            ("WATCH",
+             "Does not meet CORE criteria; not FAIL; not present in TS_Execution/portfolio.yaml"),
+            ("BURN_IN",
+             "Present in TS_Execution/portfolio.yaml with enabled=true — overrides computed status. "
+             "BURN_IN promotion thresholds: FX >= $0.25  |  XAU >= $0.80  |  BTC >= $0.80  |  INDEX >= $0.80"),
+        ]:
+            _w(r, 1, cls, bold); _w(r, 2, rule, normal); r += 1
+
+        if sheet_type == "master_filter":
+            r += 1
+            _w(r, 1,
+               "Note: candidate_status is computed in Filtered_Strategies_Passed.xlsx (filter_strategies.py). "
+               "This sheet (Strategy_Master_Filter) holds raw aggregated metrics only.",
+               Font(italic=True, size=9))
+            r += 1
+
+    elif sheet_type == "portfolio":
+        _w(r, 1, "portfolio_status", bold); r += 1
+        _w(r, 1, "Class", bold); _w(r, 2, "Rule", bold); r += 1
+        for cls, rule in [
+            ("FAIL",
+             f"Realized PnL <= ${PORT_FAIL_PNL:.0f}  OR  Accepted Trades < {PORT_FAIL_TRADES}  "
+             f"OR  expectancy below asset-class gate"),
+            ("",
+             f"  Expectancy FAIL gates (same as candidates, min-lot basis):  "
+             f"FX < ${PORT_FAIL_EXP_FX}  |  XAU < ${PORT_FAIL_EXP_XAU}  |  BTC < ${PORT_FAIL_EXP_BTC}  |  INDEX < ${PORT_FAIL_EXP_IDX}  |  MIXED (PF_ composites): no gate"),
+            ("",
+             "  Note on PF_ composites: Asset class is detected from portfolio_id keywords. "
+             "PF_ hash-based IDs (multi-strategy portfolios) cannot be classified from the name alone. "
+             "Their expectancy is a trade-count-weighted average across mixed asset classes, so "
+             "per-class gates do not apply. If needed, constituent asset classes can be inspected "
+             "in portfolio_metadata.json under evaluated_assets."),
+            ("CORE",
+             f"Realized PnL > ${PORT_CORE_PNL:.0f}  AND  Accepted Trades >= {PORT_CORE_TRADES}  AND  Rejection Rate <= {PORT_CORE_REJ_MAX:.0f}%"),
+            ("WATCH",
+             "All other strategies (profitable and sufficient trades, but below CORE thresholds)"),
+        ]:
+            _w(r, 1, cls, bold); _w(r, 2, rule, normal); r += 1
+    r += 1
+
+    # ── Section 4: Key Column Glossary ────────────────────────────────────────
+    _w(r, 1, "SECTION 4 — KEY COLUMN GLOSSARY", header); r += 1
+    _w(r, 1, "Column", bold); _w(r, 2, "Definition", bold); r += 1
+
+    if sheet_type in ("master_filter", "candidates"):
+        glossary = [
+            ("run_id",           "Unique identifier for the backtest run (immutable once written)"),
+            ("strategy",         "Full strategy ID including symbol suffix"),
+            ("profit_factor",    "Gross profit / gross loss across all trades"),
+            ("sharpe_ratio",     "Risk-adjusted return (mean trade PnL / std dev), trade-level"),
+            ("max_dd_pct",       "Maximum drawdown as positive percentage (e.g. 3.18 = 3.18%)"),
+            ("return_dd_ratio",  "Net profit / max drawdown — primary risk-efficiency metric"),
+            ("total_trades",     "Number of completed trades in the backtest period"),
+            ("expectancy",       "Average expected PnL per trade (USD) at min-lot (0.01). "
+                                  "Computed in Stage 1 as sum(pnl_usd)/total_trades where pnl_usd uses "
+                                  "broker min_lot (0.01) x contract_size. This normalizes all strategies "
+                                  "to the same position size for apples-to-apples comparison. "
+                                  "Deployed lot sizes (risk-based) produce proportionally larger PnL."),
+            ("IN_PORTFOLIO",     "True if strategy is active in TS_Execution/portfolio.yaml"),
+            ("candidate_status", "CORE / WATCH / FAIL / BURN_IN — see Section 3"),
+        ]
+    else:
+        glossary = [
+            ("portfolio_id",                "Unique portfolio identifier"),
+            ("theoretical_pnl",             "Raw Stage-4 aggregated PnL before sizing/rejection"),
+            ("realized_pnl",                "Actual PnL after deployed profile sizing rules"),
+            ("deployed_profile",            "Capital sizing profile selected by profile_selector"),
+            ("expectancy",                  "Trade-count-weighted average PnL per trade (USD) at min-lot (0.01). "
+                                            "Equals sum(pnl_usd)/total_trades across ALL constituent symbols. "
+                                            "NOT the simple average of per-symbol expectancies — symbols with "
+                                            "more trades naturally weight more. Computed from Stage 1 results "
+                                            "at broker min_lot; deployed profile lot sizes are much larger."),
+            ("sharpe",                      "Portfolio-level Sharpe ratio"),
+            ("max_dd_pct",                  "Maximum portfolio drawdown as positive percentage"),
+            ("return_dd_ratio",             "Realized PnL / max drawdown"),
+            ("rejection_rate_pct",          "Percentage of trades rejected by leverage/heat cap"),
+            ("avg_concurrent",              "Average number of simultaneously open positions"),
+            ("max_concurrent",              "Peak simultaneous open positions"),
+            ("avg_pairwise_corr",           "Average correlation between constituent strategy equity curves"),
+            ("signal_timeframes",           "Strategy signal timeframe in MT5 notation "
+                                            "(M1, M5, M15, M30, H1, H4, D1, W1). "
+                                            "Pipe-separated for multi-TF composites (e.g. H1|M15)."),
+            ("portfolio_status",            "CORE / WATCH / FAIL — see Section 3"),
+            ("parsed_fields",               "JSON decomposition of portfolio_id tokens "
+                                            "(idea_id, family, symbol, timeframe, model, filter, sweep, "
+                                            "variant, param_set, asset_class). Hidden column."),
+            ("n_strategies",                "Number of constituent strategies (Single-Asset tab only)"),
+            ("readable_alias",              "Human-readable label for PF_ composites "
+                                            "(e.g. XAUUSD_6S_H1). Single-Asset tab only."),
+            ("regime_gate_enabled",         "Whether Strategy Activation System regime gate was active"),
+            ("activation_rate_pct",         "% of signals that passed regime gate (pre-capital)"),
+            ("regime_blocked_trades",       "Number of signals blocked by regime gate"),
+            ("blocked_pnl_raw",             "Raw PnL of blocked trades (negative = destructive trades removed)"),
+        ]
+
+    for col_name, definition in glossary:
+        _w(r, 1, col_name, normal); _w(r, 2, definition, normal); r += 1
+    r += 1
+
+    # ── Section 5: Deployed Profile Reference (portfolio only) ────────────────
+    if sheet_type == "portfolio":
+        _w(r, 1, "SECTION 5 — DEPLOYED PROFILE SELECTION", header); r += 2
+
+        # 5a. Available profiles
+        _w(r, 1, "Available Capital Profiles", bold); r += 1
+        _w(r, 1, "Profile", bold); _w(r, 2, "Lot Sizing Approach", bold); r += 1
+        for pname, desc in [
+            ("RAW_MIN_LOT_V1",
+             "Unconditional min lot (0.01). Every signal executes regardless of risk. "
+             "Baseline measurement only."),
+            ("DYNAMIC_V1",
+             "Heat-aware dynamic scaling. risk_per_trade=0.5%, heat_cap=3%, "
+             "leverage_cap=15x. Scales down when heat cap is breached."),
+            ("CONSERVATIVE_V1",
+             "Fixed fractional: equity x 0.25%. heat_cap=4%, leverage_cap=5x. "
+             "Smallest risk per trade."),
+            ("FIXED_USD_V1",
+             "Fixed $50 USD risk per trade. heat_cap=4%, leverage_cap=11x."),
+            ("MIN_LOT_FALLBACK_V1",
+             "Fixed $50 USD with min-lot override when optimal sizing < min lot. "
+             "max_risk_multiple=3.0 (capped)."),
+            ("MIN_LOT_FALLBACK_UNCAPPED_V1",
+             "Fixed $50 USD with min-lot override (uncapped). "
+             "No risk multiple cap."),
+            ("BOUNDED_MIN_LOT_V1",
+             "Fixed $65 USD with conservative min-lot override. "
+             "max_risk_multiple=1.5 (tightest cap)."),
+        ]:
+            _w(r, 1, pname, normal); _w(r, 2, desc, normal); r += 1
+        r += 1
+
+        # 5b. Selection algorithm
+        _w(r, 1, "Selection Algorithm", bold); r += 1
+        _w(r, 1, "Step", bold); _w(r, 2, "Description", bold); r += 1
+        for step, desc in [
+            ("1. Hard Filter",
+             "Remove profiles with realized_pnl <= 0, "
+             "capital_validity_flag = False, or avg_risk_multiple > 1.5."),
+            ("2. Reliability Pool",
+             "Prefer profiles with >= 50 accepted trades AND >= 1.0 sim years (reliable pool). "
+             "Fall back to hard-valid-only pool if none qualify."),
+            ("3. Score",
+             "base_score = realized_pnl / max(max_drawdown_usd, 1.0). "
+             "Penalized by execution health: "
+             "rejection <= 30% = 1.0x, 30-60% = 0.7x, > 60% = 0.4x."),
+            ("4. Rank",
+             "Sort by: (1) highest score, (2) lowest rejection rate, "
+             "(3) most accepted trades, (4) alphabetical name."),
+            ("5. Stabilize",
+             "Profiles within 15% of best score are considered tied. "
+             "Tied candidates re-ranked by rejection rate and trade count."),
+            ("6. Persist",
+             "If a previous profile exists and scores >= 85% of the new best, "
+             "keep the previous profile to avoid flip-flopping."),
+        ]:
+            _w(r, 1, step, normal); _w(r, 2, desc, normal); r += 1
+        r += 1
+
+    # ── Column widths ─────────────────────────────────────────────────────────
+    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["B"].width = 72
+
+    try:
+        wb.save(file_path)
+        print(f"[NOTES] Notes sheet added ({sheet_type}) -> {Path(file_path).name}")
+    except Exception as e:
+        print(f"[WARN] Notes sheet could not be saved: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Unified Excel Formatter")
     parser.add_argument("--file", required=True, help="Path to Excel file")
-    parser.add_argument("--profile", required=True, choices=["strategy", "portfolio"], help="Formatting profile")
-    
+    parser.add_argument("--profile", choices=["strategy", "portfolio"], default=None, help="Formatting profile")
+    parser.add_argument("--notes-type", choices=["master_filter", "candidates", "portfolio"],
+                        default=None, help="If set, append a Notes sheet of this type (skips formatting)")
+
     args = parser.parse_args()
-    
-    apply_formatting(args.file, args.profile)
+
+    if args.notes_type:
+        add_notes_sheet_to_ledger(args.file, args.notes_type)
+    elif args.profile:
+        apply_formatting(args.file, args.profile)
+    else:
+        parser.error("--profile is required when --notes-type is not specified")
 
 if __name__ == "__main__":
     main()

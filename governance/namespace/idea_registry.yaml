@@ -251,3 +251,27 @@ ideas:
     role: entry_edge
     instruments: XAUUSD
     status: active
+  "33":
+    family: TREND
+    title: Momentum Ignition — Crypto Impulse Breakout
+    class: indicator_logic
+    regime: multi
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "34":
+    family: REV
+    title: False Break Reversal — EURUSD Range Boundary Fade
+    class: structure_logic
+    regime: range_boundary
+    role: entry_edge
+    instruments: FX
+    status: active
+  "35":
+    family: PA
+    title: Day Open Reference — Session-Anchored Index Price Action
+    class: price_action
+    regime: session
+    role: entry_edge
+    instruments: IDX
+    status: active

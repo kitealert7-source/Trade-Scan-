@@ -180,11 +180,24 @@ def validate_namespace(directive_path: str | Path) -> dict[str, str]:
     model = _normalize_with_alias(
         "MODEL", m.group("model"), allowed_models, model_aliases
     )
+    # SYSTEM INVARIANT: MODEL must not contain "FILT", FILTER must end with "FILT".
+    # This boundary enables unambiguous optional-token parsing downstream.
+    # See governance/namespace/token_dictionary.yaml for full rationale.
+    if "FILT" in model:
+        raise NamespaceValidationError(
+            f"INVARIANT_VIOLATION: MODEL token '{model}' contains 'FILT'. "
+            f"MODEL tokens must never contain 'FILT' — this is reserved for FILTER tokens."
+        )
     filter_token = ""
     if m.group("filter"):
         filter_token = _normalize_with_alias(
             "FILTER", m.group("filter"), allowed_filters, filter_aliases
         )
+        if not filter_token.endswith("FILT"):
+            raise NamespaceValidationError(
+                f"INVARIANT_VIOLATION: FILTER token '{filter_token}' does not end with 'FILT'. "
+                f"All FILTER tokens must end with 'FILT'."
+            )
     timeframe = _normalize_with_alias(
         "TF", m.group("timeframe"), allowed_timeframes, timeframe_aliases
     )

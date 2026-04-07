@@ -87,23 +87,36 @@ CONVERSION_CACHE = {}
 def parse_symbol_properties(symbol: str):
     """
     Parse symbol into base and quote currencies using broker spec metadata.
-    
+
     Priority:
-        1. Broker spec price_unit (authoritative if spec exists)
+        1. Broker spec price_unit + currency_profit (authoritative if spec exists)
         2. Heuristic fallback (alpha-only 6-char = FX, endswith USD = commodity)
+
+    For INDEX_POINT symbols, the raw PnL is denominated in the index's profit
+    currency (e.g. EUR for GER40, JPY for JPN225, USD for NAS100).
+    We return (symbol, currency_profit) so normalize_pnl_to_usd() can apply
+    the correct FX conversion via cross-pair lookup.
     """
     s = symbol.upper()
-    
+
     # Try broker spec first (authoritative)
     broker_spec_path = PROJECT_ROOT / "data_access" / "broker_specs" / BROKER / f"{s}.yaml"
     if broker_spec_path.exists():
         import yaml as _yaml
-        with open(broker_spec_path, "r") as f:
+        with open(broker_spec_path, "r", encoding="utf-8") as f:
             spec = _yaml.safe_load(f)
         price_unit = spec.get("calibration", {}).get("price_unit", "")
         if price_unit == "INDEX_POINT":
-            return s, None  # Non-FX: PnL is already in USD
-    
+            # Read profit currency from broker spec — NOT always USD
+            profit_ccy = spec.get("calibration", {}).get("currency_profit", "USD")
+            if profit_ccy == "USD":
+                return s, "USD"  # USD-denominated index: pass-through
+            else:
+                # Non-USD index (e.g. GER40=EUR, UK100=GBP, JPN225=JPY)
+                # Return profit currency as quote so normalize_pnl_to_usd()
+                # applies cross-pair conversion (e.g. EURUSD, GBPUSD, USDJPY)
+                return s, profit_ccy
+
     # Heuristic fallback
     if len(s) == 6 and s.isalpha():
         return s[:3], s[3:]

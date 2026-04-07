@@ -413,13 +413,19 @@ ideas:
             reserved_at_utc: '2026-03-10T05:41:04.642677+00:00'
         signature_hash_full: ddcc7b59848d5dfac3d71f162816087161316ac21fa938a9701e148b3714a273
   09:
-    next_sweep: 2
+    next_sweep: 3
     sweeps:
       S01:
         directive_name: 09_BRK_FX_1H_LORB_SESSFILT_S01_V1_P00
         signature_hash: 1c8045b0e6f153cf
         signature_hash_full: 1c8045b0e6f153cf5f9fe155e3168a6c0aee691fcf1cfe69c60590d2945f1c50
         reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
+      S02:
+        directive_name: 09_BRK_FX_1H_LORB_SESSFILT_S02_V1_P00
+        signature_hash: 2e5794a57a052c3f
+        signature_hash_full: 2e5794a57a052c3fcb5abda19ca8d3f51d949f1622a6fc0c7dce7e9dc42f9be6
+        reserved_at_utc: '2026-04-05T00:00:00.000000+00:00'
+        patches: {}
   '10':
     next_sweep: 2
     sweeps:
@@ -725,7 +731,7 @@ ideas:
             reserved_at_utc: '2026-03-25T01:21:36.071584+00:00'
             signature_hash_full: c548db0049625a3fffda380a909e4ec5ae2287c0f30556ee1dd31ab96192b18e
   '22':
-    next_sweep: 3
+    next_sweep: 10
     sweeps:
       S01:
         directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P00
@@ -770,20 +776,73 @@ ideas:
         signature_hash_full: 10c26e362c7af710d61be4c24ee870264dfc865181566efd694345a41afa9905
         patches:
           P01:
-            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P01
-            signature_hash: 88cc373d311a8513
-            reserved_at_utc: '2026-03-31T11:00:00.000000+00:00'
-            signature_hash_full: 88cc373d311a8513ba86affd13e12164ea1e75cdeb9f0c8a27a5b926ca839bbf
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P01
+            signature_hash: b40b41b1cbccd422
+            signature_hash_full: b40b41b1cbccd422d19565b7b79607aa8bd7ba298a0d2bc324f48e0d84b6f6b9
+            reserved_at_utc: '2026-04-05T13:33:19.253070+00:00'
           P02:
-            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P02
-            signature_hash: 0535c9b6eb5301e1
-            signature_hash_full: 0535c9b6eb5301e1a50e05ecaefce14114a52d50ca72f40d47f006c2765e149f
-            reserved_at_utc: '2026-03-31T11:30:00.000000+00:00'
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P02
+            signature_hash: 7c3e275570b7bd0a
+            signature_hash_full: 7c3e275570b7bd0af1dffef7cebff49b7bcdf9038998996be0ed674bd997ab88
+            reserved_at_utc: '2026-04-05T13:33:23.529793+00:00'
           P03:
-            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P03
-            signature_hash: 319c5f3b1f3e6672
-            reserved_at_utc: '2026-03-31T12:24:41.754933+00:00'
-            signature_hash_full: 319c5f3b1f3e6672468c2913bac14d6d353f1dc8eca67cbd57640eca3757f1c6
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P03
+            signature_hash: aa16ff6997fb3d60
+            signature_hash_full: aa16ff6997fb3d606d408789c34bfea5e6ebfba2978dbf04ca9a094aa985a898
+            reserved_at_utc: '2026-04-05T13:50:32.940609+00:00'
+          P00:
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S06_V1_P00
+            signature_hash: b4a875c4511a6102
+            signature_hash_full: b4a875c4511a6102be7988fe0dee66bcd004bce33d1ed7e3bdaf2d7960e61f7c
+            reserved_at_utc: '2026-04-05T10:52:40.009751+00:00'
+          P04:
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P04
+            signature_hash: f8f7d5e5a00a47c9
+            signature_hash_full: f8f7d5e5a00a47c9461fdc8e36e6e2f69e44bad3c2d2a2f8f82e2bd7c91ba1ca
+            reserved_at_utc: '2026-04-05T13:59:20.379776+00:00'
+      S03:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S06_V1_P00
+        signature_hash: b4a875c4511a6102
+        signature_hash_full: b4a875c4511a6102be7988fe0dee66bcd004bce33d1ed7e3bdaf2d7960e61f7c
+        reserved_at_utc: '2026-04-05T00:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S04:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S04_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-05T10:10:00.000000+00:00'
+        patches: {}
+      S05:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S05_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-05T12:00:00.000000+00:00'
+        patches: {}
+      S06:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S06_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-05T13:00:00.000000+00:00'
+        patches: {}
+      S07:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S07_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-05T13:00:00.000000+00:00'
+        patches: {}
+      S08:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S08_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-05T13:00:00.000000+00:00'
+        patches: {}
+      S09:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S09_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-05T13:00:00.000000+00:00'
+        patches: {}
   '24':
     next_sweep: 2
     sweeps:
@@ -1053,3 +1112,196 @@ ideas:
         reserved_at_utc: '2026-04-04T22:00:00.000000+00:00'
         patches: {}
         attempt: 2
+  '33':
+    next_sweep: 4
+    sweeps:
+      S01:
+        directive_name: 33_TREND_BTCUSD_15M_IMPULSE_S01_V1_P00
+        signature_hash: 7232939035da6210
+        signature_hash_full: 7232939035da6210855ce540e9c7c7ff483e0502c77641c1daeddf377e2069e9
+        reserved_at_utc: '2026-04-06T10:00:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P00
+            signature_hash: 7232939035da6210
+            signature_hash_full: 7232939035da6210855ce540e9c7c7ff483e0502c77641c1daeddf377e2069e9
+            reserved_at_utc: '2026-04-06T07:45:40.603696+00:00'
+          P01:
+            directive_name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P01
+            signature_hash: aa61f759f3c4ef72
+            signature_hash_full: aa61f759f3c4ef72d214c632c64d6198656ca69ed58cfd37d1eb75eebd03cc30
+            reserved_at_utc: '2026-04-06T08:17:41.343768+00:00'
+          P02:
+            directive_name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P02
+            signature_hash: 7bc2fc458c1c50c1
+            signature_hash_full: 7bc2fc458c1c50c17addc832ce4bc730b6c6838cae055290edf0eaaf54d50439
+            reserved_at_utc: '2026-04-06T08:38:13.955485+00:00'
+          P03:
+            directive_name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P03
+            signature_hash: 1748d9a62b3deb06
+            signature_hash_full: 1748d9a62b3deb06cd2ba74820481a42cff133c13d50d8755906c8cb816a1700
+            reserved_at_utc: '2026-04-06T08:56:36.036847+00:00'
+          P04:
+            directive_name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P04
+            signature_hash: 7bc2fc458c1c50c1
+            signature_hash_full: 7bc2fc458c1c50c17addc832ce4bc730b6c6838cae055290edf0eaaf54d50439
+            reserved_at_utc: '2026-04-06T09:03:30.695436+00:00'
+          P05:
+            directive_name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P05
+            signature_hash: 7bc2fc458c1c50c1
+            signature_hash_full: 7bc2fc458c1c50c17addc832ce4bc730b6c6838cae055290edf0eaaf54d50439
+            reserved_at_utc: '2026-04-06T09:13:46.155692+00:00'
+        attempt: 2
+      S02:
+        directive_name: 33_TREND_BTCUSD_30M_IMPULSE_S02_V1_P00
+        signature_hash: 7232939035da6210
+        signature_hash_full: 7232939035da6210855ce540e9c7c7ff483e0502c77641c1daeddf377e2069e9
+        reserved_at_utc: '2026-04-06T13:30:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S03:
+        directive_name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-06T13:30:00.000000+00:00'
+        patches: {}
+  '34':
+    next_sweep: 7
+    sweeps:
+      S01:
+        directive_name: 34_REV_EURUSD_30M_FAKEBREAK_S01_V1_P00
+        signature_hash: adb5caf4125c4f11
+        signature_hash_full: adb5caf4125c4f11632a843d094d7e7a10f558f29d82e160d5cc7cf0ab9d41f3
+        reserved_at_utc: '2026-04-06T15:30:00.000000+00:00'
+        patches: {}
+      S02:
+        directive_name: 34_REV_EURUSD_15M_FAKEBREAK_S02_V1_P00
+        signature_hash: adb5caf4125c4f11
+        signature_hash_full: adb5caf4125c4f11632a843d094d7e7a10f558f29d82e160d5cc7cf0ab9d41f3
+        reserved_at_utc: '2026-04-06T16:30:00.000000+00:00'
+        patches: {}
+      S03:
+        directive_name: 34_REV_EURUSD_1H_FAKEBREAK_S03_V1_P00
+        signature_hash: adb5caf4125c4f11
+        signature_hash_full: adb5caf4125c4f11632a843d094d7e7a10f558f29d82e160d5cc7cf0ab9d41f3
+        reserved_at_utc: '2026-04-06T16:30:00.000000+00:00'
+        patches: {}
+      S04:
+        directive_name: 34_REV_USDJPY_15M_FAKEBREAK_S04_V1_P00
+        signature_hash: adb5caf4125c4f11
+        signature_hash_full: adb5caf4125c4f11632a843d094d7e7a10f558f29d82e160d5cc7cf0ab9d41f3
+        reserved_at_utc: '2026-04-06T17:00:00.000000+00:00'
+        patches: {}
+      S05:
+        directive_name: 34_REV_USDJPY_30M_FAKEBREAK_S05_V1_P00
+        signature_hash: adb5caf4125c4f11
+        signature_hash_full: adb5caf4125c4f11632a843d094d7e7a10f558f29d82e160d5cc7cf0ab9d41f3
+        reserved_at_utc: '2026-04-06T17:00:00.000000+00:00'
+        patches: {}
+      S06:
+        directive_name: 34_REV_USDJPY_1H_FAKEBREAK_S06_V1_P00
+        signature_hash: adb5caf4125c4f11
+        signature_hash_full: adb5caf4125c4f11632a843d094d7e7a10f558f29d82e160d5cc7cf0ab9d41f3
+        reserved_at_utc: '2026-04-06T17:00:00.000000+00:00'
+        patches: {}
+  '35':
+    next_sweep: 17
+    sweeps:
+      S01:
+        directive_name: 35_PA_GER40_1H_DAYOC_S01_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T16:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S02:
+        directive_name: 35_PA_GER40_30M_DAYOC_S02_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T18:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S03:
+        directive_name: 35_PA_GER40_15M_DAYOC_S03_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T18:00:00.000000+00:00'
+        patches: {}
+      S04:
+        directive_name: 35_PA_IDX_1H_DAYOC_S04_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T22:00:00.000000+00:00'
+        patches: {}
+      S05:
+        directive_name: 35_PA_IDX_30M_DAYOC_S05_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T22:00:00.000000+00:00'
+        patches: {}
+      S06:
+        directive_name: 35_PA_IDX_15M_DAYOC_S06_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T22:00:00.000000+00:00'
+        patches: {}
+      S07:
+        directive_name: 35_PA_APAC_1H_DAYOC_S07_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T22:00:00.000000+00:00'
+        patches: {}
+      S08:
+        directive_name: 35_PA_APAC_30M_DAYOC_S08_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T22:00:00.000000+00:00'
+        patches: {}
+      S09:
+        directive_name: 35_PA_APAC_15M_DAYOC_S09_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-06T22:00:00.000000+00:00'
+        patches: {}
+      S10:
+        directive_name: 35_PA_GER40_15M_DAYOC_S10_V1_P00
+        signature_hash: 9712064c4c98aa51
+        signature_hash_full: 9712064c4c98aa519395f6ccc81f9709d4820bb0237c025280b80bbf2c1c6a86
+        reserved_at_utc: '2026-04-06T23:00:00.000000+00:00'
+        patches: {}
+      S11:
+        directive_name: 35_PA_GER40_15M_DAYOC_S11_V1_P00
+        signature_hash: 4b8a32da253dd6bf
+        signature_hash_full: 4b8a32da253dd6bf7b89ab746e882147e14a8949370d4add03b6cf306943be03
+        reserved_at_utc: '2026-04-06T23:30:00.000000+00:00'
+        patches: {}
+      S12:
+        directive_name: 35_PA_GER40_15M_DAYOC_S12_V1_P00
+        signature_hash: 1c51c391fc23ec86
+        signature_hash_full: 1c51c391fc23ec86ee8ea22613e6d427f2cb476c34a18efb980eb74449717e63
+        reserved_at_utc: '2026-04-06T23:45:00.000000+00:00'
+        patches: {}
+      S13:
+        directive_name: 35_PA_UK100_30M_DAYOC_S13_V1_P00
+        signature_hash: 4b8a32da253dd6bf
+        signature_hash_full: 4b8a32da253dd6bf7b89ab746e882147e14a8949370d4add03b6cf306943be03
+        reserved_at_utc: '2026-04-07T00:00:00.000000+00:00'
+        patches: {}
+      S14:
+        directive_name: 35_PA_UK100_30M_DAYOC_S14_V1_P00
+        signature_hash: ca45dbbf3cd31bf8
+        signature_hash_full: ca45dbbf3cd31bf8b406e464b8ab74e1db4904f44dfdc6c36badfbe74d3a0d9b
+        reserved_at_utc: '2026-04-07T00:15:00.000000+00:00'
+        patches: {}
+      S15:
+        directive_name: 35_PA_UK100_30M_DAYOC_S15_V1_P00
+        signature_hash: e08796bb1a4e6b90
+        signature_hash_full: e08796bb1a4e6b90a9042f008d5f2ffc46bd9e77c642ef1042efea8774d000bb
+        reserved_at_utc: '2026-04-07T00:30:00.000000+00:00'
+        patches: {}
+      S16:
+        directive_name: 35_PA_JPN225_1H_DAYOC_S16_V1_P00
+        signature_hash: 8deef4c6322e4bcf
+        signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
+        reserved_at_utc: '2026-04-07T00:45:00.000000+00:00'
+        patches: {}

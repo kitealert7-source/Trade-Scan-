@@ -985,7 +985,6 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
         'portfolio_net_profit_normal_vol': port_metrics.get('portfolio_net_profit_normal_vol', 0.0),
         'portfolio_net_profit_high_vol': port_metrics.get('portfolio_net_profit_high_vol', 0.0),
         'signal_timeframes': port_metrics.get('signal_timeframes', "UNKNOWN"),
-        'evaluation_timeframe': port_metrics.get('evaluation_timeframe', "1D"),
         # Phase 15 Metrics
         'win_rate': port_metrics.get('win_rate', 0.0),
         'profit_factor': port_metrics.get('profit_factor', 0.0),
@@ -1011,8 +1010,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
       "capital_model_version": "v1.0_trade_close_compounding",
       "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
       "schema_version": "1.0",
-      "signal_timeframes": port_metrics.get('signal_timeframes', "UNKNOWN"),
-      "evaluation_timeframe": port_metrics.get('evaluation_timeframe', "1D")
+      "signal_timeframes": port_metrics.get('signal_timeframes', "UNKNOWN")
     }
     with open(output_dir / 'portfolio_metadata.json', 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=4)
@@ -1191,13 +1189,49 @@ def _profile_return_dd(profile_metrics):
     return realized / max(max_dd, 1.0)
 
 
-def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct):
+def _to_mt5_timeframe(signal_tf: str) -> str:
+    """Convert signal_timeframes string to MT5 notation (M5, M15, H1, D1, …).
+    For multi-timeframe composites (e.g. '15m|1h'), returns pipe-separated MT5 names."""
+    _MAP = {
+        "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
+        "1h": "H1", "4h": "H4", "1d": "D1", "1w": "W1", "1mn": "MN1",
+    }
+    if not signal_tf or signal_tf in ("UNKNOWN", "nan", "None"):
+        return "UNKNOWN"
+    parts = str(signal_tf).split("|")
+    mt5_parts = []
+    for p in parts:
+        p_lower = p.strip().lower()
+        mt5 = _MAP.get(p_lower, p.strip().upper())
+        # Handle cases like "15M" -> already looks like MT5 but lowercase came through
+        if mt5 not in _MAP.values() and p_lower in _MAP:
+            mt5 = _MAP[p_lower]
+        mt5_parts.append(mt5)
+    return "|".join(sorted(set(mt5_parts)))
+
+
+# Asset class detection — single source of truth (config.asset_classification).
+# Replaces inline keyword matching; uses token-position-aware parsing.
+from config.asset_classification import classify_asset as _detect_asset_class
+from config.asset_classification import EXP_FAIL_GATES as _EXP_FAIL_GATES
+from config.asset_classification import parse_strategy_name as _parse_strategy_name
+
+
+def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
+                              expectancy=0.0, portfolio_id=""):
     """Deterministic portfolio status classification for ledger rows."""
     realized = _safe_float(realized_pnl, 0.0)
     accepted = int(round(_safe_float(total_accepted, 0.0)))
     rejection = _safe_float(rejection_rate_pct, 0.0)
+    exp = _safe_float(expectancy, 0.0)
+
+    # Asset-class expectancy gate (same thresholds as candidates sheet)
+    asset_class = _detect_asset_class(portfolio_id)
+    exp_gate = _EXP_FAIL_GATES.get(asset_class, 0.0)
 
     if realized <= 0.0 or accepted < 50:
+        return "FAIL"
+    if exp < exp_gate:
         return "FAIL"
     if realized > 1000.0 and accepted >= 200 and rejection <= 30.0:
         return "CORE"
@@ -1448,15 +1482,25 @@ def _get_deployed_profile_metrics(strategy_id, df_ledger):
     return deployed
 
 
-def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_corr, concurrency_data, constituent_run_ids):
+def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_corr, concurrency_data, constituent_run_ids, n_assets=1):
     """
     Append portfolio result to Master_Portfolio_Sheet.xlsx (SOP 8).
     Enforces append-only logic and schema validation.
+
+    Routes rows into two sheets based on asset count:
+      - "Portfolios"               (multi-asset, n_assets > 1)
+      - "Single-Asset Composites"  (single-asset, n_assets == 1)
+
+    Single-asset sheet drops meaningless correlation columns and adds
+    regime-aware metrics (placeholders until Strategy Activation System).
     """
     ledger_path = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 
-    # Schema definition: logically grouped column order.
-    columns = [
+    is_single_asset = (n_assets <= 1)
+    target_sheet = "Single-Asset Composites" if is_single_asset else "Portfolios"
+
+    # Schema: shared base columns (both sheets)
+    _BASE_COLUMNS = [
         # Identity
         "portfolio_id",
         "source_strategy",
@@ -1496,23 +1540,41 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "p95_concurrent",
         "dd_max_concurrent",
         "full_load_cluster",
+    ]
 
-        # Correlation
+    # Multi-asset: add correlation columns
+    _MULTI_ASSET_TAIL = [
         "avg_pairwise_corr",
         "max_pairwise_corr_stress",
-
-        # Regime Decomposition
         "portfolio_net_profit_low_vol",
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
-
-        # Metadata
         "signal_timeframes",
-        "evaluation_timeframe",
+        "parsed_fields",
         "portfolio_engine_version",
         "creation_timestamp",
         "constituent_run_ids",
     ]
+
+    # Single-asset: drop correlation, add regime-aware + n_strategies
+    _SINGLE_ASSET_TAIL = [
+        "n_strategies",
+        "readable_alias",
+        "regime_gate_enabled",
+        "activation_rate_pct",
+        "regime_blocked_trades",
+        "blocked_pnl_raw",
+        "portfolio_net_profit_low_vol",
+        "portfolio_net_profit_normal_vol",
+        "portfolio_net_profit_high_vol",
+        "signal_timeframes",
+        "parsed_fields",
+        "portfolio_engine_version",
+        "creation_timestamp",
+        "constituent_run_ids",
+    ]
+
+    columns = _BASE_COLUMNS + (_SINGLE_ASSET_TAIL if is_single_asset else _MULTI_ASSET_TAIL)
 
     # Process constituent_run_ids (list -> string)
     if isinstance(constituent_run_ids, list):
@@ -1520,16 +1582,41 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     else:
         run_ids_str = str(constituent_run_ids)
 
-    # Load or Create
+    # Load or Create — read from correct sheet, preserve other sheet
+    _other_sheet = "Portfolios" if is_single_asset else "Single-Asset Composites"
+    df_other = None
     if ledger_path.exists():
         try:
-            df_ledger = pd.read_excel(ledger_path)
+            xls = pd.ExcelFile(ledger_path)
+            available_sheets = xls.sheet_names
+            # Load target sheet
+            if target_sheet in available_sheets:
+                df_ledger = pd.read_excel(ledger_path, sheet_name=target_sheet)
+            elif len(available_sheets) == 1 and available_sheets[0] == "Sheet1":
+                # Migration: legacy single-sheet workbook — load as-is, will be
+                # split into the two tabs on first write.
+                df_ledger = pd.read_excel(ledger_path, sheet_name=available_sheets[0])
+            else:
+                df_ledger = pd.DataFrame(columns=columns)
+            # Preserve other sheet if it exists
+            if _other_sheet in available_sheets:
+                df_other = pd.read_excel(ledger_path, sheet_name=_other_sheet)
         except Exception:
             df_ledger = pd.DataFrame(columns=columns)
     else:
         df_ledger = pd.DataFrame(columns=columns)
 
     # Column migration for existing sheets.
+    # Fix renamed headers left by old formatter (sharpe (ann.) → sharpe, etc.)
+    _HEADER_FIXUPS = {"sharpe (ann.)": "sharpe", "k_ratio (log)": "equity_stability_k_ratio"}
+    for old_name, canonical in _HEADER_FIXUPS.items():
+        if old_name in df_ledger.columns and canonical not in df_ledger.columns:
+            df_ledger.rename(columns={old_name: canonical}, inplace=True)
+    # Drop ghost columns from pandas dedup (.1, .2, .3 suffixes)
+    ghost = [c for c in df_ledger.columns if any(c.startswith(p) for p in
+             ("sharpe (ann.).", "k_ratio (log)."))]
+    if ghost:
+        df_ledger.drop(columns=ghost, inplace=True, errors="ignore")
     if "realized_pnl" not in df_ledger.columns and "net_pnl_usd" in df_ledger.columns:
         df_ledger["realized_pnl"] = df_ledger["net_pnl_usd"]
     if "theoretical_pnl" not in df_ledger.columns:
@@ -1537,26 +1624,48 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger["net_pnl_usd"], errors="coerce")
         else:
             df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger.get("realized_pnl"), errors="coerce")
-    if "portfolio_status" not in df_ledger.columns:
-        df_ledger["portfolio_status"] = df_ledger.apply(
-            lambda row: _compute_portfolio_status(
-                row.get("realized_pnl", row.get("realized_pnl_usd", 0.0)),
-                row.get("trades_accepted", row.get("total_accepted", 0)),
-                row.get("rejection_rate_pct", 0.0),
-            ),
-            axis=1,
-        )
-    else:
-        missing_status = df_ledger["portfolio_status"].isna() | (df_ledger["portfolio_status"].astype(str).str.strip() == "")
-        if missing_status.any():
-            df_ledger.loc[missing_status, "portfolio_status"] = df_ledger.loc[missing_status].apply(
-                lambda row: _compute_portfolio_status(
-                    row.get("realized_pnl", row.get("realized_pnl_usd", 0.0)),
-                    row.get("trades_accepted", row.get("total_accepted", 0)),
-                    row.get("rejection_rate_pct", 0.0),
-                ),
-                axis=1,
-            )
+    # Recompute portfolio_status for ALL rows (expectancy gate may reclassify existing rows)
+    df_ledger["portfolio_status"] = df_ledger.apply(
+        lambda row: _compute_portfolio_status(
+            row.get("realized_pnl", row.get("realized_pnl_usd", 0.0)),
+            row.get("trades_accepted", row.get("total_accepted", 0)),
+            row.get("rejection_rate_pct", 0.0),
+            expectancy=row.get("expectancy", 0.0),
+            portfolio_id=row.get("portfolio_id", ""),
+        ),
+        axis=1,
+    )
+
+    # Recompute deployed_profile for ALL existing rows.
+    # Previous bug: only the NEW row got a fresh profile selection; existing rows
+    # kept stale values from the version of the algorithm that originally wrote them.
+    # Now we re-run the full selection algorithm (including persistence) for every row.
+    _profile_fields = ["deployed_profile", "realized_pnl_usd", "trades_accepted",
+                       "trades_rejected", "rejection_rate_pct", "realized_vs_theoretical_pnl"]
+    _recomputed = 0
+    for idx in df_ledger.index:
+        pid = str(df_ledger.at[idx, "portfolio_id"])
+        if pid == str(strategy_id):
+            continue  # Skip the row we're about to append — it gets fresh selection below
+        dep = _get_deployed_profile_metrics(pid, df_ledger)
+        if dep is None or dep.get("profile_name") is None:
+            # No valid profile — clear stale values
+            df_ledger.at[idx, "deployed_profile"] = None
+            df_ledger.at[idx, "realized_pnl_usd"] = df_ledger.at[idx, "realized_pnl"]
+            df_ledger.at[idx, "realized_vs_theoretical_pnl"] = 0.0
+            continue
+        df_ledger.at[idx, "deployed_profile"] = dep["profile_name"]
+        df_ledger.at[idx, "realized_pnl"] = dep["realized_pnl"]
+        df_ledger.at[idx, "realized_pnl_usd"] = dep["realized_pnl"]
+        df_ledger.at[idx, "trades_accepted"] = dep["trades_accepted"]
+        df_ledger.at[idx, "trades_rejected"] = dep["trades_rejected"]
+        df_ledger.at[idx, "rejection_rate_pct"] = dep["rejection_rate_pct"]
+        theo = _safe_float(df_ledger.at[idx, "theoretical_pnl"], 0.0)
+        if abs(theo) > 1e-12:
+            df_ledger.at[idx, "realized_vs_theoretical_pnl"] = round(dep["realized_pnl"] / theo, 4)
+        _recomputed += 1
+    if _recomputed:
+        print(f"  [LEDGER] Recomputed deployed_profile for {_recomputed} existing rows.")
 
     # Baseline "theoretical" portfolio PnL from raw Stage-4 aggregation.
     # Realized PnL may differ when deployed profiles apply sizing/rejection rules.
@@ -1580,9 +1689,13 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         ratio_realized_vs_theoretical = round(realized_pnl / theoretical_pnl, 4)
     else:
         ratio_realized_vs_theoretical = 0.0
-    portfolio_status = _compute_portfolio_status(realized_pnl, trades_accepted, rejection_rate_pct)
+    portfolio_status = _compute_portfolio_status(
+        realized_pnl, trades_accepted, rejection_rate_pct,
+        expectancy=metrics.get("expectancy", 0.0),
+        portfolio_id=strategy_id,
+    )
 
-    # Construct Row Data
+    # Construct Row Data (shared fields)
     row_data = {
         "portfolio_id": strategy_id,
         "creation_timestamp": datetime.utcnow().isoformat(),
@@ -1602,20 +1715,17 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "p95_concurrent": concurrency_data["p95_concurrent"],
         "dd_max_concurrent": concurrency_data["dd_max_concurrent"],
         "full_load_cluster": concurrency_data["full_load_cluster"],
-        "avg_pairwise_corr": corr_data["avg_pairwise_corr"],
-        "max_pairwise_corr_stress": max_stress_corr,
         "total_trades": metrics["total_trades"],
-        
+
         # We will populate trade_density below after building the row, since we need to cross-check Master Sheet
         "trade_density": "NA",
         "profile_trade_density": "NA",
-        
+
         "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
         "portfolio_net_profit_low_vol": metrics.get("portfolio_net_profit_low_vol", 0.0),
         "portfolio_net_profit_normal_vol": metrics.get("portfolio_net_profit_normal_vol", 0.0),
         "portfolio_net_profit_high_vol": metrics.get("portfolio_net_profit_high_vol", 0.0),
         "signal_timeframes": metrics.get("signal_timeframes", "UNKNOWN"),
-        "evaluation_timeframe": metrics.get("evaluation_timeframe", "1D"),
         "win_rate": metrics.get("win_rate", 0.0),
         "profit_factor": metrics.get("profit_factor", 0.0),
         "expectancy": metrics.get("expectancy", 0.0),
@@ -1629,6 +1739,53 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "realized_vs_theoretical_pnl": ratio_realized_vs_theoretical,
         "selection_debug": selection_debug,
     }
+
+    # Fix 2: parsed_fields — machine-parsed decomposition of the strategy name.
+    # Eliminates re-parsing the same string across multiple consumers.
+    parsed = _parse_strategy_name(strategy_id)
+    row_data["parsed_fields"] = json.dumps(parsed) if parsed else None
+
+    # Sheet-specific fields
+    if is_single_asset:
+        n_strats = len(constituent_run_ids) if isinstance(constituent_run_ids, list) else 1
+        row_data["n_strategies"] = n_strats
+        # Fix 3: readable_alias — human-readable label for PF_ hash composites.
+        # Format: <SYMBOL>_<N>S_<PRIMARY_FAMILY>_<TF>
+        if strategy_id.upper().startswith("PF_"):
+            _alias_parts = []
+            # Symbol from evaluated_assets (already known — n_assets == 1)
+            _eval_dir = STRATEGIES_ROOT / strategy_id / "portfolio_evaluation"
+            _alias_sym = None
+            for _fn in ("portfolio_metadata.json", "portfolio_summary.json"):
+                _fp = _eval_dir / _fn
+                if _fp.exists():
+                    try:
+                        with open(_fp, encoding="utf-8") as _f:
+                            _d = json.load(_f)
+                        _ea = _d.get("evaluated_assets")
+                        if _ea and isinstance(_ea, list):
+                            _alias_sym = _ea[0].upper()
+                            break
+                    except Exception:
+                        pass
+            _alias_tf = metrics.get("signal_timeframes", "")
+            if _alias_sym:
+                _alias_parts.append(_alias_sym)
+            _alias_parts.append(f"{n_strats}S")
+            if _alias_tf and _alias_tf != "UNKNOWN":
+                _alias_parts.append(_alias_tf.replace("|", "_"))
+            row_data["readable_alias"] = "_".join(_alias_parts) if _alias_parts else None
+        else:
+            row_data["readable_alias"] = None
+        # Regime-aware metrics — placeholders until Strategy Activation System is implemented.
+        # When regime_router is integrated, these will be populated from actual gating results.
+        row_data["regime_gate_enabled"] = False
+        row_data["activation_rate_pct"] = None
+        row_data["regime_blocked_trades"] = None
+        row_data["blocked_pnl_raw"] = None
+    else:
+        row_data["avg_pairwise_corr"] = corr_data["avg_pairwise_corr"]
+        row_data["max_pairwise_corr_stress"] = max_stress_corr
 
     # Calculate Trade Density natively from components
     if isinstance(constituent_run_ids, list) and len(constituent_run_ids) > 0:
@@ -1682,24 +1839,38 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     with FileLock(str(_lock_path), timeout=120):
         ensure_xlsx_writable(ledger_path)
         # Atomic write: tmp → fsync → replace (prevents corruption on crash/kill)
+        # Write both sheets in one pass — target sheet gets the updated df,
+        # other sheet is preserved as-is (or empty if first time).
         _tmp_ledger = ledger_path.with_suffix(".xlsx.tmp")
-        df_final.to_excel(_tmp_ledger, index=False)
+        with pd.ExcelWriter(_tmp_ledger, engine="openpyxl", mode="w") as writer:
+            df_final.to_excel(writer, sheet_name=target_sheet, index=False)
+            if df_other is not None and not df_other.empty:
+                df_other.to_excel(writer, sheet_name=_other_sheet, index=False)
         import os as _os_atomic
         with open(_tmp_ledger, "r+b") as _fh:
             _os_atomic.fsync(_fh.fileno())
         _os_atomic.replace(str(_tmp_ledger), str(ledger_path))
 
         # Call Unified Formatter
+        _formatter = PROJECT_ROOT / "tools" / "format_excel_artifact.py"
         try:
             cmd = [
                 sys.executable,
-                str(PROJECT_ROOT / "tools" / "format_excel_artifact.py"),
+                str(_formatter),
                 "--file", str(ledger_path),
                 "--profile", "portfolio",
             ]
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as e:
             print(f"[WARN] Formatting failed: {e}")
+
+        try:
+            subprocess.run(
+                [sys.executable, str(_formatter), "--file", str(ledger_path), "--notes-type", "portfolio"],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"[WARN] Notes sheet failed: {e}")
 
 
 # ==================================================================
@@ -1817,8 +1988,8 @@ def main():
         print(f"  [WARN] Failed to extract timeframes: {e}")
         signal_timeframes_str = "UNKNOWN"
 
-    port_metrics['signal_timeframes'] = signal_timeframes_str
-    port_metrics['evaluation_timeframe'] = "1D"
+    # Normalize signal_timeframes to MT5 notation (M5, M15, H1, D1, …)
+    port_metrics['signal_timeframes'] = _to_mt5_timeframe(signal_timeframes_str)
     
     print(f"  Net PnL: ${port_metrics['net_pnl_usd']:,.2f} | Sharpe: {port_metrics['sharpe']}")
 
@@ -1923,7 +2094,7 @@ def main():
     if is_valid_for_master:
         print(f"[10/10] Updating Master Portfolio Ledger...")
         try:
-            update_master_portfolio_ledger(strategy_id, port_metrics, corr_data, max_stress_corr, concurrency_data, unique_runs)
+            update_master_portfolio_ledger(strategy_id, port_metrics, corr_data, max_stress_corr, concurrency_data, unique_runs, n_assets=len(symbol_trades))
             print(f"  [LEDGER] Row appended to Master_Portfolio_Sheet.xlsx")
         except Exception as e:
             print(f"  [ERROR] Failed to update ledger: {e}")

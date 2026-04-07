@@ -82,12 +82,27 @@ class FilterStack:
                     self.filtered_bars += 1
                     return False
 
+        # Regime age exclusion gate: blocks trades entering during excluded
+        # regime age range. Uses exclude_min / exclude_max (inclusive bounds).
+        raf = self.signature.get("regime_age_filter", {})
+        if raf.get("enabled", False):
+            exclude_min = raf.get("exclude_min")
+            exclude_max = raf.get("exclude_max")
+            if exclude_min is not None and exclude_max is not None:
+                try:
+                    actual_age = ctx.require("regime_age")
+                except Exception:
+                    actual_age = None
+                if actual_age is not None and exclude_min <= actual_age <= exclude_max:
+                    self.filtered_bars += 1
+                    return False
+
         for filter_name, cfg in self.signature.items():
             if not isinstance(cfg, dict):
                 continue
 
-            if filter_name == "market_regime_filter":
-                continue  # Already handled above — skip in generic loop
+            if filter_name in ("market_regime_filter", "regime_age_filter", "session_filter"):
+                continue  # Already handled above or in strategy.check_entry() — skip in generic loop
 
             if not cfg.get("enabled", False):
                 continue
@@ -95,7 +110,17 @@ class FilterStack:
             if filter_name == "trend_filter":
                 # direction_gate mode: per-direction gating handled in allow_direction().
                 # Bypass standard field check to avoid double-blocking.
+                # But exclude_regime is a hard pre-entry gate — must still fire.
                 if cfg.get("direction_gate"):
+                    exclude_val = cfg.get("exclude_regime")
+                    if exclude_val is not None:
+                        try:
+                            actual_trend = ctx.require("trend_regime")
+                        except Exception:
+                            actual_trend = None
+                        if actual_trend is not None and actual_trend == exclude_val:
+                            self.filtered_bars += 1
+                            return False
                     continue
                 field = "trend_regime"
                 expected = cfg.get("required_regime")

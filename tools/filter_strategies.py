@@ -47,8 +47,25 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     Deterministic classification for candidate ledger rows:
       BURN_IN : strategy is in TS_Execution/portfolio.yaml (enabled=true)
       FAIL    : total_trades < 50 OR max_dd_pct > 40
+                OR expectancy below asset-class FAIL gate
       CORE    : total_trades >= 200 AND return_dd_ratio >= 2.0 AND sharpe_ratio >= 1.5
+                AND max_dd_pct <= 30 AND trade_density >= 50 AND profit_factor >= 1.25
       WATCH   : otherwise
+
+    Expectancy gates (logic-driven, calibrated 2026-04-07):
+      Backtests include spread (baked into OHLC). Only slippage is unmodeled.
+      Slippage cost proportional to spread; non-FX has ~3.3x higher friction
+      per lot (derived from OctaFX broker specs: tick_value, contract_size).
+
+      Asset class detection via symbol keywords. FAIL thresholds:
+        FX    : < $0.15  (empirically calibrated from burn-in evidence)
+        XAU   : < $0.50  (3.3x FX: spread $0.20/oz vs FX $0.06/pip at 0.01 lot)
+        BTC   : < $0.50  (3.3x FX: spread $20 vs FX, same cost at 0.01 lot)
+        INDEX : < $0.50  (3.0-3.8x FX: GER40/NAS100/US30 spread vs FX)
+
+      WATCH : above FAIL but below BURN_IN threshold
+      BURN_IN candidates must have expectancy >= class threshold (enforced at promotion):
+        FX $0.25 | XAU $0.80 | BTC $0.80 | INDEX $0.80
 
     BURN_IN is fully automated — driven by portfolio.yaml inclusion/exclusion.
     Adding a strategy to portfolio.yaml sets BURN_IN; removing it reverts to computed status.
@@ -58,12 +75,39 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     return_dd_ratio = pd.to_numeric(df.get("return_dd_ratio"), errors="coerce").fillna(float("-inf"))
     sharpe_ratio = pd.to_numeric(df.get("sharpe_ratio"), errors="coerce").fillna(float("-inf"))
 
+    profit_factor = pd.to_numeric(df.get("profit_factor"), errors="coerce").fillna(float("-inf"))
+    trade_density = pd.to_numeric(df.get("trade_density"), errors="coerce").fillna(0.0)
+    expectancy = pd.to_numeric(df.get("expectancy"), errors="coerce").fillna(0.0)
+
+    # --- Asset class detection from symbol column ---
+    # Single source of truth: config.asset_classification.classify_asset()
+    # Uses token-position-aware parsing, not substring matching.
+    from config.asset_classification import classify_asset, EXP_FAIL_GATES
+
+    symbol_col = df.get("symbol", pd.Series("", index=df.index)).fillna("").astype(str)
+    asset_classes = symbol_col.apply(lambda s: classify_asset(s))
+    is_fx    = (asset_classes == "FX")
+    is_xau   = (asset_classes == "XAU")
+    is_btc   = (asset_classes == "BTC")
+    is_index = (asset_classes == "INDEX")
+
     status = pd.Series("WATCH", index=df.index, dtype="object")
     fail_mask = (total_trades < 50) | (max_dd_pct > 40)
+
+    # Asset-class expectancy gates (from shared EXP_FAIL_GATES)
+    fx_exp_fail  = is_fx    & (expectancy < EXP_FAIL_GATES["FX"])
+    xau_exp_fail = is_xau   & (expectancy < EXP_FAIL_GATES["XAU"])
+    btc_exp_fail = is_btc   & (expectancy < EXP_FAIL_GATES["BTC"])
+    idx_exp_fail = is_index & (expectancy < EXP_FAIL_GATES["INDEX"])
+    fail_mask = fail_mask | fx_exp_fail | xau_exp_fail | btc_exp_fail | idx_exp_fail
+
     core_mask = (
         (total_trades >= 200)
         & (return_dd_ratio >= 2.0)
         & (sharpe_ratio >= 1.5)
+        & (max_dd_pct <= 30.0)
+        & (trade_density >= 50.0)
+        & (profit_factor >= 1.25)
         & (~fail_mask)
     )
     status.loc[fail_mask] = "FAIL"
@@ -190,7 +234,10 @@ def filter_strategies():
                 )
                 print(f"[CANDIDATES] Archived previous candidates to {archive_dir.name}/Filtered_Strategies_Passed_{ts}.xlsx")
 
-            # Step 2: Read-modify-write with dedup on run_id (mirrors stage3_compiler pattern).
+            # Step 2: Read-modify-write with dedup on run_id.
+            # Existing rows whose run_id appears in the current Master Filter
+            # have their metric columns refreshed (handles re-runs and corrections).
+            # Rows NOT in the current Master Filter are preserved as-is (append-only).
             if CANDIDATE_FILTER_PATH.exists():
                 try:
                     df_existing = pd.read_excel(CANDIDATE_FILTER_PATH)
@@ -199,7 +246,27 @@ def filter_strategies():
                         if "run_id" in df_existing.columns
                         else set()
                     )
+                    # Identify new rows (not yet in candidates)
                     df_new_rows = passed_df[~passed_df["run_id"].astype(str).isin(existing_run_ids)]
+
+                    # Refresh metrics for existing rows that are also in passed_df
+                    # Preserve non-metric columns (IN_PORTFOLIO, burn_in_layer, etc.)
+                    _preserve_cols = {"IN_PORTFOLIO", "burn_in_layer"}
+                    refreshed_ids = set(passed_df["run_id"].astype(str)) & existing_run_ids
+                    if refreshed_ids:
+                        passed_lookup = passed_df.set_index(passed_df["run_id"].astype(str))
+                        metric_cols = [c for c in passed_df.columns if c not in _preserve_cols]
+                        for idx_row in df_existing.index:
+                            rid = str(df_existing.at[idx_row, "run_id"])
+                            if rid in refreshed_ids and rid in passed_lookup.index:
+                                src = passed_lookup.loc[rid]
+                                if isinstance(src, pd.DataFrame):
+                                    src = src.iloc[0]
+                                for col in metric_cols:
+                                    if col in df_existing.columns:
+                                        df_existing.at[idx_row, col] = src[col]
+                        print(f"[CANDIDATES] Refreshed metrics for {len(refreshed_ids)} existing row(s) from Master Filter")
+
                     df_merged = pd.concat([df_existing, df_new_rows], ignore_index=True)
                     print(f"[CANDIDATES] Merged: {len(existing_run_ids)} existing + {len(df_new_rows)} new = {len(df_merged)} total")
                 except Exception as read_err:
@@ -225,6 +292,15 @@ def filter_strategies():
                 )
             except subprocess.CalledProcessError as e:
                 print(f"[WARN] Failed to format candidate ledger: {e.stderr.decode()}")
+
+            try:
+                subprocess.run(
+                    [sys.executable, str(formatter_path), "--file", str(CANDIDATE_FILTER_PATH), "--notes-type", "candidates"],
+                    check=True,
+                    capture_output=True,
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"[WARN] Failed to add Notes sheet to candidate ledger: {e.stderr.decode()}")
 
         except Exception as e:
             print(f"[ERROR] Failed to generate candidate ledger: {e}")

@@ -132,7 +132,7 @@ _DELTA_KEYS = (
     "profit_factor",
     "pct_profitable",   # win rate (0..100 in metrics_core output)
     "avg_trade",
-    "max_dd",
+    "max_dd_usd",
     "sharpe_ratio",
 )
 

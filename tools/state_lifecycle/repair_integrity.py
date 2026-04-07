@@ -4,6 +4,16 @@ import pandas as pd
 from pathlib import Path
 
 STATE_ROOT = Path(__file__).resolve().parents[2].parent / "TradeScan_State"
+
+def check_file_writable(path: Path) -> None:
+    """Verify file can be opened for writing (catches Excel lock)."""
+    try:
+        with open(path, "a"):
+            pass
+    except PermissionError:
+        print(f"[BLOCK] Cannot write {path.name} — file is open in another application. Close Excel and retry.")
+        sys.exit(1)
+
 MASTER_SHEET_PATH = STATE_ROOT / "strategies" / "Master_Portfolio_Sheet.xlsx"
 FILTERED_SHEET_PATH = STATE_ROOT / "candidates" / "Filtered_Strategies_Passed.xlsx"
 
@@ -156,13 +166,20 @@ def main():
         print("\nNo physical files were mutated.")
         return
         
+    if len(missing_in_filtered) == 0 and len(missing_in_master) == 0:
+        print("\n[INFO] No integrity issues found. Skipping write — spreadsheets unchanged.")
+        return
+
     print("\n================ REPAIR EXECUTION ================")
+    check_file_writable(FILTERED_SHEET_PATH)
+    check_file_writable(MASTER_SHEET_PATH)
+
     df_filtered_repaired.to_excel(FILTERED_SHEET_PATH, index=False)
     print(f"-> Repaired {FILTERED_SHEET_PATH.name} (Dropped {original_filtered_count - len(df_filtered_repaired)} rows)")
-    
+
     df_master_repaired.to_excel(MASTER_SHEET_PATH, index=False)
     print(f"-> Repaired {MASTER_SHEET_PATH.name} (Dropped {len(portfolios_to_drop)} dead portfolios)")
-    
+
     print("\n[SUCCESS] Referential Integrity Restored. Spreadsheets active and valid.")
 
 if __name__ == "__main__":

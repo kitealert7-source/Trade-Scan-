@@ -50,8 +50,39 @@ def execution_pid_exists() -> bool:
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if handle:
+                # Verify the process is actually Python (not a recycled PID)
+                is_python = True  # default: assume alive if name check fails
+                try:
+                    try:
+                        import psutil
+                        proc = psutil.Process(pid)
+                        proc_name = proc.exe().lower()
+                        if "python" not in proc_name:
+                            is_python = False
+                            print(f"[WARN] PID {pid} is alive but not a Python process (image: {proc_name}). Treating as stale/recycled PID.")
+                    except ImportError:
+                        # psutil not available — use ctypes QueryFullProcessImageNameA
+                        buf = ctypes.create_string_buffer(1024)
+                        buf_size = ctypes.c_uint32(1024)
+                        success = kernel32.QueryFullProcessImageNameA(handle, 0, buf, ctypes.byref(buf_size))
+                        if success:
+                            proc_name = buf.value.decode("utf-8", errors="replace").lower()
+                            if "python" not in proc_name:
+                                is_python = False
+                                print(f"[WARN] PID {pid} is alive but not a Python process (image: {proc_name}). Treating as stale/recycled PID.")
+                except Exception:
+                    pass  # name check failed — fall back to assuming alive
                 kernel32.CloseHandle(handle)
-                return True
+                if is_python:
+                    return True
+                # Not a Python process — fall through to heartbeat check
+            else:
+                # PID is dead on Windows — clean up stale PID file
+                try:
+                    pid_path.unlink()
+                    print(f"[INFO] Cleaned stale execution.pid (PID {pid} is no longer running)")
+                except OSError:
+                    pass
         else:
             try:
                 os.kill(pid, 0)
@@ -59,7 +90,12 @@ def execution_pid_exists() -> bool:
             except PermissionError:
                 return True
             except OSError:
-                pass  # PID is dead — fall through to heartbeat check
+                # PID is dead on Linux — clean up stale PID file
+                try:
+                    pid_path.unlink()
+                    print(f"[INFO] Cleaned stale execution.pid (PID {pid} is no longer running)")
+                except OSError:
+                    pass
 
     # Layer 2: Heartbeat freshness (catches stale PID + re-launched process)
     hb_path = ts_exec_logs / "heartbeat.log"
@@ -191,6 +227,23 @@ def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
     """Map the filesystem strictly to identify quaratine candidates."""
     execution_set = build_execution_shield()
 
+    # Build broader folder protection set:
+    #   - Master_Portfolio_Sheet portfolio_ids (active_portfolios)
+    #   - Filtered_Strategies_Passed strategy names
+    #   - portfolio.yaml deployed strategy IDs (execution_set)
+    protected_folders = set(active_portfolios)
+    protected_folders |= execution_set
+    filt_strats = set()
+    if FILTERED_SHEET_PATH.exists():
+        df_filt = pd.read_excel(FILTERED_SHEET_PATH)
+        for s in df_filt.get("strategy", []):
+            s_str = str(s).strip()
+            if s_str and s_str.lower() != "nan":
+                filt_strats.add(s_str)
+                protected_folders.add(s_str)
+
+    print(f"[INFO] Protected folders: {len(protected_folders)} (Master={len(active_portfolios)}, Filtered={len(filt_strats)}, Execution={len(execution_set)})")
+
     targets = {
         "runs": [],
         "backtests": [],
@@ -245,14 +298,14 @@ def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
                 continue
             
             # The sandbox is actually handled elsewhere, but in case there are other subfolders:
-            if f.name not in active_portfolios:
+            if f.name not in protected_folders:
                 targets["portfolios"].append(f)
 
     # 5. Scan Local App Deployments
     if DEPLOYED_STRATEGIES_DIR.exists():
         for f in DEPLOYED_STRATEGIES_DIR.iterdir():
             if f.is_dir() and f.name not in ["_deployments"]:
-                if f.name not in active_portfolios:
+                if f.name not in protected_folders:
                     targets["deployed_portfolios"].append(f)
 
     # 6. Scan Sandbox cache layer
@@ -392,9 +445,12 @@ def execute_purge(targets: dict):
 def main():
     parser = argparse.ArgumentParser(description="State Lifecycle Lineage Pruner")
     parser.add_argument("--execute", action="store_true", help="Acknowledge destructive move and bypass dry-run.")
+    parser.add_argument("--force-unlock", action="store_true", help="Bypass TS_Execution safety check. Use only when certain TS_Execution is not running.")
     args = parser.parse_args()
 
-    if execution_pid_exists():
+    if args.force_unlock:
+        print("[WARN] --force-unlock: Bypassing TS_Execution safety check. Use only when you are certain TS_Execution is not running.")
+    elif execution_pid_exists():
         print("[BLOCK] TS_Execution is running")
         sys.exit(1)
 

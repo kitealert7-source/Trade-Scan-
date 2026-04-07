@@ -515,3 +515,305 @@ This experiment confirms that filter stacks are effective for segmentation and a
 
 Implication:
 When evaluating new signal classes, raw unfiltered PF < 1.0 should disqualify the signal before regime decomposition. Regime filters should refine existing edge, not rescue absent edge. The Long x WeakDn pattern may generalize as a structural feature of XAUUSD rather than a signal-specific finding -- future strategies showing this cell as dominant should be scrutinized for false attribution.
+
+2026-04-06
+Tags:
+momentum_ignition
+BTCUSD
+1H
+cross_timeframe
+regime_filter
+IMPULSE
+
+Strategy: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P02
+Run IDs: 717230561d233f4a243f8a1f
+
+Finding:
+BTC 1H momentum ignition (bar_range > 1.8x avg_range(5), close in top/bottom 20% zone)
+produces genuine edge after two isolation passes. Cross-timeframe comparison (15M/30M/1H)
+confirmed 1H optimal: higher TF = better signal-to-noise for impulse detection. P01 excluded
+WeakUp regime (trend_regime == 1) where both directions lose. P02 added Age 1 exclusion
+(PF 0.53, noise immediately post-regime-transition). P03 (low-vol gate) and P04 (higher
+range_mult 2.2x) both rejected -- trade count collapsed without proportional PF gain.
+P05 extended backtest (2020-2026, 633 trades) validated P02 edge survives full BTC cycle
+with no negative years but PF diluted from 1.70 to 1.45. P02 promoted to BURN_IN.
+
+Evidence:
+Cross-TF: 15M PF 1.06, 30M PF 1.17, 1H PF 1.25 (baseline). P02: 262 trades, PF 1.70,
+Sharpe 2.98, Max DD 7.03%, Return/DD 11.39. P05 (6yr): PF 1.45, 633T, 0 negative years.
+
+Conclusion:
+Impulse detection is timeframe-sensitive -- lower TFs produce more signals but worse
+signal quality. WeakUp regime is structurally untradable for impulse (both Long PF 0.66
+and Short PF 0.40 lose). Age 1 is pure noise post-transition (PF 0.53). These are
+structural exclusions, not parameter tuning -- the market microstructure does not support
+impulse follow-through in these conditions.
+
+Implication:
+1. For impulse/breakout strategies, always test 15M/30M/1H before committing to a
+   timeframe. The optimal TF depends on the instrument's noise profile, not the signal.
+2. WeakUp regime exclusion should be tested on any trend-following BTC strategy --
+   the regime represents directional ambiguity where impulse signals fire but lack
+   follow-through momentum.
+3. First BTC strategy in portfolio. Correlation with XAUUSD engines expected to be
+   low (different asset class, different microstructure). Portfolio diversification
+   benefit should be evaluated once burn-in data accumulates.
+
+2026-04-06
+Tags:
+filter_stack
+bug_fix
+exclude_regime
+direction_gate
+infrastructure
+
+Strategy: (all strategies using FilterStack with direction_gate + exclude_regime)
+Run IDs: 717230561d233f4a243f8a1f
+
+Finding:
+FilterStack had a silent bug: when direction_gate=true, the entire trend_filter block
+was skipped via `continue` at line 114, which meant exclude_regime was never evaluated.
+Any strategy combining direction_gate + exclude_regime was running WITHOUT the exclusion.
+Discovered when P01 (exclude WeakUp) produced identical results to P00 (no exclusion).
+
+Evidence:
+Pre-fix P02: 264 trades, PnL $830.94, PF 1.73. Post-fix P02: 262 trades, PnL $800.40,
+PF 1.70. 2 fewer trades taken, metrics slightly lower but edge confirmed genuine.
+
+Conclusion:
+The exclude_regime check must fire BEFORE the direction_gate continue statement.
+Fix applied: exclude_regime evaluation inserted before the `continue` in filter_stack.py.
+All strategies using direction_gate + exclude_regime should be verified.
+
+Implication:
+1. Any previously run strategy with both direction_gate=true AND exclude_regime set
+   was effectively running without the exclusion. Results are valid but represent the
+   unfiltered version. Re-run if the exclusion was material to the edge hypothesis.
+2. filter_strategies.py merge logic also fixed: existing rows now get metrics refreshed
+   from Master Filter on re-run (was append-only, never updated stale data).
+   candidate_status also auto-syncs with portfolio.yaml on every run.
+
+------------------------------------------------------------------------
+2026-04-07
+Tags:
+burn_in_live_validation
+fx_mean_reversion_friction
+strategy_selection_criteria
+
+Strategy:     22_CONT_FX / 15_MR_FX (portfolio-level finding)
+Run IDs:      20260406T170841Z_41372, 20260406T095611Z_14752
+
+Finding:
+FX mean-reversion and short-hold continuation strategies (M15, max_bars=3) show near-zero
+or negative expected value under real spreads in burn-in. Backtest expectancy of $0.04-0.09
+per trade is too thin to survive real-world friction. High win rates (79-82%) mask
+unfavorable reward/risk ratios (0.09-0.19).
+
+Evidence:
+22_CONT_FX archive: 88 exits, 82% WR, avg win $0.0097, avg loss $0.0510, R:R 0.19, EV -$0.0013/trade.
+XAU/BTC strategies: expectancy $2.18-5.30/trade, R:R ~1.0+, friction-resilient by construction.
+
+Conclusion:
+FX M15 mean-reversion with 3-bar holds produces wins smaller than typical spread costs.
+The strategies are structurally friction-fragile — the edge exists in backtest but is
+consumed by bid-ask spread in live markets. Strategies with expectancy below ~$0.50/trade
+on FX are unlikely to survive real execution.
+
+Implication:
+1. FX research should pivot toward breakout/momentum strategies with wider stops and
+   larger per-trade expectancy ($1+) that can absorb spread + slippage.
+2. The 22_CONT_FX 30M variants (expectancy $0.10-0.23) are marginal — monitor but
+   do not expect positive live performance.
+3. XAU, BTC, and index strategies are inherently more friction-resilient due to higher
+   tick values and larger price movements. Prioritize these asset classes for new research.
+4. Minimum viable expectancy threshold for FX should be established (~$0.50/trade)
+   as a pre-promotion gate to avoid wasting burn-in slots on friction-fragile strategies.
+
+------------------------------------------------------------------------
+2026-04-07
+Tags:
+pipeline_gate_expectancy
+candidate_filtration
+capital_allocation_limits
+
+Strategy:     (portfolio-level — pipeline design)
+Run IDs:      20260406T170841Z_41372, 20260406T095611Z_14752
+
+Finding:
+Capital allocation (burn-in lot sizing at 1% risk on $10K notional) cannot compensate
+for a strategy with insufficient per-trade expectancy. Backtest uses real spreads, yet
+22_CONT_FX passed candidates with $0.04-0.07 expectancy — spreads were modeled but the
+filter pipeline did not gate on absolute expectancy, only on PF/Sharpe/RetDD ratios.
+
+Evidence:
+22_CONT_FX M15 GBPUSD: backtest PF 1.19, 2858 trades, expectancy $0.06. Live burn-in: 0/4 WR, -$204.85 net.
+15_MR_FX M15 AUDNZD: backtest PF 1.54, 437 trades, expectancy $0.09. Live burn-in: 2/4 WR, -$240.49 net.
+
+Conclusion:
+Ratio-based filters (PF, Sharpe, Return/DD) pass strategies where the absolute dollar
+edge per trade is too small to survive execution. A strategy can have PF 1.19 across
+2858 trades and still be unviable — the edge is real but too thin. Capital allocation
+scales position size, not the underlying edge quality.
+
+Implication:
+1. Add a minimum absolute expectancy gate to the candidates filtration pipeline.
+   Proposed thresholds: FX pairs >= $0.50/trade, XAU/BTC/Index >= $1.00/trade.
+   This filters before burn-in, saving observation slots for viable strategies.
+2. Existing ratio gates (PF >= 1.20, Sharpe, RetDD) remain necessary but are
+   insufficient alone — they must be paired with the expectancy floor.
+3. Strategies currently in BURN_IN with expectancy below threshold should complete
+   their 90-trade cycle for data, but expectations should be set accordingly.
+
+------------------------------------------------------------------------
+2026-04-07
+Tags:
+expectancy_threshold_calibration
+candidate_gate_design
+burn_in_evidence
+
+Strategy:     (portfolio-level — pipeline gate calibration)
+Run IDs:      20260406T170841Z_41372, 20260406T095611Z_14752
+
+Finding:
+Burn-in data across 12 strategies with live exits shows a clear dividing line: every FX
+strategy with backtest expectancy below $0.10/trade is negative in live (7/8, the one
+exception is likely noise at n=7). XAU strategies with $2-5 expectancy show negative on
+n=1-2 trades each — too small to judge. No live data yet in the $0.10-$1.00 range.
+
+Evidence:
+BT exp <$0.10: 8 strategies with live data, 7 negative. 22_CONT USDCHF: BT $0.06, live -$5.06/trade (n=28).
+BT exp >$1.00: 4 strategies with live data, 1 positive (17_REV $1.33/trade n=2), 3 negative (n=1 each).
+
+Conclusion:
+The failure zone for FX is definitively below $0.10/trade — spread costs alone consume the
+edge. The viable zone boundary is somewhere between $0.10 and $1.00 but burn-in has no data
+there yet. Sample sizes for XAU/BTC/Index are too small (n=1-2) to calibrate their threshold.
+
+Implication:
+1. Implement minimum expectancy gate in candidates filtration pipeline NOW:
+   - FX pairs: >= $0.25/trade (see 2026-04-07 threshold revision below)
+   - XAU/BTC/Index: >= $1.50/trade (provisional, refine after 90-trade burn-in cycles)
+2. These are first-pass thresholds. Refine as more burn-in data fills the $0.10-$1.00 gap.
+3. Do NOT remove sub-threshold strategies from active burn-in — let them complete 90 trades
+   to build the calibration dataset, but do not promote new sub-threshold strategies.
+
+------------------------------------------------------------------------
+2026-04-07
+Tags:
+expectancy_threshold_revision
+fx_strategy_viability
+honest_research_gates
+
+Strategy:     (portfolio-level — pipeline gate revision)
+Run IDs:      20260406T170841Z_41372, 20260406T095611Z_14752
+
+Finding:
+Distribution analysis of all 124 FX strategies in Filtered_Strategies_Passed.xlsx shows
+the maximum FX expectancy in the entire pool is $0.23 (22_CONT_FX_30M AUDJPY). Zero
+strategies pass at $0.25. The $0.15-$0.23 range (18 strategies, 14.5%) represents the
+best current FX research output — but burn-in evidence shows even $0.10 strategies fail
+in live. Lowering the threshold to keep strategies alive would defeat the purpose.
+
+Evidence:
+124 FX strategies: 0 pass $0.25, 4 pass $0.20, 18 pass $0.15, 43 pass $0.10, 109 pass $0.05.
+Best FX family: 22_CONT_FX_30M avg_exp=$0.14, max=$0.23. All tested <$0.10 strategies negative live.
+
+Conclusion:
+The $0.25 threshold is correct and should not be lowered to accommodate existing strategies.
+If current FX archetypes cannot meet the bar, that is an honest signal that the research
+direction must change — not that the bar should be bent. The gate exists to prevent
+wasting burn-in slots and capital on friction-fragile strategies.
+
+Implication:
+1. FX expectancy gate stays at $0.25/trade. This currently eliminates all 124 FX strategies.
+   That is the intended outcome — it forces research toward higher-expectancy FX archetypes
+   (breakout, momentum, structure) with wider risk distances and larger per-trade targets.
+2. Current FX burn-ins complete their 90-trade cycle for calibration data only.
+   No new FX strategies below $0.25 enter burn-in.
+3. XAU/BTC/Index gate remains $1.50/trade (provisional). These asset classes have
+   demonstrated viable expectancy ranges ($2-5+/trade) in existing research.
+
+------------------------------------------------------------------------
+2026-04-07
+Tags:
+candidate_status_gates
+expectancy_tiered_pipeline
+fx_status_criteria
+
+Strategy:     (portfolio-level — pipeline status gates)
+Run IDs:      20260406T170841Z_41372, 20260406T095611Z_14752
+
+Finding:
+Tiered FX expectancy gates defined for the candidate pipeline, mapping each status level
+to a minimum expectancy threshold. Gates are calibrated from burn-in evidence: all FX
+strategies below $0.10 are confirmed negative in live, the $0.10-$0.25 range is marginal
+with no positive evidence, and no existing FX strategy reaches $0.25.
+
+Evidence:
+124 FX strategies: 0 pass $0.25, 18 pass $0.15, 109 pass $0.05. All 8 tested below $0.10 negative live.
+Current max FX expectancy: $0.23 (22_CONT_FX_30M AUDJPY). 100% of pool would be FAIL or WATCH.
+
+Conclusion:
+FX candidate status gates (per-trade expectancy):
+  FAIL:     < $0.15  — cull, doesn't survive friction
+  WATCH:    $0.15 - $0.24  — worth monitoring, not ready for live test
+  BURN_IN:  >= $0.25  — approved for live shadow observation
+  CORE:     >= $0.25 + passed 90-trade burn-in gates (PF, WR, MaxDD, fill_rate)
+XAU/BTC/Index gates (logic-driven, finalized 2026-04-07):
+  Derivation: spread_cost_at_min_lot(class) / spread_cost_at_min_lot(FX) = ~3.3x multiplier.
+    FX (EURUSD): 0.6 pips * $1000/PU @ 0.01 lot = $0.06
+    XAU: $0.20 spread * $1.00/PU @ 0.01 lot = $0.20 (3.3x)
+    BTC: $20 spread * $0.01/PU @ 0.01 lot = $0.20 (3.3x)
+    INDEX (GER40): 2 pts * $0.115/PU @ 0.01 lot = $0.23 (3.8x)
+  Slippage proportional to spread (microstructure principle). Conservative 3.0x applied.
+  FAIL: XAU < $0.50, BTC < $0.50, INDEX < $0.50
+  BURN_IN: XAU >= $0.80, BTC >= $0.80, INDEX >= $0.80
+
+Implication:
+1. Apply these gates in filter_strategies.py as automatic candidate_status assignment.
+2. Current FX pipeline output: 106 FAIL, 18 WATCH, 0 BURN_IN. This is correct —
+   forces research pivot toward higher-expectancy FX archetypes before any reach burn-in.
+3. Existing sub-threshold BURN_IN strategies complete their 90-trade cycle for data
+   but are not replaced when done. New BURN_IN slots reserved for qualifying strategies.
+2026-04-07
+Tags:
+regime_gate
+pipeline_staging
+OOS_validation
+overfit
+capital_wrapper
+
+Run IDs: experiments/regime_gate_validation.py, experiments/results/regime_gate_validation.json
+
+Finding:
+Regime gating (blocking trades in unprofitable regime cells) improves in-sample metrics but fails OOS stability — 0/5 active-gated portfolios survived 60/40 split. Direction reversal in all cases: blocked trades were losers in training but winners in OOS.
+
+Evidence:
+In-sample: 5/9 improved, +$9525 total dPnL, avg PF +0.11, avg DD -0.45pp. OOS: 0/5 active stable; PF_7FCF1D2EB158 reversed from +$6420 IS to -$7360 OOS. Blocked OOS PnL was positive in all 5 cases ($1427, $455, $160, $52, $1143).
+
+Conclusion:
+REJECT for pipeline integration. Regime labels lack forward-predictive signal at current sample sizes (min_trades=10). Ordering confirmed: if ever used, gating must precede capital allocation (B != C in 5/5 active cases). Profile selection unaffected (0/9 changed).
+
+Implication:
+Stage 4 Regime Audit stays diagnostic/reporting only — never auto-block. If revisited: require min_trades >= 50, walk-forward validation, regime-cluster stability checks. Strategy Activation System remains valid as monitoring layer, not gating layer.
+2026-04-07
+Tags:
+regime_gate
+activation
+exposure_control
+concurrency
+pipeline_staging
+
+Run IDs: experiments/regime_gate_validation.py, experiments/activation_vs_filtering.py, experiments/exposure_control_vs_activation.py, experiments/concurrency_diagnostics.py
+
+Finding:
+Portfolio-level regime filtering, activation, and exposure control do not provide material improvement with current regime definitions. Regime buckets (vol, trend) are too coarse to partition trades into stable, behaviorally distinct populations.
+
+Evidence:
+3 experiments, 9 portfolios. Post-trade filtering: +$1058 avg IS but 0/5 OOS stable. Binary activation: -$3332 avg but 9/9 OOS stable (returns to baseline). Exposure control: +$11 avg (noise). REV max_concurrent=2, cap fires 6-9 trades. TREND low-vol signal ~$130 avg.
+
+Conclusion:
+Do not implement regime-based gating, activation, or exposure control in pipeline. REV×TREND overlap is beneficial diversification. Only valid signal (TREND in low-vol) is too small for system-level rules. Revisit only if regime classification becomes granular and aligned with strategy entry logic.
+
+Implication:
+No Stage 4 Regime Audit in pipeline. Current regime labels (vol bucket, trend label) lack forward-predictive power for trade-level decisions. Future work requires feature-level regime alignment, not coarse state labels.

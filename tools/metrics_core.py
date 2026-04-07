@@ -35,6 +35,7 @@ __all__ = [
     "bucket_breakdown",
     "summarize_buckets",
     "compute_session_breakdown",
+    "compute_regime_age_breakdown",
     # Orchestrator
     "compute_metrics_from_trades",
     "empty_metrics",
@@ -48,6 +49,7 @@ __all__ = [
     "TF_BARS_PER_DAY",
     "VOL_REGIME_BUCKETS",
     "TREND_LABEL_BUCKETS",
+    "REGIME_AGE_BUCKETS",
 ]
 
 
@@ -82,6 +84,16 @@ TREND_LABEL_BUCKETS: dict[str, list[str]] = {
     "weak_down":   ["weak_down"],
     "strong_down": ["strong_down"],
 }
+
+# Regime age bucket definitions: (display_label, min_age_inclusive, max_age_inclusive_or_None)
+REGIME_AGE_BUCKETS: list[tuple[str, int, int | None]] = [
+    ("Age 0",    0,  0),
+    ("Age 1",    1,  1),
+    ("Age 2",    2,  2),
+    ("Age 3-5",  3,  5),
+    ("Age 6-10", 6, 10),
+    ("Age 11+", 11, None),
+]
 
 
 # ==================================================================
@@ -462,6 +474,56 @@ def compute_session_breakdown(filtered: list[dict[str, Any]]) -> dict[str, Any]:
         "net_profit_london": l_net, "trades_london": l_cnt, "avg_trade_london": l_avg,
         "net_profit_ny": n_net, "trades_ny": n_cnt, "avg_trade_ny": n_avg,
     }
+
+
+def compute_regime_age_breakdown(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per-bucket statistics grouped by regime_age numeric ranges.
+
+    Uses REGIME_AGE_BUCKETS for range definitions. Trades with missing or
+    non-parseable regime_age are silently skipped (non-strict, consistent
+    with trend_label handling). Metrics per bucket via compute_pnl_basics().
+
+    Returns a list of records in REGIME_AGE_BUCKETS order with keys:
+        label, trades, net_pnl, profit_factor, win_rate, avg_trade
+    """
+    bucket_pnls: list[list[float]] = [[] for _ in REGIME_AGE_BUCKETS]
+
+    for t in trades:
+        raw = t.get("regime_age")
+        if raw in (None, "", "None", "nan"):
+            continue
+        try:
+            age = int(float(raw))
+        except (ValueError, TypeError):
+            continue
+
+        for idx, (_label, lo, hi) in enumerate(REGIME_AGE_BUCKETS):
+            if age >= lo and (hi is None or age <= hi):
+                bucket_pnls[idx].append(_safe_float(t.get("pnl_usd", 0)))
+                break
+
+    rows: list[dict[str, Any]] = []
+    for (label, _lo, _hi), pnls in zip(REGIME_AGE_BUCKETS, bucket_pnls):
+        if pnls:
+            b = compute_pnl_basics(pnls)
+            rows.append({
+                "label":         label,
+                "trades":        b["trade_count"],
+                "net_pnl":       round(b["net_profit"], 2),
+                "profit_factor": round(b["profit_factor"], 3),
+                "win_rate":      round(b["win_rate"] * 100, 1),
+                "avg_trade":     round(b["avg_trade"], 2),
+            })
+        else:
+            rows.append({
+                "label":         label,
+                "trades":        0,
+                "net_pnl":       0.0,
+                "profit_factor": 0.0,
+                "win_rate":      0.0,
+                "avg_trade":     0.0,
+            })
+    return rows
 
 
 # ==================================================================

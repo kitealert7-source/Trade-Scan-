@@ -413,6 +413,10 @@ def compile_stage3(strategy_filter=None):
                 formatter = project_root / "tools" / "format_excel_artifact.py"
                 cmd = [sys.executable, str(formatter), "--file", str(master_filter_path), "--profile", "strategy"]
                 subprocess.run(cmd, check=True)
+                subprocess.run(
+                    [sys.executable, str(formatter), "--file", str(master_filter_path), "--notes-type", "master_filter"],
+                    check=True,
+                )
             print("[SUCCESS] Master Filter updated and formatted.")
         except Exception as e:
             msg = str(e)

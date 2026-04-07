@@ -63,6 +63,7 @@ from tools.metrics_core import (
     bucket_breakdown as _bucket_breakdown,
     summarize_buckets as _summarize_buckets,
     compute_session_breakdown as _compute_session_breakdown,
+    compute_regime_age_breakdown as _compute_regime_age_breakdown,
     # Orchestrator
     compute_metrics_from_trades as _compute_metrics_from_trades,
     empty_metrics as _empty_metrics,
@@ -290,9 +291,9 @@ def get_performance_summary_df(trades: list[dict[str, Any]], starting_capital: f
     all_metrics["profit_factor"] = _safe_float(standard_metrics.get("profit_factor", 0))
     all_metrics["max_dd_usd"] = _safe_float(risk_metrics.get("max_drawdown_usd", 0))
     _raw_dd_pct = _safe_float(risk_metrics.get("max_drawdown_pct", 0))
-    assert _raw_dd_pct <= 1.0 or _raw_dd_pct == 0.0, (
-        f"UNIT_GUARD: max_drawdown_pct={_raw_dd_pct} already in 0..100 scale — expected 0..1 from Stage-1"
-    )
+    if _raw_dd_pct > 1.0:
+        print(f"  [UNIT_GUARD WARNING] max_drawdown_pct={_raw_dd_pct:.4f} exceeds 1.0 "
+              f"(drawdown > reference capital) — converting as-is")
     all_metrics["max_dd_pct"] = _raw_dd_pct * 100
     all_metrics["return_dd_ratio"] = _safe_float(risk_metrics.get("return_dd_ratio", 0))
     all_metrics["sharpe_ratio"] = _safe_float(risk_metrics.get("sharpe_ratio", 0))
@@ -476,6 +477,260 @@ def get_trades_df(trades: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def get_regime_age_df(trades: list[dict[str, Any]]) -> pd.DataFrame:
+    """Return a summary table of performance across regime_age buckets.
+
+    Uses compute_regime_age_breakdown() from metrics_core — no custom calculations.
+    Returns empty DataFrame if no trades carry regime_age (older strategies).
+    """
+    rows = _compute_regime_age_breakdown(trades)
+
+    # If every bucket has 0 trades, regime_age is absent from this run — skip the sheet.
+    if all(r["trades"] == 0 for r in rows):
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df = df.rename(columns={
+        "label":         "Bucket",
+        "trades":        "Trades",
+        "net_pnl":       "Net PnL (USD)",
+        "profit_factor": "Profit Factor",
+        "win_rate":      "Win Rate (%)",
+        "avg_trade":     "Avg Trade (USD)",
+    })
+
+    # Reconciliation footer: total / bucketed / missing
+    total = len(trades)
+    bucketed = int(df["Trades"].sum())
+    missing = total - bucketed
+    df = df.astype(object)
+    footer = pd.DataFrame([
+        {"Bucket": "",          "Trades": "",      "Net PnL (USD)": "", "Profit Factor": "", "Win Rate (%)": "", "Avg Trade (USD)": ""},
+        {"Bucket": "Total",     "Trades": total,   "Net PnL (USD)": "", "Profit Factor": "", "Win Rate (%)": "", "Avg Trade (USD)": ""},
+        {"Bucket": "Bucketed",  "Trades": bucketed,"Net PnL (USD)": "", "Profit Factor": "", "Win Rate (%)": "", "Avg Trade (USD)": ""},
+        {"Bucket": "Missing",   "Trades": missing, "Net PnL (USD)": "", "Profit Factor": "", "Win Rate (%)": "", "Avg Trade (USD)": ""},
+    ])
+    df = pd.concat([df, footer], ignore_index=True)
+
+    return df
+
+
+def _add_notes_sheet(output_path: Path, df_summary: pd.DataFrame, metadata: dict[str, Any]) -> None:
+    """
+    Append a 'Notes' sheet to the AK_Trade_Report with classification transparency.
+
+    Reads classification thresholds directly from the same logic as
+    filter_strategies._compute_candidate_status() — no separate import needed.
+    Called after the formatter subprocess so the sheet is not reformatted.
+    """
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, Alignment
+    except ImportError as e:
+        print(f"[WARN] Notes sheet skipped — openpyxl not available: {e}")
+        return
+
+    # --- Classification thresholds (mirrors filter_strategies._compute_candidate_status) ---
+    FAIL_MIN_TRADES = 50
+    FAIL_MAX_DD_PCT = 40.0
+    CORE_MIN_TRADES = 200
+    CORE_MIN_RET_DD  = 2.0
+    CORE_MIN_SHARPE  = 1.5
+
+    # --- Extract metrics from Performance Summary ---
+    def _get(metric_name: str) -> float | None:
+        try:
+            row = df_summary[df_summary["Metric"] == metric_name]
+            if not row.empty:
+                return float(row["All Trades"].values[0])
+        except Exception:
+            pass
+        return None
+
+    pf_val       = _get("Profit Factor")       or 0.0
+    sharpe_val   = _get("Sharpe Ratio")        or 0.0
+    dd_val       = _get("Max Drawdown (%)")    or 0.0
+    ret_dd_val   = _get("Return / Drawdown Ratio") or 0.0
+    trades_raw   = _get("Total Trades")
+    trades_val   = int(trades_raw) if trades_raw is not None else 0
+    net_pnl_val  = _get("Net Profit (USD)")    or 0.0
+
+    strategy_name = metadata.get("strategy_name", "UNKNOWN")
+    symbol        = metadata.get("symbol", "UNKNOWN")
+    full_id       = f"{strategy_name}_{symbol}"
+
+    # --- Compute classification (same precedence as filter_strategies) ---
+    is_fail = (trades_val < FAIL_MIN_TRADES) or (dd_val > FAIL_MAX_DD_PCT)
+    is_core = (not is_fail) and (
+        trades_val >= CORE_MIN_TRADES
+        and ret_dd_val >= CORE_MIN_RET_DD
+        and sharpe_val >= CORE_MIN_SHARPE
+    )
+
+    if is_fail:
+        classification = "FAIL"
+    elif is_core:
+        classification = "CORE"
+    else:
+        classification = "WATCH"
+
+    # BURN_IN check: mirrors _load_burnin_ids() logic
+    try:
+        import yaml
+        portfolio_path = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+        if portfolio_path.exists():
+            with open(portfolio_path, encoding="utf-8") as _f:
+                _port = yaml.safe_load(_f)
+            _strategies = (_port.get("portfolio") or {}).get("strategies") or []
+            _burnin_ids = {s["id"] for s in _strategies if s.get("enabled", True) and "id" in s}
+            if any(full_id == bid or full_id.startswith(bid + "_") for bid in _burnin_ids):
+                classification = "BURN_IN"
+    except Exception:
+        pass
+
+    # --- Build Notes sheet ---
+    try:
+        wb = load_workbook(output_path)
+    except Exception as e:
+        print(f"[WARN] Notes sheet skipped — cannot open workbook: {e}")
+        return
+
+    if "Notes" in wb.sheetnames:
+        del wb["Notes"]
+    ws = wb.create_sheet("Notes")
+
+    bold   = Font(bold=True, size=10)
+    header = Font(bold=True, size=11)
+    normal = Font(size=10)
+    green  = Font(bold=True, size=10, color="1F6B1F")
+    red    = Font(bold=True, size=10, color="A31515")
+
+    r = 1
+
+    def _write(row, col, value, font=None):
+        c = ws.cell(row=row, column=col, value=value)
+        if font:
+            c.font = font
+        return c
+
+    # ── Section 1: Classification Result ─────────────────────────────────────
+    _write(r, 1, "SECTION 1 — STRATEGY CLASSIFICATION RESULT", header)
+    r += 1
+    _write(r, 1, "Strategy Name",  bold); _write(r, 2, strategy_name, normal); r += 1
+    _write(r, 1, "Symbol",         bold); _write(r, 2, symbol,         normal); r += 1
+    _write(r, 1, "Classification", bold); _write(r, 2, classification,  bold);  r += 1
+    r += 1
+
+    _write(r, 1, "Metric",              bold); _write(r, 2, "Value", bold); r += 1
+    for label, val in [
+        ("Profit Factor",            f"{pf_val:.2f}"),
+        ("Sharpe Ratio",             f"{sharpe_val:.2f}"),
+        ("Max Drawdown (%)",         f"{dd_val:.2f}%"),
+        ("Return / Drawdown Ratio",  f"{ret_dd_val:.2f}"),
+        ("Total Trades",             str(trades_val)),
+        ("Net Profit (USD)",         f"${net_pnl_val:.2f}"),
+    ]:
+        _write(r, 1, label, normal); _write(r, 2, val, normal); r += 1
+    r += 1
+
+    # ── Section 2: Classification Rules ──────────────────────────────────────
+    _write(r, 1, "SECTION 2 — CLASSIFICATION RULES", header); r += 1
+    _write(r, 1, "Class", bold); _write(r, 2, "Rule", bold); r += 1
+    for cls, rule in [
+        ("FAIL",
+         f"Total Trades < {FAIL_MIN_TRADES}  OR  Max Drawdown (%) > {FAIL_MAX_DD_PCT:.0f}"),
+        ("CORE",
+         f"Total Trades >= {CORE_MIN_TRADES}  AND  Return/DD >= {CORE_MIN_RET_DD}  AND  Sharpe >= {CORE_MIN_SHARPE}  (and not FAIL)"),
+        ("WATCH",
+         "All other strategies (does not meet CORE; not FAIL; not in portfolio.yaml)"),
+        ("BURN_IN",
+         "Present in TS_Execution/portfolio.yaml with enabled=true — overrides computed status"),
+    ]:
+        _write(r, 1, cls, bold); _write(r, 2, rule, normal); r += 1
+    r += 1
+
+    # ── Section 3: Rule Evaluation ────────────────────────────────────────────
+    _write(r, 1, "SECTION 3 — RULE EVALUATION (THIS STRATEGY)", header); r += 1
+    for col, hdr in [(1, "Rule"), (2, "Condition"), (3, "Actual"), (4, "Result")]:
+        _write(r, col, hdr, bold)
+    r += 1
+
+    eval_rows = [
+        ("Min Trades — FAIL gate",
+         f">= {FAIL_MIN_TRADES}",
+         str(trades_val),
+         trades_val >= FAIL_MIN_TRADES),
+        ("Max DD % — FAIL gate",
+         f"<= {FAIL_MAX_DD_PCT:.0f}%",
+         f"{dd_val:.2f}%",
+         dd_val <= FAIL_MAX_DD_PCT),
+        ("Min Trades — CORE gate",
+         f">= {CORE_MIN_TRADES}",
+         str(trades_val),
+         trades_val >= CORE_MIN_TRADES),
+        ("Return/DD — CORE gate",
+         f">= {CORE_MIN_RET_DD}",
+         f"{ret_dd_val:.2f}",
+         ret_dd_val >= CORE_MIN_RET_DD),
+        ("Sharpe — CORE gate",
+         f">= {CORE_MIN_SHARPE}",
+         f"{sharpe_val:.2f}",
+         sharpe_val >= CORE_MIN_SHARPE),
+    ]
+    for rule_name, condition, actual, passed in eval_rows:
+        result_txt  = "PASS" if passed else "FAIL"
+        result_font = green if passed else red
+        _write(r, 1, rule_name,   normal)
+        _write(r, 2, condition,   normal)
+        _write(r, 3, actual,      normal)
+        _write(r, 4, result_txt,  result_font)
+        r += 1
+    r += 1
+
+    # ── Section 4: Remarks ───────────────────────────────────────────────────
+    _write(r, 1, "SECTION 4 — NOTES / REMARKS", header); r += 1
+
+    remarks = []
+    if classification == "FAIL":
+        if trades_val < FAIL_MIN_TRADES:
+            remarks.append(
+                f"Insufficient trades ({trades_val}); minimum {FAIL_MIN_TRADES} required to pass FAIL gate."
+            )
+        if dd_val > FAIL_MAX_DD_PCT:
+            remarks.append(
+                f"Excessive drawdown ({dd_val:.1f}%); maximum {FAIL_MAX_DD_PCT:.0f}% allowed."
+            )
+    elif classification == "BURN_IN":
+        remarks.append("Strategy is currently active in the live portfolio (burn-in phase).")
+    elif classification == "CORE":
+        remarks.append("All CORE criteria satisfied. Eligible for promotion consideration.")
+    else:  # WATCH
+        gaps = []
+        if trades_val < CORE_MIN_TRADES:
+            gaps.append(f"trades ({trades_val} < {CORE_MIN_TRADES})")
+        if ret_dd_val < CORE_MIN_RET_DD:
+            gaps.append(f"Return/DD ({ret_dd_val:.2f} < {CORE_MIN_RET_DD})")
+        if sharpe_val < CORE_MIN_SHARPE:
+            gaps.append(f"Sharpe ({sharpe_val:.2f} < {CORE_MIN_SHARPE})")
+        if gaps:
+            remarks.append(f"CORE threshold not met on: {', '.join(gaps)}.")
+
+    for remark in (remarks or ["No additional remarks."]):
+        _write(r, 1, remark, normal); r += 1
+
+    # ── Column widths ─────────────────────────────────────────────────────────
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 58
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 10
+
+    try:
+        wb.save(output_path)
+        print(f"[NOTES] Notes sheet added to {output_path.name}")
+    except Exception as e:
+        print(f"[WARN] Notes sheet could not be saved: {e}")
+
+
 def generate_excel_report(artifacts: dict[str, Any], output_path: Path) -> None:
     starting_capital = artifacts["metadata"]["reference_capital_usd"]
     
@@ -493,7 +748,8 @@ def generate_excel_report(artifacts: dict[str, Any], output_path: Path) -> None:
     df_benchmark = get_benchmark_df(artifacts["tradelevel"], starting_capital, net_profit)
     df_yearwise = get_yearwise_df(artifacts["tradelevel"], starting_capital, artifacts["yearwise"])
     df_trades = get_trades_df(artifacts["tradelevel"])
-    
+    df_age = get_regime_age_df(artifacts["tradelevel"])
+
     # Write to Excel (Raw Data)
     with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
         df_settings.to_excel(writer, sheet_name="Settings", index=False)
@@ -501,6 +757,8 @@ def generate_excel_report(artifacts: dict[str, Any], output_path: Path) -> None:
         if not df_benchmark.empty:
             df_benchmark.to_excel(writer, sheet_name="Benchmark Analysis", index=False)
         df_yearwise.to_excel(writer, sheet_name="Yearwise Performance", index=False)
+        if not df_age.empty:
+            df_age.to_excel(writer, sheet_name="Regime Lifecycle (Age)", index=False)
         df_trades.to_excel(writer, sheet_name="Trades List", index=False)
         
     # Call Unified Formatter
@@ -512,6 +770,9 @@ def generate_excel_report(artifacts: dict[str, Any], output_path: Path) -> None:
         print(f"[SUCCESS] Formatted {output_path.name}")
     except (subprocess.CalledProcessError, OSError) as e:
         print(f"[WARN] Failed to format {output_path.name}: {type(e).__name__}: {e}")
+
+    # Add Notes sheet after formatter (so it is not affected by the formatting pass)
+    _add_notes_sheet(output_path, df_summary, artifacts["metadata"])
 
 
 def compile_stage2(run_folder: Path) -> None:

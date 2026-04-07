@@ -1,3 +1,21 @@
+# ════════════════════════════════════════════════════════════════════
+# SYSTEM INVARIANTS — DO NOT VIOLATE
+#
+# 1. FILTER tokens MUST end with "FILT" (e.g. TRENDFILT, VOLFILT).
+# 2. MODEL tokens MUST NOT contain "FILT" anywhere in the string.
+#
+# These two rules form the structural boundary that allows the
+# optional FILTER token to be unambiguously parsed from a strategy
+# name without lookahead or positional counting. Every downstream
+# parser (namespace_gate.py, asset_classification.py) depends on
+# this invariant. Breaking it causes silent misclassification
+# across the entire pipeline: portfolio evaluation, candidate
+# filtering, trade-level attribution, and Excel reporting.
+#
+# Enforced at:  namespace_gate.py  (creation-time validation)
+# Consumed by:  asset_classification.parse_strategy_name()
+# Verified:     2026-04-07 — 361 IDs, 0 violations
+# ════════════════════════════════════════════════════════════════════
 version: 1
 family:
   - MR

@@ -27,6 +27,8 @@ CANONICAL_BLOCKS = [
     "volatility_filter",         # Volatility-gated strategies
     "trend_filter",              # Trend regime-gated strategies
     "market_regime_filter",      # Market regime hard exclusion gate
+    "regime_age_filter",         # Regime age exclusion gate (hypothesis testing)
+    "session_filter",            # Trading session exclusion gate (hour-based)
     "position_management",       # Stop-and-reverse, max positions
     "mean_reversion_rules",      # MR: mean reversion parameters
     "regime_transition_rules",   # RT: regime transition parameters
@@ -38,7 +40,7 @@ OPTIONAL_BLOCKS = {
     "order_placement", "trade_management",
     "range_definition", "exit_rules",
     "state_machine", "usd_stress_filter", "volatility_filter", "trend_filter",
-    "market_regime_filter",
+    "market_regime_filter", "regime_age_filter", "session_filter",
     "position_management", "mean_reversion_rules",
     "regime_transition_rules", "polarity_override",
 }
@@ -120,6 +122,12 @@ ALLOWED_NESTED_KEYS = {
     },
     "market_regime_filter": {
         "enabled", "exclude",
+    },
+    "regime_age_filter": {
+        "enabled", "exclude_min", "exclude_max",
+    },
+    "session_filter": {
+        "enabled", "exclude_hours_utc", "exclude_direction",
     },
 }
 
