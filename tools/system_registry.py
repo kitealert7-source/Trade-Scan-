@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 from filelock import FileLock
 
-from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR, POOL_DIR
+from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR, POOL_DIR, QUARANTINE_DIR
 
 PROJECT_ROOT = Path(__file__).parent.parent
 REGISTRY_PATH = REGISTRY_DIR / "run_registry.json"
@@ -169,10 +169,27 @@ def reconcile_registry() -> dict:
                 }
                 dirty = True
 
+        # Build quarantine index once — runs intentionally archived by lifecycle cleanup.
+        quarantine_runs_dir = QUARANTINE_DIR / "runs"
+        quarantined_on_disk = set()
+        if quarantine_runs_dir.exists():
+            quarantined_on_disk = {p.name for p in quarantine_runs_dir.iterdir() if p.is_dir()}
+
         # Physically missing but in registry
         for run_id, data in list(reg.items()):
             if run_id not in physical_runs:
-                if data.get("status") == "invalid":
+                current_status = data.get("status")
+
+                # Run is in quarantine — intentionally archived, not broken.
+                if run_id in quarantined_on_disk:
+                    if current_status != "quarantined":
+                        print(f"[RECONCILE] Registry entry {run_id} found in quarantine -> status corrected to quarantined.")
+                        reg[run_id]["status"] = "quarantined"
+                        dirty = True
+                    results["invalid_in_registry"].append(run_id)
+                    continue
+
+                if current_status in ("invalid", "quarantined"):
                     results["invalid_in_registry"].append(run_id)
                     continue
 
@@ -205,8 +222,13 @@ def reconcile_registry() -> dict:
                 except Exception as e:
                     print(f"[ERROR] Auto-repair migration failed for {run_id}: {e}")
 
-    # AUTO-CLEAN: remove newly-invalid run_ids from portfolio_metadata.json files
+    # AUTO-CLEAN: remove newly-invalid AND quarantined run_ids from portfolio_metadata.json files.
+    # Quarantined runs are permanently absent — any portfolio reference to them is stale.
     newly_invalid = set(results["missing_from_disk"])
+    quarantined_run_ids = {r for r, d in reg.items() if d.get("status") == "quarantined"}
+    runs_to_purge_from_metadata = newly_invalid | quarantined_run_ids
+    if runs_to_purge_from_metadata:
+        newly_invalid = runs_to_purge_from_metadata  # reuse variable for block below
     if newly_invalid:
         for meta_file in STRATEGIES_DIR.rglob("portfolio_metadata.json"):
             try:
@@ -224,9 +246,15 @@ def reconcile_registry() -> dict:
                 print(f"[RECONCILE] Warning: could not clean {meta_file}: {e}")
 
     # 2. Portfolio Dependency Check
+    # Runs with status "quarantined" are intentionally archived by the lifecycle cleanup.
+    # They are permanently absent from runs/ but their portfolio data is already captured
+    # in portfolio artifacts (tradelevel.csv, equity_curve.csv). Not a consistency violation.
     active_portfolio_runs = get_active_portfolio_runs()
     for dep_id in active_portfolio_runs:
-        if dep_id not in physical_runs or reg.get(dep_id, {}).get("status") == "invalid":
+        dep_status = reg.get(dep_id, {}).get("status")
+        if dep_status == "quarantined":
+            continue  # intentionally archived — portfolio data already captured
+        if dep_id not in physical_runs or dep_status == "invalid":
             raise RuntimeError(f"[FATAL] Consistency Violation: Portfolio heavily depends on missing/invalid run {dep_id}.")
             
     print("[RECONCILE] Registry alignment complete.")

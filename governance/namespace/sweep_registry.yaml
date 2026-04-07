@@ -1204,6 +1204,55 @@ ideas:
         signature_hash_full: adb5caf4125c4f11632a843d094d7e7a10f558f29d82e160d5cc7cf0ab9d41f3
         reserved_at_utc: '2026-04-06T17:00:00.000000+00:00'
         patches: {}
+  '36':
+    next_sweep: 4
+    sweeps:
+      S01:
+        directive_name: 36_TREND_ETHUSD_1H_IMPULSE_S01_V1_P00
+        signature_hash: 7232939035da6210
+        reserved_at_utc: '2026-04-07T12:53:49.993448+00:00'
+        signature_hash_full: 7232939035da6210855ce540e9c7c7ff483e0502c77641c1daeddf377e2069e9
+      S02:
+        directive_name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P00
+        signature_hash: 7232939035da6210
+        reserved_at_utc: '2026-04-07T13:02:48.815374+00:00'
+        signature_hash_full: 7232939035da6210855ce540e9c7c7ff483e0502c77641c1daeddf377e2069e9
+        patches:
+          P01:
+            directive_name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P01
+            signature_hash: 1271e95c39652f53
+            signature_hash_full: 1271e95c39652f539ba70e7b1f15cf12710917ffeefba8d8160f7003a7bc2525
+            reserved_at_utc: '2026-04-07T13:24:44.006164+00:00'
+          P02:
+            directive_name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P02
+            signature_hash: b2154b4b8cc1ce2d
+            signature_hash_full: b2154b4b8cc1ce2d8433a0e6a8be335d479e5dc9cc706ad4953a4706a58b6cb6
+            reserved_at_utc: '2026-04-07T13:32:48.994299+00:00'
+          P03:
+            directive_name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P03
+            signature_hash: c0c672a3880ee3b4
+            signature_hash_full: c0c672a3880ee3b4c384f4be486d01159bd8a110a63fe46afa13d721915a57de
+            reserved_at_utc: '2026-04-07T13:38:35.724580+00:00'
+          P04:
+            directive_name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P04
+            signature_hash: d2cc0db2055a7504
+            signature_hash_full: d2cc0db2055a75043037880e04bfc361aa5714938e4d6e479656dde0df525de8
+            reserved_at_utc: '2026-04-07T13:44:50.743367+00:00'
+          P05:
+            directive_name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P05
+            signature_hash: 918059421adcb9ca
+            signature_hash_full: 918059421adcb9ca64960108d81a0182671c1f097091072ae0a1cf578e64a490
+            reserved_at_utc: '2026-04-07T13:55:02.409689+00:00'
+          P06:
+            directive_name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P06
+            signature_hash: e7763237adc57241
+            signature_hash_full: e7763237adc572412f8fe039af881ec2e32d0ab5c3d8383284c4d54907ed0ccf
+            reserved_at_utc: '2026-04-07T14:32:55.767075+00:00'
+      S03:
+        directive_name: 36_TREND_ETHUSD_30M_IMPULSE_S03_V1_P00
+        signature_hash: 7232939035da6210
+        reserved_at_utc: '2026-04-07T13:03:42.839641+00:00'
+        signature_hash_full: 7232939035da6210855ce540e9c7c7ff483e0502c77641c1daeddf377e2069e9
   '35':
     next_sweep: 17
     sweeps:
@@ -1305,3 +1354,46 @@ ideas:
         signature_hash_full: 8deef4c6322e4bcf87c9cc4384cc37960428bd0d20dc40ad25f6dbc1f72d77eb
         reserved_at_utc: '2026-04-07T00:45:00.000000+00:00'
         patches: {}
+  '40':
+    next_sweep: 9
+    sweeps:
+      S01:
+        directive_name: 40_CONT_FX_15M_RSIPULL_SESSFILT_S01_V1_P00
+        signature_hash: 94a888cd33644f85
+        reserved_at_utc: '2026-04-07T13:01:07.473851+00:00'
+        signature_hash_full: 94a888cd33644f859d0d56437c9fc5f3439d20a15e95137cdcc438f32a514dcf
+      S02:
+        directive_name: 40_CONT_FX_15M_RSIPULL_SESSFILT_S02_V2_P00
+        signature_hash: 9cf8b96a551bca0a
+        reserved_at_utc: '2026-04-07T13:15:51.540023+00:00'
+        signature_hash_full: 9cf8b96a551bca0a126806099390b73bf2423e35853b5f0711747487f74fa005
+      S03:
+        directive_name: 40_CONT_GBPUSD_15M_RSIPULL_SESSFILT_S04_V2_P00
+        signature_hash: 9cf8b96a551bca0a
+        reserved_at_utc: '2026-04-07T13:37:48.621600+00:00'
+        signature_hash_full: 9cf8b96a551bca0a126806099390b73bf2423e35853b5f0711747487f74fa005
+      S04:
+        directive_name: 40_CONT_GBPUSD_15M_RSIPULL_SESSFILT_S04_V2_P00
+        signature_hash: 6f248db0086ab162
+        reserved_at_utc: '2026-04-07T13:39:55.564463+00:00'
+        signature_hash_full: 6f248db0086ab1623fb8a62bf18530694796c2d2040bff0ba0d729a3276d841e
+      S05:
+        directive_name: 40_CONT_GBPUSD_15M_RSIPULL_SESSFILT_S05_V2_P00
+        signature_hash: 5712948acef9fbe4
+        reserved_at_utc: '2026-04-07T13:40:28.971870+00:00'
+        signature_hash_full: 5712948acef9fbe4eb9d2718b48225228fcd17db4cc6a25708b2a618f2fa34d8
+      S06:
+        directive_name: 40_CONT_EURGBP_15M_RSIPULL_SESSFILT_S06_V2_P00
+        signature_hash: fc057df4565492b3
+        reserved_at_utc: '2026-04-07T13:57:45.700939+00:00'
+        signature_hash_full: fc057df4565492b35200c69976f36703c3df755d6144fe507105c79e54ac3fa7
+      S07:
+        directive_name: 40_CONT_EURGBP_15M_RSIPULL_SESSFILT_S07_V2_P00
+        signature_hash: cb8313a59e8d3e79
+        reserved_at_utc: '2026-04-07T13:58:21.853805+00:00'
+        signature_hash_full: cb8313a59e8d3e79d9742247db1ca623433bfc4b248229c1ccd7fc094817a45e
+      S08:
+        directive_name: 40_CONT_UK100_15M_RSIPULL_SESSFILT_S08_V2_P00
+        signature_hash: 65a3533a4f5824ce
+        reserved_at_utc: '2026-04-07T13:59:34.675922+00:00'
+        signature_hash_full: 65a3533a4f5824ce41a663ab7d9240afb516fa4bbfa82e6259ac3ffe80faf92e

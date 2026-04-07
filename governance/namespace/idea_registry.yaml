@@ -275,3 +275,19 @@ ideas:
     role: entry_edge
     instruments: IDX
     status: active
+  "36":
+    family: TREND
+    title: Momentum Ignition — ETH Impulse Breakout
+    class: indicator_logic
+    regime: multi
+    role: entry_edge
+    instruments: ETH
+    status: active
+  "40":
+    family: CONT
+    title: London Open Pullback Continuation - Session-Constrained Trend Resume
+    class: session_logic
+    regime: session_transition
+    role: pullback_entry
+    instruments: FX
+    status: active

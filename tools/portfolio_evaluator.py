@@ -1587,20 +1587,21 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     df_other = None
     if ledger_path.exists():
         try:
-            xls = pd.ExcelFile(ledger_path)
-            available_sheets = xls.sheet_names
-            # Load target sheet
-            if target_sheet in available_sheets:
-                df_ledger = pd.read_excel(ledger_path, sheet_name=target_sheet)
-            elif len(available_sheets) == 1 and available_sheets[0] == "Sheet1":
-                # Migration: legacy single-sheet workbook — load as-is, will be
-                # split into the two tabs on first write.
-                df_ledger = pd.read_excel(ledger_path, sheet_name=available_sheets[0])
-            else:
-                df_ledger = pd.DataFrame(columns=columns)
-            # Preserve other sheet if it exists
-            if _other_sheet in available_sheets:
-                df_other = pd.read_excel(ledger_path, sheet_name=_other_sheet)
+            # Keep workbook handle scoped and closed before atomic write/replace.
+            with pd.ExcelFile(ledger_path) as xls:
+                available_sheets = xls.sheet_names
+                # Load target sheet
+                if target_sheet in available_sheets:
+                    df_ledger = pd.read_excel(xls, sheet_name=target_sheet)
+                elif len(available_sheets) == 1 and available_sheets[0] == "Sheet1":
+                    # Migration: legacy single-sheet workbook — load as-is, will be
+                    # split into the two tabs on first write.
+                    df_ledger = pd.read_excel(xls, sheet_name=available_sheets[0])
+                else:
+                    df_ledger = pd.DataFrame(columns=columns)
+                # Preserve other sheet if it exists
+                if _other_sheet in available_sheets:
+                    df_other = pd.read_excel(xls, sheet_name=_other_sheet)
         except Exception:
             df_ledger = pd.DataFrame(columns=columns)
     else:
