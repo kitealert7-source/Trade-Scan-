@@ -455,7 +455,41 @@ def promote(strategy_id: str, profile: str, description: str = "",
     print(f"     vault_id: {vault_id}")
     print(f"     profile: {profile}")
     print(f"     lifecycle: {LIFECYCLE_BURN_IN}")
+
+    # 10. Auto-sync portfolio flags (eliminates manual Step 2)
+    print(f"\n  --- Sync Portfolio Flags ---")
+    sync_result = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "tools" / "sync_portfolio_flags.py"), "--save"],
+        cwd=str(PROJECT_ROOT), capture_output=True, text=True,
+    )
+    if sync_result.returncode == 0:
+        # Show relevant output lines
+        for line in sync_result.stdout.strip().splitlines():
+            if line.startswith("["):
+                print(f"  {line}")
+        print(f"  Portfolio flags synced automatically.")
+    else:
+        print(f"  [WARN] sync_portfolio_flags.py failed (exit {sync_result.returncode}).")
+        print(f"  Run manually: python tools/sync_portfolio_flags.py --save")
+        if sync_result.stderr:
+            print(f"  stderr: {sync_result.stderr[:200]}")
+
+    # 11. Portfolio integrity check
+    integrity_script = PROJECT_ROOT / "tools" / "validate_portfolio_integrity.py"
+    if integrity_script.exists():
+        print(f"\n  --- Portfolio Integrity Check ---")
+        integrity_result = subprocess.run(
+            [sys.executable, str(integrity_script)],
+            cwd=str(PROJECT_ROOT), capture_output=True, text=True,
+        )
+        for line in integrity_result.stdout.strip().splitlines():
+            if line.startswith("["):
+                print(f"  {line}")
+        if integrity_result.returncode != 0:
+            print(f"  [WARN] Portfolio integrity issues detected. Review above.")
+
     print(f"\n[NEXT] Restart TS_Execution to pick up new strategies.")
+    print(f"       Verify: cd ../TS_Execution && python src/main.py --phase 0")
 
     return {
         "vault_id": vault_id,
