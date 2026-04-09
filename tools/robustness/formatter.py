@@ -426,4 +426,59 @@ def format_report(
                 )
             out.append("")
 
+    # ── Section 18: Edge Quality Gate ──
+    eqg = results.get("edge_quality_gate")
+    if eqg:
+        out.append("## 18. Edge Quality Gate\n")
+        out.append("> Industry-calibrated individual edge assessment. "
+                   "Sources: Harvey/Liu/Zhu (2016), Lopez de Prado (2018), "
+                   "Van Tharp (2006), Kaufman (2013), Pardo (2008).\n")
+
+        # t-statistic block
+        out.append("### Statistical Significance\n")
+        out.append(f"| Metric | Value |")
+        out.append(f"|--------|-------|")
+        out.append(f"| t-statistic (SQN) | **{eqg['t_stat']:.2f}** |")
+        out.append(f"| IR (per-trade) | {eqg['ir_per_trade']:.4f} |")
+        out.append(f"| Trades needed for t=2.0 | {eqg['trades_needed_t2']:.0f} |")
+        out.append(f"| Trades needed for t=3.0 | {eqg['trades_needed_t3']:.0f} |")
+        out.append(f"| Verdict | **{eqg['t_verdict']}** |")
+        out.append("")
+
+        n_total = results.get("edge_metrics", {}).get("total_trades", 0)
+        surplus_t2 = n_total - eqg["trades_needed_t2"]
+        if surplus_t2 > 0:
+            out.append(f"> Trade surplus vs t=2.0 threshold: **+{surplus_t2:.0f}** (sufficient data)\n")
+        else:
+            out.append(f"> Trade deficit vs t=2.0 threshold: **{surplus_t2:.0f}** (need more trades)\n")
+
+        # Gate table
+        out.append("### Quality Gate Results\n")
+        out.append("| # | Gate | Value | Threshold (HARD FAIL / WARN) | Verdict |")
+        out.append("|---|------|-------|------------------------------|---------|")
+
+        thresholds = [
+            "Negative / < 30%",
+            "> 70% / > 50%",
+            "> 40% / > 30%",
+            "< 1.0 / < 1.2",
+            "< 100 / < 200",
+            "< 1.0 / < 1.1",
+        ]
+        for i, g in enumerate(eqg["gates"]):
+            icon = {"OK": "OK", "WARN": "!!", "HARD FAIL": "XX", "N/A": "--"}[g["verdict"]]
+            out.append(f"| {i+1} | {g['gate']} | {g['value']} | {thresholds[i]} | **{icon}** |")
+        out.append("")
+
+        # Overall verdict
+        v = eqg["overall_verdict"]
+        if v == "PASS":
+            out.append(f"> **Overall: PASS** — all gates clear. Strategy eligible for promotion.\n")
+        elif v == "CONDITIONAL":
+            out.append(f"> **Overall: CONDITIONAL** — {eqg['warns']} warning(s). "
+                       f"Requires explicit human override to promote.\n")
+        else:
+            out.append(f"> **Overall: REJECT** — {eqg['hard_fails']} hard fail(s). "
+                       f"Do NOT promote. Edge is not robust.\n")
+
     return "\n".join(out)

@@ -423,4 +423,137 @@ def run_robustness_suite(
         "baseline_comparison":        baseline_comparison,
     }
 
+    # Section 18: Edge Quality Gate — industry-calibrated pre-promote metrics
+    import numpy as np
+
+    pnls_sorted = tr_df["pnl_usd"].sort_values(ascending=False)
+    total_pnl = pnls_sorted.sum()
+    n_trades = len(pnls_sorted)
+
+    # t-statistic / SQN
+    mean_pnl = pnls_sorted.mean()
+    std_pnl = pnls_sorted.std()
+    ir = float(mean_pnl / std_pnl) if std_pnl > 0 else 0
+    t_stat = float(ir * np.sqrt(n_trades)) if std_pnl > 0 else 0
+    n_for_t2 = (2.0 / ir) ** 2 if ir > 0 else 99999
+    n_for_t3 = (3.0 / ir) ** 2 if ir > 0 else 99999
+
+    # Gate 1: Remove top 5 trades -> PnL
+    without_top5 = float(pnls_sorted.iloc[5:].sum()) if n_trades > 5 else 0
+    without_top5_pct = (without_top5 / total_pnl * 100) if total_pnl > 0 else -999
+
+    # Gate 2: Top-5 concentration
+    top5_pnl = float(pnls_sorted.iloc[:5].sum()) if n_trades >= 5 else float(pnls_sorted.sum())
+    top5_pct = (top5_pnl / total_pnl * 100) if total_pnl > 0 else 999
+
+    # Gate 3: Flat period as % of backtest
+    if "exit_timestamp" in tr_df.columns and "entry_timestamp" in tr_df.columns:
+        exits = pd.to_datetime(tr_df["exit_timestamp"])
+        entries_dt = pd.to_datetime(tr_df["entry_timestamp"])
+        bt_days = (exits.max() - entries_dt.min()).days
+        df_sorted = tr_df.sort_values("exit_timestamp")
+        cum = df_sorted["pnl_usd"].cumsum()
+        running_max = cum.cummax()
+        high_dates = exits.loc[cum[cum == running_max].index].sort_values()
+        longest_flat = int(high_dates.diff().dt.days.dropna().max()) if len(high_dates) > 1 else bt_days
+        flat_pct = (longest_flat / bt_days * 100) if bt_days > 0 else 999
+    else:
+        bt_days = 0
+        longest_flat = 0
+        flat_pct = 999
+
+    # Gate 4: Edge ratio (MFE/MAE)
+    if "mfe_r" in tr_df.columns and "mae_r" in tr_df.columns:
+        mae_mean = abs(tr_df["mae_r"].mean())
+        edge_ratio = float(tr_df["mfe_r"].mean() / mae_mean) if mae_mean > 0 else 0
+    else:
+        edge_ratio = -1
+
+    # Gate 6: PF after removing top 5% of trades
+    top5pct_n = max(1, int(np.ceil(n_trades * 0.05)))
+    remaining = pnls_sorted.iloc[top5pct_n:]
+    w_rem = remaining[remaining > 0].sum()
+    l_rem = abs(remaining[remaining <= 0].sum())
+    pf_after_5pct = float(w_rem / l_rem) if l_rem > 0 else 999
+
+    # Evaluate verdicts
+    gates = []
+    # Gate 1
+    if without_top5 < 0:
+        gates.append({"gate": "Top-5 Removal PnL", "value": f"${without_top5:.2f}", "verdict": "HARD FAIL"})
+    elif without_top5_pct < 30:
+        gates.append({"gate": "Top-5 Removal PnL", "value": f"{without_top5_pct:.1f}% survives", "verdict": "WARN"})
+    else:
+        gates.append({"gate": "Top-5 Removal PnL", "value": f"{without_top5_pct:.1f}% survives", "verdict": "OK"})
+    # Gate 2
+    if top5_pct > 70:
+        gates.append({"gate": "Top-5 Concentration", "value": f"{top5_pct:.1f}%", "verdict": "HARD FAIL"})
+    elif top5_pct > 50:
+        gates.append({"gate": "Top-5 Concentration", "value": f"{top5_pct:.1f}%", "verdict": "WARN"})
+    else:
+        gates.append({"gate": "Top-5 Concentration", "value": f"{top5_pct:.1f}%", "verdict": "OK"})
+    # Gate 3
+    if flat_pct > 40:
+        gates.append({"gate": "Flat Period %", "value": f"{flat_pct:.1f}%", "verdict": "HARD FAIL"})
+    elif flat_pct > 30:
+        gates.append({"gate": "Flat Period %", "value": f"{flat_pct:.1f}%", "verdict": "WARN"})
+    else:
+        gates.append({"gate": "Flat Period %", "value": f"{flat_pct:.1f}%", "verdict": "OK"})
+    # Gate 4
+    if edge_ratio >= 0 and edge_ratio < 1.0:
+        gates.append({"gate": "Edge Ratio (MFE/MAE)", "value": f"{edge_ratio:.2f}", "verdict": "HARD FAIL"})
+    elif edge_ratio >= 0 and edge_ratio < 1.2:
+        gates.append({"gate": "Edge Ratio (MFE/MAE)", "value": f"{edge_ratio:.2f}", "verdict": "WARN"})
+    elif edge_ratio >= 0:
+        gates.append({"gate": "Edge Ratio (MFE/MAE)", "value": f"{edge_ratio:.2f}", "verdict": "OK"})
+    else:
+        gates.append({"gate": "Edge Ratio (MFE/MAE)", "value": "N/A", "verdict": "N/A"})
+    # Gate 5
+    if n_trades < 100:
+        gates.append({"gate": "Trade Count", "value": str(n_trades), "verdict": "HARD FAIL"})
+    elif n_trades < 200:
+        gates.append({"gate": "Trade Count", "value": str(n_trades), "verdict": "WARN"})
+    else:
+        gates.append({"gate": "Trade Count", "value": str(n_trades), "verdict": "OK"})
+    # Gate 6
+    if pf_after_5pct < 1.0:
+        gates.append({"gate": "PF After Top-5% Removal", "value": f"{pf_after_5pct:.2f}", "verdict": "HARD FAIL"})
+    elif pf_after_5pct < 1.1:
+        gates.append({"gate": "PF After Top-5% Removal", "value": f"{pf_after_5pct:.2f}", "verdict": "WARN"})
+    else:
+        gates.append({"gate": "PF After Top-5% Removal", "value": f"{pf_after_5pct:.2f}", "verdict": "OK"})
+
+    hard_fails = sum(1 for g in gates if g["verdict"] == "HARD FAIL")
+    warns = sum(1 for g in gates if g["verdict"] == "WARN")
+    if hard_fails > 0:
+        overall = "REJECT"
+    elif warns > 0:
+        overall = "CONDITIONAL"
+    else:
+        overall = "PASS"
+
+    # t-stat verdict
+    if t_stat >= 3.0:
+        t_verdict = "Harvey-grade (t >= 3.0)"
+    elif t_stat >= 2.0:
+        t_verdict = "Standard significance (t >= 2.0)"
+    elif t_stat >= 1.5:
+        t_verdict = "Marginal (t >= 1.5)"
+    else:
+        t_verdict = "Insufficient evidence"
+
+    results["edge_quality_gate"] = {
+        "t_stat": round(t_stat, 2),
+        "ir_per_trade": round(ir, 4),
+        "trades_needed_t2": round(n_for_t2, 0),
+        "trades_needed_t3": round(n_for_t3, 0),
+        "t_verdict": t_verdict,
+        "bt_days": bt_days,
+        "longest_flat_days": longest_flat,
+        "gates": gates,
+        "overall_verdict": overall,
+        "hard_fails": hard_fails,
+        "warns": warns,
+    }
+
     return results
