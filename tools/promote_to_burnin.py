@@ -34,6 +34,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from config.asset_classification import classify_asset, EXP_FAIL_GATES
 from config.state_paths import STATE_ROOT, BACKTESTS_DIR, STRATEGIES_DIR
 from tools.pipeline_utils import find_run_id_for_directive
 
@@ -147,8 +148,9 @@ def _read_backtest_metrics(strategy_id: str) -> dict:
             "max_dd_pct":  round(data.get("max_drawdown_pct", 0), 2),
             "pnl":         round(data.get("total_pnl", 0), 2),
             "ret_dd":      round(data.get("return_dd_ratio", 0), 2),
+            "expectancy":  round(data.get("expectancy", 0), 4),
         }
-    return {"trades": "?", "pf": "?", "sharpe": "?", "max_dd_pct": "?", "pnl": "?", "ret_dd": "?"}
+    return {"trades": "?", "pf": "?", "sharpe": "?", "max_dd_pct": "?", "pnl": "?", "ret_dd": "?", "expectancy": "?"}
 
 
 def _read_profile_metrics(strategy_id: str, profile: str) -> dict:
@@ -170,6 +172,35 @@ def _read_profile_metrics(strategy_id: str, profile: str) -> dict:
     if available:
         print(f"[WARN] Profile '{profile}' not in profile_comparison.json. Available: {available}")
     return {}
+
+
+# ── Expectancy gate ──────────────────────────────────────────────────────────
+
+def _check_expectancy_gate(strategy_id: str, metrics: dict) -> None:
+    """Block promotion if expectancy is below the asset-class floor.
+
+    Uses EXP_FAIL_GATES from config/asset_classification.py:
+        FX: $0.15  |  XAU: $0.50  |  BTC: $0.50  |  INDEX: $0.50
+
+    Aborts with [ABORT] if the gate fails. Call before any portfolio.yaml edit.
+    """
+    exp = metrics.get("expectancy")
+    if exp == "?" or exp is None:
+        print(f"[WARN] Expectancy not available for {strategy_id} — skipping gate check")
+        return
+
+    asset_class = classify_asset(strategy_id)
+    gate = EXP_FAIL_GATES.get(asset_class, 0.0)
+    exp_val = float(exp)
+
+    print(f"  Expectancy gate: {exp_val:.4f} >= {gate} ({asset_class})  ", end="")
+    if exp_val < gate:
+        print("FAIL")
+        print(f"\n[ABORT] Expectancy ${exp_val:.4f} is below the {asset_class} floor of ${gate:.2f}.")
+        print(f"  This strategy would be classified FAIL by filter_strategies.py.")
+        print(f"  Resolve the expectancy issue before promoting to BURN_IN.")
+        sys.exit(1)
+    print("OK")
 
 
 # ── Validation ───────────────────────────────────────────────────────────────
@@ -306,6 +337,10 @@ def promote(strategy_id: str, profile: str, description: str = "",
 
     # 3. Validate files exist
     _validate_strategy_files(strategy_id, symbols)
+
+    # 3b. Expectancy gate — hard block before any vault/yaml changes
+    _metrics = _read_backtest_metrics(strategy_id)
+    _check_expectancy_gate(strategy_id, _metrics)
 
     # 4. Lookup run_id from directive_id
     print(f"  Looking up run_id for directive: {strategy_id}")

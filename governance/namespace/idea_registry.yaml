@@ -291,3 +291,11 @@ ideas:
     role: pullback_entry
     instruments: FX
     status: active
+  "41":
+    family: REV
+    title: Two-Bar Reversal — Directional Exhaustion Fade Research Track
+    class: price_action
+    regime: multi
+    role: entry_edge
+    instruments: FX
+    status: active

@@ -304,6 +304,33 @@ def process_strategy(strategy_id, df_ledger):
     return enrich_ledger_row(strategy_id, df_ledger)
 
 
+_DATA_SHEETS = ["Portfolios", "Single-Asset Composites"]
+
+
+def _load_sheet_dfs(ledger_path):
+    """Load all data sheets from the ledger into {sheet_name: df}.
+
+    Handles both the two-tab format ("Portfolios" / "Single-Asset Composites")
+    and the legacy single-tab format ("Sheet1").  Never reads a non-data sheet
+    (e.g. Notes) as a data frame.
+    """
+    sheet_dfs = {}
+    with pd.ExcelFile(ledger_path) as xls:
+        available = xls.sheet_names
+        for s in _DATA_SHEETS:
+            if s in available:
+                sheet_dfs[s] = pd.read_excel(xls, sheet_name=s)
+        if not sheet_dfs:
+            # Legacy single-sheet workbook — load first non-Notes sheet.
+            for s in available:
+                if s != "Notes":
+                    # Route legacy Sheet1 data to Portfolios tab on next save.
+                    sheet_dfs["Portfolios"] = pd.read_excel(xls, sheet_name=s)
+                    print(f"[MIGRATE] Legacy sheet '{s}' loaded as 'Portfolios'")
+                    break
+    return sheet_dfs
+
+
 def main():
     parser = argparse.ArgumentParser(description="Profile Selector - Step 8.5")
     parser.add_argument("strategy_id", nargs="?", help="Strategy ID to process")
@@ -317,36 +344,59 @@ def main():
         print(f"[FATAL] Master Portfolio Sheet not found: {LEDGER_PATH}")
         sys.exit(1)
 
-    df_ledger = pd.read_excel(LEDGER_PATH)
-    df_ledger = ensure_ledger_columns(df_ledger)
-    print(f"Loaded {len(df_ledger)} rows from Master Portfolio Sheet")
+    # Load all data sheets (preserves two-tab structure).
+    sheet_dfs = _load_sheet_dfs(LEDGER_PATH)
+    total_rows = sum(len(df) for df in sheet_dfs.values())
+    print(f"Loaded {total_rows} rows from Master Portfolio Sheet "
+          f"({', '.join(f'{s}: {len(df)}' for s, df in sheet_dfs.items())})")
+
+    for s in list(sheet_dfs):
+        sheet_dfs[s] = ensure_ledger_columns(sheet_dfs[s])
 
     if args.all:
-        strategy_ids = df_ledger["portfolio_id"].astype(str).unique().tolist()
-        print(f"Processing {len(strategy_ids)} strategies...")
-        for sid in strategy_ids:
-            df_ledger = process_strategy(sid, df_ledger)
+        for s, df in sheet_dfs.items():
+            strategy_ids = df["portfolio_id"].astype(str).unique().tolist()
+            print(f"Processing {len(strategy_ids)} strategies in '{s}'...")
+            for sid in strategy_ids:
+                sheet_dfs[s] = process_strategy(sid, sheet_dfs[s])
     else:
-        df_ledger = process_strategy(args.strategy_id, df_ledger)
+        sid = args.strategy_id
+        found = False
+        for s, df in sheet_dfs.items():
+            if str(sid) in df["portfolio_id"].astype(str).values:
+                sheet_dfs[s] = process_strategy(sid, sheet_dfs[s])
+                found = True
+                break
+        if not found:
+            print(f"[SKIP] '{sid}' not found in any data sheet")
 
-    df_ledger = reorder_columns(df_ledger)
+    for s in list(sheet_dfs):
+        sheet_dfs[s] = reorder_columns(sheet_dfs[s])
+        if LEGACY_PNL_COL in sheet_dfs[s].columns:
+            sheet_dfs[s] = sheet_dfs[s].drop(columns=[LEGACY_PNL_COL])
 
-    # Remove legacy column after migration to keep naming clear.
-    if LEGACY_PNL_COL in df_ledger.columns:
-        df_ledger = df_ledger.drop(columns=[LEGACY_PNL_COL])
-
-    df_ledger.to_excel(LEDGER_PATH, index=False)
+    # Write all sheets back — preserves two-tab structure, correct tab names.
+    with pd.ExcelWriter(LEDGER_PATH, engine="openpyxl", mode="w") as writer:
+        for s, df in sheet_dfs.items():
+            df.to_excel(writer, sheet_name=s, index=False)
     print(f"\n[SAVED] {LEDGER_PATH}")
 
-    # Reapply formatting — to_excel() strips all Excel styles.
+    _formatter = Path(__file__).parent / "format_excel_artifact.py"
     try:
         subprocess.run(
-            [sys.executable, str(Path(__file__).parent / "format_excel_artifact.py"),
-             "--file", str(LEDGER_PATH), "--profile", "portfolio"],
+            [sys.executable, str(_formatter), "--file", str(LEDGER_PATH), "--profile", "portfolio"],
             check=True,
         )
     except subprocess.CalledProcessError as e:
         print(f"[WARN] Formatting failed: {e}")
+
+    try:
+        subprocess.run(
+            [sys.executable, str(_formatter), "--file", str(LEDGER_PATH), "--notes-type", "portfolio"],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"[WARN] Notes update failed: {e}")
 
     print("[DONE] Profile selection complete.")
 

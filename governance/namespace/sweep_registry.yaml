@@ -1397,3 +1397,96 @@ ideas:
         signature_hash: 65a3533a4f5824ce
         reserved_at_utc: '2026-04-07T13:59:34.675922+00:00'
         signature_hash_full: 65a3533a4f5824ce41a663ab7d9240afb516fa4bbfa82e6259ac3ffe80faf92e
+  '41':
+    next_sweep: 8
+    sweeps:
+      S07:
+        directive_name: 41_REV_FX_1H_FAKEBREAK_S07_V1_P00
+        signature_hash: 8b33ee9b3d2a0176
+        signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+        reserved_at_utc: '2026-04-08T14:00:00.000000+00:00'
+        patches: {}
+      S06:
+        directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P00
+        signature_hash: 8b33ee9b3d2a0176
+        signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+        reserved_at_utc: '2026-04-08T12:00:00.000000+00:00'
+        patches:
+          P03:
+            directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P03
+            signature_hash: 8b33ee9b3d2a0176
+            reserved_at_utc: '2026-04-08T12:25:08.849935+00:00'
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+          P04:
+            directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P04
+            signature_hash: 8b33ee9b3d2a0176
+            reserved_at_utc: '2026-04-08T12:26:36.800401+00:00'
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+      S05:
+        directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P00
+        signature_hash: 8b33ee9b3d2a0176
+        signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+        reserved_at_utc: '2026-04-08T12:00:00.000000+00:00'
+        patches:
+          P01:
+            directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P01
+            signature_hash: 8b33ee9b3d2a0176
+            reserved_at_utc: '2026-04-08T11:29:11.608732+00:00'
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+          P02:
+            directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P02
+            signature_hash: 8b33ee9b3d2a0176
+            reserved_at_utc: '2026-04-08T11:29:54.847733+00:00'
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+      S04:
+        directive_name: 41_REV_FX_1H_FAKEBREAK_S04_V1_P00
+        signature_hash: 8b33ee9b3d2a0176
+        signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+        reserved_at_utc: '2026-04-08T00:00:00.000000+00:00'
+        patches: {}
+      S03:
+        directive_name: 41_REV_FX_1D_FAKEBREAK_S03_V1_P00
+        signature_hash: df9deca0125a97ca
+        signature_hash_full: df9deca0125a97ca08db4fc9f295483dd0f303d05921b83f9f5763ee73296f13
+        reserved_at_utc: '2026-04-08T00:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S02:
+        directive_name: 41_REV_EURUSD_4H_FAKEBREAK_S02_V1_P00
+        signature_hash: 8b33ee9b3d2a0176
+        signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+        reserved_at_utc: '2026-04-08T00:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S01:
+        directive_name: 41_REV_EURUSD_1D_FAKEBREAK_S01_V1_P00
+        signature_hash: df9deca0125a97ca
+        signature_hash_full: df9deca0125a97ca08db4fc9f295483dd0f303d05921b83f9f5763ee73296f13
+        reserved_at_utc: '2026-04-08T00:00:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 41_REV_FX_1H_FAKEBREAK_S07_V1_P00
+            signature_hash: 8b33ee9b3d2a0176
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            reserved_at_utc: '2026-04-08T11:53:40.467587+00:00'
+          P01:
+            directive_name: 41_REV_FX_1H_FAKEBREAK_S07_V1_P01
+            signature_hash: 8b33ee9b3d2a0176
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            reserved_at_utc: '2026-04-08T11:53:41.329747+00:00'
+          P02:
+            directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P02
+            signature_hash: 8b33ee9b3d2a0176
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            reserved_at_utc: '2026-04-08T11:27:58.390977+00:00'
+          P03:
+            directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P03
+            signature_hash: 8b33ee9b3d2a0176
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            reserved_at_utc: '2026-04-08T12:23:22.306103+00:00'
+          P04:
+            directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P04
+            signature_hash: 8b33ee9b3d2a0176
+            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            reserved_at_utc: '2026-04-08T12:23:23.197978+00:00'
+        attempt: 2
