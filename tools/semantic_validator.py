@@ -462,7 +462,29 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     # ------------------------------------------------------------------
     # Detect inline indicator patterns that must live in repository indicators.
     # Runs as source-text scan after stripping comments and docstrings.
-    FORBIDDEN_TERMS = ["rolling(", "high_low", "high_close"]
+    #
+    # Layer 1 (Immediate): keyword patterns for common inline computation
+    # Layer 2 (Medium):    external data loading detection
+    # Layer 3 (Long-term): AST analysis of prepare_indicators() body
+    FORBIDDEN_TERMS = [
+        # Original terms
+        "rolling(",
+        "high_low",
+        "high_close",
+        # Rolling computation bypasses (cumsum trick, numpy equivalents)
+        "np.cumsum(",
+        "np.cumsum(np",
+        "cumsum(",
+        # Inline statistical computation
+        "np.convolve(",
+        "np.correlate(",
+        # External data loading (indicators load data, strategies must not)
+        "pd.read_csv(",
+        "pd.read_excel(",
+        "pd.read_parquet(",
+        ".read_csv(",
+        "open(",
+    ]
 
     _scan_source = re.sub(r'""".*?"""|\'\'\'.*?\'\'\'', '', source, flags=re.DOTALL)
     _scan_source = re.sub(r'#[^\n]*', '', _scan_source)
@@ -470,11 +492,137 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     found_forbidden = [term for term in FORBIDDEN_TERMS if term in _scan_source]
     if found_forbidden:
         raise ValueError(
-            f"FORBIDDEN_TERMS: Strategy contains inline indicator logic: {found_forbidden}. "
-            f"Move rolling/derived computations into a repository indicator under indicators/."
+            f"FORBIDDEN_TERMS: Strategy contains inline indicator logic or "
+            f"external data loading: {found_forbidden}. "
+            f"Move computations into a repository indicator under indicators/. "
+            f"Strategies must not load external data — use an indicator import."
         )
 
     print("[SEMANTIC] Forbidden Terms Guard: PASSED")
+
+    # 5.7. External Data Loading Guard (Medium-term — AST-based)
+    # ------------------------------------------------------------------
+    # Detects pd.read_csv / pd.read_excel / pd.read_parquet / open() calls
+    # anywhere in strategy code via AST. More robust than text scan —
+    # catches aliased calls like `pandas.read_csv(...)` or `csv_loader(path)`.
+    class ExternalDataGuard(ast.NodeVisitor):
+        """Detect external file I/O calls in strategy code."""
+        FORBIDDEN_ATTRS = {
+            "read_csv", "read_excel", "read_parquet", "read_json",
+            "read_feather", "read_hdf",
+        }
+
+        def __init__(self):
+            self.violations = []
+
+        def visit_Call(self, node):
+            # pd.read_csv(...) / pandas.read_csv(...)
+            if isinstance(node.func, ast.Attribute):
+                if node.func.attr in self.FORBIDDEN_ATTRS:
+                    self.violations.append(
+                        f"{node.func.attr}() at line {node.lineno}"
+                    )
+            # Built-in open(...)
+            if isinstance(node.func, ast.Name) and node.func.id == "open":
+                self.violations.append(f"open() at line {node.lineno}")
+            self.generic_visit(node)
+
+    ext_guard = ExternalDataGuard()
+    ext_guard.visit(tree)
+
+    if ext_guard.violations:
+        raise ValueError(
+            f"EXTERNAL_DATA_LOAD: Strategy loads external data directly. "
+            f"Strategies must not perform file I/O — external data loading "
+            f"belongs in a repository indicator under indicators/. "
+            f"Violations: {'; '.join(ext_guard.violations)}"
+        )
+
+    print("[SEMANTIC] External Data Loading Guard: PASSED")
+
+    # 5.8. Inline Indicator Detection (Long-term — AST body analysis)
+    # ------------------------------------------------------------------
+    # Walks the body of prepare_indicators() and detects patterns that
+    # indicate inline indicator computation:
+    #   - df column assignments using numpy array math (np.where, np.sqrt, etc.)
+    #     beyond simple shift/rename operations
+    #   - Creation of intermediate DataFrames or Series from raw OHLCV
+    #   - Statistical aggregation functions (mean, std, var, sum, corr, cov)
+    #     applied to df columns
+    #
+    # Allowed in prepare_indicators():
+    #   - Importing and calling indicator functions from indicators/
+    #   - Simple bar-shift references: df['col'].shift(N)
+    #   - Column renames / copies for signal naming
+    #
+    # This is a heuristic guard — it flags suspicious patterns for review,
+    # not a perfect classifier. False positives are acceptable (fail-safe).
+    class InlineIndicatorDetector(ast.NodeVisitor):
+        """Detect inline indicator computation in prepare_indicators()."""
+        # numpy/pandas calls that indicate derived computation
+        SUSPICIOUS_NP_CALLS = {
+            "where", "cumsum", "cumprod", "diff", "gradient",
+            "convolve", "correlate", "sqrt", "log", "exp",
+            "maximum", "minimum", "percentile", "quantile",
+        }
+        SUSPICIOUS_PD_METHODS = {
+            "rolling", "expanding", "ewm",
+            "cumsum", "cumprod", "cummax", "cummin",
+            "pct_change", "corr", "cov",
+            "mean", "std", "var", "sum", "median",
+            "groupby",
+        }
+        # Allowed simple operations — not indicators
+        ALLOWED_METHODS = {"shift", "fillna", "astype", "copy", "rename", "map"}
+
+        def __init__(self):
+            self.violations = []
+            self._in_prepare_indicators = False
+
+        def visit_FunctionDef(self, node):
+            if node.name == "prepare_indicators":
+                self._in_prepare_indicators = True
+                self.generic_visit(node)
+                self._in_prepare_indicators = False
+            else:
+                self.generic_visit(node)
+
+        def visit_Call(self, node):
+            if not self._in_prepare_indicators:
+                self.generic_visit(node)
+                return
+
+            # np.where(...), np.cumsum(...), etc.
+            if isinstance(node.func, ast.Attribute):
+                if (isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "np"
+                        and node.func.attr in self.SUSPICIOUS_NP_CALLS):
+                    self.violations.append(
+                        f"np.{node.func.attr}() at line {node.lineno}"
+                    )
+
+                # df['col'].rolling(...), series.mean(), etc.
+                if node.func.attr in self.SUSPICIOUS_PD_METHODS:
+                    self.violations.append(
+                        f".{node.func.attr}() at line {node.lineno}"
+                    )
+
+            self.generic_visit(node)
+
+    inline_det = InlineIndicatorDetector()
+    inline_det.visit(tree)
+
+    if inline_det.violations:
+        raise ValueError(
+            f"INLINE_INDICATOR: prepare_indicators() contains inline "
+            f"computation that should be in a repository indicator. "
+            f"Strategies must import indicator functions from indicators/; "
+            f"prepare_indicators() should only call imported indicators and "
+            f"perform simple column shifts/renames. "
+            f"Suspicious patterns: {'; '.join(inline_det.violations)}"
+        )
+
+    print("[SEMANTIC] Inline Indicator Detection: PASSED")
 
     # 6. Hollow Strategy Detection (Admission Gate)
     # ------------------------------------------------------------------
