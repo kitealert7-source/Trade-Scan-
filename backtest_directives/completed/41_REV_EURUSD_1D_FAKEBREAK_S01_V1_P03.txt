@@ -1,0 +1,51 @@
+test:
+  name: 41_REV_EURUSD_1D_FAKEBREAK_S01_V1_P03
+  family: REV
+  strategy: 41_REV_EURUSD_1D_FAKEBREAK_S01_V1_P03
+  version: 1
+  broker: OctaFx
+  timeframe: 1d
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Two-bar reversal on EURUSD 1D. Same as P00 but max_bars exit reduced to 7. Tests a less aggressive cutoff than P01/P02 while still tighter than P00 (10 bars)."
+  notes: "REGIME: none (naked). WHY_ORTHOGONAL: Single change from P00 — max_bars 10->7. Isolates the effect of a moderate-tight time exit on PF, avg hold, and top-5 concentration."
+
+symbols:
+  - EURUSD
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: two_bar_reversal
+    atr_length: 14
+    long_condition: bar2_down_close_below_bar1_low
+    short_condition: bar2_up_close_above_bar1_high
+    confirmation: next_bar_penetration
+  exit_logic:
+    type: profitable_close_or_time
+    max_bars: 7
+  stop_loss:
+    type: atr_wide
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  session_reset: none
+  reentry:
+    allowed: false

@@ -278,6 +278,17 @@ def filter_strategies():
             # Deterministic classification-only field; no filtering side effects.
             df_merged = _apply_candidate_status(df_merged)
 
+            # Compute asset_class column for easy Excel filtering (FX, XAU, INDEX, BTC, etc.)
+            if "symbol" in df_merged.columns:
+                from config.asset_classification import classify_asset
+                df_merged["asset_class"] = df_merged["symbol"].fillna("").astype(str).apply(classify_asset)
+                # Insert immediately after 'symbol' column
+                cols = df_merged.columns.tolist()
+                cols.remove("asset_class")
+                sym_idx = cols.index("symbol") + 1
+                cols.insert(sym_idx, "asset_class")
+                df_merged = df_merged[cols]
+
             # Compute base_strategy_id: strip trailing _SYMBOL suffix.
             # Used by add_strategy_hyperlinks.py to build clickable links.
             if "strategy" in df_merged.columns and "symbol" in df_merged.columns:

@@ -731,7 +731,7 @@ ideas:
             reserved_at_utc: '2026-03-25T01:21:36.071584+00:00'
             signature_hash_full: c548db0049625a3fffda380a909e4ec5ae2287c0f30556ee1dd31ab96192b18e
   '22':
-    next_sweep: 10
+    next_sweep: 13
     sweeps:
       S01:
         directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P00
@@ -776,10 +776,10 @@ ideas:
         signature_hash_full: 10c26e362c7af710d61be4c24ee870264dfc865181566efd694345a41afa9905
         patches:
           P01:
-            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P01
-            signature_hash: b40b41b1cbccd422
-            signature_hash_full: b40b41b1cbccd422d19565b7b79607aa8bd7ba298a0d2bc324f48e0d84b6f6b9
-            reserved_at_utc: '2026-04-05T13:33:19.253070+00:00'
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S07_V1_P01
+            signature_hash: e8b9525d7725d1a6
+            signature_hash_full: e8b9525d7725d1a66a80291f599f5276e78587fd7345470a3ce55ede442114a1
+            reserved_at_utc: '2026-04-09T10:50:20.597254+00:00'
           P02:
             directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P02
             signature_hash: 7c3e275570b7bd0a
@@ -791,15 +791,20 @@ ideas:
             signature_hash_full: aa16ff6997fb3d606d408789c34bfea5e6ebfba2978dbf04ca9a094aa985a898
             reserved_at_utc: '2026-04-05T13:50:32.940609+00:00'
           P00:
-            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S06_V1_P00
-            signature_hash: b4a875c4511a6102
-            signature_hash_full: b4a875c4511a6102be7988fe0dee66bcd004bce33d1ed7e3bdaf2d7960e61f7c
-            reserved_at_utc: '2026-04-05T10:52:40.009751+00:00'
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S07_V1_P00
+            signature_hash: e8b9525d7725d1a6
+            signature_hash_full: e8b9525d7725d1a66a80291f599f5276e78587fd7345470a3ce55ede442114a1
+            reserved_at_utc: '2026-04-09T10:48:24.898974+00:00'
           P04:
             directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P04
             signature_hash: f8f7d5e5a00a47c9
             signature_hash_full: f8f7d5e5a00a47c9461fdc8e36e6e2f69e44bad3c2d2a2f8f82e2bd7c91ba1ca
             reserved_at_utc: '2026-04-05T13:59:20.379776+00:00'
+          P05:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P05
+            signature_hash: a5982fa77d0175e5
+            reserved_at_utc: '2026-04-09T15:17:11.513648+00:00'
+            signature_hash_full: a5982fa77d0175e5ac74b9835f10acbf8d65ec81fca925c525ce93934a9e3345
       S03:
         directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S06_V1_P00
         signature_hash: b4a875c4511a6102
@@ -827,22 +832,88 @@ ideas:
         patches: {}
       S07:
         directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S07_V1_P00
-        signature_hash: '0000000000000000'
-        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        signature_hash: e8b9525d7725d1a6
+        signature_hash_full: e8b9525d7725d1a66a80291f599f5276e78587fd7345470a3ce55ede442114a1
         reserved_at_utc: '2026-04-05T13:00:00.000000+00:00'
         patches: {}
       S08:
-        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S08_V1_P00
-        signature_hash: '0000000000000000'
-        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
-        reserved_at_utc: '2026-04-05T13:00:00.000000+00:00'
-        patches: {}
+        directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P00
+        signature_hash: 3b3a8fa62c20c6a0
+        signature_hash_full: 3b3a8fa62c20c6a0701e25c277b06209e2dbbc1d39b6a8aab102cc0541cd7187
+        reserved_at_utc: '2026-04-09T12:00:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P00
+            signature_hash: 3b3a8fa62c20c6a0
+            signature_hash_full: 3b3a8fa62c20c6a0701e25c277b06209e2dbbc1d39b6a8aab102cc0541cd7187
+            reserved_at_utc: '2026-04-09T12:00:00.000000+00:00'
+          P01:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P01
+            signature_hash: 3b3a8fa62c20c6a0
+            signature_hash_full: 3b3a8fa62c20c6a0701e25c277b06209e2dbbc1d39b6a8aab102cc0541cd7187
+            reserved_at_utc: '2026-04-09T12:00:00.000000+00:00'
+          P02:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P02
+            signature_hash: 3b3a8fa62c20c6a0
+            signature_hash_full: 3b3a8fa62c20c6a0701e25c277b06209e2dbbc1d39b6a8aab102cc0541cd7187
+            reserved_at_utc: '2026-04-09T18:30:00.000000+00:00'
+          P03:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P03
+            signature_hash: 3b3a8fa62c20c6a0
+            reserved_at_utc: '2026-04-09T15:05:55.889594+00:00'
+            signature_hash_full: 3b3a8fa62c20c6a0701e25c277b06209e2dbbc1d39b6a8aab102cc0541cd7187
       S09:
-        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S09_V1_P00
-        signature_hash: '0000000000000000'
-        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
-        reserved_at_utc: '2026-04-05T13:00:00.000000+00:00'
-        patches: {}
+        directive_name: 22_CONT_FX_1H_RSIAVG_TRENDFILT_S09_V1_P00
+        signature_hash: cde7e34729293ae3
+        signature_hash_full: cde7e34729293ae372e90b57a6e5b969f63a981e728926039c900327c1e2fb93
+        reserved_at_utc: '2026-04-09T12:00:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 22_CONT_FX_1H_RSIAVG_TRENDFILT_S12_V1_P00
+            signature_hash: 9102e4b1c71da922
+            signature_hash_full: 9102e4b1c71da9220b31fc2daac097848c9f276fc5814c27b2f2b0577450cf71
+            reserved_at_utc: '2026-04-09T14:17:41.902107+00:00'
+          P01:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S11_V1_P01
+            signature_hash: 20eaefc820a40ed7
+            signature_hash_full: 20eaefc820a40ed7ed5f06bfc8c774d537d0372dc29336f882ca1e17bf00a7db
+            reserved_at_utc: '2026-04-09T14:33:23.337584+00:00'
+          P02:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P02
+            signature_hash: 3b3a8fa62c20c6a0
+            signature_hash_full: 3b3a8fa62c20c6a0701e25c277b06209e2dbbc1d39b6a8aab102cc0541cd7187
+            reserved_at_utc: '2026-04-09T13:04:43.607143+00:00'
+          P03:
+            directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S07_V1_P03
+            signature_hash: cde7e34729293ae3
+            signature_hash_full: cde7e34729293ae372e90b57a6e5b969f63a981e728926039c900327c1e2fb93
+            reserved_at_utc: '2026-04-09T11:57:06.716263+00:00'
+          P04:
+            directive_name: 22_CONT_FX_1H_RSIAVG_TRENDFILT_S09_V1_P04
+            signature_hash: cde7e34729293ae3
+            reserved_at_utc: '2026-04-09T15:07:19.558499+00:00'
+            signature_hash_full: cde7e34729293ae372e90b57a6e5b969f63a981e728926039c900327c1e2fb93
+      S10:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S10_V1_P00
+        signature_hash: 5c50bf9a4e9f81c6
+        reserved_at_utc: '2026-04-09T14:17:55.520052+00:00'
+        signature_hash_full: 5c50bf9a4e9f81c67103b150e1368128b319606c1fa16d41027c5bac1d8fbe00
+      S11:
+        directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S11_V1_P00
+        signature_hash: 20eaefc820a40ed7
+        reserved_at_utc: '2026-04-09T14:19:33.462709+00:00'
+        signature_hash_full: 20eaefc820a40ed7ed5f06bfc8c774d537d0372dc29336f882ca1e17bf00a7db
+        patches:
+          P02:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S11_V1_P02
+            signature_hash: 20eaefc820a40ed7
+            reserved_at_utc: '2026-04-09T14:52:50.362392+00:00'
+            signature_hash_full: 20eaefc820a40ed7ed5f06bfc8c774d537d0372dc29336f882ca1e17bf00a7db
+      S12:
+        directive_name: 22_CONT_FX_1H_RSIAVG_TRENDFILT_S12_V1_P01
+        signature_hash: 9102e4b1c71da922
+        reserved_at_utc: '2026-04-09T14:55:13.171931+00:00'
+        signature_hash_full: 9102e4b1c71da9220b31fc2daac097848c9f276fc5814c27b2f2b0577450cf71
   '24':
     next_sweep: 2
     sweeps:
@@ -1398,14 +1469,19 @@ ideas:
         reserved_at_utc: '2026-04-07T13:59:34.675922+00:00'
         signature_hash_full: 65a3533a4f5824ce41a663ab7d9240afb516fa4bbfa82e6259ac3ffe80faf92e
   '41':
-    next_sweep: 8
+    next_sweep: 9
     sweeps:
       S07:
         directive_name: 41_REV_FX_1H_FAKEBREAK_S07_V1_P00
-        signature_hash: 8b33ee9b3d2a0176
-        signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+        signature_hash: 2873f1cbc04c2ca8
+        signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
         reserved_at_utc: '2026-04-08T14:00:00.000000+00:00'
-        patches: {}
+        patches:
+          P02:
+            directive_name: 41_REV_FX_1H_FAKEBREAK_S07_V1_P02
+            signature_hash: 2873f1cbc04c2ca8
+            reserved_at_utc: '2026-04-09T10:37:10.544144+00:00'
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
       S06:
         directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P00
         signature_hash: 8b33ee9b3d2a0176
@@ -1414,14 +1490,19 @@ ideas:
         patches:
           P03:
             directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P03
-            signature_hash: 8b33ee9b3d2a0176
+            signature_hash: 2873f1cbc04c2ca8
             reserved_at_utc: '2026-04-08T12:25:08.849935+00:00'
-            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
           P04:
             directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P04
-            signature_hash: 8b33ee9b3d2a0176
+            signature_hash: 2873f1cbc04c2ca8
             reserved_at_utc: '2026-04-08T12:26:36.800401+00:00'
-            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
+          P05:
+            directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P05
+            signature_hash: 2873f1cbc04c2ca8
+            reserved_at_utc: '2026-04-09T10:35:39.021526+00:00'
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
       S05:
         directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P00
         signature_hash: 8b33ee9b3d2a0176
@@ -1438,6 +1519,11 @@ ideas:
             signature_hash: 8b33ee9b3d2a0176
             reserved_at_utc: '2026-04-08T11:29:54.847733+00:00'
             signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+          P05:
+            directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P05
+            signature_hash: 2873f1cbc04c2ca8
+            reserved_at_utc: '2026-04-09T10:34:51.171081+00:00'
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
       S04:
         directive_name: 41_REV_FX_1H_FAKEBREAK_S04_V1_P00
         signature_hash: 8b33ee9b3d2a0176
@@ -1471,8 +1557,8 @@ ideas:
             reserved_at_utc: '2026-04-08T11:53:40.467587+00:00'
           P01:
             directive_name: 41_REV_FX_1H_FAKEBREAK_S07_V1_P01
-            signature_hash: 8b33ee9b3d2a0176
-            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            signature_hash: 2873f1cbc04c2ca8
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
             reserved_at_utc: '2026-04-08T11:53:41.329747+00:00'
           P02:
             directive_name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P02
@@ -1481,12 +1567,28 @@ ideas:
             reserved_at_utc: '2026-04-08T11:27:58.390977+00:00'
           P03:
             directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P03
-            signature_hash: 8b33ee9b3d2a0176
-            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            signature_hash: 2873f1cbc04c2ca8
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
             reserved_at_utc: '2026-04-08T12:23:22.306103+00:00'
           P04:
             directive_name: 41_REV_FX_4H_FAKEBREAK_S05_V1_P04
-            signature_hash: 8b33ee9b3d2a0176
-            signature_hash_full: 8b33ee9b3d2a017625c470b1b10fcf83ea080c570bc4f738d2046aaa07b41025
+            signature_hash: 2873f1cbc04c2ca8
+            signature_hash_full: 2873f1cbc04c2ca883ec7b12457a132233ac9bca28bac5fc75f868cafc715022
             reserved_at_utc: '2026-04-08T12:23:23.197978+00:00'
         attempt: 2
+      S08:
+        directive_name: 41_REV_FX_1D_FAKEBREAK_S08_V1_P00
+        signature_hash: 120bc3e38d05054b
+        reserved_at_utc: '2026-04-09T10:29:12.019990+00:00'
+        signature_hash_full: 120bc3e38d05054b5d6a3185b6fc6ff7ac96f2f277aff451117d746b81e250af
+        patches:
+          P01:
+            directive_name: 41_REV_FX_1D_FAKEBREAK_S08_V1_P01
+            signature_hash: 120bc3e38d05054b
+            reserved_at_utc: '2026-04-09T10:29:56.603689+00:00'
+            signature_hash_full: 120bc3e38d05054b5d6a3185b6fc6ff7ac96f2f277aff451117d746b81e250af
+          P02:
+            directive_name: 41_REV_FX_1D_FAKEBREAK_S08_V1_P02
+            signature_hash: 120bc3e38d05054b
+            reserved_at_utc: '2026-04-09T10:38:08.611185+00:00'
+            signature_hash_full: 120bc3e38d05054b5d6a3185b6fc6ff7ac96f2f277aff451117d746b81e250af

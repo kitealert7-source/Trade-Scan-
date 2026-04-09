@@ -1,0 +1,55 @@
+test:
+  name: 41_REV_FX_1H_FAKEBREAK_S04_V1_P00
+  family: REV
+  strategy: 41_REV_FX_1H_FAKEBREAK_S04_V1_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Two-bar reversal (directional exhaustion fade) on 1H across 6 USD-based FX pairs. Identical pattern logic to S03. Entry-price based profitable-close exit. Tests whether the 2-bar exhaustion edge exists at 1H and delivers 5-10x trade density vs 1D."
+  notes: "REGIME: none (naked). WHY_ORTHOGONAL: Timeframe change from 1D to 1H. Same entry pattern, same stop (5 ATR), same exit (profitable close vs actual fill OR 10 bars). USD pairs only: EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF."
+
+symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - USDCHF
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: two_bar_reversal
+    atr_length: 14
+    long_condition: bar2_down_close_below_bar1_low
+    short_condition: bar2_up_close_above_bar1_high
+    confirmation: next_bar_penetration
+  exit_logic:
+    type: profitable_close_or_time
+    max_bars: 10
+  stop_loss:
+    type: atr_wide
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false

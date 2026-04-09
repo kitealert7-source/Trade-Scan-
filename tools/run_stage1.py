@@ -137,7 +137,7 @@ def get_conversion_price_at_time(target_pair: str, timestamp: pd.Timestamp) -> f
             # Re-use load_market_data but we need to ensure global Start/End dates cover it.
             # We will use the global START_DATE/END_DATE.
             print(f"[CONVERSION] Loading data for {target_pair}...")
-            df = load_market_data(target_pair)
+            df = load_market_data(target_pair, tf_override="1d")
             
             # Optimization: Keep only timestamp and close
             df = df[['timestamp', 'close']].copy()
@@ -1086,6 +1086,11 @@ def main():
             generate_backtest_report(strategy_id, BACKTESTS_DIR)
         except Exception as rep_err:
             print(f"[WARN] Report generation failed (non-blocking): {rep_err}")
+        try:
+            from tools.generate_strategy_card import generate_strategy_card
+            generate_strategy_card(strategy_id, BACKTESTS_DIR, RUNS_DIR / run_id / "strategy.py", RUNS_DIR)
+        except Exception as card_err:
+            print(f"[WARN] Strategy card generation failed (non-blocking): {card_err}")
 
     if status == "FAILED":
         sys.exit(1)

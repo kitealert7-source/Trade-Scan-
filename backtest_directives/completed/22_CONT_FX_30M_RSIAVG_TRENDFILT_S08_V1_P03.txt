@@ -1,0 +1,60 @@
+test:
+  name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P03
+  family: CONT
+  strategy: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P03
+  version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2021-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "USD_SYNTH macro gate on GBPJPY 30M. Same params as S08 P02 (Z>=1.5, max_bars=3). Extended 5yr backtest to compare USD_SYNTH vs JPY_SYNTH vs no-filter equity curves."
+  notes: "GBPJPY-only for portfolio combination with S11 P02 (JPY_SYNTH) and S02 P03 (no filter). Testing whether three different macro gates produce uncorrelated equity curves."
+
+symbols:
+  - GBPJPY
+
+indicators:
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.trend.efficiency_ratio_regime
+  - indicators.momentum.rsi
+  - indicators.volatility.atr
+  - indicators.macro.usd_synth_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+mean_reversion_rules:
+  entry:
+    rsi_period: 2
+    avg_bars: 2
+    long_threshold: 25
+    short_threshold: 75
+    min_abs_trend_score: 2
+  exit:
+    rsi_exit_long: 75
+    rsi_exit_short: 25
+    max_bars: 3
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: none
+  reentry:
+    allowed: true

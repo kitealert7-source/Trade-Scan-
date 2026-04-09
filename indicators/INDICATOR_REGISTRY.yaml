@@ -45,8 +45,17 @@ governance_updates:
     - 'hurst_regime: input_requirements corrected — accepts close price series; log-price
       conversion handled internally; output_columns and output_scale annotations added'
     - 'registry_summary_updated: total_indicators=39, structure_count=8'
-registry_version: 7
-generated_at: '2026-04-02T00:00:00+05:30'
+  version_6:
+    date: '2026-04-09'
+    changes:
+    - 'new_category: macro — indicators/macro/ directory for exogenous macro factor filters'
+    - 'new_indicator: usd_synth_zscore added to indicators/macro/usd_synth_zscore.py — USD
+      synthetic index Z-score direction filter with auto-correlation pair detection'
+    - 'new_indicator: jpy_synth_zscore added to indicators/macro/jpy_synth_zscore.py — JPY
+      synthetic index Z-score direction filter (risk-off proxy) with auto-correlation pair detection'
+    - 'registry_summary_updated: total_indicators=41, macro_count=2'
+registry_version: 8
+generated_at: '2026-04-09T00:00:00+05:30'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -1534,8 +1543,97 @@ indicators:
     warmup: 23
     input_columns:
     - choch_event
+  usd_synth_zscore:
+    module_path: indicators.macro.usd_synth_zscore
+    category: macro
+    function_name: usd_synth_zscore
+    classification: Macro Filter
+    input_requirements:
+    - df: DataFrame with 'time' (or first col) and 'close' columns
+    - external: USD_SYNTH_CLOSE_PATH constant (data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_close_d1.csv)
+    parameters:
+      lookback: int (default 100) — rolling Z-score window in days
+      threshold: float (default 1.5) — minimum |Z| for signal
+    default_parameters:
+      lookback: 100
+      threshold: 1.5
+    output_type: DataFrame
+    output_columns:
+    - usd_z_score: float — rolling Z-score of USD_SYNTH (lookback-day window)
+    - macro_allowed: int — +1 (longs only), -1 (shorts only), 0 (no trade)
+    output_scale: 'usd_z_score: unbounded float (-3 to +3 typical); macro_allowed: {-1, 0, +1}'
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    external_dependency:
+      path_constant: USD_SYNTH_CLOSE_PATH
+      default_location: data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_close_d1.csv
+      rebuild_command: python engines/ops/build_usd_synth.py (in DATA_INGRESS repo)
+    dependency_indicators:
+    - USD_SYNTH dataset (external)
+    typical_use_case: 'Mean-reversion macro direction filter for FX strategies. Auto-detects
+      pair correlation with USD_SYNTH: directional filter on USD pairs (corr 0.7-0.85),
+      macro volatility regime gate on non-USD crosses (corr 0.05-0.24). 1-day lag prevents
+      lookahead.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Medium
+      risk_of_overfitting: Low
+    lookback: 100
+    warmup: 101
+    input_columns:
+    - time
+    - close
+  jpy_synth_zscore:
+    module_path: indicators.macro.jpy_synth_zscore
+    category: macro
+    function_name: jpy_synth_zscore
+    classification: Macro Filter
+    input_requirements:
+    - df: DataFrame with 'time' (or first col) and 'close' columns
+    - external: JPY_SYNTH_CLOSE_PATH constant (data_root/SYSTEM_FACTORS/JPY_SYNTH/jpy_synth_close_d1.csv)
+    parameters:
+      lookback: int (default 100) — rolling Z-score window in days
+      threshold: float (default 1.5) — minimum |Z| for signal
+    default_parameters:
+      lookback: 100
+      threshold: 1.5
+    output_type: DataFrame
+    output_columns:
+    - jpy_z_score: float — rolling Z-score of JPY_SYNTH (lookback-day window)
+    - jpy_macro_allowed: int — +1 (longs only), -1 (shorts only), 0 (no trade)
+    output_scale: 'jpy_z_score: unbounded float (-3 to +3 typical); jpy_macro_allowed: {-1, 0, +1}'
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    external_dependency:
+      path_constant: JPY_SYNTH_CLOSE_PATH
+      default_location: data_root/SYSTEM_FACTORS/JPY_SYNTH/jpy_synth_close_d1.csv
+      rebuild_command: python engines/ops/build_jpy_synth.py (in DATA_INGRESS repo)
+    dependency_indicators:
+    - JPY_SYNTH dataset (external)
+    typical_use_case: 'Mean-reversion macro direction filter for FX strategies. Rising JPY_SYNTH
+      = JPY strengthening (risk-off). Auto-detects pair correlation: directional filter on
+      JPY-quote pairs, regime gate on non-JPY crosses. 1-day lag prevents lookahead.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Medium
+      risk_of_overfitting: Low
+    lookback: 100
+    warmup: 101
+    input_columns:
+    - time
+    - close
 registry_summary:
-  total_indicators: 39
+  total_indicators: 41
   by_category:
     momentum_count: 6
     trend_count: 4
@@ -1544,11 +1642,12 @@ registry_summary:
     structure_count: 8
     composite_count: 3
     statistical_count: 4
-  intraday_ready: 39
-  daily_ready: 37
-  htf_ready: 36
-  lookahead_safe: 39
-  vectorized: 33
-  files_validated: 39
+    macro_count: 2
+  intraday_ready: 41
+  daily_ready: 39
+  htf_ready: 38
+  lookahead_safe: 41
+  vectorized: 35
+  files_validated: 41
   validation_status: PASS
   governance_status: PASS

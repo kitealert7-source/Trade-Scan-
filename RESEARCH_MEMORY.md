@@ -375,3 +375,41 @@ Daily USD trend direction contains no usable information for intraday FX entries
 4. Existing 6 strategy files retain inline cumsum computation (PORTFOLIO_COMPLETE, snapshot immutable). Only future strategies should import the indicator.
 ---
 
+---
+2026-04-09 | Tags: USD_SYNTH, z_score, curve_fit_experiment, regime_filter, non_USD_crosses, indicator_validation, pipeline_validation | Strategy: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P02 (experiment) vs P00 (control)
+
+USD_SYNTH Z-score indicator has a dual mechanism depending on pair type, confirmed by blind-pair experiment on 5 never-tested FX crosses (EURJPY, EURGBP, CADJPY, GBPAUD, CHFJPY). The indicator computes correlation between pair returns and USD_SYNTH returns to determine pair_sign. On USD pairs (corr 0.70-0.85) it functions as a directional filter. On non-USD crosses (corr 0.05-0.24) the directional signal is near-random but it still works as a macro volatility regime gate — extreme USD moves correlate with elevated cross-market volatility where mean-reversion setups are stronger.
+
+Experiment design: S08 P00 config (30M, Z>=1.5, max_bars=3) run identically on 5 pairs that never appeared in any RSIAVG directive. Compared against P00's 7 original USD-paired symbols. Zero parameter changes.
+
+Results — per-symbol expectancy: Blind median $0.204 vs Selected median $0.203 (100.7% ratio). All 5 blind pairs profitable (PF 1.27-1.58). Mean expectancy 78% of selected. Aggregate expectancy blind $0.175 vs selected $0.247 (71%).
+
+Robustness comparison (capital-wrapped): P02 blind CAGR 9.28% vs P00 selected 19.14%. MC 5th pctl CAGR 4.64% vs 9.54%. Both have 0/14 negative rolling years. P02 breaks under extreme slippage (1 pip) while P00 barely survives (+$483). Tail removal: P02 loses 39% CAGR at top-1% removal vs P00's 16% — blind crosses more tail-dependent.
+
+Key finding: The ~2x performance gap (P00 vs P02) is NOT curve-fitting — it reflects the Z-score filter operating via different mechanisms. On USD pairs the filter provides genuine directional edge (strong correlation). On crosses it provides regime-timing value (trade only during macro dislocations). The value on non-USD crosses comes precisely from the indicator being uncorrelated to the traded instrument — it cannot overfit to the pair's specific patterns.
+
+1. USD_SYNTH Z-score is a structural FX indicator, not a curve-fit artifact. Edge exists on 12/12 tested FX pairs (7 original + 5 blind).
+2. For USD pairs: directional filter (corr 0.7-0.85). For non-USD crosses: volatility regime gate (corr 0.05-0.24). Both profitable, USD pairs ~2x stronger.
+3. Pipeline pair selection process validated — selects pairs where the filter mechanism is strongest, does not manufacture false edge. Median expectancy identical between blind and selected groups.
+4. Non-USD crosses have thinner edge ($2.31/trade vs $6.27) and higher tail dependence — viable in portfolio but not as standalone deployment.
+5. The independence of the filter from the traded instrument on crosses is an anti-curve-fit property: an exogenous gate that cannot be mined from the pair's own price history.
+---
+
+---
+2026-04-09 | Tags: pipeline_validation, curve_fit, portfolio_selection, median_test, composite_portfolio | Strategy: PF_04C5F80CB1E3 (median control) vs PF_71C9872F6F7E (top-picked)
+
+Pipeline selection process validated via median-pick control portfolio. Same 4 symbols (EURUSD, GBPUSD, USDJPY, AUDJPY) — instead of best entries, picked the median-expectancy entry per symbol from CORE/BURN_IN strategies only. Ran full composite portfolio workflow (evaluator + capital wrapper + robustness).
+
+Median portfolio PF_04C5F80CB1E3 composition: EURUSD S02 P03 30M ($0.17 exp, 247T), GBPUSD S07 P01 15M ($0.31, 127T), USDJPY S01 P06 15M ($0.09, 1275T), AUDJPY S02 P03 30M ($0.23, 134T).
+
+Results: Median portfolio CAGR 33.97% vs top-picked 39.55% (86% ratio). PF 1.53 vs 1.55 (99%). Expectancy $5.01 vs $6.06 (83%). Max DD 3.09% vs 3.77% (median actually tighter). Recovery factor 39.92 vs 29.61 (median better). MC 5th pctl CAGR 23.48% vs 29.58% (79%). Zero negative rolling years for both. Baseline slippage PF 1.40 vs 1.42 (99%). Both break under extreme 1-pip slippage.
+
+Combined with the blind-pair experiment (same session): the RSIAVG + trend filter edge is structural across FX. The pipeline selection process adds ~15-20% CAGR uplift over median picks — legitimate optimization, not curve-fitting. Even random/median entry selection produces a strong portfolio (34% CAGR, PF 1.53, 0 negative years).
+
+1. Pipeline selection adds ~15% CAGR uplift, not 2-3x inflation. Base-rate edge is real regardless of entry selection.
+2. PF is nearly identical (1.53 vs 1.55) — the quality of trades is similar; selection mainly improves per-trade expectancy slightly.
+3. Median portfolio has tighter DD (3.09% vs 3.77%) and better recovery factor — less concentrated risk.
+4. USDJPY median entry (S01 P06, 1275 trades at $0.09) compensates for low expectancy with massive trade volume — 57% of PnL.
+5. Two-experiment validation (blind pairs + median picks) confirms: the RSIAVG FX edge is structural, and the pipeline filtering process is legitimate optimization.
+---
+

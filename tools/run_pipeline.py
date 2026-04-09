@@ -769,6 +769,12 @@ def run_batch_mode(provision_only=False):
         except Exception as e:
             print(f"[WARN] Candidate promotion failed: {e}")
 
+        print("\n[BATCH] Restoring hyperlinks in Excel artifacts...")
+        try:
+            run_command([PYTHON_EXE, "tools/add_strategy_hyperlinks.py", "--target", "all"], "Hyperlinks")
+        except Exception as e:
+            print(f"[WARN] Hyperlink restoration failed: {e}")
+
     print("\n[BATCH] All directives processed successfully.")
 
 def main():
@@ -837,6 +843,12 @@ def main():
                     run_command([PYTHON_EXE, "tools/filter_strategies.py"], "Candidate Promotion")
                 except Exception as e:
                     print(f"[WARN] Candidate promotion failed: {e}")
+
+                print("\n[PIPELINE] Restoring hyperlinks in Excel artifacts...")
+                try:
+                    run_command([PYTHON_EXE, "tools/add_strategy_hyperlinks.py", "--target", "all"], "Hyperlinks")
+                except Exception as e:
+                    print(f"[WARN] Hyperlink restoration failed: {e}")
 
                 print("\n[PIPELINE] Regenerating run summary view...")
                 try:

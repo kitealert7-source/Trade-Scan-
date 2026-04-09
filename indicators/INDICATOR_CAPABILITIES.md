@@ -1,6 +1,6 @@
 # Indicator Capabilities Reference
 
-> **Registry Version:** 7 | **Generated:** 2026-04-02 | **Total Indicators:** 39
+> **Registry Version:** 8 | **Generated:** 2026-04-09 | **Total Indicators:** 41
 >
 > Machine-readable source: [`INDICATOR_REGISTRY.yaml`](./INDICATOR_REGISTRY.yaml)
 
@@ -18,6 +18,7 @@
 | **Price** | 4 | candle_state, previous_bar_breakout, ultimate_c_percent_variant, usd_stress_index |
 | **Composite** | 2 | usd_stress_index, market_state |
 | **Statistical** | 4 | rolling_max, rolling_percentile, rolling_zscore, log_return_autocorr |
+| **Macro** | 2 | usd_synth_zscore, jpy_synth_zscore |
 
 ---
 
@@ -64,6 +65,8 @@
 | **market_state** | `indicators.volatility.market_state` | `market_state` | DataFrame | state (0–4) | ✅ | ✅ | ✅ | ✅ | ✅ | Low | Medium |
 | **volatility_regime** | `indicators.volatility.volatility_regime` | `volatility_regime` | DataFrame | atr, percentile, regime | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
 | **realized_vol** | `indicators.volatility.realized_vol` | `realized_vol` | DataFrame | realized_vol, rv_percentile | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
+| **usd_synth_zscore** | `indicators.macro.usd_synth_zscore` | `usd_synth_zscore` | DataFrame | usd_z_score, macro_allowed | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
+| **jpy_synth_zscore** | `indicators.macro.jpy_synth_zscore` | `jpy_synth_zscore` | DataFrame | jpy_z_score, jpy_macro_allowed | ✅ | ✅ | ✅ | ✅ | ✅ | Medium | Low |
 
 ---
 
@@ -78,6 +81,8 @@
 | **resample_freq parameter (v1.5.4)** | `linreg_regime_htf` — default '1D'; use '1W' for 4H strategies, '1H' for 15M strategies to match adaptive regime TF |
 | **Intraday only** | `session_range_structure` — meaningless on daily bars |
 | **External file dependency** | `usd_stress_index` — requires `data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_return_d1.csv` |
+| **External file dependency** | `usd_synth_zscore` — requires `data_root/SYSTEM_FACTORS/USD_SYNTH/usd_synth_close_d1.csv` |
+| **External file dependency** | `jpy_synth_zscore` — requires `data_root/SYSTEM_FACTORS/JPY_SYNTH/jpy_synth_close_d1.csv` |
 | **Output scale: 0–1 (not 0–100)** | `atr_percentile` — multiply by 100 for percentage comparison |
 | **Output scale: 0–100** | `rolling_percentile`, `rsi`, `stochastic_k`, `ultimate_c_percent`, `adx` |
 | **Output scale: –100 to +100** | `stochastic_momentum_index` — smi, smi_signal, smi_hist all on this scale |
@@ -105,4 +110,4 @@
 
 ---
 
-*Validation: All 39 registry entries represented. Includes 37 pre-existing + compute_choch_state + apply_choch_state (new, v5). Registry v7. Status: **PASS**.*
+*Validation: All 41 registry entries represented. Includes 39 pre-existing + usd_synth_zscore + jpy_synth_zscore (new, v6). Registry v8. Status: **PASS**.*

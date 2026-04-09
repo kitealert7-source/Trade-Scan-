@@ -1,0 +1,55 @@
+test:
+  name: 41_REV_FX_15M_FAKEBREAK_S06_V1_P00
+  family: REV
+  strategy: 41_REV_FX_15M_FAKEBREAK_S06_V1_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Two-bar reversal on 15M naked baseline. No filters. Pure pattern edge isolation for macro filter comparison."
+  notes: "FILTER_TEST: Naked 15M baseline. Compare vs P01 (USD_SYNTH) and P02 (SPX500) to isolate macro filter effect at 15M granularity."
+
+symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - USDCHF
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: two_bar_reversal
+    atr_length: 14
+    long_condition: bar2_down_close_below_bar1_low
+    short_condition: bar2_up_close_above_bar1_high
+    confirmation: next_bar_penetration
+  exit_logic:
+    type: profitable_close_or_time
+    max_bars: 10
+  stop_loss:
+    type: atr_wide
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false

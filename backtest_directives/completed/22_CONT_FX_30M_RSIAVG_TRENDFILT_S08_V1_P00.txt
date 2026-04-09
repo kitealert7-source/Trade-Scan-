@@ -1,0 +1,66 @@
+test:
+  name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P00
+  family: CONT
+  strategy: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S08_V1_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "RSI(2) Average Pullback on 30M with trend filter + USD_SYNTH Z-score macro direction gate. Z threshold 1.5, lookback 100. Only enter when macro direction agrees with trade direction."
+  notes: "ZSCORE_GATE: Z>=1.5 macro filter layered on RSIAVG trend-pullback 30M. Compare vs S02 P00 baseline (no Z-score) and S07 15M results."
+
+symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - USDCHF
+  - NZDUSD
+
+indicators:
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.trend.efficiency_ratio_regime
+  - indicators.momentum.rsi
+  - indicators.volatility.atr
+  - indicators.macro.usd_synth_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+mean_reversion_rules:
+  entry:
+    rsi_period: 2
+    avg_bars: 2
+    long_threshold: 25
+    short_threshold: 75
+    min_abs_trend_score: 2
+  exit:
+    rsi_exit_long: 75
+    rsi_exit_short: 25
+    max_bars: 3
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: none
+  reentry:
+    allowed: true

@@ -1054,7 +1054,7 @@ def save_snapshot(strategy_id, port_metrics, contributions, corr_data,
 
     overview = f"""# {strategy_id} - Portfolio Evaluation Summary
 
-## Key Metrics
+## Portfolio Key Metrics (All Symbols Combined)
 
 | Metric | Value |
 |--------|-------|

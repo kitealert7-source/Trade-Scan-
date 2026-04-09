@@ -1,0 +1,50 @@
+test:
+  name: 41_REV_EURUSD_4H_FAKEBREAK_S02_V1_P00
+  family: REV
+  strategy: 41_REV_EURUSD_4H_FAKEBREAK_S02_V1_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 4h
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Two-bar reversal (directional exhaustion fade) on EURUSD 4H. Same pattern as S01 (1D) applied to 4H. Bar1 any direction. Bar2 must be a down bar (close < open) closing below Bar1 low (long) or an up bar (close > open) closing above Bar1 high (short). Enter if price penetrates Bar2 high (long) or Bar2 low (short) on current bar. Exit on first profitable close vs trigger price OR after 10 bars (~40 hrs). Stop: 5 ATR (wide). P00 baseline — both long and short, no filters."
+  notes: "REGIME: none (naked). WHY_ORTHOGONAL: Same 2-bar exhaustion fade concept as S01 but applied at 4H granularity — tests whether the edge exists at faster cycles and whether trade density improves."
+
+symbols:
+  - EURUSD
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: two_bar_reversal
+    atr_length: 14
+    long_condition: bar2_down_close_below_bar1_low
+    short_condition: bar2_up_close_above_bar1_high
+    confirmation: next_bar_penetration
+  exit_logic:
+    type: profitable_close_or_time
+    max_bars: 10
+  stop_loss:
+    type: atr_wide
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false

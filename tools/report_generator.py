@@ -655,7 +655,7 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
         port_pf_str = f"{port_pf:.2f}"
 
     # --- Key Metrics (decision block — first section after header) ---
-    md.append("## Key Metrics\n")
+    md.append("## Portfolio Key Metrics (All Symbols Combined)\n")
     expectancy = (portfolio_pnl / portfolio_trades) if portfolio_trades > 0 else 0.0
     if risk_data_list:
         md.append("| Metric | Value |")

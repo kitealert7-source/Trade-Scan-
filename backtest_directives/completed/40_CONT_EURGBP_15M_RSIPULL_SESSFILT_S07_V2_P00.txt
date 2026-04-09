@@ -1,0 +1,66 @@
+test:
+  name: 40_CONT_EURGBP_15M_RSIPULL_SESSFILT_S07_V2_P00
+  family: CONT
+  strategy: 40_CONT_EURGBP_15M_RSIPULL_SESSFILT_S07_V2_P00
+  version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2024-01-02'
+  end_date: '2026-04-02'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: 'EURGBP targeted filter: block short entries when trend_label is strong_down.'
+  notes: 'Loss-phase removal: short+strong_down exclusion.'
+symbols:
+- EURGBP
+indicators:
+- indicators.volatility.atr
+- indicators.momentum.rsi
+- indicators.structure.range_breakout_session
+- indicators.trend.linreg_regime
+execution_rules:
+  entry_logic:
+    type: london_open_pullback_retrace
+    condition: first_pullback_after_open_impulse_eurgbp_short_strongdown_block
+    long_condition: resume_from_open_long
+    short_condition: resume_from_open_short
+    session_start: 08:00
+    session_end: 08:45
+    entry_window_start: 08:45
+    entry_window_end: '10:00'
+    confirmation: candle_resume_with_rsi_reclaim
+    atr_length: 14
+    lookback_bars: 3
+  exit_logic:
+    type: time_exit
+    max_bars: 12
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.4
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 2.2
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction_restriction: long_and_short
+  max_trades_per_session: 1
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    operator: gt
+    required_regime: -1
+  short_when:
+    operator: lt
+    required_regime: 1

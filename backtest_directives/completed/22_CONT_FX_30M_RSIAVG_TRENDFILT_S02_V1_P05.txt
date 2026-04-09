@@ -1,0 +1,74 @@
+test:
+  name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P05
+  family: CONT
+  strategy: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P05
+  version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2021-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "GBPJPY-only 5yr retest of S02 P03 (no macro filter, trend+vol filter, max_bars=2). Extended window for portfolio combination with JPY_SYNTH variants."
+  notes: "Same strategy as S02 P03 but GBPJPY-only with 5-year window. For portfolio combo with S11 P02 (JPY_SYNTH 30M) and S12 P01 (JPY_SYNTH 1H)."
+
+symbols:
+  - GBPJPY
+
+indicators:
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.trend.efficiency_ratio_regime
+  - indicators.momentum.rsi
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+mean_reversion_rules:
+  entry:
+    rsi_period: 2
+    avg_bars: 2
+    long_threshold: 25
+    short_threshold: 75
+    min_abs_trend_score: 2
+  exit:
+    rsi_exit_long: 75
+    rsi_exit_short: 25
+    max_bars: 2
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: none
+  reentry:
+    allowed: true
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    operator: gte
+    required_regime: 2
+  short_when:
+    operator: lte
+    required_regime: -2
+
+volatility_filter:
+  enabled: true
+  operator: eq
+  required_regime: -1

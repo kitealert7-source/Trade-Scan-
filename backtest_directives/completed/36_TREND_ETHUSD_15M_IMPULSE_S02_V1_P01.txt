@@ -1,0 +1,69 @@
+test:
+  name: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P01
+  family: TREND
+  strategy: 36_TREND_ETHUSD_15M_IMPULSE_S02_V1_P01
+  version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-02"
+  end_date: "2026-03-31"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Momentum Ignition on ETH 15M. P01 hypothesis: exclude London session (UTC 08-15) and regime Age 0. Tests whether removing the weakest session and fresh-regime noise cleans the edge."
+  notes: "FILTERS: session_filter EXCLUDE London (UTC 08-15), regime_age_filter EXCLUDE Age 0. Single best probe — no branching."
+
+symbols:
+  - ETHUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.avg_range
+
+execution_rules:
+  entry_logic:
+    type: momentum_ignition
+    condition: bar_range_exceeds_avg
+    long_condition: close_in_top_zone_of_impulse_bar
+    short_condition: close_in_bottom_zone_of_impulse_bar
+    atr_length: 14
+  exit_logic:
+    type: time_exit
+    max_bars: 48
+  stop_loss:
+    type: bar_wick
+  trailing_stop:
+    enabled: true
+  take_profit:
+    enabled: false
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    operator: gt
+    required_regime: -2
+  short_when:
+    operator: lt
+    required_regime: 2
+
+session_filter:
+  enabled: true
+  exclude_hours_utc: [8, 9, 10, 11, 12, 13, 14, 15]
+
+regime_age_filter:
+  enabled: true
+  exclude_min: 0
+  exclude_max: 0

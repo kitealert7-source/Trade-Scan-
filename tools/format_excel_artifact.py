@@ -194,6 +194,7 @@ STRATEGY_COLUMN_ORDER = [
     "run_id",
     "strategy",
     "symbol",
+    "asset_class",
     "timeframe",
     "test_start",
     "test_end",
