@@ -232,11 +232,11 @@ def _build_comment_block(strategy_id: str, profile: str, vault_id: str,
                          description: str) -> list[str]:
     """Generate the burn-in comment block for portfolio.yaml."""
     lines = []
-    lines.append(f"    # --- BURN-IN: {strategy_id} / {profile} ---")
-    lines.append(f"    # Vault: {vault_id}")
-    lines.append(f"    # Profile: {profile}")
+    lines.append(f"  # --- BURN-IN: {strategy_id} / {profile} ---")
+    lines.append(f"  # Vault: {vault_id}")
+    lines.append(f"  # Profile: {profile}")
     if description:
-        lines.append(f"    # {description}")
+        lines.append(f"  # {description}")
 
     parts = []
     if metrics.get("trades") != "?":
@@ -250,7 +250,7 @@ def _build_comment_block(strategy_id: str, profile: str, vault_id: str,
     if metrics.get("ret_dd") != "?":
         parts.append(f"Return/DD {metrics['ret_dd']}")
     if parts:
-        lines.append(f"    # Backtest: {', '.join(parts)}")
+        lines.append(f"  # Backtest: {', '.join(parts)}")
 
     if profile_metrics:
         pp = []
@@ -263,13 +263,13 @@ def _build_comment_block(strategy_id: str, profile: str, vault_id: str,
         if profile_metrics.get("rejected_pct") is not None:
             pp.append(f"rejection {profile_metrics['rejected_pct']}%")
         if pp:
-            lines.append(f"    # {profile}: {', '.join(pp)}")
+            lines.append(f"  # {profile}: {', '.join(pp)}")
 
-    lines.append(f"    # Burn-in: {DEFAULT_GATES['duration']}")
-    lines.append(f"    # Pass gates: {DEFAULT_GATES['pass_gates']}")
-    lines.append(f"    # Abort gates: {DEFAULT_GATES['abort_gates']}")
+    lines.append(f"  # Burn-in: {DEFAULT_GATES['duration']}")
+    lines.append(f"  # Pass gates: {DEFAULT_GATES['pass_gates']}")
+    lines.append(f"  # Abort gates: {DEFAULT_GATES['abort_gates']}")
     today = datetime.now().strftime("%Y-%m-%d")
-    lines.append(f"    # Started: {today} | Observation only -- NO parameter changes during burn-in")
+    lines.append(f"  # Started: {today} | Observation only -- NO parameter changes during burn-in")
     return lines
 
 
@@ -281,14 +281,14 @@ def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
     TS_Execution silently ignores unknown fields (permissive dict parsing).
     """
     return [
-        f'    - id: "{entry_id}"',
-        f'      path: "strategies/{entry_id}/strategy.py"',
-        f"      symbol: {symbol}",
-        f"      timeframe: {timeframe}",
-        f"      enabled: true",
-        f"      vault_id: {vault_id}",
-        f"      profile: {profile}",
-        f"      lifecycle: {LIFECYCLE_BURN_IN}",
+        f'  - id: "{entry_id}"',
+        f'    path: "strategies/{entry_id}/strategy.py"',
+        f"    symbol: {symbol}",
+        f"    timeframe: {timeframe}",
+        f"    enabled: true",
+        f"    vault_id: {vault_id}",
+        f"    profile: {profile}",
+        f"    lifecycle: {LIFECYCLE_BURN_IN}",
     ]
 
 
