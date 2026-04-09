@@ -2,7 +2,7 @@
 add_strategy_hyperlinks.py — Add clickable hyperlinks to Column C (strategy)
 in Filtered_Strategies_Passed.xlsx.
 
-Links point to: ../strategies/{base_strategy_id}/portfolio_evaluation/
+Links point to: ../backtests/{strategy}/ (full strategy+symbol name)
 Uses relative paths so the links work regardless of machine or user directory.
 
 Requires: base_strategy_id column (added by filter_strategies.py).
@@ -27,8 +27,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.state_paths import CANDIDATE_FILTER_PATH
 
-# Relative path from candidates/ to strategies/ (both under TradeScan_State)
-_REL_PREFIX = "../strategies"
+# Relative path from candidates/ to backtests/ (both under TradeScan_State)
+_REL_PREFIX = "../backtests"
 
 
 def _find_columns(ws) -> tuple:
@@ -53,13 +53,9 @@ def add_hyperlinks(dry_run: bool = False) -> dict:
     wb = load_workbook(CANDIDATE_FILTER_PATH)
     ws = wb.active
 
-    strategy_col, base_id_col = _find_columns(ws)
+    strategy_col, _ = _find_columns(ws)
     if strategy_col is None:
         print("[ABORT] 'strategy' column not found in header row.")
-        sys.exit(1)
-    if base_id_col is None:
-        print("[ABORT] 'base_strategy_id' column not found in header row.")
-        print("  Run filter_strategies.py first to generate this column.")
         sys.exit(1)
 
     # Hyperlink font — blue underline, preserves size from formatter
@@ -74,14 +70,13 @@ def add_hyperlinks(dry_run: bool = False) -> dict:
     for row_idx in range(2, ws.max_row + 1):
         total += 1
         strategy_cell = ws.cell(row=row_idx, column=strategy_col)
-        base_id_cell = ws.cell(row=row_idx, column=base_id_col)
 
-        base_id = str(base_id_cell.value or "").strip()
-        if not base_id or base_id == "None":
+        strategy_name = str(strategy_cell.value or "").strip()
+        if not strategy_name:
             skipped_missing += 1
             continue
 
-        target = f"{_REL_PREFIX}/{base_id}/portfolio_evaluation/"
+        target = f"{_REL_PREFIX}/{strategy_name}/"
 
         # Idempotent: skip if hyperlink already matches
         if strategy_cell.hyperlink and strategy_cell.hyperlink.target == target:
@@ -94,10 +89,10 @@ def add_hyperlinks(dry_run: bool = False) -> dict:
 
         linked += 1
 
-        # Check if target file actually exists (informational, non-blocking)
+        # Check if target folder actually exists (informational, non-blocking)
         abs_target = CANDIDATE_FILTER_PATH.parent / target
         if not abs_target.exists():
-            missing_targets.append(base_id)
+            missing_targets.append(strategy_name)
 
     if not dry_run and linked > 0:
         wb.save(CANDIDATE_FILTER_PATH)
