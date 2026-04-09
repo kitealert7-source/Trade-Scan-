@@ -278,6 +278,26 @@ def filter_strategies():
             # Deterministic classification-only field; no filtering side effects.
             df_merged = _apply_candidate_status(df_merged)
 
+            # Compute base_strategy_id: strip trailing _SYMBOL suffix.
+            # Used by add_strategy_hyperlinks.py to build clickable links.
+            if "strategy" in df_merged.columns and "symbol" in df_merged.columns:
+                def _derive_base_id(row):
+                    strat = str(row.get("strategy", ""))
+                    sym = str(row.get("symbol", ""))
+                    suffix = f"_{sym}"
+                    if sym and strat.endswith(suffix):
+                        return strat[: -len(suffix)]
+                    print(f"[WARN] strategy '{strat}' does not end with '_{sym}' — base_strategy_id set to None")
+                    return None
+
+                df_merged["base_strategy_id"] = df_merged.apply(_derive_base_id, axis=1)
+                # Insert immediately after 'strategy' column
+                cols = df_merged.columns.tolist()
+                cols.remove("base_strategy_id")
+                strat_idx = cols.index("strategy") + 1
+                cols.insert(strat_idx, "base_strategy_id")
+                df_merged = df_merged[cols]
+
             df_merged.to_excel(CANDIDATE_FILTER_PATH, index=False)
             print(f"[SUCCESS] Candidate ledger written: {CANDIDATE_FILTER_PATH}")
 
