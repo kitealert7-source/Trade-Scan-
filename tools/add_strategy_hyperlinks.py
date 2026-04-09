@@ -126,9 +126,9 @@ def link_candidates(dry_run: bool = False) -> dict:
 
 
 def link_portfolio(dry_run: bool = False) -> dict:
-    """Hyperlink Column B (source_strategy) → {source_strategy}/"""
+    """Hyperlink Column A (portfolio_id) → {portfolio_id}/"""
     return _apply_hyperlinks(
-        PORTFOLIO_SHEET_PATH, "source_strategy", "", dry_run
+        PORTFOLIO_SHEET_PATH, "portfolio_id", "", dry_run
     )
 
 
