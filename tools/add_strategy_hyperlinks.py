@@ -1,18 +1,27 @@
 """
-add_strategy_hyperlinks.py — Add clickable hyperlinks to Column C (strategy)
-in Filtered_Strategies_Passed.xlsx.
+add_strategy_hyperlinks.py — Add clickable hyperlinks to strategy columns
+in pipeline Excel artifacts.
 
-Links point to: ../backtests/{strategy}/ (full strategy+symbol name)
-Uses relative paths so the links work regardless of machine or user directory.
+Supports two targets (--target flag):
 
-Requires: base_strategy_id column (added by filter_strategies.py).
+  candidates (default):
+    File:   TradeScan_State/candidates/Filtered_Strategies_Passed.xlsx
+    Column: C (strategy) — full strategy+symbol name
+    Links:  ../backtests/{strategy}/
+
+  portfolio:
+    File:   TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx
+    Column: B (source_strategy) — base strategy name
+    Links:  {source_strategy}/  (same directory as the xlsx)
 
 Idempotent: re-running overwrites stale links, skips matching links.
 Preserves all existing formatting (headers, widths, number formats).
 
 Usage:
-    python tools/add_strategy_hyperlinks.py
-    python tools/add_strategy_hyperlinks.py --dry-run
+    python tools/add_strategy_hyperlinks.py                    # candidates
+    python tools/add_strategy_hyperlinks.py --target portfolio # portfolio sheet
+    python tools/add_strategy_hyperlinks.py --target all       # both
+    python tools/add_strategy_hyperlinks.py --dry-run          # preview only
 """
 
 import argparse
@@ -27,108 +36,119 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.state_paths import CANDIDATE_FILTER_PATH
 
-# Relative path from candidates/ to backtests/ (both under TradeScan_State)
-_REL_PREFIX = "../backtests"
+PORTFOLIO_SHEET_PATH = PROJECT_ROOT.parent / "TradeScan_State" / "strategies" / "Master_Portfolio_Sheet.xlsx"
+
+# Hyperlink font — blue underline, preserves size from formatter
+_LINK_FONT = Font(color="0563C1", underline="single")
 
 
-def _find_columns(ws) -> tuple:
-    """Find column indices for 'strategy' and 'base_strategy_id' from header row."""
-    strategy_col = None
-    base_id_col = None
+def _find_column(ws, name: str) -> int | None:
+    """Find column index by header name. Returns None if not found."""
     for col_idx, cell in enumerate(ws[1], start=1):
-        val = str(cell.value or "").strip()
-        if val == "strategy":
-            strategy_col = col_idx
-        elif val == "base_strategy_id":
-            base_id_col = col_idx
-    return strategy_col, base_id_col
+        if str(cell.value or "").strip() == name:
+            return col_idx
+    return None
 
 
-def add_hyperlinks(dry_run: bool = False) -> dict:
-    """Add hyperlinks to strategy column. Returns summary dict."""
-    if not CANDIDATE_FILTER_PATH.exists():
-        print(f"[ABORT] Candidates file not found: {CANDIDATE_FILTER_PATH}")
-        sys.exit(1)
+def _apply_hyperlinks(xlsx_path: Path, col_name: str, link_prefix: str,
+                      dry_run: bool = False) -> dict:
+    """Generic hyperlink applicator for any xlsx + column + prefix."""
+    if not xlsx_path.exists():
+        print(f"[ABORT] File not found: {xlsx_path}")
+        return {"total": 0, "linked": 0, "skipped_match": 0,
+                "skipped_empty": 0, "missing_targets": []}
 
-    wb = load_workbook(CANDIDATE_FILTER_PATH)
+    wb = load_workbook(xlsx_path)
     ws = wb.active
 
-    strategy_col, _ = _find_columns(ws)
-    if strategy_col is None:
-        print("[ABORT] 'strategy' column not found in header row.")
-        sys.exit(1)
-
-    # Hyperlink font — blue underline, preserves size from formatter
-    link_font = Font(color="0563C1", underline="single")
+    col_idx = _find_column(ws, col_name)
+    if col_idx is None:
+        print(f"[ABORT] Column '{col_name}' not found in {xlsx_path.name}")
+        return {"total": 0, "linked": 0, "skipped_match": 0,
+                "skipped_empty": 0, "missing_targets": []}
 
     total = 0
     linked = 0
-    skipped_missing = 0
+    skipped_empty = 0
     skipped_match = 0
     missing_targets = []
 
     for row_idx in range(2, ws.max_row + 1):
         total += 1
-        strategy_cell = ws.cell(row=row_idx, column=strategy_col)
+        cell = ws.cell(row=row_idx, column=col_idx)
+        value = str(cell.value or "").strip()
 
-        strategy_name = str(strategy_cell.value or "").strip()
-        if not strategy_name:
-            skipped_missing += 1
+        if not value:
+            skipped_empty += 1
             continue
 
-        target = f"{_REL_PREFIX}/{strategy_name}/"
+        target = f"{link_prefix}{value}/"
 
-        # Idempotent: skip if hyperlink already matches
-        if strategy_cell.hyperlink and strategy_cell.hyperlink.target == target:
+        if cell.hyperlink and cell.hyperlink.target == target:
             skipped_match += 1
             continue
 
         if not dry_run:
-            strategy_cell.hyperlink = target
-            strategy_cell.font = link_font
+            cell.hyperlink = target
+            cell.font = _LINK_FONT
 
         linked += 1
 
-        # Check if target folder actually exists (informational, non-blocking)
-        abs_target = CANDIDATE_FILTER_PATH.parent / target
+        abs_target = xlsx_path.parent / target
         if not abs_target.exists():
-            missing_targets.append(strategy_name)
+            missing_targets.append(value)
 
     if not dry_run and linked > 0:
-        wb.save(CANDIDATE_FILTER_PATH)
+        wb.save(xlsx_path)
 
-    # Summary
     prefix = "[DRY RUN] " if dry_run else ""
-    print(f"{prefix}Processed:               {total} rows")
-    print(f"{prefix}Linked:                  {linked} rows")
-    print(f"{prefix}Skipped (matching link):  {skipped_match} rows")
-    print(f"{prefix}Skipped (missing base_id):{skipped_missing} rows")
+    print(f"{prefix}{xlsx_path.name}:")
+    print(f"{prefix}  Processed:      {total} rows")
+    print(f"{prefix}  Linked:         {linked} rows")
+    print(f"{prefix}  Skipped (match):{skipped_match} rows")
+    print(f"{prefix}  Skipped (empty):{skipped_empty} rows")
     if missing_targets:
-        print(f"{prefix}Missing targets:         {len(missing_targets)} file(s)")
-        for mt in missing_targets[:10]:
-            print(f"  Missing target: {mt}")
-        if len(missing_targets) > 10:
-            print(f"  ... and {len(missing_targets) - 10} more")
+        print(f"{prefix}  Missing targets: {len(missing_targets)}")
+        for mt in missing_targets[:5]:
+            print(f"    {mt}")
+        if len(missing_targets) > 5:
+            print(f"    ... and {len(missing_targets) - 5} more")
 
-    return {
-        "total": total,
-        "linked": linked,
-        "skipped_match": skipped_match,
-        "skipped_missing": skipped_missing,
-        "missing_targets": missing_targets,
-    }
+    return {"total": total, "linked": linked, "skipped_match": skipped_match,
+            "skipped_empty": skipped_empty, "missing_targets": missing_targets}
+
+
+def link_candidates(dry_run: bool = False) -> dict:
+    """Hyperlink Column C (strategy) → ../backtests/{strategy}/"""
+    return _apply_hyperlinks(
+        CANDIDATE_FILTER_PATH, "strategy", "../backtests/", dry_run
+    )
+
+
+def link_portfolio(dry_run: bool = False) -> dict:
+    """Hyperlink Column B (source_strategy) → {source_strategy}/"""
+    return _apply_hyperlinks(
+        PORTFOLIO_SHEET_PATH, "source_strategy", "", dry_run
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Add clickable hyperlinks to strategy column in candidates ledger.",
+        description="Add clickable hyperlinks to strategy columns in pipeline Excel artifacts.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    parser.add_argument("--target", choices=["candidates", "portfolio", "all"],
+                        default="candidates",
+                        help="Which file(s) to process (default: candidates)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview without modifying the file")
     args = parser.parse_args()
-    add_hyperlinks(dry_run=args.dry_run)
+
+    if args.target in ("candidates", "all"):
+        link_candidates(dry_run=args.dry_run)
+    if args.target in ("portfolio", "all"):
+        link_portfolio(dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
