@@ -165,6 +165,7 @@ HIDDEN_COLS = {
     "source_strategy",   # Redundant with portfolio_id
     "parsed_fields",     # JSON blob — machine-readable, not for visual inspection
     "total_trades",      # trade_density provides equivalent information
+    "base_strategy_id",  # Redundant with strategy column
 }
 
 # Columns with short text values — override text width logic to be data-driven (universal)

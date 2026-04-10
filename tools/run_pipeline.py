@@ -97,20 +97,40 @@ def archive_completed_directive(directive_id: str) -> None:
 
 def reconcile_active_backup() -> None:
     """
-    Archive any directives in active_backup/ that have already reached PORTFOLIO_COMPLETE.
+    Archive terminal directives and clean orphaned markers in active_backup/.
 
-    Called on startup and at the end of every run (including interrupted batch runs) so
-    that a fail-fast abort never permanently strands a completed directive in active_backup/.
-    The DirectiveStateManager is the authority — only PORTFOLIO_COMPLETE directives move.
+    Called on startup and at the end of every run so that fail-fast aborts
+    never permanently strand directives in active_backup/.
+
+    Terminal states (PORTFOLIO_COMPLETE, FAILED) -> move to completed/.
+    Orphaned .admitted markers (no matching .txt) -> delete.
     """
     if not ACTIVE_BACKUP_DIR.exists():
         return
+
+    TERMINAL_STATES = {"PORTFOLIO_COMPLETE", "FAILED"}
+
+    # 1. Archive terminal directives (.txt files)
     for d_path in sorted(ACTIVE_BACKUP_DIR.glob("*.txt")):
+        if d_path.name.endswith(".txt.admitted"):
+            continue  # skip markers in this pass
+        if not d_path.exists():
+            continue
         directive_id = d_path.stem
         state = DirectiveStateManager(directive_id).get_state()
-        if state == "PORTFOLIO_COMPLETE":
-            archive_completed_directive(directive_id)
-            print(f"[RECONCILE] Auto-archived PORTFOLIO_COMPLETE directive: {directive_id}")
+        if state in TERMINAL_STATES:
+            try:
+                archive_completed_directive(directive_id)
+                print(f"[RECONCILE] Auto-archived {state} directive: {directive_id}")
+            except Exception as e:
+                print(f"[RECONCILE][WARN] Failed to archive {directive_id}: {e}")
+
+    # 2. Clean orphaned .admitted markers (no matching .txt)
+    for marker in sorted(ACTIVE_BACKUP_DIR.glob("*.txt.admitted")):
+        txt_path = marker.with_suffix("")  # strip .admitted -> .txt
+        if not txt_path.exists():
+            marker.unlink()
+            print(f"[RECONCILE] Removed orphaned marker: {marker.name}")
 
 
 def recover_partially_admitted_directives() -> None:
