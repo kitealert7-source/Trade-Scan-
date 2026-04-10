@@ -38,21 +38,31 @@ def main():
 
     if args.profile == "auto":
         try:
-            from tools.profile_selector import load_profile_comparison, select_deployed_profile
-            profiles, path = load_profile_comparison(args.prefix)
-            if profiles:
-                best_name, _, source = select_deployed_profile(profiles)
-                if best_name:
-                    print(f"[ROBUSTNESS] Auto-selected profile: {best_name} (Origin: {source})")
-                    args.profile = best_name
-                else:
-                    print("[ROBUSTNESS] Failed to resolve auto profile. Falling back to CONSERVATIVE_V1")
-                    args.profile = "CONSERVATIVE_V1"
+            # Read deployed_profile from ledger (Step 7 is authority).
+            import pandas as pd
+            from config.state_paths import STRATEGIES_DIR
+            ledger = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
+            resolved = None
+            if ledger.exists():
+                for sheet in ["Portfolios", "Single-Asset Composites"]:
+                    try:
+                        df = pd.read_excel(ledger, sheet_name=sheet)
+                        mask = df["portfolio_id"].astype(str) == str(args.prefix)
+                        if mask.any() and "deployed_profile" in df.columns:
+                            val = str(df.loc[mask, "deployed_profile"].iloc[-1]).strip()
+                            if val and val.lower() != "nan":
+                                resolved = val
+                                break
+                    except Exception:
+                        continue
+            if resolved:
+                print(f"[ROBUSTNESS] Using Step 7 deployed profile: {resolved}")
+                args.profile = resolved
             else:
-                print(f"[ROBUSTNESS] No profile_comparison.json found for {args.prefix}. Falling back to CONSERVATIVE_V1")
+                print(f"[ROBUSTNESS] No deployed_profile in ledger for {args.prefix}. Falling back to CONSERVATIVE_V1")
                 args.profile = "CONSERVATIVE_V1"
-        except ImportError as e:
-            print(f"[ROBUSTNESS] Failed to load auto profile dependencies ({e}). Falling back to CONSERVATIVE_V1")
+        except Exception as e:
+            print(f"[ROBUSTNESS] Failed to read ledger ({e}). Falling back to CONSERVATIVE_V1")
             args.profile = "CONSERVATIVE_V1"
 
     print(f"[ROBUSTNESS] Loading artifacts: {args.prefix} / {args.profile}")

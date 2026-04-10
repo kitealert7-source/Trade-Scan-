@@ -21,7 +21,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-from tools.profile_selector import select_deployed_profile  # single source of truth
+from tools.profile_selector import load_profile_comparison  # read-only loader
 
 STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
@@ -95,13 +95,17 @@ def _load_profile_map(portfolio_id):
     return profiles, path
 
 
-def _select_profile(portfolio_id, profiles, deployed_hint):
-    # Respect Step 7's existing choice if present in profile data.
-    if deployed_hint and deployed_hint in profiles:
-        return deployed_hint, profiles[deployed_hint], "ledger"
+def _resolve_profile_from_ledger(profiles, deployed_name):
+    """Validate that the Step 7 deployed_profile exists in profile_comparison.json.
 
-    # Fallback: delegate to the single canonical selector (includes avg_risk_multiple gate).
-    return select_deployed_profile(profiles)
+    Returns (name, metrics, source) or (None, None, None) on failure.
+    """
+    if not deployed_name or deployed_name.lower() == "nan":
+        return None, None, None
+    metrics = profiles.get(deployed_name)
+    if metrics is None or not isinstance(metrics, dict):
+        return None, None, None
+    return deployed_name, metrics, "ledger"
 
 
 def _ensure_columns(df):
@@ -162,15 +166,16 @@ def reconcile(df_ledger, target_portfolios=None):
             skipped += 1
             continue
 
-        deployed_hint = None
+        # Read Step 7's deployed_profile from ledger — do not re-select.
+        deployed_name = None
         if "deployed_profile" in df_ledger.columns:
             raw = str(df_ledger.loc[mask, "deployed_profile"].iloc[-1]).strip()
             if raw and raw.lower() != "nan":
-                deployed_hint = raw
+                deployed_name = raw
 
-        profile_name, profile_metrics, source = _select_profile(portfolio_id, profiles, deployed_hint)
+        profile_name, profile_metrics, source = _resolve_profile_from_ledger(profiles, deployed_name)
         if profile_name is None or profile_metrics is None:
-            print(f"[SKIP] {portfolio_id}: could not resolve deployed profile")
+            print(f"[SKIP] {portfolio_id}: deployed_profile '{deployed_name}' not found in profile_comparison.json")
             skipped += 1
             continue
 

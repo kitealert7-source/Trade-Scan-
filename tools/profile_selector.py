@@ -1,5 +1,9 @@
 """
-Profile Selector - Step 8.5: Ledger enrichment from profile_comparison.json.
+Profile Selector - Step 8.5: Validate & enrich ledger from profile_comparison.json.
+
+Does NOT select profiles.  Step 7 (portfolio_evaluator.py) is the sole
+authority for deployed_profile.  This tool reads Step 7's choice from the
+ledger and enriches metrics (realized_pnl, trades, rejection rate, status).
 
 Usage:
     python tools/profile_selector.py <STRATEGY_ID>
@@ -92,34 +96,13 @@ def load_profile_comparison(strategy_id):
 
 
 def select_deployed_profile(profiles, preferred_name=None):
+    """DEPRECATED — do not use for ledger decisions.
+
+    Step 7 (_resolve_deployed_profile in portfolio_evaluator.py) is the sole
+    authority for deployed_profile selection.  This function exists only as a
+    legacy helper; no pipeline path should call it for profile selection.
     """
-    Resolve deployed profile:
-      1) Best Return/DD from profile comparison.
-    """
-    # CRITICAL INVARIANT:
-    # This function must remain deterministic.
-    # Do not introduce any file mutation or dynamic post-processing here.
-    best_name = None
-    best_metrics = None
-    best_key = (-float("inf"), -float("inf"), "")
-
-    for name, metrics in profiles.items():
-        if not isinstance(metrics, dict):
-            continue
-            
-        avg_risk = _safe_float(metrics.get("avg_risk_multiple"), 0.0)
-        if avg_risk > 1.5:
-            continue
-
-        score = _profile_return_dd(metrics)
-        realized = _safe_float(metrics.get("realized_pnl"), 0.0)
-        key = (score, realized, name)
-        if key > best_key:
-            best_key = key
-            best_name = name
-            best_metrics = metrics
-
-    return best_name, best_metrics, "best_return_dd"
+    raise RuntimeError("DEPRECATED: Selection is handled in Step 7 only.")
 
 
 def ensure_ledger_columns(df_ledger):
@@ -154,41 +137,22 @@ def enrich_ledger_row(strategy_id, df_ledger):
         print(f"  [SKIP] Missing/invalid profile comparison: {path}")
         return df_ledger
 
-    # Step 8.5 is a VALIDATOR / ENRICHER — it does NOT re-select the profile.
-    # The authoritative profile choice is made by portfolio_evaluator.py (Step 7).
-    # We read the already-chosen profile from the ledger and enrich metrics only.
-    #
-    # Fallback rule: only trigger when the deployed_profile column is explicitly
-    # absent (column missing or cell is pandas NaN/None).  If Step 7 wrote
-    # *anything* — even an unexpected value — Step 8.5 must respect it.
-    # This prevents hidden divergence from partial writes or bugs.
+    # Step 8.5 is a VALIDATOR / ENRICHER only.
+    # The authoritative profile choice is made by Step 7 (portfolio_evaluator.py).
+    # We read the already-chosen profile from the ledger and enrich metrics.
     profile_name = None
-    step7_wrote_something = False
     if "deployed_profile" in df_ledger.columns:
         raw_val = df_ledger.loc[mask, "deployed_profile"].iloc[-1]
         if pd.notna(raw_val):
-            existing_raw = str(raw_val).strip()
-            if existing_raw and existing_raw.lower() != "nan":
-                profile_name = existing_raw
-                step7_wrote_something = True
+            token = str(raw_val).strip()
+            if token and token.lower() != "nan":
+                profile_name = token
 
-    # Fallback ONLY when Step 7 genuinely didn't write a profile (column absent
-    # or cell is NaN).  This is the single-asset skip path.  If Step 7 wrote
-    # something invalid, we skip — do NOT silently override with different logic.
     if profile_name is None:
-        if step7_wrote_something:
-            # Step 7 wrote something but it resolved to empty/invalid — don't override.
-            # Mark the row explicitly so operators see this in the ledger, not just logs.
-            print(f"  [ERROR] Step 7 wrote an unresolvable deployed_profile for {strategy_id} — not overriding")
-            print(f"  [ERROR] Ledger row will have incomplete profile metrics. Manual review required.")
-            if "portfolio_status" in df_ledger.columns:
-                df_ledger.loc[mask, "portfolio_status"] = PORTFOLIO_PROFILE_UNRESOLVED
-            return df_ledger
-        profile_name, _, source = select_deployed_profile(profiles)
-        if profile_name is None:
-            print("  [SKIP] Could not resolve deployed profile (no Step 7 selection, fallback also failed)")
-            return df_ledger
-        print(f"  [FALLBACK] No Step 7 profile found — selected {profile_name} via fallback ({source})")
+        print(f"  [SKIP] No deployed_profile set by Step 7 for {strategy_id}")
+        if "portfolio_status" in df_ledger.columns:
+            df_ledger.loc[mask, "portfolio_status"] = PORTFOLIO_PROFILE_UNRESOLVED
+        return df_ledger
 
     # Invariant: selected profile must exist in profile_comparison.json.
     # Catches stale references, deleted/renamed profiles, legacy leakage.
@@ -223,16 +187,7 @@ def enrich_ledger_row(strategy_id, df_ledger):
     df_ledger.loc[mask, "rejection_rate_pct"] = rejection_rate
     df_ledger.loc[mask, "realized_vs_theoretical_pnl"] = ratio
 
-    # --- Fix 1: Recompute portfolio_status with actual profile data ---
-    # Stage-4 writes status before capital wrapper runs, so it's always FAIL.
-    # Now we have the real realized_pnl and trades_accepted from the deployed profile.
-    from tools.portfolio_evaluator import _compute_portfolio_status
-    new_status = _compute_portfolio_status(realized, accepted, rejection_rate)
-    old_status = str(df_ledger.loc[mask, "portfolio_status"].iloc[-1])
-    if "portfolio_status" in df_ledger.columns:
-        df_ledger.loc[mask, "portfolio_status"] = new_status
-    if old_status != new_status:
-        print(f"  [STATUS] {old_status} -> {new_status}")
+    # portfolio_status: OWNED BY Step 7 — do not recompute here.
 
     # reference_capital_usd: OWNED BY Step 7 — do not overwrite here.
 

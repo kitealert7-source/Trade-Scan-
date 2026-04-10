@@ -1284,23 +1284,20 @@ def _load_profile_comparison(strategy_id):
     return profiles, comparison_path
 
 
+# CRITICAL INVARIANT:
+# This is the ONLY function allowed to select deployed_profile.
+# All other modules must treat deployed_profile as read-only.
 def _resolve_deployed_profile(strategy_id, profiles, df_ledger):
     """
     Resolve deployed profile using:
       1) Hard validity filter (realized_pnl > 0 and capital_validity_flag is True).
       2) Penalized Return/DD score with execution health bands.
       3) Similar-score stabilization tie-breaks.
-      4) Controlled persistence if previous profile stays close to best.
-    """
-    existing = None
-    if "deployed_profile" in df_ledger.columns and "portfolio_id" in df_ledger.columns:
-        mask = df_ledger["portfolio_id"].astype(str) == str(strategy_id)
-        if mask.any():
-            token = str(df_ledger.loc[mask, "deployed_profile"].iloc[-1]).strip()
-            if token and token.lower() != "nan":
-                existing = token
 
-    selection_debug = _empty_selection_debug(previous_profile=existing)
+    STATELESS: selection is computed purely from profile_comparison.json.
+    No hint or persistence from existing ledger values.
+    """
+    selection_debug = _empty_selection_debug(previous_profile=None)
     reliable_candidates = []
     hard_valid_candidates = []
     debug_candidates = []
@@ -1436,15 +1433,7 @@ def _resolve_deployed_profile(strategy_id, profiles, df_ledger):
     best_metrics = best["metrics"]
     best_score = best["score"]
 
-    if existing:
-        existing_candidate = next((c for c in candidates if c["name"] == existing), None)
-        if existing_candidate is not None:
-            if existing_candidate["score"] >= 0.85 * best_score:
-                selection_debug["selected_profile"] = existing_candidate["name"]
-                selection_debug["selection_reason"] = "persistence"
-                selection_debug["persistence_used"] = True
-                return existing_candidate["name"], existing_candidate["metrics"], "persisted_85pct", selection_debug
-
+    # STATELESS: no persistence logic — always use the best-scored profile.
     selection_debug["selected_profile"] = best_name
     selection_debug["selection_reason"] = "fallback" if reliability_override else "highest_score"
     selection_debug["persistence_used"] = False
