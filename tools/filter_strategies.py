@@ -1,4 +1,5 @@
 import pandas as pd
+import openpyxl
 import os
 import sys
 import shutil
@@ -309,7 +310,23 @@ def filter_strategies():
                 cols.insert(strat_idx, "base_strategy_id")
                 df_merged = df_merged[cols]
 
-            df_merged.to_excel(CANDIDATE_FILTER_PATH, index=False)
+            # Preserve non-data sheets (e.g. Notes) during rewrite
+            _preserved = {}
+            if CANDIDATE_FILTER_PATH.exists():
+                try:
+                    _wb_old = openpyxl.load_workbook(CANDIDATE_FILTER_PATH, read_only=True)
+                    for _sn in _wb_old.sheetnames:
+                        if _sn != "Sheet1":
+                            _preserved[_sn] = pd.read_excel(CANDIDATE_FILTER_PATH, sheet_name=_sn)
+                    _wb_old.close()
+                except Exception:
+                    pass
+
+            with pd.ExcelWriter(CANDIDATE_FILTER_PATH, engine="openpyxl", mode="w") as writer:
+                df_merged.to_excel(writer, sheet_name="Sheet1", index=False)
+                for _sn, _sdf in _preserved.items():
+                    _sdf.to_excel(writer, sheet_name=_sn, index=False)
+
             print(f"[SUCCESS] Candidate ledger written: {CANDIDATE_FILTER_PATH}")
 
             # Step 3: Format the merged ledger.
