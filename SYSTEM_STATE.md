@@ -2,9 +2,9 @@
 
 ## SESSION STATUS: WARNING
 - WARNING: 1 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 6 uncommitted
+- WARNING: Working tree 5 uncommitted
 
-> Generated: 2026-04-10T15:06:38Z
+> Generated: 2026-04-10T15:06:56Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -40,8 +40,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 6 uncommitted
-- Last commit: `d8b84a8 Redesign SYSTEM_STATE.md: session-level snapshot with correct paths`
+- Working tree: 5 uncommitted
+- Last commit: `2c4d61a Add SESSION STATUS line to SYSTEM_STATE.md (OK/WARNING/BROKEN)`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->

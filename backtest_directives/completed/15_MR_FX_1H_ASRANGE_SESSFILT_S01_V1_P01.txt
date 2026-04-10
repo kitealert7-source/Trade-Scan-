@@ -1,0 +1,78 @@
+test:
+  name: 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P01
+  family: MR
+  strategy: 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P01
+  version: 1
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-04-09"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Asian session range fade on 1H FX. Fade extensions beyond running high/low + 0.25*ATR. TP at session midpoint, force exit at 07:00 UTC."
+  notes: "Volatility filter: ATR percentile < 70th. Max 1 trade per session. No re-entry after stop."
+
+symbols:
+  - AUDUSD
+  - EURUSD
+  - GBPUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.volatility.atr_percentile
+  - indicators.structure.range_breakout_session
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: session_range_fade
+  exit_logic:
+    type: tp_or_session_end
+
+exit_rules:
+  type: time_based
+  timing: session_end
+  target: session_midpoint
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+range_definition:
+  session_start: "00:00"
+  session_end: "07:00"
+  direction: counter_extension
+  extension_atr_multiplier: 0.25
+  target: session_midpoint
+
+trade_management:
+  direction_restriction: long_and_short
+  max_trades_per_session: 1
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: new_day
+
+volatility_filter:
+  atr_length: 14
+  atr_percentile_lookback: 100
+  condition: atr_percentile_below_threshold
+  threshold: 70
