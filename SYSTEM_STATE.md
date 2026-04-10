@@ -1,36 +1,44 @@
 # SYSTEM STATE
 
-## Active Directives
-| Directive | State | Last Updated | Path |
-|---|---|---|---|
-| 11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S03_V1_P00.txt | NOT_INITIALIZED | - | `backtest_directives\active\11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S03_V1_P00.txt` |
-| 17_REV_XAUUSD_1H_FAKEBREAK_S01_V1_P00.txt | NOT_INITIALIZED | - | `backtest_directives\active\17_REV_XAUUSD_1H_FAKEBREAK_S01_V1_P00.txt` |
+> Generated: 2026-04-10T15:00:06Z
+>
+> Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
-## Artifact Health
-- Backtest run directories scanned: **0**
-- Healthy directories: **0**
-- Directories with missing required artifacts: **0**
-- Missing artifact counts:
-  - `results_tradelevel.csv`: 0
-  - `results_standard.csv`: 0
-  - `results_risk.csv`: 0
-  - `run_metadata.json`: 0
+## Engine
+- **Version:** 1.5.4 | **Status:** FROZEN | **Manifest:** VALID
 
-## Engine Status
-- Active Engine: UNKNOWN
-- Engine Manifest: MISSING
-- Manifest Path: `-`
-- Detail: Unable to resolve active engine version: No module named 'config'
+## Pipeline Queue
+- **INBOX (3):** 40_CONT_UK100_15M_RSIPULL_SESSFILT_S09_V2_P00.txt, 40_CONT_UK100_15M_RSIPULL_SESSFILT_S10_V2_P00.txt, 40_CONT_UK100_15M_RSIPULL_SESSFILT_S11_V2_P00.txt
+- Completed: 63 directives
 
-## Ledger Status
-### Strategy Master Filter
-- Missing: `backtests\Strategy_Master_Filter.xlsx`
+## Ledgers
 
-### Portfolio Master Sheet
-- Missing: `strategies\Master_Portfolio_Sheet.xlsx`
+- **Master Filter:** 392 rows
 
-## Pipeline Health
-- Preflight status: **PASS**
-- Detail: Exit code: 0
+- **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
+  - **Portfolios:** 81 rows — CORE: 7, FAIL: 63, WATCH: 11
+  - **Single-Asset Composites:** 42 rows — CORE: 4, FAIL: 29, WATCH: 9
 
-Generated: 2026-03-23T06:27:25Z
+- **Candidates (FPS):** 294 rows — BURN_IN: 8, CORE: 12, FAIL: 213, RBIN: 11, WATCH: 50
+
+## Portfolio (TS_Execution)
+- **Total entries:** 19 | **Enabled:** 8
+- BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 11
+
+## Vault (DRY_RUN_VAULT)
+- Snapshots: 10 | WAITING: 0 | Latest: `DRY_RUN_2026_04_09__b0527749`
+
+## Data Freshness
+- Latest bar: **2026-04-10** | Symbols: 250 | **Stale (>3d): 1**
+
+## Artifacts
+- Run directories: 527
+
+## Git Sync
+- Remote: IN SYNC
+- Working tree: 7 uncommitted
+- Last commit: `2b24431 Add session-close workflow and CLAUDE.md topic entry`
+
+## Known Issues
+<!-- Update manually at session end: note anything broken, deferred, or pending -->
+- (none)
