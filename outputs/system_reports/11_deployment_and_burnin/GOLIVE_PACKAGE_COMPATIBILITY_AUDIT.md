@@ -1,13 +1,15 @@
 # Go-Live Package Compatibility Audit
 
-**Date:** 2026-04-03
+**Date:** 2026-04-03 | **Updated:** 2026-04-10
 **Scope:** `tools/generate_golive_package.py`, `execution_engine/strategy_guard.py`, `tools/validate_safety_layers.py`, and their integration with the current promotion/burn-in pipeline.
 
 ---
 
 ## 1. Executive Summary
 
-The go-live package generator (`generate_golive_package.py`) and its companion safety layer (`strategy_guard.py`) were built on 2026-03-11 during the v1.5.3 era. Since then, the capital system underwent a major overhaul (2026-04-03): dynamic FX conversion was replaced with MT5 static valuation, leverage cap was recalibrated from 5x to 11x, and a new burn-in promotion pipeline was added.
+The go-live package generator (`generate_golive_package.py`) and its companion safety layer (`strategy_guard.py`) were built on 2026-03-11 during the v1.5.3 era. Since then, the capital system underwent a major overhaul (2026-04-03): dynamic FX conversion was replaced with MT5 static valuation, and a new burn-in promotion pipeline was added. Leverage cap is **5x** (Invariant 20: $1,000/symbol, $10,000 total portfolio, 5x cap).
+
+> **2026-04-10 Update:** Recommendation (Option B) was **not implemented**. The system continues to operate without go-live packages. The dry-run vault (`promote_to_burnin.py`) is the sole deployment path. Guard integration (signal verification, kill-switch) remains an open gap — accepted risk for burn-in phase.
 
 **Current status:**
 
@@ -36,8 +38,9 @@ AUTOMATED PIPELINE (tools/run_pipeline.py)
   Stage 3a: Manifest Binding (artifact hashing, run close)
   Stage 4: Portfolio Evaluation
     |-- Step 4: portfolio_evaluator.py -> Master_Portfolio_Sheet.xlsx
-    |-- Step 8: capital_wrapper.py -> deployable/ artifacts (3 profiles)
-    |-- Step 8.5: profile_selector.py -> best profile selection
+    |-- Step 7: portfolio_evaluator.py -> deployed_profile selection (SOLE AUTHORITY)
+    |-- Step 8: capital_wrapper.py -> deployable/ artifacts (7 profiles)
+    |-- Step 8.5: profile_selector.py -> validator/enricher only (reads Step 7 choice)
     |-- Step 9: artifact verification
     v
   PORTFOLIO_COMPLETE (terminal success state)
@@ -49,10 +52,10 @@ AUTOMATED PIPELINE (tools/run_pipeline.py)
     v
   Directive archived to completed/
 
-MANUAL PROMOTION (human decision)
+MANUAL PROMOTION (human decision via promote_to_burnin.py)
     |
     v
-  Human adds strategy to TS_Execution/portfolio.yaml (enabled: true)
+  promote_to_burnin.py: vault snapshot + portfolio.yaml append (atomic)
     |
     v
   filter_strategies.py auto-detects -> sets BURN_IN status in candidate ledger
@@ -78,10 +81,11 @@ The go-live package generator was designed as **Stage 10** -- a manual, post-pip
 3. The promotion flow (`filter_strategies.py` -> `portfolio.yaml` -> BURN_IN) **bypasses it entirely**
 4. `strategy_guard.py` consumes go-live artifacts but is only used by TS_Execution -- no reference from Trade_Scan pipeline code
 
-**The current deployment path is:**
+**The current deployment path is (2026-04-10):**
 ```
-PORTFOLIO_COMPLETE -> Step 8 (capital_wrapper) -> Step 8.5 (profile_selector)
-  -> Human adds to portfolio.yaml -> TS_Execution reads portfolio.yaml directly
+PORTFOLIO_COMPLETE -> Step 7 (deployed_profile selection) -> Step 8 (capital_wrapper)
+  -> Step 8.5 (profile enrichment) -> promote_to_burnin.py (vault + portfolio.yaml)
+  -> TS_Execution reads portfolio.yaml directly
 ```
 
 **The designed deployment path was:**
@@ -169,7 +173,7 @@ strategies/<PREFIX>/golive/
 | `conversion_data_manifest.json` | UNNECESSARY | Conversion pair data is no longer consumed by the capital simulation. Embedding it in the package adds dead weight. |
 | `conversion_data_snapshot/` | UNNECESSARY | Daily close CSVs for conversion pairs -- not used by MT5 static valuation. |
 | `ENGINE_VERSION = "1.6"` | STALE | Self-assigned version label. Research engine is v1.5.4. |
-| `selected_profile.json: max_leverage: 5` | STALE | Would embed the old 5x cap if run against a profile that hasn't been updated. FIXED_USD_V1 now uses 11x, but the generator reads from PROFILES dict (which is current at 11x), so this is **actually OK** for FIXED_USD_V1 specifically. |
+| `selected_profile.json: max_leverage` | OK | Generator reads from PROFILES dict. Current leverage cap is 5x (Invariant 20). |
 
 ### 3.3 What Still Works
 
@@ -244,7 +248,7 @@ This script has not been maintained since 2026-03-11 and cannot run in its curre
 | Current System Component | Go-Live Package | Strategy Guard | Notes |
 |--------------------------|----------------|----------------|-------|
 | MT5 static valuation | PARTIAL -- embeds stale conversion artifacts | N/A | Broker spec snapshots are correct; conversion data is dead weight |
-| FIXED_USD_V1 (leverage 11x) | OK -- reads current PROFILES dict | OK -- reads selected_profile.json | Profile params are current if package is regenerated |
+| FIXED_USD_V1 (leverage 5x) | OK -- reads current PROFILES dict | OK -- reads selected_profile.json | Profile params are current if package is regenerated |
 | Capital wrapper Step 8 output | OVERLAPS -- go-live enriches the same trade log | CONSUMES | Go-live reads Step 8 output and enriches it |
 | Profile selector Step 8.5 | NOT INTEGRATED -- go-live has own profile param embedding | N/A | Two parallel profile-embedding paths exist |
 | filter_strategies.py promotion | BYPASSED -- promotion doesn't trigger go-live | N/A | BURN_IN status set without go-live package |
@@ -269,7 +273,7 @@ This script has not been maintained since 2026-03-11 and cannot run in its curre
 
 5. **Validation script broken.** `validate_safety_layers.py` cannot run. The 5-test acceptance suite (signal hash, reproducibility, mismatch blocking, kill-switch) has no automated coverage.
 
-6. **Two parallel profile-embedding paths.** Step 8.5 (profile_selector) writes `deployed_profile` to the Master Portfolio Sheet. Go-live writes `selected_profile.json` independently. These could diverge if run at different times.
+6. **Two parallel profile-embedding paths.** Step 7 (portfolio_evaluator) selects `deployed_profile` and writes to the Master Portfolio Sheet (sole authority). Step 8.5 (profile_selector) is a read-only enricher. Go-live writes `selected_profile.json` independently. These could diverge if package is regenerated from stale state.
 
 7. **ENGINE_VERSION label stale.** Go-live package writes `1.6` while research engine is `1.5.4`. Cosmetic but confusing.
 
@@ -318,7 +322,7 @@ Register go-live as an automated post-Step-9 stage:
 
 ### Recommendation
 
-**Option B** is the pragmatic choice. The dry-run vault workflow is already operational, tested, and trusted. Extending it with the 4 missing safety capabilities (broker specs, profile hash, signal hashes, guard integration) is lower risk than maintaining two parallel snapshot systems.
+**Option B** was the pragmatic recommendation (2026-04-03). As of 2026-04-10, items 1-3 (broker specs, selected_profile.json, signal hashes in trade logs) were implemented via `promote_to_burnin.py` vault extension. Item 4 (guard wiring into TS_Execution) was **not implemented** — accepted as deferred risk during burn-in observation phase. The go-live package remains functionally orphaned.
 
 ---
 
@@ -367,4 +371,4 @@ Register go-live as an automated post-Step-9 stage:
 
 ---
 
-*Generated: 2026-04-03 | Audit covers: research pipeline stages 0-4, promotion flow, dry-run vault, go-live package, strategy guard, orchestration layer*
+*Generated: 2026-04-03 | Updated: 2026-04-10 | Audit covers: research pipeline stages 0-4, promotion flow, dry-run vault, go-live package, strategy guard, orchestration layer*

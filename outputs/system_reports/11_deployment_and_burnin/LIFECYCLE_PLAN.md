@@ -1,8 +1,8 @@
 # STRATEGY LIFECYCLE PLAN — PROMOTE / BURN_IN / WAITING / LIVE
 
 > **Created:** 2026-04-03
-> **Updated:** 2026-04-03
-> **Status:** IMPLEMENTED (Phase 1-5 tools + workflows built, Phase 6 invariant check operational)
+> **Updated:** 2026-04-10
+> **Status:** IMPLEMENTED (Phase 1-5 tools + workflows built, Phase 6 invariant check operational). Phase 3.3 (`burnin_monitor.py --json`) deferred — burn-in metrics entered manually via `transition_to_waiting.py` CLI args.
 > **Scope:** Artifact movement, storage, and lifecycle determinism from PIPELINE_COMPLETE to LIVE
 
 ---
@@ -15,29 +15,30 @@ Make artifact movement, storage, and lifecycle (PROMOTE -> BURN_IN -> WAITING ->
 
 ## Current State Audit
 
-### Vault Coverage (per strategy, ~20 files today)
+### Vault Coverage (per strategy — updated 2026-04-10, ~100+ files)
 
-| Artifact | In Vault | In TradeScan_State | Gap |
-|----------|----------|-------------------|-----|
-| `strategy.py` | YES | YES (strategies/) | - |
+> All gaps from 2026-04-03 audit have been resolved. `promote_to_burnin.py` now creates full vault snapshots.
+
+| Artifact | In Vault | In TradeScan_State | Status |
+|----------|----------|-------------------|--------|
+| `strategy.py` | YES | YES (strategies/) | OK |
 | `directive.txt` | YES | NO (consumed -> .admitted marker) | Vault is only copy |
-| `meta.json` (git, hash, execution model) | YES | NO | Vault is only copy |
-| `portfolio_evaluation/` (11 files) | YES | YES (strategies/{ID}/) | - |
-| `deployable/profile_comparison.json` | YES | YES | - |
-| `deployable/{PROFILE}/equity_curve.csv` | YES (1 profile) | YES (all 7 profiles) | **GAP: vault has 1, state has 7** |
-| `backtests/{ID}_{SYM}/raw/*.csv` (3 files) | YES | YES (backtests/) | - |
-| `backtests/{ID}_{SYM}/metadata/run_metadata.json` | YES | YES | - |
-| `run_state.json` (FSM history) | **NO** | YES (runs/{RUN_ID}/) | **MISSING** |
-| `manifest.json` (strategy hash, artifact hashes) | **NO** | YES (runs/{RUN_ID}/) | **MISSING** |
-| `audit.log` (pipeline stage log) | **NO** | YES (runs/{RUN_ID}/) | **MISSING** |
-| `data/results_tradelevel.csv` | **NO** (excluded) | YES (runs/{RUN_ID}/) | Intentional exclusion |
-| `data/bar_geometry.json` | **NO** | YES (runs/{RUN_ID}/) | **MISSING** |
-| `data/metrics_glossary.csv` | **NO** | YES (runs/{RUN_ID}/) | **MISSING** |
-| `deployable/*/deployable_trade_log.csv` | **NO** | YES (all 7 profiles) | **MISSING** |
-| `deployable/*/summary_metrics.json` | **NO** | YES (all 7 profiles) | **MISSING** |
-| `deployable/*/rejection_log.csv` | **NO** | YES (most profiles) | **MISSING** |
-| `selected_profile.json` | **NO** | **DOESN'T EXIST** | Proposed new artifact |
-| `broker_specs_snapshot/` | **NO** | **DOESN'T EXIST** | Proposed new artifact |
+| `meta.json` (git, hash, run_id, vault_id, profile) | YES | NO | Vault is only copy |
+| `selected_profile.json` | YES | NO | **FIXED** (was missing) |
+| `portfolio_evaluation/` (11 files) | YES | YES (strategies/{ID}/) | OK |
+| `deployable/` (ALL 7 profiles, full artifacts) | YES | YES | **FIXED** (was 1 profile) |
+| `broker_specs_snapshot/` (per-symbol YAML) | YES | NO | **FIXED** (was missing) |
+| `backtests/{ID}_{SYM}/raw/*.csv` (3 files) | YES | YES (backtests/) | OK |
+| `backtests/{ID}_{SYM}/metadata/run_metadata.json` | YES | YES | OK |
+| `run_snapshot/run_state.json` (FSM history) | YES | YES (runs/{RUN_ID}/) | **FIXED** (was missing) |
+| `run_snapshot/manifest.json` (artifact hashes) | YES | YES (runs/{RUN_ID}/) | **FIXED** (was missing) |
+| `run_snapshot/audit.log` (pipeline log) | YES | YES (runs/{RUN_ID}/) | **FIXED** (was missing) |
+| `run_snapshot/data/` (all stage outputs) | YES | YES (runs/{RUN_ID}/) | **FIXED** (was missing) |
+
+**Additional traceability artifact (2026-04-10):**
+| Artifact | Location | Purpose |
+|----------|----------|---------|
+| `strategy_ref.json` | `TradeScan_State/strategies/{ID}/` | Pointer to authority `Trade_Scan/strategies/{ID}/strategy.py` with `code_hash: "sha256:..."` for version integrity detection |
 
 ### Run Context (13 files per run in `TradeScan_State/runs/{RUN_ID}/`)
 
@@ -78,18 +79,31 @@ strategies/{ID}/deployable/
   RAW_MIN_LOT_V1/...
 ```
 
-### Portfolio YAML Schema (current)
+### Portfolio YAML Schema (as of 2026-04-10)
 
+**BURN_IN entries (current standard):**
+```yaml
+- id: "22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P03_AUDJPY"
+  path: "strategies/22_CONT.../strategy.py"
+  symbol: AUDJPY
+  timeframe: M30
+  enabled: true
+  vault_id: DRY_RUN_2026_04_09__1b21c414
+  profile: CONSERVATIVE_V1
+  lifecycle: BURN_IN
+```
+
+**LEGACY entries (pre-vault, 11 entries):**
 ```yaml
 - id: "27_MR_XAUUSD_1H_PINBAR_S01_V1_P05"
   path: "strategies/27_MR.../strategy.py"
   symbol: XAUUSD
   timeframe: H1
   enabled: true
-  # vault_id, profile, lifecycle -> NOT present
+  # vault_id, profile, lifecycle -> NOT present (pre-2026-04-06)
 ```
 
-TS_Execution `portfolio_loader.py` uses `REQUIRED_FIELDS = {"id", "path", "symbol", "timeframe"}` and **silently ignores** unknown fields. Extra fields (`vault_id`, `profile`, `lifecycle`) can be added with zero code changes in TS_Execution.
+TS_Execution `portfolio_loader.py` uses `REQUIRED_FIELDS = {"id", "path", "symbol", "timeframe"}` and **silently ignores** unknown fields. Current portfolio: 19 entries (11 LEGACY, 8 BURN_IN across 4 strategies).
 
 ### Artifact Protection (Phase 4 pre-check)
 
@@ -463,15 +477,14 @@ System must ensure:
 3. No artifact recomputation at execution
 4. Full reproducibility from vault alone
 
-### Currently Broken Linkages
+### Linkage Status (updated 2026-04-10)
 
-| Linkage | Status | Fix |
-|---------|--------|-----|
-| `strategy -> vault_id` | MISSING (vault_id not in portfolio.yaml) | Phase 2 |
-| `vault_id -> run_id` | MISSING (meta.json lacks run_id) | Phase 1 |
-| `burn-in -> waiting snapshot` | DOESN'T EXIST | Phase 3 |
-
-All 3 linkages resolved by this plan.
+| Linkage | Status | Resolved By |
+|---------|--------|-------------|
+| `strategy -> vault_id` | **RESOLVED** — vault_id in portfolio.yaml | Phase 2 (promote_to_burnin.py) |
+| `vault_id -> run_id` | **RESOLVED** — run_id in meta.json | Phase 1 (backup_dryrun_strategies.py) |
+| `strategy -> code_hash` | **RESOLVED** — strategy_ref.json pointer | 2026-04-10 (strategy_ref.json) |
+| `burn-in -> waiting snapshot` | **READY** — transition_to_waiting.py built | Phase 3 (not yet exercised) |
 
 ---
 
@@ -509,7 +522,7 @@ All 3 linkages resolved by this plan.
 | `tools/cleanup_reconciler.py` | Added "waiting" to forbidden paths | DONE |
 | `tools/reset_repo_artifacts.py` | Added "WAITING" to PROTECTED_PATHS | DONE |
 | `CLAUDE.md` | Added topic index entries for /promote and /to-waiting | DONE |
-| `TS_Execution/tools/burnin_monitor.py` | Add `--json` output mode | FUTURE |
+| `TS_Execution/tools/burnin_monitor.py` | Add `--json` output mode | DEFERRED — burn-in metrics entered manually via `transition_to_waiting.py` CLI args (`--burnin-trades`, `--burnin-pf`, `--burnin-wr`, `--burnin-dd`) |
 
 ---
 
@@ -520,3 +533,41 @@ All 3 linkages resolved by this plan.
 - No runtime performance impact
 - Minimal code changes only
 - TS_Execution portfolio_loader.py: zero changes (extra fields silently ignored)
+
+---
+
+## Addendum: Pipeline Authority & Quality Gates (2026-04-10)
+
+### Profile Selection Authority
+
+Step 7 (`_resolve_deployed_profile` in `portfolio_evaluator.py`) is the **sole authority** for `deployed_profile` selection. Step 8.5 (`profile_selector.py`) is a **validator/enricher only** — reads Step 7's choice from the ledger, enriches metrics, never selects. `select_deployed_profile()` raises `RuntimeError` as a dead code guard.
+
+### Portfolio Status Quality Gates
+
+Classification in `_compute_portfolio_status()` uses layered gates (all additive):
+
+**FAIL gates (any one triggers FAIL):**
+- `realized_pnl <= 0`
+- `trades_accepted < 50`
+- `trade_density < 50` (per-symbol average — catches inflated portfolio totals)
+- `expectancy < asset_class_gate` (FX: $0.15, XAU/BTC/INDEX: $0.50)
+
+**Quality gates (on top of ALL FAIL gates — below floor = FAIL):**
+- **Portfolios tab:** `edge_quality >= 0.12` for CORE, `>= 0.08` for WATCH
+- **Single-Asset tab:** `SQN >= 2.5` for CORE, `>= 2.0` for WATCH
+
+**CORE also requires:** `realized > $1,000` AND `accepted >= 200` AND `rejection <= 30%`
+
+These gates determine which strategies are eligible for promotion via `promote_to_burnin.py`.
+
+### Strategy Traceability
+
+Each `TradeScan_State/strategies/{ID}/` has a `strategy_ref.json` pointer:
+```json
+{
+  "source": "Trade_Scan/strategies/{ID}/strategy.py",
+  "code_hash": "sha256:...",
+  "created_at": "..."
+}
+```
+Authority chain: `strategy_ref.json` -> `Trade_Scan/strategies/{ID}/strategy.py` (source of truth) -> vault snapshot (immutable copy at promote time).
