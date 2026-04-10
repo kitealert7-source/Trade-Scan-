@@ -39,6 +39,7 @@ MASTER_FILTER_COLUMNS = [
     "test_start",
     "test_end",
     "trading_period",
+    "sqn",
     "total_trades",
     "trade_density",
     "total_net_profit",
@@ -78,6 +79,7 @@ MASTER_FILTER_COLUMNS = [
 REQUIRED_METRICS = {
     "trading_period": "Trading Period (Days)",
     "total_trades": "Total Trades",
+    "sqn": "SQN (System Quality Number)",
     "total_net_profit": "Net Profit (USD)",
     "gross_profit": "Gross Profit (USD)",
     "gross_loss": "Gross Loss (USD)",

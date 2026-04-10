@@ -112,6 +112,7 @@ FORMAT_MAP = {
     "sharpe": FMT_FLOAT,
     "profit_factor": FMT_FLOAT,
     "total_trades": FMT_INT,
+    "sqn": FMT_FLOAT,
     "trade_density": FMT_INT,
     "profile_trade_density": FMT_INT,
     "winning_trades": FMT_INT,
@@ -163,6 +164,7 @@ HIDDEN_COLS = {
     "timestamp",
     "source_strategy",   # Redundant with portfolio_id
     "parsed_fields",     # JSON blob — machine-readable, not for visual inspection
+    "total_trades",      # trade_density provides equivalent information
 }
 
 # Columns with short text values — override text width logic to be data-driven (universal)
@@ -199,6 +201,7 @@ STRATEGY_COLUMN_ORDER = [
     "test_start",
     "test_end",
     "trading_period",
+    "sqn",
     "total_trades",
     "trade_density",
     "total_net_profit",
