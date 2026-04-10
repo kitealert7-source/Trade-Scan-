@@ -244,6 +244,7 @@ PORTFOLIO_COLUMN_ORDER = [
     "source_strategy",
     "reference_capital_usd",
     "portfolio_status",
+    "evaluation_timeframe",
     "trade_density",
     "profile_trade_density",
     "theoretical_pnl",
@@ -289,6 +290,7 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "source_strategy",
     "reference_capital_usd",
     "portfolio_status",
+    "evaluation_timeframe",
     "n_strategies",
     "trade_density",
     "profile_trade_density",
@@ -631,6 +633,24 @@ def apply_formatting(file_path, profile):
             if max_col >= 1 and max_row >= 1:
                 ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
 
+                # Pre-select portfolio_status=CORE/WATCH for portfolio sheets
+                if profile == "portfolio":
+                    _headers_lower = [str(c.value).lower() if c.value else "" for c in ws[1]]
+                    if "portfolio_status" in _headers_lower:
+                        from openpyxl.worksheet.filters import FilterColumn, Filters
+                        _ps_idx = _headers_lower.index("portfolio_status")
+                        _fc = FilterColumn(colId=_ps_idx)
+                        _fc.filters = Filters(filter=["CORE", "WATCH"])
+                        ws.auto_filter.filterColumn.append(_fc)
+                        _ps_col = _ps_idx + 1  # 1-based
+                        _hidden_count = 0
+                        for _r in range(2, max_row + 1):
+                            _val = str(ws.cell(row=_r, column=_ps_col).value or "")
+                            if _val not in ("CORE", "WATCH"):
+                                ws.row_dimensions[_r].hidden = True
+                                _hidden_count += 1
+                        print(f"    [FILTER] Pre-selected portfolio_status=CORE/WATCH (hidden {_hidden_count} FAIL rows)")
+
                 # Pre-select event_type=EXIT filter for shadow_trades files
                 _fname = Path(path).stem.lower()
                 if "shadow_trade" in _fname:
@@ -895,10 +915,14 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
              "Their expectancy is a trade-count-weighted average across mixed asset classes, so "
              "per-class gates do not apply. If needed, constituent asset classes can be inspected "
              "in portfolio_metadata.json under evaluated_assets."),
-            ("CORE",
-             f"Realized PnL > ${PORT_CORE_PNL:.0f}  AND  Accepted Trades >= {PORT_CORE_TRADES}  AND  Rejection Rate <= {PORT_CORE_REJ_MAX:.0f}%"),
-            ("WATCH",
-             "All other strategies (profitable and sufficient trades, but below CORE thresholds)"),
+            ("CORE (Portfolios tab)",
+             f"Realized PnL > ${PORT_CORE_PNL:.0f}  AND  Accepted Trades >= {PORT_CORE_TRADES}  AND  Rejection Rate <= {PORT_CORE_REJ_MAX:.0f}%  AND  edge_quality >= 0.12"),
+            ("CORE (Single-Asset tab)",
+             f"Realized PnL > ${PORT_CORE_PNL:.0f}  AND  Accepted Trades >= {PORT_CORE_TRADES}  AND  Rejection Rate <= {PORT_CORE_REJ_MAX:.0f}%  AND  SQN >= 2.5"),
+            ("WATCH (Portfolios tab)",
+             "Passes all FAIL gates  AND  edge_quality >= 0.08  (but not CORE)"),
+            ("WATCH (Single-Asset tab)",
+             "Passes all FAIL gates  AND  SQN >= 2.0  (but not CORE)"),
         ]:
             _w(r, 1, cls, bold); _w(r, 2, rule, normal); r += 1
     r += 1
@@ -1049,6 +1073,9 @@ def main():
         add_notes_sheet_to_ledger(args.file, args.notes_type)
     elif args.profile:
         apply_formatting(args.file, args.profile)
+        # Auto-generate Notes for portfolio profile so it never regresses.
+        if args.profile == "portfolio":
+            add_notes_sheet_to_ledger(args.file, "portfolio")
     else:
         parser.error("--profile is required when --notes-type is not specified")
 

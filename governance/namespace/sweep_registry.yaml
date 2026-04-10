@@ -508,7 +508,12 @@ ideas:
         signature_hash: bfb31e9c0579cb96
         signature_hash_full: bfb31e9c0579cb962edebbf7c86319e37469c384227d7144f1f0f77fa3d2ea9e
         reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
-        patches: {}
+        patches:
+          P01:
+            directive_name: 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P01
+            signature_hash: 1676351743a3b092
+            reserved_at_utc: '2026-04-10T04:29:00.149829+00:00'
+            signature_hash_full: 1676351743a3b092e675548cc594b9d2ec7f10a96a42a345883de34c8181715b
       S02:
         directive_name: 15_MR_XAUUSD_1H_ASRANGE_SESSFILT_S02_V1_P00
         signature_hash: bfb31e9c0579cb96
@@ -522,10 +527,10 @@ ideas:
         reserved_at_utc: '2026-03-27T00:00:00.000000+00:00'
         patches:
           P01:
-            directive_name: 15_MR_FX_15M_ASRANGE_SESSFILT_S03_V1_P01
-            signature_hash: 10973b8f16947088
-            reserved_at_utc: '2026-03-27T12:00:09.609971+00:00'
-            signature_hash_full: 10973b8f16947088f37d335b9ff4de1d91f3cf235a3dc3e19fd43103b0a9bded
+            directive_name: 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P01
+            signature_hash: 1676351743a3b092
+            signature_hash_full: dd5fd942c86956e69836f70ebb2715909e4f8383a608cfdb14ba63f244d2c42c
+            reserved_at_utc: '2026-04-10T04:28:53.833406+00:00'
           P02:
             directive_name: 15_MR_FX_15M_ASRANGE_SESSFILT_S03_V1_P02
             signature_hash: ecaeccef743539e6
@@ -555,7 +560,6 @@ ideas:
             directive_name: 15_MR_FX_15M_ASRANGE_SESSFILT_S03_V1_P07
             signature_hash: d18e65ddb4863400
             reserved_at_utc: '2026-03-27T00:00:00.000000+00:00'
-            signature_hash_full: d18e65ddb4863400041be137b581c463bb784801902100f6e4cf6f3cc7146693
   '17':
     next_sweep: 2
     sweeps:
@@ -908,7 +912,16 @@ ideas:
             directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S11_V1_P02
             signature_hash: 20eaefc820a40ed7
             reserved_at_utc: '2026-04-09T14:52:50.362392+00:00'
-            signature_hash_full: 20eaefc820a40ed7ed5f06bfc8c774d537d0372dc29336f882ca1e17bf00a7db
+          P06:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06
+            signature_hash: a5982fa77d0175e5
+            signature_hash_full: a5982fa77d0175e5ac74b9835f10acbf8d65ec81fca925c525ce93934a9e3345
+            reserved_at_utc: '2026-04-10T03:24:22.314727+00:00'
+          P00:
+            directive_name: 22_CONT_FX_30M_RSIAVG_TRENDFILT_S13_V1_P00
+            signature_hash: dfdb6a429929d751
+            signature_hash_full: dfdb6a429929d751b8a5eef7c5c7111b5b3adf508f9d4ff31401d526c7416090
+            reserved_at_utc: '2026-04-10T03:28:38.548208+00:00'
       S12:
         directive_name: 22_CONT_FX_1H_RSIAVG_TRENDFILT_S12_V1_P01
         signature_hash: 9102e4b1c71da922

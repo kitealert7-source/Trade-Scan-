@@ -84,43 +84,114 @@ def test_pass_mixed_no_exp_gate():
     assert _compute_portfolio_status(500.0, 100, 0.0, 0.01, "PF_ABC123") == "WATCH"
 
 
-# ── CORE: All thresholds met ────────────────────────────────────────────────
+# ── CORE: Portfolios (edge_quality gate) ─────────────────────────────────────
 
-def test_core_fx():
-    """realized > $1000, accepted >= 200, rejection <= 30% → CORE."""
+def test_core_portfolio_with_edge_quality():
+    """CORE requires edge_quality >= 0.12 for Portfolios tab."""
+    assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.15) == "CORE"
+
+
+def test_core_portfolio_low_edge_quality():
+    """Base CORE met but edge_quality < 0.12 → NOT CORE."""
+    result = _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "22_CONT_FX_15M",
+                                       edge_quality=0.10)
+    assert result != "CORE"
+
+
+def test_core_portfolio_edge_quality_boundary():
+    """edge_quality == 0.12 exactly → CORE."""
+    assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.12) == "CORE"
+
+
+def test_core_portfolio_no_quality_metric():
+    """No quality metric provided → backwards compat CORE."""
     assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "22_CONT_FX_15M") == "CORE"
 
 
+# ── CORE: Single-Asset (SQN gate) ───────────────────────────────────────────
+
+def test_core_single_asset_with_sqn():
+    """CORE requires SQN >= 2.5 for Single-Asset tab."""
+    assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "03_TREND_XAUUSD_1H",
+                                     sqn=3.0) == "CORE"
+
+
+def test_core_single_asset_low_sqn():
+    """Base CORE met but SQN < 2.5 → NOT CORE."""
+    result = _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "03_TREND_XAUUSD_1H",
+                                       sqn=2.3)
+    assert result != "CORE"
+
+
+def test_core_single_asset_sqn_boundary():
+    """SQN == 2.5 exactly → CORE."""
+    assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "03_TREND_XAUUSD_1H",
+                                     sqn=2.5) == "CORE"
+
+
+# ── CORE: Base thresholds still required ─────────────────────────────────────
+
 def test_core_boundary_realized():
-    """realized == $1000 is NOT > $1000 → WATCH."""
-    assert _compute_portfolio_status(1000.0, 250, 10.0, 1.0, "22_CONT_FX_15M") == "WATCH"
+    """realized == $1000 is NOT > $1000 → not CORE."""
+    assert _compute_portfolio_status(1000.0, 250, 10.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.15) != "CORE"
 
 
 def test_core_boundary_accepted():
-    """accepted == 199 < 200 → WATCH."""
-    assert _compute_portfolio_status(1500.0, 199, 10.0, 1.0, "22_CONT_FX_15M") == "WATCH"
+    """accepted == 199 < 200 → not CORE."""
+    assert _compute_portfolio_status(1500.0, 199, 10.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.15) != "CORE"
 
 
 def test_core_boundary_rejection():
-    """rejection == 31% > 30% → WATCH."""
-    assert _compute_portfolio_status(1500.0, 250, 31.0, 1.0, "22_CONT_FX_15M") == "WATCH"
+    """rejection == 31% > 30% → not CORE."""
+    assert _compute_portfolio_status(1500.0, 250, 31.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.15) != "CORE"
 
 
 def test_core_with_trade_density():
-    """CORE with valid trade_density should still be CORE."""
-    assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "22_CONT_FX_15M", trade_density=100) == "CORE"
+    """CORE with valid trade_density + edge_quality."""
+    assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "22_CONT_FX_15M",
+                                     trade_density=100, edge_quality=0.15) == "CORE"
 
 
-# ── WATCH: Default bucket ───────────────────────────────────────────────────
+# ── WATCH: Quality floor required ────────────────────────────────────────────
 
-def test_watch_profitable_below_core():
-    """Profitable, sufficient trades, but below CORE thresholds."""
+def test_watch_portfolio_good_edge():
+    """Profitable, edge_quality >= 0.08 → WATCH."""
+    assert _compute_portfolio_status(500.0, 100, 5.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.10) == "WATCH"
+
+
+def test_watch_portfolio_low_edge():
+    """Profitable but edge_quality < 0.08 → FAIL."""
+    assert _compute_portfolio_status(500.0, 100, 5.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.05) == "FAIL"
+
+
+def test_watch_single_asset_good_sqn():
+    """Profitable, SQN >= 2.0 → WATCH."""
+    assert _compute_portfolio_status(500.0, 100, 5.0, 1.0, "03_TREND_XAUUSD_1H",
+                                     sqn=2.2) == "WATCH"
+
+
+def test_watch_single_asset_low_sqn():
+    """Profitable but SQN < 2.0 → FAIL."""
+    assert _compute_portfolio_status(500.0, 100, 5.0, 1.0, "03_TREND_XAUUSD_1H",
+                                     sqn=1.5) == "FAIL"
+
+
+def test_watch_high_rejection_with_edge():
+    """High realized + trades but rejection > 30% → WATCH if edge good."""
+    assert _compute_portfolio_status(5000.0, 500, 35.0, 1.0, "22_CONT_FX_15M",
+                                     edge_quality=0.10) == "WATCH"
+
+
+def test_watch_no_quality_metric():
+    """No quality metric → backwards compat WATCH."""
     assert _compute_portfolio_status(500.0, 100, 5.0, 1.0, "22_CONT_FX_15M") == "WATCH"
-
-
-def test_watch_high_rejection():
-    """High realized + trades but rejection > 30% → WATCH not CORE."""
-    assert _compute_portfolio_status(5000.0, 500, 35.0, 1.0, "22_CONT_FX_15M") == "WATCH"
 
 
 if __name__ == "__main__":

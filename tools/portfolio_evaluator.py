@@ -1236,18 +1236,28 @@ from config.asset_classification import parse_strategy_name as _parse_strategy_n
 
 def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
                               expectancy=0.0, portfolio_id="",
-                              trade_density=None):
-    """Deterministic portfolio status classification for ledger rows."""
+                              trade_density=None,
+                              edge_quality=None, sqn=None):
+    """Deterministic portfolio status classification for ledger rows.
+
+    Quality gates (additive — on top of all existing FAIL gates):
+      Portfolios tab  → edge_quality >= 0.12 for CORE, >= 0.08 for WATCH
+      Single-Asset tab → sqn >= 2.5 for CORE, >= 2.0 for WATCH
+    Caller passes whichever metric is available; the other stays None.
+    """
     realized = _safe_float(realized_pnl, 0.0)
     accepted = int(round(_safe_float(total_accepted, 0.0)))
     rejection = _safe_float(rejection_rate_pct, 0.0)
     exp = _safe_float(expectancy, 0.0)
     td = _safe_float(trade_density, None)
+    eq = _safe_float(edge_quality, None)
+    sq = _safe_float(sqn, None)
 
     # Asset-class expectancy gate (same thresholds as candidates sheet)
     asset_class = _detect_asset_class(portfolio_id)
     exp_gate = _EXP_FAIL_GATES.get(asset_class, 0.0)
 
+    # ── FAIL gates (any one triggers) ────────────────────────────────
     if realized <= 0.0 or accepted < 50:
         return "FAIL"
     # Per-symbol trade density gate: portfolio total can inflate past 50
@@ -1256,8 +1266,28 @@ def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
         return "FAIL"
     if exp < exp_gate:
         return "FAIL"
-    if realized > 1000.0 and accepted >= 200 and rejection <= 30.0:
-        return "CORE"
+
+    # ── CORE gate (all conditions required) ──────────────────────────
+    core_base = (realized > 1000.0 and accepted >= 200 and rejection <= 30.0)
+    if core_base:
+        # Portfolios: edge_quality gate
+        if eq is not None and eq >= 0.12:
+            return "CORE"
+        # Single-Asset: SQN gate
+        if sq is not None and sq >= 2.5:
+            return "CORE"
+        # If neither quality metric provided, fall back to base CORE
+        if eq is None and sq is None:
+            return "CORE"
+
+    # ── WATCH gate (quality floor required) ──────────────────────────
+    # Portfolios: edge_quality >= 0.08
+    if eq is not None:
+        return "WATCH" if eq >= 0.08 else "FAIL"
+    # Single-Asset: SQN >= 2.0
+    if sq is not None:
+        return "WATCH" if sq >= 2.0 else "FAIL"
+    # No quality metric available — default WATCH (backwards compat)
     return "WATCH"
 
 
@@ -1632,7 +1662,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger["net_pnl_usd"], errors="coerce")
         else:
             df_ledger["theoretical_pnl"] = pd.to_numeric(df_ledger.get("realized_pnl"), errors="coerce")
-    # Recompute portfolio_status for ALL rows (expectancy gate may reclassify existing rows)
+    # Recompute portfolio_status for ALL rows (expectancy + quality gates may reclassify)
     df_ledger["portfolio_status"] = df_ledger.apply(
         lambda row: _compute_portfolio_status(
             row.get("realized_pnl", 0.0),
@@ -1641,6 +1671,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             expectancy=row.get("expectancy", 0.0),
             portfolio_id=row.get("portfolio_id", ""),
             trade_density=row.get("trade_density", None),
+            edge_quality=row.get("edge_quality", None),
+            sqn=row.get("sqn", None),
         ),
         axis=1,
     )
@@ -1700,6 +1732,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         realized_pnl, trades_accepted, rejection_rate_pct,
         expectancy=metrics.get("expectancy", 0.0),
         portfolio_id=strategy_id,
+        edge_quality=metrics.get("edge_quality", None),
+        sqn=metrics.get("sqn", None),
     )
 
     # Construct Row Data (shared fields)

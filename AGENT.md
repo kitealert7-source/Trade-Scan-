@@ -87,7 +87,14 @@ Directive → Stage -0.25 (Canonicalization) → Stage -0.30 (Namespace) → Sta
 
 **Key gates**: Stage -0.30 blocks bad tokens. Stage 0.5 blocks hollow/invalid strategies + inline indicators. Stage 3 cardinality gate blocks row mismatches. Stage 4 blocks ledger overwrites.
 
-**Profile selection authority**: Step 7 (`_resolve_deployed_profile` in `portfolio_evaluator.py`) is the **sole** selector for `deployed_profile`. All downstream steps (Step 8.5 profile_selector, reconcile, robustness CLI) treat `deployed_profile` as read-only from the ledger.
+**Profile selection authority**: Step 7 (`_resolve_deployed_profile` in `portfolio_evaluator.py`) is the **sole** selector for `deployed_profile`. All downstream steps (Step 8.5 profile_selector, reconcile, robustness CLI) treat `deployed_profile` as read-only from the ledger. `select_deployed_profile()` in profile_selector.py raises `RuntimeError` — do not call.
+
+**Portfolio status gates**: FAIL if `realized_pnl <= 0` OR `trades_accepted < 50` OR `trade_density < 50` (per-symbol) OR `expectancy < asset_class_gate`. CORE/WATCH require quality metrics on top of all FAIL gates:
+- **Portfolios tab**: CORE requires `edge_quality >= 0.12`; WATCH requires `edge_quality >= 0.08`
+- **Single-Asset tab**: CORE requires `SQN >= 2.5`; WATCH requires `SQN >= 2.0`
+- Below quality floor after passing FAIL gates → FAIL. Owned by Step 7 only.
+
+**Strategy traceability**: Each `TradeScan_State/strategies/<ID>/` has a `strategy_ref.json` pointer with `code_hash` (sha256) linking to the authority `Trade_Scan/strategies/<ID>/strategy.py`. No strategy.py copies in state folders.
 
 ### Step 11: Research Suggestion Layer (Mandatory after Pipeline)
 

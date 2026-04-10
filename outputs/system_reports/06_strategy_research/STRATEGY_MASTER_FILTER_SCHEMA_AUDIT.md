@@ -61,6 +61,6 @@ The current strict filter (`tools\filter_strategies.py`) uses the following metr
 - **Sharpe Ratio**: $\geq 1.2$
 
 ### 4. Gaps & Observations
-- **Trade Density**: This field is calculated and present in the sheet but is **not currently used** in the `tools\filter_strategies.py` logic.
+- **Trade Density**: Used as a FAIL gate in `_compute_portfolio_status()` (`trade_density < 50` → FAIL). Prevents multi-symbol portfolios from passing the accepted trades threshold when per-symbol sample sizes are statistically meaningless. Also used in `filter_strategies.py` for CORE classification (`trade_density >= 50`).
 - **Trend Regime Metrics**: These are populated but not yet integrated into the automated filtering criteria.
 - **Formula Visibility**: Formulas are not embedded in the Excel cells (values are written as opaque scalars by pandas), but they are explicitly defined in the generation scripts.
