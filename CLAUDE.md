@@ -59,8 +59,9 @@ Six-repo research-to-execution pipeline:
 | Promoting a strategy to burn-in | `.agents/workflows/promote.md` |
 | Burn-in → waiting transition | `.agents/workflows/to-waiting.md` |
 | Waiting → live transition | `tools/transition_to_live.py` |
-| Deployment, burn-in, go-live | `outputs/system_reports/11_deployment_and_burnin/GOLIVE_PACKAGE_COMPATIBILITY_AUDIT.md` |
+| Deployment, burn-in, go-live | `outputs/system_reports/11_deployment_and_burnin/README.md` (index) |
 | Directory/file authority | `outputs/system_reports/01_system_architecture/REPOSITORY_AUTHORITY_MAP.md` |
+| System audit or review | Browse `outputs/system_reports/` folder READMEs first — each subfolder has an index |
 
 ---
 
