@@ -1,6 +1,10 @@
 # SYSTEM STATE
 
-> Generated: 2026-04-10T15:00:06Z
+## SESSION STATUS: WARNING
+- WARNING: 1 symbol(s) stale (>3 days behind)
+- WARNING: Working tree 6 uncommitted
+
+> Generated: 2026-04-10T15:06:38Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -36,8 +40,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 7 uncommitted
-- Last commit: `2b24431 Add session-close workflow and CLAUDE.md topic entry`
+- Working tree: 6 uncommitted
+- Last commit: `d8b84a8 Redesign SYSTEM_STATE.md: session-level snapshot with correct paths`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->

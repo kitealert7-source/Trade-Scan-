@@ -353,6 +353,63 @@ def collect_git() -> dict[str, Any]:
     return result
 
 
+# ── Session Status ────────────────────────────────────────────────────────
+
+
+def compute_session_status(
+    engine: dict, freshness: dict, git: dict,
+) -> tuple[str, list[str]]:
+    """
+    Derive a single session status from collected data.
+
+    BROKEN if:
+      - Engine manifest not VALID or version not resolved
+      - Git has unpushed commits (at session close, this means push was skipped)
+      - Data completely stale (latest_bar missing or freshness unreadable)
+
+    WARNING if:
+      - Any stale symbols (>3 days behind)
+      - Working tree not clean (uncommitted code changes)
+
+    OK: everything else.
+
+    Returns (status, reasons).
+    """
+    reasons: list[str] = []
+
+    # ── BROKEN checks
+    if engine.get("manifest") != "VALID":
+        reasons.append(f"BROKEN: Engine manifest {engine.get('manifest', 'UNKNOWN')}")
+    if engine.get("version", "UNKNOWN") == "UNKNOWN":
+        reasons.append("BROKEN: Engine version not resolved")
+    if isinstance(git.get("commits_ahead"), int) and git["commits_ahead"] > 0:
+        reasons.append(f"BROKEN: {git['commits_ahead']} commits not pushed to origin")
+    if git.get("error"):
+        reasons.append(f"BROKEN: Git error — {git['error']}")
+    if freshness.get("status") in ("MISSING", "UNREADABLE"):
+        reasons.append(f"BROKEN: Data freshness {freshness.get('status')}")
+    if freshness.get("latest_bar") in ("unknown", None, ""):
+        reasons.append("BROKEN: Latest data bar unknown")
+
+    broken = [r for r in reasons if r.startswith("BROKEN")]
+    if broken:
+        return "BROKEN", reasons
+
+    # ── WARNING checks
+    stale = freshness.get("stale_symbols", 0)
+    if stale and stale > 0:
+        reasons.append(f"WARNING: {stale} symbol(s) stale (>3 days behind)")
+    tree = git.get("working_tree", "unknown")
+    if tree != "clean":
+        reasons.append(f"WARNING: Working tree {tree}")
+
+    warnings = [r for r in reasons if r.startswith("WARNING")]
+    if warnings:
+        return "WARNING", reasons
+
+    return "OK", []
+
+
 # ── Renderer ──────────────────────────────────────────────────────────────
 
 
@@ -365,10 +422,17 @@ def render_markdown(
     freshness: dict,
     runs: dict,
     git: dict,
+    session_status: tuple[str, list[str]],
 ) -> str:
     lines: list[str] = []
+    status, status_reasons = session_status
 
     lines.append("# SYSTEM STATE")
+    lines.append("")
+    lines.append(f"## SESSION STATUS: {status}")
+    if status_reasons:
+        for r in status_reasons:
+            lines.append(f"- {r}")
     lines.append("")
     lines.append(f"> Generated: {_now_utc()}")
     lines.append(">")
@@ -525,9 +589,19 @@ def main() -> None:
     runs = collect_runs()
     git = collect_git()
 
-    markdown = render_markdown(engine, directives, ledgers, portfolio, vault, freshness, runs, git)
+    session_status = compute_session_status(engine, freshness, git)
+    markdown = render_markdown(engine, directives, ledgers, portfolio, vault, freshness, runs, git, session_status)
+
     output_path.write_text(markdown, encoding="utf-8")
+
+    status_label = session_status[0]
     print(f"[DONE] SYSTEM_STATE.md written: {output_path}")
+    print(f"[SESSION STATUS] {status_label}")
+    if session_status[1]:
+        for reason in session_status[1]:
+            print(f"  {reason}")
+    if status_label == "BROKEN":
+        print("\n[!] SESSION BROKEN — resolve issues before closing.")
 
 
 if __name__ == "__main__":
