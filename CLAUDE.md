@@ -16,10 +16,11 @@ Six-repo research-to-execution pipeline:
 
 ## Before Acting — Read Protocol
 
-**Always:** `AGENT.md` — invariants, lifecycle, engine standards, pre-directive gate
+**Always (every session start):**
+- `AGENT.md` — invariants, lifecycle, engine standards, pre-directive gate
+- `SYSTEM_STATE.md` — check SESSION STATUS (OK/WARNING/BROKEN), acknowledge system condition before acting
 
 **Task-conditional:**
-- `SYSTEM_STATE.md` — before any pipeline run
 - `.agents/workflows/execute-directives.md` — before any `run_pipeline.py` call
 - `RESEARCH_MEMORY.md` — before strategy design or directive creation
 - `FAILURE_PLAYBOOK.md` — when any failure or anomaly occurs
