@@ -681,27 +681,30 @@ def apply_formatting(file_path, profile):
         _file_stem = Path(path).stem
         _hl_conf = _HYPERLINK_MAP.get(_file_stem, {})
         if _hl_conf:
-            _ws = wb[wb.sheetnames[0]]  # always the data sheet
-            _max_row = _ws.max_row or 1
-            _max_col = _ws.max_column or 1
-            # Build header map for this sheet
-            _hdr = {str(_ws.cell(row=1, column=c).value or "").strip(): c
-                    for c in range(1, _max_col + 1)}
-            for _hl_col_name, _hl_prefix in _hl_conf.items():
-                _hl_col_idx = _hdr.get(_hl_col_name)
-                if _hl_col_idx is None:
-                    continue
-                _hl_count = 0
-                for _r in range(2, _max_row + 1):
-                    _cell = _ws.cell(row=_r, column=_hl_col_idx)
-                    _val = str(_cell.value or "").strip()
-                    if not _val:
+            # Apply hyperlinks to ALL data sheets (not just the first).
+            _data_sheets = [s for s in wb.sheetnames if s != "Notes"]
+            for _sheet_name in _data_sheets:
+                _ws = wb[_sheet_name]
+                _max_row = _ws.max_row or 1
+                _max_col = _ws.max_column or 1
+                # Build header map for this sheet
+                _hdr = {str(_ws.cell(row=1, column=c).value or "").strip(): c
+                        for c in range(1, _max_col + 1)}
+                for _hl_col_name, _hl_prefix in _hl_conf.items():
+                    _hl_col_idx = _hdr.get(_hl_col_name)
+                    if _hl_col_idx is None:
                         continue
-                    _cell.hyperlink = f"{_hl_prefix}{_val}/"
-                    _cell.font = _LINK_FONT
-                    _hl_count += 1
-                if _hl_count:
-                    print(f"    [HYPERLINKS] {_hl_col_name}: {_hl_count} links applied")
+                    _hl_count = 0
+                    for _r in range(2, _max_row + 1):
+                        _cell = _ws.cell(row=_r, column=_hl_col_idx)
+                        _val = str(_cell.value or "").strip()
+                        if not _val:
+                            continue
+                        _cell.hyperlink = f"{_hl_prefix}{_val}/"
+                        _cell.font = _LINK_FONT
+                        _hl_count += 1
+                    if _hl_count:
+                        print(f"    [HYPERLINKS] {_sheet_name} / {_hl_col_name}: {_hl_count} links applied")
 
         wb.save(path)
         print("[SUCCESS] Formatting complete.")
@@ -752,6 +755,7 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
     # portfolio: portfolio_status rules (portfolio_evaluator._compute_portfolio_status)
     PORT_FAIL_PNL      = 0.0
     PORT_FAIL_TRADES   = 50
+    PORT_FAIL_DENSITY  = 50
     PORT_FAIL_EXP_FX   = 0.15   # Same gates as candidates (min-lot basis)
     PORT_FAIL_EXP_XAU  = 0.50
     PORT_FAIL_EXP_BTC  = 0.50
@@ -880,6 +884,7 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
         for cls, rule in [
             ("FAIL",
              f"Realized PnL <= ${PORT_FAIL_PNL:.0f}  OR  Accepted Trades < {PORT_FAIL_TRADES}  "
+             f"OR  Trade Density < {PORT_FAIL_DENSITY} (per-symbol)  "
              f"OR  expectancy below asset-class gate"),
             ("",
              f"  Expectancy FAIL gates (same as candidates, min-lot basis):  "

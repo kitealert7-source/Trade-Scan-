@@ -87,6 +87,8 @@ Directive → Stage -0.25 (Canonicalization) → Stage -0.30 (Namespace) → Sta
 
 **Key gates**: Stage -0.30 blocks bad tokens. Stage 0.5 blocks hollow/invalid strategies + inline indicators. Stage 3 cardinality gate blocks row mismatches. Stage 4 blocks ledger overwrites.
 
+**Profile selection authority**: Step 7 (`_resolve_deployed_profile` in `portfolio_evaluator.py`) is the **sole** selector for `deployed_profile`. All downstream steps (Step 8.5 profile_selector, reconcile, robustness CLI) treat `deployed_profile` as read-only from the ledger.
+
 ### Step 11: Research Suggestion Layer (Mandatory after Pipeline)
 
 After every completed pipeline execution:
