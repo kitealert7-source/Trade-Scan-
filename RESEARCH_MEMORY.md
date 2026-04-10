@@ -413,3 +413,15 @@ Combined with the blind-pair experiment (same session): the RSIAVG + trend filte
 5. Two-experiment validation (blind pairs + median picks) confirms: the RSIAVG FX edge is structural, and the pipeline filtering process is legitimate optimization.
 ---
 
+---
+2026-04-10 | Tags: uk100_15m, session_filter, pullback, trade_quality, regime_gating | Strategy: 40_CONT_UK100_15M_RSIPULL_SESSFILT_S08–S11_V2_P00
+
+Finding: Three independent session filters applied to UK100 London-open short pullback (S08 baseline PF 1.24, 133 trades) all improved PF by blocking low-quality entry conditions. S09 (Wednesday exclusion) → PF 1.43/112 trades; S10 (weak_down regime block) → PF 1.56/68 trades; S11 (range_low_vol block) → PF 1.39/101 trades.
+
+Evidence: S10 weak_down block delivers best PF lift (+0.32) but halves trade count to 68 — single-symbol statistical floor concern. S09 Wednesday block achieves +0.19 PF with only 16% trade reduction, best efficiency ratio.
+
+Conclusion: UK100 London-open shorts have a measurable regime dependency — weak downtrends and low-volatility ranges produce negative-expectancy entries that dilute the edge. Wednesday exclusion likely proxies for a mid-week liquidity/volatility trough specific to FTSE. The filters are additive in mechanism (day-of-week vs trend vs volatility) suggesting combinatorial stacking may compound gains, but trade count erosion per filter must be monitored.
+
+Implication: For UK100 London-open pullback variants, test combinatorial filter stacking (S09+S10 or S09+S11) only if the combined trade count stays above 80. Treat weak_down regime gating as a universal pre-filter candidate for any index session strategy — the PF lift is too large to be noise at 68 trades.
+---
+

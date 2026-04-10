@@ -1439,7 +1439,7 @@ ideas:
         reserved_at_utc: '2026-04-07T00:45:00.000000+00:00'
         patches: {}
   '40':
-    next_sweep: 9
+    next_sweep: 12
     sweeps:
       S01:
         directive_name: 40_CONT_FX_15M_RSIPULL_SESSFILT_S01_V1_P00
@@ -1481,6 +1481,21 @@ ideas:
         signature_hash: 65a3533a4f5824ce
         reserved_at_utc: '2026-04-07T13:59:34.675922+00:00'
         signature_hash_full: 65a3533a4f5824ce41a663ab7d9240afb516fa4bbfa82e6259ac3ffe80faf92e
+      S09:
+        directive_name: 40_CONT_UK100_15M_RSIPULL_SESSFILT_S09_V2_P00
+        signature_hash: da1873ead39f1d8f
+        reserved_at_utc: '2026-04-10T15:23:48.986080+00:00'
+        signature_hash_full: da1873ead39f1d8f3d605349d4bf32f78124f91ba571ce598a214df1138a371c
+      S10:
+        directive_name: 40_CONT_UK100_15M_RSIPULL_SESSFILT_S10_V2_P00
+        signature_hash: 2b05a2cdd6460720
+        reserved_at_utc: '2026-04-10T15:28:01.070033+00:00'
+        signature_hash_full: 2b05a2cdd6460720538ec9a1dda0815a4e2a7c01b61ab911ec4303973aa48a42
+      S11:
+        directive_name: 40_CONT_UK100_15M_RSIPULL_SESSFILT_S11_V2_P00
+        signature_hash: f17fc2b12641e049
+        reserved_at_utc: '2026-04-10T15:29:39.312112+00:00'
+        signature_hash_full: f17fc2b12641e049f87204bb0e523e508f466b09afd15491c4e70b0264dbb0b9
   '41':
     next_sweep: 9
     sweeps:
