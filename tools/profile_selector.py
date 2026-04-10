@@ -339,10 +339,22 @@ def main():
         if LEGACY_PNL_COL in sheet_dfs[s].columns:
             sheet_dfs[s] = sheet_dfs[s].drop(columns=[LEGACY_PNL_COL])
 
-    # Write all sheets back — preserves two-tab structure, correct tab names.
+    # Write all sheets back — preserves two-tab structure AND non-data sheets
+    # (e.g. Notes). Previous bug: mode='w' with only data sheets deleted Notes.
+    _preserve = {}
+    if LEDGER_PATH.exists():
+        with pd.ExcelFile(LEDGER_PATH) as _xls:
+            for _sn in _xls.sheet_names:
+                if _sn not in sheet_dfs:
+                    try:
+                        _preserve[_sn] = pd.read_excel(_xls, sheet_name=_sn)
+                    except Exception:
+                        pass
     with pd.ExcelWriter(LEDGER_PATH, engine="openpyxl", mode="w") as writer:
         for s, df in sheet_dfs.items():
             df.to_excel(writer, sheet_name=s, index=False)
+        for _sn, _sdf in _preserve.items():
+            _sdf.to_excel(writer, sheet_name=_sn, index=False)
     print(f"\n[SAVED] {LEDGER_PATH}")
 
     _formatter = Path(__file__).parent / "format_excel_artifact.py"

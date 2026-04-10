@@ -1235,18 +1235,24 @@ from config.asset_classification import parse_strategy_name as _parse_strategy_n
 
 
 def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
-                              expectancy=0.0, portfolio_id=""):
+                              expectancy=0.0, portfolio_id="",
+                              trade_density=None):
     """Deterministic portfolio status classification for ledger rows."""
     realized = _safe_float(realized_pnl, 0.0)
     accepted = int(round(_safe_float(total_accepted, 0.0)))
     rejection = _safe_float(rejection_rate_pct, 0.0)
     exp = _safe_float(expectancy, 0.0)
+    td = _safe_float(trade_density, None)
 
     # Asset-class expectancy gate (same thresholds as candidates sheet)
     asset_class = _detect_asset_class(portfolio_id)
     exp_gate = _EXP_FAIL_GATES.get(asset_class, 0.0)
 
     if realized <= 0.0 or accepted < 50:
+        return "FAIL"
+    # Per-symbol trade density gate: portfolio total can inflate past 50
+    # while individual symbols have statistically meaningless sample sizes.
+    if td is not None and td < 50:
         return "FAIL"
     if exp < exp_gate:
         return "FAIL"
@@ -1634,6 +1640,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             row.get("rejection_rate_pct", 0.0),
             expectancy=row.get("expectancy", 0.0),
             portfolio_id=row.get("portfolio_id", ""),
+            trade_density=row.get("trade_density", None),
         ),
         axis=1,
     )
@@ -1842,13 +1849,25 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     with FileLock(str(_lock_path), timeout=120):
         ensure_xlsx_writable(ledger_path)
         # Atomic write: tmp → fsync → replace (prevents corruption on crash/kill)
-        # Write both sheets in one pass — target sheet gets the updated df,
-        # other sheet is preserved as-is (or empty if first time).
+        # Write both data sheets + preserve non-data sheets (e.g. Notes).
+        # Previous bug: mode='w' with only data sheets deleted Notes.
+        _preserve = {}
+        _data_names = {target_sheet, _other_sheet}
+        if ledger_path.exists():
+            with pd.ExcelFile(ledger_path) as _xls:
+                for _sn in _xls.sheet_names:
+                    if _sn not in _data_names:
+                        try:
+                            _preserve[_sn] = pd.read_excel(_xls, sheet_name=_sn)
+                        except Exception:
+                            pass
         _tmp_ledger = ledger_path.with_suffix(".xlsx.tmp")
         with pd.ExcelWriter(_tmp_ledger, engine="openpyxl", mode="w") as writer:
             df_final.to_excel(writer, sheet_name=target_sheet, index=False)
             if df_other is not None and not df_other.empty:
                 df_other.to_excel(writer, sheet_name=_other_sheet, index=False)
+            for _sn, _sdf in _preserve.items():
+                _sdf.to_excel(writer, sheet_name=_sn, index=False)
         import os as _os_atomic
         with open(_tmp_ledger, "r+b") as _fh:
             _os_atomic.fsync(_fh.fileno())
