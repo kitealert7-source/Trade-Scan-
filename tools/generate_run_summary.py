@@ -95,6 +95,10 @@ def _load_portfolio_verdicts() -> pd.DataFrame:
 
         rows = []
         for _, row in df.iterrows():
+            # Skip rows with unresolved/blocked status — they must not
+            # propagate into downstream aggregation.
+            if verdict_col and str(row.get(verdict_col, "")).strip() == "PROFILE_UNRESOLVED":
+                continue
             run_ids_str = str(row.get("constituent_run_ids", ""))
             if not run_ids_str or run_ids_str == "nan":
                 continue

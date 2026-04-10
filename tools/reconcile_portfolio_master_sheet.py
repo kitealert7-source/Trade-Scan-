@@ -20,6 +20,9 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+from tools.profile_selector import select_deployed_profile  # single source of truth
+
 STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 
@@ -42,7 +45,8 @@ COLUMN_ORDER = [
     "exposure_pct",
     "equity_stability_k_ratio",
     "deployed_profile",
-    "realized_pnl_usd",
+    "edge_quality",
+    "sqn",
     "trades_accepted",
     "trades_rejected",
     "rejection_rate_pct",
@@ -59,7 +63,6 @@ COLUMN_ORDER = [
     "portfolio_net_profit_low_vol",
     "portfolio_net_profit_normal_vol",
     "portfolio_net_profit_high_vol",
-    "signal_timeframes",
     "evaluation_timeframe",
     "portfolio_engine_version",
     "creation_timestamp",
@@ -74,14 +77,6 @@ def _safe_float(value, default=0.0):
         return float(value)
     except Exception:
         return default
-
-
-def _profile_return_dd(metrics):
-    realized = _safe_float(metrics.get("realized_pnl"), 0.0)
-    max_dd = abs(_safe_float(metrics.get("max_drawdown_usd"), 0.0))
-    if max_dd <= 1e-12:
-        return float("inf") if realized > 0 else 0.0
-    return realized / max_dd
 
 
 def _load_profile_map(portfolio_id):
@@ -101,24 +96,12 @@ def _load_profile_map(portfolio_id):
 
 
 def _select_profile(portfolio_id, profiles, deployed_hint):
+    # Respect Step 7's existing choice if present in profile data.
     if deployed_hint and deployed_hint in profiles:
         return deployed_hint, profiles[deployed_hint], "ledger"
 
-    best_name = None
-    best_metrics = None
-    best_key = (-float("inf"), -float("inf"), "")
-    for name, metrics in profiles.items():
-        if not isinstance(metrics, dict):
-            continue
-        score = _profile_return_dd(metrics)
-        realized = _safe_float(metrics.get("realized_pnl"), 0.0)
-        key = (score, realized, name)
-        if key > best_key:
-            best_key = key
-            best_name = name
-            best_metrics = metrics
-
-    return best_name, best_metrics, "best_return_dd"
+    # Fallback: delegate to the single canonical selector (includes avg_risk_multiple gate).
+    return select_deployed_profile(profiles)
 
 
 def _ensure_columns(df):
@@ -134,7 +117,6 @@ def _ensure_columns(df):
         "deployed_profile",
         "theoretical_pnl",
         "realized_pnl",
-        "realized_pnl_usd",
         "trades_accepted",
         "trades_rejected",
         "rejection_rate_pct",
@@ -165,6 +147,14 @@ def reconcile(df_ledger, target_portfolios=None):
             print(f"[SKIP] {portfolio_id}: not found in ledger")
             skipped += 1
             continue
+
+        # Guard: do not reconcile rows with unresolved/blocked status.
+        if "portfolio_status" in df_ledger.columns:
+            status = str(df_ledger.loc[mask, "portfolio_status"].iloc[-1]).strip()
+            if status in ("PROFILE_UNRESOLVED", "FAIL"):
+                print(f"[SKIP] {portfolio_id}: portfolio_status={status} — not reconciling")
+                skipped += 1
+                continue
 
         profiles, profile_path = _load_profile_map(portfolio_id)
         if profiles is None:
@@ -199,7 +189,6 @@ def reconcile(df_ledger, target_portfolios=None):
 
         df_ledger.loc[mask, "deployed_profile"] = profile_name
         df_ledger.loc[mask, LEDGER_PNL_COL] = realized
-        df_ledger.loc[mask, "realized_pnl_usd"] = realized
         df_ledger.loc[mask, "trades_accepted"] = accepted
         df_ledger.loc[mask, "trades_rejected"] = rejected
         df_ledger.loc[mask, "rejection_rate_pct"] = rejection_rate

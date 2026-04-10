@@ -317,6 +317,21 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
         expectancy = portfolio_df['pnl_usd'].mean()
     else:
         expectancy = 0.0
+
+    # Portfolio SQN — computed from combined R-multiples of all constituent trades.
+    # SQN = sqrt(N) * mean(R) / stdev(R, ddof=1)   [Van Tharp]
+    # Edge Quality = mean(R) / stdev(R) — SQN without sqrt(N), comparable across portfolio sizes.
+    sqn = 0.0
+    edge_quality = 0.0
+    if 'r_multiple' in portfolio_df.columns:
+        r_vals = portfolio_df['r_multiple'].dropna()
+        n_r = len(r_vals)
+        if n_r >= 2:
+            r_std = r_vals.std(ddof=1)
+            if r_std > 0:
+                r_mean = r_vals.mean()
+                sqn = round(math.sqrt(n_r) * r_mean / r_std, 4)
+                edge_quality = round(r_mean / r_std, 4)
     # ------------------------------------------------------------------
 
     return {
@@ -340,7 +355,9 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
         'profit_factor': profit_factor,
         'expectancy': expectancy,
         'gross_profit': gross_profit,
-        'gross_loss': gross_loss
+        'gross_loss': gross_loss,
+        'sqn': sqn,
+        'edge_quality': edge_quality,
     }
 
 
@@ -1524,7 +1541,6 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
 
         # Deployed Profile
         "deployed_profile",
-        "realized_pnl_usd",
         "trades_accepted",
         "trades_rejected",
         "rejection_rate_pct",
@@ -1539,35 +1555,30 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "max_concurrent",
         "p95_concurrent",
         "dd_max_concurrent",
-        "full_load_cluster",
     ]
 
-    # Multi-asset: add correlation columns
+    # Multi-asset: edge_quality (not sqn) + correlation columns
     _MULTI_ASSET_TAIL = [
+        "edge_quality",
+        "full_load_cluster",
         "avg_pairwise_corr",
         "max_pairwise_corr_stress",
         "portfolio_net_profit_low_vol",
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
-        "signal_timeframes",
         "parsed_fields",
         "portfolio_engine_version",
         "creation_timestamp",
         "constituent_run_ids",
     ]
 
-    # Single-asset: drop correlation, add regime-aware + n_strategies
+    # Single-asset: sqn (not edge_quality), n_strategies
     _SINGLE_ASSET_TAIL = [
+        "sqn",
         "n_strategies",
-        "readable_alias",
-        "regime_gate_enabled",
-        "activation_rate_pct",
-        "regime_blocked_trades",
-        "blocked_pnl_raw",
         "portfolio_net_profit_low_vol",
         "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol",
-        "signal_timeframes",
         "parsed_fields",
         "portfolio_engine_version",
         "creation_timestamp",
@@ -1609,7 +1620,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
 
     # Column migration for existing sheets.
     # Fix renamed headers left by old formatter (sharpe (ann.) → sharpe, etc.)
-    _HEADER_FIXUPS = {"sharpe (ann.)": "sharpe", "k_ratio (log)": "equity_stability_k_ratio"}
+    _HEADER_FIXUPS = {"sharpe (ann.)": "sharpe", "k_ratio (log)": "equity_stability_k_ratio",
+                      "realized_pnl_usd": "edge_quality" if not is_single_asset else "sqn"}
     for old_name, canonical in _HEADER_FIXUPS.items():
         if old_name in df_ledger.columns and canonical not in df_ledger.columns:
             df_ledger.rename(columns={old_name: canonical}, inplace=True)
@@ -1628,7 +1640,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     # Recompute portfolio_status for ALL rows (expectancy gate may reclassify existing rows)
     df_ledger["portfolio_status"] = df_ledger.apply(
         lambda row: _compute_portfolio_status(
-            row.get("realized_pnl", row.get("realized_pnl_usd", 0.0)),
+            row.get("realized_pnl", 0.0),
             row.get("trades_accepted", row.get("total_accepted", 0)),
             row.get("rejection_rate_pct", 0.0),
             expectancy=row.get("expectancy", 0.0),
@@ -1641,7 +1653,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     # Previous bug: only the NEW row got a fresh profile selection; existing rows
     # kept stale values from the version of the algorithm that originally wrote them.
     # Now we re-run the full selection algorithm (including persistence) for every row.
-    _profile_fields = ["deployed_profile", "realized_pnl_usd", "trades_accepted",
+    _profile_fields = ["deployed_profile", "trades_accepted",
                        "trades_rejected", "rejection_rate_pct", "realized_vs_theoretical_pnl"]
     _recomputed = 0
     for idx in df_ledger.index:
@@ -1652,12 +1664,10 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         if dep is None or dep.get("profile_name") is None:
             # No valid profile — clear stale values
             df_ledger.at[idx, "deployed_profile"] = None
-            df_ledger.at[idx, "realized_pnl_usd"] = df_ledger.at[idx, "realized_pnl"]
             df_ledger.at[idx, "realized_vs_theoretical_pnl"] = 0.0
             continue
         df_ledger.at[idx, "deployed_profile"] = dep["profile_name"]
         df_ledger.at[idx, "realized_pnl"] = dep["realized_pnl"]
-        df_ledger.at[idx, "realized_pnl_usd"] = dep["realized_pnl"]
         df_ledger.at[idx, "trades_accepted"] = dep["trades_accepted"]
         df_ledger.at[idx, "trades_rejected"] = dep["trades_rejected"]
         df_ledger.at[idx, "rejection_rate_pct"] = dep["rejection_rate_pct"]
@@ -1702,12 +1712,14 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "creation_timestamp": datetime.utcnow().isoformat(),
         "constituent_run_ids": run_ids_str,
         "source_strategy": strategy_id,
-        "reference_capital_usd": metrics["total_capital"],
+        # OWNER: Step 7 only. All other steps read-only.
+        # Effective capital = max concurrent positions × $1,000 per asset.
+        "reference_capital_usd": concurrency_data["max_concurrent"] * 1000,
         "portfolio_status": portfolio_status,
         "theoretical_pnl": theoretical_pnl,
         "realized_pnl": realized_pnl,
         "sharpe": metrics["sharpe"],
-        "max_dd_pct": metrics["max_dd_pct"],
+        "max_dd_pct": metrics["max_dd_pct"] * 100,  # convert fraction to percentage
         "return_dd_ratio": metrics["return_dd_ratio"],
         "peak_capital_deployed": metrics.get("peak_capital_deployed", 0.0),
         "capital_overextension_ratio": metrics.get("capital_overextension_ratio", 0.0),
@@ -1733,7 +1745,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "exposure_pct": metrics.get("exposure_pct", 0.0),
         "equity_stability_k_ratio": metrics.get("equity_stability_k_ratio", 0.0),
         "deployed_profile": deployed_profile,
-        "realized_pnl_usd": realized_pnl,
+        "sqn": metrics.get("sqn", 0.0),
+        "edge_quality": metrics.get("edge_quality", 0.0),
         "trades_accepted": trades_accepted,
         "trades_rejected": trades_rejected,
         "rejection_rate_pct": rejection_rate_pct,

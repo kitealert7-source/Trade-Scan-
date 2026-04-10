@@ -7,6 +7,7 @@ Usage:
 """
 
 import sys
+import hashlib
 import json
 import argparse
 import subprocess
@@ -28,7 +29,6 @@ PROFILE_COLUMNS = [
     "deployed_profile",
     "theoretical_pnl",
     "realized_pnl",
-    "realized_pnl_usd",
     "trades_accepted",
     "trades_rejected",
     "rejection_rate_pct",
@@ -53,18 +53,23 @@ def _profile_return_dd(metrics):
     return realized / max_dd
 
 
+def _file_hash(path):
+    """SHA-256 of file contents (fast, deterministic)."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def load_profile_comparison(strategy_id):
-    """Load profile_comparison.json and return profile map."""
+    """Load profile_comparison.json and return profile map.
+
+    Pure read — no disk mutation.  ``post_process_capital`` is intentionally
+    NOT called here; it is a separate pipeline step that enriches the JSON
+    *once* after capital-wrapper finishes, not on every read.
+    """
     path = STRATEGIES_ROOT / strategy_id / "deployable" / "profile_comparison.json"
     if not path.exists():
         return None, path
 
-    # Post-process to inject real capital metrics dynamically
-    try:
-        from tools.post_process_capital import process_profile_comparison
-        process_profile_comparison(strategy_id)
-    except Exception as e:
-        print(f"  [WARN] Failed to post-process real metrics for {strategy_id}: {e}")
+    hash_before = _file_hash(path)
 
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -77,6 +82,12 @@ def load_profile_comparison(strategy_id):
         print(f"  [WARN] Invalid schema in {path}: missing non-empty 'profiles'.")
         return None, path
 
+    # Determinism guard: file must not have been mutated during read.
+    hash_after = _file_hash(path)
+    if hash_before != hash_after:
+        print(f"  [ERROR] NON_DETERMINISTIC_INPUT_DETECTED: {path.name} "
+              f"was mutated during load for {strategy_id}")
+
     return profiles, path
 
 
@@ -85,6 +96,9 @@ def select_deployed_profile(profiles, preferred_name=None):
     Resolve deployed profile:
       1) Best Return/DD from profile comparison.
     """
+    # CRITICAL INVARIANT:
+    # This function must remain deterministic.
+    # Do not introduce any file mutation or dynamic post-processing here.
     best_name = None
     best_metrics = None
     best_key = (-float("inf"), -float("inf"), "")
@@ -176,9 +190,16 @@ def enrich_ledger_row(strategy_id, df_ledger):
             return df_ledger
         print(f"  [FALLBACK] No Step 7 profile found — selected {profile_name} via fallback ({source})")
 
+    # Invariant: selected profile must exist in profile_comparison.json.
+    # Catches stale references, deleted/renamed profiles, legacy leakage.
     profile_metrics = profiles.get(profile_name)
     if profile_metrics is None or not isinstance(profile_metrics, dict):
-        print(f"  [SKIP] Profile '{profile_name}' not found in profile_comparison.json")
+        available = sorted(k for k, v in profiles.items() if isinstance(v, dict))
+        print(f"  [INVARIANT VIOLATION] deployed_profile '{profile_name}' not found in "
+              f"profile_comparison.json for {strategy_id}")
+        print(f"  [INVARIANT VIOLATION] Available profiles: {available}")
+        if "portfolio_status" in df_ledger.columns:
+            df_ledger.loc[mask, "portfolio_status"] = PORTFOLIO_PROFILE_UNRESOLVED
         return df_ledger
 
     realized = round(_safe_float(profile_metrics.get("realized_pnl"), 0.0), 2)
@@ -197,7 +218,6 @@ def enrich_ledger_row(strategy_id, df_ledger):
 
     df_ledger.loc[mask, "deployed_profile"] = profile_name
     df_ledger.loc[mask, LEDGER_PNL_COL] = realized
-    df_ledger.loc[mask, "realized_pnl_usd"] = realized
     df_ledger.loc[mask, "trades_accepted"] = accepted
     df_ledger.loc[mask, "trades_rejected"] = rejected
     df_ledger.loc[mask, "rejection_rate_pct"] = rejection_rate
@@ -214,18 +234,7 @@ def enrich_ledger_row(strategy_id, df_ledger):
     if old_status != new_status:
         print(f"  [STATUS] {old_status} -> {new_status}")
 
-    # --- Fix 2: Update reference_capital_usd from deployed profile ---
-    # effective_capital = max_concurrent_trades × $1,000 per asset.
-    # This is the real capital footprint, not the $10,000 simulation pool.
-    effective_capital = _safe_float(profile_metrics.get("effective_capital"), 0.0)
-    if effective_capital <= 0:
-        # Fallback: check capital_insights block
-        effective_capital = _safe_float(
-            profile_metrics.get("capital_insights", {}).get("effective_capital", 0.0),
-            0.0,
-        )
-    if effective_capital > 0 and "reference_capital_usd" in df_ledger.columns:
-        df_ledger.loc[mask, "reference_capital_usd"] = effective_capital
+    # reference_capital_usd: OWNED BY Step 7 — do not overwrite here.
 
     # --- Fix 3: Recompute profile_trade_density with actual rejection rate ---
     # Stage-4 computes this before capital wrapper, so rejection_rate is None.
@@ -262,7 +271,8 @@ COLUMN_ORDER = [
     "equity_stability_k_ratio",
 
     "deployed_profile",
-    "realized_pnl_usd",
+    "edge_quality",
+    "sqn",
     "trades_accepted",
     "trades_rejected",
     "rejection_rate_pct",
@@ -284,7 +294,6 @@ COLUMN_ORDER = [
     "portfolio_net_profit_normal_vol",
     "portfolio_net_profit_high_vol",
 
-    "signal_timeframes",
     "evaluation_timeframe",
     "portfolio_engine_version",
     "creation_timestamp",
@@ -397,6 +406,14 @@ def main():
         )
     except subprocess.CalledProcessError as e:
         print(f"[WARN] Notes update failed: {e}")
+
+    # End-of-run visibility: count unresolved rows across all sheets.
+    unresolved = 0
+    for s, df in sheet_dfs.items():
+        if "portfolio_status" in df.columns:
+            unresolved += (df["portfolio_status"].astype(str) == "PROFILE_UNRESOLVED").sum()
+    if unresolved > 0:
+        print(f"[WARNING] UNRESOLVED_PROFILES: {unresolved}")
 
     print("[DONE] Profile selection complete.")
 

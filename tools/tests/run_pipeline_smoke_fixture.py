@@ -225,7 +225,7 @@ def _validate_pipeline_result(fixture_id: str) -> None:
         "reference_capital_usd",
         "theoretical_pnl",
         "realized_pnl",
-        "realized_pnl_usd",
+        "edge_quality",
         "deployed_profile",
         "trades_accepted",
         "trades_rejected",
@@ -234,8 +234,8 @@ def _validate_pipeline_result(fixture_id: str) -> None:
     if missing:
         raise RuntimeError(f"Portfolio ledger missing required columns: {missing}")
 
-    if pd.isna(row["realized_pnl"]) or pd.isna(row["realized_pnl_usd"]):
-        raise RuntimeError("realized_pnl / realized_pnl_usd not populated by smoke run.")
+    if pd.isna(row["realized_pnl"]) or pd.isna(row["edge_quality"]):
+        raise RuntimeError("realized_pnl / edge_quality not populated by smoke run.")
     if pd.isna(row["theoretical_pnl"]):
         raise RuntimeError("theoretical_pnl not populated by smoke run.")
     if pd.isna(row["deployed_profile"]):

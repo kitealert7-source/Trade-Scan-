@@ -412,7 +412,7 @@ def main():
         "portfolio_id": portfolio_id,
         "creation_timestamp_utc": datetime.utcnow().isoformat(),
         "constituent_run_ids": run_ids,
-        "reference_capital_usd": reference_capital,
+        "run_capital_usd": reference_capital,
         "capital_per_run_usd": CAPITAL_PER_RUN_USD,
         "capital_model_version": CAPITAL_MODEL_VERSION,
         "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
@@ -528,7 +528,9 @@ def main():
         "creation_timestamp": metadata["creation_timestamp_utc"],
         "constituent_run_ids": ",".join(run_ids),
         "source_strategy": "AGGREGATED",
-        "reference_capital_usd": reference_capital,
+        # reference_capital_usd: OWNED BY Step 7 (max_concurrent × $1,000).
+        # v3 engine honours the same convention.
+        "reference_capital_usd": summary["max_concurrent"] * 1000,
         "realized_pnl": summary["realized_pnl"],
         "sharpe": summary["sharpe"],
         "max_dd_pct": summary["max_dd_pct"],

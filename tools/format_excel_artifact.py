@@ -113,6 +113,7 @@ FORMAT_MAP = {
     "profit_factor": FMT_FLOAT,
     "total_trades": FMT_INT,
     "sqn": FMT_FLOAT,
+    "edge_quality": FMT_FLOAT,
     "trade_density": FMT_INT,
     "profile_trade_density": FMT_INT,
     "winning_trades": FMT_INT,
@@ -123,7 +124,6 @@ FORMAT_MAP = {
     "consecutive_losses": FMT_INT,
 
     # Profile Selector (Step 12) — Master Portfolio Sheet
-    "realized_pnl_usd": FMT_CURRENCY,
     "trades_accepted": FMT_INT,
     "trades_rejected": FMT_INT,
     "rejection_rate_pct": FMT_PCT_RAW,
@@ -169,7 +169,6 @@ HIDDEN_COLS = {
 
 # Columns with short text values — override text width logic to be data-driven (universal)
 NARROW_TEXT_COLS = {
-    "signal_timeframes",
     "portfolio_engine_version",
     "timeframe",
 }
@@ -187,7 +186,7 @@ COLUMN_WIDTH_OVERRIDES = {
 # Applied as Excel Data Validation (dropdown) on all data rows
 DROPDOWN_COLS = {
     "in_portfolio": ["True", "False"],
-    "candidate_status": ["CORE", "WATCH", "FAIL", "BURN_IN"],
+    "candidate_status": ["CORE", "WATCH", "FAIL", "BURN_IN", "RBIN"],
 }
 
 # Strategy Master Filter — Preferred Column Order
@@ -259,7 +258,7 @@ PORTFOLIO_COLUMN_ORDER = [
     "exposure_pct",
     "equity_stability_k_ratio",
     "deployed_profile",
-    "realized_pnl_usd",
+    "edge_quality",
     "trades_accepted",
     "trades_rejected",
     "rejection_rate_pct",
@@ -276,7 +275,6 @@ PORTFOLIO_COLUMN_ORDER = [
     "portfolio_net_profit_low_vol",
     "portfolio_net_profit_normal_vol",
     "portfolio_net_profit_high_vol",
-    "signal_timeframes",
     "parsed_fields",
     "portfolio_engine_version",
     "creation_timestamp",
@@ -284,8 +282,8 @@ PORTFOLIO_COLUMN_ORDER = [
 ]
 
 # Single-asset ("Single-Asset Composites" tab)
-# Drops correlation columns (meaningless for single asset).
-# Adds regime-aware metrics + n_strategies.
+# Drops correlation, regime-gate, and full_load columns (meaningless for single asset).
+# Adds n_strategies.
 SINGLE_ASSET_COLUMN_ORDER = [
     "portfolio_id",
     "source_strategy",
@@ -306,7 +304,7 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "exposure_pct",
     "equity_stability_k_ratio",
     "deployed_profile",
-    "realized_pnl_usd",
+    "sqn",
     "trades_accepted",
     "trades_rejected",
     "rejection_rate_pct",
@@ -317,16 +315,9 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "max_concurrent",
     "p95_concurrent",
     "dd_max_concurrent",
-    "full_load_cluster",
-    "readable_alias",
-    "regime_gate_enabled",
-    "activation_rate_pct",
-    "regime_blocked_trades",
-    "blocked_pnl_raw",
     "portfolio_net_profit_low_vol",
     "portfolio_net_profit_normal_vol",
     "portfolio_net_profit_high_vol",
-    "signal_timeframes",
     "parsed_fields",
     "portfolio_engine_version",
     "creation_timestamp",
@@ -679,6 +670,39 @@ def apply_formatting(file_path, profile):
                 ns.cell(row=1, column=1).font = Font(bold=True)
                 ns.column_dimensions["A"].width = 120
 
+        # ── Hyperlink restoration ──────────────────────────────────────────
+        # Applied here (last openpyxl step) so hyperlinks survive any upstream
+        # pandas rewrite.  Config: column_name → link_prefix (relative to file).
+        _HYPERLINK_MAP = {
+            "Filtered_Strategies_Passed": {"strategy": "../backtests/"},
+            "Master_Portfolio_Sheet":     {"portfolio_id": ""},
+        }
+        _LINK_FONT = Font(color="0563C1", underline="single")
+        _file_stem = Path(path).stem
+        _hl_conf = _HYPERLINK_MAP.get(_file_stem, {})
+        if _hl_conf:
+            _ws = wb[wb.sheetnames[0]]  # always the data sheet
+            _max_row = _ws.max_row or 1
+            _max_col = _ws.max_column or 1
+            # Build header map for this sheet
+            _hdr = {str(_ws.cell(row=1, column=c).value or "").strip(): c
+                    for c in range(1, _max_col + 1)}
+            for _hl_col_name, _hl_prefix in _hl_conf.items():
+                _hl_col_idx = _hdr.get(_hl_col_name)
+                if _hl_col_idx is None:
+                    continue
+                _hl_count = 0
+                for _r in range(2, _max_row + 1):
+                    _cell = _ws.cell(row=_r, column=_hl_col_idx)
+                    _val = str(_cell.value or "").strip()
+                    if not _val:
+                        continue
+                    _cell.hyperlink = f"{_hl_prefix}{_val}/"
+                    _cell.font = _LINK_FONT
+                    _hl_count += 1
+                if _hl_count:
+                    print(f"    [HYPERLINKS] {_hl_col_name}: {_hl_count} links applied")
+
         wb.save(path)
         print("[SUCCESS] Formatting complete.")
         
@@ -836,6 +860,9 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
             ("BURN_IN",
              "Present in TS_Execution/portfolio.yaml with enabled=true — overrides computed status. "
              "BURN_IN promotion thresholds: FX >= $0.25  |  XAU >= $0.80  |  BTC >= $0.80  |  INDEX >= $0.80"),
+            ("RBIN",
+             "Removed from Burn-In. Strategy entered live burn-in but failed the Edge Quality Gate "
+             "(Section 18 robustness suite). Reverted to research pool for rework."),
         ]:
             _w(r, 1, cls, bold); _w(r, 2, rule, normal); r += 1
 
@@ -889,8 +916,11 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
                                   "broker min_lot (0.01) x contract_size. This normalizes all strategies "
                                   "to the same position size for apples-to-apples comparison. "
                                   "Deployed lot sizes (risk-based) produce proportionally larger PnL."),
+            ("sqn",              "System Quality Number: sqrt(N) × mean(R) / stdev(R, ddof=1). "
+                                  "Van Tharp metric for individual trading systems. "
+                                  "Thresholds: <1.5 FAIL, 1.5–2.5 WATCH, ≥2.5 required for CORE."),
             ("IN_PORTFOLIO",     "True if strategy is active in TS_Execution/portfolio.yaml"),
-            ("candidate_status", "CORE / WATCH / FAIL / BURN_IN — see Section 3"),
+            ("candidate_status", "CORE / WATCH / FAIL / BURN_IN / RBIN — see Section 3"),
         ]
     else:
         glossary = [
@@ -906,24 +936,25 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
             ("sharpe",                      "Portfolio-level Sharpe ratio"),
             ("max_dd_pct",                  "Maximum portfolio drawdown as positive percentage"),
             ("return_dd_ratio",             "Realized PnL / max drawdown"),
+            ("edge_quality",                "mean(R) / stdev(R) — edge consistency metric for portfolios. "
+                                            "Unlike SQN, omits sqrt(N) so portfolios with different trade "
+                                            "counts are directly comparable. "
+                                            "Thresholds: <0.05 weak (edge ≈ noise), 0.05–0.10 moderate, "
+                                            "0.10–0.15 good, >0.15 strong. "
+                                            "Values >0.25 with low trade counts may indicate overfitting."),
+            ("sqn",                         "System Quality Number: sqrt(N) × mean(R) / stdev(R, ddof=1). "
+                                            "Van Tharp metric for individual trading systems. "
+                                            "Thresholds: <1.6 poor, 1.6–2.0 average, 2.0–3.0 good, >3.0 excellent. "
+                                            "Single-Asset tab only — see edge_quality for Portfolios tab."),
             ("rejection_rate_pct",          "Percentage of trades rejected by leverage/heat cap"),
             ("avg_concurrent",              "Average number of simultaneously open positions"),
             ("max_concurrent",              "Peak simultaneous open positions"),
             ("avg_pairwise_corr",           "Average correlation between constituent strategy equity curves"),
-            ("signal_timeframes",           "Strategy signal timeframe in MT5 notation "
-                                            "(M1, M5, M15, M30, H1, H4, D1, W1). "
-                                            "Pipe-separated for multi-TF composites (e.g. H1|M15)."),
             ("portfolio_status",            "CORE / WATCH / FAIL — see Section 3"),
             ("parsed_fields",               "JSON decomposition of portfolio_id tokens "
                                             "(idea_id, family, symbol, timeframe, model, filter, sweep, "
                                             "variant, param_set, asset_class). Hidden column."),
             ("n_strategies",                "Number of constituent strategies (Single-Asset tab only)"),
-            ("readable_alias",              "Human-readable label for PF_ composites "
-                                            "(e.g. XAUUSD_6S_H1). Single-Asset tab only."),
-            ("regime_gate_enabled",         "Whether Strategy Activation System regime gate was active"),
-            ("activation_rate_pct",         "% of signals that passed regime gate (pre-capital)"),
-            ("regime_blocked_trades",       "Number of signals blocked by regime gate"),
-            ("blocked_pnl_raw",             "Raw PnL of blocked trades (negative = destructive trades removed)"),
         ]
 
     for col_name, definition in glossary:

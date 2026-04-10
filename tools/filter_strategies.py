@@ -47,10 +47,11 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     """
     Deterministic classification for candidate ledger rows:
       BURN_IN : strategy is in TS_Execution/portfolio.yaml (enabled=true)
-      FAIL    : total_trades < 50 OR max_dd_pct > 40
+      FAIL    : total_trades < 50 OR max_dd_pct > 40 OR sqn < 1.5
                 OR expectancy below asset-class FAIL gate
       CORE    : total_trades >= 200 AND return_dd_ratio >= 2.0 AND sharpe_ratio >= 1.5
-                AND max_dd_pct <= 30 AND trade_density >= 50 AND profit_factor >= 1.25
+                AND sqn >= 2.5 AND max_dd_pct <= 30 AND trade_density >= 50
+                AND profit_factor >= 1.25
       WATCH   : otherwise
 
     Expectancy gates (logic-driven, calibrated 2026-04-07):
@@ -75,6 +76,7 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     max_dd_pct = pd.to_numeric(df.get("max_dd_pct"), errors="coerce").fillna(float("inf"))
     return_dd_ratio = pd.to_numeric(df.get("return_dd_ratio"), errors="coerce").fillna(float("-inf"))
     sharpe_ratio = pd.to_numeric(df.get("sharpe_ratio"), errors="coerce").fillna(float("-inf"))
+    sqn = pd.to_numeric(df.get("sqn"), errors="coerce").fillna(0.0)
 
     profit_factor = pd.to_numeric(df.get("profit_factor"), errors="coerce").fillna(float("-inf"))
     trade_density = pd.to_numeric(df.get("trade_density"), errors="coerce").fillna(0.0)
@@ -101,11 +103,13 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     btc_exp_fail = is_btc   & (expectancy < EXP_FAIL_GATES["BTC"])
     idx_exp_fail = is_index & (expectancy < EXP_FAIL_GATES["INDEX"])
     fail_mask = fail_mask | fx_exp_fail | xau_exp_fail | btc_exp_fail | idx_exp_fail
+    fail_mask = fail_mask | (sqn < 1.5)
 
     core_mask = (
         (total_trades >= 200)
         & (return_dd_ratio >= 2.0)
         & (sharpe_ratio >= 1.5)
+        & (sqn >= 2.5)
         & (max_dd_pct <= 30.0)
         & (trade_density >= 50.0)
         & (profit_factor >= 1.25)
@@ -276,8 +280,22 @@ def filter_strategies():
             else:
                 df_merged = passed_df
 
+            # Preserve manually-set RBIN (Removed from Burn-In) status — these rows
+            # were flagged by human review and should not revert to computed status.
+            _rbin_ids = set()
+            if "candidate_status" in df_merged.columns:
+                _rbin_mask = df_merged["candidate_status"] == "RBIN"
+                if _rbin_mask.any() and "run_id" in df_merged.columns:
+                    _rbin_ids = set(df_merged.loc[_rbin_mask, "run_id"].astype(str))
+
             # Deterministic classification-only field; no filtering side effects.
             df_merged = _apply_candidate_status(df_merged)
+
+            # Restore RBIN where it was set before recomputation.
+            if _rbin_ids and "run_id" in df_merged.columns:
+                restore_mask = df_merged["run_id"].astype(str).isin(_rbin_ids)
+                df_merged.loc[restore_mask, "candidate_status"] = "RBIN"
+                print(f"[CANDIDATES] Preserved RBIN status for {restore_mask.sum()} row(s)")
 
             # Compute asset_class column for easy Excel filtering (FX, XAU, INDEX, BTC, etc.)
             if "symbol" in df_merged.columns:
