@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timezone
 import json
 from tools.pipeline_utils import get_engine_version
+from tools.news_calendar import load_news_calendar, derive_currencies
 
 # Session boundaries (UTC hours) — mirrored from stage2_compiler.py
 _ASIA_START, _ASIA_END = 0, 8
@@ -359,6 +360,386 @@ def _derive_insights(all_trades_dfs, risk_data_list, portfolio_pnl, portfolio_tr
             insights.append(f"Marginal edge (PF {port_pf:.2f}) — decompose by direction and regime before iterating")
 
     return insights
+
+
+# ---------------------------------------------------------------------------
+# News Policy Impact — report section helpers
+# ---------------------------------------------------------------------------
+
+_NEWS_MIN_TRADES = 10
+
+
+def _load_ohlc_for_symbol(symbol: str, timeframe: str, data_root: Path):
+    """Load OHLC data for *symbol* at *timeframe* from MASTER_DATA.
+
+    Returns a datetime-indexed DataFrame with at least 'close', or None.
+    """
+    tf_lower = timeframe.lower()
+    master_dir = (
+        data_root / "MASTER_DATA"
+        / f"{symbol}_OCTAFX_MASTER" / "RESEARCH"
+    )
+    if not master_dir.exists():
+        return None
+
+    pattern = f"{symbol}_OCTAFX_{tf_lower}_*_RESEARCH.csv"
+    files = sorted(master_dir.glob(pattern))
+    if not files:
+        return None
+
+    frames = []
+    for f in files:
+        try:
+            chunk = pd.read_csv(f, comment='#', encoding='utf-8')
+            if len(chunk) > 0 and 'time' in chunk.columns:
+                frames.append(chunk)
+        except Exception:
+            continue
+
+    if not frames:
+        return None
+
+    ohlc = pd.concat(frames, ignore_index=True)
+    ohlc['time'] = pd.to_datetime(ohlc['time'], errors='coerce', utc=True)
+    ohlc = ohlc.dropna(subset=['time'])
+    ohlc = ohlc.sort_values('time').drop_duplicates(subset=['time'], keep='last')
+    ohlc = ohlc.set_index('time')
+    return ohlc
+
+
+def _get_price_at(ohlc_df, target_dt):
+    """Return close of the last OHLC bar at or before *target_dt*, or None."""
+    if ohlc_df is None or len(ohlc_df) == 0:
+        return None
+    mask = ohlc_df.index <= target_dt
+    if not mask.any():
+        return None
+    return float(ohlc_df.loc[mask, 'close'].iloc[-1])
+
+
+def _news_pf(series):
+    """Profit factor from a pnl_usd Series."""
+    gp = float(series[series > 0].sum())
+    gl = abs(float(series[series < 0].sum()))
+    if gl == 0:
+        return gp if gp > 0 else 0.0
+    return gp / gl
+
+
+def _classify_all_trades_news(df, windows_by_currency, symbol_currencies):
+    """Classify every trade's relationship to news windows.
+
+    For each symbol, collects all relevant currency windows, then uses
+    vectorised numpy comparisons per trade for speed.
+
+    Returns four Series aligned to *df.index*:
+      news_flag, entry_in_window, straddles, earliest_window_start
+    """
+    n = len(df)
+    news_flag = pd.Series(False, index=df.index)
+    entry_in_window = pd.Series(False, index=df.index)
+    straddles = pd.Series(False, index=df.index)
+    earliest_ws = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns, UTC]')
+
+    for sym in df['symbol'].dropna().unique():
+        sym_str = str(sym)
+        ccys = symbol_currencies.get(sym_str, ['USD'])
+
+        # Collect all windows for this symbol's currencies, deduplicate
+        pairs_set: set = set()
+        for ccy in ccys:
+            wdf = windows_by_currency.get(ccy)
+            if wdf is not None and len(wdf) > 0:
+                for ws, we in zip(wdf['window_start'], wdf['window_end']):
+                    pairs_set.add((ws, we))
+
+        if not pairs_set:
+            continue
+
+        pairs = sorted(pairs_set, key=lambda x: x[0])
+        ws_arr = pd.DatetimeIndex([p[0] for p in pairs])
+        we_arr = pd.DatetimeIndex([p[1] for p in pairs])
+        # Ensure tz-aware (UTC) for comparison with trade timestamps
+        if ws_arr.tz is None:
+            ws_arr = ws_arr.tz_localize('UTC')
+            we_arr = we_arr.tz_localize('UTC')
+
+        sym_mask = df['symbol'] == sym
+        sym_df = df.loc[sym_mask]
+
+        for idx in sym_df.index:
+            entry = df.at[idx, '_entry_dt']
+            exit_ = df.at[idx, '_exit_dt']
+
+            # Vectorised overlap: entry <= window_end AND exit > window_start
+            overlap = (entry <= we_arr) & (exit_ > ws_arr)
+            if not overlap.any():
+                continue
+
+            news_flag.at[idx] = True
+
+            # Entry in window: window_start <= entry <= window_end
+            eiw = (ws_arr <= entry) & (entry <= we_arr)
+            if eiw.any():
+                entry_in_window.at[idx] = True
+
+            # Straddle: entry < window_start < exit
+            strad = (entry < ws_arr) & (exit_ > ws_arr)
+            if strad.any():
+                straddles.at[idx] = True
+                earliest_ws.at[idx] = ws_arr[strad].min()
+
+    return news_flag, entry_in_window, straddles, earliest_ws
+
+
+def _compute_news_metrics(df):
+    """Standard scenario metrics: trades, net_pnl, pf, win_pct, max_dd."""
+    n = len(df)
+    if n == 0:
+        return {'trades': 0, 'net_pnl': 0.0, 'pf': 0.0,
+                'win_pct': 0.0, 'max_dd': 0.0}
+
+    pnl = df['pnl_usd']
+    net = float(pnl.sum())
+    pf = _news_pf(pnl)
+    win_pct = (pnl > 0).mean() * 100
+
+    sorted_df = df.sort_values('_entry_dt')
+    cum = sorted_df['pnl_usd'].cumsum()
+    max_dd = float((cum.cummax() - cum).max())
+
+    return {'trades': n, 'net_pnl': net, 'pf': pf,
+            'win_pct': win_pct, 'max_dd': max_dd}
+
+
+def _build_news_policy_section(all_trades_dfs, timeframe, data_root, calendar_dir):
+    """Build the News Policy Impact markdown section.
+
+    Computes Baseline / No-Entry / Go-Flat scenarios from existing trade
+    logs cross-referenced against real economic calendar data.
+
+    Returns a list of markdown lines to extend into the report body.
+    """
+    md = []
+
+    # --- Load calendar ---
+    cal = load_news_calendar(calendar_dir)
+    if cal is None:
+        md.append("---\n")
+        md.append("## News Policy Impact\n")
+        md.append(f"> News calendar not found at `{calendar_dir}` — section skipped.\n")
+        return md
+
+    windows_df, windows_by_currency = cal
+
+    # --- Validate trade data ---
+    required = {'entry_timestamp', 'exit_timestamp', 'entry_price',
+                'exit_price', 'pnl_usd', 'direction', 'symbol'}
+    valid_dfs = [
+        d for d in all_trades_dfs
+        if required.issubset(d.columns) and len(d) > 0
+    ]
+    if not valid_dfs:
+        return md
+
+    df = pd.concat(valid_dfs, ignore_index=True).copy()
+    df['_entry_dt'] = pd.to_datetime(
+        df['entry_timestamp'], errors='coerce', utc=True
+    )
+    df['_exit_dt'] = pd.to_datetime(
+        df['exit_timestamp'], errors='coerce', utc=True
+    )
+    df = df.dropna(subset=['_entry_dt', '_exit_dt', 'pnl_usd'])
+    df = df.sort_values('_entry_dt').reset_index(drop=True)
+
+    if len(df) < _NEWS_MIN_TRADES:
+        return md
+
+    # --- Classify trades ---
+    sym_ccys = {
+        str(s): derive_currencies(str(s))
+        for s in df['symbol'].dropna().unique()
+    }
+
+    nf, eiw, strad, ews = _classify_all_trades_news(
+        df, windows_by_currency, sym_ccys
+    )
+    df['_news_flag'] = nf
+    df['_entry_in_window'] = eiw
+    df['_straddles'] = strad
+    df['_earliest_ws'] = ews
+
+    # --- Baseline ---
+    baseline = _compute_news_metrics(df)
+
+    # --- No-Entry: drop trades whose entry falls inside any window ---
+    df_no_entry = df[~df['_entry_in_window']].copy()
+    no_entry = _compute_news_metrics(df_no_entry)
+
+    # --- Go-Flat: exit straddlers at earliest window_start ---
+    #     Trades with entry inside window are dropped (would not have entered)
+    ohlc_map: dict = {}
+    if timeframe and timeframe != "Unknown":
+        for sym in df['symbol'].dropna().unique():
+            ohlc = _load_ohlc_for_symbol(str(sym), timeframe, data_root)
+            if ohlc is not None:
+                ohlc_map[str(sym)] = ohlc
+
+    df_go_flat = df[~df['_entry_in_window']].copy()
+
+    for idx in df_go_flat.index[df_go_flat['_straddles']]:
+        row = df_go_flat.loc[idx]
+        sym = str(row['symbol'])
+        ws = row['_earliest_ws']
+
+        ohlc = ohlc_map.get(sym)
+        new_exit_price = _get_price_at(ohlc, ws)
+        if new_exit_price is None:
+            continue  # skip modification — no price available
+
+        entry_price = float(row['entry_price'])
+        exit_price = float(row['exit_price'])
+        direction = int(row['direction'])
+        original_pnl = float(row['pnl_usd'])
+
+        price_delta = (exit_price - entry_price) * direction
+        if abs(price_delta) < 1e-10:
+            new_pnl = 0.0
+        else:
+            pnl_scale = original_pnl / price_delta
+            new_pnl = pnl_scale * (new_exit_price - entry_price) * direction
+
+        df_go_flat.at[idx, 'pnl_usd'] = new_pnl
+
+        # Best-effort r_multiple update
+        if 'r_multiple' in df_go_flat.columns:
+            r = row.get('r_multiple', 0.0)
+            if r and abs(r) > 1e-10:
+                risk_per_trade = original_pnl / r
+                if abs(risk_per_trade) > 1e-10:
+                    df_go_flat.at[idx, 'r_multiple'] = new_pnl / risk_per_trade
+
+    go_flat = _compute_news_metrics(df_go_flat)
+
+    # ===================== Build markdown =====================
+    md.append("---\n")
+    md.append("## News Policy Impact\n")
+
+    # --- 1. Portfolio Impact table ---
+    md.append("### Portfolio Impact\n")
+    md.append("| Policy | Trades | Net PnL | PF | Win % | Max DD |")
+    md.append("|--------|--------|---------|-----|-------|--------|")
+
+    for label, m in [("Baseline", baseline),
+                     ("No-Entry", no_entry),
+                     ("Go-Flat", go_flat)]:
+        pf_s = f"{m['pf']:.2f}" if m['pf'] != float('inf') else "∞"
+        if label != "Baseline" and m['trades'] < _NEWS_MIN_TRADES:
+            md.append(
+                f"| {label} | {m['trades']} | — | — | — | — |"
+            )
+        else:
+            md.append(
+                f"| {label} | {m['trades']} | ${m['net_pnl']:,.2f} "
+                f"| {pf_s} | {m['win_pct']:.1f}% | ${m['max_dd']:,.2f} |"
+            )
+    md.append("")
+
+    # --- 2. Per-Symbol News Sensitivity ---
+    symbols = sorted(df['symbol'].dropna().unique(), key=str)
+    if symbols:
+        md.append("### Per-Symbol News Sensitivity\n")
+        md.append(
+            "| Symbol | Trades (News) | PF (News) | PF (Outside) | Impact |"
+        )
+        md.append(
+            "|--------|--------------|-----------|--------------|--------|"
+        )
+        for sym in symbols:
+            sym_df = df[df['symbol'] == sym]
+            news_sub = sym_df[sym_df['_news_flag']]
+            outside_sub = sym_df[~sym_df['_news_flag']]
+            n_news = len(news_sub)
+
+            if n_news == 0:
+                md.append(f"| {sym} | 0 | — | — | — |")
+                continue
+
+            pf_n = _news_pf(news_sub['pnl_usd'])
+            pf_o = _news_pf(outside_sub['pnl_usd']) if len(outside_sub) > 0 else 0.0
+
+            if abs(pf_n - pf_o) < 0.1:
+                impact = "Neutral"
+            elif pf_n < pf_o:
+                impact = "Hurts"
+            else:
+                impact = "Helps"
+
+            pf_n_s = f"{pf_n:.2f}" if pf_n != float('inf') else "∞"
+            pf_o_s = f"{pf_o:.2f}" if pf_o != float('inf') else "∞"
+            md.append(
+                f"| {sym} | {n_news} | {pf_n_s} | {pf_o_s} | {impact} |"
+            )
+        md.append("")
+
+    # --- 3. News vs Non-News Performance (Aggregate) ---
+    news_agg = df[df['_news_flag']]
+    outside_agg = df[~df['_news_flag']]
+
+    md.append("### News vs Non-News Performance (Aggregate)\n")
+    md.append("| Segment | Trades | Net PnL | PF | Avg R |")
+    md.append("|---------|--------|---------|-----|-------|")
+
+    for label, sub in [("News Window", news_agg), ("Outside", outside_agg)]:
+        cnt = len(sub)
+        if cnt == 0:
+            md.append(f"| {label} | 0 | — | — | — |")
+            continue
+        pnl = sub['pnl_usd'].sum()
+        pf = _news_pf(sub['pnl_usd'])
+        pf_s = f"{pf:.2f}" if pf != float('inf') else "∞"
+        avg_r = (
+            f"{sub['r_multiple'].mean():+.3f}"
+            if 'r_multiple' in sub.columns else "N/A"
+        )
+        md.append(
+            f"| {label} | {cnt} | ${pnl:,.2f} | {pf_s} | {avg_r} |"
+        )
+    md.append("")
+
+    # --- 4. Minimal interpretation (max 2-3 lines) ---
+    if len(news_agg) > 0 and len(outside_agg) > 0:
+        pf_n = _news_pf(news_agg['pnl_usd'])
+        pf_o = _news_pf(outside_agg['pnl_usd'])
+        pf_n_s = f"{pf_n:.2f}" if pf_n != float('inf') else "∞"
+        pf_o_s = f"{pf_o:.2f}" if pf_o != float('inf') else "∞"
+        md.append(f"- News PF: {pf_n_s} vs Outside PF: {pf_o_s}")
+
+        affected = []
+        for sym in symbols:
+            sym_df = df[df['symbol'] == sym]
+            nw = sym_df[sym_df['_news_flag']]
+            out = sym_df[~sym_df['_news_flag']]
+            if len(nw) < 5 or len(out) < 5:
+                continue
+            pf_ns = _news_pf(nw['pnl_usd'])
+            pf_os = _news_pf(out['pnl_usd'])
+            diff = pf_ns - pf_os
+            if diff > 0.1:
+                affected.append(f"{sym} (helps)")
+            elif diff < -0.1:
+                affected.append(f"{sym} (hurts)")
+        if affected:
+            md.append(f"- Most affected: {', '.join(affected[:4])}")
+    md.append("")
+
+    # --- 5. Required note ---
+    md.append(
+        "> Note: Go-Flat assumes no entries during news windows; "
+        "trades entering within windows are excluded.\n"
+    )
+
+    return md
 
 
 def generate_backtest_report(directive_name: str, backtest_root: Path, *,
@@ -1175,6 +1556,13 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
             md.append("> Insufficient data for Risk Characteristics.\n")
     else:
         md.append("> No trade-level data available for Risk Characteristics.\n")
+
+    # --- News Policy Impact ---
+    _data_root = Path(__file__).resolve().parent.parent / "data_root"
+    _calendar_dir = _data_root / "EXTERNAL_DATA" / "NEWS_CALENDAR" / "RESEARCH"
+    md.extend(_build_news_policy_section(
+        all_trades_dfs, timeframe, _data_root, _calendar_dir
+    ))
 
     # --- Actionable Insights (auto-derived, max 5 bullets) ---
     md.append("---\n")
