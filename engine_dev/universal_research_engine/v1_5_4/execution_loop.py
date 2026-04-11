@@ -182,7 +182,7 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
     try:
         df = apply_regime_model(df)
     except Exception as e:
-        raise RuntimeError(f"Engine Regime Implementation Failed: {e}")
+        raise RuntimeError(f"Engine Regime Implementation Failed: {e}") from e
 
     # ==========================================
 

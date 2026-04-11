@@ -19,11 +19,20 @@ from typing import List
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Fixed dynamic import
+# Dynamic import with explicit boundary checks — fails at load time, not mid-session
 import importlib.util
-spec = importlib.util.spec_from_file_location("execution_loop", Path(__file__).parent / "execution_loop.py")
+_loop_path = Path(__file__).parent / "execution_loop.py"
+if not _loop_path.exists():
+    raise ImportError(f"execution_loop.py not found at {_loop_path}")
+spec = importlib.util.spec_from_file_location("execution_loop", _loop_path)
+if spec is None or spec.loader is None:
+    raise ImportError(f"Could not build module spec for {_loop_path}")
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+if not callable(getattr(mod, "run_execution_loop", None)):
+    raise ImportError(
+        f"run_execution_loop not found or not callable in {_loop_path} — contract violation"
+    )
 run_execution_loop = mod.run_execution_loop
 
 from engines.indicator_warmup_resolver import resolve_strategy_warmup, extract_indicators_from_strategy
