@@ -299,6 +299,23 @@ def _check_single_instance() -> bool:
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+def _is_clean_shutdown() -> bool:
+    """Check if the engine exited with exit_reason=market_halt.
+
+    When the engine shuts down for market close, it writes exit_reason to
+    execution_state.json. The watchdog must respect this — no alerts, no
+    restarts, no bar-stall checks after an intentional shutdown.
+    """
+    if not EXEC_STATE.exists():
+        return False
+    try:
+        with open(EXEC_STATE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d.get("exit_reason") == "market_halt"
+    except Exception:
+        return False
+
+
 def run_watchdog_loop() -> None:
     if _check_single_instance():
         return
@@ -316,6 +333,13 @@ def run_watchdog_loop() -> None:
 
     while True:
         try:
+            # Engine wrote exit_reason=market_halt — skip all checks.
+            # No alerts, no restarts. Watchdog stays alive for Monday auto-start
+            # but does nothing until execution_state.json is overwritten by a new run.
+            if _is_clean_shutdown():
+                _log("MARKET_HALT_IDLE | engine shutdown was intentional — skipping all checks")
+                time.sleep(POLL_INTERVAL_S)
+                continue
             current_run_id = _current_run_id()
             if current_run_id and current_run_id != observed_run_id:
                 if observed_run_id:

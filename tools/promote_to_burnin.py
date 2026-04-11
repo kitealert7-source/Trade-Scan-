@@ -134,6 +134,62 @@ def _detect_timeframe(strategy_id: str, symbols: list[dict]) -> str:
     return "H1"
 
 
+# ── Per-symbol expectancy gate ──────────────────────────────────────────────
+
+def _read_symbol_expectancy(backtest_dir: Path) -> float | None:
+    """Read per-symbol expectancy from results_standard.csv.
+
+    Computes expectancy = net_pnl_usd / trade_count.
+    Returns None if data is unavailable.
+    """
+    csv_path = backtest_dir / "raw" / "results_standard.csv"
+    if not csv_path.exists():
+        return None
+    import csv
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                pnl = float(row.get("net_pnl_usd", 0))
+                trades = int(float(row.get("trade_count", 0)))
+                if trades > 0:
+                    return pnl / trades
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def _filter_symbols_by_expectancy(
+    strategy_id: str,
+    symbols: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Filter multi-symbol list by per-symbol expectancy gate.
+
+    Returns (passed, failed) symbol lists.
+    """
+    asset_class = classify_asset(strategy_id)
+    gate = EXP_FAIL_GATES.get(asset_class, 0.0)
+    if gate <= 0:
+        return symbols, []
+
+    passed = []
+    failed = []
+    for sym_info in symbols:
+        exp = _read_symbol_expectancy(sym_info["backtest_dir"])
+        sym = sym_info["symbol"]
+        if exp is None:
+            print(f"  [WARN] Expectancy unavailable for {sym} — including by default")
+            passed.append(sym_info)
+        elif exp >= gate:
+            print(f"  {sym}: exp=${exp:.4f} >= ${gate:.2f}  PASS")
+            passed.append(sym_info)
+        else:
+            print(f"  {sym}: exp=${exp:.4f} <  ${gate:.2f}  FAIL — excluded from portfolio.yaml")
+            failed.append(sym_info)
+
+    return passed, failed
+
+
 # ── Metrics readers ──────────────────────────────────────────────────────────
 
 def _read_backtest_metrics(strategy_id: str) -> dict:
@@ -295,8 +351,15 @@ def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
 # ── Main promote function ───────────────────────────────────────────────────
 
 def promote(strategy_id: str, profile: str, description: str = "",
-            dry_run: bool = False) -> dict:
+            dry_run: bool = False, symbols_filter: list[str] | None = None,
+            upgrade_legacy: bool = False) -> dict:
     """Promote a strategy: lookup run_id -> vault snapshot -> portfolio.yaml edit.
+
+    Args:
+        symbols_filter: If provided, only include these symbols in portfolio.yaml.
+                        All symbols still go to vault (complete research record).
+        upgrade_legacy: If True, replace existing LEGACY entries in-place
+                        instead of aborting on duplicates.
 
     Returns dict with vault_id, run_id, entries_added, symbols.
     """
@@ -319,28 +382,65 @@ def promote(strategy_id: str, profile: str, description: str = "",
     else:
         entry_ids = [strategy_id]
 
+    _legacy_ids_to_remove = set()  # populated by --upgrade-legacy
     dupes = [eid for eid in entry_ids if eid in existing_ids]
     if dupes:
-        # Report existing vault_id and lifecycle for each duplicate
         strategies = (data.get("portfolio") or {}).get("strategies") or []
+        legacy_dupes = []
+        non_legacy_dupes = []
         for eid in dupes:
             for s in strategies:
                 if s.get("id") == eid:
-                    existing_vault = s.get("vault_id", "none")
-                    existing_lc = s.get("lifecycle", "none")
-                    print(f"[ABORT] Already promoted: {eid}")
-                    print(f"  vault_id:  {existing_vault}")
-                    print(f"  lifecycle: {existing_lc}")
+                    lc = s.get("lifecycle", "none")
+                    if lc == "LEGACY" and upgrade_legacy:
+                        legacy_dupes.append(eid)
+                        print(f"  [UPGRADE] Will replace LEGACY entry: {eid}")
+                    else:
+                        non_legacy_dupes.append(eid)
+                        print(f"[ABORT] Already promoted: {eid}")
+                        print(f"  vault_id:  {s.get('vault_id', 'none')}")
+                        print(f"  lifecycle: {lc}")
                     break
-        print(f"\nTo re-promote, first remove existing entries from portfolio.yaml.")
-        sys.exit(1)
+        if non_legacy_dupes:
+            print(f"\nTo re-promote, first remove existing entries from portfolio.yaml,")
+            print(f"or use --upgrade-legacy if the entries have lifecycle=LEGACY.")
+            sys.exit(1)
+        if legacy_dupes:
+            _legacy_ids_to_remove = set(legacy_dupes)
+            print(f"  Will upgrade {len(legacy_dupes)} LEGACY entries to BURN_IN")
 
     # 3. Validate files exist
     _validate_strategy_files(strategy_id, symbols)
 
-    # 3b. Expectancy gate — hard block before any vault/yaml changes
+    # 3b. Expectancy gate (aggregate) — hard block before any vault/yaml changes
     _metrics = _read_backtest_metrics(strategy_id)
     _check_expectancy_gate(strategy_id, _metrics)
+
+    # 3c. Apply --symbols filter (restrict which symbols go to portfolio.yaml)
+    if symbols_filter:
+        allowed = set(s.upper() for s in symbols_filter)
+        symbols = [s for s in symbols if s["symbol"].upper() in allowed]
+        if not symbols:
+            print(f"[ABORT] No matching symbols after --symbols filter: {symbols_filter}")
+            sys.exit(1)
+        symbol_names = [s["symbol"] for s in symbols]
+        print(f"  Filtered symbols: {symbol_names}")
+
+    # 3d. Per-symbol expectancy gate (multi-symbol only)
+    #     Vault gets ALL symbols; portfolio.yaml only gets those that pass.
+    _all_symbols_for_vault = _detect_symbols(strategy_id)  # full set for vault
+    if is_multi and len(symbols) > 1:
+        print(f"\n  --- Per-Symbol Expectancy Gate ---")
+        symbols, _exp_failed = _filter_symbols_by_expectancy(strategy_id, symbols)
+        if _exp_failed:
+            print(f"  Excluded {len(_exp_failed)} symbol(s) from portfolio.yaml")
+            print(f"  (they will still be in the vault snapshot)")
+        if not symbols:
+            print(f"[ABORT] All symbols failed per-symbol expectancy gate")
+            sys.exit(1)
+        symbol_names = [s["symbol"] for s in symbols]
+        # Update entry_ids to only include passing symbols
+        entry_ids = [f"{strategy_id}_{s['symbol']}" for s in symbols]
 
     # 4. Lookup run_id from directive_id
     print(f"  Looking up run_id for directive: {strategy_id}")
@@ -436,9 +536,40 @@ def promote(strategy_id: str, profile: str, description: str = "",
         print("[DRY RUN] No changes written to portfolio.yaml.")
         return {"vault_id": vault_id, "run_id": run_id, "entries_added": 0, "symbols": symbol_names}
 
-    # 9. Append to portfolio.yaml (atomic: write tmp -> fsync -> rename)
+    # 9a. Remove LEGACY entries if --upgrade-legacy (before appending new block)
     with open(PORTFOLIO_YAML, "r", encoding="utf-8") as f:
         content = f.read()
+
+    if _legacy_ids_to_remove:
+        print(f"\n  --- Removing {len(_legacy_ids_to_remove)} LEGACY entries ---")
+        lines = content.splitlines()
+        filtered = []
+        skip_until_next = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("- id:"):
+                id_val = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                if id_val in _legacy_ids_to_remove:
+                    skip_until_next = True
+                    print(f"    Removed: {id_val}")
+                    continue
+                else:
+                    skip_until_next = False
+            elif skip_until_next:
+                # Skip continuation lines of the LEGACY entry (indented fields)
+                if stripped == "" or stripped.startswith("#"):
+                    filtered.append(line)
+                    continue
+                if stripped.startswith("- id:"):
+                    skip_until_next = False
+                elif not stripped.startswith("-") and ":" in stripped:
+                    continue  # field of the entry being removed
+                else:
+                    skip_until_next = False
+            filtered.append(line)
+        content = "\n".join(filtered)
+
+    # 9b. Append new BURN_IN block (atomic: write tmp -> fsync -> rename)
     if not content.endswith("\n"):
         content += "\n"
     content += "\n" + block + "\n"
@@ -474,7 +605,27 @@ def promote(strategy_id: str, profile: str, description: str = "",
         if sync_result.stderr:
             print(f"  stderr: {sync_result.stderr[:200]}")
 
-    # 11. Portfolio integrity check
+    # 11. Audit log (TS_Execution side)
+    try:
+        ts_exec_audit = TS_EXEC_ROOT / "tools" / "audit_log.py"
+        if ts_exec_audit.exists():
+            sys.path.insert(0, str(TS_EXEC_ROOT))
+            from tools.audit_log import log_action
+            extra = {"vault_id": vault_id, "profile": profile, "run_id": run_id}
+            if _legacy_ids_to_remove:
+                extra["upgraded_from_legacy"] = sorted(_legacy_ids_to_remove)
+            log_action(
+                "promote",
+                entry_ids,
+                reason=description or f"Promoted {strategy_id} to BURN_IN",
+                tool="promote_to_burnin.py",
+                extra=extra,
+            )
+            print(f"  Audit log entry written.")
+    except Exception as e:
+        print(f"  [WARN] Audit log failed: {e}")
+
+    # 12. Portfolio integrity check
     integrity_script = PROJECT_ROOT / "tools" / "validate_portfolio_integrity.py"
     if integrity_script.exists():
         print(f"\n  --- Portfolio Integrity Check ---")
@@ -514,9 +665,18 @@ def main() -> None:
                         help="One-line strategy description for the comment block")
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview without writing vault or portfolio.yaml")
+    parser.add_argument("--symbols", default=None,
+                        help="Comma-separated symbol filter (e.g., AUDJPY,EURUSD). "
+                             "Only these symbols are added to portfolio.yaml; all "
+                             "symbols still go to vault.")
+    parser.add_argument("--upgrade-legacy", action="store_true",
+                        help="Replace existing LEGACY entries with fresh BURN_IN entries. "
+                             "Without this flag, duplicate IDs abort the promote.")
 
     args = parser.parse_args()
-    promote(args.strategy_id, args.profile, args.description, args.dry_run)
+    symbols_filter = [s.strip() for s in args.symbols.split(",")] if args.symbols else None
+    promote(args.strategy_id, args.profile, args.description, args.dry_run,
+            symbols_filter=symbols_filter, upgrade_legacy=args.upgrade_legacy)
 
 
 if __name__ == "__main__":
