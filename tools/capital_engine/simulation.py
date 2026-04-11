@@ -227,6 +227,7 @@ class OpenTrade:
     volatility_regime: str = ""
     trend_regime: str = ""
     trend_label: str = ""
+    fx_rate_source: str = "static"  # "static" | "static_fallback" — queryable in post-analysis
 
 
 @dataclass
@@ -300,7 +301,8 @@ class PortfolioState:
         raw_lots = risk_capital / risk_per_lot
         return self._floor_to_step(raw_lots)
 
-    def process_entry(self, event: TradeEvent, usd_per_pu_per_lot: float, contract_size: float) -> bool:
+    def process_entry(self, event: TradeEvent, usd_per_pu_per_lot: float, contract_size: float,
+                      usd_source: str = "static") -> bool:
         # RAW mode: bypass all gates — unconditionally accept at min_lot
         if self.raw_lot_mode:
             lot_size = self.min_lot
@@ -412,6 +414,7 @@ class PortfolioState:
             volatility_regime=event.volatility_regime,
             trend_regime=event.trend_regime,
             trend_label=event.trend_label,
+            fx_rate_source=usd_source,
         )
 
         self.open_trades[event.trade_id] = trade
@@ -482,6 +485,7 @@ class PortfolioState:
             "signal_hash": compute_signal_hash(
                 trade.symbol, entry_ts_str, trade.direction, trade.entry_price, trade.risk_distance
             ),
+            "fx_rate_source": trade.fx_rate_source,
         }
         if trade.risk_override_flag:
             log_entry.update(
@@ -560,9 +564,11 @@ def run_simulation(
     # No dynamic conversion lookup needed — MT5 tick_value already accounts for currency.
     symbol_usd_per_pu: Dict[str, float] = {}
     symbol_contract_size: Dict[str, float] = {}
+    symbol_usd_source: Dict[str, str] = {}
     for sym, spec in broker_specs.items():
         symbol_usd_per_pu[sym] = get_usd_per_price_unit_static(spec)
         symbol_contract_size[sym] = float(spec["contract_size"])
+        symbol_usd_source[sym] = "static"  # "static_fallback" when dynamic path re-enabled
 
     rng = random.Random(SIMULATION_SEED)
     i = 0
@@ -588,9 +594,10 @@ def run_simulation(
 
             if event.event_type == EVENT_TYPE_ENTRY:
                 usd_per_pu = symbol_usd_per_pu[sym]
+                usd_src    = symbol_usd_source.get(sym, "static")
 
                 for state in states.values():
-                    state.process_entry(event, usd_per_pu, cs)
+                    state.process_entry(event, usd_per_pu, cs, usd_source=usd_src)
             elif event.event_type == EVENT_TYPE_EXIT:
                 for state in states.values():
                     state.process_exit(event)

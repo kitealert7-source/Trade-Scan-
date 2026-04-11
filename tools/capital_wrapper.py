@@ -36,6 +36,71 @@ DIRECTIVES_ROOT = PROJECT_ROOT / "backtest_directives"
 FLOAT_TOLERANCE = 1e-9
 
 # ======================================================================
+# BROKER VOLUME SPEC NORMALIZATION
+# ======================================================================
+# Cache: loaded once per symbol per process — YAML I/O never happens per trade.
+_BACKTEST_BROKER_SPECS: dict = {}
+
+
+def _load_broker_spec_cached(symbol: str) -> dict | None:
+    """Return per-symbol broker spec dict (from OctaFx YAML), or None if missing."""
+    if symbol in _BACKTEST_BROKER_SPECS:
+        return _BACKTEST_BROKER_SPECS[symbol]
+    spec_path = BROKER_SPECS_ROOT / f"{symbol}.yaml"
+    if not spec_path.exists():
+        _BACKTEST_BROKER_SPECS[symbol] = None
+        return None
+    with open(spec_path, encoding="utf-8") as _f:
+        spec = yaml.safe_load(_f)
+    _BACKTEST_BROKER_SPECS[symbol] = spec
+    return spec
+
+
+def _normalize_lot_broker(raw_lot: float, symbol: str) -> float | None:
+    """Apply broker volume constraints to a raw lot size.
+
+    Mirrors the live normalize_lot() logic in execution_adapter.py:
+      1. Floor-align to volume_step (never round up)
+      2. Clamp to volume_max
+      3. Return None if result < volume_min  → caller must DROP the trade
+
+    No fallback to min_lot — a None return means the trade is silently skipped
+    in the backtest exactly as it would be rejected in live execution.
+
+    If no broker spec file exists for the symbol the raw_lot is returned
+    unchanged (unknown symbol — no constraint to enforce).
+    """
+    spec = _load_broker_spec_cached(symbol)
+    if spec is None:
+        return raw_lot  # no spec on file — pass through
+
+    vol_min  = float(spec.get("min_lot",  0.01))
+    vol_max  = float(spec.get("max_lot",  500.0))
+    vol_step = float(spec.get("lot_step", 0.01))
+
+    if vol_step <= 0:
+        return raw_lot  # degenerate spec — pass through
+
+    # 1. Floor-align to vol_step
+    steps   = math.floor(raw_lot / vol_step)
+    aligned = steps * vol_step
+
+    # 2. Derive decimal precision from vol_step string (handles 0.25, 0.1, 0.01 …)
+    step_str  = f"{vol_step:.10f}".rstrip("0")
+    precision = len(step_str.split(".")[1]) if "." in step_str else 0
+    normalized = round(aligned, precision)
+
+    # 3. Clamp to vol_max
+    normalized = min(normalized, vol_max)
+
+    # 4. Below vol_min → must skip trade
+    if normalized < vol_min - FLOAT_TOLERANCE:
+        return None
+
+    return normalized
+
+
+# ======================================================================
 # CAPITAL PROFILES
 # ======================================================================
 
@@ -361,6 +426,10 @@ class ConversionLookup:
         return series[idx][1]
 
 
+# Tracks symbols already warned about static fallback — prevents per-trade log spam.
+_STATIC_FALLBACK_WARNED: set = set()
+
+
 def get_usd_per_price_unit_dynamic(
     contract_size: float,
     quote_ccy: str,
@@ -380,6 +449,13 @@ def get_usd_per_price_unit_dynamic(
     if rate is not None:
         return contract_size * rate, "DYNAMIC"
     else:
+        if symbol not in _STATIC_FALLBACK_WARNED:
+            _STATIC_FALLBACK_WARNED.add(symbol)
+            print(
+                f"[WARN] STATIC_FALLBACK  symbol={symbol}  quote_ccy={quote_ccy}"
+                f"  live_rate=unavailable  using static={static_fallback:.6f}"
+                f"  — PnL and heat-cap calculations may be inaccurate"
+            )
         return static_fallback, "STATIC_FALLBACK"
 
 
@@ -589,6 +665,16 @@ class PortfolioState:
 
         lot_size = self.compute_lot_size(event.risk_distance, usd_per_pu_per_lot,
                                          _precomputed_risk=_risk)
+
+        # 1.5 Broker volume normalization — must match live execution order exactly.
+        #   sequence: compute_lot → normalize_lot → cap checks → simulate
+        #   None return = lot below volume_min → drop trade (no min-lot fallback here).
+        lot_size = _normalize_lot_broker(lot_size, event.symbol)
+        if lot_size is None:
+            self._reject(event, "LOT_BELOW_VOL_MIN",
+                         f"normalized_lot < volume_min after broker spec alignment"
+                         f"  symbol={event.symbol}")
+            return False
 
         # 2. Min lot check with fallback
         risk_override = False
