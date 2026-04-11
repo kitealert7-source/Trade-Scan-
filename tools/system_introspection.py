@@ -263,93 +263,77 @@ def collect_burnin_telemetry() -> dict[str, Any]:
     Any file missing or corrupt → returns {"status": "UNAVAILABLE"}.
     JSONL files: tail only (last 500 lines max).
     """
-    result: dict[str, Any] = {}
-
     try:
-        # execution_state.json — single JSON object
-        if TS_EXEC_STATE.exists():
-            state = _safe_json(TS_EXEC_STATE)
-            if state:
-                result["run_id"] = state.get("run_id", "unknown")
-                result["exit_reason"] = state.get("exit_reason")
-                result["exit_utc"] = state.get("exit_utc")
-                result["bar_count"] = state.get("bar_count", 0)
-            else:
-                return {"status": "UNAVAILABLE"}
-        else:
+        # execution_state.json — single JSON object (required)
+        if not TS_EXEC_STATE.exists():
+            return {"status": "UNAVAILABLE"}
+        state = _safe_json(TS_EXEC_STATE)
+        if not state:
             return {"status": "UNAVAILABLE"}
 
-        # heartbeat.log — last line only
-        if TS_EXEC_HEARTBEAT.exists():
-            try:
-                with open(TS_EXEC_HEARTBEAT, "rb") as f:
-                    f.seek(0, 2)  # end
-                    size = f.tell()
-                    f.seek(max(0, size - 512))
-                    tail = f.read().decode("utf-8", errors="replace").strip().splitlines()
-                result["last_heartbeat"] = tail[-1].split("|")[0].strip() if tail else "empty"
-            except Exception:
-                result["last_heartbeat"] = "unreadable"
+        exit_reason = state.get("exit_reason")
+        exit_utc = state.get("exit_utc")
+        running = exit_reason is None
 
         # pending_signals.json — count active shadow positions
+        active_shadows = 0
         if TS_EXEC_PENDING.exists():
             pending = _safe_json(TS_EXEC_PENDING)
             if pending:
-                shadows = sum(
+                active_shadows = sum(
                     1 for k, v in pending.items()
                     if k != "_meta" and isinstance(v, dict) and v.get("shadow")
                 )
-                result["active_shadows"] = shadows
-            else:
-                result["active_shadows"] = 0
-        else:
-            result["active_shadows"] = 0
 
-        # shadow_trades.jsonl — tail 500 lines, count SIGNAL/ENTRY/EXIT
+        # shadow_trades.jsonl — tail 500 lines, count SIGNAL/EXIT within last 7d
+        signals_7d = 0
+        exits_7d = 0
+        cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)).isoformat()
         if TS_EXEC_SHADOW.exists():
             try:
                 with open(TS_EXEC_SHADOW, "rb") as f:
                     f.seek(0, 2)
                     size = f.tell()
-                    # ~300 bytes per line, 500 lines ≈ 150KB
                     f.seek(max(0, size - 150_000))
                     chunk = f.read().decode("utf-8", errors="replace")
                 lines = chunk.strip().splitlines()
-                # First line may be partial after seek — skip it if we seeked
                 if size > 150_000:
                     lines = lines[1:]
-                counts: dict[str, int] = {}
                 for line in lines:
                     try:
                         rec = json.loads(line)
-                        et = rec.get("event_type", "?")
-                        counts[et] = counts.get(et, 0) + 1
+                        ev_utc = rec.get("event_utc", "")
+                        if ev_utc < cutoff:
+                            continue
+                        et = rec.get("event_type")
+                        if et == "SIGNAL":
+                            signals_7d += 1
+                        elif et == "EXIT":
+                            exits_7d += 1
                     except Exception:
                         pass
-                result["shadow_events_tail"] = counts
-                result["shadow_total_lines"] = len(lines)
             except Exception:
                 pass
 
-        # SignalJournal.jsonl — tail 500 lines, count signals
-        if TS_EXEC_JOURNAL.exists():
-            try:
-                with open(TS_EXEC_JOURNAL, "rb") as f:
-                    f.seek(0, 2)
-                    size = f.tell()
-                    f.seek(max(0, size - 150_000))
-                    chunk = f.read().decode("utf-8", errors="replace")
-                lines = chunk.strip().splitlines()
-                if size > 150_000:
-                    lines = lines[1:]
-                result["journal_entries_tail"] = len(lines)
-            except Exception:
-                pass
+        # Derive alert/watchdog state from execution_state (no inference, just mapping)
+        silence = "ON" if exit_reason == "market_halt" else "OFF"
+        watchdog = "IDLE" if exit_reason == "market_halt" else "ACTIVE"
+
+        return {
+            "running": running,
+            "exit_reason": exit_reason,
+            "exit_utc": exit_utc,
+            "run_id": state.get("run_id", "?"),
+            "bar_count": state.get("bar_count", 0),
+            "active_shadows": active_shadows,
+            "signals_7d": signals_7d,
+            "exits_7d": exits_7d,
+            "silence_alerts": silence,
+            "watchdog": watchdog,
+        }
 
     except Exception:
         return {"status": "UNAVAILABLE"}
-
-    return result
 
 
 def collect_vault() -> dict[str, Any]:
@@ -621,34 +605,12 @@ def render_markdown(
     if burnin.get("status") == "UNAVAILABLE":
         lines.append("- **Status:** UNAVAILABLE")
     else:
-        # Process state
-        exit_reason = burnin.get("exit_reason")
-        exit_utc = burnin.get("exit_utc", "?")
-        run_id = burnin.get("run_id", "?")
-        if exit_reason:
-            lines.append(f"- **Process:** STOPPED | exit_reason={exit_reason} | exit_utc={exit_utc}")
+        if burnin.get("running"):
+            lines.append(f"- **Process:** RUNNING | run_id={burnin.get('run_id', '?')} | bars={burnin.get('bar_count', 0)}")
         else:
-            lines.append(f"- **Process:** RUNNING | run_id={run_id} | bars={burnin.get('bar_count', 0)}")
-
-        # Last heartbeat
-        hb = burnin.get("last_heartbeat")
-        if hb:
-            lines.append(f"- **Last heartbeat:** {hb}")
-
-        # Active shadows
-        shadows = burnin.get("active_shadows", 0)
-        lines.append(f"- **Active shadow positions:** {shadows}")
-
-        # Shadow trade events (tail aggregate)
-        events = burnin.get("shadow_events_tail")
-        if events:
-            ev_str = ", ".join(f"{k}: {v}" for k, v in sorted(events.items()))
-            lines.append(f"- **Shadow events (tail):** {ev_str}")
-
-        # Signal journal
-        journal = burnin.get("journal_entries_tail")
-        if journal is not None:
-            lines.append(f"- **Signal journal entries (tail):** {journal}")
+            lines.append(f"- **Process:** STOPPED ({burnin.get('exit_reason', '?')}) | Last run: {burnin.get('exit_utc', '?')}Z")
+        lines.append(f"- **Shadow trades:** {burnin.get('active_shadows', 0)} active | **Signals (7d):** {burnin.get('signals_7d', 0)} entry, {burnin.get('exits_7d', 0)} exit")
+        lines.append(f"- **Alerts:** silence_alerts={burnin.get('silence_alerts', '?')} | watchdog={burnin.get('watchdog', '?')}")
     lines.append("")
 
     # ── Vault
