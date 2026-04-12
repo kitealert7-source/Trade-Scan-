@@ -77,10 +77,11 @@ def _load_portfolio_verdicts() -> pd.DataFrame:
     The portfolio sheet has one row per *portfolio* with constituent_run_ids as a
     comma-separated list. We explode so each run_id gets the portfolio's verdict.
     """
-    if not PORTFOLIO_PATH.exists():
-        return pd.DataFrame()
     try:
-        df = pd.read_excel(PORTFOLIO_PATH)
+        from tools.ledger_db import read_mps
+        df = read_mps()  # all sheets
+        if df.empty:
+            return pd.DataFrame()
         df.columns = [c.strip().lower() for c in df.columns]
 
         if "constituent_run_ids" not in df.columns:

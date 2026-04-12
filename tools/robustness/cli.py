@@ -39,22 +39,21 @@ def main():
     if args.profile == "auto":
         try:
             # Read deployed_profile from ledger (Step 7 is authority).
-            import pandas as pd
-            from config.state_paths import STRATEGIES_DIR
-            ledger = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
+            from tools.ledger_db import read_mps
             resolved = None
-            if ledger.exists():
-                for sheet in ["Portfolios", "Single-Asset Composites"]:
-                    try:
-                        df = pd.read_excel(ledger, sheet_name=sheet)
-                        mask = df["portfolio_id"].astype(str) == str(args.prefix)
-                        if mask.any() and "deployed_profile" in df.columns:
-                            val = str(df.loc[mask, "deployed_profile"].iloc[-1]).strip()
-                            if val and val.lower() != "nan":
-                                resolved = val
-                                break
-                    except Exception:
+            for sheet in ["Portfolios", "Single-Asset Composites"]:
+                try:
+                    df = read_mps(sheet=sheet)
+                    if df.empty:
                         continue
+                    mask = df["portfolio_id"].astype(str) == str(args.prefix)
+                    if mask.any() and "deployed_profile" in df.columns:
+                        val = str(df.loc[mask, "deployed_profile"].iloc[-1]).strip()
+                        if val and val.lower() != "nan":
+                            resolved = val
+                            break
+                except Exception:
+                    continue
             if resolved:
                 print(f"[ROBUSTNESS] Using Step 7 deployed profile: {resolved}")
                 args.profile = resolved

@@ -239,19 +239,18 @@ class PreflightCheck:
         Also fails RED if the ledger exists but cannot be read (locked, corrupt,
         partial write) — a readable authoritative ledger is a hard requirement.
         """
-        ledger_path = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
-        if not ledger_path.exists():
-            return  # No ledger yet — nothing to check
         try:
-            import pandas as pd
-            df = pd.read_excel(ledger_path)
+            from tools.ledger_db import read_mps
+            df = read_mps()
+            if df.empty:
+                return  # No ledger data yet ��� nothing to check
         except PermissionError:
             self.report("LEDGER", "RED",
-                        f"Ledger locked — cannot read: {ledger_path.name} (close Excel or wait for pipeline)")
+                        f"Ledger locked — cannot read (close Excel or wait for pipeline)")
             return
         except Exception as e:
             self.report("LEDGER", "RED",
-                        f"Ledger unreadable (corrupt/partial write?): {type(e).__name__}: {e}")
+                        f"Ledger unreadable: {type(e).__name__}: {e}")
             return
         if "portfolio_status" not in df.columns or "portfolio_id" not in df.columns:
             return

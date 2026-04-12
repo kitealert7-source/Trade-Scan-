@@ -117,9 +117,10 @@ def run_portfolio_and_post_stages(
         print(f"[GATE] Stage-4 ledger gate skipped: single-run / single-asset strategy (evaluator intentionally omits ledger write).")
     else:
         import pandas as pd
+        from tools.ledger_db import read_mps
 
         try:
-            df_ledger = pd.read_excel(portfolio_ledger_path)
+            df_ledger = read_mps()
             if "portfolio_id" not in df_ledger.columns or "constituent_run_ids" not in df_ledger.columns:
                 raise PipelineExecutionError(
                     f"Failed to resolve columns in Master Ledger.",

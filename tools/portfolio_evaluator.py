@@ -96,13 +96,12 @@ def load_symbol_metrics(strategy_id):
     """
     metrics = {}
 
-    # 1. Read Master Sheet
-    master_path = BACKTESTS_ROOT / "Strategy_Master_Filter.xlsx"
-    if not master_path.exists():
-        raise FileNotFoundError(f"Strategy Master Filter not found at {master_path}")
-    
+    # 1. Read Master Sheet (DB-first, Excel fallback)
     try:
-        df_master = pd.read_excel(master_path)
+        from tools.ledger_db import read_master_filter
+        df_master = read_master_filter()
+        if df_master.empty:
+            raise ValueError("Master Filter is empty")
     except Exception as e:
         raise ValueError(f"Failed to read Strategy Master Filter: {e}")
 
@@ -1630,27 +1629,32 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     # Load or Create — read from correct sheet, preserve other sheet
     _other_sheet = "Portfolios" if is_single_asset else "Single-Asset Composites"
     df_other = None
-    if ledger_path.exists():
-        try:
-            # Keep workbook handle scoped and closed before atomic write/replace.
-            with pd.ExcelFile(ledger_path) as xls:
-                available_sheets = xls.sheet_names
-                # Load target sheet
-                if target_sheet in available_sheets:
-                    df_ledger = pd.read_excel(xls, sheet_name=target_sheet)
-                elif len(available_sheets) == 1 and available_sheets[0] == "Sheet1":
-                    # Migration: legacy single-sheet workbook — load as-is, will be
-                    # split into the two tabs on first write.
-                    df_ledger = pd.read_excel(xls, sheet_name=available_sheets[0])
-                else:
-                    df_ledger = pd.DataFrame(columns=columns)
-                # Preserve other sheet if it exists
-                if _other_sheet in available_sheets:
-                    df_other = pd.read_excel(xls, sheet_name=_other_sheet)
-        except Exception:
+    try:
+        from tools.ledger_db import read_mps as _read_mps_ledger
+        df_ledger = _read_mps_ledger(sheet=target_sheet)
+        if df_ledger.empty:
             df_ledger = pd.DataFrame(columns=columns)
-    else:
-        df_ledger = pd.DataFrame(columns=columns)
+        df_other = _read_mps_ledger(sheet=_other_sheet)
+        if df_other.empty:
+            df_other = None
+    except Exception:
+        # Fallback: read from Excel directly
+        if ledger_path.exists():
+            try:
+                with pd.ExcelFile(ledger_path) as xls:
+                    available_sheets = xls.sheet_names
+                    if target_sheet in available_sheets:
+                        df_ledger = pd.read_excel(xls, sheet_name=target_sheet)
+                    elif len(available_sheets) == 1 and available_sheets[0] == "Sheet1":
+                        df_ledger = pd.read_excel(xls, sheet_name=available_sheets[0])
+                    else:
+                        df_ledger = pd.DataFrame(columns=columns)
+                    if _other_sheet in available_sheets:
+                        df_other = pd.read_excel(xls, sheet_name=_other_sheet)
+            except Exception:
+                df_ledger = pd.DataFrame(columns=columns)
+        else:
+            df_ledger = pd.DataFrame(columns=columns)
 
     # Column migration for existing sheets.
     # Fix renamed headers left by old formatter (sharpe (ann.) → sharpe, etc.)
@@ -1844,10 +1848,10 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
 
     # Calculate Trade Density natively from components
     if isinstance(constituent_run_ids, list) and len(constituent_run_ids) > 0:
-        master_sheet_path = BACKTESTS_ROOT.parent / "sandbox" / "Strategy_Master_Filter.xlsx"
-        if master_sheet_path.exists():
-            try:
-                ms_df = pd.read_excel(master_sheet_path)
+        try:
+            from tools.ledger_db import read_master_filter
+            ms_df = read_master_filter()
+            if not ms_df.empty:
                 if 'run_id' in ms_df.columns and 'trade_density' in ms_df.columns:
                     valid_density = ms_df[ms_df['run_id'].astype(str).isin([str(x) for x in constituent_run_ids])]['trade_density']
                     if not valid_density.empty and not valid_density.isna().all():
@@ -1855,8 +1859,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
                         row_data["trade_density"] = td
                         effective_rejection = rejection_rate_pct if rejection_rate_pct is not None else 0.0
                         row_data["profile_trade_density"] = int(round(td * (1.0 - (effective_rejection / 100.0))))
-            except Exception as e:
-                print(f"  [WARN] Failed to aggregate component trade density: {e}")
+        except Exception as e:
+            print(f"  [WARN] Failed to aggregate component trade density: {e}")
                 
     # Check Duplicate & Append-Only Idempotent Guard
     if strategy_id in df_ledger["portfolio_id"].astype(str).values:
@@ -1938,6 +1942,19 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             )
         except subprocess.CalledProcessError as e:
             print(f"[WARN] Notes sheet failed: {e}")
+
+        # Sync to SQLite ledger (authoritative DB)
+        try:
+            from tools.ledger_db import _connect as _db_connect, create_tables as _db_create, upsert_mps_df as _db_upsert
+            _db_conn = _db_connect()
+            _db_create(_db_conn)
+            _db_upsert(_db_conn, df_final, sheet=target_sheet)
+            if df_other is not None and not df_other.empty:
+                _db_upsert(_db_conn, df_other, sheet=_other_sheet)
+            _db_conn.close()
+            print(f"  [LEDGER_DB] Synced {len(df_final)} {target_sheet} rows to ledger.db")
+        except Exception as _db_err:
+            print(f"  [WARN] ledger_db sync failed (non-fatal): {_db_err}")
 
 
 # ==================================================================
@@ -2031,10 +2048,9 @@ def main():
     port_metrics["portfolio_net_profit_high_vol"] = high_pnl
 
     # Timeframe Metadata Extraction (SOP Requirement)
-    # Read Master Sheet locally to avoid refactoring load_all_trades
     try:
-        master_path_local = BACKTESTS_ROOT.parent / "sandbox" / "Strategy_Master_Filter.xlsx"
-        df_master_local = pd.read_excel(master_path_local)
+        from tools.ledger_db import read_master_filter as _read_mf_local
+        df_master_local = _read_mf_local()
         
         # Filter for runs present in the loaded portfolio
         # unique_runs is defined later in the code (line ~1461), but we need it now or we can use portfolio_df['source_run_id']

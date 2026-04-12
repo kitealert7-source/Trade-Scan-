@@ -253,6 +253,14 @@ def extract_from_report(report_path, metadata):
     return row_data, None
 
 def get_existing_master_df(master_filter_path):
+    try:
+        from tools.ledger_db import read_master_filter
+        df = read_master_filter()
+        if not df.empty:
+            return df
+    except Exception:
+        pass
+    # Fallback: direct Excel read
     if not master_filter_path.exists():
         return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
     try:
@@ -420,6 +428,18 @@ def compile_stage3(strategy_filter=None):
                     check=True,
                 )
             print("[SUCCESS] Master Filter updated and formatted.")
+
+            # Sync to SQLite ledger (authoritative DB)
+            try:
+                from tools.ledger_db import _connect, create_tables, upsert_master_filter_df
+                _db_conn = _connect()
+                create_tables(_db_conn)
+                upsert_master_filter_df(_db_conn, df_master)
+                _db_conn.close()
+                print(f"  [LEDGER_DB] Synced {len(df_master)} rows to ledger.db")
+            except Exception as _db_err:
+                print(f"  [WARN] ledger_db sync failed (non-fatal): {_db_err}")
+
         except Exception as e:
             msg = str(e)
             if "XLSX_LOCK_TIMEOUT" in msg or e.__class__.__name__ == "Timeout":

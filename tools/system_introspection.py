@@ -128,45 +128,40 @@ def collect_ledgers() -> dict[str, Any]:
 
     result: dict[str, Any] = {}
 
-    # Master Filter
-    if MASTER_FILTER_PATH.exists():
-        try:
-            df = pd.read_excel(MASTER_FILTER_PATH)
+    # Master Filter (DB-first, Excel fallback)
+    try:
+        from tools.ledger_db import read_master_filter, read_mps
+        df = read_master_filter()
+        if not df.empty:
             result["master_filter"] = {"rows": len(df), "path": "TradeScan_State/sandbox/Strategy_Master_Filter.xlsx"}
-        except Exception as e:
-            result["master_filter"] = {"error": str(e)}
-    else:
-        result["master_filter"] = {"missing": True}
+        else:
+            result["master_filter"] = {"missing": True}
+    except Exception as e:
+        result["master_filter"] = {"error": str(e)}
 
-    # MPS — read both tabs
-    if MPS_PATH.exists():
-        try:
-            mps_info: dict[str, Any] = {"path": "TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx"}
-            with pd.ExcelFile(MPS_PATH) as xls:
-                mps_info["sheets"] = xls.sheet_names
-                for sheet in xls.sheet_names:
-                    if sheet == "Notes":
-                        continue
-                    try:
-                        df = pd.read_excel(xls, sheet_name=sheet)
-                        tab: dict[str, Any] = {"rows": len(df)}
-                        # Classification distribution
-                        status_col = None
-                        for c in df.columns:
-                            if str(c).lower() == "portfolio_status":
-                                status_col = c
-                                break
-                        if status_col:
-                            counts = df[status_col].value_counts().to_dict()
-                            tab["classification"] = {str(k): int(v) for k, v in counts.items()}
-                        mps_info[sheet] = tab
-                    except Exception:
-                        pass
-            result["mps"] = mps_info
-        except Exception as e:
-            result["mps"] = {"error": str(e)}
-    else:
-        result["mps"] = {"missing": True}
+    # MPS — read both tabs (DB-first, Excel fallback)
+    try:
+        mps_info: dict[str, Any] = {"path": "TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx"}
+        _sheet_names = ["Portfolios", "Single-Asset Composites"]
+        mps_info["sheets"] = _sheet_names
+        for sheet in _sheet_names:
+            try:
+                df = read_mps(sheet=sheet)
+                tab: dict[str, Any] = {"rows": len(df)}
+                status_col = None
+                for c in df.columns:
+                    if str(c).lower() == "portfolio_status":
+                        status_col = c
+                        break
+                if status_col:
+                    counts = df[status_col].value_counts().to_dict()
+                    tab["classification"] = {str(k): int(v) for k, v in counts.items()}
+                mps_info[sheet] = tab
+            except Exception:
+                pass
+        result["mps"] = mps_info
+    except Exception as e:
+        result["mps"] = {"error": str(e)}
 
     # Candidates (FPS)
     if CANDIDATE_FILTER_PATH.exists():

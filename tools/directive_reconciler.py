@@ -21,10 +21,11 @@ COMPLETED_DIR = DIRECTIVES_ROOT / "completed"
 
 def get_master_filter_directive_names():
     """Extract directive names/IDs from both 'run_id' and 'strategy' columns."""
-    if not MASTER_FILTER_PATH.exists():
-        return set(), set()
     try:
-        df = pd.read_excel(MASTER_FILTER_PATH)
+        from tools.ledger_db import read_master_filter
+        df = read_master_filter()
+        if df.empty:
+            return set(), set()
         run_ids = set(df["run_id"].unique()) if "run_id" in df.columns else set()
         strategy_names = set(df["strategy"].unique()) if "strategy" in df.columns else set()
         return run_ids, strategy_names

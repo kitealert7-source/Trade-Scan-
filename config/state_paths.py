@@ -14,6 +14,7 @@ __all__ = [
     "SELECTED_DIR",
     "MASTER_FILTER_PATH",
     "CANDIDATE_FILTER_PATH",
+    "LEDGER_DB_PATH",
     "initialize_state_directories",
     "resolve_base_strategy_dir",
 ]
@@ -45,6 +46,7 @@ SELECTED_DIR = CANDIDATES_DIR # strategies selected for portfolio consideration
 # Derived Paths
 MASTER_FILTER_PATH    = POOL_DIR     / "Strategy_Master_Filter.xlsx"
 CANDIDATE_FILTER_PATH = SELECTED_DIR / "Filtered_Strategies_Passed.xlsx"
+LEDGER_DB_PATH        = STATE_ROOT   / "ledger.db"
 
 def resolve_base_strategy_dir(sid: str, artifact: str = "portfolio_evaluation") -> Path | None:
     """Resolve a per-symbol strategy ID to its base artifact directory.

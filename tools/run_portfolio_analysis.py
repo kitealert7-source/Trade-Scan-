@@ -467,13 +467,13 @@ def main():
 
     def append_master_portfolio_sheet(record):
 
-        if PORTFOLIO_MASTER_PATH.exists():
-            try:
-                df_master = pd.read_excel(PORTFOLIO_MASTER_PATH)
-            except Exception as e:
-                print(f"[WARN] Read failed: {e}. Creating new sheet.")
+        try:
+            from tools.ledger_db import read_mps
+            df_master = read_mps()
+            if df_master.empty:
                 df_master = pd.DataFrame(columns=LEDGER_SCHEMA)
-        else:
+        except Exception as e:
+            print(f"[WARN] Read failed: {e}. Creating new sheet.")
             df_master = pd.DataFrame(columns=LEDGER_SCHEMA)
 
         # 1. Check Duplicate (Strict Append-Only)

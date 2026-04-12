@@ -220,11 +220,15 @@ def main():
     parser.add_argument("--portfolio", action="append", dest="portfolios", help="Portfolio ID to reconcile (repeatable)")
     args = parser.parse_args()
 
-    if not LEDGER_PATH.exists():
-        print(f"[FATAL] Master Portfolio Sheet not found: {LEDGER_PATH}")
+    try:
+        from tools.ledger_db import read_mps
+        df_ledger = read_mps()
+        if df_ledger.empty:
+            print(f"[FATAL] Master Portfolio Sheet has no data")
+            sys.exit(1)
+    except Exception as e:
+        print(f"[FATAL] Failed to read Master Portfolio Sheet: {e}")
         sys.exit(1)
-
-    df_ledger = pd.read_excel(LEDGER_PATH)
     df_ledger = _ensure_columns(df_ledger)
 
     df_ledger, updated, skipped = reconcile(df_ledger, args.portfolios)

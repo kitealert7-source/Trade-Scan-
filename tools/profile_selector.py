@@ -279,16 +279,26 @@ def _load_sheet_dfs(ledger_path):
     (e.g. Notes) as a data frame.
     """
     sheet_dfs = {}
+    # DB-first read
+    try:
+        from tools.ledger_db import read_mps as _read_mps_ps
+        for s in _DATA_SHEETS:
+            df = _read_mps_ps(sheet=s)
+            if not df.empty:
+                sheet_dfs[s] = df
+        if sheet_dfs:
+            return sheet_dfs
+    except Exception:
+        pass
+    # Fallback: Excel read
     with pd.ExcelFile(ledger_path) as xls:
         available = xls.sheet_names
         for s in _DATA_SHEETS:
             if s in available:
                 sheet_dfs[s] = pd.read_excel(xls, sheet_name=s)
         if not sheet_dfs:
-            # Legacy single-sheet workbook — load first non-Notes sheet.
             for s in available:
                 if s != "Notes":
-                    # Route legacy Sheet1 data to Portfolios tab on next save.
                     sheet_dfs["Portfolios"] = pd.read_excel(xls, sheet_name=s)
                     print(f"[MIGRATE] Legacy sheet '{s}' loaded as 'Portfolios'")
                     break
@@ -373,6 +383,18 @@ def main():
         )
     except subprocess.CalledProcessError as e:
         print(f"[WARN] Notes update failed: {e}")
+
+    # Sync to SQLite ledger (authoritative DB)
+    try:
+        from tools.ledger_db import _connect as _db_connect, create_tables as _db_create, upsert_mps_df as _db_upsert
+        _db_conn = _db_connect()
+        _db_create(_db_conn)
+        for _s, _df in sheet_dfs.items():
+            _db_upsert(_db_conn, _df, sheet=_s)
+        _db_conn.close()
+        print(f"  [LEDGER_DB] Synced MPS to ledger.db")
+    except Exception as _db_err:
+        print(f"  [WARN] ledger_db sync failed (non-fatal): {_db_err}")
 
     # End-of-run visibility: count unresolved rows across all sheets.
     unresolved = 0

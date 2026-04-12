@@ -168,14 +168,14 @@ def _apply_candidate_status(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_strategies():
-    if not os.path.exists(MASTER_SHEET):
-        print(f"ABORT: Error: {MASTER_SHEET} not found.")
-        sys.exit(1)
-
     try:
-        df = pd.read_excel(MASTER_SHEET)
+        from tools.ledger_db import read_master_filter
+        df = read_master_filter()
+        if df.empty:
+            print(f"ABORT: Error: Master Filter has no data.")
+            sys.exit(1)
     except Exception as e:
-        print(f"ABORT: Error reading {MASTER_SHEET}: {e}")
+        print(f"ABORT: Error reading Master Filter: {e}")
         sys.exit(1)
 
     # Required metrics for promotion
