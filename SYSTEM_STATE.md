@@ -4,7 +4,7 @@
 - WARNING: 8 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 3 uncommitted
 
-> Generated: 2026-04-12T10:09:23Z
+> Generated: 2026-04-12T17:51:14Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -21,11 +21,11 @@
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
 
-- **Candidates (FPS):** 298 rows — BURN_IN: 8, CORE: 12, FAIL: 216, RBIN: 11, WATCH: 51
+- **Candidates (FPS):** 303 rows — BURN_IN: 8, CORE: 11, FAIL: 221, RBIN: 11, RESERVE: 12, WATCH: 40
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 8 | **Enabled:** 8
-- BURN_IN: 7 | WAITING: 0 | LIVE: 0 | LEGACY: 1
+- BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
 - **Process:** STOPPED (market_halt) | Last run: 2026-04-10T22:31:08Z
@@ -33,18 +33,18 @@
 - **Alerts:** silence_alerts=ON | watchdog=IDLE
 
 ## Vault (DRY_RUN_VAULT)
-- Snapshots: 10 | WAITING: 0 | Latest: `DRY_RUN_2026_04_09__b0527749`
+- Snapshots: 16 | WAITING: 0 | Latest: `DRY_RUN_2026_04_12__a2571097`
 
 ## Data Freshness
 - Latest bar: **2026-04-12** | Symbols: 250 | **Stale (>3d): 8**
 
 ## Artifacts
-- Run directories: 535
+- Run directories: 533
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 3 uncommitted
-- Last commit: `ed45f20 Update manifests and add P06 directive from pipeline validation run`
+- Last commit: `91f9d86 Enforce DB integrity: ON CONFLICT upserts, no Excel fallback, run_id identity`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
