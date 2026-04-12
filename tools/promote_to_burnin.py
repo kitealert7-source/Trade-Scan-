@@ -297,8 +297,11 @@ def _validate_strategy_files(strategy_id: str, symbols: list[dict]) -> None:
             sys.exit(1)
     pe = STRATEGIES_DIR / strategy_id / "portfolio_evaluation"
     if not pe.exists():
-        print(f"[ABORT] portfolio_evaluation/ not found: {pe}")
-        sys.exit(1)
+        if len(symbols) <= 1:
+            print(f"  [WARN] portfolio_evaluation/ not found (expected for single-symbol): {pe}")
+        else:
+            print(f"[ABORT] portfolio_evaluation/ not found: {pe}")
+            sys.exit(1)
     if len(symbols) > 1:
         missing_syms = []
         for sym_info in symbols:

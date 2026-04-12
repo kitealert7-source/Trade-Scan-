@@ -29,9 +29,9 @@ TIMEFRAME_MAP = {
     "30m": "30m",
 }
 
-# OHLCV parquet cache directory (relative to project root)
+# OHLCV parquet cache directory (local to Trade_Scan, not in data_root)
 _READER_DIR = Path(__file__).resolve().parent
-OHLC_CACHE_DIR = _READER_DIR.parent.parent / "data_root" / "ohlc_cache"
+OHLC_CACHE_DIR = _READER_DIR.parent.parent / ".cache" / "ohlc_cache"
 OHLC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 

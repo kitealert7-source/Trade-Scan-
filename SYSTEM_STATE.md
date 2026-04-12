@@ -4,7 +4,7 @@
 - WARNING: 8 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 8 uncommitted
 
-> Generated: 2026-04-12T02:01:02Z
+> Generated: 2026-04-12T02:09:02Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -46,7 +46,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 8 uncommitted
-- Last commit: `54989d4 Update SYSTEM_STATE.md â€” session close snapshot`
+- Last commit: `e759fbf Fix promotion pipeline friction: run_id fallback, strategy.py recovery, pruner protection`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->

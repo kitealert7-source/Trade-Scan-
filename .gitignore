@@ -14,8 +14,7 @@ research/
 # Market & raw data
 MASTER_DATA/
 data/
-data_root/ohlc_cache/
-data_root/regime_cache/
+.cache/
 data_root/MASTER_DATA/
 
 # Strategy snapshots (runtime mirrors)

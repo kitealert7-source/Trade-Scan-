@@ -32,7 +32,7 @@ from indicators.volatility.atr_percentile import atr_percentile
 from indicators.volatility.atr import atr as compute_atr
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[1]  # Trade_Scan/
-REGIME_CACHE_DIR = _ENGINE_ROOT / "data_root" / "regime_cache"
+REGIME_CACHE_DIR = _ENGINE_ROOT / ".cache" / "regime_cache"
 
 
 def compute_indicator_stack(df: pd.DataFrame, resample_freq: str = "1D") -> pd.DataFrame:
@@ -175,8 +175,16 @@ def apply_regime_model(df: pd.DataFrame, resample_freq: str = "1D",
             df[['open', 'high', 'low', 'close']], index=True
         ).values
         last_ts = hashlib.md5(hash_series.tobytes()).hexdigest()
+    # Include OHLC boundary fingerprint: catches data corrections that don't
+    # change row count or timestamps (e.g. price fixes, gap fills).
+    _ohlc_cols = [c for c in ("open", "high", "low", "close") if c in df.columns]
+    _boundary = ""
+    if _ohlc_cols and len(df) > 0:
+        _first = df[_ohlc_cols].iloc[0].values
+        _last = df[_ohlc_cols].iloc[-1].values
+        _boundary = f"|{_first.tobytes().hex()}|{_last.tobytes().hex()}"
     cache_key = hashlib.md5(
-        f"{symbol_hint}|{last_ts}|{len(df)}|{resample_freq}".encode()
+        f"{symbol_hint}|{last_ts}|{len(df)}|{resample_freq}{_boundary}".encode()
     ).hexdigest()
     cache_path = REGIME_CACHE_DIR / f"{cache_key}.parquet"
 

@@ -1237,13 +1237,14 @@ from config.asset_classification import parse_strategy_name as _parse_strategy_n
 def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
                               expectancy=0.0, portfolio_id="",
                               trade_density=None,
-                              edge_quality=None, sqn=None):
+                              edge_quality=None, sqn=None,
+                              is_single_asset=False):
     """Deterministic portfolio status classification for ledger rows.
 
     Quality gates (additive — on top of all existing FAIL gates):
       Portfolios tab  → edge_quality >= 0.12 for CORE, >= 0.08 for WATCH
       Single-Asset tab → sqn >= 2.5 for CORE, >= 2.0 for WATCH
-    Caller passes whichever metric is available; the other stays None.
+    ``is_single_asset`` controls which quality metric governs the WATCH gate.
     """
     realized = _safe_float(realized_pnl, 0.0)
     accepted = int(round(_safe_float(total_accepted, 0.0)))
@@ -1281,12 +1282,20 @@ def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
             return "CORE"
 
     # ── WATCH gate (quality floor required) ──────────────────────────
-    # Portfolios: edge_quality >= 0.08
-    if eq is not None:
-        return "WATCH" if eq >= 0.08 else "FAIL"
-    # Single-Asset: SQN >= 2.0
-    if sq is not None:
-        return "WATCH" if sq >= 2.0 else "FAIL"
+    if is_single_asset:
+        # Single-Asset: SQN is the governing metric
+        if sq is not None:
+            return "WATCH" if sq >= 2.0 else "FAIL"
+        # SQN unavailable — fall back to edge_quality
+        if eq is not None:
+            return "WATCH" if eq >= 0.08 else "FAIL"
+    else:
+        # Portfolios: edge_quality is the governing metric
+        if eq is not None:
+            return "WATCH" if eq >= 0.08 else "FAIL"
+        # edge_quality unavailable — fall back to SQN
+        if sq is not None:
+            return "WATCH" if sq >= 2.0 else "FAIL"
     # No quality metric available — default WATCH (backwards compat)
     return "WATCH"
 
@@ -1673,6 +1682,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             trade_density=row.get("trade_density", None),
             edge_quality=row.get("edge_quality", None),
             sqn=row.get("sqn", None),
+            is_single_asset=is_single_asset,
         ),
         axis=1,
     )
@@ -1734,6 +1744,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         portfolio_id=strategy_id,
         edge_quality=metrics.get("edge_quality", None),
         sqn=metrics.get("sqn", None),
+        is_single_asset=is_single_asset,
     )
 
     # Construct Row Data (shared fields)
