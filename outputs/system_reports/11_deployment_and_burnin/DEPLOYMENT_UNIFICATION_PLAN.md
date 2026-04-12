@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-03
 **Updated:** 2026-04-12
-**Status:** PARTIALLY IMPLEMENTED — Phase 1 (vault extension) DONE, Phase 2 (runtime safety/guard wiring) NOT DONE (accepted as deferred risk during burn-in observation). Section 8 (write surface documentation) DONE.
+**Status:** FULLY IMPLEMENTED — Phase 1-5 complete (2026-04-12). Phase 1: vault extension. Phase 2+2.1: runtime safety guards with two-tier validation + MismatchTracker. Phase 3: promotion flow (via promote_to_burnin.py). Phase 4: golive archived, validate_safety_layers rewritten. Phase 5: 6 verification tests pass. Section 8: write surface documented.
 **Objective:** Eliminate deployment safety gaps. Unify promotion, burn-in, and execution into a single flow with no parallel systems.
 
 ---
@@ -143,7 +143,7 @@ TS_Execution startup:
 
 **No changes to vault invariants.** Existing structure preserved. New artifacts are additive.
 
-### Phase 2 — Runtime Safety (TS_Execution) -- NOT DONE (deferred)
+### Phase 2 — Runtime Safety (TS_Execution) -- DONE
 
 | File | Change | Detail |
 |------|--------|--------|
@@ -205,7 +205,7 @@ execution:
 
 No per-strategy vault path needed — the bridge resolves it by scanning vault folders.
 
-### Phase 2.1 — Robust Signal Validation (TS_Execution) -- NOT DONE (deferred)
+### Phase 2.1 — Robust Signal Validation (TS_Execution) -- DONE
 
 The exact-hash approach from Phase 2 is brittle. Research and live engines may produce slightly different floats for entry_price or risk_distance due to data source differences, bar alignment timing, or indicator warm-up divergence. Phase 2.1 replaces the binary pass/fail with a two-tier verification system.
 

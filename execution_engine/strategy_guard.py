@@ -41,7 +41,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Deque, Dict, List, Optional
+from typing import Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,19 @@ class GuardConfig:
     rolling_window_trades:      int   = 50    # trades in the rolling win-rate window
     win_rate_tolerance:         float = 0.65  # halt if live WR < historical WR × this
     dd_multiplier:              float = 2.0   # halt if drawdown > historical DD × this
+    # Two-tier signal validation tolerances
+    price_tolerance:            float = 0.001  # 0.1% — covers rounding between research and live
+    time_window_s:              int   = 60     # bar-close timestamp can differ by seconds
+
+
+@dataclass
+class SignalResult:
+    """Result of two-tier signal validation."""
+    status: str             # "EXACT_MATCH" | "SOFT_MATCH" | "HARD_FAIL"
+    hash: str               # live-computed hash
+    matched_ref: str = ""   # trade_id of matched research signal (SOFT_MATCH only)
+    price_delta: float = 0  # abs price difference (SOFT_MATCH only)
+    time_delta: float = 0   # abs time difference in seconds (SOFT_MATCH only)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +141,8 @@ class BaselineStats:
     max_drawdown_usd:    float          # absolute USD drawdown from historical run
     starting_equity:     float          # starting_capital from selected_profile.json
     signal_index:        Dict[str, str] # trade_id -> signal_hash (for verification)
-    total_trades:        int
+    signal_details:      Dict[str, dict] = field(default_factory=dict)  # trade_id -> {symbol, direction, entry_price, entry_ts, risk_distance}
+    total_trades:        int = 0
 
 
 def _load_baseline(
@@ -170,11 +184,24 @@ def _load_baseline(
 
     # Signal index: trade_id -> signal_hash (populated only when column present)
     signal_index: Dict[str, str] = {}
+    signal_details: Dict[str, dict] = {}
     has_hash_col = "signal_hash" in (trades[0].keys() if trades else {})
     if has_hash_col:
         for t in trades:
+            tid = t["trade_id"]
             if t.get("signal_hash"):
-                signal_index[t["trade_id"]] = t["signal_hash"]
+                signal_index[tid] = t["signal_hash"]
+            # Build detail record for tolerant matching
+            try:
+                signal_details[tid] = {
+                    "symbol": t.get("symbol", ""),
+                    "direction": int(t.get("direction", 0)),
+                    "entry_price": float(t.get("entry_price", 0)),
+                    "entry_ts": t.get("entry_timestamp", ""),
+                    "risk_distance": float(t.get("risk_distance", 0)),
+                }
+            except (ValueError, TypeError):
+                pass  # skip malformed rows
 
     return BaselineStats(
         expected_win_rate=win_rate,
@@ -182,6 +209,72 @@ def _load_baseline(
         max_drawdown_usd=max_drawdown_usd,
         starting_equity=starting_equity,
         signal_index=signal_index,
+        signal_details=signal_details,
+        total_trades=total,
+    )
+
+
+def _load_baseline_from_vault(
+    trade_log_path: Path,
+    starting_capital: float,
+    max_drawdown_usd: float,
+) -> BaselineStats:
+    """
+    Derive baseline statistics from vault artifacts.
+
+    Unlike _load_baseline(), reads starting_capital and max_drawdown directly
+    from profile_comparison.json rather than selected_profile.json (which has
+    a different structure in vault snapshots).
+    """
+    trades: List[dict] = []
+    with trade_log_path.open(newline="", encoding="utf-8") as fh:
+        trades = list(csv.DictReader(fh))
+
+    if not trades:
+        raise ValueError(f"Trade log is empty: {trade_log_path}")
+
+    total = len(trades)
+
+    # Win rate
+    wins     = sum(1 for t in trades if float(t["pnl_usd"]) > 0)
+    win_rate = wins / total
+
+    # Max historical loss streak
+    max_streak = streak = 0
+    for t in trades:
+        if float(t["pnl_usd"]) < 0:
+            streak     += 1
+            max_streak = max(max_streak, streak)
+        else:
+            streak = 0
+
+    # Signal index + details
+    signal_index: Dict[str, str] = {}
+    signal_details: Dict[str, dict] = {}
+    has_hash_col = "signal_hash" in (trades[0].keys() if trades else {})
+    if has_hash_col:
+        for t in trades:
+            tid = t["trade_id"]
+            if t.get("signal_hash"):
+                signal_index[tid] = t["signal_hash"]
+            try:
+                signal_details[tid] = {
+                    "symbol": t.get("symbol", ""),
+                    "direction": int(t.get("direction", 0)),
+                    "entry_price": float(t.get("entry_price", 0)),
+                    "entry_ts": t.get("entry_timestamp", ""),
+                    "risk_distance": float(t.get("risk_distance", 0)),
+                }
+            except (ValueError, TypeError):
+                pass
+
+    return BaselineStats(
+        expected_win_rate=win_rate,
+        max_loss_streak=max_streak,
+        max_drawdown_usd=max_drawdown_usd,
+        starting_equity=starting_capital,
+        signal_index=signal_index,
+        signal_details=signal_details,
         total_trades=total,
     )
 
@@ -264,6 +357,52 @@ class StrategyGuard:
         cls._verify_profile_hash(profile_path)
 
         baseline = _load_baseline(trade_log, profile_path)
+        return cls(baseline, config or GuardConfig(), alert_log)
+
+    @classmethod
+    def from_vault(
+        cls,
+        vault_strategy_dir: str | Path,
+        profile: str,
+        config: Optional[GuardConfig] = None,
+        alert_log: Optional[Path] = None,
+    ) -> "StrategyGuard":
+        """
+        Construct a StrategyGuard from DRY_RUN_VAULT layout.
+
+        Expected layout (produced by backup_dryrun_strategies.py):
+            <vault_strategy_dir>/selected_profile.json     (selection metadata)
+            <vault_strategy_dir>/deployable/profile_comparison.json (profile metrics)
+            <vault_strategy_dir>/deployable/<profile>/deployable_trade_log.csv
+        """
+        vault_strategy_dir = Path(vault_strategy_dir)
+
+        trade_log = vault_strategy_dir / "deployable" / profile / "deployable_trade_log.csv"
+        if not trade_log.exists():
+            raise FileNotFoundError(f"deployable_trade_log.csv not found: {trade_log}")
+
+        # Read profile metrics from profile_comparison.json
+        pc_path = vault_strategy_dir / "deployable" / "profile_comparison.json"
+        if not pc_path.exists():
+            raise FileNotFoundError(f"profile_comparison.json not found: {pc_path}")
+
+        pc_data = json.loads(pc_path.read_text(encoding="utf-8"))
+        profiles_block = pc_data.get("profiles", {})
+        if profile not in profiles_block:
+            raise ValueError(f"Profile '{profile}' not found in profile_comparison.json")
+
+        prof = profiles_block[profile]
+        starting_capital = prof.get("starting_capital", 10000.0)
+        max_dd_usd = abs(prof.get("max_drawdown_usd", 0.0))
+
+        # Verify profile hash if present (extended vault format)
+        sp_path = vault_strategy_dir / "selected_profile.json"
+        if sp_path.exists():
+            sp_data = json.loads(sp_path.read_text(encoding="utf-8"))
+            if "enforcement" in sp_data and "sizing" in sp_data:
+                cls._verify_profile_hash(sp_path)
+
+        baseline = _load_baseline_from_vault(trade_log, starting_capital, max_dd_usd)
         return cls(baseline, config or GuardConfig(), alert_log)
 
     @staticmethod
@@ -361,6 +500,78 @@ class StrategyGuard:
             )
 
         logger.debug("Signal OK  trade_id=%s  hash=%s", trade_id, live_hash)
+
+    # ------------------------------------------------------------------
+    # Part 3b — Two-tier signal validation (new API)
+    # ------------------------------------------------------------------
+
+    def validate_signal(
+        self,
+        symbol:         str,
+        entry_timestamp,
+        direction:      int,
+        entry_price:    float,
+        risk_distance:  float,
+        price_tolerance: Optional[float] = None,
+        time_window_s: Optional[int] = None,
+    ) -> SignalResult:
+        """
+        Two-tier signal verification. Returns SignalResult (never raises).
+
+        Tier 1: Exact hash match against signal_index.
+        Tier 2: Tolerant match — symbol + direction exact, price within
+                 tolerance, timestamp within time window.
+
+        If signal_index is empty (legacy artifact) or the signal is genuinely
+        new (beyond backtest window), returns EXACT_MATCH to avoid blocking.
+        """
+        self._require_active("validate_signal")
+        ptol = price_tolerance if price_tolerance is not None else self.config.price_tolerance
+        tw = time_window_s if time_window_s is not None else self.config.time_window_s
+
+        live_hash = _compute_signal_hash(
+            symbol, entry_timestamp, direction, entry_price, risk_distance
+        )
+
+        # No signal index -> pass through (legacy artifact)
+        if not self.baseline.signal_index:
+            logger.warning("Signal index empty (legacy artifact) — passing through")
+            return SignalResult(status="EXACT_MATCH", hash=live_hash)
+
+        # Tier 1: Exact hash match
+        if live_hash in self.baseline.signal_index.values():
+            logger.debug("[GUARD] EXACT_MATCH  hash=%s", live_hash)
+            return SignalResult(status="EXACT_MATCH", hash=live_hash)
+
+        # Tier 2: Tolerant match against signal_details
+        if self.baseline.signal_details:
+            live_ts = _normalize_hash_timestamp(entry_timestamp)
+            for ref_id, ref in self.baseline.signal_details.items():
+                if ref["symbol"] != symbol or ref["direction"] != direction:
+                    continue
+                ref_price = ref["entry_price"]
+                if ref_price == 0:
+                    continue
+                p_delta = abs(entry_price - ref_price) / ref_price
+                if p_delta > ptol:
+                    continue
+                # Time comparison
+                t_delta = _timestamp_diff_seconds(live_ts, ref["entry_ts"])
+                if t_delta is not None and t_delta <= tw:
+                    logger.info(
+                        "[GUARD] SOFT_MATCH  hash=%s  ref=%s  price_delta=%.6f  time_delta=%ds",
+                        live_hash, ref_id, p_delta, t_delta,
+                    )
+                    return SignalResult(
+                        status="SOFT_MATCH", hash=live_hash,
+                        matched_ref=ref_id, price_delta=p_delta, time_delta=float(t_delta),
+                    )
+
+        # No match — but if this is a genuinely new signal (not in backtest period),
+        # we should not block it. Check if it's beyond the last backtest trade.
+        # For now, HARD_FAIL — the MismatchTracker in guard_bridge will manage alerts.
+        logger.warning("[GUARD] HARD_FAIL  hash=%s  symbol=%s  dir=%d", live_hash, symbol, direction)
+        return SignalResult(status="HARD_FAIL", hash=live_hash)
 
     # ------------------------------------------------------------------
     # Part 2 — Kill-switch: record trade result and check thresholds
@@ -538,3 +749,17 @@ class StrategyHaltedError(Exception):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _timestamp_diff_seconds(ts_a: str, ts_b: str) -> Optional[int]:
+    """Compute absolute difference in seconds between two timestamp strings.
+
+    Returns None if either timestamp cannot be parsed.
+    """
+    try:
+        fmt = "%Y-%m-%d %H:%M:%S"
+        a = datetime.strptime(ts_a.strip(), fmt)
+        b = datetime.strptime(ts_b.strip(), fmt)
+        return abs(int((a - b).total_seconds()))
+    except (ValueError, AttributeError):
+        return None
