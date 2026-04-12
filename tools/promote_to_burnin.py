@@ -8,6 +8,7 @@ portfolio.yaml. It chains: run_id lookup -> vault snapshot -> portfolio.yaml edi
 Usage:
     python tools/promote_to_burnin.py <STRATEGY_ID> --profile PROFILE
     python tools/promote_to_burnin.py <STRATEGY_ID> --profile PROFILE --dry-run
+    python tools/promote_to_burnin.py PF_XXXX --composite --profile PROFILE --dry-run
 
 Requires:
     - TradeScan_State/strategies/{ID}/portfolio_evaluation/ exists
@@ -29,6 +30,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import shutil
+
 import numpy as np
 import pandas as pd
 
@@ -38,7 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.asset_classification import classify_asset, EXP_FAIL_GATES
-from config.state_paths import STATE_ROOT, BACKTESTS_DIR, STRATEGIES_DIR
+from config.state_paths import STATE_ROOT, BACKTESTS_DIR, STRATEGIES_DIR, MASTER_FILTER_PATH
 from tools.pipeline_utils import find_run_id_for_directive
 
 TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
@@ -561,6 +564,122 @@ def _write_audit_log(strategy_id: str, profile: str, outcome: str,
         print(f"  [WARN] Audit log write failed: {e}")
 
 
+# ── Composite portfolio decomposition ────────────────────────────────────────
+
+def decompose_portfolio(portfolio_id: str) -> list[dict]:
+    """Decompose a composite portfolio (PF_*) into its constituent strategies.
+
+    Reads constituent_run_ids from portfolio_metadata.json (primary) or
+    Master_Portfolio_Sheet.xlsx (fallback), then traces each run_id to its
+    source strategy via Strategy_Master_Filter.xlsx.
+
+    Returns list of dicts: [{strategy_id, symbol, run_id, per_symbol_id}, ...]
+    Raises RuntimeError if the portfolio cannot be decomposed.
+    """
+    # 1. Read constituent_run_ids from portfolio_metadata.json
+    meta_path = STRATEGIES_DIR / portfolio_id / "portfolio_evaluation" / "portfolio_metadata.json"
+    constituent_run_ids = None
+
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        constituent_run_ids = meta.get("constituent_run_ids", [])
+
+    # Fallback: read from Master_Portfolio_Sheet.xlsx
+    if not constituent_run_ids:
+        mps_path = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
+        if not mps_path.exists():
+            raise RuntimeError(
+                f"Cannot decompose {portfolio_id}: no portfolio_metadata.json and no MPS"
+            )
+        import openpyxl
+        wb = openpyxl.load_workbook(str(mps_path), read_only=True, data_only=True)
+        try:
+            for sheet_name in ["Portfolios", "Single-Asset Composites"]:
+                if sheet_name not in wb.sheetnames:
+                    continue
+                ws = wb[sheet_name]
+                rows = list(ws.iter_rows(values_only=False))
+                if not rows:
+                    continue
+                headers = [c.value for c in rows[0]]
+                pid_idx = headers.index("portfolio_id") if "portfolio_id" in headers else None
+                cri_idx = (headers.index("constituent_run_ids")
+                           if "constituent_run_ids" in headers else None)
+                if pid_idx is None or cri_idx is None:
+                    continue
+                for row in rows[1:]:
+                    if row[pid_idx].value == portfolio_id:
+                        raw = row[cri_idx].value
+                        if raw:
+                            constituent_run_ids = [r.strip() for r in str(raw).split(",")]
+                        break
+                if constituent_run_ids:
+                    break
+        finally:
+            wb.close()
+
+    if not constituent_run_ids:
+        raise RuntimeError(f"Cannot decompose {portfolio_id}: no constituent_run_ids found")
+
+    # 2. Trace each run_id to source strategy via Master Filter
+    import openpyxl
+    if not MASTER_FILTER_PATH.exists():
+        raise RuntimeError(
+            f"Cannot trace run_ids: Master Filter not found at {MASTER_FILTER_PATH}"
+        )
+
+    wb = openpyxl.load_workbook(str(MASTER_FILTER_PATH), read_only=True, data_only=True)
+    try:
+        ws = wb.active
+        headers = [c.value for c in next(ws.iter_rows(max_row=1, values_only=False))]
+        ri_idx = headers.index("run_id")
+        st_idx = headers.index("strategy")
+        sym_idx = headers.index("symbol")
+
+        # Build lookup: run_id -> (per_symbol_strategy, symbol)
+        run_map = {}
+        target_set = set(constituent_run_ids)
+        for row in ws.iter_rows(min_row=2, values_only=False):
+            rid = str(row[ri_idx].value) if row[ri_idx].value else ""
+            if rid in target_set:
+                run_map[rid] = {
+                    "per_symbol_id": str(row[st_idx].value),
+                    "symbol": str(row[sym_idx].value),
+                }
+    finally:
+        wb.close()
+
+    # 3. Build result list, deriving base strategy_id from per-symbol name
+    constituents = []
+    for rid in constituent_run_ids:
+        if rid not in run_map:
+            print(f"  [WARN] run_id {rid[:12]}... not found in Master Filter — skipping")
+            continue
+        info = run_map[rid]
+        per_sym_id = info["per_symbol_id"]
+        symbol = info["symbol"]
+
+        # Derive base strategy_id: strip trailing _SYMBOL suffix
+        if per_sym_id.endswith(f"_{symbol}"):
+            base_id = per_sym_id[: -(len(symbol) + 1)]
+        else:
+            base_id = per_sym_id  # single-symbol: no suffix to strip
+
+        constituents.append({
+            "strategy_id": base_id,
+            "symbol": symbol,
+            "run_id": rid,
+            "per_symbol_id": per_sym_id,
+        })
+
+    if not constituents:
+        raise RuntimeError(
+            f"Cannot decompose {portfolio_id}: no run_ids matched in Master Filter"
+        )
+
+    return constituents
+
+
 # ── Validation ───────────────────────────────────────────────────────────────
 
 def _recover_strategy_py(strategy_id: str, target_path: Path) -> bool:
@@ -576,7 +695,6 @@ def _recover_strategy_py(strategy_id: str, target_path: Path) -> bool:
     snapshot = _RUNS_DIR / run_id / "strategy.py"
     if snapshot.exists():
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        import shutil
         shutil.copy2(str(snapshot), str(target_path))
         print(f"  [RECOVERED] strategy.py from run snapshot: {run_id}")
         return True
@@ -614,7 +732,6 @@ def _validate_strategy_files(strategy_id: str, symbols: list[dict]) -> None:
         if missing_syms:
             # Auto-sync: copy base strategy.py to per-symbol folders
             print(f"  [AUTO-SYNC] Creating per-symbol strategy.py for: {missing_syms}")
-            import shutil
             for sym in missing_syms:
                 sym_id = f"{strategy_id}_{sym}"
                 sym_dir = PROJECT_ROOT / "strategies" / sym_id
@@ -1019,6 +1136,138 @@ def promote(strategy_id: str, profile: str, description: str = "",
     }
 
 
+def promote_composite(portfolio_id: str, profile: str, description: str = "",
+                      dry_run: bool = False,
+                      skip_quality_gate: bool = False) -> dict:
+    """Decompose a composite portfolio and promote each constituent individually.
+
+    For each unique base strategy found in the composite:
+    - Runs quality gate (per-constituent, not composite-level)
+    - Promotes via the standard promote() path
+    - Skips constituents already in portfolio.yaml
+
+    Returns dict with per-constituent results.
+    """
+    print(f"\n{'=' * 60}")
+    print(f"COMPOSITE PROMOTION: {portfolio_id}")
+    print(f"Profile: {profile}")
+    print(f"{'=' * 60}\n")
+
+    # 1. Decompose
+    try:
+        constituents = decompose_portfolio(portfolio_id)
+    except RuntimeError as e:
+        print(f"[ABORT] {e}")
+        sys.exit(1)
+
+    print(f"  Found {len(constituents)} constituent run(s):\n")
+    for c in constituents:
+        print(f"    {c['strategy_id']:50s}  {c['symbol']:10s}  run={c['run_id'][:12]}...")
+    print()
+
+    # 2. Group by base strategy_id (multiple symbols may share a base)
+    from collections import OrderedDict
+    strategy_groups = OrderedDict()
+    for c in constituents:
+        sid = c["strategy_id"]
+        if sid not in strategy_groups:
+            strategy_groups[sid] = []
+        strategy_groups[sid].append(c)
+
+    print(f"  {len(strategy_groups)} unique base strategy/strategies to promote:\n")
+    for sid, members in strategy_groups.items():
+        syms = [m["symbol"] for m in members]
+        print(f"    {sid}  ->  {syms}")
+    print()
+
+    # 3. Check which are already in portfolio.yaml
+    data = _load_portfolio_yaml()
+    existing_ids = _get_existing_ids(data)
+
+    # 4. Promote each base strategy
+    results = {"portfolio_id": portfolio_id, "constituents": []}
+    promoted = 0
+    skipped = 0
+    failed = 0
+
+    for sid, members in strategy_groups.items():
+        print(f"\n{'-' * 50}")
+        print(f"  Constituent: {sid}")
+        print(f"{'-' * 50}")
+
+        # Check if already promoted (any symbol variant)
+        syms = [m["symbol"] for m in members]
+        already = []
+        for sym in syms:
+            entry_id = f"{sid}_{sym}" if len(syms) > 1 else sid
+            if entry_id in existing_ids:
+                already.append(entry_id)
+
+        if already:
+            print(f"  [SKIP] Already in portfolio.yaml: {already}")
+            for a in already:
+                results["constituents"].append({
+                    "strategy_id": sid, "status": "SKIP", "reason": "already_in_portfolio"
+                })
+            skipped += 1
+            continue
+
+        # Run quality gate for this constituent
+        qg = _compute_quality_gate(sid)
+        _print_quality_gate(qg)
+
+        if not skip_quality_gate and not qg["passed"]:
+            print(f"  [BLOCKED] Quality gate HARD FAIL for {sid}")
+            results["constituents"].append({
+                "strategy_id": sid, "status": "FAIL",
+                "reason": "; ".join(qg["hard_fails"]),
+                "quality_gate": qg["metrics"],
+            })
+            _write_audit_log(sid, profile, "COMPOSITE_QG_FAIL",
+                             dry_run=dry_run,
+                             reason=f"composite={portfolio_id}; " + "; ".join(qg["hard_fails"]),
+                             quality_gate=qg)
+            failed += 1
+            continue
+
+        # Promote this constituent (symbols auto-detected by promote())
+        try:
+            result = promote(
+                sid, profile, description=description or f"Constituent of {portfolio_id}",
+                dry_run=dry_run, skip_quality_gate=True,  # already checked above
+            )
+            results["constituents"].append({
+                "strategy_id": sid, "status": "OK",
+                "vault_id": result.get("vault_id", ""),
+                "entries_added": result.get("entries_added", 0),
+                "symbols": result.get("symbols", []),
+            })
+            promoted += 1
+        except SystemExit:
+            # promote() calls sys.exit on abort — catch and record
+            results["constituents"].append({
+                "strategy_id": sid, "status": "FAIL", "reason": "promote_aborted"
+            })
+            failed += 1
+
+    # 5. Summary
+    print(f"\n{'=' * 60}")
+    print(f"COMPOSITE PROMOTION SUMMARY: {portfolio_id}")
+    print(f"{'=' * 60}")
+    print(f"  Promoted:  {promoted}")
+    print(f"  Skipped:   {skipped} (already in portfolio)")
+    print(f"  Failed:    {failed}")
+    print(f"  Total:     {len(strategy_groups)} base strategies")
+
+    # Audit log for composite operation
+    _write_audit_log(portfolio_id, profile,
+                     "COMPOSITE_DRY_RUN" if dry_run else "COMPOSITE_COMPLETE",
+                     dry_run=dry_run,
+                     reason=f"promoted={promoted} skipped={skipped} failed={failed}")
+
+    return results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Promote strategy to burn-in: vault snapshot + portfolio.yaml edit.",
@@ -1026,7 +1275,7 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument("strategy_id",
-                        help="Base strategy ID (e.g., 27_MR_XAUUSD_1H_PINBAR_S01_V1_P05)")
+                        help="Strategy ID or PF_* composite portfolio ID")
     parser.add_argument("--profile", default=None,
                         help="Capital profile name (required for promote, not for preflight)")
     parser.add_argument("--description", default="",
@@ -1036,6 +1285,9 @@ def main() -> None:
     parser.add_argument("--preflight", action="store_true",
                         help="Run all precondition checks and print readiness report. "
                              "Does not promote.")
+    parser.add_argument("--composite", action="store_true",
+                        help="Decompose a PF_* composite portfolio and promote each "
+                             "constituent strategy individually. Requires a PF_* ID.")
     parser.add_argument("--skip-quality-gate", action="store_true",
                         help="Bypass the 6-metric quality gate (not recommended). "
                              "Gate results are still printed for review.")
@@ -1051,6 +1303,15 @@ def main() -> None:
 
     if args.preflight:
         preflight(args.strategy_id)
+        return
+
+    if args.composite:
+        if not args.strategy_id.startswith("PF_"):
+            parser.error("--composite requires a PF_* portfolio ID")
+        if not args.profile:
+            parser.error("--profile is required for composite promotion")
+        promote_composite(args.strategy_id, args.profile, args.description,
+                          args.dry_run, skip_quality_gate=args.skip_quality_gate)
         return
 
     if not args.profile:

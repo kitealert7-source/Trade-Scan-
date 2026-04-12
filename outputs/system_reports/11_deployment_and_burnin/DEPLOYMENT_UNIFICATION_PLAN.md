@@ -717,4 +717,52 @@ The `load_portfolio()` parser uses `yaml.safe_load()` + `config.get("execution",
 
 ---
 
-*Generated: 2026-04-03 | Compatibility audit: 2026-04-03*
+---
+
+## 8. TS_Execution Write Surface (Documented 2026-04-12)
+
+All TS_Execution writes stay within `TS_Execution/` — there are **zero backward writes** to TradeScan_State.
+
+### 8.1 Core Execution Writes (`TS_Execution/outputs/`)
+
+| File | Writer | Purpose | Pattern |
+|------|--------|---------|---------|
+| `outputs/logs/heartbeat.log` | `src/heartbeat.py` | Periodic heartbeat timestamps (60s) + RUN_START/RUN_END | Append |
+| `outputs/logs/execution_state.json` | `src/main.py` | `{run_id, last_bar_time, bar_count}` per bar | Atomic replace |
+| `outputs/logs/execution.pid` | `src/main.py` | Execution process PID | Overwrite |
+| `outputs/logs/pending_signals.json` | `src/state_persistence.py` | Pending signals, shadow positions (survives restarts) | Atomic replace |
+| `outputs/journal/SignalJournal.jsonl` | `src/signal_journal.py` | Pre-dispatch signals (write-before-send, fsync'd) | Append + fsync |
+| `outputs/journal/ExecutedSignals.jsonl` | `src/signal_journal.py` | Post-fill trades (MT5 confirmed) | Append |
+| `outputs/shadow_trades.jsonl` | Shadow logger | Shadow trade journal | Append |
+| `outputs/run_registry.json` | `src/main.py` | Active burn-in run registry | Atomic replace |
+| `outputs/symbol_specs_mt5.json` | Symbol spec cache | Cached MT5 symbol specifications | Overwrite |
+
+### 8.2 Orchestration Writes (from `Trade_Scan/tools/orchestration/`)
+
+These tools run from Trade_Scan but write into TS_Execution. This is **by design** — they are operational launchers, not research tools.
+
+| File | Writer | Purpose | Pattern |
+|------|--------|---------|---------|
+| `outputs/logs/startup_launcher.log` | `startup_launcher.py` | Launch attempt timestamps (rotates at 5MB) | Append |
+| `outputs/logs/watchdog_daemon.log` | `watchdog_daemon.py` | 60s polling cycle log (rotates at 5MB) | Append |
+| `outputs/logs/watchdog_guard.json` | `watchdog_daemon.py` | Kill-switch state (restart count, loss streak) | Atomic replace |
+| `outputs/logs/watchdog.pid` | `watchdog_daemon.py` | Watchdog process PID | Overwrite |
+
+### 8.3 Burn-in Monitoring (`TS_Execution/outputs/burnin/`)
+
+| File | Writer | Purpose | Pattern |
+|------|--------|---------|---------|
+| `outputs/burnin/BURNIN_*.md` | `tools/burnin_monitor.py` | Daily burn-in metrics appended to governance doc | Read-modify-write |
+
+**History:** Previously wrote to `TradeScan_State/strategies/{ID}/BURNIN_*.md` (backward write violation V6). Relocated to `TS_Execution/outputs/burnin/` on 2026-04-12. One-time migration copies existing doc on first run.
+
+### 8.4 What TS_Execution Does NOT Write
+
+- **TradeScan_State/** — read-only consumer (portfolio_evaluation, deployable, run metadata)
+- **Trade_Scan/** — never accessed at runtime
+- **DRY_RUN_VAULT/** — read-only (vault snapshots are immutable)
+- **portfolio.yaml** — only modified by `promote_to_burnin.py` (Trade_Scan tool), never by TS_Execution runtime
+
+---
+
+*Generated: 2026-04-03 | Compatibility audit: 2026-04-03 | Write surface documented: 2026-04-12*
