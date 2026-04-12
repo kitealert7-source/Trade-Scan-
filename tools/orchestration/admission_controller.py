@@ -1,13 +1,13 @@
 """
 admission_controller.py — Directive Admission Gates
-Purpose: Encapsulates Canonicalization, Namespace, and Sweep Registry gates.
+Purpose: Encapsulates Idea Evaluation, Canonicalization, Namespace, and Sweep Registry gates.
 Authority: Orchestrator Refactor Proposal v3.5
 """
 
 from __future__ import annotations
 from pathlib import Path
 from tools.pipeline_utils import PipelineContext
-from tools.orchestration.pipeline_errors import PipelineExecutionError
+from tools.orchestration.pipeline_errors import PipelineExecutionError, PipelineAdmissionPause
 
 
 class CanonicalizationDriftError(PipelineExecutionError):
@@ -25,6 +25,7 @@ class CanonicalizationDriftError(PipelineExecutionError):
 class AdmissionStage:
     """
     Admission Phase (Bootstrap):
+    - Stage -0.20: Idea Evaluation (Concept Reuse Gate)
     - Stage -0.25: Canonicalization
     - Stage -0.30: Namespace Governance
     - Stage -0.35: Sweep Registry Gate
@@ -33,20 +34,74 @@ class AdmissionStage:
     stage_name = "Directive Admission Gates"
 
     def run(self, context: PipelineContext) -> None:
-        """Execute the triple-gate admission flow."""
+        """Execute the quad-gate admission flow."""
         print(f"[{self.stage_id}] Starting admission sequence for: {context.directive_path.name}")
-        
+
+        # 0. Stage -0.20: Idea Evaluation (Concept Reuse Gate)
+        self._run_idea_evaluation(context)
+
         # 1. Stage -0.25: Canonicalization
         self._run_canonicalization(context)
-        
+
         # 2. Stage -0.30: Namespace Gate
         self._run_namespace_gate(context)
-        
+
         # 3. Stage -0.35: Sweep Registry Gate
         self._run_sweep_gate(context)
 
         # Post-admission cleanup: remove from INBOX_hold (single source of truth in active_backup)
         self._cleanup_inbox_hold(context)
+
+    def _run_idea_evaluation(self, context: PipelineContext) -> None:
+        """Stage -0.20: Non-blocking concept reuse gate.
+
+        Checks whether the directive's MODEL+TF concept has been previously tested.
+        REPEAT_FAILED: raises PipelineAdmissionPause (non-fatal, exit 0) with suggestions.
+        REPEAT_WEAK: logs warning with suggestions, continues.
+        NEW / REPEAT_PROMISING: passes silently.
+        """
+        from tools.idea_evaluation_gate import evaluate_idea, print_evaluation
+        try:
+            result = evaluate_idea(context.directive_path)
+        except Exception as e:
+            # Gate must never block the pipeline on internal errors
+            print(f"[{self.stage_id}] Stage -0.20: Idea Gate internal error "
+                  f"({type(e).__name__}: {e}) — skipping. [WARN]")
+            return
+
+        status = result.get("status", "NEW")
+        rec = result.get("recommendation", "PROCEED")
+        suggestions = result.get("suggestions", [])
+
+        if status == "REPEAT_FAILED":
+            # Print full evaluation with suggestions before pausing
+            print_evaluation(result)
+            suggestion_text = ""
+            if suggestions:
+                suggestion_text = (
+                    "\n\nSuggested hypothesis changes (advisory only):\n"
+                    + "\n".join(
+                        f"  {i}. [{s.get('type','?')}] ({s.get('confidence','?')})  "
+                        f"{s.get('text','')}"
+                        for i, s in enumerate(suggestions, 1)
+                    )
+                )
+            raise PipelineAdmissionPause(
+                f"STAGE -0.20 IDEA GATE: {status} — {result.get('summary', '')}"
+                f"{suggestion_text}"
+                f"\n\nTo proceed anyway, re-run with a structurally different hypothesis "
+                f"or acknowledge the repeat by modifying the directive.",
+                directive_id=context.directive_id,
+            )
+
+        if rec == "PROCEED_WITH_CAUTION":
+            # Non-blocking warning: print evaluation + suggestions, then continue
+            print_evaluation(result)
+            print(f"[{self.stage_id}] Stage -0.20: Idea Gate WARNING — {status}. "
+                  f"Proceeding with caution. [!!]")
+        else:
+            print(f"[{self.stage_id}] Stage -0.20: Idea Gate PASSED — "
+                  f"{status} (matches={result.get('matches_found', 0)}). [OK]")
 
     def _run_canonicalization(self, context: PipelineContext) -> None:
         from tools.canonicalizer import canonicalize, CanonicalizationError
