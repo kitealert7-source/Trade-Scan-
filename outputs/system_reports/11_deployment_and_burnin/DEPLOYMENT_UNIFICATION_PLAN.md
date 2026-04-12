@@ -1,7 +1,8 @@
 # Deployment Unification Plan
 
 **Date:** 2026-04-03
-**Status:** Plan (not implemented)
+**Updated:** 2026-04-12
+**Status:** PARTIALLY IMPLEMENTED — Phase 1 (vault extension) DONE, Phase 2 (runtime safety/guard wiring) NOT DONE (accepted as deferred risk during burn-in observation). Section 8 (write surface documentation) DONE.
 **Objective:** Eliminate deployment safety gaps. Unify promotion, burn-in, and execution into a single flow with no parallel systems.
 
 ---
@@ -115,7 +116,7 @@ TS_Execution startup:
 
 ## 2. File-Level Change List
 
-### Phase 1 — Vault Extension (Trade_Scan)
+### Phase 1 — Vault Extension (Trade_Scan) -- DONE
 
 | File | Change | Detail |
 |------|--------|--------|
@@ -142,7 +143,7 @@ TS_Execution startup:
 
 **No changes to vault invariants.** Existing structure preserved. New artifacts are additive.
 
-### Phase 2 — Runtime Safety (TS_Execution)
+### Phase 2 — Runtime Safety (TS_Execution) -- NOT DONE (deferred)
 
 | File | Change | Detail |
 |------|--------|--------|
@@ -204,7 +205,7 @@ execution:
 
 No per-strategy vault path needed — the bridge resolves it by scanning vault folders.
 
-### Phase 2.1 — Robust Signal Validation (TS_Execution)
+### Phase 2.1 — Robust Signal Validation (TS_Execution) -- NOT DONE (deferred)
 
 The exact-hash approach from Phase 2 is brittle. Research and live engines may produce slightly different floats for entry_price or risk_distance due to data source differences, bar alignment timing, or indicator warm-up divergence. Phase 2.1 replaces the binary pass/fail with a two-tier verification system.
 
@@ -765,4 +766,10 @@ These tools run from Trade_Scan but write into TS_Execution. This is **by design
 
 ---
 
-*Generated: 2026-04-03 | Compatibility audit: 2026-04-03 | Write surface documented: 2026-04-12*
+### Cross-References (2026-04-12)
+
+- **Classification gates**: `CLASSIFICATION_REFERENCE.md` — CORE/WATCH/FAIL thresholds across filter_strategies, portfolio_evaluator, and promote quality gate
+- **Promotion friction audit**: `PROMOTION_FRICTION_AUDIT.md` — all 7 friction points + R6-R10 robustness recommendations (FULLY IMPLEMENTED)
+- **Promote workflow**: `.agents/workflows/promote.md` — updated with `--composite`, `--batch`, `--batch-all`, readiness dashboard, all-or-nothing per-symbol gate
+
+*Generated: 2026-04-03 | Compatibility audit: 2026-04-03 | Write surface documented: 2026-04-12 | Status updated: 2026-04-12*

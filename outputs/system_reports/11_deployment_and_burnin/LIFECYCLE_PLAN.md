@@ -1,8 +1,8 @@
 # STRATEGY LIFECYCLE PLAN — PROMOTE / BURN_IN / WAITING / LIVE
 
 > **Created:** 2026-04-03
-> **Updated:** 2026-04-10
-> **Status:** IMPLEMENTED (Phase 1-5 tools + workflows built, Phase 6 invariant check operational). Phase 3.3 (`burnin_monitor.py --json`) deferred — burn-in metrics entered manually via `transition_to_waiting.py` CLI args.
+> **Updated:** 2026-04-12
+> **Status:** IMPLEMENTED (Phase 1-6 tools + workflows built). Phase 3.3 (`burnin_monitor.py --json`) deferred — burn-in metrics entered manually via `transition_to_waiting.py` CLI args. Promotion pipeline fully hardened (Waves 1-5 + R6-R10 from PROMOTION_FRICTION_AUDIT.md).
 > **Scope:** Artifact movement, storage, and lifecycle determinism from PIPELINE_COMPLETE to LIVE
 
 ---
@@ -105,14 +105,17 @@ strategies/{ID}/deployable/
 
 TS_Execution `portfolio_loader.py` uses `REQUIRED_FIELDS = {"id", "path", "symbol", "timeframe"}` and **silently ignores** unknown fields. Current portfolio: 19 entries (11 LEGACY, 8 BURN_IN across 4 strategies).
 
-### Artifact Protection (Phase 4 pre-check)
+### Artifact Protection (Phase 4 pre-check + 2026-04-12 hardening)
 
 - `cleanup_reconciler.py` -- has explicit `"vault"` in forbidden paths
-- `lineage_pruner.py` -- scoped to TradeScan_State only
+- `lineage_pruner.py` -- scoped to TradeScan_State only; checks `protected: true` flag + PORTFOLIO_COMPLETE status (dual-signal)
 - `reset_repo_artifacts.py` -- `"vault"` in PROTECTED_PATHS
 - `backup_dryrun_strategies.py` -- write-only, never deletes
+- `strategy_provisioner.py` -- only creates/updates strategy.py, never deletes folders
 - No TS_Execution script references vault paths
-- **Verdict: Zero deletion paths to vault. Phase 4 is already satisfied.**
+- **Protection flag:** `directive_state.json` gets `protected: true` automatically at PORTFOLIO_COMPLETE transition
+- **Verification gate:** `_verify_completion_artifacts()` runs non-blocking at PORTFOLIO_COMPLETE — checks run folders, strategy.py snapshots, data/ folders, authority copy, deployable existence. Warnings logged to directive_audit.log.
+- **Verdict: Zero deletion paths to vault. Explicit protection flag + artifact verification at transition.**
 
 ---
 
@@ -504,8 +507,15 @@ System must ensure:
 | 10 | Define `decision.json` schema now | P3 | 10 min | Prevents schema drift |
 | 11 | Add WAITING to cleanup exclusion lists | P4 | 5 min | Protects WAITING folder |
 | 12 | Run_id reverse lookup in promote workflow | P1 | 20 min | Automates run -> vault mapping |
+| 13 | `promote_readiness.py` dashboard | R6 | 3h | Single-command readiness overview for all CORE/WATCH |
+| 14 | `protected: true` flag at PORTFOLIO_COMPLETE | R7 | 1h | Explicit artifact protection, pruner dual-signal |
+| 15 | `_verify_completion_artifacts()` at PORTFOLIO_COMPLETE | R8 | 2h | Non-blocking artifact verification with audit log |
+| 16 | `--batch` / `--batch-all` promote mode | R10 | 2h | Batch promote all ready strategies |
+| 17 | `--composite` promote for PF_* portfolios | W4 | 3h | Decompose + per-constituent quality gate |
+| 18 | All-or-nothing per-symbol expectancy gate | Fix | 30 min | No silent symbol dropping in multi-symbol |
+| 19 | `decompose_portfolio()` run folder fallback | Fix | 30 min | Recovers constituents missing from Master Filter |
 
-**Total additional effort: ~3.5h**
+**Total additional effort: ~3.5h (original) + ~12h (Waves 4-5 + R6-R10)**
 
 ---
 
@@ -522,7 +532,12 @@ System must ensure:
 | `tools/cleanup_reconciler.py` | Added "waiting" to forbidden paths | DONE |
 | `tools/reset_repo_artifacts.py` | Added "WAITING" to PROTECTED_PATHS | DONE |
 | `CLAUDE.md` | Added topic index entries for /promote and /to-waiting | DONE |
-| `TS_Execution/tools/burnin_monitor.py` | Add `--json` output mode | DEFERRED — burn-in metrics entered manually via `transition_to_waiting.py` CLI args (`--burnin-trades`, `--burnin-pf`, `--burnin-wr`, `--burnin-dd`) |
+| `TS_Execution/tools/burnin_monitor.py` | Add `--json` output mode; relocated output to `TS_Execution/outputs/burnin/` (no backward writes to TradeScan_State) | DEFERRED (--json); OUTPUT RELOCATED (2026-04-12) |
+| `tools/promote_readiness.py` | **NEW**: Readiness dashboard scanning FSP + MPS for CORE/WATCH candidates, checks strategy.py/run_id/deployable/quality_gate/portfolio_yaml | DONE (2026-04-12) |
+| `tools/pipeline_utils.py` | Added `protected: true` flag at PORTFOLIO_COMPLETE + `_verify_completion_artifacts()` non-blocking verification gate | DONE (2026-04-12) |
+| `tools/state_lifecycle/lineage_pruner.py` | Dual-signal protection: checks `protected` flag + PORTFOLIO_COMPLETE status | DONE (2026-04-12) |
+| `.agents/workflows/promote.md` | Full rewrite: added --composite/--batch/--batch-all/--skip-quality-gate, readiness dashboard, all-or-nothing gate | DONE (2026-04-12) |
+| `outputs/system_reports/11_deployment_and_burnin/CLASSIFICATION_REFERENCE.md` | **NEW**: CORE/WATCH/FAIL gate reference across filter_strategies, portfolio_evaluator, promote quality gate | DONE (2026-04-12) |
 
 ---
 
