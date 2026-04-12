@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 import importlib.util
-from config.state_paths import RUNS_DIR
+from config.state_paths import RUNS_DIR, STRATEGIES_DIR
 from config.status_enums import RUN_TERMINAL_STATES, RUN_ABORTED
 
 import yaml
@@ -839,10 +839,16 @@ class DirectiveStateManager:
             current_attempt["history"] = ["INITIALIZED"]
         elif current_attempt["history"][0] != "INITIALIZED":
             current_attempt["history"].insert(0, "INITIALIZED")
-            
+
         if current_attempt["history"][-1] != new_state:
             current_attempt["history"].append(new_state)
-        
+
+        # Set protection flag and verify artifacts when reaching PORTFOLIO_COMPLETE
+        if new_state == "PORTFOLIO_COMPLETE":
+            data["protected"] = True
+            run_ids = current_attempt.get("run_ids", [])
+            self._verify_completion_artifacts(run_ids)
+
         data["last_updated"] = datetime.now(timezone.utc).isoformat()
         
         # Atomic Write
@@ -853,6 +859,50 @@ class DirectiveStateManager:
             "from": old_state, "to": new_state, "attempt": latest_attempt
         })
         print(f"[DIRECTIVE] Transition {self.directive_id} ({latest_attempt}): {old_state} -> {new_state}")
+
+    def _verify_completion_artifacts(self, run_ids: list[str]) -> list[str]:
+        """Non-blocking verification of artifacts at PORTFOLIO_COMPLETE.
+
+        Returns a list of warning strings (empty if all OK).
+        """
+        warnings = []
+
+        # 1. Check run folders and snapshots
+        for rid in run_ids:
+            run_dir = RUNS_DIR / rid
+            if not run_dir.exists():
+                warnings.append(f"run folder missing: {rid}")
+                continue
+            if not (run_dir / "strategy.py").exists():
+                warnings.append(f"strategy.py snapshot missing: {rid}")
+            if not (run_dir / "data").exists():
+                warnings.append(f"data/ folder missing: {rid}")
+
+        # 2. Check strategy.py authority copy
+        strat_dir = PROJECT_ROOT / "strategies" / self.directive_id
+        if not (strat_dir / "strategy.py").exists():
+            warnings.append(f"authority strategy.py missing: strategies/{self.directive_id}/strategy.py")
+
+        # 3. Check deployable folder
+        deploy_dir = STRATEGIES_DIR / self.directive_id / "deployable"
+        if not deploy_dir.exists() or not any(deploy_dir.iterdir()):
+            warnings.append(f"deployable/ missing or empty: {self.directive_id}")
+
+        # Log results
+        if warnings:
+            for w in warnings:
+                print(f"[VERIFY-WARN] {w}")
+            self._append_audit_log("COMPLETION_VERIFICATION", {
+                "status": "WARNINGS",
+                "warnings": warnings,
+            })
+        else:
+            print(f"[VERIFY] All completion artifacts verified for {self.directive_id}")
+            self._append_audit_log("COMPLETION_VERIFICATION", {
+                "status": "OK",
+            })
+
+        return warnings
 
     def _append_audit_log(self, event: str, details: dict):
         entry = {

@@ -9,6 +9,7 @@ Usage:
     python tools/promote_to_burnin.py <STRATEGY_ID> --profile PROFILE
     python tools/promote_to_burnin.py <STRATEGY_ID> --profile PROFILE --dry-run
     python tools/promote_to_burnin.py PF_XXXX --composite --profile PROFILE --dry-run
+    python tools/promote_to_burnin.py --batch --profile PROFILE --dry-run
 
 Requires:
     - TradeScan_State/strategies/{ID}/portfolio_evaluation/ exists
@@ -41,7 +42,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.asset_classification import classify_asset, EXP_FAIL_GATES
-from config.state_paths import STATE_ROOT, BACKTESTS_DIR, STRATEGIES_DIR, MASTER_FILTER_PATH
+from config.state_paths import STATE_ROOT, BACKTESTS_DIR, STRATEGIES_DIR, MASTER_FILTER_PATH, RUNS_DIR
 from tools.pipeline_utils import find_run_id_for_directive
 
 TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
@@ -653,8 +654,27 @@ def decompose_portfolio(portfolio_id: str) -> list[dict]:
     constituents = []
     for rid in constituent_run_ids:
         if rid not in run_map:
-            print(f"  [WARN] run_id {rid[:12]}... not found in Master Filter — skipping")
-            continue
+            # Fallback: read strategy_id + symbol from run folder directly
+            run_dir = RUNS_DIR / rid
+            rs_path = run_dir / "run_state.json"
+            rm_path = run_dir / "data" / "run_metadata.json"
+            if rs_path.exists() and rm_path.exists():
+                rs = json.loads(rs_path.read_text(encoding="utf-8"))
+                rm = json.loads(rm_path.read_text(encoding="utf-8"))
+                fallback_sid = rs.get("strategy_id") or rs.get("directive_id", "")
+                fallback_sym = rm.get("symbol", "")
+                if fallback_sid and fallback_sym:
+                    run_map[rid] = {
+                        "per_symbol_id": f"{fallback_sid}_{fallback_sym}",
+                        "symbol": fallback_sym,
+                    }
+                    print(f"  [INFO] run_id {rid[:12]}... recovered from run folder: {fallback_sid} / {fallback_sym}")
+                else:
+                    print(f"  [WARN] run_id {rid[:12]}... run folder incomplete — skipping")
+                    continue
+            else:
+                print(f"  [WARN] run_id {rid[:12]}... not in Master Filter and no run folder — skipping")
+                continue
         info = run_map[rid]
         per_sym_id = info["per_symbol_id"]
         symbol = info["symbol"]
@@ -905,21 +925,19 @@ def promote(strategy_id: str, profile: str, description: str = "",
         symbol_names = [s["symbol"] for s in symbols]
         print(f"  Filtered symbols: {symbol_names}")
 
-    # 3d. Per-symbol expectancy gate (multi-symbol only)
-    #     Vault gets ALL symbols; portfolio.yaml only gets those that pass.
+    # 3d. Per-symbol expectancy gate (multi-symbol: all-or-nothing)
+    #     If ANY symbol fails, the whole strategy is rejected. The portfolio
+    #     was backtested as a unit and must be promoted as a unit.
     _all_symbols_for_vault = _detect_symbols(strategy_id)  # full set for vault
     if is_multi and len(symbols) > 1:
-        print(f"\n  --- Per-Symbol Expectancy Gate ---")
-        symbols, _exp_failed = _filter_symbols_by_expectancy(strategy_id, symbols)
+        print(f"\n  --- Per-Symbol Expectancy Gate (all-or-nothing) ---")
+        _passed, _exp_failed = _filter_symbols_by_expectancy(strategy_id, symbols)
         if _exp_failed:
-            print(f"  Excluded {len(_exp_failed)} symbol(s) from portfolio.yaml")
-            print(f"  (they will still be in the vault snapshot)")
-        if not symbols:
-            print(f"[ABORT] All symbols failed per-symbol expectancy gate")
+            failed_names = [s["symbol"] for s in _exp_failed]
+            print(f"\n[ABORT] {len(_exp_failed)} symbol(s) failed per-symbol expectancy gate: {failed_names}")
+            print(f"  The portfolio was backtested as a unit and must be promoted as a unit.")
+            print(f"  Re-run the backtest without weak symbols, or use --skip-quality-gate.")
             sys.exit(1)
-        symbol_names = [s["symbol"] for s in symbols]
-        # Update entry_ids to only include passing symbols
-        entry_ids = [f"{strategy_id}_{s['symbol']}" for s in symbols]
 
     # 4. Lookup run_id from directive_id
     print(f"  Looking up run_id for directive: {strategy_id}")
@@ -1268,14 +1286,97 @@ def promote_composite(portfolio_id: str, profile: str, description: str = "",
     return results
 
 
+def _run_batch(profile: str, dry_run: bool = False,
+               core_only: bool = True,
+               skip_quality_gate: bool = False) -> None:
+    """Scan CORE (+ optionally WATCH) strategies and promote all that pass gates.
+
+    Uses promote_readiness.py scanner to find candidates, then promotes each
+    passing strategy individually.
+    """
+    from tools.promote_readiness import build_readiness_report
+
+    label = "CORE" if core_only else "CORE + WATCH"
+    print(f"\n{'=' * 60}")
+    print(f"BATCH PROMOTION: {label} strategies")
+    print(f"Profile: {profile}")
+    print(f"Dry run: {dry_run}")
+    print(f"{'=' * 60}\n")
+
+    report = build_readiness_report(core_only=core_only)
+
+    # Filter to promotable non-composite strategies
+    candidates = [
+        r for r in report
+        if r["ready"] and not r.get("is_composite")
+    ]
+
+    # Also report blocked
+    blocked = [
+        r for r in report
+        if not r["ready"] and not r.get("is_composite")
+        and r["checks"]["portfolio_yaml"] != "IN_PORTFOLIO"
+    ]
+    in_portfolio = [
+        r for r in report
+        if not r.get("is_composite")
+        and r["checks"]["portfolio_yaml"] == "IN_PORTFOLIO"
+    ]
+
+    print(f"  Scan results:")
+    print(f"    Ready to promote:     {len(candidates)}")
+    print(f"    Already in portfolio: {len(in_portfolio)}")
+    print(f"    Blocked:              {len(blocked)}")
+    print()
+
+    if not candidates:
+        print("  No strategies ready for batch promotion.")
+        return
+
+    print(f"  Candidates:")
+    for c in candidates:
+        qg = c["checks"]["quality_gate"]
+        print(f"    {c['classification']:5s}  {c['strategy_id']:55s}  QG={qg}")
+    print()
+
+    # Promote each candidate
+    promoted = 0
+    failed = 0
+    for c in candidates:
+        sid = c["strategy_id"]
+        print(f"\n{'-' * 50}")
+        print(f"  Batch promoting: {sid}")
+        print(f"{'-' * 50}")
+
+        try:
+            result = promote(
+                sid, profile, description="Batch promotion",
+                dry_run=dry_run, skip_quality_gate=skip_quality_gate,
+            )
+            promoted += 1
+        except SystemExit:
+            print(f"  [BATCH] Promote aborted for {sid}")
+            failed += 1
+
+    print(f"\n{'=' * 60}")
+    print(f"BATCH PROMOTION SUMMARY")
+    print(f"{'=' * 60}")
+    print(f"  Promoted:  {promoted}")
+    print(f"  Failed:    {failed}")
+    print(f"  Skipped:   {len(in_portfolio)} (already in portfolio)")
+    print(f"  Blocked:   {len(blocked)} (failed readiness checks)")
+    print(f"  Total scanned: {len(report)} ({label})")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Promote strategy to burn-in: vault snapshot + portfolio.yaml edit.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("strategy_id",
-                        help="Strategy ID or PF_* composite portfolio ID")
+    parser.add_argument("strategy_id", nargs="?", default=None,
+                        help="Strategy ID or PF_* composite portfolio ID "
+                             "(not required for --batch)")
     parser.add_argument("--profile", default=None,
                         help="Capital profile name (required for promote, not for preflight)")
     parser.add_argument("--description", default="",
@@ -1288,6 +1389,11 @@ def main() -> None:
     parser.add_argument("--composite", action="store_true",
                         help="Decompose a PF_* composite portfolio and promote each "
                              "constituent strategy individually. Requires a PF_* ID.")
+    parser.add_argument("--batch", action="store_true",
+                        help="Scan all CORE strategies from FSP, run quality gate, "
+                             "and promote all passing strategies. Requires --profile.")
+    parser.add_argument("--batch-all", action="store_true",
+                        help="Like --batch but includes WATCH strategies too.")
     parser.add_argument("--skip-quality-gate", action="store_true",
                         help="Bypass the 6-metric quality gate (not recommended). "
                              "Gate results are still printed for review.")
@@ -1300,6 +1406,19 @@ def main() -> None:
                              "Without this flag, duplicate IDs abort the promote.")
 
     args = parser.parse_args()
+
+    # -- Batch mode -------------------------------------------------------
+    if args.batch or args.batch_all:
+        if not args.profile:
+            parser.error("--profile is required for batch promotion")
+        _run_batch(args.profile, args.dry_run,
+                   core_only=not args.batch_all,
+                   skip_quality_gate=args.skip_quality_gate)
+        return
+
+    # All other modes require strategy_id
+    if not args.strategy_id:
+        parser.error("strategy_id is required (or use --batch)")
 
     if args.preflight:
         preflight(args.strategy_id)

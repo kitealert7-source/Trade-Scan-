@@ -8,7 +8,7 @@ Read before changing promotion logic, burn-in workflows, dry-run vault, go-live 
 
 | Document | Contents | Status |
 |----------|----------|--------|
-| `PROMOTION_FRICTION_AUDIT.md` | **Promotion pipeline friction audit.** 7 structural friction points from directive to burn-in: run discovery fallback, composite promotion gap, quality gate inconsistency, post-pipeline non-blocking artifacts, multi-symbol sync, edge_quality misrouting, no automated quality gate. Prioritized fix list with effort estimates. | NEW (2026-04-12) |
+| `PROMOTION_FRICTION_AUDIT.md` | **Promotion pipeline friction audit.** 7 structural friction points from directive to burn-in: run discovery fallback, composite promotion gap, quality gate inconsistency, post-pipeline non-blocking artifacts, multi-symbol sync, edge_quality misrouting, no automated quality gate. Waves 1-5 + R6-R10 all implemented. | IMPLEMENTED (2026-04-12) |
 | `LIFECYCLE_PLAN.md` | **Strategy lifecycle plan.** PROMOTE -> BURN_IN -> WAITING -> LIVE. 6-phase: vault completeness, explicit linkage, WAITING state, artifact protection, workflows, consistency guarantees. Includes quality gates and strategy traceability addendum. | IMPLEMENTED (Phase 1-5 done, Phase 3.3 burnin_monitor --json deferred) |
 | `GOLIVE_PACKAGE_COMPATIBILITY_AUDIT.md` | Audit of go-live package vs current deployment path. Pipeline topology, dry-run vault overlap, coverage gaps, remediation options | REFERENCE (Option B partially implemented — guard wiring deferred) |
 | `CLASSIFICATION_REFERENCE.md` | **Classification terminology reference.** CORE/WATCH/FAIL gates across filter_strategies, portfolio_evaluator, and promote quality gate. Metric disambiguation (edge_quality vs edge_ratio vs SQN). Composite promotion usage. | NEW (2026-04-12) |

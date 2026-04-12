@@ -1,9 +1,9 @@
-# Promotion Pipeline Friction Audit
+have u # Promotion Pipeline Friction Audit
 
 **Date:** 2026-04-12
 **Scope:** End-to-end flow from directive creation through backtest execution to burn-in promotion
 **Trigger:** Attempted promotion of CORE strategies from MPS + FSP revealed multiple friction points and process gaps
-**Status:** AUDIT ONLY -- no code changes
+**Status:** FULLY IMPLEMENTED -- Waves 1-5 + R6-R10 complete (2026-04-12)
 
 ---
 
@@ -485,78 +485,51 @@ Integrate the 6-metric quality gate into `promote_to_burnin.py` as an automated 
 
 These are systemic improvements not tied to specific friction points but identified during the audit as missing resilience layers.
 
-### R6: Promotion Readiness Dashboard
+### R6: Promotion Readiness Dashboard -- IMPLEMENTED (2026-04-12)
 
-**What:** A single command (`python tools/promote_readiness.py`) that scans all CORE + WATCH strategies across MPS and FSP, and reports promotion readiness for each:
+**What:** `python tools/promote_readiness.py` -- scans all CORE + WATCH strategies across MPS and FSP, reports promotion readiness with `>>>` markers for ready candidates. Supports `--core-only` and `--json` flags.
 
-```
-Strategy                                    Status    strategy.py  run_state  deployable  quality_gate  portfolio.yaml
-22_CONT_FX_1H_RSIAVG_TRENDFILT_S09_V1_P00  CORE      MISSING(*)   MISSING    OK          PASS          not present
-22_CONT_FX_15M_RSIAVG_TRENDFILT_S03_V1_P03  CORE      OK(run)      OK         OK          PASS          not present
-23_RSI_XAUUSD_1H_MICROREV_S01_V1_P12        CORE      OK           OK         OK          WARN          not present
-PF_04C5F80CB1E3                             CORE      COMPOSITE    N/A        N/A         N/A           not present
-   └─ constituent: SPKFADE_S03 (XAUUSD)              OK           OK         OK          PASS          BURN_IN ✓
-   └─ constituent: BOS_S01 (XAUUSD)                  OK           OK         OK          FAIL          not present
-(*) = recoverable from run snapshot
-```
+**Implementation:** `tools/promote_readiness.py` -- `scan_fsp_strategies()`, `scan_mps_composites()`, `build_readiness_report()`, `print_report()`. Checks: strategy.py, run_id, deployable, quality_gate, portfolio_yaml. Composites decomposed with constituent-level checks.
 
-**Why:** Eliminates the ad-hoc "check this, then check that" discovery process that caused the friction in the first place. Agents and operators see the full picture before attempting any promotion.
-**Effort:** 3-4h
-**When:** After Wave 3 (uses preflight + quality gate + decompose_portfolio)
+### R7: Strategy Authority Protection Flag -- IMPLEMENTED (2026-04-12)
 
-### R7: Strategy Authority Protection Flag
+**What:** `protected: true` set in `directive_state.json` when transitioning to PORTFOLIO_COMPLETE. Lineage pruner checks both explicit flag and PORTFOLIO_COMPLETE status (backward compat).
 
-**What:** Add a `protected: true` field to `directive_state.json` for any strategy at PORTFOLIO_COMPLETE or IN_PORTFOLIO. Lineage pruner and cleanup tools check this flag before touching any associated run folders.
+**Implementation:** `tools/pipeline_utils.py` `DirectiveStateManager.transition_to()` sets flag. `tools/state_lifecycle/lineage_pruner.py` `_collect_portfolio_complete_runs()` checks `data.get("protected", False)` OR `attempt.status == "PORTFOLIO_COMPLETE"`.
 
-**Why:** R1 (Wave 1) adds PORTFOLIO_COMPLETE to the pruner's keep-set, but this is an implicit protection based on scanning. An explicit flag is more robust — survives spreadsheet reconciliation, works even if FSM state is consulted before spreadsheets are regenerated.
-**Effort:** 1-2h
-**When:** Wave 1 (alongside R1), or Wave 3
+### R8: Pipeline Completion Verification Gate -- IMPLEMENTED (2026-04-12)
 
-### R8: Pipeline Completion Verification Gate
+**What:** Non-blocking artifact verification runs automatically when a directive transitions to PORTFOLIO_COMPLETE. Checks: run folders exist, strategy.py snapshots present, data/ folders present, authority strategy.py exists, deployable/ folder non-empty. Results logged to directive_audit.log.
 
-**What:** After PORTFOLIO_COMPLETE, before the directive is archived, run a final verification:
-- All run_ids referenced in directive_state.json still exist on disk
-- All backtest folders have expected artifacts
-- strategy.py authority copy still matches run snapshot
-- deployable/ folder exists and has all 7 profiles
+**Implementation:** `tools/pipeline_utils.py` `DirectiveStateManager._verify_completion_artifacts()` called from `transition_to()`. Warnings printed and audit-logged but do not block transition.
 
-**Why:** Catches artifact loss between pipeline completion and promotion. Currently, the gap between PORTFOLIO_COMPLETE and promotion is unmonitored — run folders can be deleted, strategy.py can be overwritten, and nobody notices until promotion fails.
-**Effort:** 2-3h
-**When:** Wave 3 (after promote preflight exists — shares verification logic)
+### R9: Sweep-Safe Strategy Lifecycle -- RESOLVED (2026-04-12, safe by design)
 
-### R9: Sweep-Safe Strategy Lifecycle
+**What:** Investigation confirmed strategy folders are never deleted by pipeline code:
+- `strategy_provisioner.py` only creates/updates strategy.py (never deletes)
+- `cleanup_reconciler.py` explicitly forbids "strategies" folder deletion
+- `reset_directive.py` only deletes run state folders, not strategy folders
 
-**What:** During sweep iteration (creating new passes of the same family), the agent should:
-1. Check if any existing pass is at PORTFOLIO_COMPLETE or IN_PORTFOLIO
-2. If yes, NEVER delete its `Trade_Scan/strategies/{id}/` folder
-3. Create the new pass in its own folder (which already happens)
+No code change needed. F5 root cause (strategy.py loss) was manual operations, not automated sweeps.
 
-This requires adding a pre-delete check to whatever process currently removes old strategy folders during sweeps.
+### R10: Promote Batch Mode -- IMPLEMENTED (2026-04-12)
 
-**Why:** Root cause of F5 (strategy.py lost during sweeps). The snapshot fallback (F5) is a recovery mechanism — this prevents the problem from occurring in the first place.
-**Effort:** 1-2h
-**When:** Wave 1 (prevention alongside F5 recovery)
+**What:** `python tools/promote_to_burnin.py --batch --profile <PROFILE>` reads all CORE strategies from readiness dashboard, runs quality gate on each, promotes all passing strategies. `--batch-all` includes WATCH strategies.
 
-### R10: Promote Batch Mode
-
-**What:** `python tools/promote_to_burnin.py --batch` that reads all CORE strategies from FSP/MPS, runs preflight + quality gate on each, and promotes all passing strategies in one session. Outputs a summary table.
-
-**Why:** Current process requires running promote individually for each strategy, manually checking quality gates, manually resolving symbols. Batch mode with automated gates eliminates the per-strategy friction that makes promotion a multi-hour process.
-**Effort:** 2-3h
-**When:** After Wave 3 (requires preflight, quality gate, and audit log)
+**Implementation:** `_run_batch()` in `tools/promote_to_burnin.py` calls `promote_readiness.build_readiness_report()` to find candidates, then promotes each passing strategy sequentially.
 
 ---
 
 ## Consolidated Timeline
 
-| Wave | Theme | Total Effort | Key Deliverable |
-|------|-------|-------------|-----------------|
-| **Wave 1** | Unblock Promotion | 6-8h | `promote --dry-run` succeeds for all CORE strategies |
-| **Wave 2** | Fix Correctness | 4-5h | Classifications are correct, caches are clean |
-| **Wave 3** | Harden Promotion | 7-9h | Automated quality gate, preflight check, audit trail |
-| **Wave 4** | Composite Support | 5-7h | PF_ composites promotable via `--composite` |
-| **Wave 5** | Boundary Cleanup | 3-5h | Zero backward writes, documented boundaries |
-| **R6-R10** | Robustness Extras | 10-14h | Dashboard, protection flags, batch promote |
+| Wave | Theme | Total Effort | Key Deliverable | Status |
+|------|-------|-------------|-----------------|--------|
+| **Wave 1** | Unblock Promotion | 6-8h | `promote --dry-run` succeeds for all CORE strategies | DONE |
+| **Wave 2** | Fix Correctness | 4-5h | Classifications are correct, caches are clean | DONE |
+| **Wave 3** | Harden Promotion | 7-9h | Automated quality gate, preflight check, audit trail | DONE |
+| **Wave 4** | Composite Support | 5-7h | PF_ composites promotable via `--composite` | DONE |
+| **Wave 5** | Boundary Cleanup | 3-5h | Zero backward writes, documented boundaries | DONE |
+| **R6-R10** | Robustness Extras | 10-14h | Dashboard, protection flags, batch promote | DONE |
 | **Total** | | **35-48h** | |
 
 ### Recommended Pace

@@ -133,10 +133,13 @@ def build_execution_shield() -> set:
 
 
 def _collect_portfolio_complete_runs() -> tuple[set, set]:
-    """Scan directive_state.json files for PORTFOLIO_COMPLETE directives.
+    """Scan directive_state.json files for protected/PORTFOLIO_COMPLETE directives.
 
-    Returns (run_ids, directive_ids) for all directives that reached
-    PORTFOLIO_COMPLETE. These are promotion-eligible and must not be pruned.
+    Checks two signals (either triggers protection):
+    1. Explicit ``protected: true`` flag (set by FSM on PORTFOLIO_COMPLETE transition)
+    2. Latest attempt status == PORTFOLIO_COMPLETE (implicit scan, backward compat)
+
+    Returns (run_ids, directive_ids) for all protected directives.
     """
     protected_runs = set()
     protected_directives = set()
@@ -148,9 +151,13 @@ def _collect_portfolio_complete_runs() -> tuple[set, set]:
             continue
         try:
             data = json.loads(ds.read_text(encoding="utf-8"))
+            # Signal 1: explicit protection flag
+            is_protected = data.get("protected", False)
+            # Signal 2: PORTFOLIO_COMPLETE status (backward compat)
             latest = data.get("latest_attempt", "attempt_01")
             attempt = data.get("attempts", {}).get(latest, {})
-            if attempt.get("status") == "PORTFOLIO_COMPLETE":
+            is_complete = attempt.get("status") == "PORTFOLIO_COMPLETE"
+            if is_protected or is_complete:
                 protected_directives.add(d.name)
                 for rid in attempt.get("run_ids", []):
                     protected_runs.add(rid)
