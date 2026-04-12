@@ -237,6 +237,19 @@ def main():
     if LEGACY_PNL_COL in df_ledger.columns:
         df_ledger = df_ledger.drop(columns=[LEGACY_PNL_COL])
 
+    # Write to DB first (single source of truth), then export to Excel
+    try:
+        from tools.ledger_db import _connect, create_tables, upsert_mps_df
+        _conn = _connect()
+        create_tables(_conn)
+        # Upsert to both sheets — reconcile applies to portfolios primarily
+        for _sheet in ("Portfolios", "Single-Asset Composites"):
+            upsert_mps_df(_conn, df_ledger, _sheet)
+        _conn.close()
+        print(f"  [DB] Synced {len(df_ledger)} row(s) to ledger.db.")
+    except Exception as e:
+        print(f"  [WARN] DB sync failed ({e}). Excel will still be written.")
+
     df_ledger.to_excel(LEDGER_PATH, index=False)
 
     try:

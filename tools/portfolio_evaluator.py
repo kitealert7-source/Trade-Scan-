@@ -1629,32 +1629,13 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     # Load or Create — read from correct sheet, preserve other sheet
     _other_sheet = "Portfolios" if is_single_asset else "Single-Asset Composites"
     df_other = None
-    try:
-        from tools.ledger_db import read_mps as _read_mps_ledger
-        df_ledger = _read_mps_ledger(sheet=target_sheet)
-        if df_ledger.empty:
-            df_ledger = pd.DataFrame(columns=columns)
-        df_other = _read_mps_ledger(sheet=_other_sheet)
-        if df_other.empty:
-            df_other = None
-    except Exception:
-        # Fallback: read from Excel directly
-        if ledger_path.exists():
-            try:
-                with pd.ExcelFile(ledger_path) as xls:
-                    available_sheets = xls.sheet_names
-                    if target_sheet in available_sheets:
-                        df_ledger = pd.read_excel(xls, sheet_name=target_sheet)
-                    elif len(available_sheets) == 1 and available_sheets[0] == "Sheet1":
-                        df_ledger = pd.read_excel(xls, sheet_name=available_sheets[0])
-                    else:
-                        df_ledger = pd.DataFrame(columns=columns)
-                    if _other_sheet in available_sheets:
-                        df_other = pd.read_excel(xls, sheet_name=_other_sheet)
-            except Exception:
-                df_ledger = pd.DataFrame(columns=columns)
-        else:
-            df_ledger = pd.DataFrame(columns=columns)
+    from tools.ledger_db import read_mps as _read_mps_ledger
+    df_ledger = _read_mps_ledger(sheet=target_sheet)
+    if df_ledger.empty:
+        df_ledger = pd.DataFrame(columns=columns)
+    df_other = _read_mps_ledger(sheet=_other_sheet)
+    if df_other.empty:
+        df_other = None
 
     # Column migration for existing sheets.
     # Fix renamed headers left by old formatter (sharpe (ann.) → sharpe, etc.)
@@ -1897,9 +1878,18 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     _lock_path = ledger_path.with_suffix(".lock")
     with FileLock(str(_lock_path), timeout=120):
         ensure_xlsx_writable(ledger_path)
-        # Atomic write: tmp → fsync → replace (prevents corruption on crash/kill)
-        # Write both data sheets + preserve non-data sheets (e.g. Notes).
-        # Previous bug: mode='w' with only data sheets deleted Notes.
+        # DB FIRST (mandatory) — SQLite is the source of truth
+        from tools.ledger_db import _connect as _db_connect, create_tables as _db_create, upsert_mps_df as _db_upsert
+        _db_conn = _db_connect()
+        _db_create(_db_conn)
+        _db_upsert(_db_conn, df_final, sheet=target_sheet)
+        if df_other is not None and not df_other.empty:
+            _db_upsert(_db_conn, df_other, sheet=_other_sheet)
+        _db_conn.close()
+        print(f"  [LEDGER_DB] Synced {len(df_final)} {target_sheet} rows to ledger.db")
+
+        # EXCEL SECOND (derived view, best-effort)
+        # Preserve non-data sheets (e.g. Notes).
         _preserve = {}
         _data_names = {target_sheet, _other_sheet}
         if ledger_path.exists():
@@ -1910,28 +1900,28 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
                             _preserve[_sn] = pd.read_excel(_xls, sheet_name=_sn)
                         except Exception:
                             pass
-        _tmp_ledger = ledger_path.with_suffix(".xlsx.tmp")
-        with pd.ExcelWriter(_tmp_ledger, engine="openpyxl", mode="w") as writer:
-            df_final.to_excel(writer, sheet_name=target_sheet, index=False)
-            if df_other is not None and not df_other.empty:
-                df_other.to_excel(writer, sheet_name=_other_sheet, index=False)
-            for _sn, _sdf in _preserve.items():
-                _sdf.to_excel(writer, sheet_name=_sn, index=False)
-        import os as _os_atomic
-        with open(_tmp_ledger, "r+b") as _fh:
-            _os_atomic.fsync(_fh.fileno())
-        _os_atomic.replace(str(_tmp_ledger), str(ledger_path))
+        try:
+            _tmp_ledger = ledger_path.with_suffix(".xlsx.tmp")
+            with pd.ExcelWriter(_tmp_ledger, engine="openpyxl", mode="w") as writer:
+                df_final.to_excel(writer, sheet_name=target_sheet, index=False)
+                if df_other is not None and not df_other.empty:
+                    df_other.to_excel(writer, sheet_name=_other_sheet, index=False)
+                for _sn, _sdf in _preserve.items():
+                    _sdf.to_excel(writer, sheet_name=_sn, index=False)
+            import os as _os_atomic
+            with open(_tmp_ledger, "r+b") as _fh:
+                _os_atomic.fsync(_fh.fileno())
+            _os_atomic.replace(str(_tmp_ledger), str(ledger_path))
+        except Exception as _xl_err:
+            print(f"  [WARN] Excel export failed ({_xl_err}). Run: python tools/ledger_db.py --export-mps")
 
-        # Call Unified Formatter
+        # Call Unified Formatter (best-effort)
         _formatter = PROJECT_ROOT / "tools" / "format_excel_artifact.py"
         try:
-            cmd = [
-                sys.executable,
-                str(_formatter),
-                "--file", str(ledger_path),
-                "--profile", "portfolio",
-            ]
-            subprocess.run(cmd, check=True)
+            subprocess.run(
+                [sys.executable, str(_formatter), "--file", str(ledger_path), "--profile", "portfolio"],
+                check=True,
+            )
         except subprocess.CalledProcessError as e:
             print(f"[WARN] Formatting failed: {e}")
 
@@ -1942,19 +1932,6 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             )
         except subprocess.CalledProcessError as e:
             print(f"[WARN] Notes sheet failed: {e}")
-
-        # Sync to SQLite ledger (authoritative DB)
-        try:
-            from tools.ledger_db import _connect as _db_connect, create_tables as _db_create, upsert_mps_df as _db_upsert
-            _db_conn = _db_connect()
-            _db_create(_db_conn)
-            _db_upsert(_db_conn, df_final, sheet=target_sheet)
-            if df_other is not None and not df_other.empty:
-                _db_upsert(_db_conn, df_other, sheet=_other_sheet)
-            _db_conn.close()
-            print(f"  [LEDGER_DB] Synced {len(df_final)} {target_sheet} rows to ledger.db")
-        except Exception as _db_err:
-            print(f"  [WARN] ledger_db sync failed (non-fatal): {_db_err}")
 
 
 # ==================================================================

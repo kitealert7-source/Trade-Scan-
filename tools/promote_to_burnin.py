@@ -237,33 +237,10 @@ def _read_profile_metrics(strategy_id: str, profile: str) -> dict:
     return {}
 
 
+
 # ── Expectancy gate ──────────────────────────────────────────────────────────
-
-def _check_expectancy_gate(strategy_id: str, metrics: dict) -> None:
-    """Block promotion if expectancy is below the asset-class floor.
-
-    Uses EXP_FAIL_GATES from config/asset_classification.py:
-        FX: $0.15  |  XAU: $0.50  |  BTC: $0.50  |  INDEX: $0.50
-
-    Aborts with [ABORT] if the gate fails. Call before any portfolio.yaml edit.
-    """
-    exp = metrics.get("expectancy")
-    if exp == "?" or exp is None:
-        print(f"[WARN] Expectancy not available for {strategy_id} — skipping gate check")
-        return
-
-    asset_class = classify_asset(strategy_id)
-    gate = EXP_FAIL_GATES.get(asset_class, 0.0)
-    exp_val = float(exp)
-
-    print(f"  Expectancy gate: {exp_val:.4f} >= {gate} ({asset_class})  ", end="")
-    if exp_val < gate:
-        print("FAIL")
-        print(f"\n[ABORT] Expectancy ${exp_val:.4f} is below the {asset_class} floor of ${gate:.2f}.")
-        print(f"  This strategy would be classified FAIL by filter_strategies.py.")
-        print(f"  Resolve the expectancy issue before promoting to BURN_IN.")
-        sys.exit(1)
-    print("OK")
+# Per-symbol expectancy is handled by _filter_symbols_by_expectancy() above.
+# Gate thresholds: EXP_FAIL_GATES in config/asset_classification.py.
 
 
 # ── Quality gate (6-metric edge quality check) ─────────────────────────────
@@ -585,70 +562,36 @@ def decompose_portfolio(portfolio_id: str) -> list[dict]:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         constituent_run_ids = meta.get("constituent_run_ids", [])
 
-    # Fallback: read from Master_Portfolio_Sheet.xlsx
+    # Fallback: read from ledger.db (source of truth), then Excel
     if not constituent_run_ids:
-        mps_path = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
-        if not mps_path.exists():
-            raise RuntimeError(
-                f"Cannot decompose {portfolio_id}: no portfolio_metadata.json and no MPS"
-            )
-        import openpyxl
-        wb = openpyxl.load_workbook(str(mps_path), read_only=True, data_only=True)
         try:
-            for sheet_name in ["Portfolios", "Single-Asset Composites"]:
-                if sheet_name not in wb.sheetnames:
-                    continue
-                ws = wb[sheet_name]
-                rows = list(ws.iter_rows(values_only=False))
-                if not rows:
-                    continue
-                headers = [c.value for c in rows[0]]
-                pid_idx = headers.index("portfolio_id") if "portfolio_id" in headers else None
-                cri_idx = (headers.index("constituent_run_ids")
-                           if "constituent_run_ids" in headers else None)
-                if pid_idx is None or cri_idx is None:
-                    continue
-                for row in rows[1:]:
-                    if row[pid_idx].value == portfolio_id:
-                        raw = row[cri_idx].value
-                        if raw:
-                            constituent_run_ids = [r.strip() for r in str(raw).split(",")]
-                        break
-                if constituent_run_ids:
-                    break
-        finally:
-            wb.close()
+            from tools.ledger_db import read_mps
+            df_mps = read_mps()
+            if not df_mps.empty and "constituent_run_ids" in df_mps.columns:
+                match = df_mps.loc[df_mps["portfolio_id"] == portfolio_id, "constituent_run_ids"]
+                if not match.empty and pd.notna(match.values[0]):
+                    constituent_run_ids = [r.strip() for r in str(match.values[0]).split(",")]
+        except Exception:
+            pass  # Fall through to error
 
     if not constituent_run_ids:
         raise RuntimeError(f"Cannot decompose {portfolio_id}: no constituent_run_ids found")
 
-    # 2. Trace each run_id to source strategy via Master Filter
-    import openpyxl
-    if not MASTER_FILTER_PATH.exists():
-        raise RuntimeError(
-            f"Cannot trace run_ids: Master Filter not found at {MASTER_FILTER_PATH}"
-        )
+    # 2. Trace each run_id to source strategy via ledger.db (DB-first, Excel fallback)
+    from tools.ledger_db import read_master_filter
+    df_mf = read_master_filter()
+    if df_mf.empty:
+        raise RuntimeError("Cannot trace run_ids: Master Filter is empty (DB and Excel)")
 
-    wb = openpyxl.load_workbook(str(MASTER_FILTER_PATH), read_only=True, data_only=True)
-    try:
-        ws = wb.active
-        headers = [c.value for c in next(ws.iter_rows(max_row=1, values_only=False))]
-        ri_idx = headers.index("run_id")
-        st_idx = headers.index("strategy")
-        sym_idx = headers.index("symbol")
-
-        # Build lookup: run_id -> (per_symbol_strategy, symbol)
-        run_map = {}
-        target_set = set(constituent_run_ids)
-        for row in ws.iter_rows(min_row=2, values_only=False):
-            rid = str(row[ri_idx].value) if row[ri_idx].value else ""
-            if rid in target_set:
-                run_map[rid] = {
-                    "per_symbol_id": str(row[st_idx].value),
-                    "symbol": str(row[sym_idx].value),
-                }
-    finally:
-        wb.close()
+    target_set = set(constituent_run_ids)
+    run_map = {}
+    for _, row in df_mf.iterrows():
+        rid = str(row.get("run_id", ""))
+        if rid in target_set:
+            run_map[rid] = {
+                "per_symbol_id": str(row.get("strategy", "")),
+                "symbol": str(row.get("symbol", "")),
+            }
 
     # 3. Build result list, deriving base strategy_id from per-symbol name
     constituents = []
@@ -810,13 +753,16 @@ def _build_comment_block(strategy_id: str, profile: str, vault_id: str,
 
 
 def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
-                      vault_id: str, profile: str) -> list[str]:
+                      vault_id: str, profile: str,
+                      run_id: str = "") -> list[str]:
     """Build the YAML entry lines for one strategy slot.
 
-    Includes vault_id, profile, lifecycle as structured fields.
+    Includes vault_id, profile, lifecycle, run_id as structured fields.
     TS_Execution silently ignores unknown fields (permissive dict parsing).
     """
-    return [
+    if not run_id:
+        raise ValueError(f"run_id missing for portfolio entry '{entry_id}' — cannot write YAML without identity key")
+    lines = [
         f'  - id: "{entry_id}"',
         f'    path: "strategies/{entry_id}/strategy.py"',
         f"    symbol: {symbol}",
@@ -825,7 +771,9 @@ def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
         f"    vault_id: {vault_id}",
         f"    profile: {profile}",
         f"    lifecycle: {LIFECYCLE_BURN_IN}",
+        f"    run_id: {run_id}",
     ]
+    return lines
 
 
 # ── Main promote function ───────────────────────────────────────────────────
@@ -894,11 +842,8 @@ def promote(strategy_id: str, profile: str, description: str = "",
     # 3. Validate files exist
     _validate_strategy_files(strategy_id, symbols)
 
-    # 3b. Expectancy gate (aggregate) — hard block before any vault/yaml changes
+    # 3b. Quality gate (6-metric edge check)
     _metrics = _read_backtest_metrics(strategy_id)
-    _check_expectancy_gate(strategy_id, _metrics)
-
-    # 3b2. Quality gate (6-metric edge check)
     _qg = _compute_quality_gate(strategy_id)
     _print_quality_gate(_qg)
     if not skip_quality_gate:
@@ -925,19 +870,25 @@ def promote(strategy_id: str, profile: str, description: str = "",
         symbol_names = [s["symbol"] for s in symbols]
         print(f"  Filtered symbols: {symbol_names}")
 
-    # 3d. Per-symbol expectancy gate (multi-symbol: all-or-nothing)
-    #     If ANY symbol fails, the whole strategy is rejected. The portfolio
-    #     was backtested as a unit and must be promoted as a unit.
+    # 3d. Per-symbol expectancy gate — checks each deployed symbol individually.
+    #     Uses per-symbol expectancy (net_pnl / trades) from backtest data,
+    #     NOT the diluted aggregate across all backtested symbols.
     _all_symbols_for_vault = _detect_symbols(strategy_id)  # full set for vault
-    if is_multi and len(symbols) > 1:
-        print(f"\n  --- Per-Symbol Expectancy Gate (all-or-nothing) ---")
-        _passed, _exp_failed = _filter_symbols_by_expectancy(strategy_id, symbols)
-        if _exp_failed:
-            failed_names = [s["symbol"] for s in _exp_failed]
+    print(f"\n  --- Per-Symbol Expectancy Gate ---")
+    _passed, _exp_failed = _filter_symbols_by_expectancy(strategy_id, symbols)
+    if _exp_failed:
+        failed_names = [s["symbol"] for s in _exp_failed]
+        if not skip_quality_gate:
             print(f"\n[ABORT] {len(_exp_failed)} symbol(s) failed per-symbol expectancy gate: {failed_names}")
-            print(f"  The portfolio was backtested as a unit and must be promoted as a unit.")
-            print(f"  Re-run the backtest without weak symbols, or use --skip-quality-gate.")
+            print(f"  Use --skip-quality-gate to override.")
             sys.exit(1)
+        else:
+            print(f"\n  [OVERRIDE] {len(_exp_failed)} symbol(s) failed expectancy but bypassed: {failed_names}")
+    symbols = _passed if _passed else symbols  # deploy only passing symbols
+    symbol_names = [s["symbol"] for s in symbols]
+    if not symbols:
+        print(f"[ABORT] No symbols remaining after expectancy gate.")
+        sys.exit(1)
 
     # 4. Lookup run_id from directive_id
     print(f"  Looking up run_id for directive: {strategy_id}")
@@ -1017,11 +968,11 @@ def promote(strategy_id: str, profile: str, description: str = "",
         for sym_info in symbols:
             sym = sym_info["symbol"]
             entry_id = f"{strategy_id}_{sym}"
-            yaml_entries.extend(_build_yaml_entry(entry_id, sym, timeframe, vault_id, profile))
+            yaml_entries.extend(_build_yaml_entry(entry_id, sym, timeframe, vault_id, profile, run_id=run_id))
             yaml_entries.append("")
     else:
         sym = symbols[0]["symbol"]
-        yaml_entries.extend(_build_yaml_entry(strategy_id, sym, timeframe, vault_id, profile))
+        yaml_entries.extend(_build_yaml_entry(strategy_id, sym, timeframe, vault_id, profile, run_id=run_id))
 
     block = "\n".join(comment_lines + yaml_entries)
 
@@ -1068,41 +1019,57 @@ def promote(strategy_id: str, profile: str, description: str = "",
             filtered.append(line)
         content = "\n".join(filtered)
 
-    # 9b. Append new BURN_IN block (atomic: write tmp -> fsync -> rename)
+    # 9b. Prepare YAML in memory (don't write yet)
+    _original_yaml = Path(PORTFOLIO_YAML).read_text(encoding="utf-8")
     if not content.endswith("\n"):
         content += "\n"
-    content += "\n" + block + "\n"
-    tmp_yaml = PORTFOLIO_YAML.with_suffix(".yaml.tmp")
-    with open(tmp_yaml, "w", encoding="utf-8") as f:
-        f.write(content)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(str(tmp_yaml), str(PORTFOLIO_YAML))
+    _new_yaml = content + "\n" + block + "\n"
 
     entries_added = len(entry_ids)
+
+    # 10. DB FIRST — write IN_PORTFOLIO to ledger.db (must succeed)
+    print(f"\n  --- Update IN_PORTFOLIO (DB) ---")
+    from tools.ledger_db import set_in_portfolio, _connect as _ldb_connect, create_tables as _ldb_ct
+    _ldb = _ldb_connect()
+    _ldb_ct(_ldb)
+    _previous_ids = {
+        r[0] for r in _ldb.execute(
+            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+        ).fetchall()
+    }
+    _ldb.close()
+    _new_ids = _previous_ids | {run_id}
+    synced = set_in_portfolio(_new_ids)
+    print(f"  [DB] IN_PORTFOLIO: {synced} run_id(s) flagged (added {run_id[:12]}...).")
+
+    # 11. YAML SECOND — write portfolio.yaml (atomic: tmp -> fsync -> rename)
+    #     If this fails, revert DB to previous state.
+    try:
+        tmp_yaml = PORTFOLIO_YAML.with_suffix(".yaml.tmp")
+        with open(tmp_yaml, "w", encoding="utf-8") as f:
+            f.write(_new_yaml)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(str(tmp_yaml), str(PORTFOLIO_YAML))
+    except Exception as e:
+        print(f"  [FATAL] portfolio.yaml write failed ({e}).")
+        print(f"  [ROLLBACK] Reverting DB to previous state.")
+        set_in_portfolio(_previous_ids)
+        print(f"  [ROLLBACK] DB reverted. Promotion aborted.")
+        sys.exit(1)
+
     print(f"[OK] Appended {entries_added} entry/entries to {PORTFOLIO_YAML}")
     print(f"     IDs: {entry_ids}")
     print(f"     vault_id: {vault_id}")
     print(f"     profile: {profile}")
     print(f"     lifecycle: {LIFECYCLE_BURN_IN}")
 
-    # 10. Auto-sync portfolio flags (eliminates manual Step 2)
-    print(f"\n  --- Sync Portfolio Flags ---")
-    sync_result = subprocess.run(
-        [sys.executable, str(PROJECT_ROOT / "tools" / "sync_portfolio_flags.py"), "--save"],
-        cwd=str(PROJECT_ROOT), capture_output=True, text=True,
-    )
-    if sync_result.returncode == 0:
-        # Show relevant output lines
-        for line in sync_result.stdout.strip().splitlines():
-            if line.startswith("["):
-                print(f"  {line}")
-        print(f"  Portfolio flags synced automatically.")
-    else:
-        print(f"  [WARN] sync_portfolio_flags.py failed (exit {sync_result.returncode}).")
-        print(f"  Run manually: python tools/sync_portfolio_flags.py --save")
-        if sync_result.stderr:
-            print(f"  stderr: {sync_result.stderr[:200]}")
+    # 10b. Export Excel from DB (Excel = read-only view, never edited directly)
+    try:
+        from tools.ledger_db import export_master_filter
+        export_master_filter()
+    except Exception as e:
+        print(f"  [WARN] Excel export failed ({e}). Run: python tools/ledger_db.py --export-mf")
 
     # 11. Audit log (TS_Execution side)
     try:
@@ -1141,6 +1108,46 @@ def promote(strategy_id: str, profile: str, description: str = "",
     # Audit log (Trade_Scan side)
     _write_audit_log(strategy_id, profile, "SUCCESS", dry_run=False,
                      vault_id=vault_id, run_id=run_id, quality_gate=_qg)
+
+    # 14. CONSISTENCY ASSERTION — DB run_ids must match YAML run_ids (exact identity)
+    print(f"\n  --- Consistency Check ---")
+    try:
+        _yaml_data = yaml.safe_load(Path(PORTFOLIO_YAML).read_text(encoding="utf-8"))
+        _yaml_run_ids_list = []
+        for s in _yaml_data.get("portfolio", {}).get("strategies", []):
+            if s.get("enabled", False):
+                _rid = s.get("run_id", "")
+                if _rid:
+                    _yaml_run_ids_list.append(str(_rid))
+        _yaml_run_ids = set(_yaml_run_ids_list)
+
+        if len(_yaml_run_ids_list) != len(_yaml_run_ids):
+            _dupes = [r for r in _yaml_run_ids_list if _yaml_run_ids_list.count(r) > 1]
+            print(f"  [ERROR] Duplicate run_ids in YAML: {sorted(set(_dupes))}")
+
+        from tools.ledger_db import _connect as _ck_conn
+        _ck = _ck_conn()
+        _db_rows = _ck.execute(
+            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+        ).fetchall()
+        _ck.close()
+        _db_run_ids = {str(r[0]) for r in _db_rows}
+
+        if _db_run_ids == _yaml_run_ids:
+            print(f"  [OK] DB run_ids == YAML run_ids ({len(_db_run_ids)}) — consistent.")
+        else:
+            _missing_in_yaml = _db_run_ids - _yaml_run_ids
+            _missing_in_db = _yaml_run_ids - _db_run_ids
+            print(f"  [MISMATCH] run_id sets differ.")
+            if _missing_in_yaml:
+                print(f"    Missing in YAML: {sorted(_missing_in_yaml)}")
+            if _missing_in_db:
+                print(f"    Missing in DB:   {sorted(_missing_in_db)}")
+            if not _yaml_run_ids:
+                print(f"    [HINT] YAML entries may be missing run_id fields. Backfill needed.")
+            print(f"  Run: python tools/sync_portfolio_flags.py --save  to reconcile.")
+    except Exception as e:
+        print(f"  [WARN] Consistency check failed ({e}).")
 
     print(f"\n[NEXT] Restart TS_Execution to pick up new strategies.")
     print(f"       Verify: cd ../TS_Execution && python src/main.py --phase 0")

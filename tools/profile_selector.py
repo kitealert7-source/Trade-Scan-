@@ -274,34 +274,14 @@ _DATA_SHEETS = ["Portfolios", "Single-Asset Composites"]
 def _load_sheet_dfs(ledger_path):
     """Load all data sheets from the ledger into {sheet_name: df}.
 
-    Handles both the two-tab format ("Portfolios" / "Single-Asset Composites")
-    and the legacy single-tab format ("Sheet1").  Never reads a non-data sheet
-    (e.g. Notes) as a data frame.
+    Reads from DB only. No Excel fallback — DB is single source of truth.
     """
+    from tools.ledger_db import read_mps as _read_mps_ps
     sheet_dfs = {}
-    # DB-first read
-    try:
-        from tools.ledger_db import read_mps as _read_mps_ps
-        for s in _DATA_SHEETS:
-            df = _read_mps_ps(sheet=s)
-            if not df.empty:
-                sheet_dfs[s] = df
-        if sheet_dfs:
-            return sheet_dfs
-    except Exception:
-        pass
-    # Fallback: Excel read
-    with pd.ExcelFile(ledger_path) as xls:
-        available = xls.sheet_names
-        for s in _DATA_SHEETS:
-            if s in available:
-                sheet_dfs[s] = pd.read_excel(xls, sheet_name=s)
-        if not sheet_dfs:
-            for s in available:
-                if s != "Notes":
-                    sheet_dfs["Portfolios"] = pd.read_excel(xls, sheet_name=s)
-                    print(f"[MIGRATE] Legacy sheet '{s}' loaded as 'Portfolios'")
-                    break
+    for s in _DATA_SHEETS:
+        df = _read_mps_ps(sheet=s)
+        if not df.empty:
+            sheet_dfs[s] = df
     return sheet_dfs
 
 
@@ -349,8 +329,16 @@ def main():
         if LEGACY_PNL_COL in sheet_dfs[s].columns:
             sheet_dfs[s] = sheet_dfs[s].drop(columns=[LEGACY_PNL_COL])
 
-    # Write all sheets back — preserves two-tab structure AND non-data sheets
-    # (e.g. Notes). Previous bug: mode='w' with only data sheets deleted Notes.
+    # DB FIRST (mandatory) — SQLite is the source of truth
+    from tools.ledger_db import _connect as _db_connect, create_tables as _db_create, upsert_mps_df as _db_upsert
+    _db_conn = _db_connect()
+    _db_create(_db_conn)
+    for _s, _df in sheet_dfs.items():
+        _db_upsert(_db_conn, _df, sheet=_s)
+    _db_conn.close()
+    print(f"  [LEDGER_DB] Synced MPS to ledger.db")
+
+    # EXCEL SECOND (derived view, best-effort)
     _preserve = {}
     if LEDGER_PATH.exists():
         with pd.ExcelFile(LEDGER_PATH) as _xls:
@@ -360,12 +348,15 @@ def main():
                         _preserve[_sn] = pd.read_excel(_xls, sheet_name=_sn)
                     except Exception:
                         pass
-    with pd.ExcelWriter(LEDGER_PATH, engine="openpyxl", mode="w") as writer:
-        for s, df in sheet_dfs.items():
-            df.to_excel(writer, sheet_name=s, index=False)
-        for _sn, _sdf in _preserve.items():
-            _sdf.to_excel(writer, sheet_name=_sn, index=False)
-    print(f"\n[SAVED] {LEDGER_PATH}")
+    try:
+        with pd.ExcelWriter(LEDGER_PATH, engine="openpyxl", mode="w") as writer:
+            for s, df in sheet_dfs.items():
+                df.to_excel(writer, sheet_name=s, index=False)
+            for _sn, _sdf in _preserve.items():
+                _sdf.to_excel(writer, sheet_name=_sn, index=False)
+        print(f"\n[SAVED] {LEDGER_PATH}")
+    except Exception as _xl_err:
+        print(f"  [WARN] Excel export failed ({_xl_err}). Run: python tools/ledger_db.py --export-mps")
 
     _formatter = Path(__file__).parent / "format_excel_artifact.py"
     try:
@@ -383,18 +374,6 @@ def main():
         )
     except subprocess.CalledProcessError as e:
         print(f"[WARN] Notes update failed: {e}")
-
-    # Sync to SQLite ledger (authoritative DB)
-    try:
-        from tools.ledger_db import _connect as _db_connect, create_tables as _db_create, upsert_mps_df as _db_upsert
-        _db_conn = _db_connect()
-        _db_create(_db_conn)
-        for _s, _df in sheet_dfs.items():
-            _db_upsert(_db_conn, _df, sheet=_s)
-        _db_conn.close()
-        print(f"  [LEDGER_DB] Synced MPS to ledger.db")
-    except Exception as _db_err:
-        print(f"  [WARN] ledger_db sync failed (non-fatal): {_db_err}")
 
     # End-of-run visibility: count unresolved rows across all sheets.
     unresolved = 0

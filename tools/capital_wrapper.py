@@ -120,7 +120,7 @@ PROFILES = {
         "starting_capital": 10000.0,
         "risk_per_trade": 0.005,         # 0.5% base risk
         "heat_cap": 0.03,               # 3.0% hard cap
-        "leverage_cap": 15,             # 15x
+        "leverage_cap": 1000,            # CFD broker limit
         "dynamic_scaling": True,        # min(base_risk, remaining_heat)
         "min_position_pct": 0.40,       # Skip if scaled risk < 40% of base
         "min_lot": 0.01,
@@ -131,7 +131,7 @@ PROFILES = {
         "starting_capital": 10000.0,
         "risk_per_trade": 0.0025,       # 0.25%
         "heat_cap": 0.04,               # 4.0%
-        "leverage_cap": 5,              # 5x
+        "leverage_cap": 1000,            # CFD broker limit
         "min_lot": 0.01,
         "lot_step": 0.01,
     },
@@ -141,7 +141,7 @@ PROFILES = {
         "risk_per_trade": 0.005,        # Fallback (unused when fixed_risk_usd set)
         "fixed_risk_usd": 50.0,         # $50 per trade
         "heat_cap": 0.04,               # 4.0%
-        "leverage_cap": 11,             # 11x (calibrated from p99 = 10.67x)
+        "leverage_cap": 1000,            # CFD broker limit
         "min_lot": 0.01,
         "lot_step": 0.01,
     },
@@ -151,7 +151,7 @@ PROFILES = {
         "risk_per_trade": 0.005,
         "fixed_risk_usd": 50.0,
         "heat_cap": 0.04,
-        "leverage_cap": 5,
+        "leverage_cap": 1000,
         "min_lot": 0.01,
         "lot_step": 0.01,
         "min_lot_fallback": True,
@@ -164,7 +164,7 @@ PROFILES = {
         "risk_per_trade": 0.005,
         "fixed_risk_usd": 50.0,
         "heat_cap": 0.04,
-        "leverage_cap": 5,
+        "leverage_cap": 1000,
         "min_lot": 0.01,
         "lot_step": 0.01,
         "min_lot_fallback": True,
@@ -176,7 +176,7 @@ PROFILES = {
         "starting_capital": 10000.0,
         "fixed_risk_usd": 65.0,
         "heat_cap": 0.04,
-        "leverage_cap": 5,
+        "leverage_cap": 1000,
         "min_lot": 0.01,
         "lot_step": 0.01,
         "min_lot_fallback": True,

@@ -253,20 +253,13 @@ def extract_from_report(report_path, metadata):
     return row_data, None
 
 def get_existing_master_df(master_filter_path):
-    try:
-        from tools.ledger_db import read_master_filter
-        df = read_master_filter()
-        if not df.empty:
-            return df
-    except Exception:
-        pass
-    # Fallback: direct Excel read
-    if not master_filter_path.exists():
-        return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
-    try:
-        return pd.read_excel(master_filter_path)
-    except Exception:
-        return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
+    """Load existing Master Filter from DB. No Excel fallback."""
+    from tools.ledger_db import read_master_filter
+    df = read_master_filter()
+    if not df.empty:
+        return df
+    # DB exists but table is empty, or DB doesn't exist yet (fresh install)
+    return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
 
 def enforce_strategy_persistence(run_id: str):
     strategy_dir = RUNS_DIR / run_id
@@ -368,85 +361,65 @@ def compile_stage3(strategy_filter=None):
         
         df_master = pd.concat([df_master, df_new], ignore_index=True)
 
-        # --- IN_PORTFOLIO PERSISTENCE GUARD ---
-        # Selections store: TradeScan_State/sandbox/in_portfolio_selections.json
-        # Survives complete Master Filter rebuilds. Only sync_portfolio_flags.py --clear
-        # can remove an entry — no pipeline code path may flip True → False.
-        _selections_path = master_filter_path.parent / "in_portfolio_selections.json"
-        _stored_true_ids: set = set()
-        if _selections_path.exists():
-            try:
-                _stored = json.loads(_selections_path.read_text(encoding="utf-8"))
-                _stored_true_ids = set(str(x) for x in _stored.get("selections", []))
-            except Exception as _sel_err:
-                print(f"[WARN] Could not load portfolio selections store ({_sel_err}) — treating as empty.")
-        # Restore persisted True values (critical after any Master Filter rebuild)
-        if _stored_true_ids:
-            _restore_mask = df_master["run_id"].astype(str).isin(_stored_true_ids)
+        # --- IN_PORTFOLIO RESTORE FROM DB ---
+        # ledger.db is the single source of truth for IN_PORTFOLIO.
+        # Only promote_to_burnin.py writes it. This block restores flags
+        # after a Master Filter rebuild (new rows default to False).
+        # Fails hard — if DB can't provide flags, abort rather than persist wrong state.
+        from tools.ledger_db import _connect as _db_conn_fn, create_tables as _db_ct
+        _rc = _db_conn_fn()
+        _db_ct(_rc)
+        _true_rows = _rc.execute(
+            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+        ).fetchall()
+        _true_ids = {str(r[0]) for r in _true_rows}
+        _rc.close()
+        if _true_ids:
+            _restore_mask = df_master["run_id"].astype(str).isin(_true_ids)
             _restored = int(_restore_mask.sum())
             if _restored:
                 df_master.loc[_restore_mask, "IN_PORTFOLIO"] = True
-                print(f"[IN_PORTFOLIO] Restored {_restored} persisted selection(s) from store.")
-        # Accumulate any currently-True rows into store (operator just marked via Excel)
-        _currently_true = set(
-            df_master.loc[df_master["IN_PORTFOLIO"] == True, "run_id"].astype(str).tolist()
-        )
-        _all_true = _stored_true_ids | _currently_true
-        if _all_true != _stored_true_ids:
-            try:
-                _selections_path.write_text(
-                    json.dumps({"selections": sorted(_all_true)}, indent=2),
-                    encoding="utf-8",
-                )
-                _new_count = len(_all_true - _stored_true_ids)
-                print(f"[IN_PORTFOLIO] Persisted {_new_count} new selection(s) to store ({len(_all_true)} total).")
-            except Exception as _write_err:
-                print(f"[WARN] Could not update portfolio selections store ({_write_err}).")
+                print(f"[IN_PORTFOLIO] Restored {_restored} flag(s) from ledger.db.")
         # ----------------------------------------
 
-        # Save (FileLock prevents concurrent xlsx corruption when running parallel directives)
+        # DB FIRST (mandatory) — SQLite is the source of truth
+        print(f"[DEBUG] df_master shape before save: {df_master.shape}")
+        print(f"[DEBUG] df_new shape: {df_new.shape}")
+        from tools.ledger_db import _connect, create_tables, upsert_master_filter_df
+        _db_conn = _connect()
+        create_tables(_db_conn)
+        upsert_master_filter_df(_db_conn, df_master)
+        _db_conn.close()
+        print(f"  [LEDGER_DB] Synced {len(df_master)} rows to ledger.db")
+
+        # EXCEL SECOND (derived view, best-effort)
         _lock_path = master_filter_path.with_suffix(".lock")
         try:
             with FileLock(str(_lock_path), timeout=120):
                 ensure_xlsx_writable(master_filter_path)
-                print(f"[DEBUG] df_master shape before save: {df_master.shape}")
-                print(f"[DEBUG] df_new shape: {df_new.shape}")
-                # Atomic write: tmp → fsync → replace (prevents corruption on crash/kill)
                 _tmp_filter = master_filter_path.with_suffix(".xlsx.tmp")
                 df_master.to_excel(_tmp_filter, index=False)
                 with open(_tmp_filter, "r+b") as _fh:
                     os.fsync(_fh.fileno())
                 os.replace(str(_tmp_filter), str(master_filter_path))
 
-                # Format
                 project_root = Path(__file__).parent.parent
                 formatter = project_root / "tools" / "format_excel_artifact.py"
-                cmd = [sys.executable, str(formatter), "--file", str(master_filter_path), "--profile", "strategy"]
-                subprocess.run(cmd, check=True)
+                subprocess.run(
+                    [sys.executable, str(formatter), "--file", str(master_filter_path), "--profile", "strategy"],
+                    check=True,
+                )
                 subprocess.run(
                     [sys.executable, str(formatter), "--file", str(master_filter_path), "--notes-type", "master_filter"],
                     check=True,
                 )
             print("[SUCCESS] Master Filter updated and formatted.")
-
-            # Sync to SQLite ledger (authoritative DB)
-            try:
-                from tools.ledger_db import _connect, create_tables, upsert_master_filter_df
-                _db_conn = _connect()
-                create_tables(_db_conn)
-                upsert_master_filter_df(_db_conn, df_master)
-                _db_conn.close()
-                print(f"  [LEDGER_DB] Synced {len(df_master)} rows to ledger.db")
-            except Exception as _db_err:
-                print(f"  [WARN] ledger_db sync failed (non-fatal): {_db_err}")
-
         except Exception as e:
             msg = str(e)
             if "XLSX_LOCK_TIMEOUT" in msg or e.__class__.__name__ == "Timeout":
-                print(f"[FATAL] XLSX_LOCK_TIMEOUT: {msg}")
-                sys.exit(3)
-            print(f"[FATAL] Failed to save Master Filter: {e}")
-            sys.exit(1)
+                print(f"[WARN] Excel export timed out ({msg}). DB is current. Run: python tools/ledger_db.py --export-mf")
+            else:
+                print(f"[WARN] Excel export failed ({e}). DB is current. Run: python tools/ledger_db.py --export-mf")
             
     else:
         print("No new runs to add.")

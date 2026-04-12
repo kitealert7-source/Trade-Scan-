@@ -327,22 +327,14 @@ def find_run_id_for_directive(directive_id: str) -> str:
         except Exception:
             pass
 
-    # --- Fallback 3: Strategy_Master_Filter.xlsx → run_id column ---
+    # --- Fallback 3: ledger.db master_filter → run_id column ---
     try:
-        from config.state_paths import MASTER_FILTER_PATH
-        if MASTER_FILTER_PATH.exists():
-            import openpyxl
-            wb = openpyxl.load_workbook(MASTER_FILTER_PATH, read_only=True, data_only=True)
-            ws = wb.active
-            headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
-            rid_col = headers.index("run_id") if "run_id" in headers else None
-            name_col = headers.index("strategy_name") if "strategy_name" in headers else None
-            if rid_col is not None and name_col is not None:
-                for row in ws.iter_rows(min_row=2, values_only=True):
-                    if row[name_col] == directive_id and row[rid_col]:
-                        wb.close()
-                        return str(row[rid_col])
-            wb.close()
+        from tools.ledger_db import read_master_filter
+        df_mf = read_master_filter()
+        if not df_mf.empty and "strategy" in df_mf.columns and "run_id" in df_mf.columns:
+            match = df_mf[df_mf["strategy"].astype(str) == directive_id]
+            if not match.empty:
+                return str(match.iloc[0]["run_id"])
     except Exception:
         pass
 

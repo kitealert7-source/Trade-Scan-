@@ -164,15 +164,25 @@ def upsert_master_filter(
     conn: sqlite3.Connection,
     row: dict[str, Any],
 ) -> None:
-    """Insert or replace a single Master Filter row."""
+    """Insert or update a single Master Filter row. Preserves unspecified columns."""
     cols = [c for c in MASTER_FILTER_COLUMNS if c in row]
     placeholders = ", ".join("?" for _ in cols)
     col_names = ", ".join(f'"{c}"' for c in cols)
+    update_cols = [c for c in cols if c not in ("run_id", "symbol")]
+    update_clause = ", ".join(f'"{c}" = excluded."{c}"' for c in update_cols)
     values = [row[c] for c in cols]
-    conn.execute(
-        f'INSERT OR REPLACE INTO master_filter ({col_names}) VALUES ({placeholders})',
-        values,
-    )
+    if update_cols:
+        conn.execute(
+            f'INSERT INTO master_filter ({col_names}) VALUES ({placeholders}) '
+            f'ON CONFLICT("run_id", "symbol") DO UPDATE SET {update_clause}',
+            values,
+        )
+    else:
+        conn.execute(
+            f'INSERT INTO master_filter ({col_names}) VALUES ({placeholders}) '
+            f'ON CONFLICT("run_id", "symbol") DO NOTHING',
+            values,
+        )
     conn.commit()
 
 
@@ -180,16 +190,23 @@ def upsert_master_filter_df(
     conn: sqlite3.Connection,
     df: pd.DataFrame,
 ) -> None:
-    """Bulk upsert a DataFrame into master_filter."""
+    """Bulk upsert a DataFrame into master_filter. Preserves unspecified columns."""
+    if df.empty:
+        return
+    all_cols = [c for c in MASTER_FILTER_COLUMNS if c in df.columns]
+    update_cols = [c for c in all_cols if c not in ("run_id", "symbol")]
+    col_names = ", ".join(f'"{c}"' for c in all_cols)
+    placeholders = ", ".join("?" for _ in all_cols)
+    if update_cols:
+        update_clause = ", ".join(f'"{c}" = excluded."{c}"' for c in update_cols)
+        sql = (f'INSERT INTO master_filter ({col_names}) VALUES ({placeholders}) '
+               f'ON CONFLICT("run_id", "symbol") DO UPDATE SET {update_clause}')
+    else:
+        sql = (f'INSERT INTO master_filter ({col_names}) VALUES ({placeholders}) '
+               f'ON CONFLICT("run_id", "symbol") DO NOTHING')
     for _, row in df.iterrows():
-        row_dict = {c: _py_val(row.get(c)) for c in MASTER_FILTER_COLUMNS if c in row.index}
-        cols = list(row_dict.keys())
-        placeholders = ", ".join("?" for _ in cols)
-        col_names = ", ".join(f'"{c}"' for c in cols)
-        conn.execute(
-            f'INSERT OR REPLACE INTO master_filter ({col_names}) VALUES ({placeholders})',
-            list(row_dict.values()),
-        )
+        values = [_py_val(row.get(c)) for c in all_cols]
+        conn.execute(sql, values)
     conn.commit()
 
 
@@ -198,16 +215,26 @@ def upsert_mps_row(
     row: dict[str, Any],
     sheet: str,
 ) -> None:
-    """Insert or replace a single MPS row."""
+    """Insert or update a single MPS row. Preserves unspecified columns."""
     row = {**row, "sheet": sheet}
     cols = [c for c in MPS_ALL_COLUMNS if c in row]
-    placeholders = ", ".join("?" for _ in cols)
+    update_cols = [c for c in cols if c not in ("portfolio_id", "sheet")]
     col_names = ", ".join(f'"{c}"' for c in cols)
+    placeholders = ", ".join("?" for _ in cols)
+    update_clause = ", ".join(f'"{c}" = excluded."{c}"' for c in update_cols)
     values = [row[c] for c in cols]
-    conn.execute(
-        f'INSERT OR REPLACE INTO portfolio_sheet ({col_names}) VALUES ({placeholders})',
-        values,
-    )
+    if update_cols:
+        conn.execute(
+            f'INSERT INTO portfolio_sheet ({col_names}) VALUES ({placeholders}) '
+            f'ON CONFLICT("portfolio_id", "sheet") DO UPDATE SET {update_clause}',
+            values,
+        )
+    else:
+        conn.execute(
+            f'INSERT INTO portfolio_sheet ({col_names}) VALUES ({placeholders}) '
+            f'ON CONFLICT("portfolio_id", "sheet") DO NOTHING',
+            values,
+        )
     conn.commit()
 
 
@@ -216,18 +243,25 @@ def upsert_mps_df(
     df: pd.DataFrame,
     sheet: str,
 ) -> None:
-    """Bulk upsert a DataFrame into portfolio_sheet for a given sheet."""
+    """Bulk upsert a DataFrame into portfolio_sheet. Preserves unspecified columns."""
+    if df.empty:
+        return
+    all_cols = [c for c in MPS_ALL_COLUMNS if c in df.columns]
+    if "sheet" not in all_cols:
+        all_cols.append("sheet")
+    update_cols = [c for c in all_cols if c not in ("portfolio_id", "sheet")]
+    col_names = ", ".join(f'"{c}"' for c in all_cols)
+    placeholders = ", ".join("?" for _ in all_cols)
+    if update_cols:
+        update_clause = ", ".join(f'"{c}" = excluded."{c}"' for c in update_cols)
+        sql = (f'INSERT INTO portfolio_sheet ({col_names}) VALUES ({placeholders}) '
+               f'ON CONFLICT("portfolio_id", "sheet") DO UPDATE SET {update_clause}')
+    else:
+        sql = (f'INSERT INTO portfolio_sheet ({col_names}) VALUES ({placeholders}) '
+               f'ON CONFLICT("portfolio_id", "sheet") DO NOTHING')
     for _, row in df.iterrows():
-        row_dict = {c: _py_val(row.get(c)) for c in MPS_ALL_COLUMNS
-                    if c in row.index}
-        row_dict["sheet"] = sheet
-        cols = list(row_dict.keys())
-        placeholders = ", ".join("?" for _ in cols)
-        col_names = ", ".join(f'"{c}"' for c in cols)
-        conn.execute(
-            f'INSERT OR REPLACE INTO portfolio_sheet ({col_names}) VALUES ({placeholders})',
-            list(row_dict.values()),
-        )
+        values = [_py_val(row.get(c)) if c != "sheet" else sheet for c in all_cols]
+        conn.execute(sql, values)
     conn.commit()
 
 
@@ -238,13 +272,65 @@ def update_column(
     key_val: str,
     col: str,
     val: Any,
+    key_col2: str | None = None,
+    key_val2: str | None = None,
 ) -> None:
-    """Update a single column value for a specific row."""
-    conn.execute(
-        f'UPDATE "{table}" SET "{col}" = ? WHERE "{key_col}" = ?',
-        (_py_val(val), key_val),
-    )
+    """Update a single column value. Use key_col2/key_val2 for composite PK tables."""
+    if key_col2 is None and table == "master_filter":
+        raise ValueError("master_filter has composite PK (run_id, symbol) — key_col2 required")
+    sql = f'UPDATE "{table}" SET "{col}" = ? WHERE "{key_col}" = ?'
+    params: list[Any] = [_py_val(val), key_val]
+    if key_col2 is not None:
+        sql += f' AND "{key_col2}" = ?'
+        params.append(key_val2)
+    conn.execute(sql, params)
     conn.commit()
+
+
+def set_in_portfolio(
+    run_ids: set[str],
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Authoritative IN_PORTFOLIO writer. Sets given run_ids to True, all others to False.
+
+    This is the ONLY function that should flip IN_PORTFOLIO. Called by promote_to_burnin.py.
+    Returns count of rows set to True.
+    Raises ValueError if run_ids is empty (prevents catastrophic wipe).
+    """
+    if not run_ids:
+        raise ValueError(
+            "set_in_portfolio() called with empty run_ids — "
+            "this would wipe all IN_PORTFOLIO flags. Aborting."
+        )
+    _conn = conn or _connect()
+    try:
+        create_tables(_conn)
+        _conn.execute('UPDATE master_filter SET "IN_PORTFOLIO" = 0 WHERE "IN_PORTFOLIO" = 1')
+        placeholders = ", ".join("?" for _ in run_ids)
+        _conn.execute(
+            f'UPDATE master_filter SET "IN_PORTFOLIO" = 1 WHERE "run_id" IN ({placeholders})',
+            list(run_ids),
+        )
+        synced = _conn.execute(
+            'SELECT COUNT(*) FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+        ).fetchone()[0]
+        if synced != len(run_ids):
+            matched = {r[0] for r in _conn.execute(
+                'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+            ).fetchall()}
+            missing = run_ids - matched
+            import warnings
+            warnings.warn(
+                f"set_in_portfolio: {len(missing)} run_id(s) not found in DB: {sorted(missing)}"
+            )
+        _conn.commit()
+        return synced
+    except Exception:
+        _conn.rollback()
+        raise
+    finally:
+        if conn is None:
+            _conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -291,62 +377,35 @@ def query_mps(
 
 
 # ---------------------------------------------------------------------------
-# Convenience readers — DB-first with Excel fallback
+# Convenience readers — DB only, fail hard
 # ---------------------------------------------------------------------------
 
 def read_master_filter() -> pd.DataFrame:
-    """Read Master Filter: DB if available, else Excel. Drop-in replacement for
-    ``pd.read_excel(MASTER_FILTER_PATH)`` everywhere in the codebase."""
-    if LEDGER_DB_PATH.exists():
-        try:
-            df = query_master_filter()
-            if not df.empty:
-                return df
-        except Exception:
-            pass  # Fall through to Excel
-    # Fallback: read from Excel
-    if MASTER_FILTER_PATH.exists():
-        return pd.read_excel(str(MASTER_FILTER_PATH), engine="openpyxl")
-    return pd.DataFrame()
+    """Read Master Filter from DB. Fails hard — no Excel fallback.
+
+    If the DB does not exist yet (fresh install), returns empty DataFrame.
+    If the DB exists but the read fails, raises — never silently falls back.
+    """
+    if not LEDGER_DB_PATH.exists():
+        return pd.DataFrame()
+    return query_master_filter()
 
 
 def read_mps(sheet: str | None = None) -> pd.DataFrame:
-    """Read MPS: DB if available, else Excel. Drop-in replacement for
-    ``pd.read_excel(MPS_PATH, sheet_name=...)`` everywhere in the codebase.
+    """Read MPS from DB. Fails hard — no Excel fallback.
 
     Args:
         sheet: "Portfolios" or "Single-Asset Composites". None returns all rows.
+
+    If the DB does not exist yet (fresh install), returns empty DataFrame.
+    If the DB exists but the read fails, raises — never silently falls back.
     """
-    if LEDGER_DB_PATH.exists():
-        try:
-            df = query_mps(sheet=sheet)
-            if not df.empty:
-                # Drop the 'sheet' discriminator and all-null columns
-                if "sheet" in df.columns:
-                    df = df.drop(columns=["sheet"])
-                all_null = [c for c in df.columns if df[c].isna().all()]
-                if all_null:
-                    df = df.drop(columns=all_null)
-                return df
-        except Exception:
-            pass  # Fall through to Excel
-    # Fallback: read from Excel
-    if MPS_PATH.exists():
-        if sheet:
-            try:
-                return pd.read_excel(str(MPS_PATH), sheet_name=sheet, engine="openpyxl")
-            except Exception:
-                return pd.DataFrame()
-        else:
-            # Read all data sheets and concat
-            dfs = []
-            for s in ("Portfolios", "Single-Asset Composites"):
-                try:
-                    dfs.append(pd.read_excel(str(MPS_PATH), sheet_name=s, engine="openpyxl"))
-                except Exception:
-                    pass
-            return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-    return pd.DataFrame()
+    if not LEDGER_DB_PATH.exists():
+        return pd.DataFrame()
+    df = query_mps(sheet=sheet)
+    if "sheet" in df.columns:
+        df = df.drop(columns=["sheet"])
+    return df
 
 
 # ---------------------------------------------------------------------------

@@ -49,9 +49,11 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
       BURN_IN : strategy is in TS_Execution/portfolio.yaml (enabled=true)
       FAIL    : total_trades < 50 OR max_dd_pct > 40 OR sqn < 1.5
                 OR expectancy below asset-class FAIL gate
-      CORE    : total_trades >= 200 AND return_dd_ratio >= 2.0 AND sharpe_ratio >= 1.5
+      CORE    : return_dd_ratio >= 2.0 AND sharpe_ratio >= 1.5
                 AND sqn >= 2.5 AND max_dd_pct <= 30 AND trade_density >= 50
                 AND profit_factor >= 1.25
+      RESERVE : passed CORE gates but outranked by a sibling variant within
+                the same (family x symbol) group. Dedup score = sqn * return_dd_ratio.
       WATCH   : otherwise
 
     Expectancy gates (logic-driven, calibrated 2026-04-07):
@@ -106,8 +108,7 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     fail_mask = fail_mask | (sqn < 1.5)
 
     core_mask = (
-        (total_trades >= 200)
-        & (return_dd_ratio >= 2.0)
+        (return_dd_ratio >= 2.0)
         & (sharpe_ratio >= 1.5)
         & (sqn >= 2.5)
         & (max_dd_pct <= 30.0)
@@ -141,20 +142,8 @@ def _apply_candidate_status(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["candidate_status"] = _compute_candidate_status(out)
 
-    # Sync IN_PORTFOLIO with BURN_IN status:
-    #   BURN_IN → True  (strategy is in portfolio.yaml)
-    #   removed from BURN_IN → False  (strategy no longer in portfolio.yaml)
-    if "IN_PORTFOLIO" in out.columns:
-        burnin = out["candidate_status"] == "BURN_IN"
-        was_true = out["IN_PORTFOLIO"].astype(str).str.strip().str.lower() == "true"
-        newly_true = burnin & ~was_true
-        newly_false = ~burnin & was_true
-        out.loc[burnin, "IN_PORTFOLIO"] = True
-        out.loc[~burnin & was_true, "IN_PORTFOLIO"] = False
-        if newly_true.any():
-            print(f"[CANDIDATES] IN_PORTFOLIO set True for {newly_true.sum()} BURN_IN row(s)")
-        if newly_false.any():
-            print(f"[CANDIDATES] IN_PORTFOLIO set False for {newly_false.sum()} row(s) removed from BURN_IN")
+    # IN_PORTFOLIO is READ-ONLY here. Only promote_to_burnin.py writes it (via ledger.db).
+    # This tool preserves whatever value exists — never flips True/False.
 
     cols = out.columns.tolist()
     if "candidate_status" in cols:
@@ -211,11 +200,21 @@ def filter_strategies():
     assert (_dd_col >= 0).all(), (
         f"SIGN_GUARD: max_dd_pct contains negative values — expected positive 0..100 scale"
     )
+
+    from config.asset_classification import classify_asset, EXP_FAIL_GATES
+    _exp_col = pd.to_numeric(df['expectancy'], errors='coerce').fillna(0.0)
+    _ac_col  = df.get('asset_class', pd.Series('', index=df.index)).fillna('').astype(str).str.upper()
+    # Fall back to classifying from symbol if asset_class column is absent/blank
+    if 'symbol' in df.columns:
+        _ac_col = _ac_col.where(_ac_col != '', df['symbol'].fillna('').astype(str).apply(classify_asset))
+    _exp_gate = _ac_col.map(lambda ac: EXP_FAIL_GATES.get(ac, 0.0))
+    _exp_gate_pass = _exp_col >= _exp_gate
+
     mask = (
         (df['total_trades'] >= 40) &
         (df['profit_factor'] >= 1.05) &
         (df['return_dd_ratio'] >= 0.6) &
-        (df['expectancy'] >= 0.0) &
+        _exp_gate_pass &
         (df['sharpe_ratio'] >= 0.3) &
         (_dd_col <= 80.0)
     )
@@ -296,6 +295,64 @@ def filter_strategies():
                 restore_mask = df_merged["run_id"].astype(str).isin(_rbin_ids)
                 df_merged.loc[restore_mask, "candidate_status"] = "RBIN"
                 print(f"[CANDIDATES] Preserved RBIN status for {restore_mask.sum()} row(s)")
+
+            # ── CORE dedup: one winner per (family × symbol) ──────────────
+            # Within each strategy family on the same symbol, only the best
+            # variant stays CORE; others are demoted to RESERVE.
+            # Score = sqn × return_dd_ratio  (stability × efficiency).
+            # Tie-breaker (<5% relative gap): prefer higher return_dd_ratio.
+            # Identical (family, symbol, params) → keep best run_id by RDR.
+            _core_mask = df_merged["candidate_status"] == "CORE"
+            if _core_mask.any() and "strategy" in df_merged.columns:
+                _dedup_df = df_merged[_core_mask].copy()
+                _sqn = pd.to_numeric(_dedup_df.get("sqn"), errors="coerce").fillna(0.0)
+                _rdr = pd.to_numeric(_dedup_df.get("return_dd_ratio"), errors="coerce").fillna(0.0)
+                _dedup_df["_dedup_score"] = _sqn * _rdr
+
+                # Extract family token: <id>_<family> from strategy name
+                def _extract_family(strat_name: str) -> str:
+                    parts = str(strat_name).split("_")
+                    if len(parts) >= 4:
+                        return f"{parts[0]}_{parts[1]}"
+                    return str(strat_name)[:15]
+
+                _sym_col = _dedup_df["symbol"].fillna("").astype(str)
+                _strat_col = _dedup_df["strategy"].fillna("").astype(str)
+                _dedup_df["_family"] = _strat_col.apply(_extract_family)
+
+                # Dedup identical (family, symbol, params) first — different run_ids
+                # of the exact same strategy. Keep best RDR, skip the rest.
+                _base_col = _dedup_df.get("base_strategy_id", _strat_col)
+                _dedup_df["_group_exact"] = _base_col.fillna("").astype(str) + "|" + _sym_col
+
+                _reserve_indices = set()
+                for _gkey, _gdf in _dedup_df.groupby("_group_exact"):
+                    if len(_gdf) <= 1:
+                        continue
+                    _sorted = _gdf.sort_values("return_dd_ratio", ascending=False)
+                    _reserve_indices.update(_sorted.index[1:])
+
+                # Now dedup within (family × symbol) groups
+                _dedup_remaining = _dedup_df[~_dedup_df.index.isin(_reserve_indices)]
+                _dedup_remaining_copy = _dedup_remaining.copy()
+                _dedup_remaining_copy["_fam_sym"] = _dedup_remaining_copy["_family"] + "|" + _sym_col[_dedup_remaining_copy.index]
+
+                for _gkey, _gdf in _dedup_remaining_copy.groupby("_fam_sym"):
+                    if len(_gdf) <= 1:
+                        continue
+                    _sorted = _gdf.sort_values("_dedup_score", ascending=False)
+                    # Tie-breaker: if top two scores within 5%, prefer higher RDR
+                    if len(_sorted) >= 2:
+                        _s1 = _sorted.iloc[0]["_dedup_score"]
+                        _s2 = _sorted.iloc[1]["_dedup_score"]
+                        if _s1 > 0 and abs(_s1 - _s2) / _s1 < 0.05:
+                            _sorted = _gdf.sort_values("return_dd_ratio", ascending=False)
+                    _reserve_indices.update(_sorted.index[1:])
+
+                if _reserve_indices:
+                    df_merged.loc[list(_reserve_indices), "candidate_status"] = "RESERVE"
+                    _n_core_after = (df_merged["candidate_status"] == "CORE").sum()
+                    print(f"[CANDIDATES] CORE dedup: {len(_reserve_indices)} demoted to RESERVE, {_n_core_after} CORE remaining")
 
             # Compute asset_class column for easy Excel filtering (FX, XAU, INDEX, BTC, etc.)
             if "symbol" in df_merged.columns:

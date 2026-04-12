@@ -105,17 +105,18 @@ def get_active_portfolio_runs() -> set:
             except Exception:
                 continue
 
-    # Also shield manually grouped static selections
-    static_selections_path = POOL_DIR / "in_portfolio_selections.json"
-    if static_selections_path.exists():
-        try:
-            with open(static_selections_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            selections = data.get("selections", [])
-            if isinstance(selections, list):
-                active_runs.update(selections)
-        except Exception as e:
-            print(f"[WARN] Could not parse static portfolio selections: {e}")
+    # Shield IN_PORTFOLIO run_ids — read from ledger.db (single source of truth)
+    # No fallback. If DB fails, fail hard — silent fallback masks corruption.
+    from tools.ledger_db import _connect, create_tables
+    from config.state_paths import LEDGER_DB_PATH
+    if LEDGER_DB_PATH.exists():
+        conn = _connect()
+        create_tables(conn)
+        rows = conn.execute(
+            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+        ).fetchall()
+        active_runs.update(str(r[0]) for r in rows)
+        conn.close()
 
     return active_runs
 
