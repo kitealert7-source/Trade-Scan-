@@ -1110,14 +1110,19 @@ ideas:
             reserved_at_utc: '2026-04-04T00:06:36.534231+00:00'
           P06:
             directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
-            signature_hash: 45dd1ca2ea1c6526
-            signature_hash_full: 45dd1ca2ea1c6526a45fed6e1e623a6dd09e7324e6e37ade0d3bf185535c3616
+            signature_hash: d643dfbf4b9790c2
+            signature_hash_full: d643dfbf4b9790c26ccf1ca3b826d67d35da23d57b09db5c2e0d44cc002d1302
             reserved_at_utc: '2026-04-04T00:21:24.659837+00:00'
           P07:
             directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P07
             signature_hash: 2542c084d1ddeab0
             signature_hash_full: 2542c084d1ddeab0d95f4905a930dc9a8970ac01cb326b42650cde36c2b52815
             reserved_at_utc: '2026-04-04T00:35:19.619100+00:00'
+          P06:
+            directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
+            signature_hash: d643dfbf4b9790c2
+            signature_hash_full: d643dfbf4b9790c26ccf1ca3b826d67d35da23d57b09db5c2e0d44cc002d1302
+            reserved_at_utc: '2026-04-12T09:43:23.787903+00:00'
   '29':
     next_sweep: 2
     sweeps:

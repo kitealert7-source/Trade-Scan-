@@ -1,0 +1,61 @@
+test:
+  name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
+  family: PA
+  strategy: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
+  version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Engulfing candle reversal at structure (swing high/low). ATR stop, time-based exit. Trend filter excludes counter-trend entries."
+  notes: "P06: Short block in low vol + strong uptrend. Structure lookback 80. Min body ratio 0.6."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    multiple: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: engulfing_at_structure
+    structure_lookback: 80
+    min_body_ratio: 0.6
+    long_condition: bullish_engulfing_at_swing_low
+    short_condition: bearish_engulfing_at_swing_high
+  exit_logic:
+    type: time_or_unprofitable
+    max_bars: 5
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+trend_filter:
+  enabled: true
+  required_regime: -2
+  operator: gte
+  exclude_regime: -1
