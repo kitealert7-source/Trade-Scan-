@@ -2,7 +2,7 @@
 
 > **Created:** 2026-04-03
 > **Updated:** 2026-04-12
-> **Status:** IMPLEMENTED (Phase 1-6 tools + workflows built). Phase 3.3 (`burnin_monitor.py --json`) deferred — burn-in metrics entered manually via `transition_to_waiting.py` CLI args. Promotion pipeline fully hardened (Waves 1-5 + R6-R10 from PROMOTION_FRICTION_AUDIT.md).
+> **Status:** FULLY IMPLEMENTED (Phase 1-6 lifecycle tools + Deployment Unification Phase 2-5 runtime guards). Phase 3.3 (`burnin_monitor.py --json`) deferred — burn-in metrics entered manually via `transition_to_waiting.py` CLI args. Promotion pipeline fully hardened (Waves 1-5 + R6-R10). Runtime safety guards wired into TS_Execution (signal integrity + kill-switch).
 > **Scope:** Artifact movement, storage, and lifecycle determinism from PIPELINE_COMPLETE to LIVE
 
 ---
@@ -105,6 +105,15 @@ strategies/{ID}/deployable/
 
 TS_Execution `portfolio_loader.py` uses `REQUIRED_FIELDS = {"id", "path", "symbol", "timeframe"}` and **silently ignores** unknown fields. Current portfolio: 19 entries (11 LEGACY, 8 BURN_IN across 4 strategies).
 
+**Execution config fields (2026-04-12):**
+```yaml
+execution:
+  vault_root: ../DRY_RUN_VAULT       # resolved relative to portfolio.yaml
+  require_vault: false                # false = warn-only; true = abort if vault missing
+```
+
+`vault_root` and `require_vault` are consumed by `guard_bridge.py` at startup. `require_vault: false` is for the transition period; switch to `true` after confirming clean guard construction.
+
 ### Artifact Protection (Phase 4 pre-check + 2026-04-12 hardening)
 
 - `cleanup_reconciler.py` -- has explicit `"vault"` in forbidden paths
@@ -115,7 +124,8 @@ TS_Execution `portfolio_loader.py` uses `REQUIRED_FIELDS = {"id", "path", "symbo
 - No TS_Execution script references vault paths
 - **Protection flag:** `directive_state.json` gets `protected: true` automatically at PORTFOLIO_COMPLETE transition
 - **Verification gate:** `_verify_completion_artifacts()` runs non-blocking at PORTFOLIO_COMPLETE — checks run folders, strategy.py snapshots, data/ folders, authority copy, deployable existence. Warnings logged to directive_audit.log.
-- **Verdict: Zero deletion paths to vault. Explicit protection flag + artifact verification at transition.**
+- **Runtime guards:** `strategy_guard.py` (`from_vault()`) constructs `StrategyGuard` per slot at TS_Execution startup; `guard_bridge.py` resolves vault paths, verifies profile integrity, builds signal index from `deployable_trade_log.csv`. Two-tier `validate_signal()` (exact hash + tolerant match) blocks HARD_FAIL signals pre-dispatch. Kill-switch `record_trade()` halts strategy on loss streak / WR / DD breach.
+- **Verdict: Zero deletion paths to vault. Explicit protection flag + artifact verification at transition. Runtime signal + kill-switch guards active.**
 
 ---
 
@@ -514,8 +524,14 @@ System must ensure:
 | 17 | `--composite` promote for PF_* portfolios | W4 | 3h | Decompose + per-constituent quality gate |
 | 18 | All-or-nothing per-symbol expectancy gate | Fix | 30 min | No silent symbol dropping in multi-symbol |
 | 19 | `decompose_portfolio()` run folder fallback | Fix | 30 min | Recovers constituents missing from Master Filter |
+| 20 | `from_vault()` factory in strategy_guard.py | DU-P2 | 1h | Guard construction from vault layout (not golive/) |
+| 21 | Two-tier `validate_signal()` + `SignalResult` | DU-P2.1 | 2h | Exact hash + tolerant match; HARD_FAIL blocks trade |
+| 22 | `guard_bridge.py` in TS_Execution | DU-P2 | 2h | Vault path resolution, guard construction, MismatchTracker |
+| 23 | 3 hooks in TS_Execution main.py | DU-P2 | 1h | construct_guards, validate_signal, record_trade |
+| 24 | Archive `generate_golive_package.py` | DU-P4 | 15 min | Moved to archive/tools/ (functionally orphaned) |
+| 25 | Rewrite `validate_safety_layers.py` | DU-P4+P5 | 2h | 6 vault-based tests (artifact, hash, signal, kill-switch x2, two-tier) |
 
-**Total additional effort: ~3.5h (original) + ~12h (Waves 4-5 + R6-R10)**
+**Total additional effort: ~3.5h (original) + ~12h (Waves 4-5 + R6-R10) + ~8h (Deployment Unification P2-P5)**
 
 ---
 
@@ -538,6 +554,13 @@ System must ensure:
 | `tools/state_lifecycle/lineage_pruner.py` | Dual-signal protection: checks `protected` flag + PORTFOLIO_COMPLETE status | DONE (2026-04-12) |
 | `.agents/workflows/promote.md` | Full rewrite: added --composite/--batch/--batch-all/--skip-quality-gate, readiness dashboard, all-or-nothing gate | DONE (2026-04-12) |
 | `outputs/system_reports/11_deployment_and_burnin/CLASSIFICATION_REFERENCE.md` | **NEW**: CORE/WATCH/FAIL gate reference across filter_strategies, portfolio_evaluator, promote quality gate | DONE (2026-04-12) |
+| `execution_engine/strategy_guard.py` | Added `from_vault()`, `validate_signal()`, `SignalResult`, `_signal_details`, `_load_baseline_from_vault()`, `_timestamp_diff_seconds()` | DONE (2026-04-12) |
+| `tools/validate_safety_layers.py` | **REWRITTEN**: 6 vault-based tests (was: broken golive-based 5 tests) | DONE (2026-04-12) |
+| `tools/generate_golive_package.py` | **ARCHIVED** to `archive/tools/` (functionally orphaned since vault became deployment path) | DONE (2026-04-12) |
+| `tests/test_generate_golive_package_helpers.py` | **ARCHIVED** to `archive/tests/` | DONE (2026-04-12) |
+| `TS_Execution/src/guard_bridge.py` | **NEW**: `construct_guards()`, `resolve_vault_path()`, `MismatchTracker` | DONE (2026-04-12) |
+| `TS_Execution/src/main.py` | 3 guard hooks: construct at startup, validate pre-dispatch, record on shadow/reconcile exit | DONE (2026-04-12) |
+| `TS_Execution/portfolio.yaml` | Added `vault_root`, `require_vault` to execution config | DONE (2026-04-12) |
 
 ---
 

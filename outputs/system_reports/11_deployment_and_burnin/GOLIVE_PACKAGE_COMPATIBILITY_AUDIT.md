@@ -1,7 +1,36 @@
 # Go-Live Package Compatibility Audit
 
-**Date:** 2026-04-03 | **Updated:** 2026-04-10
+**Date:** 2026-04-03 | **Updated:** 2026-04-12
+**Status:** ARCHIVED — All gaps identified in this audit have been resolved. See resolution summary below.
 **Scope:** `tools/generate_golive_package.py`, `execution_engine/strategy_guard.py`, `tools/validate_safety_layers.py`, and their integration with the current promotion/burn-in pipeline.
+
+---
+
+## Resolution Summary (2026-04-12)
+
+Option B (Merge Go-Live Into Dry-Run Vault) was **fully implemented** via the Deployment Unification Plan:
+
+| Gap (from Section 7) | Resolution | Date |
+|---|---|---|
+| No signal integrity verification | `strategy_guard.py` wired into TS_Execution via `guard_bridge.py`; two-tier `validate_signal()` | 2026-04-12 |
+| No kill-switch in live execution | `record_trade()` hooked into shadow exit + reconcile close; 3-rule kill-switch active | 2026-04-12 |
+| No profile hash verification | `_verify_profile_hash()` called by `from_vault()` at startup (when extended vault format present) | 2026-04-12 |
+| Stale conversion artifacts | `generate_golive_package.py` archived to `archive/tools/` | 2026-04-12 |
+| Validation script broken | `validate_safety_layers.py` rewritten: 6 vault-based tests, all pass | 2026-04-12 |
+| Broker specs not in vault | Added by `promote_to_burnin.py` Phase 1 | 2026-04-09 |
+| `selected_profile.json` not in vault | Added by `promote_to_burnin.py` Phase 1 | 2026-04-09 |
+
+**Current file status:**
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| `generate_golive_package.py` | `archive/tools/` | ARCHIVED — dead code |
+| `test_generate_golive_package_helpers.py` | `archive/tests/` | ARCHIVED |
+| `strategy_guard.py` | `execution_engine/` | ACTIVE — extended with `from_vault()`, `validate_signal()`, `SignalResult` |
+| `validate_safety_layers.py` | `tools/` | REWRITTEN — 6 vault-based tests |
+| `guard_bridge.py` | `TS_Execution/src/` | NEW — vault-based guard construction |
+
+**This audit is retained for historical reference. No further action required.**
 
 ---
 
@@ -9,18 +38,18 @@
 
 The go-live package generator (`generate_golive_package.py`) and its companion safety layer (`strategy_guard.py`) were built on 2026-03-11 during the v1.5.3 era. Since then, the capital system underwent a major overhaul (2026-04-03): dynamic FX conversion was replaced with MT5 static valuation, and a new burn-in promotion pipeline was added. Leverage cap is **5x** (Invariant 20: $1,000/symbol, $10,000 total portfolio, 5x cap).
 
-> **2026-04-10 Update:** Recommendation (Option B) was **not implemented**. The system continues to operate without go-live packages. The dry-run vault (`promote_to_burnin.py`) is the sole deployment path. Guard integration (signal verification, kill-switch) remains an open gap — accepted risk for burn-in phase.
+> **2026-04-12 Update:** Option B **fully implemented**. `generate_golive_package.py` archived. `strategy_guard.py` extended with `from_vault()` and wired into TS_Execution. `validate_safety_layers.py` rewritten with 6 vault-based tests. All deployment safety gaps closed.
 
 **Current status:**
 
 | Component | Importable? | Executable? | Aligned with current system? |
 |-----------|-------------|-------------|------------------------------|
-| `generate_golive_package.py` | YES | PARTIAL | NO -- produces stale conversion artifacts |
-| `strategy_guard.py` | YES | YES | YES -- self-contained, no project imports |
-| `validate_safety_layers.py` | YES | NO -- crashes | NO -- wrong arg count + wrong paths |
-| `test_generate_golive_package_helpers.py` | YES | YES | YES -- pure logic tests |
+| `generate_golive_package.py` | ARCHIVED | ARCHIVED | N/A — retired |
+| `strategy_guard.py` | YES | YES | YES — extended with `from_vault()`, wired into TS_Execution |
+| `validate_safety_layers.py` | YES | YES — all 6 tests pass | YES — rewritten for vault layout |
+| `guard_bridge.py` (NEW) | YES | YES | YES — vault path resolution + guard construction |
 
-**Key finding:** The go-live package generator is **functionally orphaned** from the current pipeline. It is not called by `run_pipeline.py`, not referenced by the promotion flow, and produces artifacts that embed stale conversion data. However, it does not crash on import and its core logic (manifest assembly, hash computation, directive snapshot) remains sound.
+**Key finding:** ~~The go-live package generator is functionally orphaned.~~ **Resolved:** go-live package archived; all safety capabilities merged into vault-based guard system.
 
 ---
 
@@ -132,17 +161,17 @@ BURN_IN strategies are protected from cleanup and quarantine. `lineage_pruner.py
 | Capability | Go-Live Package | Current System | Gap? |
 |------------|----------------|----------------|------|
 | Freeze directive + strategy.py | YES (golive/) | YES (DRY_RUN_VAULT) | No |
-| Freeze broker specs | YES (broker_specs_snapshot/) | NO | **YES** |
-| Profile param hash (tamper detection) | YES (SHA-256) | NO | **YES** |
-| Signal hash fingerprints (integrity) | YES (enriched_trade_log.csv) | NO | **YES** |
-| Kill-switch (loss streak/WR/DD) | YES (strategy_guard.py) | NO | **YES** |
-| Execution spec (human-readable) | YES (execution_spec.md) | NO | **YES** |
+| Freeze broker specs | YES (broker_specs_snapshot/) | YES (vault/broker_specs_snapshot/) | **CLOSED** (2026-04-09) |
+| Profile param hash (tamper detection) | YES (SHA-256) | YES (`_verify_profile_hash()` in `from_vault()`) | **CLOSED** (2026-04-12) |
+| Signal hash fingerprints (integrity) | YES (enriched_trade_log.csv) | YES (`validate_signal()` two-tier) | **CLOSED** (2026-04-12) |
+| Kill-switch (loss streak/WR/DD) | YES (strategy_guard.py) | YES (wired into TS_Execution via `guard_bridge.py`) | **CLOSED** (2026-04-12) |
+| Execution spec (human-readable) | YES (execution_spec.md) | NO | Accepted — burnin_monitor.md serves this role |
 | Deployment selection tracking | NO | YES (IN_PORTFOLIO + portfolio.yaml) | No |
 | BURN_IN status automation | NO | YES (filter_strategies.py) | No |
 | Cleanup protection | NO | YES (execution shield) | No |
 | Artifact immutability guarantee | NO | YES (vault invariants) | No |
 
-**Summary:** The current system handles selection, promotion, status tracking, and cleanup protection well. It does NOT handle runtime safety: signal verification, kill-switch, profile tamper detection, or broker spec freezing. These are the go-live package's unique capabilities that have no current equivalent.
+**Summary (2026-04-12):** All runtime safety gaps have been closed. Signal verification, kill-switch, profile tamper detection, and broker spec freezing are all active. The only remaining difference is the human-readable `execution_spec.md` which is adequately replaced by burn-in monitoring docs.
 
 ---
 
@@ -322,20 +351,21 @@ Register go-live as an automated post-Step-9 stage:
 
 ### Recommendation
 
-**Option B** was the pragmatic recommendation (2026-04-03). As of 2026-04-10, items 1-3 (broker specs, selected_profile.json, signal hashes in trade logs) were implemented via `promote_to_burnin.py` vault extension. Item 4 (guard wiring into TS_Execution) was **not implemented** — accepted as deferred risk during burn-in observation phase. The go-live package remains functionally orphaned.
+**Option B was fully implemented (2026-04-12).** Items 1-3 (broker specs, selected_profile.json, signal hashes in trade logs) were implemented 2026-04-09 via `promote_to_burnin.py` vault extension. Items 4-5 (guard wiring into TS_Execution, go-live retirement) were implemented 2026-04-12 via Deployment Unification Plan Phase 2-5. Go-live package archived to `archive/tools/`.
 
 ---
 
 ## 9. File Index
 
-### Go-Live Package (2026-03-11, stale)
+### Go-Live Package (2026-03-11, ARCHIVED 2026-04-12)
 
 | File | Location | Status |
 |------|----------|--------|
-| `generate_golive_package.py` | `tools/` | Functional but stale (conversion artifacts unnecessary) |
-| `strategy_guard.py` | `execution_engine/` | Functional, self-contained, not wired into TS_Execution |
-| `validate_safety_layers.py` | `tools/` | BROKEN (2 crash bugs: wrong arg count, wrong path) |
-| `test_generate_golive_package_helpers.py` | `tests/` | Functional (pure logic tests) |
+| `generate_golive_package.py` | `archive/tools/` | ARCHIVED — superseded by vault-based deployment |
+| `strategy_guard.py` | `execution_engine/` | ACTIVE — extended with `from_vault()`, `validate_signal()`, wired into TS_Execution |
+| `validate_safety_layers.py` | `tools/` | REWRITTEN — 6 vault-based tests, all pass |
+| `test_generate_golive_package_helpers.py` | `archive/tests/` | ARCHIVED |
+| `guard_bridge.py` | `TS_Execution/src/` | NEW — vault path resolution, guard construction, MismatchTracker |
 
 ### Current Deployment Path (active, maintained)
 
@@ -371,4 +401,4 @@ Register go-live as an automated post-Step-9 stage:
 
 ---
 
-*Generated: 2026-04-03 | Updated: 2026-04-10 | Audit covers: research pipeline stages 0-4, promotion flow, dry-run vault, go-live package, strategy guard, orchestration layer*
+*Generated: 2026-04-03 | Updated: 2026-04-12 | Status: ARCHIVED — all gaps resolved. Audit covers: research pipeline stages 0-4, promotion flow, dry-run vault, go-live package (archived), strategy guard (active + wired), orchestration layer*
