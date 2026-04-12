@@ -132,6 +132,33 @@ def build_execution_shield() -> set:
         sys.exit(1)
 
 
+def _collect_portfolio_complete_runs() -> tuple[set, set]:
+    """Scan directive_state.json files for PORTFOLIO_COMPLETE directives.
+
+    Returns (run_ids, directive_ids) for all directives that reached
+    PORTFOLIO_COMPLETE. These are promotion-eligible and must not be pruned.
+    """
+    protected_runs = set()
+    protected_directives = set()
+    if not RUNS_DIR.exists():
+        return protected_runs, protected_directives
+    for d in RUNS_DIR.iterdir():
+        ds = d / "directive_state.json"
+        if not ds.exists():
+            continue
+        try:
+            data = json.loads(ds.read_text(encoding="utf-8"))
+            latest = data.get("latest_attempt", "attempt_01")
+            attempt = data.get("attempts", {}).get(latest, {})
+            if attempt.get("status") == "PORTFOLIO_COMPLETE":
+                protected_directives.add(d.name)
+                for rid in attempt.get("run_ids", []):
+                    protected_runs.add(rid)
+        except Exception:
+            continue
+    return protected_runs, protected_directives
+
+
 def build_keep_runs() -> tuple[set, set]:
     """Build union index from candidates and active portfolio subsets."""
     keep_runs = set()
@@ -141,7 +168,7 @@ def build_keep_runs() -> tuple[set, set]:
     if not FILTERED_SHEET_PATH.exists():
         print(f"[FAIL] Missing {FILTERED_SHEET_PATH}")
         sys.exit(1)
-        
+
     df_filtered = pd.read_excel(FILTERED_SHEET_PATH)
     for run_id in df_filtered.get("run_id", []):
         r_str = str(run_id).strip()
@@ -157,7 +184,7 @@ def build_keep_runs() -> tuple[set, set]:
     for _, row in df_master.iterrows():
         port_id = str(row.get("portfolio_id", "")).strip()
         constituents = str(row.get("constituent_run_ids", "")).strip()
-        
+
         if port_id and port_id.lower() != "nan":
             active_portfolios.add(port_id)
             if constituents and constituents.lower() != "nan":
@@ -166,6 +193,14 @@ def build_keep_runs() -> tuple[set, set]:
                     p_str = r_id.strip()
                     if p_str:
                         keep_runs.add(p_str)
+
+    # 3. Protect PORTFOLIO_COMPLETE directives (promotion-eligible, not yet in spreadsheets)
+    pc_runs, pc_directives = _collect_portfolio_complete_runs()
+    pre_count = len(keep_runs)
+    keep_runs |= pc_runs
+    added = len(keep_runs) - pre_count
+    if added > 0:
+        print(f"[INFO] Protected {added} additional run(s) from {len(pc_directives)} PORTFOLIO_COMPLETE directive(s)")
 
     return keep_runs, active_portfolios
 
@@ -231,8 +266,11 @@ def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
     #   - Master_Portfolio_Sheet portfolio_ids (active_portfolios)
     #   - Filtered_Strategies_Passed strategy names
     #   - portfolio.yaml deployed strategy IDs (execution_set)
+    #   - PORTFOLIO_COMPLETE directive IDs (promotion-eligible)
     protected_folders = set(active_portfolios)
     protected_folders |= execution_set
+    _, pc_directives = _collect_portfolio_complete_runs()
+    protected_folders |= pc_directives
     filt_strats = set()
     if FILTERED_SHEET_PATH.exists():
         df_filt = pd.read_excel(FILTERED_SHEET_PATH)

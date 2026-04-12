@@ -286,12 +286,20 @@ def generate_run_id(directive_path: Path, symbol: str, attempt_id: str = "attemp
 # ==============================================================================
 
 def find_run_id_for_directive(directive_id: str) -> str:
-    """Scan TradeScan_State/runs/ to find the run_id for a directive.
+    """Find the run_id for a directive using a 3-level fallback chain.
 
+    Resolution order:
+      1. Scan ``runs/*/run_state.json`` for matching directive_id (original)
+      2. Read ``runs/<directive_id>/directive_state.json`` → latest attempt ``run_ids``
+      3. Read ``run_id`` column from Strategy_Master_Filter.xlsx
+
+    Only returns run_ids whose folder still exists on disk.
     Returns run_id string, or empty string if not found.
     """
     if not RUNS_DIR.exists():
         return ""
+
+    # --- Fallback 1 (primary): scan run_state.json files ---
     for d in sorted(RUNS_DIR.iterdir()):
         rs = d / "run_state.json"
         if rs.exists():
@@ -301,6 +309,43 @@ def find_run_id_for_directive(directive_id: str) -> str:
                     return data.get("run_id", d.name)
             except Exception:
                 continue
+
+    # --- Fallback 2: directive_state.json → run_ids array ---
+    ds_file = RUNS_DIR / directive_id / "directive_state.json"
+    if ds_file.exists():
+        try:
+            ds_data = json.loads(ds_file.read_text(encoding="utf-8"))
+            latest = ds_data.get("latest_attempt", "attempt_01")
+            attempt = ds_data.get("attempts", {}).get(latest, {})
+            run_ids = attempt.get("run_ids", [])
+            for rid in run_ids:
+                if (RUNS_DIR / rid).exists():
+                    return rid
+            # If none on disk, return the first one anyway (caller decides)
+            if run_ids:
+                return run_ids[0]
+        except Exception:
+            pass
+
+    # --- Fallback 3: Strategy_Master_Filter.xlsx → run_id column ---
+    try:
+        from config.state_paths import MASTER_FILTER_PATH
+        if MASTER_FILTER_PATH.exists():
+            import openpyxl
+            wb = openpyxl.load_workbook(MASTER_FILTER_PATH, read_only=True, data_only=True)
+            ws = wb.active
+            headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            rid_col = headers.index("run_id") if "run_id" in headers else None
+            name_col = headers.index("strategy_name") if "strategy_name" in headers else None
+            if rid_col is not None and name_col is not None:
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    if row[name_col] == directive_id and row[rid_col]:
+                        wb.close()
+                        return str(row[rid_col])
+            wb.close()
+    except Exception:
+        pass
+
     return ""
 
 

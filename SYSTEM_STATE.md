@@ -2,9 +2,9 @@
 
 ## SESSION STATUS: WARNING
 - WARNING: 8 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 3 uncommitted
+- WARNING: Working tree 8 uncommitted
 
-> Generated: 2026-04-11T16:19:16Z
+> Generated: 2026-04-12T02:01:02Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,15 +38,15 @@
 - Snapshots: 10 | WAITING: 0 | Latest: `DRY_RUN_2026_04_09__b0527749`
 
 ## Data Freshness
-- Latest bar: **2026-04-11** | Symbols: 250 | **Stale (>3d): 8**
+- Latest bar: **2026-04-12** | Symbols: 250 | **Stale (>3d): 8**
 
 ## Artifacts
 - Run directories: 530
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 3 uncommitted
-- Last commit: `856adeb Add news calendar module and report integration with timezone fix`
+- Working tree: 8 uncommitted
+- Last commit: `54989d4 Update SYSTEM_STATE.md â€” session close snapshot`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->

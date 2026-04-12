@@ -261,24 +261,62 @@ def _check_expectancy_gate(strategy_id: str, metrics: dict) -> None:
 
 # ── Validation ───────────────────────────────────────────────────────────────
 
+def _recover_strategy_py(strategy_id: str, target_path: Path) -> bool:
+    """Attempt to recover strategy.py from run snapshot if authority copy is missing.
+
+    Searches TradeScan_State/runs/{run_id}/strategy.py using the fallback chain.
+    If found, copies to the authority location and returns True.
+    """
+    from config.state_paths import RUNS_DIR as _RUNS_DIR
+    run_id = find_run_id_for_directive(strategy_id)
+    if not run_id:
+        return False
+    snapshot = _RUNS_DIR / run_id / "strategy.py"
+    if snapshot.exists():
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copy2(str(snapshot), str(target_path))
+        print(f"  [RECOVERED] strategy.py from run snapshot: {run_id}")
+        return True
+    return False
+
+
 def _validate_strategy_files(strategy_id: str, symbols: list[dict]) -> None:
-    """Verify all required files exist before modifying portfolio.yaml."""
+    """Verify all required files exist before modifying portfolio.yaml.
+
+    If the authority strategy.py is missing, attempts auto-recovery from
+    the run snapshot in TradeScan_State/runs/{run_id}/strategy.py.
+    For multi-symbol strategies, auto-syncs per-symbol folders if the base
+    strategy.py exists but per-symbol copies are missing.
+    """
     base_spy = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
     if not base_spy.exists():
-        print(f"[ABORT] strategy.py not found: {base_spy}")
-        sys.exit(1)
+        if not _recover_strategy_py(strategy_id, base_spy):
+            print(f"[ABORT] strategy.py not found: {base_spy}")
+            print(f"  Not in authority location and no run snapshot found.")
+            sys.exit(1)
     pe = STRATEGIES_DIR / strategy_id / "portfolio_evaluation"
     if not pe.exists():
         print(f"[ABORT] portfolio_evaluation/ not found: {pe}")
         sys.exit(1)
     if len(symbols) > 1:
+        missing_syms = []
         for sym_info in symbols:
             sym_id = f"{strategy_id}_{sym_info['symbol']}"
             sym_spy = PROJECT_ROOT / "strategies" / sym_id / "strategy.py"
             if not sym_spy.exists():
-                print(f"[ABORT] Per-symbol strategy.py not found: {sym_spy}")
-                print(f"  Run: python tools/sync_multisymbol_strategy.py {strategy_id}")
-                sys.exit(1)
+                missing_syms.append(sym_info["symbol"])
+        if missing_syms:
+            # Auto-sync: copy base strategy.py to per-symbol folders
+            print(f"  [AUTO-SYNC] Creating per-symbol strategy.py for: {missing_syms}")
+            import shutil
+            for sym in missing_syms:
+                sym_id = f"{strategy_id}_{sym}"
+                sym_dir = PROJECT_ROOT / "strategies" / sym_id
+                sym_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(base_spy), str(sym_dir / "strategy.py"))
+                print(f"    Created: strategies/{sym_id}/strategy.py")
+            print(f"  [AUTO-SYNC] {len(missing_syms)} per-symbol folder(s) created")
 
 
 # ── YAML block builders ─────────────────────────────────────────────────────
