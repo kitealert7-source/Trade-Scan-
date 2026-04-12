@@ -29,6 +29,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -259,6 +262,305 @@ def _check_expectancy_gate(strategy_id: str, metrics: dict) -> None:
     print("OK")
 
 
+# ── Quality gate (6-metric edge quality check) ─────────────────────────────
+
+# Thresholds from promote.md (industry literature calibration)
+_QG_THRESHOLDS = {
+    "top5_conc":   {"hard": 70.0, "warn": 50.0, "label": "Top-5 concentration (%)"},
+    "wo5_pnl":     {"hard": 0.0,  "warn": 30.0, "label": "PnL w/o top 5 trades (%)"},
+    "flat_pct":    {"hard": 40.0, "warn": 30.0, "label": "Flat period (%)"},
+    "edge_ratio":  {"hard": 1.0,  "warn": 1.2,  "label": "Edge ratio (MFE/MAE)"},
+    "trade_count": {"hard": 100,  "warn": 200,  "label": "Trade count"},
+    "pf_minus5":   {"hard": 1.0,  "warn": 1.1,  "label": "PF after removing top 5%"},
+}
+
+
+def _compute_quality_gate(strategy_id: str) -> dict:
+    """Compute 6-metric quality gate from trade-level CSVs.
+
+    Returns dict with keys: metrics (dict of values), hard_fails (list),
+    warns (list), passed (bool).
+    """
+    csvs = sorted(BACKTESTS_DIR.glob(f"{strategy_id}_*/raw/results_tradelevel.csv"))
+    if not csvs:
+        return {"metrics": {}, "hard_fails": ["No trade-level CSVs found"], "warns": [], "passed": False}
+
+    frames = []
+    for f in csvs:
+        try:
+            frames.append(pd.read_csv(f, encoding="utf-8"))
+        except Exception:
+            continue
+    if not frames:
+        return {"metrics": {}, "hard_fails": ["All CSVs unreadable"], "warns": [], "passed": False}
+
+    df = pd.concat(frames, ignore_index=True)
+    if "parent_trade_id" in df.columns and "symbol" in df.columns:
+        df = df.drop_duplicates(subset=["parent_trade_id", "symbol"])
+
+    n = len(df)
+    pnls = df["pnl_usd"].sort_values(ascending=False)
+    total = pnls.sum()
+
+    # Gate 1: PnL without top 5 trades
+    wo5 = pnls.iloc[5:].sum() if n > 5 else 0
+    wo5_pct = (wo5 / total * 100) if total > 0 else -999
+
+    # Gate 2: Top-5 concentration
+    t5 = (pnls.iloc[:5].sum() / total * 100) if total > 0 else 999
+
+    # Gate 3: Flat period
+    flat_pct = 0.0
+    try:
+        exits = pd.to_datetime(df["exit_timestamp"])
+        entries = pd.to_datetime(df["entry_timestamp"])
+        bt_days = (exits.max() - entries.min()).days
+        if bt_days > 0:
+            cum = df.sort_values("exit_timestamp")["pnl_usd"].cumsum()
+            rm = cum.cummax()
+            hd = exits.loc[cum[cum == rm].index].sort_values()
+            flat_d = int(hd.diff().dt.days.dropna().max()) if len(hd) > 1 else bt_days
+            flat_pct = flat_d / bt_days * 100
+    except Exception:
+        flat_pct = 999
+
+    # Gate 4: Edge ratio
+    er = 0.0
+    if "mfe_r" in df.columns and "mae_r" in df.columns:
+        mae_mean = abs(df["mae_r"].mean())
+        er = (df["mfe_r"].mean() / mae_mean) if mae_mean > 0 else 0.0
+
+    # Gate 5: Trade count (n already computed)
+
+    # Gate 6: PF after removing top 5% of trades
+    top5pct_n = max(1, int(np.ceil(n * 0.05)))
+    rem = pnls.iloc[top5pct_n:]
+    w = rem[rem > 0].sum()
+    l_val = abs(rem[rem <= 0].sum())
+    pf_rem = (w / l_val) if l_val > 0 else 999
+
+    metrics = {
+        "top5_conc": round(t5, 1),
+        "wo5_pnl": round(wo5_pct, 1),
+        "flat_pct": round(flat_pct, 1),
+        "edge_ratio": round(er, 2),
+        "trade_count": n,
+        "pf_minus5": round(pf_rem, 2),
+    }
+
+    hard_fails = []
+    warns = []
+    for key, thresh in _QG_THRESHOLDS.items():
+        val = metrics[key]
+        label = thresh["label"]
+        if key in ("edge_ratio", "trade_count", "pf_minus5", "wo5_pnl"):
+            # Lower is worse
+            if val < thresh["hard"]:
+                hard_fails.append(f"{label}: {val} < {thresh['hard']}")
+            elif val < thresh["warn"]:
+                warns.append(f"{label}: {val} < {thresh['warn']}")
+        else:
+            # Higher is worse (top5_conc, flat_pct)
+            if val > thresh["hard"]:
+                hard_fails.append(f"{label}: {val} > {thresh['hard']}")
+            elif val > thresh["warn"]:
+                warns.append(f"{label}: {val} > {thresh['warn']}")
+
+    return {
+        "metrics": metrics,
+        "hard_fails": hard_fails,
+        "warns": warns,
+        "passed": len(hard_fails) == 0,
+    }
+
+
+def _print_quality_gate(qg: dict) -> None:
+    """Print quality gate results in a formatted table."""
+    print(f"\n  --- Quality Gate (6-metric edge check) ---")
+    m = qg["metrics"]
+    if not m:
+        print(f"  [SKIP] No trade-level data available")
+        return
+    for key, thresh in _QG_THRESHOLDS.items():
+        val = m.get(key, "?")
+        label = thresh["label"]
+        if key in ("edge_ratio", "trade_count", "pf_minus5", "wo5_pnl"):
+            if val < thresh["hard"]:
+                tag = "HARD FAIL"
+            elif val < thresh["warn"]:
+                tag = "WARN"
+            else:
+                tag = "OK"
+        else:
+            if val > thresh["hard"]:
+                tag = "HARD FAIL"
+            elif val > thresh["warn"]:
+                tag = "WARN"
+            else:
+                tag = "OK"
+        print(f"  {label:30s} {str(val):>8s}  {tag}")
+    if qg["hard_fails"]:
+        print(f"  RESULT: HARD FAIL ({len(qg['hard_fails'])} metric(s))")
+    elif qg["warns"]:
+        print(f"  RESULT: WARN ({len(qg['warns'])} metric(s))")
+    else:
+        print(f"  RESULT: PASS")
+
+
+# ── Preflight check ─────────────────────────────────────────────────────────
+
+def preflight(strategy_id: str) -> dict:
+    """Run all promote precondition checks and print a readiness report.
+
+    Returns dict with overall pass/fail and per-check results.
+    """
+    print(f"\n{'=' * 60}")
+    print(f"PREFLIGHT CHECK: {strategy_id}")
+    print(f"{'=' * 60}\n")
+
+    checks = {}
+
+    # 1. strategy.py exists (or recoverable)
+    base_spy = PROJECT_ROOT / "strategies" / strategy_id / "strategy.py"
+    if base_spy.exists():
+        checks["strategy.py"] = ("PASS", str(base_spy))
+    else:
+        # Check if recoverable
+        from config.state_paths import RUNS_DIR as _RUNS_DIR
+        run_id = find_run_id_for_directive(strategy_id)
+        snapshot = _RUNS_DIR / run_id / "strategy.py" if run_id else None
+        if snapshot and snapshot.exists():
+            checks["strategy.py"] = ("PASS", f"Recoverable from run {run_id}")
+        else:
+            checks["strategy.py"] = ("FAIL", "Not found and no run snapshot")
+
+    # 2. Backtest folders exist
+    bt_dirs = sorted(BACKTESTS_DIR.glob(f"{strategy_id}_*"))
+    if bt_dirs:
+        syms = [d.name[len(strategy_id) + 1:] for d in bt_dirs]
+        checks["backtests"] = ("PASS", f"{len(bt_dirs)} symbol(s): {syms}")
+    else:
+        checks["backtests"] = ("FAIL", "No backtest folders found")
+
+    # 3. Run ID resolvable
+    run_id = find_run_id_for_directive(strategy_id)
+    if run_id:
+        checks["run_id"] = ("PASS", run_id)
+    else:
+        checks["run_id"] = ("FAIL", "No run_id found via fallback chain")
+
+    # 4. portfolio_evaluation/ (warn-only for single-symbol)
+    pe = STRATEGIES_DIR / strategy_id / "portfolio_evaluation"
+    is_single = len(bt_dirs) <= 1
+    if pe.exists():
+        checks["portfolio_evaluation"] = ("PASS", str(pe))
+    elif is_single:
+        checks["portfolio_evaluation"] = ("WARN", "Missing (expected for single-symbol)")
+    else:
+        checks["portfolio_evaluation"] = ("FAIL", "Missing for multi-symbol strategy")
+
+    # 5. deployable/ artifacts
+    deploy = STRATEGIES_DIR / strategy_id / "deployable"
+    if deploy.exists() and any(deploy.iterdir()):
+        checks["deployable"] = ("PASS", f"{len(list(deploy.iterdir()))} files")
+    elif is_single:
+        checks["deployable"] = ("WARN", "Missing (single-symbol may skip)")
+    else:
+        checks["deployable"] = ("WARN", "Missing — Step 8/8.5 may not have run")
+
+    # 6. Not already in portfolio.yaml
+    data = _load_portfolio_yaml()
+    existing = _get_existing_ids(data)
+    in_portfolio = strategy_id in existing or any(
+        eid.startswith(strategy_id + "_") for eid in existing
+    )
+    if not in_portfolio:
+        checks["not_in_portfolio"] = ("PASS", "Not in portfolio.yaml")
+    else:
+        checks["not_in_portfolio"] = ("FAIL", "Already in portfolio.yaml")
+
+    # 7. PORTFOLIO_COMPLETE state
+    ds_file = STATE_ROOT / "runs" / strategy_id / "directive_state.json"
+    if ds_file.exists():
+        try:
+            ds = json.loads(ds_file.read_text(encoding="utf-8"))
+            latest = ds.get("latest_attempt", "attempt_01")
+            status = ds.get("attempts", {}).get(latest, {}).get("status", "?")
+            if status == "PORTFOLIO_COMPLETE":
+                checks["directive_state"] = ("PASS", f"PORTFOLIO_COMPLETE (attempt: {latest})")
+            else:
+                checks["directive_state"] = ("WARN", f"Status: {status} (not PORTFOLIO_COMPLETE)")
+        except Exception:
+            checks["directive_state"] = ("WARN", "directive_state.json unreadable")
+    else:
+        checks["directive_state"] = ("WARN", "No directive_state.json found")
+
+    # 8. Quality gate
+    qg = _compute_quality_gate(strategy_id)
+    if qg["passed"] and not qg["warns"]:
+        checks["quality_gate"] = ("PASS", "All 6 metrics OK")
+    elif qg["passed"]:
+        checks["quality_gate"] = ("WARN", f"{len(qg['warns'])} warning(s)")
+    else:
+        checks["quality_gate"] = ("FAIL", f"{len(qg['hard_fails'])} hard fail(s)")
+
+    # Print report
+    has_fail = False
+    has_warn = False
+    for name, (status, detail) in checks.items():
+        marker = {"PASS": "OK", "WARN": "!!", "FAIL": "XX"}[status]
+        print(f"  [{marker}] {name:25s} {detail}")
+        if status == "FAIL":
+            has_fail = True
+        if status == "WARN":
+            has_warn = True
+
+    # Quality gate detail
+    _print_quality_gate(qg)
+
+    overall = "FAIL" if has_fail else ("WARN" if has_warn else "PASS")
+    print(f"\n  OVERALL: {overall}")
+    if overall == "FAIL":
+        print(f"  Resolve FAIL items before promoting.")
+    elif overall == "WARN":
+        print(f"  WARN items are advisory — promotion will proceed with --skip-quality-gate if needed.")
+
+    return {"overall": overall, "checks": checks, "quality_gate": qg}
+
+
+# ── Promote audit log ───────────────────────────────────────────────────────
+
+def _write_audit_log(strategy_id: str, profile: str, outcome: str,
+                     dry_run: bool = False, vault_id: str = "",
+                     run_id: str = "", reason: str = "",
+                     quality_gate: dict | None = None) -> None:
+    """Append a promote attempt record to TradeScan_State/logs/promote_audit.jsonl."""
+    log_dir = STATE_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "promote_audit.jsonl"
+
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "strategy_id": strategy_id,
+        "profile": profile,
+        "outcome": outcome,
+        "dry_run": dry_run,
+        "vault_id": vault_id,
+        "run_id": run_id,
+        "reason": reason,
+    }
+    if quality_gate:
+        entry["quality_gate_metrics"] = quality_gate.get("metrics", {})
+        entry["quality_gate_hard_fails"] = quality_gate.get("hard_fails", [])
+        entry["quality_gate_warns"] = quality_gate.get("warns", [])
+
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        print(f"  [WARN] Audit log write failed: {e}")
+
+
 # ── Validation ───────────────────────────────────────────────────────────────
 
 def _recover_strategy_py(strategy_id: str, target_path: Path) -> bool:
@@ -393,7 +695,8 @@ def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
 
 def promote(strategy_id: str, profile: str, description: str = "",
             dry_run: bool = False, symbols_filter: list[str] | None = None,
-            upgrade_legacy: bool = False) -> dict:
+            upgrade_legacy: bool = False,
+            skip_quality_gate: bool = False) -> dict:
     """Promote a strategy: lookup run_id -> vault snapshot -> portfolio.yaml edit.
 
     Args:
@@ -401,6 +704,7 @@ def promote(strategy_id: str, profile: str, description: str = "",
                         All symbols still go to vault (complete research record).
         upgrade_legacy: If True, replace existing LEGACY entries in-place
                         instead of aborting on duplicates.
+        skip_quality_gate: If True, skip the 6-metric edge quality gate.
 
     Returns dict with vault_id, run_id, entries_added, symbols.
     """
@@ -456,6 +760,23 @@ def promote(strategy_id: str, profile: str, description: str = "",
     # 3b. Expectancy gate (aggregate) — hard block before any vault/yaml changes
     _metrics = _read_backtest_metrics(strategy_id)
     _check_expectancy_gate(strategy_id, _metrics)
+
+    # 3b2. Quality gate (6-metric edge check)
+    _qg = _compute_quality_gate(strategy_id)
+    _print_quality_gate(_qg)
+    if not skip_quality_gate:
+        if not _qg["passed"]:
+            _write_audit_log(strategy_id, profile, "QUALITY_GATE_FAIL",
+                             dry_run=dry_run, reason="; ".join(_qg["hard_fails"]),
+                             quality_gate=_qg)
+            print(f"\n[ABORT] Quality gate HARD FAIL — promotion blocked.")
+            print(f"  Use --skip-quality-gate to override (not recommended).")
+            sys.exit(1)
+        if _qg["warns"]:
+            print(f"\n  [WARN] Quality gate has {len(_qg['warns'])} warning(s) — proceeding.")
+    else:
+        if not _qg["passed"]:
+            print(f"\n  [OVERRIDE] Quality gate HARD FAIL bypassed (--skip-quality-gate)")
 
     # 3c. Apply --symbols filter (restrict which symbols go to portfolio.yaml)
     if symbols_filter:
@@ -575,6 +896,8 @@ def promote(strategy_id: str, profile: str, description: str = "",
 
     if dry_run:
         print("[DRY RUN] No changes written to portfolio.yaml.")
+        _write_audit_log(strategy_id, profile, "DRY_RUN", dry_run=True,
+                         vault_id=vault_id, run_id=run_id, quality_gate=_qg)
         return {"vault_id": vault_id, "run_id": run_id, "entries_added": 0, "symbols": symbol_names}
 
     # 9a. Remove LEGACY entries if --upgrade-legacy (before appending new block)
@@ -680,6 +1003,10 @@ def promote(strategy_id: str, profile: str, description: str = "",
         if integrity_result.returncode != 0:
             print(f"  [WARN] Portfolio integrity issues detected. Review above.")
 
+    # Audit log (Trade_Scan side)
+    _write_audit_log(strategy_id, profile, "SUCCESS", dry_run=False,
+                     vault_id=vault_id, run_id=run_id, quality_gate=_qg)
+
     print(f"\n[NEXT] Restart TS_Execution to pick up new strategies.")
     print(f"       Verify: cd ../TS_Execution && python src/main.py --phase 0")
 
@@ -700,12 +1027,18 @@ def main() -> None:
     )
     parser.add_argument("strategy_id",
                         help="Base strategy ID (e.g., 27_MR_XAUUSD_1H_PINBAR_S01_V1_P05)")
-    parser.add_argument("--profile", required=True,
-                        help="Capital profile name (MANDATORY)")
+    parser.add_argument("--profile", default=None,
+                        help="Capital profile name (required for promote, not for preflight)")
     parser.add_argument("--description", default="",
                         help="One-line strategy description for the comment block")
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview without writing vault or portfolio.yaml")
+    parser.add_argument("--preflight", action="store_true",
+                        help="Run all precondition checks and print readiness report. "
+                             "Does not promote.")
+    parser.add_argument("--skip-quality-gate", action="store_true",
+                        help="Bypass the 6-metric quality gate (not recommended). "
+                             "Gate results are still printed for review.")
     parser.add_argument("--symbols", default=None,
                         help="Comma-separated symbol filter (e.g., AUDJPY,EURUSD). "
                              "Only these symbols are added to portfolio.yaml; all "
@@ -715,9 +1048,18 @@ def main() -> None:
                              "Without this flag, duplicate IDs abort the promote.")
 
     args = parser.parse_args()
+
+    if args.preflight:
+        preflight(args.strategy_id)
+        return
+
+    if not args.profile:
+        parser.error("--profile is required for promotion (not needed with --preflight)")
+
     symbols_filter = [s.strip() for s in args.symbols.split(",")] if args.symbols else None
     promote(args.strategy_id, args.profile, args.description, args.dry_run,
-            symbols_filter=symbols_filter, upgrade_legacy=args.upgrade_legacy)
+            symbols_filter=symbols_filter, upgrade_legacy=args.upgrade_legacy,
+            skip_quality_gate=args.skip_quality_gate)
 
 
 if __name__ == "__main__":
