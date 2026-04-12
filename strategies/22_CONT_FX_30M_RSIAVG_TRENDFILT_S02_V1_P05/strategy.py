@@ -1,5 +1,5 @@
 """
-22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06 - RSI(2) Average Pullback, FX 30M, Filtered
+22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P05 - RSI(2) Average Pullback, FX 30M, Filtered
 Locked filter: strong trend (|trend_regime|>=2) + low volatility + |score|>=2.
 Exit change: max_bars=2 (bar-3 was net -$162 damage on filtered subset).
 Bar 1 RSI exits: PF 2.95 (81% win). Bar 2 time exits: PF 2.54 (81% win).
@@ -20,7 +20,7 @@ import numpy as np
 
 class Strategy:
 
-    name = "22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06_AUDJPY"
+    name = "22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P05"
     timeframe = "30m"
 
     # --- STRATEGY SIGNATURE START ---

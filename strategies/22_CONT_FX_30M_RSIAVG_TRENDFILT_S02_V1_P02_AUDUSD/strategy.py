@@ -102,6 +102,7 @@ class Strategy:
     def _schema_sample() -> dict:
         return {
             "signal": 1,
+            "stop_price": 1.0820,
             "entry_reference_price": 1.0850,
             "entry_reason": "rsiavg_oversold_long",
         }
@@ -135,6 +136,8 @@ class Strategy:
         if np.isnan(rsi_avg) or np.isnan(atr_val) or atr_val <= 0:
             return None
 
+        atr_mult = self.STRATEGY_SIGNATURE["execution_rules"]["stop_loss"]["atr_multiplier"]
+
         # Long: strong uptrend + deeply oversold pullback
         if (trend_score >= cfg["min_abs_trend_score"]
                 and rsi_avg < cfg["long_threshold"]):
@@ -143,6 +146,7 @@ class Strategy:
             return {
                 "signal": 1,
                 "entry_reference_price": close,
+                "stop_price": close - atr_val * atr_mult,
                 "entry_reason": "rsiavg_oversold_long",
             }
 
@@ -154,6 +158,7 @@ class Strategy:
             return {
                 "signal": -1,
                 "entry_reference_price": close,
+                "stop_price": close + atr_val * atr_mult,
                 "entry_reason": "rsiavg_overbought_short",
             }
 
