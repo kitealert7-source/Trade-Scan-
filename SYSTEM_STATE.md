@@ -2,9 +2,9 @@
 
 ## SESSION STATUS: WARNING
 - WARNING: 8 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 4 uncommitted
+- WARNING: Working tree 3 uncommitted
 
-> Generated: 2026-04-12T02:24:25Z
+> Generated: 2026-04-12T10:09:23Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,17 +13,15 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 67 directives
+- Completed: 68 directives
 
 ## Ledgers
 
-- **Master Filter:** 395 rows
+- **Master Filter:** ERROR — No module named 'tools'
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
-  - **Portfolios:** 81 rows — CORE: 7, FAIL: 63, WATCH: 11
-  - **Single-Asset Composites:** 42 rows — CORE: 4, FAIL: 29, WATCH: 9
 
-- **Candidates (FPS):** 297 rows — BURN_IN: 8, CORE: 12, FAIL: 216, RBIN: 11, WATCH: 50
+- **Candidates (FPS):** 298 rows — BURN_IN: 8, CORE: 12, FAIL: 216, RBIN: 11, WATCH: 51
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 8 | **Enabled:** 8
@@ -41,12 +39,12 @@
 - Latest bar: **2026-04-12** | Symbols: 250 | **Stale (>3d): 8**
 
 ## Artifacts
-- Run directories: 530
+- Run directories: 535
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 4 uncommitted
-- Last commit: `61c9b27 Fix classification correctness and relocate caches out of data_root`
+- Working tree: 3 uncommitted
+- Last commit: `ed45f20 Update manifests and add P06 directive from pipeline validation run`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
