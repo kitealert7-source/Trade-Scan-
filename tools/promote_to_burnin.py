@@ -120,15 +120,28 @@ def _detect_symbols(strategy_id: str) -> list[dict]:
     return symbols
 
 
+_TF_TO_MT5: dict[str, str] = {
+    "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
+    "1h": "H1", "4h": "H4", "1d": "D1", "1w": "W1",
+    "M1": "M1", "M5": "M5", "M15": "M15", "M30": "M30",
+    "H1": "H1", "H4": "H4", "D1": "D1", "W1": "W1",
+}
+
+
+def _normalize_timeframe(tf: str) -> str:
+    """Convert any timeframe format to MT5 format (H1, M15, etc.)."""
+    return _TF_TO_MT5.get(tf, tf)
+
+
 def _detect_timeframe(strategy_id: str, symbols: list[dict]) -> str:
-    """Read timeframe from run_metadata.json."""
+    """Read timeframe from run_metadata.json, normalized to MT5 format."""
     for sym_info in symbols:
         meta_path = sym_info["backtest_dir"] / "metadata" / "run_metadata.json"
         if meta_path.exists():
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             tf = meta.get("timeframe", "")
             if tf:
-                return tf
+                return _normalize_timeframe(tf)
     # Fallback: parse from strategy ID
     m = re.search(r"_(\d+[MHDW])_", strategy_id)
     if m:
