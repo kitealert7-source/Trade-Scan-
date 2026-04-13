@@ -29,6 +29,7 @@ class FilterStack:
         import copy
         self.signature = copy.deepcopy(signature) if signature else {}
         self.filtered_bars = 0
+        self.filter_counts = {}  # per-filter-type rejection counter
 
         # Phase 1: Signature Fingerprinting
         self._initial_sig_str = json.dumps(self.signature, sort_keys=True)
@@ -79,21 +80,57 @@ class FilterStack:
                 except Exception:
                     actual_regime = None
                 if actual_regime in exclude_list:
+                    self.filter_counts["market_regime_filter"] = self.filter_counts.get("market_regime_filter", 0) + 1
                     self.filtered_bars += 1
                     return False
 
         # Regime age exclusion gate: blocks trades entering during excluded
-        # regime age range. Uses exclude_min / exclude_max (inclusive bounds).
+        # regime age range. Supports two modes:
+        #   1. allowed_values: allowlist (takes priority if present)
+        #   2. exclude_min / exclude_max: contiguous exclusion range (legacy)
         raf = self.signature.get("regime_age_filter", {})
         if raf.get("enabled", False):
-            exclude_min = raf.get("exclude_min")
-            exclude_max = raf.get("exclude_max")
-            if exclude_min is not None and exclude_max is not None:
+            try:
+                actual_age = ctx.require("regime_age")
+            except Exception:
+                actual_age = None
+
+            allowed = raf.get("allowed_values")
+            if allowed is not None and (raf.get("exclude_min") is not None or raf.get("exclude_max") is not None):
+                raise RuntimeError(
+                    "ABORT_GOVERNANCE: regime_age_filter has both 'allowed_values' and "
+                    "'exclude_min'/'exclude_max'. Use one mode, not both."
+                )
+            if allowed is not None:
+                if actual_age is None or actual_age not in allowed:
+                    self.filter_counts["regime_age_filter"] = self.filter_counts.get("regime_age_filter", 0) + 1
+                    self.filtered_bars += 1
+                    return False
+            else:
+                exclude_min = raf.get("exclude_min")
+                exclude_max = raf.get("exclude_max")
+                if exclude_min is not None and exclude_max is not None:
+                    if actual_age is not None and exclude_min <= actual_age <= exclude_max:
+                        self.filter_counts["regime_age_filter"] = self.filter_counts.get("regime_age_filter", 0) + 1
+                        self.filtered_bars += 1
+                        return False
+
+        # Session exclusion gate: blocks trades during excluded UTC hours.
+        # Requires bar_hour to be computed in prepare_indicators().
+        sf = self.signature.get("session_filter", {})
+        if sf.get("enabled", False):
+            exclude_hours = sf.get("exclude_hours_utc", [])
+            if exclude_hours:
                 try:
-                    actual_age = ctx.require("regime_age")
+                    bar_hour = ctx.require("bar_hour")
                 except Exception:
-                    actual_age = None
-                if actual_age is not None and exclude_min <= actual_age <= exclude_max:
+                    bar_hour = None
+                if bar_hour is None:
+                    self.filter_counts["session_filter"] = self.filter_counts.get("session_filter", 0) + 1
+                    self.filtered_bars += 1
+                    return False
+                if bar_hour in exclude_hours:
+                    self.filter_counts["session_filter"] = self.filter_counts.get("session_filter", 0) + 1
                     self.filtered_bars += 1
                     return False
 
@@ -102,7 +139,7 @@ class FilterStack:
                 continue
 
             if filter_name in ("market_regime_filter", "regime_age_filter", "session_filter"):
-                continue  # Already handled above or in strategy.check_entry() — skip in generic loop
+                continue  # Already handled above — skip in generic loop
 
             if not cfg.get("enabled", False):
                 continue
@@ -119,6 +156,7 @@ class FilterStack:
                         except Exception:
                             actual_trend = None
                         if actual_trend is not None and actual_trend == exclude_val:
+                            self.filter_counts["trend_filter"] = self.filter_counts.get("trend_filter", 0) + 1
                             self.filtered_bars += 1
                             return False
                     continue
@@ -161,18 +199,23 @@ class FilterStack:
                 # Field unavailable (e.g. regime fields during dry-run validation
                 # where HTF computation is skipped). Block the trade safely —
                 # during real execution, authoritative fields are always populated.
+                self.filter_counts[filter_name] = self.filter_counts.get(filter_name, 0) + 1
                 self.filtered_bars += 1
                 return False
 
-            if not self._evaluate_condition(actual, expected, operator):
+            if expected is not None and not self._evaluate_condition(actual, expected, operator):
+                self.filter_counts[filter_name] = self.filter_counts.get(filter_name, 0) + 1
                 self.filtered_bars += 1
                 return False
 
             # Secondary: exclude_regime — explicitly reject a specific regime value.
             # Supported on trend_filter only. Evaluated only if primary condition passes.
+            # Note: exclude_regime also fires when required_regime is absent (expected=None),
+            # acting as a standalone exclusion gate.
             if filter_name == "trend_filter":
                 exclude_val = cfg.get("exclude_regime")
                 if exclude_val is not None and actual == exclude_val:
+                    self.filter_counts["trend_filter"] = self.filter_counts.get("trend_filter", 0) + 1
                     self.filtered_bars += 1
                     return False
 

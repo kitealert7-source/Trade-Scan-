@@ -124,7 +124,7 @@ ALLOWED_NESTED_KEYS = {
         "enabled", "exclude",
     },
     "regime_age_filter": {
-        "enabled", "exclude_min", "exclude_max",
+        "enabled", "exclude_min", "exclude_max", "allowed_values",
     },
     "session_filter": {
         "enabled", "exclude_hours_utc", "exclude_direction",
