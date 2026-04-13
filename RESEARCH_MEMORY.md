@@ -425,3 +425,12 @@ Conclusion: UK100 London-open shorts have a measurable regime dependency — wea
 Implication: For UK100 London-open pullback variants, test combinatorial filter stacking (S09+S10 or S09+S11) only if the combined trade count stays above 80. Treat weak_down regime gating as a universal pre-filter candidate for any index session strategy — the PF lift is too large to be noise at 68 trades.
 ---
 
+2026-04-13 | Tags: F42, LIQSWEEP, SESSION_FILTER, FX_15M, CROSS_SYMBOL | Strategy: 42_REV_EURJPY/GBPUSD_15M_LIQSWEEP | Run IDs: S13_P04, S05_P03
+
+Asia session exclusion [0-7 UTC] is the dominant filter for JPY crosses and GBP pairs on LIQSWEEP 15M. Regime age adds marginal lift only.
+
+EURJPY: base PF 1.20 → session only PF 1.40 SQN 2.40 (331T) vs regime_age_only PF 1.24 SQN 1.72 (455T). GBPUSD best: age[6-10] + excl. WeakUp → PF 1.88 SQN 2.81 97T.
+
+Asia session noise systematically degrades LIQSWEEP signal on JPY crosses. Regime age responds differently per symbol — GBPUSD: mature bars (6-10); EURJPY: session filter dominates. The two filters are not additive.
+
+Implication: For future LIQSWEEP FX passes, test session filter as primary gate first. Regime age is secondary exploration only on symbols that survive session filtering.

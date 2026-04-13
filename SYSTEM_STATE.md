@@ -1,10 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: 8 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 3 uncommitted
+## SESSION STATUS: BROKEN
+- BROKEN: 5 commits not pushed to origin
 
-> Generated: 2026-04-12T17:51:14Z
+> Generated: 2026-04-13T15:22:07Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 68 directives
+- Completed: 106 directives
 
 ## Ledgers
 
@@ -21,30 +20,30 @@
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
 
-- **Candidates (FPS):** 303 rows — BURN_IN: 8, CORE: 11, FAIL: 221, RBIN: 11, RESERVE: 12, WATCH: 40
+- **Candidates (FPS):** 311 rows — BURN_IN: 8, CORE: 12, FAIL: 222, RBIN: 11, RESERVE: 10, WATCH: 48
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 8 | **Enabled:** 8
 - BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** STOPPED (market_halt) | Last run: 2026-04-10T22:31:08Z
-- **Shadow trades:** 1 active | **Signals (7d):** 11 entry, 9 exit
-- **Alerts:** silence_alerts=ON | watchdog=IDLE
+- **Process:** RUNNING | run_id=20260413T000535Z_30728 | bars=340
+- **Shadow trades:** 0 active | **Signals (7d):** 5 entry, 4 exit
+- **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
 - Snapshots: 16 | WAITING: 0 | Latest: `DRY_RUN_2026_04_12__a2571097`
 
 ## Data Freshness
-- Latest bar: **2026-04-12** | Symbols: 250 | **Stale (>3d): 8**
+- Latest bar: **2026-04-13** | Symbols: 250 | **Stale (>3d): 8**
 
 ## Artifacts
-- Run directories: 533
+- Run directories: 601
 
 ## Git Sync
-- Remote: IN SYNC
-- Working tree: 3 uncommitted
-- Last commit: `91f9d86 Enforce DB integrity: ON CONFLICT upserts, no Excel fallback, run_id identity`
+- Remote: **5 commits ahead of origin**
+- Working tree: 17 uncommitted
+- Last commit: `724e69e Rename duplicate governance docs and add outputs artifacts`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
