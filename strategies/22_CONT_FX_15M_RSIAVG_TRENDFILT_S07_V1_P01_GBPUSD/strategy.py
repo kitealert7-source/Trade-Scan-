@@ -133,8 +133,6 @@ class Strategy:
         if np.isnan(rsi_avg) or np.isnan(atr_val) or atr_val <= 0:
             return None
 
-        atr_mult = self.STRATEGY_SIGNATURE["execution_rules"]["stop_loss"]["atr_multiplier"]
-
         # Long: strong uptrend + deeply oversold pullback + macro allows long
         if (macro == 1
                 and trend_score >= cfg["min_abs_trend_score"]
@@ -142,7 +140,6 @@ class Strategy:
             return {
                 "signal": 1,
                 "entry_reference_price": close,
-                "stop_price": close - atr_val * atr_mult,
                 "entry_reason": "rsiavg_oversold_long",
             }
 
@@ -153,7 +150,6 @@ class Strategy:
             return {
                 "signal": -1,
                 "entry_reference_price": close,
-                "stop_price": close + atr_val * atr_mult,
                 "entry_reason": "rsiavg_overbought_short",
             }
 
