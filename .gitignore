@@ -17,6 +17,13 @@ data/
 .cache/
 data_root/MASTER_DATA/
 
+# data_root runtime files (updated by pipeline on every run — not source-controlled)
+data_root/freshness_index.json
+data_root/SYSTEM_FACTORS/
+data_root/governance/last_successful_daily_run.json
+data_root/EXTERNAL_DATA/
+data_root/JPY_SYNTH/
+
 # Strategy snapshots (runtime mirrors)
 strategies/
 
