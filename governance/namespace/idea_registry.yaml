@@ -299,3 +299,11 @@ ideas:
     role: entry_edge
     instruments: FX
     status: active
+  "42":
+    family: REV
+    title: Liquidity Sweep + Momentum Divergence Reversal
+    class: hybrid_reversal
+    regime: multi
+    role: entry_edge
+    instruments: FX
+    status: active

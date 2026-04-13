@@ -1112,17 +1112,12 @@ ideas:
             directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
             signature_hash: d643dfbf4b9790c2
             signature_hash_full: d643dfbf4b9790c26ccf1ca3b826d67d35da23d57b09db5c2e0d44cc002d1302
-            reserved_at_utc: '2026-04-04T00:21:24.659837+00:00'
+            reserved_at_utc: '2026-04-12T09:43:23.787903+00:00'
           P07:
             directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P07
             signature_hash: 2542c084d1ddeab0
             signature_hash_full: 2542c084d1ddeab0d95f4905a930dc9a8970ac01cb326b42650cde36c2b52815
             reserved_at_utc: '2026-04-04T00:35:19.619100+00:00'
-          P06:
-            directive_name: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P06
-            signature_hash: d643dfbf4b9790c2
-            signature_hash_full: d643dfbf4b9790c26ccf1ca3b826d67d35da23d57b09db5c2e0d44cc002d1302
-            reserved_at_utc: '2026-04-12T09:43:23.787903+00:00'
   '29':
     next_sweep: 2
     sweeps:
@@ -1625,3 +1620,197 @@ ideas:
             signature_hash: 120bc3e38d05054b
             reserved_at_utc: '2026-04-09T10:38:08.611185+00:00'
             signature_hash_full: 120bc3e38d05054b5d6a3185b6fc6ff7ac96f2f277aff451117d746b81e250af
+  '42':
+    next_sweep: 21
+    sweeps:
+      S01:
+        directive_name: 42_REV_USDJPY_15M_LIQSWEEP_S01_V1_P00
+        signature_hash: d13bb3d4849ec8a3
+        signature_hash_full: d13bb3d4849ec8a34cb4607f73e61172a43cde9a0e283d30c757d87986cb90c1
+        reserved_at_utc: '2026-04-13T10:58:56.482692+00:00'
+        patches: {}
+      S02:
+        directive_name: 42_REV_USDJPY_30M_LIQSWEEP_S02_V1_P00
+        signature_hash: d13bb3d4849ec8a3
+        signature_hash_full: d13bb3d4849ec8a34cb4607f73e61172a43cde9a0e283d30c757d87986cb90c1
+        reserved_at_utc: '2026-04-13T11:06:50.041118+00:00'
+        patches: {}
+      S03:
+        directive_name: 42_REV_USDJPY_1H_LIQSWEEP_S03_V1_P00
+        signature_hash: d13bb3d4849ec8a3
+        signature_hash_full: d13bb3d4849ec8a34cb4607f73e61172a43cde9a0e283d30c757d87986cb90c1
+        reserved_at_utc: '2026-04-13T11:06:54.750743+00:00'
+        patches:
+          P01:
+            directive_name: 42_REV_GBPUSD_15M_LIQSWEEP_S05_V1_P01
+            signature_hash: 8cba39463cb06005
+            signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+            reserved_at_utc: '2026-04-13T13:10:14.089193+00:00'
+          P02:
+            directive_name: 42_REV_USDJPY_15M_LIQSWEEP_S01_V1_P02
+            signature_hash: a20777960d47cee4
+            signature_hash_full: a20777960d47cee4f27c97481d875f37c87d8f1f3689af4d54d6de56f33a6561
+            reserved_at_utc: '2026-04-13T11:57:43.344749+00:00'
+          P03:
+            directive_name: 42_REV_USDJPY_15M_LIQSWEEP_S01_V1_P03
+            signature_hash: 9fb4e32cfb684d67
+            signature_hash_full: 9fb4e32cfb684d67561ab8f394b1bd7951484d67ffcdb7d5ef43e7f3626fea6a
+            reserved_at_utc: '2026-04-13T12:28:05.967321+00:00'
+          P04:
+            directive_name: 42_REV_USDJPY_15M_LIQSWEEP_S01_V1_P04
+            signature_hash: de94186b3c7dda62
+            signature_hash_full: de94186b3c7dda62e591f3ad760d34903d605cc30d468396199a329f9fae5d87
+            reserved_at_utc: '2026-04-13T12:46:31.746912+00:00'
+          P00:
+            directive_name: 42_REV_GBPUSD_15M_LIQSWEEP_S05_V1_P00
+            signature_hash: de94186b3c7dda62
+            signature_hash_full: de94186b3c7dda62e591f3ad760d34903d605cc30d468396199a329f9fae5d87
+            reserved_at_utc: '2026-04-13T12:57:48.425555+00:00'
+      S04:
+        directive_name: 42_REV_EURUSD_15M_LIQSWEEP_S04_V1_P00
+        signature_hash: de94186b3c7dda62
+        signature_hash_full: de94186b3c7dda62e591f3ad760d34903d605cc30d468396199a329f9fae5d87
+        reserved_at_utc: '2026-04-13T13:00:00.000000+00:00'
+        patches:
+          P01:
+            directive_name: 42_REV_EURUSD_15M_LIQSWEEP_S04_V1_P01
+            signature_hash: 8cba39463cb06005
+            reserved_at_utc: '2026-04-13T13:10:25.707488+00:00'
+          P02:
+            directive_name: 42_REV_GBPUSD_15M_LIQSWEEP_S05_V1_P02
+            signature_hash: de2dff390d92473b
+            signature_hash_full: de2dff390d92473bf79bb9be542c1de2a21dfd4ea21bda2fe028a4e544d59c71
+            reserved_at_utc: '2026-04-13T13:17:13.444845+00:00'
+          P03:
+            directive_name: 42_REV_GBPUSD_15M_LIQSWEEP_S05_V1_P03
+            signature_hash: 86508fa088e76b62
+            signature_hash_full: 86508fa088e76b6263c3044c6ee6d107b0cc1947b8d11098843b15bfb1b244d5
+            reserved_at_utc: '2026-04-13T13:28:02.719040+00:00'
+          P00:
+            directive_name: 42_REV_USDCHF_15M_LIQSWEEP_S20_V1_P00
+            signature_hash: 8cba39463cb06005
+            signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+            reserved_at_utc: '2026-04-13T13:56:37.992851+00:00'
+          P01:
+            directive_name: 42_REV_EURJPY_15M_LIQSWEEP_S13_V1_P01
+            signature_hash: 85c3c18e5e7224f8
+            signature_hash_full: 85c3c18e5e7224f8b26682360db4ec89ff8fc155587dcb8644bf83a2eaf5082a
+            reserved_at_utc: '2026-04-13T14:18:39.769760+00:00'
+          P02:
+            directive_name: 42_REV_EURJPY_15M_LIQSWEEP_S13_V1_P02
+            signature_hash: 7e50d6b2b24968b0
+            signature_hash_full: 7e50d6b2b24968b098e85d35095bc18cc5a44bf18846ac5eb6f828b6f8983801
+            reserved_at_utc: '2026-04-13T14:24:56.364189+00:00'
+          P03:
+            directive_name: 42_REV_EURJPY_15M_LIQSWEEP_S13_V1_P03
+            signature_hash: fcff38ac4ab0bdac
+            signature_hash_full: fcff38ac4ab0bdac11c899772264a02b94ca4a7407a6c9f5f1c0144b71249c15
+            reserved_at_utc: '2026-04-13T14:34:05.811694+00:00'
+          P04:
+            directive_name: 42_REV_EURJPY_15M_LIQSWEEP_S13_V1_P04
+            signature_hash: abd7e7ef3500c6d6
+            signature_hash_full: abd7e7ef3500c6d69e00e3e7c12110561b6aa7152f9fa583e84058425a3c27a0
+            reserved_at_utc: '2026-04-13T14:39:55.194178+00:00'
+          P01:
+            directive_name: 42_REV_GBPJPY_15M_LIQSWEEP_S15_V1_P01
+            signature_hash: abd7e7ef3500c6d6
+            signature_hash_full: abd7e7ef3500c6d69e00e3e7c12110561b6aa7152f9fa583e84058425a3c27a0
+            reserved_at_utc: '2026-04-13T14:54:39.463043+00:00'
+        attempt: 2
+      S05:
+        directive_name: 42_REV_GBPUSD_15M_LIQSWEEP_S05_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-13T13:00:00.000000+00:00'
+        patches: {}
+      S06:
+        directive_name: 42_REV_AUDJPY_15M_LIQSWEEP_S06_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S07:
+        directive_name: 42_REV_AUDNZD_15M_LIQSWEEP_S07_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S08:
+        directive_name: 42_REV_AUDUSD_15M_LIQSWEEP_S08_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S09:
+        directive_name: 42_REV_CADJPY_15M_LIQSWEEP_S09_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S10:
+        directive_name: 42_REV_CHFJPY_15M_LIQSWEEP_S10_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S11:
+        directive_name: 42_REV_EURAUD_15M_LIQSWEEP_S11_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S12:
+        directive_name: 42_REV_EURGBP_15M_LIQSWEEP_S12_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S13:
+        directive_name: 42_REV_EURJPY_15M_LIQSWEEP_S13_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S14:
+        directive_name: 42_REV_GBPAUD_15M_LIQSWEEP_S14_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S15:
+        directive_name: 42_REV_GBPJPY_15M_LIQSWEEP_S15_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S16:
+        directive_name: 42_REV_GBPNZD_15M_LIQSWEEP_S16_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S17:
+        directive_name: 42_REV_NZDJPY_15M_LIQSWEEP_S17_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S18:
+        directive_name: 42_REV_NZDUSD_15M_LIQSWEEP_S18_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S19:
+        directive_name: 42_REV_USDCAD_15M_LIQSWEEP_S19_V1_P00
+        signature_hash: 8cba39463cb06005
+        signature_hash_full: 8cba39463cb06005314d14f9d45109b8f870ca44569eeb83e1e48794a15c9022
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
+      S20:
+        directive_name: 42_REV_USDCHF_15M_LIQSWEEP_S20_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-04-13T14:00:00.000000+00:00'
+        patches: {}
