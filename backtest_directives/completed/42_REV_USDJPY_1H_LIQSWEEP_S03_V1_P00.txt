@@ -1,0 +1,55 @@
+test:
+  name: 42_REV_USDJPY_1H_LIQSWEEP_S03_V1_P00
+  family: REV
+  strategy: 42_REV_USDJPY_1H_LIQSWEEP_S03_V1_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-04-13"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Liquidity Sweep + Momentum Divergence Reversal on USDJPY 1H. Same hybrid entry as S01 (15M). 1H timeframe test — 12-bar time exit = 12 hours."
+  notes: "REGIME: none (naked P00). Timeframe sweep S03 of idea 42."
+
+symbols:
+  - USDJPY
+
+indicators:
+  - indicators.momentum.rsi_extremes
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+  - indicators.volatility.atr
+
+execution_rules:
+  entry_logic:
+    type: liquidity_sweep_divergence_reversal
+    condition: sweep_plus_rsi_divergence_plus_confirmation_close
+    long_condition: low_sweeps_below_prior_liquidity_rsi_diverges_bullish_close_back_above
+    short_condition: high_sweeps_above_prior_liquidity_rsi_diverges_bearish_close_back_below
+    lookback_bars: 20
+  exit_logic:
+    type: tp_or_time
+    max_bars: 12
+  stop_loss:
+    type: wick_atr_buffer
+    atr_multiplier: 0.3
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 1.5
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
