@@ -181,6 +181,8 @@ COLUMN_WIDTH_OVERRIDES = {
     "rank":          6,   # 1-3 digit values; header wraps fine
     "exit_spread":  12,   # 6 decimal places (e.g. 0.000120)
     "net_pnl":      12,   # 6 decimal places (e.g. -0.001234)
+    "portfolio_status": 12,
+    "evaluation_timeframe": 12,
 }
 
 # Dropdown Columns (Column Name -> list of allowed values)
@@ -245,6 +247,7 @@ PORTFOLIO_COLUMN_ORDER = [
     "source_strategy",
     "reference_capital_usd",
     "portfolio_status",
+    "burn_in_status",
     "evaluation_timeframe",
     "trade_density",
     "profile_trade_density",
@@ -291,6 +294,7 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "source_strategy",
     "reference_capital_usd",
     "portfolio_status",
+    "burn_in_status",
     "evaluation_timeframe",
     "n_strategies",
     "trade_density",
@@ -325,6 +329,36 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "portfolio_engine_version",
     "creation_timestamp",
     "constituent_run_ids",
+]
+
+# Shadow Trades — Finalized column order (v2, 2026-04-06)
+SHADOW_TRADES_COLUMN_ORDER = [
+    "run_id",
+    "symbol",
+    "event_utc",
+    "event_type",
+    "strategy_id",
+    "bar_time",
+    "direction",
+    "lot_size",
+    "entry_price",
+    "entry_price_source",
+    "exit_price",
+    "exit_price_source",
+    "exit_spread",
+    "net_pnl",
+    "net_pnl_usd",
+    "bars_held",
+    "stop_price",
+    "tp_price",
+    "reason",
+    "magic_number",
+    "signal_hash",
+    "event_id",
+    "sequence_id",
+    "burn_in_layer",
+    "archetype",
+    "lifecycle_status",
 ]
 
 # Display-only header renames for portfolio profile.
@@ -397,7 +431,10 @@ def apply_formatting(file_path, profile):
 
                 # --- Column Reorder ---
                 col_order = None
-                if profile == "strategy" and STRATEGY_COLUMN_ORDER:
+                _fname_lower = Path(path).stem.lower()
+                if "shadow_trade" in _fname_lower:
+                    col_order = SHADOW_TRADES_COLUMN_ORDER
+                elif profile == "strategy" and STRATEGY_COLUMN_ORDER:
                     col_order = ["rank"] + STRATEGY_COLUMN_ORDER
                 elif profile == "portfolio":
                     if sheet_name == "Single-Asset Composites":

@@ -6,8 +6,9 @@ All tools read/write through this module. Excel files are regenerated
 on demand for human review.
 
 Tables:
-  master_filter    — one row per (run_id, symbol). Written by stage3_compiler.
-  portfolio_sheet  — one row per (portfolio_id, sheet). Written by portfolio_evaluator.
+  master_filter       — one row per (run_id, symbol). Written by stage3_compiler.
+  portfolio_sheet     — one row per (portfolio_id, sheet). Written by portfolio_evaluator.
+  portfolio_control   — one row per portfolio_id. User decision store for promote/disable.
 
 Usage:
   python tools/ledger_db.py --export          # regenerate both Excel files from DB
@@ -150,6 +151,33 @@ def create_tables(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS portfolio_sheet (
             {mps_cols},
             PRIMARY KEY ("portfolio_id", "sheet")
+        )
+    """)
+
+    # Portfolio Control — user decision store for promote/disable
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_control (
+            portfolio_id    TEXT PRIMARY KEY,
+            selected        INTEGER DEFAULT 0,
+            burn            INTEGER DEFAULT 0,
+            status          TEXT DEFAULT 'SELECTED',
+            profile         TEXT DEFAULT 'CONSERVATIVE_V1',
+            reason          TEXT,
+            last_updated    TEXT,
+            updated_by      TEXT DEFAULT 'user'
+        )
+    """)
+
+    # Portfolio Control Log — append-only audit trail
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_control_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            portfolio_id    TEXT NOT NULL,
+            action          TEXT NOT NULL,
+            status_before   TEXT,
+            status_after    TEXT,
+            detail          TEXT,
+            timestamp       TEXT NOT NULL
         )
     """)
 
@@ -449,6 +477,16 @@ def export_mps(
             if all_null:
                 df.drop(columns=all_null, inplace=True)
 
+        # Join burn_in_status from portfolio_control (read-only view column)
+        ctrl = read_portfolio_control(conn=_conn)
+        if not ctrl.empty:
+            status_map = dict(zip(ctrl["portfolio_id"], ctrl["status"]))
+        else:
+            status_map = {}
+        for df in (df_port, df_single):
+            df.insert(1, "burn_in_status",
+                      df["portfolio_id"].map(status_map).fillna(""))
+
         out = output_path or MPS_PATH
         out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -510,6 +548,142 @@ def print_stats(conn: sqlite3.Connection | None = None) -> None:
     finally:
         if conn is None:
             _conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Control — CRUD
+# ---------------------------------------------------------------------------
+
+PORTFOLIO_CONTROL_VALID_STATUSES = {"SELECTED", "BURN_IN", "RBIN"}
+
+
+def log_control_action(
+    conn: sqlite3.Connection,
+    portfolio_id: str,
+    action: str,
+    status_before: str | None = None,
+    status_after: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Append an entry to portfolio_control_log. Never fails the caller."""
+    from datetime import datetime, timezone
+    try:
+        conn.execute(
+            'INSERT INTO portfolio_control_log '
+            '(portfolio_id, action, status_before, status_after, detail, timestamp) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            (portfolio_id, action, status_before, status_after, detail,
+             datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+    except Exception:
+        pass  # audit log must never break the caller
+
+
+def read_control_log(
+    conn: sqlite3.Connection | None = None,
+    portfolio_id: str | None = None,
+    limit: int = 50,
+) -> pd.DataFrame:
+    """Read recent audit log entries."""
+    _conn = conn or _connect()
+    try:
+        if portfolio_id:
+            return pd.read_sql_query(
+                "SELECT * FROM portfolio_control_log WHERE portfolio_id = ? "
+                "ORDER BY id DESC LIMIT ?",
+                _conn, params=(portfolio_id, limit),
+            )
+        return pd.read_sql_query(
+            "SELECT * FROM portfolio_control_log ORDER BY id DESC LIMIT ?",
+            _conn, params=(limit,),
+        )
+    finally:
+        if conn is None:
+            _conn.close()
+
+
+def upsert_portfolio_control(
+    conn: sqlite3.Connection,
+    portfolio_id: str,
+    **fields: Any,
+) -> None:
+    """Insert or update a portfolio_control row. Only updates provided fields."""
+    from datetime import datetime, timezone
+
+    fields["last_updated"] = datetime.now(timezone.utc).isoformat()
+    all_fields = {"portfolio_id": portfolio_id, **fields}
+    cols = list(all_fields.keys())
+    col_names = ", ".join(f'"{c}"' for c in cols)
+    placeholders = ", ".join("?" for _ in cols)
+    update_cols = [c for c in cols if c != "portfolio_id"]
+    update_clause = ", ".join(f'"{c}" = excluded."{c}"' for c in update_cols)
+    values = [all_fields[c] for c in cols]
+
+    conn.execute(
+        f'INSERT INTO portfolio_control ({col_names}) VALUES ({placeholders}) '
+        f'ON CONFLICT("portfolio_id") DO UPDATE SET {update_clause}',
+        values,
+    )
+    conn.commit()
+
+
+def read_portfolio_control(
+    conn: sqlite3.Connection | None = None,
+    status: str | None = None,
+) -> pd.DataFrame:
+    """Read portfolio_control as DataFrame. Optionally filter by status."""
+    _conn = conn or _connect()
+    try:
+        if status:
+            df = pd.read_sql_query(
+                "SELECT * FROM portfolio_control WHERE status = ? ORDER BY portfolio_id",
+                _conn, params=(status,),
+            )
+        else:
+            df = pd.read_sql_query(
+                "SELECT * FROM portfolio_control ORDER BY portfolio_id",
+                _conn,
+            )
+        return df
+    finally:
+        if conn is None:
+            _conn.close()
+
+
+def update_control_status(
+    conn: sqlite3.Connection,
+    portfolio_id: str,
+    status: str,
+    updated_by: str = "system",
+    **extra: Any,
+) -> None:
+    """Atomic status transition. Validates status is legal."""
+    if status not in PORTFOLIO_CONTROL_VALID_STATUSES:
+        raise ValueError(f"Invalid status {status!r}. Valid: {PORTFOLIO_CONTROL_VALID_STATUSES}")
+    from datetime import datetime, timezone
+    fields = {"status": status, "updated_by": updated_by,
+              "last_updated": datetime.now(timezone.utc).isoformat()}
+    fields.update(extra)
+    set_clause = ", ".join(f'"{k}" = ?' for k in fields)
+    conn.execute(
+        f'UPDATE portfolio_control SET {set_clause} WHERE portfolio_id = ?',
+        list(fields.values()) + [portfolio_id],
+    )
+    conn.commit()
+
+
+def delete_portfolio_control(
+    conn: sqlite3.Connection,
+    portfolio_id: str,
+) -> bool:
+    """Delete a control row. Returns True if a row was deleted."""
+    cursor = conn.execute(
+        'DELETE FROM portfolio_control WHERE portfolio_id = ?',
+        (portfolio_id,),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 # ---------------------------------------------------------------------------

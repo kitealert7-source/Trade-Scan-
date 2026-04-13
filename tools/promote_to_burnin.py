@@ -765,16 +765,34 @@ def _build_comment_block(strategy_id: str, profile: str, vault_id: str,
     return lines
 
 
+def _compute_strategy_hash(entry_id: str) -> str:
+    """SHA-256 of strategy.py at promotion time. Proves strategy logic at promotion."""
+    import hashlib
+    strat_path = PROJECT_ROOT / "strategies" / entry_id / "strategy.py"
+    if not strat_path.exists():
+        return ""
+    content = strat_path.read_bytes()
+    return f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
 def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
                       vault_id: str, profile: str,
                       run_id: str = "") -> list[str]:
     """Build the YAML entry lines for one strategy slot.
 
-    Includes vault_id, profile, lifecycle, run_id as structured fields.
+    Includes vault_id, profile, lifecycle, run_id, and promotion lineage fields.
     TS_Execution silently ignores unknown fields (permissive dict parsing).
+
+    Lineage fields (enforced by TS_Execution startup invariant):
+      - promotion_source: always "promote_to_burnin" (required for startup)
+      - promotion_timestamp: ISO-8601 UTC time of promotion
+      - promotion_run_id: backtest run_id that was promoted (audit trail)
+      - strategy_hash: SHA-256 of strategy.py at promotion time (provenance)
     """
     if not run_id:
         raise ValueError(f"run_id missing for portfolio entry '{entry_id}' — cannot write YAML without identity key")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    strat_hash = _compute_strategy_hash(entry_id)
     lines = [
         f'  - id: "{entry_id}"',
         f'    path: "strategies/{entry_id}/strategy.py"',
@@ -785,7 +803,12 @@ def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
         f"    profile: {profile}",
         f"    lifecycle: {LIFECYCLE_BURN_IN}",
         f"    run_id: {run_id}",
+        f"    promotion_source: promote_to_burnin",
+        f"    promotion_timestamp: {ts}",
+        f"    promotion_run_id: {run_id}",
     ]
+    if strat_hash:
+        lines.append(f"    strategy_hash: {strat_hash}")
     return lines
 
 
@@ -794,7 +817,8 @@ def _build_yaml_entry(entry_id: str, symbol: str, timeframe: str,
 def promote(strategy_id: str, profile: str, description: str = "",
             dry_run: bool = False, symbols_filter: list[str] | None = None,
             upgrade_legacy: bool = False,
-            skip_quality_gate: bool = False) -> dict:
+            skip_quality_gate: bool = False,
+            skip_replay: bool = False) -> dict:
     """Promote a strategy: lookup run_id -> vault snapshot -> portfolio.yaml edit.
 
     Args:
@@ -873,6 +897,25 @@ def promote(strategy_id: str, profile: str, description: str = "",
         if not _qg["passed"]:
             print(f"\n  [OVERRIDE] Quality gate HARD FAIL bypassed (--skip-quality-gate)")
 
+    # 3b2. Pre-promote validation gate (4-layer) — always runs.
+    #       --skip-replay only skips Layer 2 (replay regression).
+    #       Layers 1, 3, 4 are mandatory and cannot be bypassed.
+    from tools.pre_promote_validator import validate_strategy, print_summary
+    print(f"\n  --- Pre-Promote Validation (4-layer) ---")
+    vr = validate_strategy(strategy_id, skip_replay=skip_replay)
+    if vr.final == "BLOCKED":
+        print_summary([vr])
+        _write_audit_log(strategy_id, profile, "VALIDATION_BLOCKED",
+                         dry_run=dry_run, reason="Pre-promote validation BLOCKED")
+        print(f"\n  [VALIDATION] BLOCKED")
+        print(f"\n[ABORT] Pre-promote validation BLOCKED — resolve failures before promoting.")
+        print(f"  Layers 1, 3, 4 are mandatory. Use --skip-replay to skip Layer 2 only.")
+        sys.exit(1)
+    elif skip_replay:
+        print(f"\n  [VALIDATION] SKIP_REPLAY")
+    else:
+        print(f"\n  [VALIDATION] PASS")
+
     # 3c. Apply --symbols filter (restrict which symbols go to portfolio.yaml)
     if symbols_filter:
         allowed = set(s.upper() for s in symbols_filter)
@@ -883,25 +926,10 @@ def promote(strategy_id: str, profile: str, description: str = "",
         symbol_names = [s["symbol"] for s in symbols]
         print(f"  Filtered symbols: {symbol_names}")
 
-    # 3d. Per-symbol expectancy gate — checks each deployed symbol individually.
-    #     Uses per-symbol expectancy (net_pnl / trades) from backtest data,
-    #     NOT the diluted aggregate across all backtested symbols.
+    # 3d. Per-symbol expectancy gate — REMOVED.
+    #     Now covered by Layer 3 of pre_promote_validator.py (expectancy check
+    #     per asset class, single source: results_standard.csv).
     _all_symbols_for_vault = _detect_symbols(strategy_id)  # full set for vault
-    print(f"\n  --- Per-Symbol Expectancy Gate ---")
-    _passed, _exp_failed = _filter_symbols_by_expectancy(strategy_id, symbols)
-    if _exp_failed:
-        failed_names = [s["symbol"] for s in _exp_failed]
-        if not skip_quality_gate:
-            print(f"\n[ABORT] {len(_exp_failed)} symbol(s) failed per-symbol expectancy gate: {failed_names}")
-            print(f"  Use --skip-quality-gate to override.")
-            sys.exit(1)
-        else:
-            print(f"\n  [OVERRIDE] {len(_exp_failed)} symbol(s) failed expectancy but bypassed: {failed_names}")
-    symbols = _passed if _passed else symbols  # deploy only passing symbols
-    symbol_names = [s["symbol"] for s in symbols]
-    if not symbols:
-        print(f"[ABORT] No symbols remaining after expectancy gate.")
-        sys.exit(1)
 
     # 4. Lookup run_id from directive_id
     print(f"  Looking up run_id for directive: {strategy_id}")
@@ -1289,6 +1317,7 @@ def promote_composite(portfolio_id: str, profile: str, description: str = "",
             failed += 1
 
     # 5. Summary
+    total_attempted = promoted + failed
     print(f"\n{'=' * 60}")
     print(f"COMPOSITE PROMOTION SUMMARY: {portfolio_id}")
     print(f"{'=' * 60}")
@@ -1296,6 +1325,11 @@ def promote_composite(portfolio_id: str, profile: str, description: str = "",
     print(f"  Skipped:   {skipped} (already in portfolio)")
     print(f"  Failed:    {failed}")
     print(f"  Total:     {len(strategy_groups)} base strategies")
+    if total_attempted > 0:
+        if failed == 0:
+            print(f"\n  [VALIDATION] PASS ({promoted}/{total_attempted})")
+        else:
+            print(f"\n  [VALIDATION] BLOCKED ({failed}/{total_attempted})")
 
     # Audit log for composite operation
     _write_audit_log(portfolio_id, profile,
@@ -1378,6 +1412,7 @@ def _run_batch(profile: str, dry_run: bool = False,
             print(f"  [BATCH] Promote aborted for {sid}")
             failed += 1
 
+    total_attempted = promoted + failed
     print(f"\n{'=' * 60}")
     print(f"BATCH PROMOTION SUMMARY")
     print(f"{'=' * 60}")
@@ -1386,9 +1421,22 @@ def _run_batch(profile: str, dry_run: bool = False,
     print(f"  Skipped:   {len(in_portfolio)} (already in portfolio)")
     print(f"  Blocked:   {len(blocked)} (failed readiness checks)")
     print(f"  Total scanned: {len(report)} ({label})")
+    if total_attempted > 0:
+        if failed == 0:
+            print(f"\n  [VALIDATION] PASS ({promoted}/{total_attempted})")
+        else:
+            print(f"\n  [VALIDATION] BLOCKED ({failed}/{total_attempted})")
 
 
 def main() -> None:
+    # --- Direct CLI gate: all production usage goes through portfolio_interpreter ---
+    if "--allow-direct" not in sys.argv:
+        print("ERROR: Direct CLI usage disabled.")
+        print("Use Control Panel (Control_Panel.bat) -> option 4 to promote.")
+        print("Pass --allow-direct to override (advanced/debug only).")
+        return
+    sys.argv = [a for a in sys.argv if a != "--allow-direct"]
+
     parser = argparse.ArgumentParser(
         description="Promote strategy to burn-in: vault snapshot + portfolio.yaml edit.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1424,6 +1472,9 @@ def main() -> None:
     parser.add_argument("--upgrade-legacy", action="store_true",
                         help="Replace existing LEGACY entries with fresh BURN_IN entries. "
                              "Without this flag, duplicate IDs abort the promote.")
+    parser.add_argument("--skip-replay", action="store_true",
+                        help="Skip Layer 2 (replay regression) of the pre-promote validator. "
+                             "Layers 1, 3, 4 always run and cannot be bypassed.")
 
     args = parser.parse_args()
 
@@ -1459,7 +1510,8 @@ def main() -> None:
     symbols_filter = [s.strip() for s in args.symbols.split(",")] if args.symbols else None
     promote(args.strategy_id, args.profile, args.description, args.dry_run,
             symbols_filter=symbols_filter, upgrade_legacy=args.upgrade_legacy,
-            skip_quality_gate=args.skip_quality_gate)
+            skip_quality_gate=args.skip_quality_gate,
+            skip_replay=args.skip_replay)
 
 
 if __name__ == "__main__":

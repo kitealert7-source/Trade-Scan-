@@ -1558,6 +1558,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         # Capital & Performance
         "reference_capital_usd",
         "portfolio_status",
+        "evaluation_timeframe",
         "trade_density",
         "profile_trade_density",
         "theoretical_pnl",
@@ -1764,6 +1765,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "portfolio_net_profit_low_vol": metrics.get("portfolio_net_profit_low_vol", 0.0),
         "portfolio_net_profit_normal_vol": metrics.get("portfolio_net_profit_normal_vol", 0.0),
         "portfolio_net_profit_high_vol": metrics.get("portfolio_net_profit_high_vol", 0.0),
+        "evaluation_timeframe": metrics.get("signal_timeframes", "UNKNOWN"),
         "signal_timeframes": metrics.get("signal_timeframes", "UNKNOWN"),
         "win_rate": metrics.get("win_rate", 0.0),
         "profit_factor": metrics.get("profit_factor", 0.0),

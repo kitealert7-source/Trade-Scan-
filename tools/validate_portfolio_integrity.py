@@ -9,6 +9,10 @@ Detects:
   5. BURN_IN entries missing profile field
   6. Entries with enabled=true but no lifecycle (LEGACY without explicit marking)
   7. strategy.py missing for any enabled entry
+  8. Enabled entries missing promotion_source='promote_to_burnin' (ungated addition)
+  9. Enabled entries missing promotion_timestamp (no audit trail)
+ 10. promotion_run_id ↔ vault_id lineage mismatch (mismatched snapshots)
+ 11. strategy_hash drift — strategy.py modified after promotion
 
 Exit codes:
   0 — all checks passed
@@ -68,6 +72,50 @@ def validate() -> list[str]:
                 f"This entry bypassed promote_to_burnin.py. "
                 f"Re-promote via: python tools/promote_to_burnin.py {sid} --profile <PROFILE>"
             )
+
+        # --- Check 2b: Enabled entry without promotion_source ---
+        promo_src = entry.get("promotion_source", "")
+        if enabled and promo_src != "promote_to_burnin":
+            violations.append(
+                f"[NO_PROMOTION_SOURCE] {sid}: promotion_source={promo_src!r} "
+                f"(expected 'promote_to_burnin'). "
+                f"This entry was not created by the promotion gate."
+            )
+
+        # --- Check 2c: Enabled entry without promotion_timestamp ---
+        promo_ts = entry.get("promotion_timestamp", "")
+        if enabled and not promo_ts:
+            violations.append(
+                f"[NO_PROMOTION_TIMESTAMP] {sid}: missing promotion_timestamp. "
+                f"No audit trail for when this entry was promoted."
+            )
+
+        # --- Check 2d: promotion_run_id ↔ vault_id cross-check ---
+        promo_run_id = entry.get("promotion_run_id", "")
+        if enabled and promo_run_id and vault_id and "__" in vault_id:
+            vault_run_prefix = vault_id.split("__", 1)[1]
+            if not promo_run_id.startswith(vault_run_prefix):
+                violations.append(
+                    f"[LINEAGE_MISMATCH] {sid}: promotion_run_id={promo_run_id[:12]}... "
+                    f"does not match vault_id run prefix={vault_run_prefix}. "
+                    f"Vault snapshot was created from a different run."
+                )
+
+        # --- Check 2e: strategy_hash drift detection ---
+        strat_hash = entry.get("strategy_hash", "")
+        if enabled and strat_hash and strat_hash.startswith("sha256:"):
+            import hashlib
+            strat_path = STRATEGIES_DIR / sid / "strategy.py"
+            if strat_path.exists():
+                current_hash = "sha256:" + hashlib.sha256(
+                    strat_path.read_bytes()
+                ).hexdigest()
+                if current_hash != strat_hash:
+                    violations.append(
+                        f"[STRATEGY_HASH_DRIFT] {sid}: strategy.py has changed since promotion. "
+                        f"Promoted: {strat_hash[:30]}... Current: {current_hash[:30]}... "
+                        f"Strategy logic no longer matches the validated version."
+                    )
 
         # --- Check 3: BURN_IN without profile ---
         if lifecycle == "BURN_IN" and not profile:

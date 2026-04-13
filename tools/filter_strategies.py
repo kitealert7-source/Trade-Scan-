@@ -16,14 +16,25 @@ from tools.system_registry import _load_registry, _save_registry_atomic
 MASTER_SHEET = MASTER_FILTER_PATH
 
 # TS_Execution portfolio.yaml — source of truth for BURN_IN status.
-# Strategies listed here with enabled=true get BURN_IN; removal reverts to computed status.
+# Only entries with promotion_source="promote_to_burnin" AND valid vault_id
+# are treated as BURN_IN. This prevents the circular loop where FSP marks
+# strategies as BURN_IN just because they appear in portfolio.yaml.
 _TS_EXEC_PORTFOLIO = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
 
 
 def _load_burnin_ids() -> set[str]:
-    """Read enabled strategy IDs from TS_Execution/portfolio.yaml.
+    """Read validated BURN_IN strategy IDs from TS_Execution/portfolio.yaml.
 
-    Returns a set of strategy IDs (e.g. '22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P04_USDCAD').
+    Only includes entries that have ALL of:
+      - enabled: true
+      - vault_id: non-empty and not "none"
+      - promotion_source: "promote_to_burnin"
+
+    This prevents the circular loop where FSP marks strategies as BURN_IN
+    just because they appear in portfolio.yaml (even if they were auto-added
+    without going through the promotion gate).
+
+    Returns a set of strategy IDs.
     Silent on any error — missing file or parse failure returns empty set.
     """
     try:
@@ -35,8 +46,17 @@ def _load_burnin_ids() -> set[str]:
         strategies = (data.get("portfolio") or {}).get("strategies") or []
         ids = set()
         for s in strategies:
-            if s.get("enabled", True) and "id" in s:
-                ids.add(s["id"])
+            if not s.get("enabled", True) or "id" not in s:
+                continue
+            vault = s.get("vault_id", "")
+            src = s.get("promotion_source", "")
+            if not vault or vault == "none":
+                print(f"[WARN] Skipping {s['id']} for BURN_IN: missing vault_id")
+                continue
+            if src != "promote_to_burnin":
+                print(f"[WARN] Skipping {s['id']} for BURN_IN: promotion_source={src!r} (expected 'promote_to_burnin')")
+                continue
+            ids.add(s["id"])
         return ids
     except Exception as e:
         print(f"[WARN] Could not load BURN_IN IDs from portfolio.yaml: {e}")
@@ -46,7 +66,8 @@ def _load_burnin_ids() -> set[str]:
 def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     """
     Deterministic classification for candidate ledger rows:
-      BURN_IN : strategy is in TS_Execution/portfolio.yaml (enabled=true)
+      BURN_IN : strategy is in TS_Execution/portfolio.yaml with valid vault_id
+                AND promotion_source="promote_to_burnin"
       FAIL    : total_trades < 50 OR max_dd_pct > 40 OR sqn < 1.5
                 OR expectancy below asset-class FAIL gate
       CORE    : return_dd_ratio >= 2.0 AND sharpe_ratio >= 1.5
@@ -71,8 +92,9 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
       BURN_IN candidates must have expectancy >= class threshold (enforced at promotion):
         FX $0.25 | XAU $0.80 | BTC $0.80 | INDEX $0.80
 
-    BURN_IN is fully automated — driven by portfolio.yaml inclusion/exclusion.
-    Adding a strategy to portfolio.yaml sets BURN_IN; removing it reverts to computed status.
+    BURN_IN requires: portfolio.yaml entry with promotion_source="promote_to_burnin"
+    AND valid vault_id. Only promote_to_burnin.py can create these entries.
+    Removing a strategy from portfolio.yaml reverts it to computed status.
     """
     total_trades = pd.to_numeric(df.get("total_trades"), errors="coerce").fillna(0.0)
     max_dd_pct = pd.to_numeric(df.get("max_dd_pct"), errors="coerce").fillna(float("inf"))
