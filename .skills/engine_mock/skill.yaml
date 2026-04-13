@@ -1,7 +1,0 @@
-name: engine_mock
-description: testing crash dumps
-entrypoint:
-  type: python
-  script: .skills/engine_mock/crash.py
-inputs:
-  - run_id
