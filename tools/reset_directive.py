@@ -35,6 +35,50 @@ from config.state_paths import RUNS_DIR
 
 AUDIT_LOG = PROJECT_ROOT / "governance" / "reset_audit_log.csv"
 
+# Directive lookup locations — used by the ghost-INITIALIZED cleanup path.
+_DIRECTIVE_SEARCH_DIRS = [
+    PROJECT_ROOT / "backtest_directives" / "INBOX",
+    PROJECT_ROOT / "backtest_directives" / "active",
+    PROJECT_ROOT / "backtest_directives" / "active_backup",
+    PROJECT_ROOT / "backtest_directives" / "completed",
+]
+
+
+def _directive_file_exists(directive_id: str) -> bool:
+    """True if a directive file for this id lives anywhere the pipeline looks for it."""
+    for base in _DIRECTIVE_SEARCH_DIRS:
+        if (base / f"{directive_id}.txt").exists():
+            return True
+    return False
+
+
+def _quarantine_ghost_state(directive_id: str) -> bool:
+    """
+    Quarantine an orphan directive state dir (state=INITIALIZED, no .txt anywhere).
+
+    Moves <RUNS_DIR>/<directive_id> to
+    <RUNS_DIR>/../quarantine/runs/<directive_id>.GHOST_<timestamp>
+    and clears registry + active_backup markers via reuse of the new_pass cleaner.
+
+    Returns True if cleanup ran, False if nothing to clean.
+    """
+    directive_dir = RUNS_DIR / directive_id
+    if not directive_dir.exists():
+        return False
+
+    quarantine_root = RUNS_DIR.parent / "quarantine" / "runs"
+    quarantine_root.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = quarantine_root / f"{directive_id}.GHOST_{ts}"
+    counter = 0
+    while target.exists():
+        counter += 1
+        target = quarantine_root / f"{directive_id}.GHOST_{ts}_{counter}"
+
+    shutil.move(str(directive_dir), str(target))
+    print(f"[RESET][GHOST] Quarantined orphan state dir -> {target}")
+    return True
+
 
 def _detect_strategy_logic_change(directive_id: str) -> tuple[bool, str]:
     """
@@ -141,6 +185,40 @@ def reset_directive(directive_id: str, reason: str, to_stage4: bool = False):
         sys.exit(1)
 
     if previous_state == "INITIALIZED":
+        # Ghost-INITIALIZED: state exists but the directive .txt is gone from every
+        # lookup location. These orphans block the pipeline with PIPELINE_BUSY and
+        # must be removed before any new directive can admit. Idempotent: the
+        # quarantine step is a no-op if the state dir is already clean.
+        if not _directive_file_exists(directive_id):
+            cleaned = _quarantine_ghost_state(directive_id)
+            # Also clean run_state.json files + directive run folder so the
+            # registry stops reporting the ghost as live.
+            now = datetime.now(timezone.utc)
+            ts_suffix = now.strftime("%Y%m%dT%H%M%S")
+            _archive_run_states(directive_id, ts_suffix)
+            _clear_directive_run_folder(directive_id)
+
+            # Audit trail for the ghost cleanup
+            AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+            write_header = not AUDIT_LOG.exists()
+            with open(AUDIT_LOG, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                if write_header:
+                    writer.writerow(["timestamp", "directive_id", "previous_state", "new_state", "reason"])
+                writer.writerow([
+                    now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    directive_id,
+                    "INITIALIZED_GHOST",
+                    "QUARANTINED",
+                    reason,
+                ])
+
+            if cleaned:
+                print(f"[DONE] Ghost INITIALIZED state for {directive_id} quarantined.")
+            else:
+                print(f"[INFO] Directive {directive_id} is INITIALIZED and already clean. No-op.")
+            return
+
         print(f"[INFO] Directive {directive_id} is already INITIALIZED. No reset needed.")
         return
 

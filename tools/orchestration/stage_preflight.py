@@ -118,6 +118,24 @@ def run_preflight_semantic_checks(
                     ) from err
                 raise
 
+            # Stage-0.56: STOP contract guard (signal-bar vs next-bar-open mismatch).
+            # WARN-mode by default; set STOP_CONTRACT_GUARD_BLOCK=1 to escalate to BLOCK.
+            try:
+                from governance.stop_contract_checker import check_stop_contract
+
+                if check_stop_contract(str(d_path), str(cov_strategy_path)):
+                    print("[ORCHESTRATOR] Stage-0.56 Stop Contract Guard PASSED.")
+                else:
+                    print("[ORCHESTRATOR] Stage-0.56 Stop Contract Guard: WARN (see banner above).")
+            except RuntimeError as err:
+                if "STOP_CONTRACT_VIOLATION" in str(err):
+                    raise PipelineExecutionError(
+                        str(err),
+                        directive_id=clean_id,
+                        run_ids=run_ids,
+                    ) from err
+                raise
+
     if provision_only:
         strategy_path = project_root / "strategies" / clean_id / "strategy.py"
         print(f"[PROVISION-ONLY] Strategy provisioned at: {strategy_path}")

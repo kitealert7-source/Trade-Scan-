@@ -64,6 +64,15 @@ INFORMATIONAL_KEYS = {
     "engine_version",
     "portfolio_engine_version",
     "schema_version",
+    # Admission-audit keys (Phase 1/2 idea-gate override + signal_version)
+    # NOTE: INFORMATIONAL_KEYS must remain a superset of
+    # tools/directive_schema.py::NON_SIGNATURE_KEYS. See
+    # tests/test_informational_keys_superset.py for the enforcement test.
+    "repeat_override_reason",
+    # Stage-0.56 stop-contract guard override (warn|block). Directive-level
+    # knob, not a strategy behavior parameter — does not belong in the hash
+    # or in coverage. Mirrored in tools/directive_schema.py::NON_SIGNATURE_KEYS.
+    "stop_contract_guard",
 }
 
 
