@@ -583,3 +583,171 @@ no other engine is strongly positive in that regime before considering a portfol
     logic or portfolio-level gating.
 ---
 
+---
+2026-03-30 | Tags: fx_15m, mean_reversion, rsi_pullback, trend_filter, multi_symbol | Strategy: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P00 through P04
+
+RSI(2) averaged over two bars (rsi_2_avg) combined with a trend score gate
+(|trend_score| >= 2) produces a genuine, scalable edge on FX 15M across
+7 major pairs. Four-pass sweep: P00 concept validated (EURUSD only),
+P01 5-pair expansion, P02 7-pair hardened, P03 time-exit tightened,
+P04 friction-resilient 5-pair deployment subset. P04 entered burn-in.
+P00 (EURUSD only): 2,345 trades, Sharpe 2.77, PROMOTE — signal confirmed.
+P01 (5 pairs): 11,510 trades, Sharpe 4.62, PROMOTE — scales cleanly.
+P02 (7 pairs, hardened): 11,239 CONSERVATIVE trades, PF 1.18, CAGR 99.87%,
+  Max DD 3.39%, break-even slippage 0.31 pip — signal genuine, friction thin.
+P03 (7 pairs, max_bars 12->3): 14,224 trades, PF 1.19, CAGR 107%, break-even
+  0.52 pip. Tighter exit freed positions faster, INCREASING trade count vs
+  expected reduction (entry_when_flat_only creates re-entry opportunities
+  when holding time drops). Win rate fell 63%->55% but payoff improved
+  0.68->0.96.
+P04 (5 pairs, drop NZDUSD+EURUSD): 11,216 trades, PF 1.23, CAGR 93.6%,
+  Max DD 5.47%, MC 95th pctl DD 7.42%, break-even 0.65 pip. All 5 symbols
+  survive +0.2 pip friction. Recovery factor 13.87. 0 negative years.
+The rsi_2_avg signal captures genuine mean reversion in trend-aligned
+conditions. The primary edge lies in the first 3 bars post-entry — bars
+4-12 are structurally net-negative across all pairs and regimes.
+NZDUSD and EURUSD are friction-fragile and dilute the portfolio; removing
+them improves PF, Max DD, and friction resilience simultaneously.
+1. For FX 15M pullback strategies, always decompose by bars_held before
+   assuming max_bars is well-calibrated. The decomposition may reveal a
+   hard cutoff (bar 3-4 in this case) where edge transitions from positive
+   to negative. Tightening max_bars to that cutoff is a clean, attributable
+   lever that does not require a new signal.
+2. Reducing max_bars on an entry_when_flat_only strategy does NOT reduce
+   trade count — it creates more entries by freeing positions faster.
+   Expected: fewer trades, higher quality. Actual: more trades, different
+   quality profile (lower WR, better payoff ratio). Account for re-entry
+   dynamics before forecasting trade count impact.
+3. Symbol pruning based on friction stress test is a valid deployment filter
+   even when all symbols are profitable in backtest. A symbol that flips
+   negative at +0.2 pip slippage has insufficient edge buffer for live
+   execution and should be excluded from deployment regardless of raw PnL.
+4. Burn-in gate for high-frequency 15M strategies should include a $/trade
+   floor (warn < $2.00, abort < $1.20) in addition to PF and WR — PF can
+   stay above 1.0 while per-trade expectancy quietly compresses toward zero
+   under friction, spread widening, or execution slippage. The $/trade metric
+   catches edge erosion before it is visible in PF or WR.
+---
+---
+---
+
+---
+2026-03-30 | Tags: engine_fallback, stop_price, live_deployment, signal_schema, fx_15m
+
+Strategies using ENGINE_FALLBACK (omitting stop_price from the signal dict
+to allow engine to compute stop from actual fill price) cannot be deployed
+directly to TS_Execution. The live signal schema requires stop_price as a
+mandatory field. Per-symbol live deployment wrappers must restore stop_price
+using the same ATR multiplier as ENGINE_FALLBACK (2.0x ATR).
+P02/P03 research strategy.py omits stop_price — stop computed by
+execution_loop.py at fill time from entry_price (not signal close).
+TS_Execution signal_schema.py: stop_price is in _REQUIRED_FIELDS and
+rejects signals missing it with SCHEMA_MISSING_STOP_PRICE.
+Per-symbol live wrappers for P04 restored: stop_price = close +/- 2.0*atr_val.
+Phase 0 smoke test passed for all 5 per-symbol instances.
+ENGINE_FALLBACK is valid for research (avoids gap-over-stop on next-bar-open
+fill). For live deployment, the stop must be computed at signal time using
+signal-bar close, accepting a small gap risk on next-bar open — the same
+trade-off as all other live strategies.
+Any future strategy using ENGINE_FALLBACK in research must have its
+per-symbol live wrapper compute and include stop_price explicitly.
+Document the ATR multiplier used in the research directive so the live
+wrapper replicates it exactly. This is a deployment translation step, not
+a strategy change — the mathematical stop distance is identical.
+---
+---
+---
+
+---
+2026-04-01 | Tags: CHOCH, timeframe, structural-comparison, XAUUSD, 30M, 1H, regime | Strategy: 26_STR_XAUUSD_30M_CHOCH_S02_V1_P00 | Run IDs: e03a2a247fcfb6cac019e34c
+ChoCh at 30M amplifies noise vs 1H — same win rate (38.6% vs 40.0%) but K-Ratio -4.83 vs positive, PF 0.74 vs 1.08. 30M: 88 trades, PnL -136.40, high-vol bucket -173.63 kills result. 1H: 50 trades, PnL +25.61, Normal-vol Short PF 5.40 drives edge. ChoCh is timeframe-sensitive. At 30M the 3-swing streak (~30h) does not filter intraday noise; at 1H (~60h) it captures genuine regime shifts. The entry condition fires correctly at both TFs but follow-through collapses at 30M in high-vol. Do not compress ChoCh below 1H without either raising streak threshold (>=5) or gating on low-vol regime only. High-vol regime is destructive at 30M and should be excluded in any 30M pass. --- ---.
+---
+
+---
+2026-04-01 | Tags: SFP, swing-validity, liquidity-grab, XAUUSD, 1H, guard | Strategy: 24_PA_XAUUSD_1H_SFP_S01_V1_P00 | Run IDs: 24_PA_XAUUSD_1H_SFP_S01_V1_P00
+SFP requires validity guard: swing level must be unbroken in the MIN_SWING_AGE (3) bars between detection and current bar. Guard: recent_low >= swing_low across 3 intervening bars. Without this, SFP fires on already-broken levels; expected false-positive rate >30% on sweep bars. A wick-reversal pattern against a structural level is only valid if that level has not been violated in the intervening bars. Stale levels produce high false-positive rate. Any pattern referencing a prior swing for entry/TP/SL must include an intervening-bar violation check. Canonical pattern: recent_extreme vs swing_level before firing signal. --- ---.
+---
+
+---
+2026-04-01 | Tags: LIQGRAB, asian-session, early-exit, XAUUSD, 15M, time-stop | Strategy: 25_REV_XAUUSD_15M_LIQGRAB_S01_V1_P01 | Run IDs: 25_REV_XAUUSD_15M_LIQGRAB_S01_V1_P01
+Asian liquidity grab edge lives in first 3 bars post-sweep. Holding to 12:00 UTC converts winners into losers (55% fake-reversal rate in P00). P01 (TP=1.0R, 3-bar exit) produced cleaner curve vs P00 (TP=asian_range_opposite, 12:00 UTC exit). P00 degraded primarily in bars 4-12 post-entry. Session-reversal patterns have a decay window. The structural snap-back happens fast or not at all. Time stops at 3 bars are more protective than session-end exits for 15M setups. For session-reversal strategies on 15M, default time stop should be 3-5 bars. Wider exits expose the trade to re-sweeps and session continuation. Validate TP=1R vs 1.5R next. --- ---.
+---
+
+---
+2026-04-02 | Tags: PINBAR, hybrid-exit, trailing-stop, MFE-giveback | Strategy: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P05 | Run IDs: P03 (baseline), P04 (pure trail, failed), P05 (hybrid, promoted)
+Pure trailing stop (remove TP, trail from 0.5R) destroyed edge on pin bars (PF 1.42->1.27, high-vol collapsed $411->$40). Hybrid exit (keep TP + trail only after 1.0R, lock 0.5R) preserved PF while improving Sharpe 2.23->2.82 and Return/DD 6.10->8.06. P04 pure trail: 438 trades PF 1.27 $642. P05 hybrid: 451 trades PF 1.41 $1061, Max DD 0.13%. Trail converted 28 time exits to locked wins without choking TP runners. Short-duration MR patterns (avg 5.8 bars) need fixed TP as primary exit -- pullbacks within the move exceed loose trail thresholds. Trailing only adds value as insurance layer above 1.0R, not as replacement for TP. For sub-10-bar MR strategies, never replace fixed TP with trailing. Hybrid trail (activate above 1R, lock 0.5R floor) is the only valid trailing architecture for this trade duration class. --- ---.
+---
+
+---
+2026-04-04 | Tags: ENGULF, 15M, edge-decay, exit-timing, isolation-decomposition | Strategy: 28_PA_XAUUSD_15M_ENGULF_S03_V1_P01 through P07 | Run IDs: 683fd6191db71f348f34006a (P06 best), a4e9cb986f6a54c3001b42fb (1H P03)
+15M bullish/bearish engulfing edge decays within 2 bars (~30 min). The P01 baseline's 2-bar exit was accidental (unrealized_pnl bug: ctx.get("unrealized_pnl", 0) always returns 0, so bars_held >= 2 AND unrealized_pnl <= 0 fires on ALL trades at bar 2). Isolation-first decomposition (P02 regime, P03 direction, P04 exit, P05 time-normalized, P06 combined best, P07 pure 5-bar) confirmed: removing the 2-bar exit destroys the edge in every variant tested. P06 (regime filter + direction gate, keeping 2-bar exit) is the optimal expression. P06: 123 trades, PF 2.55, Return/DD 7.97, Max DD $31.83. P07 (same as P06 minus 2-bar exit): PF 1.27, Return/DD 0.58, Max DD $174.65. P04 (8-bar exit): PF 0.89. P05 (32-bar): PF 0.86. 15M engulfing captures a micro-reversion impulse that completes within 2 bars. Holding longer adds noise, drawdown, and SL exposure (1 SL in P06 vs 4 in P07). The "bug" is the feature: fast exit locks in the mean-reversion impulse before fade. 1. For 15M MR patterns, always test bars_held decomposition before assuming exit timing from higher TFs. 1H optimal hold (8 bars) does NOT transfer to 15M. 2. When an accidental mechanism produces strong results, isolate and confirm it before "fixing" it. The bug produced PF 2.55; the fix produced PF 0.89. 3. Direction-specific regime gating (block shorts in LOW vol and STRONG UP only) required AST workaround: class-level string constants + frozenset membership tests bypass semantic_validator's BehavioralGuard. FilterStack only supports global regime exclusion. --- ---.
+---
+
+---
+2026-04-04 | Tags: portfolio, diversification, multi-timeframe, same-instrument, correlation | Strategy: PF_9D1FEA9AD62B (1H P03 + 15M P06) | Run IDs: a4e9cb986f6a54c3001b42fb, 683fd6191db71f348f34006a
+Two engulfing strategies on XAUUSD at different timeframes (1H + 15M) produce near-zero correlation (-0.05) and 42% drawdown diversification benefit. Combined: 258 trades, PF 1.57, Sharpe 2.08, 0/16 negative rolling windows. Only 24/210 active days had trades from both. Combined Max DD $87.43 vs sum-of-parts $150.49 (42% reduction). Combined Return/DD 5.84. MC 5th pctl CAGR +0.25%. 15M P06 anchors drawdown ($31.83 DD offsets 1H's $118.66 DD periods). Different timeframes on the same instrument act as independent signal sources. 15M micro-reversion (~30 min) is structurally distinct from 1H (~8hr). Multi-TF diversification is real and measurable. 1. When a strategy works on one TF, test adjacent TFs as portfolio diversifiers. 15M added $254 PnL while reducing combined DD below 1H standalone. 2. Same-instrument multi-TF portfolios should be evaluated as a unit -- individual metrics understate combined value. 3. Temporal separation (24/210 overlap days) explains diversification: strategies rarely compete for the same price action. --- ---.
+---
+
+---
+2026-04-04 | Tags: session_close, mean_reversion, vwap_fade, exit_timing, regime_dependency | Strategy: 29_MR_XAUUSD_1H_CMR_S01 | Run IDs: ad3d27bf3d884a47398364d4, cbb5b0c79f00f51e9c6999f6
+London close VWAP fade (16:00 UTC, 1.5x ATR extension) does not produce a universal mean-reversion edge on XAUUSD 1H. P00 (VWAP TP): PF 0.64. P01 (0.5R fixed TP): PF 0.87. The pullback exists but is shallow (<0.5R) and regime-dependent: Short x High Vol (PF 2.44, 33T) and Long x Low Vol (PF 3.62, 18T) are the only viable cells. P00->P01: PnL -$436 -> -$135, WR 41%->49%, DD $547->$376. TP hit rate stayed ~3% in both. Time exit bleed is the primary loss mechanism (70%->43%). The London close extension is not a session-anchored mean reversion -- it is a volatility-regime directional signal. Shorts work in high vol (institutional unwind), longs work in low vol (range compression snap). VWAP is not a valid TP anchor; extension remains a valid trigger. Do not pursue VWAP-based TP for session-close strategies. If revisiting, test as a regime-gated directional strategy (Short+HighVol only) with fixed 0.5R TP and 2-bar max hold. The 51-trade combined subset (~23/yr) needs at least 3 years of data to validate. --- ---.
+---
+
+---
+2026-04-04 | Tags: SMI, divergence, direction_asymmetry, counter_trend, XAUUSD, 1H, EMAXO, family-32, regime-filters, meta-insight, XAUUSD, Date: 2026-04-04, Strategies: S01_P00 (1H), S02_P00 (30M), S03_P00 (15M), EMA(10/30) crossover on XAUUSD produces no raw edge (PF 0.83-1.13 across 15M/30M/1H). Conditional profitability appears in specific regime intersections, but is attributable to underlying market structure rather than the crossover signal. EMA crossover demonstrates that regime filters do not create edge but can isolate conditions where weak signals align with underlying market behavior. The observed edge in Long x WeakDn (PF 1.93-2.05, 36-99T) is not attributable to the crossover itself but to a broader pattern of mean-reverting bounces after trend exhaustion., Long x Normal Vol: PF 5.71 but only 20T (statistically fragile). Long x WeakUp: PF 1.73, 31T. Short x any cell: PF <= 0.78 except StrongDn (PF 1.07, 14T). 36% of time exits had MFE >= 0.5R., Unfiltered PF: 1H 1.13, 30M 0.83, 15M 1.08. Long x WeakDn isolated: 1H PF 2.05 (36T, $193), 15M PF 1.93 (99T, $335). Short x StrongUp consistently PF 0.38-0.43 across all TFs., Signal shows directional asymmetry; long-side behavior may contain weak edge but not yet validated. Bullish divergence aligns with mean-reverting behavior after downside exhaustion, while bearish divergence conflicts with persistent upward drift and continuation bias in XAUUSD. Reversal magnitude is insufficient to reach 1.0R within observed holding window, indicating shallow counter-moves rather than full reversals., This experiment confirms that filter stacks are effective for segmentation and analysis, but not for transforming non-edge signals into robust strategies. Regime-conditioned profitability in a weak signal reflects the regime's own behavior, not the signal's predictive power., P01 should test longs only + 0.5R TP to match observed MFE distribution. If long-only PF stays near 1.0 after TP change, the divergence signal lacks sufficient edge for deployment. The bottom-detection asymmetry may generalize to other trending instruments -- worth testing on indices if validated here., ---, ### Entry: Family 31 — BRK XAUUSD ATRSQZ — Cross-Timeframe Finding, ATRSQZ, family-31, cross-timeframe, XAUUSD, Date: 2026-04-04, Strategies: S01_P00 (1H), S02_P00 (30M), S02_P01 (30M long-only), S03_P00 (15M), When evaluating new signal classes, raw unfiltered PF < 1.0 should disqualify the signal before regime decomposition. Regime filters should refine existing edge, not rescue absent edge. The Long x WeakDn pattern may generalize as a structural feature of XAUUSD rather than a signal-specific finding -- future strategies showing this cell as dominant should be scrutinized for false attribution., ---, --- | Strategy: 30_REV_XAUUSD_1H_SMI_S01 | Run IDs: c983098dd875e9fa0ced28a0
+
+732772dc867e82892dc92d50, a8cafb275069f1bb5e1a1583, a3f73d2563dbd9bcabdffde9
+SMI pivot divergence on XAUUSD 1H produces strong directional asymmetry: longs PF 1.04 (92T, +$27), shorts PF 0.51 (152T, -$723). Bearish divergence fires 66% more often but wins only 41% vs 61% for bullish. Zero TP exits (0/244) at 1.0R target.
+The ATR squeeze breakout strategy is the only tested class on XAUUSD showing stable expectancy across timeframes and regimes, with edge entirely driven by long-side expansion; short-side participation is structurally invalid.
+---
+2026-04-06 | Tags: momentum_ignition, BTCUSD, 1H, cross_timeframe, regime_filter, IMPULSE | Strategy: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P02 | Run IDs: 717230561d233f4a243f8a1f
+
+BTC 1H momentum ignition (bar_range > 1.8x avg_range(5), close in top/bottom 20% zone)
+produces genuine edge after two isolation passes. Cross-timeframe comparison (15M/30M/1H)
+confirmed 1H optimal: higher TF = better signal-to-noise for impulse detection. P01 excluded
+WeakUp regime (trend_regime == 1) where both directions lose. P02 added Age 1 exclusion
+(PF 0.53, noise immediately post-regime-transition). P03 (low-vol gate) and P04 (higher
+range_mult 2.2x) both rejected -- trade count collapsed without proportional PF gain.
+P05 extended backtest (2020-2026, 633 trades) validated P02 edge survives full BTC cycle
+with no negative years but PF diluted from 1.70 to 1.45. P02 promoted to BURN_IN.
+Cross-TF: 15M PF 1.06, 30M PF 1.17, 1H PF 1.25 (baseline). P02: 262 trades, PF 1.70,
+Sharpe 2.98, Max DD 7.03%, Return/DD 11.39. P05 (6yr): PF 1.45, 633T, 0 negative years.
+Impulse detection is timeframe-sensitive -- lower TFs produce more signals but worse
+signal quality. WeakUp regime is structurally untradable for impulse (both Long PF 0.66
+and Short PF 0.40 lose). Age 1 is pure noise post-transition (PF 0.53). These are
+structural exclusions, not parameter tuning -- the market microstructure does not support
+impulse follow-through in these conditions.
+1. For impulse/breakout strategies, always test 15M/30M/1H before committing to a
+   timeframe. The optimal TF depends on the instrument's noise profile, not the signal.
+2. WeakUp regime exclusion should be tested on any trend-following BTC strategy --
+   the regime represents directional ambiguity where impulse signals fire but lack
+   follow-through momentum.
+3. First BTC strategy in portfolio. Correlation with XAUUSD engines expected to be
+   low (different asset class, different microstructure). Portfolio diversification
+   benefit should be evaluated once burn-in data accumulates.
+---
+---
+---
+
+---
+2026-04-06 | Tags: filter_stack, bug_fix, exclude_regime, direction_gate, infrastructure | Strategy: (all strategies using FilterStack with direction_gate + exclude_regime) | Run IDs: 717230561d233f4a243f8a1f
+
+FilterStack had a silent bug: when direction_gate=true, the entire trend_filter block
+was skipped via `continue` at line 114, which meant exclude_regime was never evaluated.
+Any strategy combining direction_gate + exclude_regime was running WITHOUT the exclusion.
+Discovered when P01 (exclude WeakUp) produced identical results to P00 (no exclusion).
+Pre-fix P02: 264 trades, PnL $830.94, PF 1.73. Post-fix P02: 262 trades, PnL $800.40,
+PF 1.70. 2 fewer trades taken, metrics slightly lower but edge confirmed genuine.
+The exclude_regime check must fire BEFORE the direction_gate continue statement.
+Fix applied: exclude_regime evaluation inserted before the `continue` in filter_stack.py.
+All strategies using direction_gate + exclude_regime should be verified.
+1. Any previously run strategy with both direction_gate=true AND exclude_regime set
+   was effectively running without the exclusion. Results are valid but represent the
+   unfiltered version. Re-run if the exclusion was material to the edge hypothesis.
+2. filter_strategies.py merge logic also fixed: existing rows now get metrics refreshed
+   from Master Filter on re-run (was append-only, never updated stale data).
+   candidate_status also auto-syncs with portfolio.yaml on every run.
+---
+---
+---
+

@@ -40,15 +40,23 @@ ROOT         = Path(__file__).resolve().parent.parent
 RM           = ROOT / "RESEARCH_MEMORY.md"
 ARC          = ROOT / "RESEARCH_MEMORY_ARCHIVE.md"
 
-ARCHIVE_BEFORE   = "2026-03-27"   # strict less-than; entries before this date → archive
+ARCHIVE_BEFORE   = "2026-04-07"   # strict less-than; entries before this date → archive
 SIZE_LIMIT_LINES = 600
 SIZE_LIMIT_KB    = 40
 
 # ── Patterns ─────────────────────────────────────────────────────────────────
-DATE_PAT    = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+# Match either bare date line (multi-line entry form) OR date followed by
+# inline metadata starting with ' |' (inline entry form).
+# Group 1 always captures the YYYY-MM-DD date.
+DATE_PAT    = re.compile(r'^(\d{4}-\d{2}-\d{2})(?:\s|\||$)')
 SEP_PAT     = re.compile(r'^-{60,}\s*$')           # 60+ dashes = protected block marker
 LABEL_PAT   = re.compile(
-    r'^(Finding|Evidence|Conclusion|Implication|Strategy|Status|Run\s*IDs?)\s*:\s*(.*)',
+    r'^(Finding|Evidence|Conclusion|Implication|Strategy|Status|Run\s*IDs?|Tags)\s*:\s*(.*)',
+    re.IGNORECASE
+)
+# Inline-metadata segment label (matches segments inside ' | '-split header):
+INLINE_LABEL_PAT = re.compile(
+    r'^(Tags|Strategy|Status|Run\s*IDs?)\s*:\s*(.*)',
     re.IGNORECASE
 )
 SUBLIST_PAT = re.compile(
@@ -111,6 +119,10 @@ def parse_file(path: Path):
         header_lines.append(lines[i])
         i += 1
     segments.append({'type': 'header', 'content': ''.join(header_lines)})
+
+    def _date_only(s: str) -> str:
+        m = DATE_PAT.match(s)
+        return m.group(1) if m else s
 
     # ── Main parsing loop ─────────────────────────────────────────────────
     while i < n:
@@ -187,7 +199,7 @@ def parse_file(path: Path):
                 i = k
                 continue
 
-        # ── Entry? (line matches YYYY-MM-DD)
+        # ── Entry? (line starts with YYYY-MM-DD)
         if DATE_PAT.match(stripped) and stripped:
             entry_lines = [lines[i]]
             i += 1
@@ -199,7 +211,7 @@ def parse_file(path: Path):
                 i += 1
             segments.append({
                 'type': 'entry',
-                'date': stripped,
+                'date': _date_only(stripped),
                 'content': ''.join(entry_lines),
                 'post_contract': post_contract,
             })
@@ -232,14 +244,51 @@ def parse_entry(content: str) -> dict:
     i = 0
 
     if lines:
-        result['date'] = lines[0].strip()
+        head_line = lines[0].rstrip()
+        m = DATE_PAT.match(head_line)
+        if m:
+            result['date'] = m.group(1)
+            remainder = head_line[m.end():].lstrip()
+            # Strip a leading '|' that DATE_PAT may have left
+            if remainder.startswith('|'):
+                remainder = remainder[1:].strip()
+            # Inline-form metadata: split on ' | ' and dispatch to buckets
+            if remainder:
+                parts = [p.strip() for p in re.split(r'\s\|\s', remainder) if p.strip()]
+                inline_current = None
+                for p in parts:
+                    lm = INLINE_LABEL_PAT.match(p)
+                    if lm:
+                        key = lm.group(1).lower().replace(' ', '_')
+                        if key.startswith('run'):
+                            key = 'run_ids'
+                        inline_current = key if key in field_buckets else None
+                        rest = lm.group(2).strip()
+                        if inline_current and rest:
+                            if inline_current == 'tags':
+                                # Tags may be comma-separated within the segment
+                                for t in rest.split(','):
+                                    t = t.strip()
+                                    if t:
+                                        field_buckets['tags'].append(t)
+                            else:
+                                field_buckets[inline_current].append(rest)
+                    else:
+                        # Continuation of previous inline field (e.g. extra
+                        # pipe-separated tag like "Tags: A | B | C").
+                        if inline_current == 'tags':
+                            field_buckets['tags'].append(p)
+                        elif inline_current and inline_current in field_buckets:
+                            field_buckets[inline_current].append(p)
+        else:
+            result['date'] = head_line.strip()
         i = 1
 
     while i < len(lines):
         raw = lines[i]
         stripped = raw.strip()
 
-        # Tags header
+        # Tags header (multi-line form: "Tags:" alone, values on subsequent lines)
         if TAGS_PAT.match(stripped):
             current = 'tags'
             i += 1
@@ -256,12 +305,25 @@ def parse_entry(content: str) -> dict:
                 current = key
                 rest = m.group(2).strip()
                 if rest:
-                    field_buckets[key].append(rest)
+                    if key == 'tags':
+                        for t in rest.split(','):
+                            t = t.strip()
+                            if t:
+                                field_buckets['tags'].append(t)
+                    else:
+                        field_buckets[key].append(rest)
             i += 1
             continue
 
-        # Content line for current field
-        if current and current in field_buckets:
+        # Content line for current field.
+        # If no label has been seen yet (label-free paragraph entry), default
+        # the bucket to 'finding' so the body is preserved instead of dropped.
+        if not stripped:
+            i += 1
+            continue
+        if current is None:
+            current = 'finding'
+        if current in field_buckets:
             field_buckets[current].append(raw.rstrip())
 
         i += 1
@@ -466,27 +528,82 @@ def run(dry_run: bool):
 
     active_text, archive_text = build_outputs(segments)
 
+    # ── Entry-count guard: every input entry must appear in output ────────
+    # Count emitted entries by date prefixes. Compacted format begins each
+    # entry with "---\nYYYY-MM-DD". Post-contract entries are preserved
+    # as-is and start with "YYYY-MM-DD" at line start (after blank or sep).
+    emitted_dates = (
+        re.findall(r'(?m)^---\s*\n(\d{4}-\d{2}-\d{2})', active_text)
+        + re.findall(r'(?m)^---\s*\n(\d{4}-\d{2}-\d{2})', archive_text)
+        + re.findall(r'(?m)^(\d{4}-\d{2}-\d{2})\s*$', active_text)
+        + re.findall(r'(?m)^(\d{4}-\d{2}-\d{2})\s*$', archive_text)
+    )
+    input_dates = [s['date'] for s in segments if s['type'] == 'entry']
+    if len(emitted_dates) < len(input_dates):
+        print()
+        print(f"!! ENTRY-COUNT GUARD FAILED: input={len(input_dates)} "
+              f"emitted={len(emitted_dates)} — refusing to write.")
+        from collections import Counter
+        missing = Counter(input_dates) - Counter(emitted_dates)
+        if missing:
+            print(f"   missing dates (count): {dict(missing)}")
+        sys.exit(2)
+
+    print()
+    print(f"ENTRY-COUNT GUARD: input={len(input_dates)} emitted={len(emitted_dates)}  [OK]")
     print()
     print("SIZE ESTIMATES AFTER COMPACTION:")
     check_size(active_text, "RESEARCH_MEMORY.md (active)")
     if archive_text:
         check_size(archive_text, "RESEARCH_MEMORY_ARCHIVE.md  ")
 
+    # Merge new archive output with any existing archive (preserve prior entries).
+    # Strip the ARCHIVE_HEADER from the new output and concatenate its body
+    # onto the existing archive content. If no prior archive exists, use
+    # archive_text as-is (with its header).
+    merged_archive_text = archive_text
+    if archive_text:
+        if ARC.exists():
+            existing = ARC.read_text(encoding="utf-8")
+            new_body = archive_text
+            if new_body.startswith(ARCHIVE_HEADER):
+                new_body = new_body[len(ARCHIVE_HEADER):]
+            # Ensure a single blank line between existing content and new entries
+            sep = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
+            merged_archive_text = existing + sep + new_body
+
     if dry_run:
         preview_active  = Path("C:/tmp/PREVIEW_RESEARCH_MEMORY.md")
         preview_archive = Path("C:/tmp/PREVIEW_RESEARCH_MEMORY_ARCHIVE.md")
         preview_active.write_text(active_text, encoding="utf-8")
         print(f"\nDRY-RUN: preview written to {preview_active}")
-        if archive_text:
-            preview_archive.write_text(archive_text, encoding="utf-8")
+        if merged_archive_text:
+            preview_archive.write_text(merged_archive_text, encoding="utf-8")
             print(f"DRY-RUN: preview written to {preview_archive}")
+            # Dry-run archive-preservation check: existing archive entry count
+            # must be <= merged archive entry count.
+            if ARC.exists():
+                existing = ARC.read_text(encoding="utf-8")
+                existing_dates = (
+                    re.findall(r'(?m)^---\s*\n(\d{4}-\d{2}-\d{2})', existing)
+                    + re.findall(r'(?m)^(\d{4}-\d{2}-\d{2})\s*$', existing)
+                )
+                merged_dates = (
+                    re.findall(r'(?m)^---\s*\n(\d{4}-\d{2}-\d{2})', merged_archive_text)
+                    + re.findall(r'(?m)^(\d{4}-\d{2}-\d{2})\s*$', merged_archive_text)
+                )
+                print(f"ARCHIVE-PRESERVATION: existing={len(existing_dates)} "
+                      f"merged={len(merged_dates)}  "
+                      f"[{'OK' if len(merged_dates) >= len(existing_dates) else 'LOSS'}]")
+                if len(merged_dates) < len(existing_dates):
+                    sys.exit(3)
         print("Review files then re-run with --apply to commit changes.")
     else:
         RM.write_text(active_text, encoding="utf-8")
         print(f"  Written: {RM}")
-        if archive_text:
-            ARC.write_text(archive_text, encoding="utf-8")
-            print(f"  Written: {ARC}")
+        if merged_archive_text:
+            ARC.write_text(merged_archive_text, encoding="utf-8")
+            print(f"  Written: {ARC} (merged with prior archive)")
         print("Done.")
 
 

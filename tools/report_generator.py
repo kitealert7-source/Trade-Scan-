@@ -781,6 +781,11 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
     vol_data = []
     trend_data = []
     age_data = []
+    fill_age_data = []     # v1.5.5+: parallel to age_data but keyed on regime_age_fill
+    delta_age_data = []    # v1.5.5+: fill_age - signal_age distribution per symbol
+    dual_meta_data = []    # v1.5.5+: per-symbol NaN counts for visibility header
+    exec_delta_data = []   # v1.5.6 probe: regime_age_exec fill-signal delta per symbol
+    exec_meta_data  = []   # v1.5.6 probe: per-symbol meta for exec delta
     session_data = []
     all_trades_dfs = []
 
@@ -954,6 +959,60 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
                 age_entry[f"{key}_PF"] = r["profit_factor"]
                 age_entry[f"{key}_WR"] = r["win_rate"]
             age_data.append(age_entry)
+
+        # v1.5.5+: Dual-time regime-age breakdown. Emits only when at least one
+        # of the new columns is present in the trade CSV. Gracefully skips on
+        # pre-v1.5.5 data. Computed once, consumed by fill-age and delta tables.
+        if (tdf is not None and len(tdf) > 0 and 'pnl_usd' in tdf.columns
+                and ('regime_age_signal' in tdf.columns or 'regime_age_fill' in tdf.columns)):
+            from tools.metrics_core import compute_age_dual_breakdown
+            trade_dicts_dual = tdf.to_dict('records')
+            dual = compute_age_dual_breakdown(trade_dicts_dual)
+
+            # Fill-age row (mirror shape of signal-age entry, incl. NaN bucket)
+            fill_entry = {"Symbol": symbol}
+            for r in dual["fill_buckets"]:
+                # Normalise label -> key: collapse "NaN / Missing" to "NaN_Missing"
+                # first, then standard age-label substitutions.
+                key = (r["label"]
+                       .replace(" / ", "_")
+                       .replace(" ", "_")
+                       .replace("-", "_")
+                       .replace("+", "plus"))
+                fill_entry[f"{key}_T"] = r["trades"]
+                fill_entry[f"{key}_PnL"] = r["net_pnl"]
+                fill_entry[f"{key}_PF"] = r["profit_factor"]
+                fill_entry[f"{key}_WR"] = r["win_rate"]
+            fill_age_data.append(fill_entry)
+
+            # Delta row
+            delta_entry = {"Symbol": symbol}
+            for r in dual["delta_buckets"]:
+                key = (r["label"].replace(" ", "_").replace("<=", "le").replace(">=", "ge")
+                                  .replace("-", "neg").replace("/", ""))
+                delta_entry[f"{key}_T"] = r["trades"]
+                delta_entry[f"{key}_PnL"] = r["net_pnl"]
+                delta_entry[f"{key}_PF"] = r["profit_factor"]
+                delta_entry[f"{key}_WR"] = r["win_rate"]
+            delta_age_data.append(delta_entry)
+
+            dual_meta_data.append({"Symbol": symbol, **dual["meta"]})
+
+        # v1.5.6 probe: exec-TF delta distribution (separate clock from HTF).
+        if (tdf is not None and len(tdf) > 0 and 'pnl_usd' in tdf.columns
+                and ('regime_age_exec_signal' in tdf.columns or 'regime_age_exec_fill' in tdf.columns)):
+            from tools.metrics_core import compute_exec_delta_distribution
+            exec_out = compute_exec_delta_distribution(tdf.to_dict('records'))
+            exec_entry = {"Symbol": symbol}
+            for r in exec_out["delta_buckets"]:
+                key = (r["label"].replace(" ", "_").replace("<=", "le").replace(">=", "ge")
+                                  .replace("-", "neg"))
+                exec_entry[f"{key}_T"] = r["trades"]
+                exec_entry[f"{key}_PnL"] = r["net_pnl"]
+                exec_entry[f"{key}_PF"] = r["profit_factor"]
+                exec_entry[f"{key}_WR"] = r["win_rate"]
+            exec_delta_data.append(exec_entry)
+            exec_meta_data.append({"Symbol": symbol, **exec_out["meta"]})
 
         # Session breakdown (computed from trade-level entry_timestamp)
         asia_pnl = 0.0; london_pnl = 0.0; ny_pnl = 0.0
@@ -1165,6 +1224,92 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
         for row in age_data:
             cells = []
             for bk in _age_buckets:
+                t = row.get(f"{bk}_T", 0)
+                pnl = row.get(f"{bk}_PnL", 0.0)
+                pf = row.get(f"{bk}_PF", 0.0)
+                wr = row.get(f"{bk}_WR", 0.0)
+                cells.append(f"T:{t} ${pnl:.2f} PF:{pf:.2f} WR:{wr:.0f}%")
+            md.append(f"| {row['Symbol']} | " + " | ".join(cells) + " |")
+        md.append("\n---\n")
+
+    # v1.5.5+: Fill-age and delta tables. Emitted only when dual-age data was
+    # collected (requires v1.5.5 engine output with regime_age_signal/fill cols).
+    if fill_age_data:
+        md.append("## Regime Lifecycle (Fill Age \u2014 HTF Granularity)\n")
+        md.append("*Regime age is computed on the HTF grid (e.g. 4H for 1H exec) and broadcast to exec bars; "
+                  "this table shows the HTF-bucket age at the fill bar. Multiple exec bars within the same HTF "
+                  "bar share the same age value.*\n")
+        _fill_buckets = ["Age_0", "Age_1", "Age_2", "Age_3_5", "Age_6_10", "Age_11plus", "NaN_Missing"]
+        _fill_labels  = ["Age 0", "Age 1", "Age 2", "Age 3-5", "Age 6-10", "Age 11+", "NaN"]
+        md.append("| Symbol | " + " | ".join(_fill_labels) + " |")
+        md.append("|--------" + "|-------" * len(_fill_labels) + "|")
+        for row in fill_age_data:
+            cells = []
+            for bk in _fill_buckets:
+                t = row.get(f"{bk}_T", 0)
+                pnl = row.get(f"{bk}_PnL", 0.0)
+                pf = row.get(f"{bk}_PF", 0.0)
+                wr = row.get(f"{bk}_WR", 0.0)
+                cells.append(f"T:{t} ${pnl:.2f} PF:{pf:.2f} WR:{wr:.0f}%")
+            md.append(f"| {row['Symbol']} | " + " | ".join(cells) + " |")
+        md.append("\n---\n")
+
+    if delta_age_data:
+        md.append("## HTF Transition Distribution (Fill vs Signal Age)\n")
+        md.append("*Delta = fill_age \u2212 signal_age on the HTF grid. **Delta 0** = signal and fill land in the "
+                  "same HTF bar (dominant, ~3/4 under 4H\u21921H). **Delta 1** = fill crosses into the next HTF bar "
+                  "(~1/4). **Delta \u2264-2** = regime flip occurred between signal and fill (rare, but a candidate "
+                  "structural-edge bucket). Exec-TF timing is NOT captured here \u2014 that's a future second clock.*\n")
+        # Per-symbol validity line for visibility (sum of delta-bucket trades).
+        for meta_row in dual_meta_data:
+            sym = meta_row.get("Symbol", "?")
+            n_total = meta_row.get("n_total", 0)
+            n_valid = meta_row.get("n_delta_valid", 0)
+            n_sig_nan = meta_row.get("n_signal_nan", 0)
+            n_fil_nan = meta_row.get("n_fill_nan", 0)
+            pct = (100.0 * n_valid / n_total) if n_total else 0.0
+            md.append(f"- **{sym}** \u2014 valid delta trades: {n_valid} / {n_total} ({pct:.1f}%)  "
+                      f"(signal NaN: {n_sig_nan}, fill NaN: {n_fil_nan})")
+        md.append("")
+        _delta_buckets = ["Delta_leneg2", "Delta_neg1", "Delta_0", "Delta_1", "Delta_ge2"]
+        _delta_labels  = ["\u2264-2", "-1", "0", "1", "\u22652"]
+        md.append("| Symbol | " + " | ".join(_delta_labels) + " |")
+        md.append("|--------" + "|-------" * len(_delta_labels) + "|")
+        for row in delta_age_data:
+            cells = []
+            for bk in _delta_buckets:
+                t = row.get(f"{bk}_T", 0)
+                pnl = row.get(f"{bk}_PnL", 0.0)
+                pf = row.get(f"{bk}_PF", 0.0)
+                wr = row.get(f"{bk}_WR", 0.0)
+                cells.append(f"T:{t} ${pnl:.2f} PF:{pf:.2f} WR:{wr:.0f}%")
+            md.append(f"| {row['Symbol']} | " + " | ".join(cells) + " |")
+        md.append("\n---\n")
+
+    # v1.5.6 probe: exec-TF age delta. Isolated from HTF section above.
+    if exec_delta_data:
+        md.append("## Exec-TF Age Delta (Signal vs Fill) \u2014 v1.5.6 Probe\n")
+        md.append("*Delta on the EXEC-TF regime_age clock (separate from the HTF table above). "
+                  "Under next_bar_open, **Delta 1** should dominate (exec clock ticks one bar between "
+                  "signal and fill). **Delta 0** is only possible if the regime reset at the fill bar. "
+                  "**Delta \u2264-1** = regime flip between signal and fill (rare).*\n")
+        for meta_row in exec_meta_data:
+            sym = meta_row.get("Symbol", "?")
+            n_total = meta_row.get("n_total", 0)
+            n_valid = meta_row.get("n_delta_valid", 0)
+            n_sig_nan = meta_row.get("n_signal_nan", 0)
+            n_fil_nan = meta_row.get("n_fill_nan", 0)
+            pct = (100.0 * n_valid / n_total) if n_total else 0.0
+            md.append(f"- **{sym}** \u2014 valid exec-delta trades: {n_valid} / {n_total} ({pct:.1f}%)  "
+                      f"(signal NaN: {n_sig_nan}, fill NaN: {n_fil_nan})")
+        md.append("")
+        _xd_buckets = ["Exec_Delta_leneg1", "Exec_Delta_0", "Exec_Delta_1", "Exec_Delta_ge2"]
+        _xd_labels  = ["\u2264-1", "0", "1", "\u22652"]
+        md.append("| Symbol | " + " | ".join(_xd_labels) + " |")
+        md.append("|--------" + "|-------" * len(_xd_labels) + "|")
+        for row in exec_delta_data:
+            cells = []
+            for bk in _xd_buckets:
                 t = row.get(f"{bk}_T", 0)
                 pnl = row.get(f"{bk}_PnL", 0.0)
                 pf = row.get(f"{bk}_PF", 0.0)

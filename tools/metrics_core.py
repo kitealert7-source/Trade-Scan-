@@ -36,6 +36,7 @@ __all__ = [
     "summarize_buckets",
     "compute_session_breakdown",
     "compute_regime_age_breakdown",
+    "compute_age_dual_breakdown",
     # Orchestrator
     "compute_metrics_from_trades",
     "empty_metrics",
@@ -524,6 +525,262 @@ def compute_regime_age_breakdown(trades: list[dict[str, Any]]) -> list[dict[str,
                 "avg_trade":     0.0,
             })
     return rows
+
+
+def compute_age_dual_breakdown(trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Dual-time regime-age breakdown (v1.5.5+).
+
+    IMPORTANT — HTF granularity: regime_age is computed at the HTF grid
+    (e.g. 4H for 1H exec) and broadcast onto exec bars. Signal and fill bars
+    within the same HTF bar share the same age value, so this breakdown is
+    a MACRO-structural view, not a bar-level timing view. An exec-TF clock
+    would need a separate regime_age_exec column (not yet implemented).
+
+    Single pass over trades. Produces three parallel views:
+      - signal_buckets: regime_age_signal (HTF age at decision bar)
+      - fill_buckets:   regime_age_fill   (HTF age at fill bar, next_bar_open)
+      - delta_buckets:  fill_age - signal_age on the HTF grid
+          delta=0:    signal and fill in same HTF bar (dominant, ~3/4 at 4H/1H)
+          delta=1:    fill crosses into next HTF bar (~1/4 at 4H/1H)
+          delta<=-2:  regime flip between signal and fill (rare; structural edge candidate)
+
+    NaN policy:
+      - signal/fill: missing ages land in an explicit "NaN / Missing" bucket
+        (visibility over silent drop; last-bar fill_age NaN is structural).
+      - delta: undefined when either age is missing; such trades are excluded
+        from delta_buckets. The count is surfaced via meta['n_delta_valid'].
+
+    Returns:
+      {
+        "signal_buckets": [{label, trades, net_pnl, profit_factor, win_rate, avg_trade}, ...],
+        "fill_buckets":   [ ... same shape ... ],
+        "delta_buckets":  [ ... same shape, labels are "Delta <=-2" etc ... ],
+        "meta": {"n_total": int, "n_signal_nan": int, "n_fill_nan": int, "n_delta_valid": int},
+      }
+
+    Age-bucket labels reuse REGIME_AGE_BUCKETS (+ NaN) for parity with the
+    existing signal-age table. Delta buckets: [<=-2, -1, 0, 1, >=2].
+    """
+    # Local bucket definitions — not promoted to module constants because
+    # delta is a reporting-only derivation and should not leak into the
+    # broader metrics_core surface (or stage2_compiler schemas).
+    age_bucket_defs = REGIME_AGE_BUCKETS  # reused for both signal and fill
+    nan_label = "NaN / Missing"
+    delta_bucket_defs: list[tuple[str, int | None, int | None]] = [
+        ("Delta <=-2", None, -2),
+        ("Delta -1",   -1,   -1),
+        ("Delta 0",     0,    0),
+        ("Delta 1",     1,    1),
+        ("Delta >=2",   2,    None),
+    ]
+
+    # Accumulators: one pnl list per bucket, plus the NaN buckets for signal/fill.
+    signal_pnls: list[list[float]] = [[] for _ in age_bucket_defs]
+    signal_nan_pnls: list[float] = []
+    fill_pnls: list[list[float]] = [[] for _ in age_bucket_defs]
+    fill_nan_pnls: list[float] = []
+    delta_pnls: list[list[float]] = [[] for _ in delta_bucket_defs]
+
+    n_total = 0
+    n_signal_nan = 0
+    n_fill_nan = 0
+    n_delta_valid = 0
+
+    def _parse_age(raw: Any) -> int | None:
+        if raw in (None, "", "None", "nan", "NaN"):
+            return None
+        try:
+            v = float(raw)
+        except (ValueError, TypeError):
+            return None
+        # Guard against pandas NaN slipping through as float('nan').
+        if v != v:  # NaN != NaN
+            return None
+        return int(v)
+
+    def _bucket_index(age: int, defs: list[tuple[str, int, int | None]]) -> int | None:
+        for idx, (_l, lo, hi) in enumerate(defs):
+            if age >= lo and (hi is None or age <= hi):
+                return idx
+        return None
+
+    def _delta_bucket_index(d: int) -> int | None:
+        for idx, (_l, lo, hi) in enumerate(delta_bucket_defs):
+            lo_ok = (lo is None) or (d >= lo)
+            hi_ok = (hi is None) or (d <= hi)
+            if lo_ok and hi_ok:
+                return idx
+        return None
+
+    # --- Single pass over trades ---------------------------------------------
+    for t in trades:
+        n_total += 1
+        pnl = _safe_float(t.get("pnl_usd", 0))
+
+        sig_age = _parse_age(t.get("regime_age_signal"))
+        fil_age = _parse_age(t.get("regime_age_fill"))
+
+        # Signal bucket assignment
+        if sig_age is None:
+            n_signal_nan += 1
+            signal_nan_pnls.append(pnl)
+        else:
+            idx = _bucket_index(sig_age, age_bucket_defs)
+            if idx is not None:
+                signal_pnls[idx].append(pnl)
+
+        # Fill bucket assignment
+        if fil_age is None:
+            n_fill_nan += 1
+            fill_nan_pnls.append(pnl)
+        else:
+            idx = _bucket_index(fil_age, age_bucket_defs)
+            if idx is not None:
+                fill_pnls[idx].append(pnl)
+
+        # Delta bucket (only if both defined)
+        if sig_age is not None and fil_age is not None:
+            n_delta_valid += 1
+            d = fil_age - sig_age
+            idx = _delta_bucket_index(d)
+            if idx is not None:
+                delta_pnls[idx].append(pnl)
+
+    # --- Row emission --------------------------------------------------------
+    def _row(label: str, pnls: list[float]) -> dict[str, Any]:
+        if pnls:
+            b = compute_pnl_basics(pnls)
+            return {
+                "label":         label,
+                "trades":        b["trade_count"],
+                "net_pnl":       round(b["net_profit"], 2),
+                "profit_factor": round(b["profit_factor"], 3),
+                "win_rate":      round(b["win_rate"] * 100, 1),
+                "avg_trade":     round(b["avg_trade"], 2),
+            }
+        return {
+            "label":         label,
+            "trades":        0,
+            "net_pnl":       0.0,
+            "profit_factor": 0.0,
+            "win_rate":      0.0,
+            "avg_trade":     0.0,
+        }
+
+    signal_rows = [_row(lbl, pnls) for (lbl, _lo, _hi), pnls in zip(age_bucket_defs, signal_pnls)]
+    signal_rows.append(_row(nan_label, signal_nan_pnls))
+
+    fill_rows = [_row(lbl, pnls) for (lbl, _lo, _hi), pnls in zip(age_bucket_defs, fill_pnls)]
+    fill_rows.append(_row(nan_label, fill_nan_pnls))
+
+    delta_rows = [_row(lbl, pnls) for (lbl, _lo, _hi), pnls in zip(delta_bucket_defs, delta_pnls)]
+
+    return {
+        "signal_buckets": signal_rows,
+        "fill_buckets":   fill_rows,
+        "delta_buckets":  delta_rows,
+        "meta": {
+            "n_total":       n_total,
+            "n_signal_nan":  n_signal_nan,
+            "n_fill_nan":    n_fill_nan,
+            "n_delta_valid": n_delta_valid,
+        },
+    }
+
+
+def compute_exec_delta_distribution(trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Exec-TF clock delta distribution (v1.5.6 probe).
+
+    Minimal companion to compute_age_dual_breakdown. Operates on the NEW
+    regime_age_exec_signal / regime_age_exec_fill fields (exec-TF granularity,
+    not HTF-quantized). Under next_bar_open fill:
+        delta = +1  → dominant (exec clock ticks one bar between signal and fill)
+        delta =  0  → only possible if regime reset at the fill bar
+        delta <=-1  → regime flipped between signal and fill (rare)
+
+    Returns a single delta-bucket table plus meta counts. Does NOT emit per-side
+    (signal / fill) bucket tables — keep surface area minimal while the probe
+    is validated.
+    """
+    delta_bucket_defs: list[tuple[str, int | None, int | None]] = [
+        ("Exec Delta <=-1", None, -1),
+        ("Exec Delta 0",     0,    0),
+        ("Exec Delta 1",     1,    1),
+        ("Exec Delta >=2",   2,    None),
+    ]
+    delta_pnls: list[list[float]] = [[] for _ in delta_bucket_defs]
+
+    def _parse_age(raw: Any) -> int | None:
+        if raw in (None, "", "None", "nan", "NaN"):
+            return None
+        try:
+            v = float(raw)
+        except (ValueError, TypeError):
+            return None
+        if v != v:
+            return None
+        return int(v)
+
+    def _delta_bucket_index(d: int) -> int | None:
+        for idx, (_l, lo, hi) in enumerate(delta_bucket_defs):
+            lo_ok = (lo is None) or (d >= lo)
+            hi_ok = (hi is None) or (d <= hi)
+            if lo_ok and hi_ok:
+                return idx
+        return None
+
+    n_total = 0
+    n_signal_nan = 0
+    n_fill_nan = 0
+    n_delta_valid = 0
+
+    for t in trades:
+        n_total += 1
+        pnl = _safe_float(t.get("pnl_usd", 0))
+        sig_age = _parse_age(t.get("regime_age_exec_signal"))
+        fil_age = _parse_age(t.get("regime_age_exec_fill"))
+        if sig_age is None:
+            n_signal_nan += 1
+        if fil_age is None:
+            n_fill_nan += 1
+        if sig_age is not None and fil_age is not None:
+            n_delta_valid += 1
+            d = fil_age - sig_age
+            idx = _delta_bucket_index(d)
+            if idx is not None:
+                delta_pnls[idx].append(pnl)
+
+    def _row(label: str, pnls: list[float]) -> dict[str, Any]:
+        if pnls:
+            b = compute_pnl_basics(pnls)
+            return {
+                "label":         label,
+                "trades":        b["trade_count"],
+                "net_pnl":       round(b["net_profit"], 2),
+                "profit_factor": round(b["profit_factor"], 3),
+                "win_rate":      round(b["win_rate"] * 100, 1),
+                "avg_trade":     round(b["avg_trade"], 2),
+            }
+        return {
+            "label":         label,
+            "trades":        0,
+            "net_pnl":       0.0,
+            "profit_factor": 0.0,
+            "win_rate":      0.0,
+            "avg_trade":     0.0,
+        }
+
+    delta_rows = [_row(lbl, pnls) for (lbl, _lo, _hi), pnls in zip(delta_bucket_defs, delta_pnls)]
+
+    return {
+        "delta_buckets": delta_rows,
+        "meta": {
+            "n_total":       n_total,
+            "n_signal_nan":  n_signal_nan,
+            "n_fill_nan":    n_fill_nan,
+            "n_delta_valid": n_delta_valid,
+        },
+    }
 
 
 # ==================================================================
