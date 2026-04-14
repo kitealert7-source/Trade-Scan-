@@ -1,0 +1,64 @@
+test:
+  name: 52_STR_BTC_15M_CHOCH_S01_V2_P00
+  family: STR
+  strategy: 52_STR_BTC_15M_CHOCH_S01_V2_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  signal_version: 5
+  description: "CHOCH_PIVOT_V2 structural reversal on 15M ETHUSD using true symmetric swing pivots (k=3). CHOCH fires when close breaks the most recently confirmed counter-side pivot (pivot_high for bullish, pivot_low for bearish). Edge-triggered, k-bar confirmation delay, no repainting. SL 1.5x ATR, TP 3x ATR. No regime filter."
+  notes: "First CHOCH_PIVOT_V2 test on 15M. Cross-TF probe: prior CHOCH_V2 runs at 1H (46/47/48) produced PF~1.0-1.15 across XAU/FX/BTC; this directive tests whether the shorter timeframe changes the regime dynamics and signal frequency enough to surface a different edge. ETHUSD chosen to avoid repeating BTC 1H territory."
+  repeat_override_reason: "Data-regime change: shifting CHOCH_V2 from 1H to 15M is a genuine timeframe-driven regime shift. Shorter TF fundamentally changes signal frequency, bar-noise vs structure ratio, and the effective pivot-k spacing in wall-clock time. Prior 1H CHOCH runs sample a different market regime and are not mechanically comparable. The idea-gate's own advisory text recommends exactly this exploration (MODEL=CHOCH untested on 15M; different timeframe changes regime dynamics and signal frequency)."
+
+symbols:
+  - ETHUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch_v2
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

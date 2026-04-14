@@ -1,0 +1,64 @@
+test:
+  name: 47_STR_FX_1H_CHOCH_S01_V2_P00
+  family: STR
+  strategy: 47_STR_FX_1H_CHOCH_S01_V2_P00
+  version: 1
+  signal_version: 3
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "CHOCH_PIVOT_V2 structural reversal on 1H USDJPY using true symmetric swing pivots (k=3). CHOCH fires when close breaks the most recently confirmed counter-side pivot (pivot_high for bullish, pivot_low for bearish). Edge-triggered, k-bar confirmation delay, no repainting. SL 1.5x ATR, TP 3x ATR. No regime filter."
+  notes: "Second arm of the CHOCH_PIVOT_V2 cross-asset comparison (parallel to Idea 43 USDJPY under V1 rolling proxy). Ideas 46/47/48 are strictly identical in logic and config except asset, using indicators/structure/choch_v2.py instead of indicators/structure/choch.py."
+  repeat_override_reason: "Structural signal primitive change: Ideas 43/44/45 used the V1 rolling-max proxy (indicators/structure/choch.py using highest_high/lowest_low with 20-bar rolling window and 3-bar shift -- not true swing pivots). Ideas 46/47/48 use the new pivot-based indicator (indicators/structure/choch_v2.py consuming indicators/structure/swing_pivots.py with k=3 symmetric left/right confirmation). The two indicators compute fundamentally different signal primitives on the same data, so prior CHOCH runs at this idea are not mechanically comparable."
+
+symbols:
+  - USDJPY
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch_v2
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

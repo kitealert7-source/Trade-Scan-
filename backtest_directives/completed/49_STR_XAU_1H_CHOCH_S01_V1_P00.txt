@@ -1,0 +1,64 @@
+test:
+  name: 49_STR_XAU_1H_CHOCH_S01_V1_P00
+  family: STR
+  strategy: 49_STR_XAU_1H_CHOCH_S01_V1_P00
+  version: 1
+  signal_version: 4
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "CHOCH_V3 structure-aware reversal on 1H XAUUSD. Extends CHOCH_V2 pivot break by requiring prior directional structure (HH+HL for uptrend, LL+LH for downtrend) before a counter-side break qualifies. k=3 symmetric pivots, edge-triggered, no repainting. SL 1.5x ATR, TP 3x ATR. No regime filter."
+  notes: "First arm of CHOCH_V3 cross-asset comparison (parallel to Idea 46 under V2 pivot-only). Ideas 49/50/51 are strictly identical in logic and config except asset, using indicators/structure/choch_v3.py."
+  repeat_override_reason: "Signal-primitive change: Ideas 46/47/48 used CHOCH_V2 (pivot break only, no structure gate). Ideas 49/50/51 use CHOCH_V3 which adds a minimal structure precondition (must have observed HH+HL or LL+LH on the last two pivots of each type before a break qualifies). This is a strict subset of V2 and emits fewer, context-conditioned events. The two are mechanically different signal primitives and prior CHOCH runs at this idea are not comparable."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch_v3
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

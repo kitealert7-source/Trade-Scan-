@@ -59,7 +59,7 @@ class Strategy:
     "position_management": {
         "lots": 0.01
     },
-    "repeat_override_reason": "Signal-primitive change: Ideas 46/47/48 used CHOCH_V2 (pivot break only, no structure gate). Ideas 49/50/51 use CHOCH_V3 which adds a minimal structure precondition (must have observed HH+HL or LL+LH on the last two pivots of each type before a break qualifies). This is a strict subset of V2 and emits fewer, context-conditioned events. The two are mechanically different signal primitives and prior CHOCH runs at this idea are not comparable.",
+    "signal_version": 4,
     "signature_version": 2,
     "state_machine": {
         "entry": {
@@ -79,7 +79,7 @@ class Strategy:
     "version": 1
 }
     # --- STRATEGY SIGNATURE END ---
-    # --- SIGNATURE HASH: 8a1f832683732807 ---
+    # --- SIGNATURE HASH: 926297db858ae00b ---
 
     def __init__(self):
         self.filter_stack = FilterStack(self.STRATEGY_SIGNATURE)

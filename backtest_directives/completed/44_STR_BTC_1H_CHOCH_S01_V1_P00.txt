@@ -1,0 +1,64 @@
+test:
+  name: 44_STR_BTC_1H_CHOCH_S01_V1_P00
+  family: STR
+  strategy: 44_STR_BTC_1H_CHOCH_S01_V1_P00
+  version: 1
+  signal_version: 3
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Engine SL/TP fallback fix (commit e8560a2): prior run used hardcoded 2.0x ATR SL and no TP fallback instead of directive-specified 1.5x/3.0x. Results are not comparable and must be regenerated under the corrected engine."
+  description: "CHOCH structural reversal on 1H BTCUSD. First close beyond mature swing level (>=3 lower-highs bullish / >=3 higher-lows bearish) triggers entry. SL 1.5x ATR, TP 3x ATR. No regime filter."
+  notes: "Cross-asset transfer test of CHOCH to crypto. BTCUSD regime transitions are market-driven (fast trend/range oscillation, 24/7 liquidity). Idea 26 prior: XAUUSD 1H CHOCH PF 1.08 (borderline). Separate idea_id from FX (Idea 43) to keep attribution clean."
+
+symbols:
+  - BTCUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

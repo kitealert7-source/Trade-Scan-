@@ -54,7 +54,7 @@ class Strategy:
     "position_management": {
         "lots": 0.01
     },
-    "repeat_override_reason": "CHOCH indicator signal definition changed from sustained-break (prior Idea 26 semantics) to canonical first-break / edge-triggered in indicators/structure/choch.py. Prior XAUUSD CHOCH runs (Idea 26 1H PF 1.08, 30M PF 0.74) emitted duplicate events on consecutive bars and are no longer mechanically comparable. This run establishes the fresh XAU baseline under the corrected indicator.",
+    "signal_version": 3,
     "signature_version": 2,
     "state_machine": {
         "entry": {
@@ -74,7 +74,7 @@ class Strategy:
     "version": 1
 }
     # --- STRATEGY SIGNATURE END ---
-    # --- SIGNATURE HASH: fea6560bb959df7b ---
+    # --- SIGNATURE HASH: 099572ba0806b148 ---
 
     def __init__(self):
         self.filter_stack = FilterStack(self.STRATEGY_SIGNATURE)

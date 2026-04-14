@@ -59,7 +59,7 @@ class Strategy:
     "position_management": {
         "lots": 0.01
     },
-    "repeat_override_reason": "Structural signal primitive change: Ideas 43/44/45 used the V1 rolling-max proxy (indicators/structure/choch.py using highest_high/lowest_low with 20-bar rolling window and 3-bar shift -- not true swing pivots). Ideas 46/47/48 use the new pivot-based indicator (indicators/structure/choch_v2.py consuming indicators/structure/swing_pivots.py with k=3 symmetric left/right confirmation). The two indicators compute fundamentally different signal primitives on the same data, so prior CHOCH runs at this idea are not mechanically comparable.",
+    "signal_version": 3,
     "signature_version": 2,
     "state_machine": {
         "entry": {
@@ -79,7 +79,7 @@ class Strategy:
     "version": 1
 }
     # --- STRATEGY SIGNATURE END ---
-    # --- SIGNATURE HASH: 5b6198366c457640 ---
+    # --- SIGNATURE HASH: 0aedbca46b17b79c ---
 
     def __init__(self):
         self.filter_stack = FilterStack(self.STRATEGY_SIGNATURE)

@@ -1,0 +1,64 @@
+test:
+  name: 45_STR_XAU_1H_CHOCH_S01_V2_P00
+  family: STR
+  strategy: 45_STR_XAU_1H_CHOCH_S01_V2_P00
+  version: 1
+  signal_version: 3
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "CHOCH structural reversal on 1H XAUUSD under canonical first-break (edge-triggered) CHOCH definition. First close beyond mature swing level (>=3 lower-highs bullish / >=3 higher-lows bearish) triggers entry — edge-triggered only (consecutive bars suppressed). SL 1.5x ATR, TP 3x ATR. No regime filter."
+  notes: "Third arm of the cross-asset CHOCH comparison at 43/44's config. Establishes a fresh XAUUSD baseline under the canonical CHOCH indicator (indicators/structure/choch.py post edge-filter patch). Supersedes Idea 26 for comparison purposes only — Idea 26's PORTFOLIO_COMPLETE result stands as historical record."
+  repeat_override_reason: "CHOCH indicator signal definition changed from sustained-break (prior Idea 26 semantics) to canonical first-break / edge-triggered in indicators/structure/choch.py. Prior XAUUSD CHOCH runs (Idea 26 1H PF 1.08, 30M PF 0.74) emitted duplicate events on consecutive bars and are no longer mechanically comparable. This run establishes the fresh XAU baseline under the corrected indicator."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
