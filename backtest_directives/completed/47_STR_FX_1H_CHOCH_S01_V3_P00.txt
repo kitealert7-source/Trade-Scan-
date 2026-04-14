@@ -1,0 +1,72 @@
+test:
+  name: 47_STR_FX_1H_CHOCH_S01_V3_P00
+  family: STR
+  strategy: 47_STR_FX_1H_CHOCH_S01_V3_P00
+  version: 1
+  signal_version: 10
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "V3_P00 cross-regime-flip probe (FX 4-pair basket): admit entries only when regime_id at the signal bar != regime_id at the fill bar (next_bar_open). Twin of 46_V3_P00 on FX. Pooled for rare-event sampling."
+  notes: "Inline check_entry filter using ctx.require('regime_id') vs ctx.require('regime_id_fill'). Filter-only consumption — regime_id_fill is never used to construct the signal. Parameters identical to 46_V3_P00: long-only, CHOCH_v2, 1.5x SL, 3x TP. Expected ~2% admission rate."
+  repeat_override_reason: "New signature version V3 for FX CHOCH family. Adds cross-regime-flip filter. Direction restriction (long_only) and signal primitive (choch_v2) unchanged."
+
+symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch_v2
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: true
+  session_reset: none
+
+regime_age_filter:
+  enabled: 0
+  exclude_min: 0
+  exclude_max: 0
+
+position_management:
+  lots: 0.01

@@ -307,3 +307,83 @@ ideas:
     role: entry_edge
     instruments: FX
     status: active
+  "43":
+    family: STR
+    title: CHOCH Structural Reversal at 1H — FX Cross-Asset Transfer (USDJPY)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: active
+  "44":
+    family: STR
+    title: CHOCH Structural Reversal at 1H — Crypto Cross-Asset Transfer (BTCUSD)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "45":
+    family: STR
+    title: CHOCH Structural Reversal at 1H — XAUUSD Baseline under Canonical (First-Break) Definition
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAU
+    status: active
+  "46":
+    family: STR
+    title: CHOCH_PIVOT_V2 Structural Reversal at 1H — XAUUSD (true symmetric swing pivots, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAU
+    status: active
+  "47":
+    family: STR
+    title: CHOCH_PIVOT_V2 Structural Reversal at 1H — USDJPY (true symmetric swing pivots, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: active
+  "48":
+    family: STR
+    title: CHOCH_PIVOT_V2 Structural Reversal at 1H — BTCUSD (true symmetric swing pivots, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "49":
+    family: STR
+    title: CHOCH_V3 Structure-Aware Reversal at 1H — XAUUSD (HH+HL / LL+LH gate, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAU
+    status: active
+  "50":
+    family: STR
+    title: CHOCH_V3 Structure-Aware Reversal at 1H — USDJPY (HH+HL / LL+LH gate, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: active
+  "51":
+    family: STR
+    title: CHOCH_V3 Structure-Aware Reversal at 1H — BTCUSD (HH+HL / LL+LH gate, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "52":
+    family: STR
+    title: CHOCH_V2 Pivot-Based Reversal at 15M — ETHUSD (k=3, first CHOCH_V2 on 15M)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: ETH
+    status: active
