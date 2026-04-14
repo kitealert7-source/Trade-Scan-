@@ -1,0 +1,64 @@
+test:
+  name: 46_STR_XAU_1H_CHOCH_S01_V2_P01
+  family: STR
+  strategy: 46_STR_XAU_1H_CHOCH_S01_V2_P01
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Long-only variant of 46_P00. CHOCH_PIVOT_V2 structural reversal on 1H XAUUSD (true symmetric swing pivots, k=3). Enters only on bullish CHOCH (close breaks most-recent pivot_high); short signals are suppressed. SL 1.5x ATR, TP 3x ATR. Same indicators, same SL/TP, same execution as P00 — only direction is restricted."
+  notes: "Hypothesis: CHOCH_v2 has edge only on the long side in XAU 1H. P00 baseline was long_and_short; P01 isolates the long arm to confirm or reject. Differences vs P00 are strictly direction-scoped: strategy.check_entry filters event == -1; directive direction_restriction set to long_only; state_machine.entry.direction set to long_only."
+  repeat_override_reason: "Direction-scope experiment, not a primitive change. Same indicators (indicators/structure/choch_v2.py with swing_pivots k=3) and same SL/TP parameters as 46_P00. Only direction restriction changes — long_and_short on P00 becomes long_only on P01 to test whether the short side is diluting aggregate edge."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch_v2
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

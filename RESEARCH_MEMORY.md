@@ -434,3 +434,87 @@ EURJPY: base PF 1.20 → session only PF 1.40 SQN 2.40 (331T) vs regime_age_only
 Asia session noise systematically degrades LIQSWEEP signal on JPY crosses. Regime age responds differently per symbol — GBPUSD: mature bars (6-10); EURJPY: session filter dominates. The two filters are not additive.
 
 Implication: For future LIQSWEEP FX passes, test session filter as primary gate first. Regime age is secondary exploration only on symbols that survive session filtering.
+2026-04-14 | Tags: CHOCH_V2 | pivot-based | signal-density | cross-asset | structural-edge
+Strategies: 46_STR_XAU_1H_CHOCH_S01_V2_P00, 47_STR_FX_1H_CHOCH_S01_V2_P00, 48_STR_BTC_1H_CHOCH_S01_V2_P00
+Run IDs: ff42d3d84bca6ce5d4782adc, 275b01020a669403f5bf808c, a096448a26b6008133374477
+
+Finding:
+Transition from rolling-max proxy (V1) to pivot-based CHOCH (V2) increased signal density ~10-12x and fundamentally altered system behavior, converting a high-variance, misleading signal into a statistically stable one.
+
+Evidence:
+- XAU: 47->572 trades, PF 0.84->1.15
+- BTC: 74->746 trades, PF 0.99->1.09
+- USDJPY: 50->586 trades, PF 0.75->0.84 (remains negative)
+
+Conclusion:
+Signal density is a first-order determinant of reliability. The V1 implementation failed due to undersampling, not necessarily signal invalidity. V2 reveals CHOCH as a weak but real structural edge on certain assets (XAU, BTC), and a non-viable signal on others (USDJPY).
+
+Edge Characteristics:
+- Directional asymmetry persists (XAU longs dominate)
+- Strong session dependency (XAU: London/NY, BTC: Asia)
+- Regime/timing sensitivity (early + late structure phases outperform mid-cycle)
+
+Implication:
+- CHOCH_PIVOT_V2 is the only valid baseline
+- CHOCH is not a standalone universal signal
+- Edge emerges only when conditioned by context (direction, session, regime)
+
+Next Hypothesis:
+Test minimal conditioning:
+1) Directional split (XAU long-only, BTC short/long split)
+2) Session filter (XAU: exclude Asia, BTC: exclude London)
+3) Regime-age gating (exclude mid-cycle zones)
+
+Constraint:
+Do not revisit CHOCH_PROXY_V1. Mark as invalid due to sampling error.
+2026-04-14 | Tags: CHOCH_V2_vs_V3 | structure-filter | signal-degradation | cross-asset
+Strategies: 46/47/48 (V2), 49/50/51 (V3)
+Run IDs: ff42d3d84bca6ce5d4782adc, 275b01020a669403f5bf808c, a096448a26b6008133374477, 4ebdb9c2ead03c9ee03a6229, 9299e9daf503e2e4388ef24a, d3a63a3f30af6c8c88ef7d24
+
+Finding:
+Adding structure validation (HH+HL / LL+LH) to pivot-based CHOCH (V3) reduces trade count ~40-45% but consistently compresses PF toward 1.0 across all assets.
+
+Evidence:
+- XAU: PF 1.15 -> 1.02, trades 572 -> 325
+- BTC: PF 1.09 -> 1.03, trades 746 -> 504
+- USDJPY: PF 0.84 -> 0.95, trades 586 -> 362
+
+Conclusion:
+Structure-aware CHOCH (V3) removes both profitable and unprofitable signals proportionally, indicating that confirmed HH/HL-based reversals do not carry edge. The edge observed in V2 originates from earlier pivot-break events, not from validated structural trend changes.
+
+Implication:
+- "True CHOCH" (structure-confirmed) is not a profitable entry primitive
+- Pivot-break (V2) captures earlier market transitions where edge exists
+- Structure filtering acts as a neutralizer, not an enhancer
+
+Next Hypothesis:
+Focus on V2 (pivot-break) and apply:
+1) Directional conditioning (asset-specific bias)
+2) Session filters (strong divergence observed)
+3) Regime-age gating (early vs mid-cycle behavior)
+
+Constraint:
+CHOCH_V3 should not be extended further. Mark as CHOCH_STRUCTURE_FILTER_FAILED.
+2026-04-14
+Tags:
+CHOCH_v2
+direction-asymmetry
+XAU
+BTC
+1H
+
+Strategy: 46_STR_XAU_1H_CHOCH_S01_V2_P01
+Run IDs: ff42d3d84bca6ce5d4782adc, dda4eef019b3252ba211e96c, 69b70372bc2604b73596dd12
+
+Finding:
+CHOCH_v2 shows clear directional asymmetry on XAU 1H (long-only PF 1.15 -> 1.33 at 373 trades); asymmetry is weak on BTC 1H (long PF 1.09 vs short 1.02).
+
+Evidence:
+- XAU: long arm PF 1.33 (n=373) vs blended PF 1.15 (n=572); short arm ~1.0
+- BTC: long arm PF 1.09 (n=384) vs short arm PF 1.02 (n=365); blended 1.054
+
+Conclusion:
+Short-side trades dilute edge on XAU where long-side carries the signal. On BTC the asymmetry is marginal and both directions cluster near break-even. The behavior is consistent with a pivot-breakout (not true CHOCH) interacting with asset-specific trend regimes (XAU uptrend vs BTC mixed).
+
+Implication:
+Future CHOCH work on XAU should be long-biased or direction-gated. BTC CHOCH_v2 requires an orthogonal filter (session, regime) rather than direction restriction alone.
