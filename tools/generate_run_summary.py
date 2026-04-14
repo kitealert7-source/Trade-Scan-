@@ -84,6 +84,58 @@ def _lookup_signal_version(strategy_id: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Indicators content-hash lookup (Phase 4)
+# ---------------------------------------------------------------------------
+# Aggregate semantic hash of the indicator modules imported by a strategy's
+# live strategy.py. Detects "same primitive label, different logic" — the gap
+# left by Phase 2 (signal_version is user-declared and therefore spoofable).
+_INDICATORS_HASH_CACHE: dict[str, str] = {}
+_INDICATORS_IMPORT_RE = _re.compile(
+    r"^\s*(?:from\s+(indicators(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s+import"
+    r"|import\s+(indicators(?:\.[A-Za-z_][A-Za-z0-9_]*)+))",
+    _re.MULTILINE,
+)
+
+
+def _lookup_indicators_content_hash(strategy_id: str) -> str:
+    """Return aggregate indicator content hash for a strategy_id.
+
+    Reads strategies/<id>/strategy.py, extracts all `from indicators.X.Y import`
+    and `import indicators.X.Y` dotted paths, and feeds them through
+    `aggregate_indicator_hash` (semantic, cosmetic-tolerant sha256).
+
+    Missing file / no imports / I/O error -> empty string. Memoized.
+    """
+    if not strategy_id:
+        return ""
+    if strategy_id in _INDICATORS_HASH_CACHE:
+        return _INDICATORS_HASH_CACHE[strategy_id]
+    path = REPO_STRATEGIES_DIR / strategy_id / "strategy.py"
+    if not path.exists():
+        _INDICATORS_HASH_CACHE[strategy_id] = ""
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        _INDICATORS_HASH_CACHE[strategy_id] = ""
+        return ""
+    modules = sorted({
+        (m.group(1) or m.group(2))
+        for m in _INDICATORS_IMPORT_RE.finditer(text)
+    })
+    if not modules:
+        _INDICATORS_HASH_CACHE[strategy_id] = ""
+        return ""
+    try:
+        from tools.indicator_hasher import aggregate_indicator_hash
+        aggregate, _per = aggregate_indicator_hash(modules, project_root=PROJECT_ROOT)
+    except Exception:
+        aggregate = ""
+    _INDICATORS_HASH_CACHE[strategy_id] = aggregate
+    return aggregate
+
+
+# ---------------------------------------------------------------------------
 # Loaders
 # ---------------------------------------------------------------------------
 def _load_registry() -> pd.DataFrame:
@@ -284,9 +336,21 @@ def generate(quiet: bool = False) -> Path:
             lambda sid: _lookup_signal_version(str(sid)) if pd.notna(sid) else 1
         )
 
+    # --- Attach indicators_content_hash (Phase 4 additive column) ---
+    # Aggregate semantic hash of the indicator modules imported by each
+    # strategy's live strategy.py. Silent logic drift in an indicator module
+    # will change this hash even when signal_version and directive hash are
+    # unchanged — closing the gap that Phase 2 alone couldn't see.
+    if "strategy_id" in df.columns:
+        df["indicators_content_hash"] = df["strategy_id"].map(
+            lambda sid: _lookup_indicators_content_hash(str(sid))
+            if pd.notna(sid) else ""
+        )
+
     # Order columns for readability
     priority_cols = [
-        "run_id", "strategy_id", "signal_version", "status", "tier",
+        "run_id", "strategy_id", "signal_version", "indicators_content_hash",
+        "status", "tier",
         "symbol_count", "symbols", "timeframe",
         "total_trades", "net_pnl_usd", "avg_profit_factor",
         "avg_win_rate", "max_drawdown_pct",
