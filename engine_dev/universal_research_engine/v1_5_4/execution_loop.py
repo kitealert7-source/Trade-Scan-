@@ -43,7 +43,9 @@ __all__ = [
     "ENGINE_STATUS",
 ]
 
-ENGINE_ATR_MULTIPLIER = 2.0
+ENGINE_ATR_MULTIPLIER = 2.0  # Last-resort default; overridden per-run by
+                             # STRATEGY_SIGNATURE.execution_rules.stop_loss.atr_multiplier
+                             # when present (see _resolve_atr_multipliers below).
 ENGINE_VERSION    = "1.5.4"
 ENGINE_STATUS     = "FROZEN"
 ENGINE_FREEZE_DATE = "2026-03-31"
@@ -198,6 +200,29 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
     max_trades_per_session = _tmgmt.get('max_trades_per_session', None)
     session_reset_mode     = _tmgmt.get('session_reset', 'utc_day')
 
+    # --- ATR FALLBACK MULTIPLIERS (engine fallback when strategy omits
+    # stop_price / tp_price; see STOP CONTRACT guard in governance/).
+    # Authority: STRATEGY_SIGNATURE.execution_rules.stop_loss.atr_multiplier
+    #            STRATEGY_SIGNATURE.execution_rules.take_profit.atr_multiplier
+    # Missing/invalid → SL falls back to ENGINE_ATR_MULTIPLIER, TP falls back to None.
+    _exec_rules = _sig.get('execution_rules', {}) or {}
+    _sl_cfg     = _exec_rules.get('stop_loss', {}) or {}
+    _tp_cfg     = _exec_rules.get('take_profit', {}) or {}
+    try:
+        _sl_mult_raw = _sl_cfg.get('atr_multiplier')
+        sl_atr_mult  = float(_sl_mult_raw) if _sl_mult_raw is not None else ENGINE_ATR_MULTIPLIER
+        if sl_atr_mult <= 0:
+            sl_atr_mult = ENGINE_ATR_MULTIPLIER
+    except (TypeError, ValueError):
+        sl_atr_mult = ENGINE_ATR_MULTIPLIER
+    try:
+        _tp_mult_raw = _tp_cfg.get('atr_multiplier') if _tp_cfg.get('enabled', True) else None
+        tp_atr_mult  = float(_tp_mult_raw) if _tp_mult_raw is not None else None
+        if tp_atr_mult is not None and tp_atr_mult <= 0:
+            tp_atr_mult = None
+    except (TypeError, ValueError):
+        tp_atr_mult = None
+
     # --- POSITION STATE ---
     in_pos      = False
     direction   = 0
@@ -284,9 +309,9 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                                 "STOP CONTRACT VIOLATION: ATR invalid (<=0) at signal bar."
                             )
                         if direction == 1:
-                            stop_price = entry_price - (atr_at_signal * ENGINE_ATR_MULTIPLIER)
+                            stop_price = entry_price - (atr_at_signal * sl_atr_mult)
                         else:
-                            stop_price = entry_price + (atr_at_signal * ENGINE_ATR_MULTIPLIER)
+                            stop_price = entry_price + (atr_at_signal * sl_atr_mult)
                         stop_source = 'ENGINE_FALLBACK'
 
                     # Hard invariants
@@ -303,6 +328,16 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                         )
 
                     tp_price = pe_signal.get('tp_price')
+                    # TP engine fallback (symmetric to SL fallback above):
+                    # if strategy omits tp_price and signature declares a TP
+                    # ATR multiplier, compute TP from actual fill price.
+                    if tp_price is None and tp_atr_mult is not None:
+                        atr_at_signal = pe['atr']
+                        if atr_at_signal > 0:
+                            if direction == 1:
+                                tp_price = entry_price + (atr_at_signal * tp_atr_mult)
+                            else:
+                                tp_price = entry_price - (atr_at_signal * tp_atr_mult)
 
                     entry_market_state = {
                         "volatility_regime":    pe['vol_regime'],
