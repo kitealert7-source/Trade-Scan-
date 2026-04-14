@@ -382,7 +382,7 @@ def run_engine_logic(df, strategy):
     except ModuleNotFoundError:
          # Fallback for local folder execution
          print(f"    [WARN] Dynamic engine resolution failed for {module_path}. Using fallback path.")
-         from engine_dev.universal_research_engine.v1_5_4.main import run_engine
+         from engine_dev.universal_research_engine.v1_5_6.main import run_engine
          return run_engine(df, strategy)
          
     return engine_mod.run_engine(df, strategy)
@@ -414,7 +414,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         emitter_mod = importlib.import_module(module_path)
     except ModuleNotFoundError:
          print(f"    [WARN] Dynamic emitter resolution failed for {module_path}. Using fallback.")
-         from engine_dev.universal_research_engine.v1_5_4.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
+         from engine_dev.universal_research_engine.v1_5_6.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
     else:
         emit_stage1 = emitter_mod.emit_stage1
         RawTradeRecord = emitter_mod.RawTradeRecord
@@ -495,6 +495,45 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         exit_idx = t["exit_index"]
         entry_market = df.iloc[entry_idx]
         slice_df = df.iloc[entry_idx:exit_idx + 1]
+
+        # --- v1.5.5 signal/fill alignment: explicit indices ---
+        # The engine emits signal_bar_idx / fill_bar_idx independently — there
+        # is NO engine-level invariant that signal_bar_idx == fill_bar_idx - 1.
+        # That identity is a property of the next_bar_open fill model only;
+        # same-bar or delayed-fill models will break it and must be accommodated
+        # without changing this reader.
+        #
+        # Legacy-trade fallback (LOCAL SCOPE ONLY): trade dicts produced by
+        # pre-v1.5.5 engines don't carry explicit indices. Those engines only
+        # ever supported next_bar_open, so for those trades — and ONLY those —
+        # we derive signal_bar_idx as entry_idx-1. Never propagate this
+        # assumption outside the legacy branch.
+        _fill_bar_idx = t.get("fill_bar_idx", entry_idx)
+        _signal_bar_idx = t.get("signal_bar_idx", max(entry_idx - 1, 0))
+        _signal_market = df.iloc[_signal_bar_idx] if _signal_bar_idx >= 0 else entry_market
+        # Prefer engine-provided values; fall back to df lookup for legacy trades.
+        _regime_age_signal = t.get("regime_age_signal")
+        if _regime_age_signal is None:
+            _regime_age_signal = _signal_market.get("regime_age")
+        _regime_age_fill = t.get("regime_age_fill")
+        if _regime_age_fill is None:
+            _regime_age_fill = entry_market.get("regime_age")
+        _market_regime_signal = t.get("market_regime_signal")
+        if _market_regime_signal is None:
+            _market_regime_signal = _signal_market.get("market_regime")
+        _market_regime_fill = t.get("market_regime_fill")
+        if _market_regime_fill is None:
+            _market_regime_fill = entry_market.get("market_regime")
+        _regime_id_signal = t.get("regime_id_signal")
+        if _regime_id_signal is None:
+            _regime_id_signal = _signal_market.get("regime_id")
+        _regime_id_fill = t.get("regime_id_fill")
+        if _regime_id_fill is None:
+            _regime_id_fill = entry_market.get("regime_id")
+        # v1.5.6 exec-TF clock probe — engine-only source (no legacy fallback
+        # needed; fields absent in pre-v1.5.6 trades -> None -> "" in CSV).
+        _regime_age_exec_signal = t.get("regime_age_exec_signal")
+        _regime_age_exec_fill   = t.get("regime_age_exec_fill")
         trade_high = slice_df["high"].max()
         trade_low = slice_df["low"].min()
 
@@ -556,7 +595,20 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             risk_distance=t.get('risk_distance'),
             market_regime=entry_market.get('market_regime'),
             regime_id=entry_market.get('regime_id'),
-            regime_age=entry_market.get('regime_age')
+            regime_age=entry_market.get('regime_age'),
+            # v1.5.5 signal/fill alignment — explicit dual-time record.
+            # Legacy (v1.5.4) trades get signal values derived from entry_idx-1.
+            signal_bar_idx=_signal_bar_idx,
+            fill_bar_idx=_fill_bar_idx,
+            regime_age_signal=_regime_age_signal,
+            regime_age_fill=_regime_age_fill,
+            market_regime_signal=_market_regime_signal,
+            market_regime_fill=_market_regime_fill,
+            regime_id_signal=_regime_id_signal,
+            regime_id_fill=_regime_id_fill,
+            # v1.5.6 exec-TF clock probe
+            regime_age_exec_signal=_regime_age_exec_signal,
+            regime_age_exec_fill=_regime_age_exec_fill,
         ))
     
     # Metadata includes Deterministic Run details
@@ -893,10 +945,16 @@ def main():
             
         # 3. Define and Apply HTF Isolation Patch
         regime_fields = [
-            "market_regime", "regime_id", "regime_age", 
+            "market_regime", "regime_id", "regime_age",
             "direction_state", "structure_state", "volatility_state",
             "trend_score", "trend_regime", "trend_label", "volatility_regime"
         ]
+        # NOTE: regime_age_signal / regime_age_fill are NOT included here.
+        # regime_state_machine.py computes them via shift(-1) on the regime
+        # TF (e.g. 4H). Merging those pre-shifted values onto a finer exec
+        # TF (e.g. 1H) would be semantically wrong — "next 4H bar's age"
+        # is not "next 1H bar's age". The exec-TF variants are derived
+        # locally, post-merge, below (_compute_exec_regime_ages).
         available_fields = [f for f in regime_fields if f in df_regime.columns]
 
         import engines.regime_state_machine as rsm
@@ -932,19 +990,60 @@ def main():
                 for col in available_fields:
                     if col in df_merged.columns:
                         df_in[col] = df_merged[col]
-                        
+
+                # v1.5.5: derive exec-TF dual-time regime_age views.
+                # regime_age_signal == current bar's regime_age (the state the
+                # strategy sees at decision). regime_age_fill == next bar's
+                # regime_age (what the trade will actually fill under
+                # next_bar_open). Tail row's regime_age_fill is NaN (unreachable).
+                if 'regime_age' in df_in.columns:
+                    df_in['regime_age_signal'] = df_in['regime_age']
+                    df_in['regime_age_fill']   = df_in['regime_age'].shift(-1)
+
+                # Cross-regime-flip probe (2026-04-14): expose next-bar regime_id
+                # at check_entry so a filter can decide whether the fill bar lands
+                # in a different regime than the signal bar. FILTER-ONLY — never
+                # consume as a signal/indicator input (would introduce lookahead).
+                if 'regime_id' in df_in.columns:
+                    df_in['regime_id_fill'] = df_in['regime_id'].shift(-1)
+
+                # v1.5.6: exec-TF clock probe.
+                # regime_age (above) is HTF-quantized (broadcast from 4H etc),
+                # so multiple exec bars share the same value. Derive a separate
+                # exec-TF counter that increments per exec bar within a regime
+                # and resets when regime_id flips (on exec TF).
+                if 'regime_id' in df_in.columns:
+                    _rid = df_in['regime_id']
+                    df_in['regime_age_exec'] = (
+                        df_in.groupby((_rid != _rid.shift()).cumsum()).cumcount()
+                    )
+
                 return df_in
             strategy.prepare_indicators = patched_prepare
 
             # Initial merge for any logic that runs before the loop
             df = pd.merge_asof(
-                df.sort_index(), 
-                df_regime[available_fields].sort_index(), 
+                df.sort_index(),
+                df_regime[available_fields].sort_index(),
                 left_index=True,
                 right_index=True,
                 direction='backward',
                 allow_exact_matches=True
             )
+            # Mirror the dual-time derivation on the pre-loop df so any code
+            # that consumes df before check_entry sees the same columns.
+            if 'regime_age' in df.columns:
+                df['regime_age_signal'] = df['regime_age']
+                df['regime_age_fill']   = df['regime_age'].shift(-1)
+            # Cross-regime-flip probe: pre-loop mirror of regime_id_fill shift.
+            if 'regime_id' in df.columns:
+                df['regime_id_fill'] = df['regime_id'].shift(-1)
+            # v1.5.6 exec-TF clock probe (pre-loop mirror of patched_prepare).
+            if 'regime_id' in df.columns:
+                _rid = df['regime_id']
+                df['regime_age_exec'] = (
+                    df.groupby((_rid != _rid.shift()).cumsum()).cumcount()
+                )
             # -----------------------------------
             
             # Exec

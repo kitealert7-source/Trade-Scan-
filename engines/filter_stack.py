@@ -90,10 +90,59 @@ class FilterStack:
         #   2. exclude_min / exclude_max: contiguous exclusion range (legacy)
         raf = self.signature.get("regime_age_filter", {})
         if raf.get("enabled", False):
-            try:
-                actual_age = ctx.require("regime_age")
-            except Exception:
-                actual_age = None
+            # One-shot telemetry: log mode on first activation of the filter.
+            if not getattr(self, "_raf_logged", False):
+                print(f"[REGIME_FILTER] active | mode={raf.get('mode', 'signal')} | "
+                      f"allowed={raf.get('allowed_values')} | "
+                      f"exclude=[{raf.get('exclude_min')},{raf.get('exclude_max')}]")
+                self._raf_logged = True
+            # v1.5.5: mode selects which regime_age view the filter operates on.
+            #   "signal" (default): current bar's regime_age — the state the
+            #     strategy saw at decision time. Backward-compatible behavior.
+            #   "fill": next-bar regime_age (signal-row-anchored, from
+            #     regime_age.shift(-1)) — the state at which the trade will
+            #     actually fill under next_bar_open.
+            # Absence defaults to "signal". No inference; anything else is a
+            # governance abort — callers must be explicit.
+            raf_mode = raf.get("mode", "signal")
+            if raf_mode not in ("signal", "fill"):
+                raise RuntimeError(
+                    f"ABORT_GOVERNANCE: regime_age_filter.mode must be "
+                    f"'signal' or 'fill', got '{raf_mode}'."
+                )
+            age_key = "regime_age_signal" if raf_mode == "signal" else "regime_age_fill"
+            # Prefer .get() over .require(): NaN at this bar is a legitimate
+            # data state (last bar of dataset has regime_age_fill == NaN since
+            # it's shift(-1) — the signal there could not possibly fill under
+            # next_bar_open). Distinguish "column not in ctx at all" (hard
+            # error, v1.5.5+ contract violation) from "value is NaN at this
+            # bar" (graceful rejection under fill-mode, fall-through under
+            # signal-mode for legacy compat).
+            actual_age = ctx.get(age_key)
+            col_present = hasattr(ctx, "_ns") and (
+                age_key in ("regime_age_signal", "regime_age_fill")
+            )
+            if actual_age is None:
+                # Check whether the underlying dataframe even carries the column.
+                row_obj = getattr(getattr(ctx, "_ns", None), "row", None)
+                has_col = hasattr(row_obj, "index") and age_key in row_obj.index
+                if not has_col:
+                    if raf_mode == "signal":
+                        # Legacy pre-v1.5.5: fall through to flat regime_age.
+                        actual_age = ctx.get("regime_age")
+                    else:
+                        raise RuntimeError(
+                            "regime_age_filter.mode='fill' requires engine "
+                            "v1.5.5+ (regime_age_fill column missing from ctx)."
+                        )
+                # else: column present but value is NaN at this bar.
+                # Under fill-mode, NaN means unknowable fill age → reject
+                # (signal cannot be validated against the fill-age gate).
+                # Under signal-mode, NaN preserves legacy behavior (pass).
+                elif raf_mode == "fill":
+                    self.filter_counts["regime_age_filter"] = self.filter_counts.get("regime_age_filter", 0) + 1
+                    self.filtered_bars += 1
+                    return False
 
             allowed = raf.get("allowed_values")
             if allowed is not None and (raf.get("exclude_min") is not None or raf.get("exclude_max") is not None):

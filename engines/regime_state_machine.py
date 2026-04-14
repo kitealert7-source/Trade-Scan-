@@ -183,8 +183,11 @@ def apply_regime_model(df: pd.DataFrame, resample_freq: str = "1D",
         _first = df[_ohlc_cols].iloc[0].values
         _last = df[_ohlc_cols].iloc[-1].values
         _boundary = f"|{_first.tobytes().hex()}|{_last.tobytes().hex()}"
+    # Schema version tag — bump whenever we add/change regime columns so stale
+    # pre-fix caches are naturally ignored. v2 adds regime_age_signal/fill.
+    _schema_ver = "v2"
     cache_key = hashlib.md5(
-        f"{symbol_hint}|{last_ts}|{len(df)}|{resample_freq}{_boundary}".encode()
+        f"{symbol_hint}|{last_ts}|{len(df)}|{resample_freq}|{_schema_ver}{_boundary}".encode()
     ).hexdigest()
     cache_path = REGIME_CACHE_DIR / f"{cache_key}.parquet"
 
@@ -297,12 +300,50 @@ def apply_regime_model(df: pd.DataFrame, resample_freq: str = "1D",
     df['regime_age'] = regime_ages
     df['regime_transition'] = regime_transitions
 
+    # --- REGIME-AGE ALIGNMENT FIELDS (v1.5.5 alignment fix) ---
+    # Two explicit coordinate views of the same integer series:
+    #   regime_age_signal  = regime age as seen at signal bar N (the decision)
+    #   regime_age_fill    = regime age as seen at fill bar N+1 (the evaluation)
+    # The engine uses next_bar_open fills, so the fill bar is always the bar
+    # immediately following the signal bar: fill = signal.shift(-1).
+    #
+    # This resolves the historical misalignment where strategy filters gated
+    # on signal-bar regime_age while trade reports classified on fill-bar
+    # regime_age, causing Age=0 exclusion filters to never match the AK
+    # report's Age breakdown by exactly one bar. See directives 46_P02/P03.
+    #
+    # Lookahead safety:
+    #   regime_age_fill is NEVER consulted inside check_entry() at bar N
+    #   unless the strategy explicitly opts in via regime_age_filter.mode=fill,
+    #   which is a research-mode classification pass, not a live decision.
+    df['regime_age_signal'] = df['regime_age']
+    df['regime_age_fill']   = df['regime_age'].shift(-1)
+    # Tail handling: the last bar has no N+1 fill bar — shift(-1) leaves NaN.
+    # This is the correct "invalid/unreachable" marker. The engine emits no
+    # trade at the final bar (no next-bar-open to fill on), so any filter or
+    # report touching regime_age_fill at the last bar is moot. Downstream
+    # consumers must treat NaN as "no fill reachable" and skip.
+
+    # --- ALIGNMENT INVARIANT (runs once per dataset) ---
+    # Positional check, tail excluded: for every bar i in [0, N-2],
+    # regime_age_fill[i] must equal regime_age_signal[i+1].
+    # Fail fast — any drift here silently breaks every downstream bucket
+    # analysis. Uses .to_numpy() to force positional (not index-aligned) eq.
+    _fill_body   = df['regime_age_fill'].iloc[:-1].to_numpy()
+    _signal_next = df['regime_age_signal'].iloc[1:].to_numpy()
+    if not (_fill_body == _signal_next).all():
+        n_bad = int((_fill_body != _signal_next).sum())
+        raise RuntimeError(
+            f"REGIME_FIELD_CHECK: regime_age_fill[i] != regime_age_signal[i+1] "
+            f"at {n_bad} bars. Signal/fill alignment broken — aborting."
+        )
+
     # --- STRUCTURAL INTEGRITY ENFORCEMENT ---
     # Confirm exactly one regime state per bar (no nulls/NAs)
     if not df["regime_id"].notnull().all():
         missing_bars = len(df) - df["regime_id"].count()
         raise RuntimeError(f"REGIME_CONTRACT_VIOLATION: {missing_bars} bars missing regime_id.")
-    
+
     if not df["market_regime"].notnull().all():
         raise RuntimeError("REGIME_CONTRACT_VIOLATION: market_regime contains nulls.")
 

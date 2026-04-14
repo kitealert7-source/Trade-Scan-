@@ -213,10 +213,10 @@ def get_canonical_hash(parsed_data: dict) -> str:
 def get_engine_version(engine_path=None):
     """
     Dynamically import engine module and read __version__.
-    Default path: engine_dev/universal_research_engine/v1_5_4/main.py
+    Default path: engine_dev/universal_research_engine/v1_5_6/main.py
     """
     if not engine_path:
-        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_4/main.py"
+        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_6/main.py"
         
     if not engine_path.exists():
         raise RuntimeError(f"Engine main.py not found at {engine_path}")
