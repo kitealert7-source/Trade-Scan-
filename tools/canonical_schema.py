@@ -89,6 +89,19 @@ ALLOWED_NESTED_KEYS = {
         "timeframe", "session_time_reference", "start_date",
         "end_date", "research_mode", "tuning_allowed",
         "parameter_mutation", "description", "notes",
+        # Structured override for Stage -0.20 Idea Gate. Allowed ONLY when
+        # the directive represents a genuine semantic shift (signal
+        # definition change, data regime change, structural model change)
+        # that renders prior REPEAT_FAILED runs semantically stale.
+        # NOT for parameter tweaks, casual retries, or low-PF retries.
+        # Minimum 50 chars. Logged to governance/idea_gate_overrides.csv.
+        "repeat_override_reason",
+        # User-declared signal-primitive version (integer). Increments when
+        # the underlying signal definition changes (e.g. CHOCH_V2 -> V3).
+        # Phase 2 will wire this into the Idea Gate as part of the repeat key
+        # (MODEL + ASSET + SIGNAL_VERSION). In Phase 1 it is accepted and
+        # flows into the signature hash only.
+        "signal_version",
     },
     "execution_rules": {
         "entry_logic", "exit_logic", "stop_loss",
@@ -185,10 +198,10 @@ ALLOWED_SUB_KEYS = {
 # === CANONICAL KEY ORDER (for deterministic serialization) ===
 CANONICAL_KEY_ORDER = {
     "test": [
-        "name", "family", "strategy", "version", "broker",
+        "name", "family", "strategy", "version", "signal_version", "broker",
         "timeframe", "session_time_reference", "start_date", "end_date",
         "research_mode", "tuning_allowed", "parameter_mutation",
-        "description", "notes",
+        "description", "notes", "repeat_override_reason",
     ],
     "execution_rules": [
         "pyramiding", "entry_when_flat_only", "reset_on_exit",

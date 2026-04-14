@@ -113,6 +113,77 @@ def classify_asset(identifier: str) -> str:
     return "FX"
 
 
+class MixedAssetClassError(ValueError):
+    """Raised when a symbol set spans more than one asset class."""
+
+
+class UnknownSymbolError(ValueError):
+    """Raised when a symbol cannot be confidently classified (fail-loud mode)."""
+
+
+def infer_asset_class_from_symbols(
+    symbols: list[str],
+    *,
+    strict_unknown: bool = True,
+) -> str:
+    """Return the single asset class for a symbol list.
+
+    Used by the Idea Gate (MODEL + ASSET_CLASS filter) and the admission
+    single-asset enforcement stage.
+
+    Rules:
+      - Empty list → ValueError.
+      - All symbols map to the same class → return that class.
+      - Symbols span >1 class → MixedAssetClassError.
+      - strict_unknown=True: any symbol that falls back to the default "FX"
+        class via classify_asset() — but that is NOT in _SYMBOL_TO_CLASS nor
+        matches _PREFIX_TO_CLASS nor is a recognised 6-char FX pair — raises
+        UnknownSymbolError.
+
+    The "recognised FX pair" heuristic: a 6-character uppercase alpha symbol
+    (e.g. USDJPY, EURUSD) is assumed forex. This matches how the broader
+    system has always treated raw FX symbols.
+    """
+    if not symbols:
+        raise ValueError("infer_asset_class_from_symbols: empty symbol list")
+
+    classes: set[str] = set()
+    for sym in symbols:
+        token = str(sym).strip().upper()
+        if not token:
+            continue
+        cls = _SYMBOL_TO_CLASS.get(token)
+        if cls is None:
+            for prefix, pcls in _PREFIX_TO_CLASS.items():
+                if token.startswith(prefix):
+                    cls = pcls
+                    break
+        if cls is None:
+            # Fallback: recognised 6-char alpha FX pair.
+            if len(token) == 6 and token.isalpha():
+                cls = "FX"
+            elif strict_unknown:
+                raise UnknownSymbolError(
+                    f"Symbol '{sym}' is not classifiable. Extend "
+                    f"_SYMBOL_TO_CLASS / _PREFIX_TO_CLASS in "
+                    f"config/asset_classification.py, or supply strict_unknown=False."
+                )
+            else:
+                cls = "FX"
+        classes.add(cls)
+
+    if len(classes) == 0:
+        raise ValueError(
+            "infer_asset_class_from_symbols: all symbols were blank/empty"
+        )
+    if len(classes) > 1:
+        raise MixedAssetClassError(
+            f"Symbol set spans {len(classes)} asset classes: "
+            f"{sorted(classes)} from symbols={list(symbols)}"
+        )
+    return next(iter(classes))
+
+
 def classify_asset_series(symbols: "pd.Series") -> "pd.Series":
     """Vectorized asset classification for a pandas Series of symbol strings.
 

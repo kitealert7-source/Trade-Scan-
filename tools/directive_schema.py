@@ -14,11 +14,18 @@ SIGNATURE_SCHEMA_VERSION = 2
 
 # Keys excluded from signature construction.
 # Everything NOT in this set becomes part of the strategy signature.
+#
+# NOTE: `parse_directive` (tools/pipeline_utils.py) hoists all `test:` sub-keys
+# to the root dict for backward-compatible access. That means *every* prose /
+# identity field inside `test:` must ALSO be listed here, or it will leak into
+# the signature hash and cause spurious hash drift. `repeat_override_reason`
+# in particular is free-form prose and MUST NOT participate in the hash.
 NON_SIGNATURE_KEYS = frozenset({
     "test", "backtest", "description", "notes", "symbols",
     "name", "family", "strategy", "broker", "timeframe",
     "session_time_reference", "start_date", "end_date",
     "research_mode", "tuning_allowed", "parameter_mutation",
+    "repeat_override_reason",
 })
 
 # Minimal required signature keys (hard abort if missing)

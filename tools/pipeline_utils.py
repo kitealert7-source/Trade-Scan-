@@ -153,6 +153,33 @@ def parse_directive(file_path: Path) -> dict:
 
     data = _stringify_dates(data)
 
+    # Normalize common non-ASCII punctuation in string values recursively.
+    # Em-dash / en-dash / curly quotes / NBSP / ellipsis sneak in when users
+    # paste from word processors or chat clients. Left intact they break
+    # downstream regex-based strategy.py signature updates and create noise
+    # in the signature hash. Normalize once, at the parse boundary.
+    _UNICODE_TR = {
+        "\u2014": "--", "\u2013": "--",        # em-dash, en-dash
+        "\u2018": "'",  "\u2019": "'",         # curly single quotes
+        "\u201C": '"',  "\u201D": '"',         # curly double quotes
+        "\u00A0": " ",                          # non-breaking space
+        "\u2026": "...",                        # ellipsis
+    }
+
+    def _normalize_unicode(obj):
+        if isinstance(obj, str):
+            if any(c in obj for c in _UNICODE_TR):
+                for src, dst in _UNICODE_TR.items():
+                    obj = obj.replace(src, dst)
+            return obj
+        if isinstance(obj, dict):
+            return {k: _normalize_unicode(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_normalize_unicode(i) for i in obj]
+        return obj
+
+    data = _normalize_unicode(data)
+
     # STRICT: test: wrapper is mandatory (flat directives no longer supported)
     if "test" not in data:
         raise ValueError(

@@ -44,6 +44,44 @@ PORTFOLIO_PATH = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
 CANDIDATE_PATH = CANDIDATES_DIR / "Filtered_Strategies_Passed.xlsx"
 OUTPUT_PATH    = STATE_ROOT / "research" / "run_summary.csv"
 
+# Authoritative strategy sources live in the repo (Trade_Scan/strategies/<id>/strategy.py).
+# Snapshots in TradeScan_State/runs/<RUN_ID>/strategy.py are frozen copies but carry
+# the same signal_version. For summary-level rollup we read from the live repo path.
+REPO_STRATEGIES_DIR = PROJECT_ROOT / "strategies"
+
+
+# ---------------------------------------------------------------------------
+# Signal-version lookup (Phase 2)
+# ---------------------------------------------------------------------------
+_SIGNAL_VERSION_CACHE: dict[str, int] = {}
+import re as _re
+_SIGNAL_VERSION_RE = _re.compile(r'"signal_version"\s*:\s*(\d+)')
+
+
+def _lookup_signal_version(strategy_id: str) -> int:
+    """Read signal_version from strategies/<id>/strategy.py STRATEGY_SIGNATURE.
+
+    Missing file / missing field / parse failure all fall back to 1 (legacy).
+    Result is memoized per strategy_id.
+    """
+    if not strategy_id:
+        return 1
+    if strategy_id in _SIGNAL_VERSION_CACHE:
+        return _SIGNAL_VERSION_CACHE[strategy_id]
+    path = REPO_STRATEGIES_DIR / strategy_id / "strategy.py"
+    if not path.exists():
+        _SIGNAL_VERSION_CACHE[strategy_id] = 1
+        return 1
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        _SIGNAL_VERSION_CACHE[strategy_id] = 1
+        return 1
+    m = _SIGNAL_VERSION_RE.search(text)
+    sv = int(m.group(1)) if m else 1
+    _SIGNAL_VERSION_CACHE[strategy_id] = sv
+    return sv
+
 
 # ---------------------------------------------------------------------------
 # Loaders
@@ -238,9 +276,17 @@ def generate(quiet: bool = False) -> Path:
     if not df_cand.empty and "run_id" in df_cand.columns:
         df = df.merge(df_cand, on="run_id", how="left")
 
+    # --- Attach signal_version (Phase 2 additive column) ---
+    # Read STRATEGY_SIGNATURE["signal_version"] from the live strategy.py for
+    # each strategy_id. Missing file or missing field -> 1 (legacy default).
+    if "strategy_id" in df.columns:
+        df["signal_version"] = df["strategy_id"].map(
+            lambda sid: _lookup_signal_version(str(sid)) if pd.notna(sid) else 1
+        )
+
     # Order columns for readability
     priority_cols = [
-        "run_id", "strategy_id", "status", "tier",
+        "run_id", "strategy_id", "signal_version", "status", "tier",
         "symbol_count", "symbols", "timeframe",
         "total_trades", "net_pnl_usd", "avg_profit_factor",
         "avg_win_rate", "max_drawdown_pct",

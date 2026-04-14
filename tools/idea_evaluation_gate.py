@@ -33,6 +33,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.pipeline_utils import parse_directive
 from config.state_paths import MASTER_FILTER_PATH, STATE_ROOT, REGISTRY_DIR
+from config.asset_classification import (
+    classify_asset,
+    infer_asset_class_from_symbols,
+    parse_strategy_name,
+    MixedAssetClassError,
+    UnknownSymbolError,
+)
 
 # Data source paths
 RUN_SUMMARY_PATH = STATE_ROOT / "research" / "run_summary.csv"
@@ -108,26 +115,52 @@ def evaluate_idea(directive_path: str | Path) -> dict[str, Any]:
     idea_id = m.group("idea_id")
     strategy_type = _STRATEGY_TYPE_MAP.get(family, "unknown")
 
-    # --- Step 1: Search all data sources ---
+    # --- Determine directive asset class (MODEL + ASSET_CLASS filter) ---
+    # PORT family is exempt — portfolio strategies intentionally span classes.
+    asset_class: str | None = None
+    if family != "PORT":
+        symbols_list = config.get("symbols") or []
+        try:
+            asset_class = infer_asset_class_from_symbols([str(s) for s in symbols_list])
+        except (MixedAssetClassError, UnknownSymbolError, ValueError):
+            # Gate is non-blocking on internal errors; single-asset enforcement
+            # is the admission controller's job. Fall back to symbol-token-based
+            # class from the strategy name.
+            asset_class = classify_asset(strategy_name)
+
+    # --- Determine directive signal_version (Phase 2 gate key extension) ---
+    # User-declared integer identifying the signal-primitive generation.
+    # Missing / legacy directives default to 1. The gate filters prior runs
+    # by this field so that e.g. CHOCH_V3 (sv=3) is not blocked by legacy
+    # CHOCH_V1/V2 (sv=1) failures. The column is additive - if a data source
+    # lacks it, rows are treated as sv=1.
+    try:
+        signal_version = int(config.get("signal_version") or 1)
+    except (TypeError, ValueError):
+        signal_version = 1
+
+    # --- Step 1: Search all data sources (filtered by asset_class + signal_version) ---
     # Primary: run_summary.csv (pre-joined: PF, trades, verdict, status — one CSV read)
-    summary_matches = _search_run_summary(model, timeframe)
+    summary_matches = _search_run_summary(model, timeframe, asset_class, signal_version)
 
     # Supplementary: hypothesis_log.json (structured ACCEPT/REJECT decisions)
-    hyp_matches = _search_hypothesis_log(model, idea_id)
+    hyp_matches = _search_hypothesis_log(model, idea_id, asset_class, signal_version)
 
     # Qualitative: RESEARCH_MEMORY (failure tags, exhausted concepts)
-    rm_matches = _search_research_memory(model, timeframe, idea_id)
+    # Note: concept-level entries without Strategy: line remain global (by design).
+    rm_matches = _search_research_memory(model, timeframe, idea_id, asset_class, signal_version)
 
     # Fallback: Master Filter (only if run_summary.csv absent)
     mf_matches: list[dict[str, Any]] = []
     if not summary_matches:
-        mf_matches = _search_master_filter(model, timeframe)
+        mf_matches = _search_master_filter(model, timeframe, asset_class, signal_version)
 
     total_matches = len(summary_matches) + len(hyp_matches) + len(rm_matches) + len(mf_matches)
 
     if total_matches == 0:
+        ac_note = f" ASSET_CLASS={asset_class}" if asset_class else ""
         return _result("NEW", "HIGH", 0,
-                       f"No prior runs found for MODEL={model} TF={timeframe}. Novel concept.",
+                       f"No prior runs found for MODEL={model} TF={timeframe}{ac_note}. Novel concept.",
                        [], "PROCEED")
 
     # --- Step 2: Build examples and aggregate metrics ---
@@ -286,13 +319,60 @@ def evaluate_idea(directive_path: str | Path) -> dict[str, Any]:
 # Data source 1: run_summary.csv (pre-joined — primary)
 # ---------------------------------------------------------------------------
 
-def _search_run_summary(model: str, timeframe: str) -> list[dict[str, Any]]:
+def _row_asset_class(row: dict[str, Any], strategy_id: str) -> str:
+    """Derive asset class for a run_summary row.
+
+    Uses symbols column first; falls back to the SYMBOL token in strategy_id.
+    Returns "FX" on any failure (safe default — aligns with legacy behavior).
+    """
+    symbols_field = str(row.get("symbols", "") or "").strip()
+    if symbols_field and symbols_field.lower() != "nan":
+        syms = [s.strip() for s in symbols_field.split(",") if s.strip()]
+        if syms:
+            try:
+                return infer_asset_class_from_symbols(syms, strict_unknown=False)
+            except (MixedAssetClassError, ValueError):
+                pass
+    return classify_asset(strategy_id)
+
+
+def _row_signal_version(row: Any) -> int:
+    """Read signal_version from a run_summary row. Missing/blank -> 1 (legacy).
+
+    Accepts pandas Series or plain dict.
+    """
+    val = row.get("signal_version") if hasattr(row, "get") else None
+    if val is None:
+        return 1
+    try:
+        import math
+        if isinstance(val, float) and math.isnan(val):
+            return 1
+    except Exception:
+        pass
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _search_run_summary(
+    model: str, timeframe: str, asset_class: str | None = None,
+    signal_version: int | None = None,
+) -> list[dict[str, Any]]:
     """Find rows in run_summary.csv whose strategy_id matches MODEL token.
+
+    If asset_class is provided, additionally filter to rows whose derived
+    asset class matches (MODEL + ASSET_CLASS gate).
+
+    If signal_version is provided, rows whose signal_version differs are
+    excluded (legacy rows without the column are treated as sv=1).
 
     run_summary.csv columns: run_id, strategy_id, status, tier, symbol_count,
     symbols, timeframe, total_trades, net_pnl_usd, avg_profit_factor,
     avg_win_rate, max_drawdown_pct, portfolio_verdict, portfolio_pf,
-    portfolio_sharpe, candidate_status, in_portfolio, risk_profile, ...
+    portfolio_sharpe, candidate_status, in_portfolio, risk_profile,
+    signal_version (Phase 2, additive).
     """
     if not RUN_SUMMARY_PATH.exists():
         return []
@@ -308,8 +388,16 @@ def _search_run_summary(model: str, timeframe: str) -> list[dict[str, Any]]:
         m = NAME_PATTERN.match(sid)
         if not m:
             continue
-        if m.group("model") == model:
-            matches.append({
+        if m.group("model") != model:
+            continue
+        if asset_class is not None:
+            row_ac = _row_asset_class(row, sid)
+            if row_ac != asset_class:
+                continue
+        if signal_version is not None:
+            if _row_signal_version(row) != signal_version:
+                continue
+        matches.append({
                 "run_id": str(row.get("run_id", "")),
                 "strategy_id": sid,
                 "status": str(row.get("status", "")),
@@ -332,8 +420,15 @@ def _search_run_summary(model: str, timeframe: str) -> list[dict[str, Any]]:
 # Data source 2: hypothesis_log.json (structured hypothesis test results)
 # ---------------------------------------------------------------------------
 
-def _search_hypothesis_log(model: str, idea_id: str) -> list[dict[str, Any]]:
+def _search_hypothesis_log(
+    model: str, idea_id: str, asset_class: str | None = None,
+    signal_version: int | None = None,
+) -> list[dict[str, Any]]:
     """Find hypothesis test entries for matching MODEL/idea in hypothesis_log.json.
+
+    If asset_class is provided, filter entries whose strategy's inferred asset
+    class matches. If signal_version is provided, entries whose
+    'signal_version' field differs are excluded (missing -> 1).
 
     Each entry has: strategy, hypothesis, decision (ACCEPT/REJECT/SKIP),
     baseline_metrics, pass_metrics, rejection_reason.
@@ -355,16 +450,28 @@ def _search_hypothesis_log(model: str, idea_id: str) -> list[dict[str, Any]]:
         m = NAME_PATTERN.match(strategy)
         if not m:
             continue
-        if m.group("model") == model or m.group("idea_id") == idea_id:
-            result = entry.get("result") or entry.get("pass_metrics") or {}
-            matches.append({
-                "strategy": strategy,
-                "hypothesis": str(entry.get("hypothesis", "")),
-                "decision": str(entry.get("decision", entry.get("stage", ""))),
-                "pf": result.get("pf") or result.get("profit_factor"),
-                "rejection_reason": str(entry.get("rejection_reason", "") or ""),
-                "timestamp": str(entry.get("timestamp", "")),
-            })
+        if m.group("model") != model and m.group("idea_id") != idea_id:
+            continue
+        if asset_class is not None:
+            if classify_asset(strategy) != asset_class:
+                continue
+        if signal_version is not None:
+            entry_sv_raw = entry.get("signal_version", 1)
+            try:
+                entry_sv = int(entry_sv_raw) if entry_sv_raw is not None else 1
+            except (TypeError, ValueError):
+                entry_sv = 1
+            if entry_sv != signal_version:
+                continue
+        result = entry.get("result") or entry.get("pass_metrics") or {}
+        matches.append({
+            "strategy": strategy,
+            "hypothesis": str(entry.get("hypothesis", "")),
+            "decision": str(entry.get("decision", entry.get("stage", ""))),
+            "pf": result.get("pf") or result.get("profit_factor"),
+            "rejection_reason": str(entry.get("rejection_reason", "") or ""),
+            "timestamp": str(entry.get("timestamp", "")),
+        })
     return matches
 
 
@@ -395,10 +502,30 @@ def _load_research_entries_from_index() -> tuple[list[dict], int] | None:
         return None
 
 
+def _entry_asset_class(strategy_field: str) -> str | None:
+    """Infer asset class from a RESEARCH_MEMORY entry's Strategy: field.
+
+    Returns None when no parseable strategy name is present — such entries
+    are concept-level and remain global (intentional bias, see plan §3).
+    """
+    if not strategy_field:
+        return None
+    parsed = parse_strategy_name(strategy_field)
+    if parsed:
+        return parsed["asset_class"]
+    return None
+
+
 def _search_research_memory(
     model: str, timeframe: str, idea_id: str,
+    asset_class: str | None = None,
+    signal_version: int | None = None,
 ) -> list[dict[str, Any]]:
     """Scan RESEARCH_MEMORY for entries mentioning the MODEL or idea family.
+
+    If asset_class is provided, filter entries whose Strategy: field resolves
+    to a different asset class. Entries without a parseable Strategy: field
+    remain global (concept-level, apply across asset classes).
 
     Reads from JSON index if available; falls back to parsing markdown.
     Propagates parse_warnings count via _rm_parse_warnings module-level variable.
@@ -421,6 +548,14 @@ def _search_research_memory(
             family_match = f"_{idea_id}_" in strategy_field
 
             if model_in_strategy or model_in_tags or family_match:
+                # Asset-class filter: skip entries whose parseable Strategy:
+                # field resolves to a different asset class. Concept-level
+                # entries (no parseable strategy) remain global.
+                if asset_class is not None:
+                    entry_ac = _entry_asset_class(strategy_field)
+                    if entry_ac is not None and entry_ac != asset_class:
+                        continue
+
                 body = entry.get("body", "")
                 finding = body[:200].replace("\n", " ").strip()
                 if len(body) > 200:
@@ -456,6 +591,14 @@ def _search_research_memory(
             family_match = f"_{idea_id}_" in strategy_field
 
             if model_in_strategy or model_in_tags or family_match:
+                # Asset-class filter: skip entries whose parseable Strategy:
+                # field resolves to a different asset class. Concept-level
+                # entries (no parseable strategy) remain global.
+                if asset_class is not None:
+                    entry_ac = _entry_asset_class(strategy_field)
+                    if entry_ac is not None and entry_ac != asset_class:
+                        continue
+
                 body = entry.get("body", "")
                 finding = body[:200].replace("\n", " ").strip()
                 if len(body) > 200:
@@ -554,8 +697,18 @@ def _parse_research_entries_legacy(text: str) -> list[dict[str, str]]:
 # Fallback: Strategy_Master_Filter.xlsx
 # ---------------------------------------------------------------------------
 
-def _search_master_filter(model: str, timeframe: str) -> list[dict[str, Any]]:
-    """Fallback: only used if run_summary.csv doesn't exist."""
+def _search_master_filter(
+    model: str,
+    timeframe: str,
+    asset_class: str | None = None,
+    signal_version: int | None = None,
+) -> list[dict[str, Any]]:
+    """Fallback: only used if run_summary.csv doesn't exist.
+
+    If signal_version is provided, rows without a matching signal_version
+    column (or with a differing value) are excluded. Legacy rows without
+    the column are treated as sv=1.
+    """
     try:
         from tools.ledger_db import read_master_filter
         df = read_master_filter()
@@ -571,6 +724,13 @@ def _search_master_filter(model: str, timeframe: str) -> list[dict[str, Any]]:
         if not m:
             continue
         if m.group("model") == model:
+            if asset_class is not None:
+                row_ac = _row_asset_class(row, sid)
+                if row_ac != asset_class:
+                    continue
+            if signal_version is not None:
+                if _row_signal_version(row) != signal_version:
+                    continue
             matches.append({
                 "strategy": sid,
                 "profit_factor": _safe_float(row.get("profit_factor")),
