@@ -33,6 +33,10 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "zscore_synthetic"
+PIVOT_SOURCE = "none"
+
 
 # =============================================================================
 # GOVERNANCE: External Dependency Isolation

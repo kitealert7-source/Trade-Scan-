@@ -8,6 +8,10 @@ a price extreme.
 import pandas as pd
 from indicators.momentum.rsi import rsi as compute_rsi
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "rsi_extreme_band"
+PIVOT_SOURCE = "none"
+
 
 def rsi_extremes(
     series: pd.Series,

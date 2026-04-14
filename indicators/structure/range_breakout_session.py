@@ -21,6 +21,10 @@ Index:
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "session_range_breakout"
+PIVOT_SOURCE = "none"
+
 
 def session_range_structure(
     df: pd.DataFrame,

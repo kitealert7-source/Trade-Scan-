@@ -16,6 +16,10 @@ v1.5.4: Added resample_freq parameter (was hardcoded to '1D').
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "linear_regression_slope_htf"
+PIVOT_SOURCE = "none"
+
 
 def linreg_regime_htf(series_or_df, window: int = 50, resample_freq: str = "1D") -> pd.DataFrame:
     """

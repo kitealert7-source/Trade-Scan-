@@ -27,6 +27,10 @@ import pandas as pd
 from indicators.structure.highest_high import highest_high
 from indicators.structure.lowest_low import lowest_low
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "rolling_max_proxy"
+PIVOT_SOURCE = "none"
+
 # ---------------------------------------------------------------------------
 # Fixed parameters — must match source strategy; do not modify
 # ---------------------------------------------------------------------------
@@ -92,9 +96,27 @@ def compute_choch_state(df: pd.DataFrame) -> pd.DataFrame:
     bullish = (df['lh_streak'] >= _MIN_SWINGS) & (df['close'] > df['swing_high'])
     bearish = (df['hl_streak'] >= _MIN_SWINGS) & (df['close'] < df['swing_low'])
 
-    df['choch_event'] = np.where(bullish, 1, np.where(bearish, -1, 0)).astype(int)
+    choch_raw = np.where(bullish, 1, np.where(bearish, -1, 0)).astype(int)
+
+    # First-break filter (edge-triggered): only the first bar of a new break prints.
+    # Consecutive bars still beyond the swing level are suppressed.
+    choch_event = np.where(
+        (choch_raw != 0) & (pd.Series(choch_raw).shift(1).fillna(0).values == 0),
+        choch_raw,
+        0,
+    ).astype(int)
+
+    df['choch_event_raw'] = choch_raw
+    df['choch_event']     = choch_event
 
     return df
+
+
+# ---------------------------------------------------------------------------
+# Public alias — matches the module-tail convention used by the strategy
+# provisioner (from indicators.structure.choch import choch).
+# ---------------------------------------------------------------------------
+choch = compute_choch_state
 
 
 # ---------------------------------------------------------------------------

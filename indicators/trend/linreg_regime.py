@@ -6,6 +6,10 @@ Linear Regression Regime — Vectorized implementation
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "linear_regression_slope"
+PIVOT_SOURCE = "none"
+
 
 def linreg_regime(series: pd.Series,
                   window: int = 50) -> pd.DataFrame:

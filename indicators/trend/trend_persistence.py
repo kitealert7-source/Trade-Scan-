@@ -6,6 +6,10 @@ Trend Persistence — Vectorized implementation
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "trend_persistence_count"
+PIVOT_SOURCE = "none"
+
 
 def trend_persistence(series: pd.Series,
                       window: int = 20,

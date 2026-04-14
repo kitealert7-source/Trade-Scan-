@@ -1,6 +1,10 @@
 
 import pandas as pd
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "rolling_max"
+PIVOT_SOURCE = "none"
+
 def highest_high(series: pd.Series, window: int, shift: int = 0) -> pd.Series:
     """
     Calculate Highest High over a rolling window.

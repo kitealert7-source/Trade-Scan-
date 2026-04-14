@@ -10,6 +10,10 @@ Column Naming:
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "kalman_filter_slope"
+PIVOT_SOURCE = "none"
+
 
 def kalman_regime(df, price_col=None,
                   process_var=1e-5,

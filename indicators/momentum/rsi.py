@@ -5,6 +5,10 @@ Pure math implementation using pandas.
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "rsi_threshold"
+PIVOT_SOURCE = "none"
+
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     """
     Calculate Relative Strength Index (RSI) using Wilder's Smoothing.

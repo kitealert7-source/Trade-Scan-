@@ -6,6 +6,10 @@ Efficiency Ratio Regime — Correct and optimized implementation
 import numpy as np
 import pandas as pd
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "kaufman_efficiency_ratio"
+PIVOT_SOURCE = "none"
+
 
 def efficiency_ratio_regime(series: pd.Series,
                             window: int = 20,

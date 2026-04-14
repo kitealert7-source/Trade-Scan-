@@ -1,5 +1,9 @@
 import pandas as pd
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "rolling_range_mean"
+PIVOT_SOURCE = "none"
+
 
 def avg_range(df: pd.DataFrame, window: int = 5, min_periods: int = 3) -> pd.Series:
     """

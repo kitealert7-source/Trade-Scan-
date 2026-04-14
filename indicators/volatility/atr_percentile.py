@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "atr_rolling_percentile"
+PIVOT_SOURCE = "none"
+
 
 def atr_percentile(
     atr_series: pd.Series,

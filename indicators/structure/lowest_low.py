@@ -1,6 +1,10 @@
 
 import pandas as pd
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "rolling_min"
+PIVOT_SOURCE = "none"
+
 def lowest_low(series: pd.Series, window: int, shift: int = 0) -> pd.Series:
     """
     Calculate Lowest Low over a rolling window.

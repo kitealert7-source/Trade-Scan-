@@ -13,6 +13,10 @@ Rolling-based. No lookahead.
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "atr_percentile_regime"
+PIVOT_SOURCE = "none"
+
 
 def volatility_regime(
     atr_series: pd.Series,

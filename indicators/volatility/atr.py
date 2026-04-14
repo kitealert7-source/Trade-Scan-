@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "wilder_rma_tr"
+PIVOT_SOURCE = "none"
+
 def atr(df: pd.DataFrame, window: int) -> pd.Series:
     """
     Calculate Average True Range (ATR) using Wilder's Smoothing (RMA).
