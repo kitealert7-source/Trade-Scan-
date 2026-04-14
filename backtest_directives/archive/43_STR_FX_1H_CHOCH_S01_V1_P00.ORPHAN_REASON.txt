@@ -1,0 +1,18 @@
+ORPHAN DIRECTIVE — Archived 2026-04-14
+
+Directive: 43_STR_FX_1H_CHOCH_S01_V1_P00
+Status at archive: INITIALIZED (never provisioned, no runs completed)
+Run stub: TradeScan_State/quarantine/runs/43_STR_FX_1H_CHOCH_S01_V1_P00_ORPHAN
+
+Reason:
+  Family 43's sweep registry S01 slot is occupied by 43_STR_FX_1H_CHOCH_S01_V2_P00
+  (hash fc0eb02ef5540f94, PORTFOLIO_COMPLETE). This V1 directive has no registry
+  slot and would collide on admission.
+
+  Canonical CHOCH_v1 coverage for the same (USDJPY, BTCUSD, 1H, SL 1.5xATR / TP 3xATR)
+  configuration lives in:
+    - 50_STR_FX_1H_CHOCH_S01_V1_P00  (USDJPY) — PORTFOLIO_COMPLETE 2026-04-14
+    - 51_STR_BTC_1H_CHOCH_S01_V1_P00 (BTCUSD) — PORTFOLIO_COMPLETE 2026-04-14
+  Both share signature hash 8a1f832683732807.
+
+  This file is retained for audit. Do not re-admit.
