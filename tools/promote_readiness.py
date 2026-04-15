@@ -29,10 +29,32 @@ from tools.promote_to_burnin import (
     decompose_portfolio,
 )
 from tools.pipeline_utils import find_run_id_for_directive
+from tools.baseline_freshness_gate import compute_baseline_age
 
 import openpyxl
 
 MPS_PATH = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
+
+
+def _check_freshness(strategy_id: str) -> tuple[str, int | None, bool]:
+    """Return (display, numeric_age, hard_fail).
+    Never aborts the dashboard; FAIL path returns marker string + hard_fail=True."""
+    try:
+        r = compute_baseline_age(strategy_id)
+    except Exception:
+        return "ERR", None, True
+    if r.status == "FAIL":
+        return "FAIL", None, True
+    if r.worst_age_days is None:
+        return "N/A", None, False
+    age = r.worst_age_days
+    if age > 14:
+        marker = f"{age}d!!"   # promote-to-burnin threshold breached
+    elif age > 7:
+        marker = f"{age}d!"    # tighter watermark (not enforced)
+    else:
+        marker = f"{age}d"
+    return marker, age, False
 
 
 def _check_strategy_py(strategy_id: str) -> tuple[str, str]:
@@ -174,12 +196,14 @@ def build_readiness_report(core_only: bool = False) -> list[dict]:
         dep_status, dep_detail = _check_deployable(sid)
         port_status, port_detail = _check_portfolio_yaml(sid, existing_ids)
         qg_status, qg_detail = _check_quality_gate(sid)
+        age_display, age_numeric, age_fail = _check_freshness(sid)
 
         ready = all([
             spy_status in ("OK", "OK(run)"),
             rid_status == "OK",
             qg_status in ("PASS", "WARN"),
             port_status == "not present",
+            not age_fail,
         ])
 
         report.append({
@@ -192,6 +216,8 @@ def build_readiness_report(core_only: bool = False) -> list[dict]:
                 "run_id": rid_status,
                 "deployable": dep_status,
                 "quality_gate": qg_status,
+                "baseline_age": age_display,
+                "baseline_age_numeric": age_numeric,
                 "portfolio_yaml": port_status,
             },
             "ready": ready,
@@ -218,6 +244,7 @@ def build_readiness_report(core_only: bool = False) -> list[dict]:
                     dep_s, _ = _check_deployable(csid)
                     qg_s, _ = _check_quality_gate(csid)
                     cp_status, _ = _check_portfolio_yaml(csid, existing_ids)
+                    age_s, _, _ = _check_freshness(csid)
                     seen[csid] = {
                         "strategy_id": csid,
                         "symbols": [],
@@ -226,6 +253,7 @@ def build_readiness_report(core_only: bool = False) -> list[dict]:
                             "run_id": rid_s,
                             "deployable": dep_s,
                             "quality_gate": qg_s,
+                            "baseline_age": age_s,
                             "portfolio_yaml": cp_status,
                         },
                     }
@@ -244,6 +272,7 @@ def build_readiness_report(core_only: bool = False) -> list[dict]:
                 "run_id": "N/A",
                 "deployable": "N/A",
                 "quality_gate": "N/A",
+                "baseline_age": "COMPOSITE",
                 "portfolio_yaml": port_status,
             },
             "ready": False,  # composites promoted via --composite
@@ -261,6 +290,7 @@ def print_report(report: list[dict]) -> None:
     report.sort(key=lambda r: (
         0 if r["classification"] == "CORE" else 1,
         0 if r["ready"] else 1,
+        -(r["checks"].get("baseline_age_numeric") or 0),
         r["strategy_id"],
     ))
 
@@ -273,7 +303,7 @@ def print_report(report: list[dict]) -> None:
     # Header
     hdr = (
         f"  {'Strategy':<52s}  {'Class':5s}  {'strategy.py':11s}  "
-        f"{'run_id':8s}  {'deploy':8s}  {'QG':6s}  {'portfolio':12s}"
+        f"{'run_id':8s}  {'deploy':8s}  {'QG':6s}  {'age':7s}  {'portfolio':12s}"
     )
     print(hdr)
     print(f"  {'-'*98}")
@@ -301,10 +331,11 @@ def print_report(report: list[dict]) -> None:
 
         ready_marker = ">>>" if entry["ready"] else "   "
 
+        age_display = c.get("baseline_age", "")
         print(
             f"{ready_marker}{display_id:<52s}  {cls:5s}  {c['strategy_py']:11s}  "
             f"{c['run_id']:8s}  {c['deployable']:8s}  {c['quality_gate']:6s}  "
-            f"{port_display:12s}"
+            f"{age_display:7s}  {port_display:12s}"
         )
 
         # Composite constituents

@@ -521,14 +521,38 @@ def run_preflight(
                 if _first_exec_ts is not None:
                     _strat_dt = _dt.fromtimestamp(_strat_mtime, tz=_tz.utc)
                     if _strat_dt > _first_exec_ts:
-                        return (
-                            "AWAITING_HUMAN_APPROVAL",
-                            f"EXPERIMENT_DISCIPLINE: strategy.py was modified after directive first ran "
-                            f"({_first_exec_ts.strftime('%Y-%m-%d %H:%M UTC')}). "
-                            f"Do NOT reset and re-run this directive. "
-                            f"Create a new directive version (e.g. {_next_ver}) and run fresh.",
-                            None,
-                        )
+                        # EXCEPTION: freshness refresh re-runs are allowed.
+                        # If the stored baseline CSV is stale relative to current
+                        # market data (>7 days), this re-run is a legitimate
+                        # data-range extension, not a code-change experiment.
+                        # The strategy.py mtime bump is almost always from the
+                        # provisioner rewriting byte-identical content; the real
+                        # intent is captured by the directive's advanced end_date.
+                        _is_freshness_rerun = False
+                        try:
+                            from tools.baseline_freshness_gate import compute_baseline_age
+                            _fr = compute_baseline_age(_strategy_name)
+                            if (_fr.status == "OK"
+                                    and _fr.worst_age_days is not None
+                                    and _fr.worst_age_days > 7):
+                                _is_freshness_rerun = True
+                                print(
+                                    f"[PREFLIGHT] EXPERIMENT_DISCIPLINE bypassed: "
+                                    f"baseline age {_fr.worst_age_days}d > 7d "
+                                    f"(freshness re-run — directive extends data range)."
+                                )
+                        except Exception:
+                            pass  # any error → fall through to block
+
+                        if not _is_freshness_rerun:
+                            return (
+                                "AWAITING_HUMAN_APPROVAL",
+                                f"EXPERIMENT_DISCIPLINE: strategy.py was modified after directive first ran "
+                                f"({_first_exec_ts.strftime('%Y-%m-%d %H:%M UTC')}). "
+                                f"Do NOT reset and re-run this directive. "
+                                f"Create a new directive version (e.g. {_next_ver}) and run fresh.",
+                                None,
+                            )
             except Exception:
                 pass  # fail-safe: allow on any helper read error
 

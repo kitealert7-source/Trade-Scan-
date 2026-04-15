@@ -442,7 +442,7 @@ def _load_data(symbol: str, tf: str):
         df = pd.read_csv(f, comment="#", encoding="utf-8")
         frames.append(df)
     df = pd.concat(frames, ignore_index=True)
-    df["time"] = pd.to_datetime(df["time"])
+    df["time"] = pd.to_datetime(df["time"], format="mixed", utc=True).dt.tz_convert(None)
     df = df.set_index("time", drop=False)
     df.index.name = "timestamp"
     df.rename(columns={"time": "timestamp"}, inplace=True)

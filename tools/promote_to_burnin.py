@@ -47,6 +47,7 @@ from tools.pipeline_utils import find_run_id_for_directive
 
 TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
+BURN_IN_REGISTRY = TS_EXEC_ROOT / "burn_in_registry.yaml"
 VAULT_ROOT = PROJECT_ROOT.parent / "DRY_RUN_VAULT"
 
 # ── Lifecycle values ─────────────────────────────────────────────────────────
@@ -62,6 +63,88 @@ DEFAULT_GATES = {
     "pass_gates": "PF>=1.20 (soft>=1.10), WR>=50%, MaxDD<=10%, fill_rate>=85%",
     "abort_gates": "PF<1.10 after 50 trades, DD>12%, fill_rate<80%, 3 consec losing weeks",
 }
+
+
+# ── Archetype inference (mirrors sync_burn_in_registry.py) ──────────────────
+ARCHETYPE_RULES = [
+    ("02_VOL_IDX",       "VOLATILITY"),
+    ("03_TREND_XAUUSD",  "XAU_TREND"),
+    ("33_TREND_BTCUSD",  "BTC_TREND"),
+    ("11_REV_XAUUSD",    "XAU_MR"),
+    ("27_MR_XAUUSD",     "XAU_MR"),
+    ("23_RSI_XAUUSD",    "XAU_MR"),
+    ("17_REV_XAUUSD",    "BREAKOUT"),
+    ("18_REV_XAUUSD",    "BREAKOUT"),
+    ("12_STR_FX",        "BREAKOUT"),
+    ("15_MR_FX",         "FX_MR"),
+    ("22_CONT_FX",       "FX_CONT"),
+    ("35_PA_GER40",      "IDX_PA"),
+]
+
+
+def _infer_archetype(strategy_id: str) -> str:
+    for prefix, archetype in ARCHETYPE_RULES:
+        if strategy_id.startswith(prefix):
+            return archetype
+    return "UNKNOWN"
+
+
+def _update_burn_in_registry(entry_ids: list[str]) -> str:
+    """Add entry_ids to burn_in_registry.yaml. Returns original content for rollback.
+
+    Preserves existing entries. New entries get COVERAGE if their archetype
+    already has a PRIMARY, otherwise PRIMARY.
+    """
+    original = ""
+    existing: dict[str, tuple[str, str]] = {}  # id -> (layer, archetype)
+
+    if BURN_IN_REGISTRY.exists():
+        original = BURN_IN_REGISTRY.read_text(encoding="utf-8")
+        data = yaml.safe_load(original) or {}
+        for entry in data.get("primary", []):
+            existing[entry["id"]] = ("PRIMARY", entry["archetype"])
+        for entry in data.get("coverage", []):
+            existing[entry["id"]] = ("COVERAGE", entry["archetype"])
+
+    primary_archetypes = {arch for _, (layer, arch) in existing.items() if layer == "PRIMARY"}
+
+    for eid in entry_ids:
+        if eid in existing:
+            continue
+        archetype = _infer_archetype(eid)
+        if archetype not in primary_archetypes:
+            existing[eid] = ("PRIMARY", archetype)
+            primary_archetypes.add(archetype)
+        else:
+            existing[eid] = ("COVERAGE", archetype)
+
+    primary_entries = [{"id": sid, "archetype": arch}
+                       for sid in sorted(existing) if existing[sid][0] == "PRIMARY"
+                       for _, arch in [existing[sid]]]
+    coverage_entries = [{"id": sid, "archetype": arch}
+                        for sid in sorted(existing) if existing[sid][0] == "COVERAGE"
+                        for _, arch in [existing[sid]]]
+
+    header = (
+        "# burn_in_registry.yaml -- Auto-synced by promote_to_burnin.py\n"
+        "# Maps strategy_id -> burn-in layer + archetype for shadow_logger metadata.\n"
+        "# Do NOT edit manually.\n"
+        "#\n"
+        "# Layers:\n"
+        "#   PRIMARY   -- first representative per archetype\n"
+        "#   COVERAGE  -- additional pairs/variants for the same archetype\n\n"
+    )
+
+    output = {"primary": primary_entries, "coverage": coverage_entries}
+    tmp = BURN_IN_REGISTRY.with_suffix(".yaml.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(header)
+        yaml.dump(output, f, default_flow_style=False, sort_keys=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(str(tmp), str(BURN_IN_REGISTRY))
+
+    return original
 
 
 # ── Portfolio YAML helpers ───────────────────────────────────────────────────
@@ -897,6 +980,18 @@ def promote(strategy_id: str, profile: str, description: str = "",
         if not _qg["passed"]:
             print(f"\n  [OVERRIDE] Quality gate HARD FAIL bypassed (--skip-quality-gate)")
 
+    # 3b1b. Baseline Freshness Gate — blocks stale baselines from reaching Layer 2.
+    #        Threshold: 14 days. Cannot be bypassed (no --skip flag by design).
+    from tools.baseline_freshness_gate import check_freshness, format_blocked_message
+    print(f"\n  --- Baseline Freshness Gate (threshold=14 days) ---")
+    _fr = check_freshness(strategy_id, threshold_days=14)
+    if _fr.status != "OK":
+        print(format_blocked_message(_fr))
+        _write_audit_log(strategy_id, profile, "FRESHNESS_BLOCKED",
+                         dry_run=dry_run, reason=_fr.message)
+        sys.exit(1)
+    print(f"  [OK] Baseline age: {_fr.worst_age_days}d (worst across {len(_fr.per_symbol)} symbol(s))")
+
     # 3b2. Pre-promote validation gate (4-layer) — always runs.
     #       --skip-replay only skips Layer 2 (replay regression).
     #       Layers 1, 3, 4 are mandatory and cannot be bypassed.
@@ -1083,8 +1178,10 @@ def promote(strategy_id: str, profile: str, description: str = "",
     synced = set_in_portfolio(_new_ids)
     print(f"  [DB] IN_PORTFOLIO: {synced} run_id(s) flagged (added {run_id[:12]}...).")
 
-    # 11. YAML SECOND — write portfolio.yaml (atomic: tmp -> fsync -> rename)
-    #     If this fails, revert DB to previous state.
+    # 11. ATOMIC COMMIT: portfolio.yaml + burn_in_registry.yaml
+    #     Both must succeed. If either fails, rollback all changes.
+
+    # 11a. Write portfolio.yaml
     try:
         tmp_yaml = PORTFOLIO_YAML.with_suffix(".yaml.tmp")
         with open(tmp_yaml, "w", encoding="utf-8") as f:
@@ -1099,11 +1196,37 @@ def promote(strategy_id: str, profile: str, description: str = "",
         print(f"  [ROLLBACK] DB reverted. Promotion aborted.")
         sys.exit(1)
 
+    # 11b. Write burn_in_registry.yaml (normalized entry_ids with symbol suffix)
+    _registry_entry_ids = []
+    if is_multi:
+        for sym_info in symbols:
+            _registry_entry_ids.append(f"{strategy_id}_{sym_info['symbol']}")
+    else:
+        _sym = symbols[0]["symbol"]
+        _eid = strategy_id if strategy_id.endswith(f"_{_sym}") else f"{strategy_id}_{_sym}"
+        _registry_entry_ids.append(_eid)
+    try:
+        _registry_original = _update_burn_in_registry(_registry_entry_ids)
+        print(f"  [REGISTRY] burn_in_registry.yaml updated: added {_registry_entry_ids}")
+    except Exception as e:
+        print(f"  [FATAL] burn_in_registry.yaml write failed ({e}).")
+        print(f"  [ROLLBACK] Reverting portfolio.yaml and DB.")
+        # Rollback portfolio.yaml
+        with open(PORTFOLIO_YAML, "w", encoding="utf-8") as f:
+            f.write(_original_yaml)
+            f.flush()
+            os.fsync(f.fileno())
+        # Rollback DB
+        set_in_portfolio(_previous_ids)
+        print(f"  [ROLLBACK] All reverted. Promotion aborted.")
+        sys.exit(1)
+
     print(f"[OK] Appended {entries_added} entry/entries to {PORTFOLIO_YAML}")
     print(f"     IDs: {entry_ids}")
     print(f"     vault_id: {vault_id}")
     print(f"     profile: {profile}")
     print(f"     lifecycle: {LIFECYCLE_BURN_IN}")
+    print(f"     registry: {len(_registry_entry_ids)} entries added to burn_in_registry.yaml")
 
     # 10b. Export Excel from DB (Excel = read-only view, never edited directly)
     try:
