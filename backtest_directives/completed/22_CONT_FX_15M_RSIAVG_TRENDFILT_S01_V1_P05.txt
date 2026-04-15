@@ -1,0 +1,63 @@
+test:
+  name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P05
+  family: CONT
+  strategy: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P05
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-02"
+  end_date: "2026-04-14"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "RSI(2) Average Pullback on 15M, 4-pair subset (GBPUSD+AUDUSD+USDJPY+USDCHF). No Z-score macro filter (plain trend regime only). max_bars=3 time exit, ATR 2.0x stop, reentry allowed, both directions. Refreshed baseline post-freshness-gate implementation."
+  notes: "BASELINE REFRESH 2026-04-15: directive reconstructed from strategy.py after prior .txt was lost. Signature hash 10c26e362c7af710 preserved."
+
+symbols:
+  - GBPUSD
+  - AUDUSD
+  - USDJPY
+  - USDCHF
+
+indicators:
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.trend.efficiency_ratio_regime
+  - indicators.momentum.rsi
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+mean_reversion_rules:
+  entry:
+    rsi_period: 2
+    avg_bars: 2
+    long_threshold: 25
+    short_threshold: 75
+    min_abs_trend_score: 2
+  exit:
+    rsi_exit_long: 75
+    rsi_exit_short: 25
+    max_bars: 3
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: none
+  reentry:
+    allowed: true
