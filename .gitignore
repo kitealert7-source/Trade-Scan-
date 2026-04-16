@@ -95,6 +95,19 @@ outputs/audit\ _reports/
 
 # ===== Logs =====
 *.log
+logs/
+
+# ===== Governance / directive runtime state =====
+# INBOX: pending directives awaiting pipeline pickup (ephemeral queue).
+# events.jsonl: append-only event log emitted by tools/event_log.py at runtime.
+backtest_directives/INBOX/
+governance/events.jsonl
+
+# ===== Ad-hoc review artefacts =====
+# Generated audit reports (docx / pdf deliverables) are ephemeral — the
+# source of truth is the code + tests, not the report.
+outputs/*.docx
+outputs/*.pdf
 
 # ===== Backups =====
 *.backup

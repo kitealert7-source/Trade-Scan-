@@ -3,7 +3,7 @@ test:
   family: STR
   strategy: 49_STR_XAU_1H_CHOCH_S01_V1_P00
   version: 1
-  signal_version: 4
+  signal_version: 8
   broker: OctaFx
   timeframe: 1h
   start_date: "2024-01-02"

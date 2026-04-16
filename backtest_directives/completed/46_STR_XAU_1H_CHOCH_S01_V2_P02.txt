@@ -1,0 +1,69 @@
+test:
+  name: 46_STR_XAU_1H_CHOCH_S01_V2_P02
+  family: STR
+  strategy: 46_STR_XAU_1H_CHOCH_S01_V2_P02
+  version: 1
+  signal_version: 9
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "P01 long-only with regime-age filter: exclude entries on the first bar of a new regime (regime_age == 0). Hypothesis: early-regime CHOCH signals are noise; edge concentrates in bars 1+."
+  notes: "Adds regime_age_filter (exclude_min: 0, exclude_max: 0) to P01. All other parameters identical: long-only, CHOCH_v2, 1.5x SL, 3x TP. Isolates whether the P01 edge is regime-age-dependent."
+  repeat_override_reason: "Single-parameter addition to P01: regime_age_filter excludes regime_age == 0 only. Direction restriction (long_only) and signal primitive (choch_v2) unchanged."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch_v2
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: true
+  session_reset: none
+
+regime_age_filter:
+  enabled: 1
+  exclude_min: 0
+  exclude_max: 0
+
+position_management:
+  lots: 0.01

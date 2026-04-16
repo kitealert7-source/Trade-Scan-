@@ -1,0 +1,69 @@
+test:
+  name: 46_STR_XAU_1H_CHOCH_S01_V2_P03
+  family: STR
+  strategy: 46_STR_XAU_1H_CHOCH_S01_V2_P03
+  version: 1
+  signal_version: 7
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "P01 long-only with regime-age filter: exclude entries where signal-bar regime_age == 1 (fill-bar Age 2). Hypothesis: the breakeven Age-2 fill-bar bucket (PF=0.99, 18 trades, -$1.76) dilutes aggregate edge. P02 investigation revealed the filter is off by one vs the AK report; exclude_min=1 targets what the report shows as Age 2."
+  notes: "Corrected regime-age filter after P02 investigation. P02 used exclude_min=0 intending to remove Age-0 fill-bar trades (PF=0.69) but instead removed Age-1 fill-bar trades (PF=1.94) due to next_bar_open offset. P03 targets signal_age=1 (fill-bar Age 2, PF=0.99, breakeven). All other parameters identical to P01."
+  repeat_override_reason: "P02 post-mortem patch: changes only exclude_min/exclude_max from 0 to 1. Corrects the one-bar fill-offset discovered in P02 investigation. Signal primitive (choch_v2), direction (long_only), SL/TP unchanged."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.choch_v2
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 3.0
+  entry_logic:
+    type: choch_structural_break
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: true
+  session_reset: none
+
+regime_age_filter:
+  enabled: 1
+  exclude_min: 1
+  exclude_max: 1
+
+position_management:
+  lots: 0.01

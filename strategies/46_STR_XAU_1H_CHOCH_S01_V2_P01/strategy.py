@@ -59,7 +59,7 @@ class Strategy:
     "position_management": {
         "lots": 0.01
     },
-    "signal_version": 2,
+    "signal_version": 5,
     "signature_version": 2,
     "state_machine": {
         "entry": {
@@ -79,7 +79,7 @@ class Strategy:
     "version": 1
 }
     # --- STRATEGY SIGNATURE END ---
-    # --- SIGNATURE HASH: 54a00e3582fb6a49 ---
+    # --- SIGNATURE HASH: 877fd6329fb86b96 ---
 
     def __init__(self):
         self.filter_stack = FilterStack(self.STRATEGY_SIGNATURE)

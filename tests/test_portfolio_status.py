@@ -44,17 +44,17 @@ def test_pass_accepted_exactly_50():
 
 def test_fail_low_trade_density():
     """Portfolio with 200 accepted trades but only 14 per symbol → FAIL."""
-    assert _compute_portfolio_status(500.0, 200, 0.0, 1.0, "02_VOL_FX_1D_VOLEXP", trade_density=14) == "FAIL"
+    assert _compute_portfolio_status(500.0, 200, 0.0, 1.0, "02_VOL_FX_1D_VOLEXP", trade_density_min=14) == "FAIL"
 
 
 def test_pass_trade_density_exactly_50():
     """trade_density == 50 should NOT fail (gate is < 50)."""
-    assert _compute_portfolio_status(500.0, 200, 0.0, 1.0, "22_CONT_FX_15M", trade_density=50) != "FAIL"
+    assert _compute_portfolio_status(500.0, 200, 0.0, 1.0, "22_CONT_FX_15M", trade_density_min=50) != "FAIL"
 
 
 def test_pass_trade_density_none():
     """Missing trade_density (None) should not trigger FAIL — backwards compat."""
-    assert _compute_portfolio_status(500.0, 200, 0.0, 1.0, "22_CONT_FX_15M", trade_density=None) != "FAIL"
+    assert _compute_portfolio_status(500.0, 200, 0.0, 1.0, "22_CONT_FX_15M", trade_density_min=None) != "FAIL"
 
 
 # ── FAIL: Expectancy gates ──────────────────────────────────────────────────
@@ -154,7 +154,7 @@ def test_core_boundary_rejection():
 def test_core_with_trade_density():
     """CORE with valid trade_density + edge_quality."""
     assert _compute_portfolio_status(1500.0, 250, 10.0, 1.0, "22_CONT_FX_15M",
-                                     trade_density=100, edge_quality=0.15) == "CORE"
+                                     trade_density_min=100, edge_quality=0.15) == "CORE"
 
 
 # ── WATCH: Quality floor required ────────────────────────────────────────────

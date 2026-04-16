@@ -765,9 +765,9 @@ ideas:
             signature_hash_full: 10c26e362c7af710d61be4c24ee870264dfc865181566efd694345a41afa9905
           P05:
             directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P05
-            signature_hash: 10c26e362c7af710
+            signature_hash: d0fd79582f7f6321
             reserved_at_utc: '2026-03-31T07:00:00.000000+00:00'
-            signature_hash_full: 10c26e362c7af710d61be4c24ee870264dfc865181566efd694345a41afa9905
+            signature_hash_full: d0fd79582f7f6321a33052ade2d08f6b68227891d26fa72b9ed27580c7cce557
           P06:
             directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P06
             signature_hash: 21846d526dd61049

@@ -3,7 +3,7 @@ test:
   family: STR
   strategy: 46_STR_XAU_1H_CHOCH_S01_V2_P01
   version: 1
-  signal_version: 2
+  signal_version: 5
   broker: OctaFx
   timeframe: 1h
   start_date: "2024-01-02"
@@ -59,6 +59,11 @@ state_machine:
     direction: long_only
   no_reentry_after_stop: true
   session_reset: none
+
+regime_age_filter:
+  enabled: 0
+  exclude_min: 0
+  exclude_max: 0
 
 position_management:
   lots: 0.01
