@@ -60,24 +60,22 @@ runs/{RUN_ID}/
     run_metadata.json              <- engine version, dates, symbol, broker
 ```
 
-### Deployable Artifacts (per profile, 7 profiles x ~5 files = ~35 files)
+### Deployable Artifacts (per profile, 3 active profiles x ~5 files = ~15 files)
 
 ```
 strategies/{ID}/deployable/
   profile_comparison.json          <- cross-profile comparison
-  CONSERVATIVE_V1/
-    deployable_trade_log.csv       <- capital-adjusted trades
+  RAW_MIN_LOT_V1/
+    deployable_trade_log.csv       <- capital-adjusted trades (0.01 lot unconditional)
     equity_curve.csv               <- profile-specific equity
     equity_curve.png               <- chart
-    rejection_log.csv              <- lot-floor rejections
+    rejection_log.csv              <- lot-floor rejections (empty for raw_lot_mode)
     summary_metrics.json           <- profile PF, DD, acceptance%
-  DYNAMIC_V1/...
-  FIXED_USD_V1/...
-  BOUNDED_MIN_LOT_V1/...
-  MIN_LOT_FALLBACK_V1/...
-  MIN_LOT_FALLBACK_UNCAPPED_V1/...
-  RAW_MIN_LOT_V1/...
+  FIXED_USD_V1/...                 <- retail conservative (2%/$20-floor risk)
+  REAL_MODEL_V1/...                <- retail aggressive (tier-ramp risk, retail_max_lot=10)
 ```
+
+Legacy institutional profiles (`DYNAMIC_V1`, `CONSERVATIVE_V1`, `MIN_LOT_FALLBACK_V1`, `MIN_LOT_FALLBACK_UNCAPPED_V1`, `BOUNDED_MIN_LOT_V1`) retired 2026-04-16.
 
 ### Portfolio YAML Schema (as of 2026-04-10)
 
@@ -89,7 +87,7 @@ strategies/{ID}/deployable/
   timeframe: M30
   enabled: true
   vault_id: DRY_RUN_2026_04_09__1b21c414
-  profile: CONSERVATIVE_V1
+  profile: FIXED_USD_V1    # one of RAW_MIN_LOT_V1 / FIXED_USD_V1 / REAL_MODEL_V1
   lifecycle: BURN_IN
 ```
 
@@ -166,10 +164,10 @@ execution:
    ```json
    {
      "strategy_id": "...",
-     "selected_profile": "CONSERVATIVE_V1",
-     "selected_by": "human",
-     "selected_at": "2026-04-03T...",
-     "vault_id": "DRY_RUN_2026_04_03"
+     "selected_profile": "FIXED_USD_V1",
+     "selected_by": "profile_selector",
+     "selected_at": "2026-04-16T...",
+     "vault_id": "DRY_RUN_2026_04_16__xxxxxxxx"
    }
    ```
 
@@ -203,17 +201,17 @@ execution:
   meta.json                            <- git, hash, execution model, run_id
   selected_profile.json                <- NEW: profile selection record
   portfolio_evaluation/                <- full copy (11 files)
-  deployable/                          <- ALL profiles (not just selected)
+  deployable/                          <- ALL active profiles (not just selected)
     profile_comparison.json
-    CONSERVATIVE_V1/
+    RAW_MIN_LOT_V1/
       deployable_trade_log.csv
       equity_curve.csv
       equity_curve.png
       rejection_log.csv
       summary_metrics.json
-    DYNAMIC_V1/...
     FIXED_USD_V1/...
-    ... (all 7 profiles)
+    REAL_MODEL_V1/...
+    (3 active profiles as of 2026-04-16; legacy institutional profiles retired)
   broker_specs_snapshot/               <- NEW: broker YAML copy
     {BROKER}_specs.yaml
   backtests/{ID}_{SYMBOL}/             <- per-symbol raw results
@@ -260,8 +258,8 @@ execution:
      symbol: XAUUSD
      timeframe: H1
      enabled: true
-     vault_id: DRY_RUN_2026_04_03
-     profile: CONSERVATIVE_V1
+     vault_id: DRY_RUN_2026_04_16__xxxxxxxx
+     profile: FIXED_USD_V1    # one of RAW_MIN_LOT_V1 / FIXED_USD_V1 / REAL_MODEL_V1
      lifecycle: BURN_IN
    ```
 

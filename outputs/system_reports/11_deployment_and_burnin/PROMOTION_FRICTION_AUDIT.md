@@ -461,7 +461,7 @@ Integrate the 6-metric quality gate into `promote_to_burnin.py` as an automated 
 | 4.2 | F2b | **Add `--composite` flag to promote tool.** Auto-decomposes PF_ portfolio, runs per-constituent quality gate, promotes each passing constituent individually. Reports which constituents pass/fail/skip (already in burn-in). | Builds on 4.1 + Wave 3 quality gate |
 | 4.3 | -- | **Unify classification terminology and document.** Create a single reference table: what CORE/WATCH/FAIL means in each system (filter_strategies vs portfolio_evaluator vs promote quality gate), what metric governs each, what entity type each applies to. Write to `outputs/system_reports/`. | Documentation — prevents future confusion about edge_quality vs edge_ratio vs SQN |
 
-**Exit criteria:** `promote_to_burnin.py --composite PF_04C5F80CB1E3 --profile CONSERVATIVE_V1 --dry-run` succeeds, listing constituent promotions.
+**Exit criteria:** `promote_to_burnin.py --composite PF_04C5F80CB1E3 --profile FIXED_USD_V1 --dry-run` succeeds, listing constituent promotions.
 
 ---
 

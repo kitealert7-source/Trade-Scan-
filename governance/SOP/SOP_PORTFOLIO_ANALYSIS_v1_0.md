@@ -52,7 +52,7 @@ Each portfolio MUST define:
 - constituent_run_ids (explicit list)
 - reference_capital_usd
 - capital_model_version = "v2.0_profile_based_scaling"
-- deployed_profile (selected capital profile, e.g. DYNAMIC_V1)
+- deployed_profile (selected capital profile — one of `RAW_MIN_LOT_V1`, `FIXED_USD_V1`, `REAL_MODEL_V1`)
 - portfolio_engine_version
 - rolling_window_length (default: 252)
 - schema_version
@@ -78,38 +78,50 @@ Profile-Based Capital Allocation with Dynamic Scaling
 
 ------------------------------------------------------------------------
 
-### 4.5 Capital Profiles (v2.0)
+### 4.5 Capital Profiles (v3.0 — Retail Amateur Model, effective 2026-04-16)
 
-Three profiles are evaluated for every portfolio:
+Three profiles are evaluated for every portfolio. The v2.0 institutional set
+(`DYNAMIC_V1`, `CONSERVATIVE_V1`, `FIXED_USD_V1`/$10k/$50, plus `MIN_LOT_FALLBACK_V1`,
+`MIN_LOT_FALLBACK_UNCAPPED_V1`, `BOUNDED_MIN_LOT_V1`) has been **retired** — it
+modelled desk-style portfolio heat / leverage caps that do not apply to a single
+retail OctaFx account.
 
-**DYNAMIC_V1**
+**RAW_MIN_LOT_V1** — diagnostic baseline
 
-- risk_per_trade = 0.005
-- heat_cap = 0.03
-- leverage_cap = 15
-- dynamic_scaling = True
-- min_position_pct = 0.40
+- starting_capital = $1,000
+- raw_lot_mode = True (0.01 lot unconditionally, no risk/heat/leverage gates)
+- min_lot = 0.01, lot_step = 0.01
+- Purpose: "Is the directional edge real?" probe, independent of sizing.
 
-**CONSERVATIVE_V1**
+**FIXED_USD_V1** — retail conservative
 
-- risk_per_trade = 0.0025
-- heat_cap = 0.04
-- leverage_cap = 5
+- starting_capital = $1,000
+- risk_per_trade = 0.02
+- fixed_risk_usd_floor = $20  (effective risk = max(2% of equity, $20))
+- heat_cap = 9999 (disabled), leverage_cap = 9999 (disabled)
+- min_lot = 0.01, lot_step = 0.01
+- Sub-min_lot trades SKIP honestly — no fallback.
 
-**FIXED_USD_V1**
+**REAL_MODEL_V1** — retail aggressive (tier-ramp)
 
-- fixed_risk_usd = $50
-- heat_cap = 0.04
-- leverage_cap = 5
+- starting_capital = $1,000
+- risk_per_trade = 0.02 (base)
+- tier_ramp = True, tier_base_pct = 0.02, tier_step_pct = 0.01, tier_cap_pct = 0.05, tier_multiplier = 2.0
+  (risk steps +1% each time equity doubles from start, capped at 5%; symmetric on retracement)
+- heat_cap = 9999 (disabled), leverage_cap = 9999 (disabled)
+- retail_max_lot = 10.0  (trades requiring more than 10 lots SKIP; OctaFx vol_max=500 is admin/marketing)
+- min_lot = 0.01, lot_step = 0.01
 
-All profiles share:
-
-- starting_capital = $10,000
-- min_lot = 0.01
-- lot_step = 0.01
-
-Profiles are evaluated by `tools/capital_wrapper.py`.
+Profiles are evaluated by `tools/capital_wrapper.py` — definitive spec is the
+`PROFILES` dict in that file.
 Profile artifacts are emitted to `strategies/<portfolio_id>/deployable/<PROFILE>/`.
+
+**Parallel reference model — REAL_MODEL_V1 (always-on, CORE only)**
+
+`tools/real_model_evaluator.py` writes `Real_Model_Evaluation.xlsx` as an
+independent pooled-equity reference for every MPS row with `portfolio_status='CORE'`.
+It is a cross-check, NOT part of profile selection — its output never feeds into
+`deployed_profile`.
 
 ------------------------------------------------------------------------
 

@@ -277,7 +277,7 @@ This script has not been maintained since 2026-03-11 and cannot run in its curre
 | Current System Component | Go-Live Package | Strategy Guard | Notes |
 |--------------------------|----------------|----------------|-------|
 | MT5 static valuation | PARTIAL -- embeds stale conversion artifacts | N/A | Broker spec snapshots are correct; conversion data is dead weight |
-| FIXED_USD_V1 (leverage 5x) | OK -- reads current PROFILES dict | OK -- reads selected_profile.json | Profile params are current if package is regenerated |
+| FIXED_USD_V1 (retail $1k / 2% / $20 floor, leverage_cap disabled) | OK -- reads current PROFILES dict | OK -- reads selected_profile.json | Profile params are current if package is regenerated (v3.0 retail model, 2026-04-16) |
 | Capital wrapper Step 8 output | OVERLAPS -- go-live enriches the same trade log | CONSUMES | Go-live reads Step 8 output and enriches it |
 | Profile selector Step 8.5 | NOT INTEGRATED -- go-live has own profile param embedding | N/A | Two parallel profile-embedding paths exist |
 | filter_strategies.py promotion | BYPASSED -- promotion doesn't trigger go-live | N/A | BURN_IN status set without go-live package |

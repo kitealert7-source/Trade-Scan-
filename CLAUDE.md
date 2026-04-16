@@ -52,7 +52,7 @@ Six-repo research-to-execution pipeline:
 | System boundaries + invariants | `outputs/system_reports/01_system_architecture/SYSTEM_SURFACE_MAP.md` |
 | Engine code (`engine_dev/`) | `outputs/system_reports/02_engine_core/ENGINE_EXECUTION_AUDIT_v1_5_3.md` |
 | Governance, naming, registry | `outputs/system_reports/04_governance_and_guardrails/GUARDRAILS_WALKTHROUGH.md` |
-| Capital model, lot sizing, risk | `outputs/system_reports/05_capital_and_risk_models/CAPITAL_AUDIT_REPORT.md` |
+| Capital model, lot sizing, risk | `outputs/system_reports/05_capital_and_risk_models/CAPITAL_SIZING_AUDIT.md` |
 | Research infrastructure or filters | `outputs/system_reports/06_strategy_research/RESEARCH_INFRASTRUCTURE_AUDIT.md` |
 | Backtest dates, warm-up, regime | `outputs/system_reports/06_strategy_research/BACKTEST_DATE_POLICY_AND_DATA_FLOW.md` |
 | Artifact provenance or storage | `outputs/system_reports/08_pipeline_audit/ARTIFACT_STORAGE_AUDIT_2026_03_24.md` |

@@ -631,9 +631,10 @@ These steps do NOT modify Stage-1 through Stage-3A artifacts.
 ### 13.1 Capital Wrapper (Step 8 in workflow)
 
 - Tool: `tools/capital_wrapper.py`
-- Evaluates all capital profiles (DYNAMIC_V1, CONSERVATIVE_V1, FIXED_USD_V1)
+- Evaluates the three active retail capital profiles: `RAW_MIN_LOT_V1` (diagnostic baseline), `FIXED_USD_V1` (2%/$20-floor, retail conservative), `REAL_MODEL_V1` (tier-ramp 2%→5%, retail aggressive, `retail_max_lot=10`)
 - Emits deployable artifacts to `strategies/<name>/deployable/<PROFILE>/`
 - Governed by SOP_PORTFOLIO_ANALYSIS §4.5
+- Legacy v2.0 institutional profiles (`DYNAMIC_V1`, `CONSERVATIVE_V1`, `MIN_LOT_FALLBACK_V1`, `MIN_LOT_FALLBACK_UNCAPPED_V1`, `BOUNDED_MIN_LOT_V1`) retired 2026-04-16
 
 ### 13.2 Profile Selection (Step 11 in workflow)
 

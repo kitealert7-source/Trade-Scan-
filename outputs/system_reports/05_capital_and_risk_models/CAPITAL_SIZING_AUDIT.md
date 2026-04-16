@@ -1,8 +1,19 @@
 # Capital Sizing System Audit
 
-**Last updated: 2026-04-03**
+**Last updated: 2026-04-16 (v3.0 Retail Amateur Model)**
 **Valuation layer: MT5-verified static (frozen tick_value / tick_size)**
 **Engine version: v1.5.4 (frozen)**
+
+> **2026-04-16 Model Change -- Retail Retirement of Institutional Profiles.**
+> The six institutional profiles (`DYNAMIC_V1`, `CONSERVATIVE_V1`, institutional
+> `FIXED_USD_V1` $10k/$50, `MIN_LOT_FALLBACK_V1`, `MIN_LOT_FALLBACK_UNCAPPED_V1`,
+> `BOUNDED_MIN_LOT_V1`) have been retired. They modelled desk-style portfolio
+> heat / leverage caps that do not apply to a single retail OctaFx account.
+> The active profile set is **three retail profiles at $1,000 seed**:
+> `RAW_MIN_LOT_V1`, `FIXED_USD_V1` (retail variant), `REAL_MODEL_V1`.
+> Sections 3-4 below describe the active set. Sections 9-11 preserve the
+> legacy institutional calibration for historical reference -- they no longer
+> govern live deployment.
 
 ---
 
@@ -58,203 +69,123 @@ trade_risk_usd = risk_distance * usd_per_pu_per_lot * lot_size
 
 ---
 
-## 3. Profile Inventory (7 Profiles)
+## 3. Profile Inventory (3 Active Profiles -- v3.0 Retail Amateur Model)
 
-### 3.1 RAW_MIN_LOT_V1 -- Baseline Signal Quality
+### 3.1 RAW_MIN_LOT_V1 -- Diagnostic Baseline
 
 | Parameter | Value |
 |-----------|-------|
+| Starting capital | $1,000 |
 | Risk budget | None |
 | Lot sizing | Always 0.01 (min lot) |
 | Gates | None -- `raw_lot_mode: True` bypasses all checks |
-| Starting capital | $10,000 |
+| min_lot / lot_step | 0.01 / 0.01 |
 
-**Purpose:** Pure signal measurement. Every signal is executed at minimum lot unconditionally. No rejections ever. Provides the unfiltered directional edge of the strategy. All other profiles are compared against this.
+**Purpose:** "Is the directional edge real?" probe. Every signal fires at 0.01 lot unconditionally, independent of sizing/risk/heat/leverage. No rejections, ever. Isolates signal quality from capital constraints so a profitable RAW run proves the signal has edge, and a loss-making RAW run proves retail deployment is not worth attempting at any sizing.
 
 **Sizing formula:** `lot = 0.01` (constant)
 
 ---
 
-### 3.2 DYNAMIC_V1 -- Heat-Aware Fractional
+### 3.2 FIXED_USD_V1 -- Retail Conservative
 
 | Parameter | Value |
 |-----------|-------|
-| Risk budget | 0.5% of equity (dynamic) |
-| Heat cap | 3.0% |
-| Leverage cap | 15x |
-| Dynamic scaling | Yes |
-| Min position % | 40% |
-| Starting capital | $10,000 |
+| Starting capital | $1,000 |
+| Risk per trade | 0.02 (2% of equity) |
+| Fixed risk USD floor | $20 (effective risk = max(2% * equity, $20)) |
+| Heat cap | 9999 (disabled) |
+| Leverage cap | 9999 (disabled) |
+| min_lot / lot_step | 0.01 / 0.01 |
+| Min lot fallback | No -- sub-min_lot trades SKIP honestly |
 
-**Purpose:** Aggressive equity-growth profile. Scales position size with equity. Actively shrinks risk allocation when approaching heat cap. Skips trade entirely if remaining heat budget would produce a position < 40% of base risk (avoids taking negligible positions).
+**Purpose:** Retail conservative profile. Applies a fixed-percentage-of-equity risk with a dollar floor. The floor matters early -- at $1k seed, 2% = $20, which is the floor; as equity grows beyond $1k, risk tracks 2% of equity.
 
 **Sizing formula:**
 ```
-base_risk = equity * 0.005
-remaining_heat = max((0.03 * equity) - total_open_risk, 0)
-risk_capital = min(base_risk, remaining_heat)
-IF risk_capital < base_risk * 0.40: REJECT (LOT_TOO_SMALL)
+risk_capital = max(equity * 0.02, $20)
 lot = floor(risk_capital / (risk_distance * usd_per_pu), 0.01)
+IF lot < 0.01: REJECT (LOT_TOO_SMALL)   -- honest skip, no fallback
 ```
 
 **Behavioral notes:**
-- At $10K equity, base risk = $50. Max 3% heat = $300 open risk.
-- With 6 concurrent positions at $50 risk each = $300, fully saturated.
-- The 40% min_position_pct means it won't take a trade at < $20 risk budget.
+- Trades that would require sub-0.01 lot (wide stops relative to $20+ risk budget) SKIP. This keeps actual risk honest -- the profile never "cheats" by taking a 0.01 lot at much higher effective risk.
+- Heat and leverage caps are disabled because a single retail OctaFx account does not need desk-style portfolio heat management.
+- Expected to reject many XAUUSD trades at $1k seed (wide stops * $100/pu outruns the $20 floor).
 
 ---
 
-### 3.3 CONSERVATIVE_V1 -- Lower Fixed Fractional
+### 3.3 REAL_MODEL_V1 -- Retail Aggressive (Tier-Ramp)
 
 | Parameter | Value |
 |-----------|-------|
-| Risk budget | 0.25% of equity |
-| Heat cap | 4.0% |
-| Leverage cap | 5x |
-| Starting capital | $10,000 |
+| Starting capital | $1,000 |
+| Risk per trade (base) | 0.02 |
+| tier_ramp | True |
+| tier_base_pct / tier_step_pct / tier_cap_pct | 0.02 / 0.01 / 0.05 |
+| tier_multiplier | 2.0 (doubling equity triggers step) |
+| Heat cap | 9999 (disabled) |
+| Leverage cap | 9999 (disabled) |
+| retail_max_lot | 10.0 (hard cap) |
+| min_lot / lot_step | 0.01 / 0.01 |
 
-**Purpose:** Conservative equity-scaling profile. Half the per-trade risk of DYNAMIC. Tighter leverage cap but wider heat cap. No dynamic scaling -- allocates full 0.25% on every accepted trade.
+**Purpose:** Retail aggressive profile. Starts at 2% risk, ramps +1% each time equity doubles from the $1k start, capped at 5%. Symmetric on retracement: if equity falls below a tier threshold, risk tier steps back down. `retail_max_lot=10.0` is the real ceiling -- OctaFx `vol_max=500` is admin/marketing and not a practical retail execution limit.
 
 **Sizing formula:**
 ```
-risk_capital = equity * 0.0025
+tier = min(tier_cap_pct,
+           tier_base_pct + floor(log(equity / starting_capital) / log(tier_multiplier))
+                         * tier_step_pct)
+risk_capital = equity * tier
 lot = floor(risk_capital / (risk_distance * usd_per_pu), 0.01)
+IF lot > retail_max_lot (10.0): REJECT (RETAIL_LOT_CAP)
+IF lot < 0.01: REJECT (LOT_TOO_SMALL)   -- no fallback
 ```
+
+**Tier ladder (starting at $1k):**
+- $1,000 -> 2%
+- $2,000 -> 3%
+- $4,000 -> 4%
+- $8,000 -> 5% (capped)
+- any retracement below threshold steps risk back down
 
 **Behavioral notes:**
-- At $10K equity, risk = $25/trade. Rejects more via LOT_TOO_SMALL because $25 often can't buy 0.01 lot on wider-stop instruments.
-- The 5x leverage cap is the binding constraint for FX (EURUSD notional at 0.01 lot = $1,080 = 10.8% of equity per position).
-
----
-
-### 3.4 FIXED_USD_V1 -- Fixed Dollar Risk (Deployment Profile)
-
-| Parameter | Value |
-|-----------|-------|
-| Risk budget | $50 flat |
-| Heat cap | 4.0% |
-| Leverage cap | 11x (calibrated 2026-04-03) |
-| Starting capital | $10,000 |
-
-**Purpose:** Constant dollar risk regardless of equity level. No compounding -- risk stays at $50/trade whether equity is $8K or $15K. Simplest model for comparing strategy quality across time. **Selected as the deployment profile.**
-
-**Sizing formula:**
-```
-lot = floor($50 / (risk_distance * usd_per_pu), 0.01)
-IF lot < 0.01: REJECT (LOT_TOO_SMALL)
-```
-
-**Behavioral notes:**
-- Instruments with large risk_distance * usd_per_pu may not be sizable at 0.01 lot within $50 budget. Example: US30 with 1000pt stop = $100 risk at min lot > $50 budget = rejected.
-- No fallback mechanism. Trade is simply not taken.
-
-**Leverage cap calibration (2026-04-03):**
-- p99 required leverage across 22,282 shadow trades: **10.67x**
-- Cap set to 11x (ceiling of p99) to achieve >98% acceptance
-- Validated: 98.4% acceptance on full portfolio (PF_E1FCD12A8EC3, 906 trades)
-
----
-
-### 3.5 MIN_LOT_FALLBACK_V1 -- Fixed Dollar with Override
-
-| Parameter | Value |
-|-----------|-------|
-| Risk budget | $50 flat |
-| Heat cap | 4.0% |
-| Leverage cap | 5x |
-| Min lot fallback | Yes |
-| Max risk multiple | 3.0x |
-| Track risk override | Yes |
-| Starting capital | $10,000 |
-
-**Purpose:** Same as FIXED_USD_V1 but when computed lot < 0.01, falls back to 0.01 lot instead of rejecting. Accepts trades where actual risk is up to 3x the $50 target (up to $150 actual risk).
-
-**Sizing formula:**
-```
-lot = floor($50 / (risk_distance * usd_per_pu), 0.01)
-IF lot < 0.01:
-    lot = 0.01  (fallback)
-    actual_risk = risk_distance * usd_per_pu * 0.01
-    IF actual_risk > $50 * 3.0: REJECT (RISK_MULT_EXCEEDED)
-```
-
-**Behavioral notes:**
-- Captures trades that FIXED_USD_V1 misses due to wide stops.
-- The 3x cap ($150) prevents taking trades where min lot risk is absurdly large.
-- `track_risk_override: True` logs every fallback for audit.
-
----
-
-### 3.6 MIN_LOT_FALLBACK_UNCAPPED_V1 -- Research Only
-
-| Parameter | Value |
-|-----------|-------|
-| Risk budget | $50 flat |
-| Heat cap | 4.0% |
-| Leverage cap | 5x |
-| Min lot fallback | Yes |
-| Max risk multiple | None (uncapped) |
-| Track risk override | Yes |
-| Starting capital | $10,000 |
-
-**Purpose:** Research-only profile. Same as MIN_LOT_FALLBACK_V1 but with no risk multiple cap. Will take any trade at 0.01 lot regardless of how much the actual risk exceeds $50. Useful for measuring what the fallback population looks like without artificial truncation.
-
-**Sizing formula:**
-```
-lot = floor($50 / (risk_distance * usd_per_pu), 0.01)
-IF lot < 0.01: lot = 0.01  (always, no rejection)
-```
-
-**Behavioral notes:**
-- Never rejects on RISK_MULT_EXCEEDED.
-- Still subject to heat cap and leverage cap.
-- Should NOT be used for live deployment. Exists to bound the "what if we took everything" scenario.
-
----
-
-### 3.7 BOUNDED_MIN_LOT_V1 -- Tight Fallback
-
-| Parameter | Value |
-|-----------|-------|
-| Risk budget | $65 flat |
-| Heat cap | 4.0% |
-| Leverage cap | 5x |
-| Min lot fallback | Yes |
-| Max risk multiple | 1.5x |
-| Starting capital | $10,000 |
-
-**Purpose:** Tighter version of MIN_LOT_FALLBACK. Higher base risk ($65 vs $50) but much stricter risk multiple cap (1.5x vs 3.0x). This means actual risk on fallback trades is capped at $97.50. Rejects aggressively on wider stops.
-
-**Sizing formula:**
-```
-lot = floor($65 / (risk_distance * usd_per_pu), 0.01)
-IF lot < 0.01:
-    lot = 0.01
-    actual_risk = risk_distance * usd_per_pu * 0.01
-    IF actual_risk > $65 * 1.5: REJECT (RISK_MULTIPLE_EXCEEDED)
-```
-
-**Behavioral notes:**
-- The $65 base means it can size slightly larger lots than $50 profiles.
-- The 1.5x cap is very tight -- a US30 trade with 1000pt stop ($100 risk) would fail: $100 / $65 = 1.54x > 1.5x.
-- This is the burn-in profile for the 10-index daily strategy (02_VOL_IDX).
+- Tier changes compound -- doubling equity pushes the percentage risk up, so ramp is super-linear in the winning regime.
+- `retail_max_lot=10` SKIPs super-large trades that would otherwise be flagged by OctaFx monitoring or hit per-order size limits on a retail account.
 
 ---
 
 ## 4. Profile Comparison Matrix
 
-| Dimension | RAW | DYNAMIC | CONSERVATIVE | FIXED_USD | MLF | MLF_UNCAP | BOUNDED |
-|-----------|-----|---------|-------------|-----------|-----|-----------|---------|
-| Risk budget source | None | % equity | % equity | $ flat | $ flat | $ flat | $ flat |
-| Risk amount | N/A | 0.5% | 0.25% | $50 | $50 | $50 | $65 |
-| Scales with equity | No | Yes | Yes | No | No | No | No |
-| Heat cap | N/A | 3% | 4% | 4% | 4% | 4% | 4% |
-| Leverage cap | N/A | 15x | 5x | **11x** | 5x | 5x | 5x |
-| Min lot fallback | N/A | No | No | No | Yes | Yes | Yes |
-| Risk multiple cap | N/A | N/A | N/A | N/A | 3.0x | None | 1.5x |
-| Dynamic scaling | N/A | Yes | No | No | No | No | No |
-| Min position % | N/A | 40% | 0% | 0% | 0% | 0% | 0% |
-| Can reject? | Never | Yes | Yes | Yes | Yes | Rarely | Yes |
+| Dimension | RAW_MIN_LOT_V1 | FIXED_USD_V1 | REAL_MODEL_V1 |
+|-----------|----------------|--------------|---------------|
+| Starting capital | $1,000 | $1,000 | $1,000 |
+| Role | Diagnostic baseline | Retail conservative | Retail aggressive |
+| Risk budget source | None (fixed 0.01 lot) | max(2% equity, $20) | tier-ramp % equity |
+| Risk %, base / cap | N/A | 2% (or $20 floor) | 2% base / 5% cap |
+| Scales with equity | No | Yes (above $1k) | Yes (super-linear via tier-ramp) |
+| Heat cap | N/A | Disabled (9999) | Disabled (9999) |
+| Leverage cap | N/A | Disabled (9999) | Disabled (9999) |
+| Retail lot cap | N/A | N/A | 10.0 lot |
+| Min lot fallback | N/A | No (honest skip) | No (honest skip) |
+| Can reject? | Never | LOT_TOO_SMALL | LOT_TOO_SMALL, RETAIL_LOT_CAP |
+
+---
+
+### Retired Profiles (for historical lookup)
+
+These profiles are no longer in the `PROFILES` dict in `tools/capital_wrapper.py` (retired 2026-04-16):
+
+| Retired profile | Last spec | Reason retired |
+|-----------------|-----------|---------------|
+| `DYNAMIC_V1` | 0.5% equity risk, 3% heat, 15x leverage, 40% min-position, $10k seed | Portfolio heat / leverage caps do not apply to single retail account |
+| `CONSERVATIVE_V1` | 0.25% equity risk, 4% heat, 5x leverage, $10k seed | Same -- desk-style model |
+| `FIXED_USD_V1` (institutional) | $50 flat risk, 4% heat, 11x leverage, $10k seed | Superseded by retail variant ($1k seed, 2%/$20 floor, caps disabled) |
+| `MIN_LOT_FALLBACK_V1` | $50 + 3x fallback, 4% heat, 5x leverage | Retail should SKIP honestly, not fall back to 0.01 at 3x target risk |
+| `MIN_LOT_FALLBACK_UNCAPPED_V1` | $50 + unlimited fallback | Research-only; no live deployment use |
+| `BOUNDED_MIN_LOT_V1` | $65 + 1.5x fallback, 4% heat, 5x leverage | Same fallback objection as MLF variants |
+
+Prior calibration analysis for these profiles is preserved below (sections 9-11) for historical reference only.
 
 ---
 
@@ -263,22 +194,29 @@ IF lot < 0.01:
 Trades are rejected (logged, not executed) in `PortfolioState.process_entry()` under these conditions, evaluated in order:
 
 1. **CONCURRENCY_CAP** -- if `len(open_trades) >= concurrency_cap`. Currently no profile sets this.
-2. **LOT_TOO_SMALL** -- if `computed_lot < min_lot (0.01)` and `min_lot_fallback` is False.
-3. **RISK_MULT_EXCEEDED / RISK_MULTIPLE_EXCEEDED** -- if fallback is active and `actual_risk / target_risk > max_risk_multiple`.
-4. **HEAT_CAP / HEAT_CAP_EDGE** -- if `(total_open_risk + trade_risk) / equity > heat_cap`.
-5. **LEVERAGE_CAP** -- if `(total_notional + trade_notional) / equity > leverage_cap`.
+2. **LOT_TOO_SMALL** -- if `computed_lot < min_lot (0.01)` and `min_lot_fallback` is False. **Primary gate in the v3.0 retail model** for `FIXED_USD_V1` and `REAL_MODEL_V1`.
+3. **RETAIL_LOT_CAP** -- if `computed_lot > retail_max_lot` (REAL_MODEL_V1 only; cap = 10.0).
+4. **RISK_MULT_EXCEEDED / RISK_MULTIPLE_EXCEEDED** -- fallback-path reject. Only retired profiles used `min_lot_fallback`; no active profile triggers this.
+5. **HEAT_CAP / HEAT_CAP_EDGE** -- `(total_open_risk + trade_risk) / equity > heat_cap`. **Disabled in all active profiles** (`heat_cap=9999`); retained in code for legacy institutional profiles.
+6. **LEVERAGE_CAP** -- `(total_notional + trade_notional) / equity > leverage_cap`. **Disabled in all active profiles** (`leverage_cap=9999`); same note.
 
-**Observed rejection patterns (burn-in run 2026-04-03):**
+**Observed rejection patterns (burn-in run 2026-04-03, historical -- institutional profiles):**
 
 | Profile | Index 10-sym (416 signals) | FX 9-pair (1650 signals) | Primary cause |
 |---------|---------------------------|--------------------------|---------------|
-| RAW | 0 | 0 | N/A |
-| DYNAMIC | 92 LOT_TOO_SMALL | 39 LEV_CAP, 1 LOT | LOT (idx), LEV (FX) |
-| CONSERVATIVE | 162 LOT_TOO_SMALL | 142 LEV_CAP | LOT (idx), LEV (FX) |
-| FIXED_USD | 94 LOT_TOO_SMALL | 379 LEV_CAP | LOT (idx), LEV (FX) |
-| MLF | 9 HEAT_CAP | 379 LEV_CAP | HEAT (idx), LEV (FX) |
-| MLF_UNCAP | 9 HEAT_CAP | 379 LEV_CAP | Same as MLF |
-| BOUNDED | 16 HEAT + 17 RISK_MULT | 574 LEV_CAP | Both (idx), LEV (FX) |
+| RAW_MIN_LOT_V1 | 0 | 0 | N/A |
+| DYNAMIC_V1 (retired) | 92 LOT_TOO_SMALL | 39 LEV_CAP, 1 LOT | LOT (idx), LEV (FX) |
+| CONSERVATIVE_V1 (retired) | 162 LOT_TOO_SMALL | 142 LEV_CAP | LOT (idx), LEV (FX) |
+| FIXED_USD_V1 (institutional, retired) | 94 LOT_TOO_SMALL | 379 LEV_CAP | LOT (idx), LEV (FX) |
+| MIN_LOT_FALLBACK_V1 (retired) | 9 HEAT_CAP | 379 LEV_CAP | HEAT (idx), LEV (FX) |
+| MIN_LOT_FALLBACK_UNCAPPED_V1 (retired) | 9 HEAT_CAP | 379 LEV_CAP | Same as MLF |
+| BOUNDED_MIN_LOT_V1 (retired) | 16 HEAT + 17 RISK_MULT | 574 LEV_CAP | Both (idx), LEV (FX) |
+
+> **v3.0 Retail Model note:** Rejection profile for the active retail profiles
+> (`FIXED_USD_V1` at $1k/2%/$20 floor and `REAL_MODEL_V1` tier-ramp) will be
+> dominated by `LOT_TOO_SMALL` on instruments with wide stops relative to the
+> reduced risk budget (XAUUSD especially at $1k seed). `RAW_MIN_LOT_V1` never
+> rejects.
 
 **Interpretation:**
 - **Indices** are low-notional (e.g., SPX500 at 0.01 lot = $55 notional). Leverage cap never binds. The binding constraint is LOT_TOO_SMALL (risk budget too small for min lot at wide stops) or HEAT_CAP (for fallback profiles).
@@ -335,13 +273,17 @@ process_exit -> pnl = (exit - entry) * direction * usd_per_pu * lot
 
 3. **Heat cap redundancy in DYNAMIC_V1:** The dynamic scaling logic already clamps risk to remaining heat budget, making the hard heat_cap rejection check largely redundant. It exists as a safety net for floating-point rounding edge cases.
 
-4. **$10K starting capital is hardcoded:** All profiles use `starting_capital: 10000.0`. This is a simulation parameter, not a live account balance. Changing it affects lot sizing for fractional profiles (DYNAMIC, CONSERVATIVE) but not fixed-dollar profiles.
+4. **$1K starting capital (v3.0 retail):** All three active profiles use `starting_capital: 1000.0`. This reflects the actual retail OctaFx account context. The $1k floor + $20 risk floor on `FIXED_USD_V1` means XAUUSD trades with >$2000/unit * stop distance will SKIP rather than undersize. `REAL_MODEL_V1` tier-ramp thresholds (`$1k -> 2%`, `$2k -> 3%`, etc.) also tie to this $1k seed.
 
 5. **Lot step uniformity:** All profiles use `lot_step: 0.01`. The YAML broker specs now carry MT5-verified `min_lot` and `lot_step` per symbol, but the profile-level value overrides.
 
 ---
 
-## 9. FIXED_USD_V1 Leverage Calibration
+## 9. FIXED_USD_V1 Leverage Calibration (Historical -- Institutional Model, Retired)
+
+> Preserved for historical traceability. Refers to the retired institutional
+> `FIXED_USD_V1` profile ($10k seed, $50 risk). The v3.0 retail `FIXED_USD_V1`
+> disables the leverage cap entirely (`leverage_cap=9999`).
 
 **Date:** 2026-04-03
 **Method:** Computed required leverage for every trade in the shadow portfolio (22,282 trades across all strategies and symbols), then selected the ceiling of p99.
@@ -367,7 +309,14 @@ process_exit -> pnl = (exit - entry) * direction * usd_per_pu * lot
 
 ---
 
-## 10. Capital Sensitivity Analysis
+## 10. Capital Sensitivity Analysis (Historical -- Institutional Model, Retired)
+
+> Preserved for historical traceability. Refers to the retired institutional
+> `FIXED_USD_V1` profile. Directly relevant takeaway that still applies to the
+> retail model: **LOT_TOO_SMALL is capital-independent** and instrument-specific,
+> depending only on `risk_distance * usd_per_pu` relative to the risk budget.
+> At $1k retail seed with $20 risk floor, XAUUSD rejection will be much more
+> aggressive than it was at $10k / $50.
 
 **Date:** 2026-04-03
 **Profile:** FIXED_USD_V1 with leverage_cap=11, risk=$50
@@ -384,7 +333,13 @@ Tested at three capital levels ($5K, $10K, $20K) against the same 22,282 trade e
 
 ---
 
-## 11. Capital Floor: XAUUSD vs FX
+## 11. Capital Floor: XAUUSD vs FX (Historical -- Institutional Model, Retired)
+
+> Preserved for historical traceability. The instrument-class asymmetry (XAUUSD
+> lot floor binds; FX does not) still applies to the retail model and is the
+> primary reason `FIXED_USD_V1` at $1k seed will SKIP many XAUUSD trades.
+> For retail XAUUSD edge measurement, use `RAW_MIN_LOT_V1` (0.01 lot
+> unconditional) as the honest probe.
 
 **Date:** 2026-04-03
 **Question:** Does the $10K capital floor observed on XAUUSD apply to FX?

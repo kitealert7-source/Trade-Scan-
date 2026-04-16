@@ -87,15 +87,15 @@ The engine layer (currently **Universal Research Engine v1.5.3**) ensures that b
 - **`portfolio_evaluator`**: Cross-instrument engine that reconciles individual symbol results into a unified portfolio view.
 - **`post_process_capital.py`**: Enriches `profile_comparison.json` with utilization-based capital insights per profile.
 
-### Capital Profiles (Current)
+### Capital Profiles (Current -- v3.0 Retail Amateur Model, 2026-04-16)
 
 | Profile | Description |
 | :--- | :--- |
-| `RAW_MIN_LOT_V1` | Baseline: fixed 0.01 lot, no portfolio constraints. Pure directional edge measure. |
-| `CONSERVATIVE_V1` | Risk-managed profile with strict heat and leverage caps. |
-| `AGGRESSIVE_V1` | Higher-utilization profile for maximum return capture. |
-| `BOUNDED_MIN_LOT_V1` | Min-lot with bounded drawdown constraints. |
-| `MIN_LOT_FALLBACK_UNCAPPED_V1` | Min-lot with no concurrency ceiling. |
+| `RAW_MIN_LOT_V1` | Diagnostic baseline: fixed 0.01 lot unconditionally, `raw_lot_mode=True`, no risk/heat/leverage gates. $1k seed. Pure directional edge probe. |
+| `FIXED_USD_V1` | Retail conservative: $1k seed, `risk_per_trade = max(2% of equity, $20 floor)`, heat/leverage caps disabled (9999). Sub-min_lot trades SKIP honestly. |
+| `REAL_MODEL_V1` | Retail aggressive: $1k seed, tier-ramp risk (2% base, +1% per equity doubling, capped 5%, symmetric on retracement), `retail_max_lot=10.0` hard cap. |
+
+Retired 2026-04-16 (no longer in `PROFILES` dict): `DYNAMIC_V1`, `CONSERVATIVE_V1`, `MIN_LOT_FALLBACK_V1`, `MIN_LOT_FALLBACK_UNCAPPED_V1`, `BOUNDED_MIN_LOT_V1`.
 
 ### Concurrency Metrics (per capital profile)
 

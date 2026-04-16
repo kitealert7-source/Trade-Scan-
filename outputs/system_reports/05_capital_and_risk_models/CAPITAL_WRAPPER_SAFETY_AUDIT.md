@@ -1,9 +1,21 @@
 # Capital Wrapper Safety Audit
 ## Changes Applied 2026-03-11 — Universal Research Engine v1.5.3
 ## Updated 2026-04-03 — MT5 Static Valuation + Leverage Calibration
+## Updated 2026-04-16 — v3.0 Retail Amateur Model (institutional profiles retired)
 
-**Audit Date:** 2026-03-11 (original) | 2026-04-03 (valuation + calibration update)
+**Audit Date:** 2026-03-11 (original) | 2026-04-03 (valuation + calibration) | 2026-04-16 (retail retirement)
 **Scope:** tools/capital_wrapper.py + tools/capital_engine/simulation.py + execution_engine/ + data_access/broker_specs/
+
+> **2026-04-16 Update:** Six of the seven profiles audited in this document
+> (`DYNAMIC_V1`, `CONSERVATIVE_V1`, institutional `FIXED_USD_V1`,
+> `MIN_LOT_FALLBACK_V1`, `MIN_LOT_FALLBACK_UNCAPPED_V1`, `BOUNDED_MIN_LOT_V1`)
+> have been **retired**. The active profile set is now
+> `RAW_MIN_LOT_V1`, `FIXED_USD_V1` (retail variant: $1k seed, 2%/$20 floor,
+> caps disabled), and `REAL_MODEL_V1` (retail tier-ramp, `retail_max_lot=10`).
+> Safety fixes below remain valid -- the **gates** (EXIT-before-ENTRY ordering,
+> seed discipline, usage-based valuation) still govern the active profiles even
+> though the specific calibration values (leverage_cap=11, $50 risk, $10k seed)
+> no longer apply.
 
 ---
 
@@ -219,27 +231,34 @@ strategies/<PREFIX>/golive/
 └── directive_snapshot.yaml — copy of backtest_directives/completed/<PREFIX>.txt
 ```
 
-### selected_profile.json Schema (key fields)
+### selected_profile.json Schema (key fields, v3.0 Retail Model)
 ```json
 {
   "profile": "FIXED_USD_V1",
   "profile_hash": "<sha256 of enforcement+sizing>",
   "profile_hash_algo": "sha256",
   "enforcement": {
-    "max_portfolio_risk_pct": 0.04,
-    "max_leverage": 11,
-    "max_open_trades": null
+    "max_portfolio_risk_pct": 9999,
+    "max_leverage": 9999,
+    "max_open_trades": null,
+    "retail_max_lot": null
   },
   "sizing": {
-    "starting_capital": 10000.0,
-    "fixed_risk_usd": 50.0,
+    "starting_capital": 1000.0,
+    "risk_per_trade": 0.02,
+    "fixed_risk_usd_floor": 20.0,
     ...
   },
   "simulation_metrics": { ... }
 }
 ```
 
-**Note:** `max_leverage` was 5 prior to 2026-04-03. Calibrated to 11 based on p99 = 10.67x across 22,282 shadow trades. See `CAPITAL_SIZING_AUDIT.md` Section 9 for full calibration data.
+**Historical note:** Prior to 2026-04-16 the institutional variant ran at
+`starting_capital: 10000.0`, `fixed_risk_usd: 50.0`, `max_leverage: 11`
+(calibrated 2026-04-03 from p99 = 10.67x across 22,282 shadow trades -- see
+`CAPITAL_SIZING_AUDIT.md` Section 9 for calibration data). The retail variant
+disables heat/leverage caps and honours honest lot-floor SKIPs instead.
+`REAL_MODEL_V1` additionally sets `retail_max_lot: 10.0` in enforcement.
 
 ### Profile Hash Guard
 SHA-256 computed over `{"enforcement": ..., "sizing": ...}` with `sort_keys=True,
@@ -393,9 +412,14 @@ All 30 YAML files patched via `tools/verify_broker_specs.py --force-all` using M
 
 ---
 
-## 10. FIXED_USD_V1 Leverage Cap Calibration (2026-04-03)
+## 10. FIXED_USD_V1 Leverage Cap Calibration (2026-04-03, Historical -- Retired)
 
-**File:** `tools/capital_wrapper.py` — `PROFILES["FIXED_USD_V1"]["leverage_cap"]`
+> Applies to the retired institutional `FIXED_USD_V1` profile ($10k seed, $50
+> risk). The v3.0 retail `FIXED_USD_V1` disables the leverage cap entirely
+> (`leverage_cap=9999`) because retail desk-heat/leverage management doesn't
+> apply to a single OctaFx account. Historical content preserved for traceability.
+
+**File:** `tools/capital_wrapper.py` — `PROFILES["FIXED_USD_V1"]["leverage_cap"]` (retired institutional variant)
 **Type:** Calibration
 
 ### Change
@@ -423,8 +447,8 @@ Selected `ceil(p99) = 11` to achieve >98% acceptance while capping the tail.
 - 0 invariant breaches (heat, leverage, equity)
 - All 15 rejections are genuine LEVERAGE_CAP breaches, not calibration artifacts
 
-### Impact on Other Profiles
-Only FIXED_USD_V1 was changed. All other profiles retain `leverage_cap: 5` (CONSERVATIVE, MLF, MLF_UNCAP, BOUNDED) or `leverage_cap: 15` (DYNAMIC).
+### Impact on Other Profiles (as of 2026-04-03, before v3.0 retirement)
+Only FIXED_USD_V1 was changed. All other profiles retained `leverage_cap: 5` (CONSERVATIVE, MLF, MLF_UNCAP, BOUNDED) or `leverage_cap: 15` (DYNAMIC). **All five of those profiles are now retired.** Active profiles as of 2026-04-16 all set `leverage_cap: 9999` (disabled).
 
 ---
 
