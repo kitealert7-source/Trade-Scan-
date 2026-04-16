@@ -69,7 +69,6 @@ create_audit_snapshot | Generates system audit snapshots
 create_vault_snapshot | Point-in-time workspace vault archival
 system_introspection | Workspace system snapshot generator (SYSTEM_STATE.md)
 rebuild_all_reports | Utility to rebuild all system reports
-configure_portfolio | Portfolio configuration and setup utility
 report_generator | Core automated report generation engine
 research_memory_append | Append entries to RESEARCH_MEMORY.md
 

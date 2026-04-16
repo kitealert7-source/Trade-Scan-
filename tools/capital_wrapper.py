@@ -105,82 +105,51 @@ def _normalize_lot_broker(raw_lot: float, symbol: str) -> float | None:
 # ======================================================================
 
 PROFILES = {
-    # Baseline: raw directional edge at minimum lot — no constraints
+    # Baseline diagnostic: raw directional edge at minimum lot — no constraints.
+    # raw_lot_mode bypasses all sizing/heat/leverage gates; every signal executes
+    # at 0.01 lot unconditionally. Useful as a "is the signal itself real?" probe.
     "RAW_MIN_LOT_V1": {
-        "starting_capital": 10000.0,
+        "starting_capital": 1000.0,
         "risk_per_trade": 0.0,
-        "heat_cap": 9999.0,       # unused (raw_lot_mode bypasses all gates)
-        "leverage_cap": 9999,     # unused
+        "heat_cap": 9999.0,
+        "leverage_cap": 9999,
         "min_lot": 0.01,
         "lot_step": 0.01,
-        "raw_lot_mode": True,     # unconditional execution — every signal at 0.01 lot
+        "raw_lot_mode": True,
     },
-    # Priority 1: Dynamic heat-aware scaling
-    "DYNAMIC_V1": {
-        "starting_capital": 10000.0,
-        "risk_per_trade": 0.005,         # 0.5% base risk
-        "heat_cap": 0.03,               # 3.0% hard cap
-        "leverage_cap": 1000,            # CFD broker limit
-        "dynamic_scaling": True,        # min(base_risk, remaining_heat)
-        "min_position_pct": 0.40,       # Skip if scaled risk < 40% of base
-        "min_lot": 0.01,
-        "lot_step": 0.01,
-    },
-    # Priority 2: Lower fixed fractional
-    "CONSERVATIVE_V1": {
-        "starting_capital": 10000.0,
-        "risk_per_trade": 0.0025,       # 0.25%
-        "heat_cap": 0.04,               # 4.0%
-        "leverage_cap": 1000,            # CFD broker limit
-        "min_lot": 0.01,
-        "lot_step": 0.01,
-    },
-    # Priority 3: Fixed USD risk per trade
+    # Retail-amateur conservative: $1k seed, 2% risk with $20 floor.
+    # risk = max(2% of current equity, $20). Floor keeps trade size meaningful
+    # if equity dips below starting; 2% path allows compounding as equity grows.
+    # No heat/leverage caps (real retail has no portfolio heat monitor).
+    # Trades below min_lot SKIP honestly (no fallback).
     "FIXED_USD_V1": {
-        "starting_capital": 10000.0,
-        "risk_per_trade": 0.005,        # Fallback (unused when fixed_risk_usd set)
-        "fixed_risk_usd": 50.0,         # $50 per trade
-        "heat_cap": 0.04,               # 4.0%
-        "leverage_cap": 1000,            # CFD broker limit
+        "starting_capital": 1000.0,
+        "risk_per_trade": 0.02,
+        "fixed_risk_usd_floor": 20.0,
+        "heat_cap": 9999.0,
+        "leverage_cap": 9999,
         "min_lot": 0.01,
         "lot_step": 0.01,
     },
-    # Priority 4: Min Lot Fallback (Fixed USD $50 with broker min override)
-    "MIN_LOT_FALLBACK_V1": {
-        "starting_capital": 10000.0,
-        "risk_per_trade": 0.005,
-        "fixed_risk_usd": 50.0,
-        "heat_cap": 0.04,
-        "leverage_cap": 1000,
+    # Retail-amateur aggressive: $1k seed, tier-ramp risk (2% base, +1% per
+    # 2x equity doubling, capped at 5%, symmetric retrace). No heat/leverage
+    # caps. Trades below min_lot SKIP. retail_max_lot=10 enforces broker-
+    # realistic ceiling — trades requiring more than 10 lots SKIP (OctaFx
+    # vol_max=500 is an admin/marketing cap; real retail above 10 lots
+    # brings slippage and platform scrutiny).
+    "REAL_MODEL_V1": {
+        "starting_capital": 1000.0,
+        "risk_per_trade": 0.02,
+        "heat_cap": 9999.0,
+        "leverage_cap": 9999,
         "min_lot": 0.01,
         "lot_step": 0.01,
-        "min_lot_fallback": True,
-        "max_risk_multiple": 3.0,
-        "track_risk_override": True,
-    },
-    # Priority 5: Uncapped Fallback (Research Only)
-    "MIN_LOT_FALLBACK_UNCAPPED_V1": {
-        "starting_capital": 10000.0,
-        "risk_per_trade": 0.005,
-        "fixed_risk_usd": 50.0,
-        "heat_cap": 0.04,
-        "leverage_cap": 1000,
-        "min_lot": 0.01,
-        "lot_step": 0.01,
-        "min_lot_fallback": True,
-        "max_risk_multiple": None,
-        "track_risk_override": True,
-    },
-    # Priority 6: Bounded Fallback
-    "BOUNDED_MIN_LOT_V1": {
-        "starting_capital": 10000.0,
-        "fixed_risk_usd": 65.0,
-        "heat_cap": 0.04,
-        "leverage_cap": 1000,
-        "min_lot": 0.01,
-        "lot_step": 0.01,
-        "min_lot_fallback": True,
-        "max_risk_multiple": 1.5,
+        "tier_ramp": True,
+        "tier_base_pct": 0.02,
+        "tier_step_pct": 0.01,
+        "tier_cap_pct": 0.05,
+        "tier_multiplier": 2.0,
+        "retail_max_lot": 10.0,
     },
 }
 
@@ -511,6 +480,21 @@ class PortfolioState:
     max_risk_multiple: Optional[float] = 3.0  # Max allowable risk/target ratio (None=Uncapped)
     track_risk_override: bool = False         # Log override metrics
     raw_lot_mode: bool = False                # Bypass all gates — execute every signal at min_lot
+    # --- Tier-ramp risk schedule (REAL_MODEL_V1) ---
+    # When enabled, risk_per_trade increases by +1% for each equity doubling
+    # (2x starting_capital crossing), capped at 5%. Symmetric retrace.
+    tier_ramp: bool = False
+    tier_base_pct: float = 0.02               # Starting risk fraction (2%)
+    tier_step_pct: float = 0.01               # +1% per doubling
+    tier_cap_pct: float = 0.05                # Cap at 5%
+    tier_multiplier: float = 2.0              # Equity-crossing multiplier (2x)
+    # --- Retail-prudence per-trade volume cap ---
+    # Separate from broker vol_max (500 at OctaFx — CFD admin cap, not liquidity).
+    # A retail account shouldn't actually execute 50+ lot orders regardless of
+    # equity: slippage, platform scrutiny, and one-sided CFD books make it
+    # dangerous. When set, trades with normalized_lot > retail_max_lot are
+    # SKIPPED (not scaled down) so rejection_rate honestly reflects executability.
+    retail_max_lot: Optional[float] = None
     # Running state
     equity: float = 0.0
     realized_pnl: float = 0.0
@@ -561,6 +545,18 @@ class PortfolioState:
         """
         if self.fixed_risk_usd is not None:
             base_risk_capital = self.fixed_risk_usd
+        elif self.tier_ramp and self.starting_capital > 0 and self.equity > 0:
+            # REAL_MODEL_V1 tier ramp: +step% per tier_multiplier-crossing of equity.
+            ratio = self.equity / self.starting_capital
+            if ratio < 1.0:
+                tier = 0
+            else:
+                tier = int(math.floor(math.log(ratio) / math.log(self.tier_multiplier)))
+                if tier < 0:
+                    tier = 0
+            effective_risk = min(self.tier_base_pct + self.tier_step_pct * tier,
+                                 self.tier_cap_pct)
+            base_risk_capital = self.equity * effective_risk
         else:
             base_risk_capital = self.equity * self.risk_per_trade
 
@@ -673,6 +669,16 @@ class PortfolioState:
         if lot_size is None:
             self._reject(event, "LOT_BELOW_VOL_MIN",
                          f"normalized_lot < volume_min after broker spec alignment"
+                         f"  symbol={event.symbol}")
+            return False
+
+        # 1.75 Retail-prudence cap — SKIP (don't scale) so rejection_rate tells
+        #       the truth about executability. CFD broker vol_max (500) already
+        #       applied above by _normalize_lot_broker; this is the tighter
+        #       retail-reality ceiling.
+        if self.retail_max_lot is not None and lot_size > self.retail_max_lot:
+            self._reject(event, "RETAIL_MAX_LOT_EXCEEDED",
+                         f"normalized_lot={lot_size:.2f} > retail_max={self.retail_max_lot:.2f}"
                          f"  symbol={event.symbol}")
             return False
 
@@ -1072,6 +1078,19 @@ def compute_deployable_metrics(state: PortfolioState, total_runs: int, total_ass
     total_signals = state.total_accepted + state.total_rejected
     rejection_rate = state.total_rejected / total_signals if total_signals > 0 else 0.0
 
+    # Capital-ceiling rejections (RETAIL_MAX_LOT_EXCEEDED): strategy outgrew the
+    # broker-realistic lot cap. These are evidence of strong returns saturating
+    # retail capacity, NOT execution failures — they are excluded from the
+    # execution-health penalty in portfolio_evaluator._resolve_deployed_profile.
+    retail_max_lot_rejected = sum(
+        1 for rej in state.rejection_log if rej.get("reason") == "RETAIL_MAX_LOT_EXCEEDED"
+    )
+    execution_rejected = state.total_rejected - retail_max_lot_rejected
+    execution_total = state.total_accepted + execution_rejected
+    execution_rejection_rate = (
+        execution_rejected / execution_total if execution_total > 0 else 0.0
+    )
+
     # Heat utilization
     avg_heat = sum(state.heat_samples) / len(state.heat_samples) if state.heat_samples else 0.0
     pct_at_full_heat = sum(1 for h in state.heat_samples if h >= state.heat_cap * 0.95) / len(state.heat_samples) if state.heat_samples else 0.0
@@ -1095,6 +1114,7 @@ def compute_deployable_metrics(state: PortfolioState, total_runs: int, total_ass
         "total_assets_evaluated": total_assets,
         "starting_capital": state.starting_capital,
         "final_equity": round(state.equity, 2),
+        "peak_equity": round(state.peak_equity, 2),
         "cagr": round(cagr, 6),
         "cagr_pct": round(cagr * 100, 4),
         "max_drawdown_usd": round(state.max_drawdown_usd, 2),
@@ -1103,6 +1123,8 @@ def compute_deployable_metrics(state: PortfolioState, total_runs: int, total_ass
         "total_accepted": state.total_accepted,
         "total_rejected": state.total_rejected,
         "rejection_rate_pct": round(rejection_rate * 100, 2),
+        "retail_max_lot_rejected": retail_max_lot_rejected,
+        "execution_rejection_rate_pct": round(execution_rejection_rate * 100, 2),
         "avg_heat_utilization_pct": round(avg_heat * 100, 4),
         "pct_time_at_full_heat": round(pct_at_full_heat * 100, 4),
         "longest_loss_streak": longest_loss,
@@ -1211,6 +1233,95 @@ def plot_equity_curve(state: PortfolioState, output_dir: Path) -> None:
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"[EMIT] {state.profile_name} equity curve plot -> {out_path}")
+
+
+def plot_overlay_comparison(states: Dict[str, "PortfolioState"], output_root: Path) -> None:
+    """Render a single normalized-linear overlay comparing all profiles on shared axes.
+
+    Individual equity_curve.png files use log-scale and look visually identical across
+    profiles because every profile consumes the same R-series. This overlay plots each
+    profile normalized to starting_capital=1.0 on a LINEAR axis so magnitude divergence
+    (the real signal) is visible in one frame.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        import pandas as pd
+    except ImportError:
+        print("[WARN] matplotlib not installed — skipping overlay comparison plot.")
+        return
+
+    if not states:
+        return
+
+    palette = [
+        "#00d4aa", "#ff7043", "#42a5f5", "#ab47bc",
+        "#ffca28", "#8d6e63", "#bdbdbd", "#ef5350",
+        "#26c6da", "#d4e157",
+    ]
+
+    fig, (ax_eq, ax_dd) = plt.subplots(
+        2, 1, figsize=(16, 9),
+        gridspec_kw={"height_ratios": [3, 1]},
+        sharex=True, facecolor="#0d0d12",
+    )
+    fig.subplots_adjust(hspace=0.05)
+    ax_eq.set_facecolor("#0d0d12")
+    ax_dd.set_facecolor("#0d0d12")
+
+    # REAL_MODEL_V1 rendered thick so it stands out if present.
+    ordered = sorted(states.items(), key=lambda kv: 0 if kv[0] == "REAL_MODEL_V1" else 1)
+
+    for i, (name, state) in enumerate(ordered):
+        if not state.equity_timeline:
+            continue
+        ts = [t for t, _ in state.equity_timeline]
+        eq = [e for _, e in state.equity_timeline]
+        s = pd.Series(eq, index=pd.to_datetime(ts))
+        s = s[~s.index.duplicated(keep="last")]
+        daily = s.resample("D").last().ffill()
+        start = state.starting_capital if state.starting_capital > 0 else daily.iloc[0]
+        norm = daily / start
+        peak = daily.cummax()
+        dd = (daily / peak - 1.0) * 100.0
+
+        color = palette[i % len(palette)]
+        lw = 2.2 if name == "REAL_MODEL_V1" else 1.2
+        alpha = 1.0 if name == "REAL_MODEL_V1" else 0.85
+        label = f"{name}  ({norm.iloc[-1]:.2f}x, DD {dd.min():.1f}%)"
+        ax_eq.plot(daily.index.to_pydatetime(), norm.values,
+                   color=color, linewidth=lw, alpha=alpha, label=label, zorder=3)
+        ax_dd.plot(daily.index.to_pydatetime(), dd.values,
+                   color=color, linewidth=lw * 0.7, alpha=alpha, zorder=3)
+
+    ax_eq.axhline(1.0, color="#555", linewidth=0.8, linestyle="--")
+    ax_eq.set_ylabel("Equity (normalized, start = 1.0×)", color="#ccc", fontsize=11)
+    ax_eq.set_title(
+        "Profile Overlay — normalized linear equity × drawdown",
+        color="#eee", fontsize=13, pad=10,
+    )
+    ax_eq.tick_params(colors="#999", labelsize=9)
+    ax_eq.spines[:].set_color("#222")
+    ax_eq.grid(axis="y", color="#222", linewidth=0.5, linestyle="--", zorder=1)
+    leg = ax_eq.legend(loc="upper left", facecolor="#15151c",
+                       edgecolor="#333", labelcolor="#ddd", fontsize=9, framealpha=0.9)
+    for t in leg.get_texts():
+        t.set_color("#ddd")
+
+    ax_dd.axhline(0, color="#555", linewidth=0.8)
+    ax_dd.set_ylabel("Drawdown %", color="#ccc", fontsize=10)
+    ax_dd.tick_params(colors="#999", labelsize=9)
+    ax_dd.spines[:].set_color("#222")
+    ax_dd.grid(axis="y", color="#222", linewidth=0.5, linestyle="--", zorder=1)
+    ax_dd.xaxis.set_major_locator(mdates.YearLocator())
+    ax_dd.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+
+    out_path = output_root / "overlay_comparison.png"
+    fig.savefig(out_path, dpi=130, bbox_inches="tight", facecolor=fig.get_facecolor())
+    plt.close(fig)
+    print(f"[EMIT] Overlay comparison -> {out_path}")
 
 
 def emit_profile_artifacts(state: PortfolioState, output_dir: Path, total_runs: int, total_assets: int):
@@ -1676,6 +1787,7 @@ def main():
         all_metrics[name] = metrics
 
     emit_comparison_json(all_metrics, states, deployable_root)
+    plot_overlay_comparison(states, deployable_root)
 
     try:
         from tools.post_process_capital import process_profile_comparison

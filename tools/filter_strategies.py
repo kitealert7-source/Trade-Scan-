@@ -21,6 +21,33 @@ MASTER_SHEET = MASTER_FILTER_PATH
 # strategies as BURN_IN just because they appear in portfolio.yaml.
 _TS_EXEC_PORTFOLIO = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
 
+# TS_Execution burn_in_registry.yaml — source of truth for burn_in_layer column.
+# Populated by TS_Execution/tools/sync_burn_in_registry.py from FSP BURN_IN rows;
+# we read it back here to surface the layer on each BURN_IN row in FSP.
+_TS_EXEC_BURNIN_REGISTRY = PROJECT_ROOT.parent / "TS_Execution" / "burn_in_registry.yaml"
+
+
+def _load_burnin_layers() -> dict[str, str]:
+    """Return {strategy_id → layer} from burn_in_registry.yaml ('PRIMARY' | 'COVERAGE')."""
+    if not _TS_EXEC_BURNIN_REGISTRY.exists():
+        return {}
+    try:
+        import yaml
+        data = yaml.safe_load(_TS_EXEC_BURNIN_REGISTRY.read_text(encoding="utf-8")) or {}
+        layers: dict[str, str] = {}
+        for entry in (data.get("primary") or []):
+            sid = entry.get("id") if isinstance(entry, dict) else None
+            if sid:
+                layers[str(sid)] = "PRIMARY"
+        for entry in (data.get("coverage") or []):
+            sid = entry.get("id") if isinstance(entry, dict) else None
+            if sid:
+                layers[str(sid)] = "COVERAGE"
+        return layers
+    except Exception as e:
+        print(f"[WARN] Could not load burn-in layers from registry: {e}")
+        return {}
+
 
 def _load_burnin_ids() -> set[str]:
     """Read validated BURN_IN strategy IDs from TS_Execution/portfolio.yaml.
@@ -160,21 +187,42 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
 
 
 def _apply_candidate_status(df: pd.DataFrame) -> pd.DataFrame:
-    """Add/update candidate_status and IN_PORTFOLIO, keep them adjacent."""
+    """Add/update candidate_status and Analysis_selection, keep them adjacent.
+
+    Analysis_selection is a 0/1 per-row user-intent flag for the next
+    composite_portfolio_analysis run. It is populated in this tool from the
+    authoritative DB column (master_filter.Analysis_selection) so the FSP
+    sheet presents a consistent view — but the DB is the source of truth.
+    User edits should go through ``control_panel --select-analysis``;
+    hand-edits to the FSP xlsx are not round-tripped back into the DB.
+    """
     out = df.copy()
     out["candidate_status"] = _compute_candidate_status(out)
 
-    # IN_PORTFOLIO is READ-ONLY here. Only promote_to_burnin.py writes it (via ledger.db).
-    # This tool preserves whatever value exists — never flips True/False.
+    # Refresh Analysis_selection from the authoritative DB column. If the
+    # DB read fails, leave any existing column in place (don't silently
+    # zero-fill user intent).
+    try:
+        from tools.ledger_db import read_analysis_selection
+        selected = read_analysis_selection()
+        if "run_id" in out.columns:
+            out["Analysis_selection"] = (
+                out["run_id"].astype(str).isin(selected).astype(int)
+            )
+    except Exception as exc:
+        print(f"[WARN] Could not refresh Analysis_selection from DB ({exc}) — "
+              f"preserving existing column values.")
+        if "Analysis_selection" not in out.columns:
+            out["Analysis_selection"] = 0
 
     cols = out.columns.tolist()
     if "candidate_status" in cols:
         cols.remove("candidate_status")
-    if "IN_PORTFOLIO" in cols:
-        idx = cols.index("IN_PORTFOLIO") + 1
-    else:
-        idx = len(cols)
-    cols = cols[:idx] + ["candidate_status"] + cols[idx:]
+    if "Analysis_selection" in cols:
+        cols.remove("Analysis_selection")
+    # Place Analysis_selection just before candidate_status so the two
+    # status-like columns stay visually adjacent in the FSP sheet.
+    cols = cols + ["Analysis_selection", "candidate_status"]
     return out[cols]
 
 
@@ -236,8 +284,8 @@ def filter_strategies():
     # contain rows that have been retired by a later rerun. Only live, non-
     # quarantined rows are eligible for promotion.
     #
-    #   is_current  = 1  -> this is the latest result for its run_id lineage
-    #   quarantined = 0  -> not flagged as semantically broken (BUG_FIX rerun)
+    #   is_current  = 1  → this is the latest result for its run_id lineage
+    #   quarantined = 0  → not flagged as semantically broken (BUG_FIX rerun)
     #
     # Pre-2026-04-16 rows may carry NULLs in these columns; the ledger_db
     # migration backfilled defaults (1/0), but we fillna() defensively in
@@ -288,6 +336,23 @@ def filter_strategies():
             if CANDIDATE_FILTER_PATH.exists():
                 try:
                     df_existing = pd.read_excel(CANDIDATE_FILTER_PATH)
+                    # Cast numeric columns to float64 immediately after read.
+                    # Excel writes integer-valued floats (e.g. sqn=0) as int64,
+                    # causing silent truncation when float values (e.g. sqn=0.70)
+                    # are assigned back via .at[]. All metric cols must be float.
+                    _numeric_cols = [
+                        "sqn", "trade_density", "expectancy", "sharpe_ratio",
+                        "return_dd_ratio", "profit_factor", "total_net_profit",
+                        "gross_profit", "gross_loss", "max_drawdown", "max_dd_pct",
+                        "worst_5_loss_pct", "pct_time_in_market", "avg_bars_in_trade",
+                        "net_profit_high_vol", "net_profit_normal_vol", "net_profit_low_vol",
+                        "net_profit_asia", "net_profit_london", "net_profit_ny",
+                        "net_profit_strong_up", "net_profit_weak_up", "net_profit_neutral",
+                        "net_profit_weak_down", "net_profit_strong_down",
+                    ]
+                    for _nc in _numeric_cols:
+                        if _nc in df_existing.columns:
+                            df_existing[_nc] = pd.to_numeric(df_existing[_nc], errors="coerce").astype("float64")
                     existing_run_ids = (
                         set(df_existing["run_id"].astype(str).tolist())
                         if "run_id" in df_existing.columns
@@ -296,22 +361,40 @@ def filter_strategies():
                     # Identify new rows (not yet in candidates)
                     df_new_rows = passed_df[~passed_df["run_id"].astype(str).isin(existing_run_ids)]
 
-                    # Refresh metrics for existing rows that are also in passed_df
-                    # Preserve non-metric columns (IN_PORTFOLIO, burn_in_layer, etc.)
-                    _preserve_cols = {"IN_PORTFOLIO", "burn_in_layer"}
-                    refreshed_ids = set(passed_df["run_id"].astype(str)) & existing_run_ids
+                    # Refresh metrics for existing rows that are also in passed_df.
+                    # Preserve Analysis_selection (owned by master_filter DB —
+                    # control_panel writes; this tool republishes).
+                    # burn_in_layer is NOT preserved — it's overwritten deterministically
+                    # below from burn_in_registry.yaml after the merge.
+                    _preserve_cols = {"Analysis_selection"}
+                    # Refresh ALL rows present in master_filter (not just currently passing).
+                    # Rows that pass today get refreshed; rows that previously passed but
+                    # now fail also get refreshed so metrics don't go stale while they sit
+                    # in the append-only ledger. Rows absent from master_filter are preserved.
+                    refreshed_ids = set(df["run_id"].astype(str)) & existing_run_ids
                     if refreshed_ids:
-                        passed_lookup = passed_df.set_index(passed_df["run_id"].astype(str))
-                        metric_cols = [c for c in passed_df.columns if c not in _preserve_cols]
-                        for idx_row in df_existing.index:
-                            rid = str(df_existing.at[idx_row, "run_id"])
-                            if rid in refreshed_ids and rid in passed_lookup.index:
-                                src = passed_lookup.loc[rid]
-                                if isinstance(src, pd.DataFrame):
-                                    src = src.iloc[0]
-                                for col in metric_cols:
-                                    if col in df_existing.columns:
-                                        df_existing.at[idx_row, col] = src[col]
+                        # Refresh metric columns for rows in refreshed_ids.
+                        # Uses .loc + .map() — no set_index gymnastics, no merge.
+                        # Pre-cast columns to float64 to prevent silent int truncation
+                        # when the Excel-read column is int64 (e.g. sqn column of all 0s).
+                        metric_cols = [
+                            c for c in df.columns
+                            if c not in _preserve_cols and c != "run_id" and c in df_existing.columns
+                        ]
+                        _lookup = df.set_index(df["run_id"].astype(str))
+                        df_existing = df_existing.copy()
+                        df_existing["run_id"] = df_existing["run_id"].astype(str)
+                        _refresh_mask = df_existing["run_id"].isin(refreshed_ids)
+                        for col in metric_cols:
+                            if col not in _lookup.columns:
+                                continue
+                            # Cast destination to float to prevent int truncation
+                            try:
+                                df_existing[col] = df_existing[col].astype(float)
+                            except (ValueError, TypeError):
+                                pass  # non-numeric column, skip cast
+                            _new_vals = df_existing.loc[_refresh_mask, "run_id"].map(_lookup[col])
+                            df_existing.loc[_refresh_mask, col] = _new_vals.values
                         print(f"[CANDIDATES] Refreshed metrics for {len(refreshed_ids)} existing row(s) from Master Filter")
 
                     df_merged = pd.concat([df_existing, df_new_rows], ignore_index=True)
@@ -338,6 +421,17 @@ def filter_strategies():
                 restore_mask = df_merged["run_id"].astype(str).isin(_rbin_ids)
                 df_merged.loc[restore_mask, "candidate_status"] = "RBIN"
                 print(f"[CANDIDATES] Preserved RBIN status for {restore_mask.sum()} row(s)")
+
+            # Overwrite burn_in_layer deterministically from burn_in_registry.yaml.
+            # Registry is the sole source of truth; stale/demoted values get cleared.
+            if "strategy" in df_merged.columns:
+                _layers = _load_burnin_layers()
+                if _layers or "burn_in_layer" in df_merged.columns:
+                    df_merged["burn_in_layer"] = (
+                        df_merged["strategy"].astype(str).map(_layers)
+                    )
+                    _n_layered = df_merged["burn_in_layer"].notna().sum()
+                    print(f"[CANDIDATES] burn_in_layer populated for {_n_layered} row(s) from registry")
 
             # ── CORE dedup: one winner per (family × symbol) ──────────────
             # Within each strategy family on the same symbol, only the best
@@ -427,6 +521,26 @@ def filter_strategies():
                 strat_idx = cols.index("strategy") + 1
                 cols.insert(strat_idx, "base_strategy_id")
                 df_merged = df_merged[cols]
+
+            # ── Zombie-column guard ───────────────────────────────────────────
+            # Any column in df_merged that isn't in the live DB schema and
+            # isn't one of the FSP-derived columns computed above is stale —
+            # the residue of a column that was removed from master_filter
+            # but lingered in the existing FSP on disk (e.g. IN_PORTFOLIO
+            # after its 2026-04-16 retirement). Drop them so retired
+            # columns can't ghost through future regenerations.
+            _FSP_DERIVED_COLS = {
+                "candidate_status",   # _apply_candidate_status
+                "asset_class",        # classify_asset() above
+                "base_strategy_id",   # _derive_base_id() above
+                "burn_in_layer",      # from burn_in_registry.yaml above
+            }
+            _allowed = set(df.columns) | _FSP_DERIVED_COLS
+            _zombies = [c for c in df_merged.columns if c not in _allowed]
+            if _zombies:
+                print(f"[CANDIDATES] Pruning {len(_zombies)} zombie column(s) "
+                      f"(not in DB schema or derived list): {_zombies}")
+                df_merged = df_merged.drop(columns=_zombies)
 
             # Preserve non-data sheets (e.g. Notes) during rewrite
             _preserved = {}

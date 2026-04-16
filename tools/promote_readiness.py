@@ -91,10 +91,10 @@ def _check_portfolio_yaml(strategy_id: str, existing_ids: set) -> tuple[str, str
     """Check portfolio.yaml presence and lifecycle."""
     # Check exact ID or per-symbol variants
     if strategy_id in existing_ids:
-        return "IN_PORTFOLIO", ""
+        return "IN_YAML", ""
     for eid in existing_ids:
         if eid.startswith(strategy_id + "_"):
-            return "IN_PORTFOLIO", ""
+            return "IN_YAML", ""
     return "not present", ""
 
 
@@ -322,7 +322,7 @@ def print_report(report: list[dict]) -> None:
 
         # Color hints via markers
         port_display = c["portfolio_yaml"]
-        if port_display == "IN_PORTFOLIO":
+        if port_display == "IN_YAML":
             in_portfolio_count += 1
         elif entry["ready"]:
             ready_count += 1

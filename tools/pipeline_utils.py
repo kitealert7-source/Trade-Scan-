@@ -873,10 +873,24 @@ class DirectiveStateManager:
         # Atomic Write
         self._write_atomic(data)
         
-        # Log
+        # Log — both the per-directive audit (legacy) and the generalized
+        # governance event log (forensic consolidation across all authorities).
         self._append_audit_log("STATE_TRANSITION", {
             "from": old_state, "to": new_state, "attempt": latest_attempt
         })
+        try:
+            from tools.event_log import log_event
+            log_event(
+                action="DIRECTIVE_STATE_TRANSITION",
+                target=f"directive:{self.directive_id}",
+                actor="DirectiveStateManager",
+                before={"status": old_state},
+                after={"status": new_state},
+                attempt=latest_attempt,
+            )
+        except Exception:
+            # Never let observability failures break the state machine.
+            pass
         print(f"[DIRECTIVE] Transition {self.directive_id} ({latest_attempt}): {old_state} -> {new_state}")
 
     def _verify_completion_artifacts(self, run_ids: list[str]) -> list[str]:

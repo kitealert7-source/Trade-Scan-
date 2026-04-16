@@ -91,6 +91,7 @@ def process_profile_comparison(strategy_id: str):
         avg_heat_ratio = avg_heat_utilization_pct / 100.0
         realized_pnl = float(profile_data.get("realized_pnl", 0.0))
         starting_capital = float(profile_data.get("starting_capital", 10000.0))
+        peak_equity = float(profile_data.get("peak_equity", 0.0)) or starting_capital
         total_accepted = int(profile_data.get("total_accepted", 0))
         cagr = float(profile_data.get("cagr", 0.0))
 
@@ -103,17 +104,17 @@ def process_profile_comparison(strategy_id: str):
         else:
             return_on_utilized_capital = 0.0
 
-        # DD/MAR standardized to starting_capital basis
+        # DD as a share of peak equity at drawdown time ("account survived" semantics).
+        # Divides by peak_equity rather than starting_capital so the metric stays
+        # bounded <= 1.0 under compounding. For flat-capital profiles peak ≈ start,
+        # so the reported numbers match the legacy scale.
         max_drawdown_fraction = (
-            max_drawdown_usd / starting_capital
-            if starting_capital > 1e-9 else 0.0
+            max_drawdown_usd / peak_equity
+            if peak_equity > 1e-9 else 0.0
         )
-        max_drawdown_pct = (
-            100.0 * max_drawdown_usd / starting_capital
-            if starting_capital > 1e-9 else 0.0
-        )
-        if max_drawdown_usd > 0 and starting_capital > 1e-9:
-            mar = cagr / (max_drawdown_usd / starting_capital)
+        max_drawdown_pct = 100.0 * max_drawdown_fraction
+        if max_drawdown_fraction > 0:
+            mar = cagr / max_drawdown_fraction
         else:
             mar = float("inf") if cagr > 0 else 0.0
 
@@ -127,8 +128,12 @@ def process_profile_comparison(strategy_id: str):
         no_trade_flag = total_accepted == 0
         over_utilization_ratio = avg_heat_ratio
         over_utilization_flag = over_utilization_ratio > 1.0
+        # Validity = "account survived": drawdown never exceeded equity at that time.
+        # Using max_drawdown_fraction (DD / peak) rather than (DD_usd <= starting_capital)
+        # so the rule works under compounding — a $3k DD on a $20k compounded account is
+        # healthy (~15% DD), not a blow-out, even if starting_capital was $1k.
         capital_validity_flag = (
-            (max_drawdown_usd <= starting_capital)
+            (max_drawdown_fraction <= 1.0)
             and (not over_utilization_flag)
             and (not no_trade_flag)
         )

@@ -1,8 +1,16 @@
 """
 control_panel.py — CLI for recording portfolio control decisions.
 
-Records user intent in portfolio_control table. Does NOT execute
-promote/disable — that is the interpreter's job.
+Two orthogonal workflows live here:
+
+  Burn-in / deployment intent (portfolio_control table):
+    --select / --burn / --drop / --deselect — the interpreter drains these
+    into portfolio.yaml + burn_in_registry.yaml.
+
+  Composite-portfolio-analysis intent (master_filter.Analysis_selection):
+    --select-analysis / --deselect-analysis / --clear-analysis /
+    --list-analysis / --run-analysis — per-run_id flag driving the next
+    composite_portfolio_analysis run. Auto-cleared on successful run.
 
 Usage:
   python tools/control_panel.py --list
@@ -11,6 +19,11 @@ Usage:
   python tools/control_panel.py --burn <portfolio_id>
   python tools/control_panel.py --drop <portfolio_id> --reason "..."
   python tools/control_panel.py --deselect <portfolio_id>
+  python tools/control_panel.py --select-analysis <run_id> [<run_id> ...]
+  python tools/control_panel.py --deselect-analysis <run_id> [<run_id> ...]
+  python tools/control_panel.py --clear-analysis
+  python tools/control_panel.py --list-analysis
+  python tools/control_panel.py --run-analysis
 """
 
 from __future__ import annotations
@@ -28,6 +41,8 @@ from tools.ledger_db import (
     update_control_status, delete_portfolio_control,
     log_control_action, read_control_log,
     read_mps, query_mps, read_master_filter,
+    read_analysis_selection, set_analysis_selection,
+    clear_analysis_selection,
     LEDGER_DB_PATH,
 )
 
@@ -35,6 +50,56 @@ TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
 CANDIDATES_PATH = PROJECT_ROOT.parent / "TradeScan_State" / "candidates" / "Filtered_Strategies_Passed.xlsx"
 REGISTRY_PATH = TS_EXEC_ROOT / "burn_in_registry.yaml"
+USD_SYNTH_CSV = PROJECT_ROOT / "data_root" / "SYSTEM_FACTORS" / "USD_SYNTH" / "usd_synth_close_d1.csv"
+
+
+# ---------------------------------------------------------------------------
+# USD_SYNTH Z-score status (macro gate for FX mean-reversion strategies)
+# ---------------------------------------------------------------------------
+
+def _usd_synth_zscore_line() -> str:
+    """
+    One-line macro health for FX strategies that gate on usd_synth_zscore.
+    Threshold 1.5 (macro_allowed != 0) is from strategy signatures; alerting
+    threshold 1.0 warns before strategies come alive.
+    """
+    if not USD_SYNTH_CSV.exists():
+        return f"  USD_SYNTH Z-score:    (data file missing: {USD_SYNTH_CSV})"
+    try:
+        import pandas as pd
+        df = pd.read_csv(USD_SYNTH_CSV, encoding="utf-8")
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.sort_values("Date").reset_index(drop=True)
+        v = df["USD_SYNTH_CLOSE_D1"]
+        mean = v.rolling(100).mean()
+        std = v.rolling(100).std(ddof=0)
+        df["z"] = ((v - mean) / std).shift(1)
+        if df["z"].dropna().empty:
+            return "  USD_SYNTH Z-score:    (insufficient history — need 100+ days)"
+        latest = df.dropna(subset=["z"]).iloc[-1]
+        z_now = float(latest["z"])
+        z_prev3 = float(df.dropna(subset=["z"]).iloc[-4]["z"]) if len(df.dropna(subset=["z"])) >= 4 else z_now
+        delta3 = z_now - z_prev3
+        trend = "rising" if delta3 > 0.1 else ("falling" if delta3 < -0.1 else "flat")
+        abs_z = abs(z_now)
+        distance = 1.5 - abs_z  # distance to macro-gate arm threshold
+        # Mechanical bucket — no ambiguity based on direction/magnitude
+        if distance <= 0:
+            status = "ARMED"  # gate open — FX strategies can fire
+        elif distance < 0.2:
+            status = "IMMINENT"
+        elif distance < 0.5:
+            status = "PRE-ACTIVATION"
+        elif distance < 0.8:
+            status = "EARLY-APPROACH"
+        else:
+            status = "DEAD-ZONE"
+        sign = "+" if z_now >= 0 else ""
+        return (f"  USD_SYNTH Z-score:    {sign}{z_now:.2f} ({trend}, 3d delta={delta3:+.2f})  "
+                f"distance_to_arm={distance:+.2f}  status={status}  "
+                f"[FX gate opens at |Z|>=1.5]")
+    except Exception as e:
+        return f"  USD_SYNTH Z-score:    (read error: {type(e).__name__}: {e})"
 
 
 # ---------------------------------------------------------------------------
@@ -79,67 +144,79 @@ def cmd_list() -> int:
 
 
 def cmd_status() -> int:
-    """Health check — compare all 4 stores."""
+    """Health check — two-authority drift detector.
+
+    Authority model (2026-04-16):
+      * portfolio.yaml       — every deployed strategy (BURN_IN, WAITING,
+                               LIVE, LEGACY, DISABLED lifecycles).
+      * burn_in_registry.yaml — archetype projection of BURN_IN entries.
+
+    portfolio_control is USER INTENT (pending promote/disable requests), not
+    durable state — the interpreter drains it into the YAMLs. A nonzero row
+    count there is informational, not a drift signal.
+
+    The DB leg (legacy ``IN_PORTFOLIO`` column) and the FSP leg are gone:
+    IN_PORTFOLIO was retired, and FSP is a read-only projection for human
+    consumption — it cannot drift "against" an authority it is derived from.
+
+    Drift rule: every strategy_id in burn_in_registry.yaml must resolve to
+    a corresponding ``lifecycle: BURN_IN`` entry in portfolio.yaml. Any
+    mismatch is actionable drift.
+    """
     import yaml
 
     errors = []
 
-    # 1. portfolio_control
+    # 0. Intent-store snapshot (informational).
     df_ctrl = read_portfolio_control()
-    ctrl_burnin = set(df_ctrl[df_ctrl["status"] == "BURN_IN"]["portfolio_id"])
-    print(f"  portfolio_control:    {len(ctrl_burnin)} BURN_IN")
+    pending = df_ctrl[df_ctrl["status"].isin(["SELECTED", "BURN_IN", "RBIN"])]
+    print(f"  portfolio_control:    {len(df_ctrl)} rows "
+          f"({len(pending)} with intent)")
 
-    # 2. portfolio.yaml
-    yaml_ids = set()
+    # 1. portfolio.yaml — authority #1.
+    yaml_entries: dict[str, dict] = {}
+    yaml_burnin_ids: set[str] = set()
     if PORTFOLIO_YAML.exists():
         try:
             with open(PORTFOLIO_YAML, encoding="utf-8") as f:
-                data = yaml.safe_load(f)
+                data = yaml.safe_load(f) or {}
             for s in (data.get("portfolio") or {}).get("strategies") or []:
-                if s.get("enabled", True):
-                    yaml_ids.add(s["id"])
+                sid = s.get("id")
+                if not isinstance(sid, str) or not sid.strip():
+                    continue
+                yaml_entries[sid] = s
+                if s.get("lifecycle") == "BURN_IN":
+                    yaml_burnin_ids.add(sid)
         except Exception as e:
             errors.append(f"portfolio.yaml read error: {e}")
-    print(f"  portfolio.yaml:       {len(yaml_ids)} entries")
+    print(f"  portfolio.yaml:       {len(yaml_entries)} entries "
+          f"({len(yaml_burnin_ids)} BURN_IN)")
 
-    # 3. ledger.db IN_PORTFOLIO
-    conn = _connect()
-    db_count = conn.execute(
-        'SELECT COUNT(*) FROM master_filter WHERE "IN_PORTFOLIO" = 1'
-    ).fetchone()[0]
-    conn.close()
-    print(f"  ledger.db IN_PORTFOLIO: {db_count} run_ids")
-
-    # 4. FSP BURN_IN
-    fsp_burnin = set()
-    if CANDIDATES_PATH.exists():
-        try:
-            from openpyxl import load_workbook
-            wb = load_workbook(str(CANDIDATES_PATH), read_only=True, data_only=True)
-            ws = wb["Sheet1"]
-            header = [c.value for c in ws[1]]
-            si = header.index("strategy")
-            sti = header.index("candidate_status")
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                if row[sti] == "BURN_IN" and row[si]:
-                    fsp_burnin.add(row[si])
-            wb.close()
-        except Exception as e:
-            errors.append(f"FSP read error: {e}")
-    print(f"  FSP BURN_IN:          {len(fsp_burnin)} strategies")
-
-    # 5. burn_in_registry
+    # 2. burn_in_registry.yaml — authority #2 (BURN_IN projection).
+    reg_ids: set[str] = set()
     reg_count = 0
     if REGISTRY_PATH.exists():
         try:
             with open(REGISTRY_PATH, encoding="utf-8") as f:
                 reg = yaml.safe_load(f) or {}
-            reg_count = len(reg.get("primary") or []) + len(reg.get("coverage") or [])
+            for layer in ("primary", "coverage"):
+                for entry in (reg.get(layer) or []):
+                    eid = entry.get("id") if isinstance(entry, dict) else None
+                    if isinstance(eid, str) and eid.strip():
+                        reg_ids.add(eid.strip())
+                        reg_count += 1
         except Exception as e:
-            errors.append(f"Registry read error: {e}")
-    print(f"  burn_in_registry:     {reg_count} entries")
+            errors.append(f"burn_in_registry.yaml read error: {e}")
+    print(f"  burn_in_registry:     {reg_count} entries "
+          f"({len(reg_ids)} unique)")
 
-    # Verdict
+    # 3. USD_SYNTH macro-gate status (observational — FX strategy diagnostic).
+    print(_usd_synth_zscore_line())
+
+    # Drift check — registry ids must embed a BURN_IN portfolio.yaml id.
+    # Registry ids are of the form "<strategy_id>_<symbol>", where
+    # <strategy_id> is the portfolio.yaml id. Exact match OR
+    # registry_id.startswith(yaml_id + "_") counts as matched.
     print()
     if errors:
         for e in errors:
@@ -147,22 +224,40 @@ def cmd_status() -> int:
         print("  VERDICT: ERRORS DETECTED")
         return 1
 
-    # Check alignment: control BURN_IN count should match others
-    all_match = (
-        len(ctrl_burnin) == db_count == len(fsp_burnin) == reg_count
-    )
-    if all_match:
-        print(f"  VERDICT: ALL ALIGNED ({len(ctrl_burnin)} BURN_IN)")
+    unmatched_registry: set[str] = set()
+    for rid in reg_ids:
+        if rid in yaml_burnin_ids:
+            continue
+        if any(rid == yid or rid.startswith(yid + "_") for yid in yaml_burnin_ids):
+            continue
+        unmatched_registry.add(rid)
+
+    # Every BURN_IN yaml id should have at least one registry entry under it.
+    yaml_burnin_without_registry: set[str] = set()
+    for yid in yaml_burnin_ids:
+        if any(rid == yid or rid.startswith(yid + "_") for rid in reg_ids):
+            continue
+        yaml_burnin_without_registry.add(yid)
+
+    if not unmatched_registry and not yaml_burnin_without_registry:
+        print(f"  VERDICT: ALIGNED -- portfolio.yaml BURN_IN ({len(yaml_burnin_ids)}) "
+              f"and burn_in_registry ({len(reg_ids)}) consistent")
         return 0
-    else:
-        print("  VERDICT: DRIFT DETECTED")
-        if len(ctrl_burnin) != db_count:
-            print(f"    control ({len(ctrl_burnin)}) != DB IN_PORTFOLIO ({db_count})")
-        if len(fsp_burnin) != reg_count:
-            print(f"    FSP ({len(fsp_burnin)}) != registry ({reg_count})")
-        if len(ctrl_burnin) != len(fsp_burnin):
-            print(f"    control ({len(ctrl_burnin)}) != FSP ({len(fsp_burnin)})")
-        return 1
+
+    print("  VERDICT: DRIFT DETECTED")
+    if unmatched_registry:
+        print(f"    burn_in_registry has {len(unmatched_registry)} id(s) "
+              f"without a BURN_IN entry in portfolio.yaml:")
+        for r in sorted(unmatched_registry):
+            print(f"      - {r}")
+    if yaml_burnin_without_registry:
+        print(f"    portfolio.yaml has {len(yaml_burnin_without_registry)} "
+              f"BURN_IN entrie(s) missing from burn_in_registry:")
+        for y in sorted(yaml_burnin_without_registry):
+            print(f"      - {y}")
+    print("  (Fix: re-run TS_Execution/tools/sync_burn_in_registry.py or "
+          "verify promote/disable workflow wrote both stores.)")
+    return 1
 
 
 def cmd_select(portfolio_id: str, profile: str) -> int:
@@ -314,6 +409,163 @@ def cmd_deselect(portfolio_id: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Analysis_selection commands — per-run_id intent flag driving the next
+# composite_portfolio_analysis invocation. Orthogonal to burn-in promotion.
+# ---------------------------------------------------------------------------
+
+def _validate_run_ids_in_mf(run_ids: set[str]) -> tuple[set[str], set[str]]:
+    """Split a set of run_ids into (found, missing) against master_filter."""
+    df = read_master_filter()
+    if df.empty or "run_id" not in df.columns:
+        return set(), set(run_ids)
+    known = set(df["run_id"].astype(str).unique())
+    found = {r for r in run_ids if r in known}
+    missing = set(run_ids) - found
+    return found, missing
+
+
+def cmd_select_analysis(run_ids: list[str]) -> int:
+    """Add run_ids to the Analysis_selection set (union with current).
+
+    Semantics: 1 (selected) in master_filter for every run_id in the new
+    union. Unknown run_ids are reported but not silently dropped.
+    """
+    new_ids = {r.strip() for r in run_ids if r and r.strip()}
+    if not new_ids:
+        print("  [ERROR] No run_ids provided.")
+        return 1
+    found, missing = _validate_run_ids_in_mf(new_ids)
+    if missing:
+        print(f"  [ERROR] {len(missing)} run_id(s) not found in master_filter:")
+        for r in sorted(missing):
+            print(f"    - {r}")
+        print("  (Refusing to flag run_ids with no corresponding MF row.)")
+        return 1
+    current = read_analysis_selection()
+    union = current | found
+    added = found - current
+    already = found & current
+    synced = set_analysis_selection(union)
+    print(f"  [OK] Analysis_selection now has {synced} run_id(s) "
+          f"(+{len(added)} new, {len(already)} already selected).")
+    return 0
+
+
+def cmd_deselect_analysis(run_ids: list[str]) -> int:
+    """Remove specific run_ids from Analysis_selection.
+
+    To clear everything at once use --clear-analysis.
+    """
+    drop = {r.strip() for r in run_ids if r and r.strip()}
+    if not drop:
+        print("  [ERROR] No run_ids provided.")
+        return 1
+    current = read_analysis_selection()
+    if not current:
+        print("  [SKIP] Analysis_selection is already empty.")
+        return 0
+    kept = current - drop
+    removed = drop & current
+    not_selected = drop - current
+    synced = set_analysis_selection(kept)
+    print(f"  [OK] Analysis_selection now has {synced} run_id(s) "
+          f"(-{len(removed)} removed).")
+    if not_selected:
+        print(f"  [NOTE] {len(not_selected)} run_id(s) were not currently "
+              f"selected: {sorted(not_selected)}")
+    return 0
+
+
+def cmd_clear_analysis() -> int:
+    """Wipe all Analysis_selection flags."""
+    cleared = clear_analysis_selection()
+    print(f"  [OK] Cleared Analysis_selection ({cleared} flag(s) reset).")
+    return 0
+
+
+def cmd_list_analysis() -> int:
+    """Print the current Analysis_selection set."""
+    selected = read_analysis_selection()
+    if not selected:
+        print("  Analysis_selection: (empty)")
+        return 0
+    print(f"  Analysis_selection: {len(selected)} run_id(s)")
+    for r in sorted(selected):
+        print(f"    - {r}")
+    return 0
+
+
+def cmd_run_analysis() -> int:
+    """Run composite_portfolio_analysis against current Analysis_selection.
+
+    Workflow:
+      1. Read current Analysis_selection from master_filter.
+      2. Refuse if < 2 run_ids (correlation/concurrency need >=2).
+      3. Invoke run_portfolio_analysis.py --run-ids <list> as subprocess.
+      4. On success, clear Analysis_selection (next session starts fresh).
+      5. On failure, leave Analysis_selection intact so the user can adjust.
+    """
+    import subprocess as _sp
+
+    selected = read_analysis_selection()
+    if not selected:
+        print("  [ERROR] Analysis_selection is empty. "
+              "Use --select-analysis first.")
+        return 1
+    if len(selected) < 2:
+        print(f"  [ERROR] Only {len(selected)} run_id selected. "
+              f"Composite portfolio analysis requires >=2 constituents "
+              f"(correlation/concurrency need a pair).")
+        return 1
+
+    run_ids_sorted = sorted(selected)
+    print(f"  Running composite_portfolio_analysis on "
+          f"{len(run_ids_sorted)} run_id(s):")
+    for r in run_ids_sorted:
+        print(f"    - {r}")
+
+    script = Path(__file__).parent / "run_portfolio_analysis.py"
+    if not script.exists():
+        print(f"  [FATAL] run_portfolio_analysis.py not found at {script}")
+        return 1
+
+    cmd = [sys.executable, str(script), "--run-ids", *run_ids_sorted]
+    result = _sp.run(cmd, cwd=str(PROJECT_ROOT))
+    if result.returncode != 0:
+        print(f"  [FAIL] run_portfolio_analysis.py exited "
+              f"with code {result.returncode}. "
+              f"Analysis_selection preserved for retry.")
+        return result.returncode
+
+    cleared = clear_analysis_selection()
+    print(f"  [OK] Analysis complete. Cleared {cleared} Analysis_selection "
+          f"flag(s) — next session starts fresh.")
+
+    # Regenerate FSP so the human-facing sheet reflects the cleared state
+    # immediately (without waiting for the next pipeline pass). Failures
+    # here are non-fatal — the DB is the source of truth.
+    fsp_script = Path(__file__).parent / "filter_strategies.py"
+    if fsp_script.exists():
+        try:
+            fsp_result = _sp.run(
+                [sys.executable, str(fsp_script)],
+                cwd=str(PROJECT_ROOT),
+                capture_output=True, text=True,
+            )
+            if fsp_result.returncode == 0:
+                print(f"  [OK] FSP regenerated (Analysis_selection column "
+                      f"now shows 0 for all rows).")
+            else:
+                print(f"  [WARN] FSP regeneration returned "
+                      f"{fsp_result.returncode}. The DB is cleared; re-run "
+                      f"filter_strategies.py manually to refresh the Excel.")
+        except Exception as exc:
+            print(f"  [WARN] FSP regeneration skipped ({exc}). The DB is "
+                  f"cleared; re-run filter_strategies.py manually.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Interactive menu
 # ---------------------------------------------------------------------------
 
@@ -406,11 +658,12 @@ def interactive_menu() -> int:
         print("  7. Apply pending changes")
         print("  8. Dry-run changes")
         print("  9. View audit log")
+        print(" 10. Composite portfolio analysis (FSP Analysis_selection)")
         print("  0. Exit")
         print()
 
         try:
-            choice = input("  Choose [0-9]: ").strip()
+            choice = input("  Choose [0-10]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
@@ -542,6 +795,45 @@ def interactive_menu() -> int:
                 cols = [c for c in display if c in df.columns]
                 print(df[cols].to_string(index=False))
 
+        elif choice == "10":
+            # Composite portfolio analysis — Analysis_selection submenu.
+            while True:
+                print(f"\n  --- Composite Portfolio Analysis ---")
+                cmd_list_analysis()
+                print()
+                print("  a. Add run_id(s) to selection")
+                print("  r. Remove run_id(s) from selection")
+                print("  c. Clear all selections")
+                print("  g. Go (run analysis — auto-clears on success)")
+                print("  b. Back to main menu")
+                try:
+                    sub = input("  Choose [a/r/c/g/b]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+                if sub in ("b", "0", ""):
+                    break
+                if sub == "a":
+                    raw = input("  run_id(s) to add (space-separated): ").strip()
+                    if raw:
+                        cmd_select_analysis(raw.split())
+                elif sub == "r":
+                    raw = input("  run_id(s) to remove (space-separated): ").strip()
+                    if raw:
+                        cmd_deselect_analysis(raw.split())
+                elif sub == "c":
+                    if _confirm("clear all Analysis_selection flags"):
+                        cmd_clear_analysis()
+                    else:
+                        print("  Cancelled.")
+                elif sub == "g":
+                    if _confirm("run composite_portfolio_analysis on current selection"):
+                        cmd_run_analysis()
+                    else:
+                        print("  Cancelled.")
+                else:
+                    print("  Invalid choice.")
+
         else:
             print("  Invalid choice.")
 
@@ -567,6 +859,17 @@ def main() -> int:
     group.add_argument("--burn", metavar="ID", help="Mark for burn-in promotion")
     group.add_argument("--drop", metavar="ID", help="Mark for removal from burn-in")
     group.add_argument("--deselect", metavar="ID", help="Remove from control table (SELECTED only)")
+    # Analysis_selection — per-run_id intent for composite_portfolio_analysis.
+    group.add_argument("--select-analysis", nargs="+", metavar="RUN_ID",
+                        help="Add run_id(s) to Analysis_selection")
+    group.add_argument("--deselect-analysis", nargs="+", metavar="RUN_ID",
+                        help="Remove run_id(s) from Analysis_selection")
+    group.add_argument("--clear-analysis", action="store_true",
+                        help="Clear all Analysis_selection flags")
+    group.add_argument("--list-analysis", action="store_true",
+                        help="Show currently selected run_ids")
+    group.add_argument("--run-analysis", action="store_true",
+                        help="Run composite_portfolio_analysis on current selection (auto-clears on success)")
 
     parser.add_argument("--profile", default="CONSERVATIVE_V1",
                         help="Deployment profile (default: CONSERVATIVE_V1)")
@@ -596,6 +899,16 @@ def main() -> int:
         return cmd_drop(args.drop, args.reason)
     elif args.deselect:
         return cmd_deselect(args.deselect)
+    elif args.select_analysis:
+        return cmd_select_analysis(args.select_analysis)
+    elif args.deselect_analysis:
+        return cmd_deselect_analysis(args.deselect_analysis)
+    elif args.clear_analysis:
+        return cmd_clear_analysis()
+    elif args.list_analysis:
+        return cmd_list_analysis()
+    elif args.run_analysis:
+        return cmd_run_analysis()
     return 0
 
 

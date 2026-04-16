@@ -114,8 +114,13 @@ FORMAT_MAP = {
     "total_trades": FMT_INT,
     "sqn": FMT_FLOAT,
     "edge_quality": FMT_FLOAT,
-    "trade_density": FMT_INT,
-    "profile_trade_density": FMT_INT,
+    "peak_dd_ratio": FMT_FLOAT,
+    "trade_density": FMT_INT,                  # Master Filter: per-symbol trades/yr
+    "symbol_count": FMT_INT,
+    "trade_density_total": FMT_INT,
+    "trade_density_min": FMT_INT,
+    "profile_trade_density_total": FMT_INT,
+    "profile_trade_density_min": FMT_INT,
     "winning_trades": FMT_INT,
     "losing_trades": FMT_INT,
     "max_consec_wins": FMT_INT,
@@ -164,7 +169,7 @@ HIDDEN_COLS = {
     "timestamp",
     "source_strategy",   # Redundant with portfolio_id
     "parsed_fields",     # JSON blob — machine-readable, not for visual inspection
-    "total_trades",      # trade_density provides equivalent information
+    "total_trades",      # trade_density_total provides equivalent information
     "base_strategy_id",  # Redundant with strategy column
 }
 
@@ -186,14 +191,17 @@ COLUMN_WIDTH_OVERRIDES = {
 }
 
 # Dropdown Columns (Column Name -> list of allowed values)
-# Applied as Excel Data Validation (dropdown) on all data rows
+# Applied as Excel Data Validation (dropdown) on all data rows.
+# Analysis_selection uses 0/1 (not True/False) so Excel stores it as the
+# integer the DB writes back after control_panel --select-analysis.
 DROPDOWN_COLS = {
-    "in_portfolio": ["True", "False"],
+    "Analysis_selection": ["0", "1"],
     "candidate_status": ["CORE", "WATCH", "FAIL", "BURN_IN", "RBIN"],
 }
 
 # Strategy Master Filter — Preferred Column Order
-# IN_PORTFOLIO moved right after return_dd_ratio for quick decision-making
+# Analysis_selection sits right after return_dd_ratio for quick
+# pick-and-choose while reviewing the FSP sheet.
 STRATEGY_COLUMN_ORDER = [
     "run_id",
     "strategy",
@@ -215,7 +223,7 @@ STRATEGY_COLUMN_ORDER = [
     "max_drawdown",
     "max_dd_pct",
     "return_dd_ratio",
-    "IN_PORTFOLIO",          # Moved here for quick pick-and-choose
+    "Analysis_selection",    # 0/1 — picks rows for next composite_portfolio_analysis
     "candidate_status",
     "worst_5_loss_pct",
     "longest_loss_streak",
@@ -249,8 +257,11 @@ PORTFOLIO_COLUMN_ORDER = [
     "portfolio_status",
     "burn_in_status",
     "evaluation_timeframe",
-    "trade_density",
-    "profile_trade_density",
+    "symbol_count",
+    "trade_density_total",
+    "trade_density_min",
+    "profile_trade_density_total",
+    "profile_trade_density_min",
     "theoretical_pnl",
     "realized_pnl",
     "sharpe",
@@ -264,6 +275,7 @@ PORTFOLIO_COLUMN_ORDER = [
     "equity_stability_k_ratio",
     "deployed_profile",
     "edge_quality",
+    "peak_dd_ratio",
     "trades_accepted",
     "trades_rejected",
     "rejection_rate_pct",
@@ -297,8 +309,11 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "burn_in_status",
     "evaluation_timeframe",
     "n_strategies",
-    "trade_density",
-    "profile_trade_density",
+    "symbol_count",
+    "trade_density_total",
+    "trade_density_min",
+    "profile_trade_density_total",
+    "profile_trade_density_min",
     "theoretical_pnl",
     "realized_pnl",
     "sharpe",
@@ -312,6 +327,7 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "equity_stability_k_ratio",
     "deployed_profile",
     "sqn",
+    "peak_dd_ratio",
     "trades_accepted",
     "trades_rejected",
     "rejection_rate_pct",
@@ -395,19 +411,27 @@ def apply_formatting(file_path, profile):
         _is_portfolio_multi = (profile == "portfolio"
                                and any(s in _PORTFOLIO_DATA_SHEETS for s in sheet_names))
 
-        if _is_portfolio_multi or len(sheet_names) == 1:
+        # Strategy ledgers (e.g. Filtered_Strategies_Passed) have Sheet1 as the
+        # data sheet plus ancillary sheets (Notes, etc.) — process Sheet1 only.
+        _is_strategy_with_notes = (profile == "strategy"
+                                   and "Sheet1" in sheet_names
+                                   and len(sheet_names) > 1)
+
+        if _is_portfolio_multi or _is_strategy_with_notes or len(sheet_names) == 1:
             # Determine which sheets to process
             if _is_portfolio_multi:
                 _sheets_to_process = [s for s in sheet_names
                                       if s in _PORTFOLIO_DATA_SHEETS]
+            elif _is_strategy_with_notes:
+                _sheets_to_process = ["Sheet1"]
             else:
                 _sheets_to_process = [sheet_names[0]]
 
             _all_dfs = {}  # sheet_name -> processed df
             # Load non-data sheets (Notes, etc.) for preservation
             _preserve_sheets = [s for s in sheet_names
-                                if s not in _PORTFOLIO_DATA_SHEETS
-                                and (_is_portfolio_multi or s != sheet_names[0])]
+                                if s not in _sheets_to_process
+                                and s not in _PORTFOLIO_DATA_SHEETS]
 
             for sheet_name in _sheets_to_process:
                 df = pd.read_excel(path, sheet_name=sheet_name)
@@ -443,6 +467,15 @@ def apply_formatting(file_path, profile):
                         col_order = PORTFOLIO_COLUMN_ORDER
 
                 if col_order:
+                    # Drop sqn from the MPS Portfolios tab only — it belongs
+                    # exclusively to the Single-Asset Composites tab in MPS.
+                    # Do NOT drop it for FSP (Sheet1) or any other strategy sheet.
+                    if profile == "portfolio" and sheet_name == "Portfolios" and "sqn" in df.columns:
+                        df = df.drop(columns=["sqn"])
+                    # Inject missing ordered columns as 0.0 so they appear at the right position
+                    for col in col_order:
+                        if col not in df.columns:
+                            df[col] = 0.0
                     existing = df.columns.tolist()
                     ordered = [c for c in col_order if c in existing]
                     remaining = [c for c in existing if c not in ordered]
@@ -857,10 +890,16 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
 
     r = 1
 
+    # Wrap long text in column B (definitions/rules); top-align so multi-line
+    # cells read correctly next to short labels in column A.
+    _wrap_align = Alignment(wrap_text=True, vertical="top")
+    _top_align = Alignment(vertical="top")
+
     def _w(row, col, value, font=None):
         c = ws.cell(row=row, column=col, value=value)
         if font:
             c.font = font
+        c.alignment = _wrap_align if col == 2 else _top_align
 
     # ── Section 1: Sheet Purpose ──────────────────────────────────────────────
     _w(r, 1, "SECTION 1 — SHEET PURPOSE", header); r += 1
@@ -889,8 +928,60 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
            "Rankings are independent per tab — scores are not compared across types.",
            normal); r += 2
 
-    # ── Section 2: Inclusion / Promotion Criteria ─────────────────────────────
-    _w(r, 1, "SECTION 2 — INCLUSION CRITERIA", header); r += 1
+    # ── Section 2: Measurement Basis (candidates / master_filter only) ────────
+    # Documents what's actually baked into every dollar figure in this ledger,
+    # so downstream portfolio models don't double-count or misinterpret it.
+    if sheet_type in ("master_filter", "candidates"):
+        _w(r, 1, "SECTION 2 — MEASUREMENT BASIS", header); r += 1
+        _w(r, 1, "Aspect", bold); _w(r, 2, "Value", bold); r += 1
+        for aspect, value in [
+            ("Position size",
+             "Fixed at min_lot = 0.01 for EVERY trade, EVERY asset class "
+             "(FX, XAU, BTC, INDEX). Pulled from data_access/broker_specs/OctaFx/{SYMBOL}.yaml."),
+            ("Starting capital",
+             "None. No account-size concept exists at this stage. Every dollar figure "
+             "is raw trade-level P&L summed across min-lot positions."),
+            ("reference_capital_usd",
+             "$1,000 constant (run_metadata.json). Used ONLY to convert max_drawdown to "
+             "a percentage (max_dd_pct = max_drawdown / $1,000). NOT spent, NOT compounded, "
+             "NOT sized against. Just a yardstick for reporting."),
+            ("Leverage / heat / margin",
+             "Not modelled. Every signal fires at 0.01 lot regardless of concurrent "
+             "exposure. No heat cap, no leverage cap, no margin check."),
+            ("Rejection",
+             "None. Zero trades are filtered at this stage. All signals execute."),
+            ("total_net_profit / gross_profit / gross_loss",
+             "Sum of min-lot USD P&L across every trade."),
+            ("expectancy",
+             "total_net_profit / total_trades, in USD at 0.01 lot. Example: 'XAU "
+             "expectancy = 0.80' means each XAU trade averaged $0.80 profit at min-lot."),
+            ("max_drawdown",
+             "Peak-to-trough decline of the cumulative min-lot equity curve, in USD."),
+            ("max_dd_pct",
+             "max_drawdown / $1,000. NOT percent-of-deployed-capital — it is "
+             "percent-of-a-$1,000-yardstick."),
+            ("return_dd_ratio",
+             "total_net_profit / max_drawdown. Unitless. Scale-invariant — would be "
+             "identical under any capital model."),
+            ("sharpe_ratio / sqn",
+             "Trade-level (NOT annualized), computed on per-trade min-lot P&L. "
+             "Unitless, capital-independent."),
+            ("Regime / session net_profit_* buckets",
+             "Same USD, same min-lot basis as total_net_profit — just sliced by "
+             "volatility regime, trend regime, or session."),
+            ("Design intent",
+             "FSP is an apples-to-apples ranking layer. Every strategy is measured "
+             "under identical conditions (0.01 lot, no capital constraints) so XAU_MR "
+             "and BTC_TREND can be compared without one winning by capital allocation. "
+             "Capital sizing, heat caps, leverage, and rejection all live downstream "
+             "in Master_Portfolio_Sheet.xlsx + capital_wrapper.py."),
+        ]:
+            _w(r, 1, aspect, bold); _w(r, 2, value, normal); r += 1
+        r += 1
+
+    # ── Section 3: Inclusion / Promotion Criteria ─────────────────────────────
+    _sec_incl_num = "3" if sheet_type in ("master_filter", "candidates") else "2"
+    _w(r, 1, f"SECTION {_sec_incl_num} — INCLUSION CRITERIA", header); r += 1
     _w(r, 1, "Condition", bold); _w(r, 2, "Threshold", bold); r += 1
 
     if sheet_type == "master_filter":
@@ -921,8 +1012,9 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
             _w(r, 1, cond, normal); _w(r, 2, val, normal); r += 1
     r += 1
 
-    # ── Section 3: Classification Rules ───────────────────────────────────────
-    _w(r, 1, "SECTION 3 — CLASSIFICATION RULES", header); r += 1
+    # ── Section 3/4: Classification Rules ─────────────────────────────────────
+    _sec_class_num = "4" if sheet_type in ("master_filter", "candidates") else "3"
+    _w(r, 1, f"SECTION {_sec_class_num} — CLASSIFICATION RULES", header); r += 1
 
     if sheet_type in ("master_filter", "candidates"):
         _w(r, 1, "candidate_status", bold); r += 1
@@ -984,8 +1076,9 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
             _w(r, 1, cls, bold); _w(r, 2, rule, normal); r += 1
     r += 1
 
-    # ── Section 4: Key Column Glossary ────────────────────────────────────────
-    _w(r, 1, "SECTION 4 — KEY COLUMN GLOSSARY", header); r += 1
+    # ── Section 4/5: Key Column Glossary ──────────────────────────────────────
+    _sec_gloss_num = "5" if sheet_type in ("master_filter", "candidates") else "4"
+    _w(r, 1, f"SECTION {_sec_gloss_num} — KEY COLUMN GLOSSARY", header); r += 1
     _w(r, 1, "Column", bold); _w(r, 2, "Definition", bold); r += 1
 
     if sheet_type in ("master_filter", "candidates"):
@@ -1005,8 +1098,33 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
             ("sqn",              "System Quality Number: sqrt(N) × mean(R) / stdev(R, ddof=1). "
                                   "Van Tharp metric for individual trading systems. "
                                   "Thresholds: <1.5 FAIL, 1.5–2.5 WATCH, ≥2.5 required for CORE."),
-            ("IN_PORTFOLIO",     "True if strategy is active in TS_Execution/portfolio.yaml"),
-            ("candidate_status", "CORE / WATCH / FAIL / BURN_IN / RBIN — see Section 3"),
+            ("Analysis_selection",
+                                 "0/1 — transient user-intent flag. Picks the rows "
+                                 "that will form the next composite_portfolio_analysis "
+                                 "run (>=2 required; correlation/concurrency need a pair). "
+                                 "Source of truth is master_filter.Analysis_selection in "
+                                 "ledger.db; the column here is a read-only projection "
+                                 "refreshed on every filter_strategies.py run — hand-edits "
+                                 "to the Excel are NOT round-tripped back to the DB. "
+                                 "Write via `control_panel.py --select-analysis <run_id>` "
+                                 "(or menu option 10). Auto-cleared after a successful "
+                                 "analysis run so the next session starts fresh. "
+                                 "NOT a membership flag — deployment membership lives in "
+                                 "TS_Execution/portfolio.yaml (BURN_IN rows)."),
+            ("candidate_status", "CORE / WATCH / FAIL / BURN_IN / RBIN — see Section 4"),
+            ("burn_in_layer",    "PRIMARY / COVERAGE — only set for BURN_IN rows. Sourced from "
+                                  "TS_Execution/burn_in_registry.yaml (written by sync_burn_in_registry.py, "
+                                  "overwritten on every filter_strategies.py run). "
+                                  "An archetype is a behavioural family (e.g. FX_CONT, XAU_MR, BTC_TREND) — "
+                                  "multiple strategies can share one because they encode the same edge on "
+                                  "different symbols or parameter sets. "
+                                  "PRIMARY = the single canonical representative per archetype; its shadow-trade "
+                                  "performance is the archetype's verdict. One per archetype. "
+                                  "COVERAGE = additional variants of the same archetype promoted alongside the "
+                                  "PRIMARY to broaden symbol/parameter coverage. They inherit the archetype's "
+                                  "verdict but don't define it — a COVERAGE break is a symbol-fit issue, a "
+                                  "PRIMARY break is a dead-edge signal. "
+                                  "NaN for all non-BURN_IN rows (CORE / WATCH / FAIL / RBIN / RESERVE)."),
             ("is_current",       "1 = this row represents the live result for its (strategy, run_id) "
                                   "combination; 0 = superseded by a later rerun. Written by "
                                   "tools/rerun_backtest.py finalize via ledger_db.mark_superseded(). "
@@ -1056,6 +1174,33 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
                                             "Thresholds: <1.6 poor, 1.6–2.0 average, 2.0–3.0 good, >3.0 excellent. "
                                             "Single-Asset tab only — see edge_quality for Portfolios tab."),
             ("rejection_rate_pct",          "Percentage of trades rejected by leverage/heat cap"),
+            ("symbol_count",                "Number of distinct symbols contributing to this portfolio row. "
+                                            "Derived from master_filter via constituent_run_ids; for single-asset "
+                                            "rows = 1. Used to expose unit mismatch in composite densities."),
+            ("trade_density_total",         "Theoretical portfolio trade density (trades/year), SUMMED across "
+                                            "symbols. Per-symbol density is taken as MAX across re-runs in "
+                                            "master_filter (most favorable parameterization per symbol). "
+                                            "Total = sum(per_symbol_max). Pre-capital, pre-rejection."),
+            ("trade_density_min",           "Theoretical MINIMUM per-symbol trade density (trades/year) in the "
+                                            "portfolio. Same per-symbol source as trade_density_total, then "
+                                            "min() across symbols. This is the FAIL-gate quantity: a portfolio "
+                                            "with total density 450 but min density 24 has one symbol that is "
+                                            "too sparse to deploy. FAIL gate: trade_density_min < 50."),
+
+            ("profile_trade_density_total", "POST-FILTER per-symbol density, summed. Two-stage derivation: "
+                                            "(1) per-symbol raw density = count in portfolio_tradelevel.csv "
+                                            "per symbol / deployed profile's simulation_years (captures the "
+                                            "specific parameterization actually selected per symbol, not the "
+                                            "master_filter MAX); (2) apply deployed profile's rejection_rate_pct "
+                                            "uniformly (portfolio-wide — capital wrapper does not emit per-symbol "
+                                            "rejection). total = sum(adjusted_per_symbol). Fallback when "
+                                            "tradelevel.csv is unavailable: trade_density_total x (1 - rej/100)."),
+            ("profile_trade_density_min",   "POST-FILTER MINIMUM per-symbol density. Same derivation as "
+                                            "profile_trade_density_total but min() instead of sum(). Computed "
+                                            "INDEPENDENTLY from profile_trade_density_total — never derived "
+                                            "from it. This is the truthful burn-in calendar viability metric: "
+                                            "it reflects both the selected parameterization per symbol AND the "
+                                            "deployed profile's rejection filter."),
             ("avg_concurrent",              "Average number of simultaneously open positions"),
             ("max_concurrent",              "Peak simultaneous open positions"),
             ("avg_pairwise_corr",           "Average correlation between constituent strategy equity curves"),
@@ -1079,25 +1224,21 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
         _w(r, 1, "Profile", bold); _w(r, 2, "Lot Sizing Approach", bold); r += 1
         for pname, desc in [
             ("RAW_MIN_LOT_V1",
-             "Unconditional min lot (0.01). Every signal executes regardless of risk. "
-             "Baseline measurement only."),
-            ("DYNAMIC_V1",
-             "Heat-aware dynamic scaling. risk_per_trade=0.5%, heat_cap=3%, "
-             "leverage_cap=15x. Scales down when heat cap is breached."),
-            ("CONSERVATIVE_V1",
-             "Fixed fractional: equity x 0.25%. heat_cap=4%, leverage_cap=5x. "
-             "Smallest risk per trade."),
+             "Baseline diagnostic. $1000 seed. Unconditional min-lot (0.01) on every "
+             "signal — bypasses all risk/heat/leverage gates via raw_lot_mode. "
+             "Shows the pure directional edge of the strategy independent of sizing."),
             ("FIXED_USD_V1",
-             "Fixed $50 USD risk per trade. heat_cap=4%, leverage_cap=11x."),
-            ("MIN_LOT_FALLBACK_V1",
-             "Fixed $50 USD with min-lot override when optimal sizing < min lot. "
-             "max_risk_multiple=3.0 (capped)."),
-            ("MIN_LOT_FALLBACK_UNCAPPED_V1",
-             "Fixed $50 USD with min-lot override (uncapped). "
-             "No risk multiple cap."),
-            ("BOUNDED_MIN_LOT_V1",
-             "Fixed $65 USD with conservative min-lot override. "
-             "max_risk_multiple=1.5 (tightest cap)."),
+             "Retail-amateur conservative. $1000 seed, risk = max(2% of current equity, "
+             "$20 floor). Compounds as equity grows; floor preserves meaningful trade "
+             "size if equity dips below start. No heat/leverage caps (real retail has "
+             "no portfolio heat monitor). Trades below min_lot SKIP honestly."),
+            ("REAL_MODEL_V1",
+             "Retail-amateur aggressive. $1000 seed, tier-ramp risk: 2% base, +1% per "
+             "2x equity doubling, capped at 5% (symmetric retrace). No heat/leverage "
+             "caps. Trades below min_lot SKIP. retail_max_lot=10 enforces OctaFx-"
+             "realistic ceiling — trades requiring more than 10 lots SKIP. "
+             "Every capital_wrapper run also emits a linear-normalized "
+             "overlay_comparison.png alongside per-profile equity_curve.png files."),
         ]:
             _w(r, 1, pname, normal); _w(r, 2, desc, normal); r += 1
         r += 1
@@ -1130,8 +1271,10 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
         r += 1
 
     # ── Column widths ─────────────────────────────────────────────────────────
-    ws.column_dimensions["A"].width = 30
-    ws.column_dimensions["B"].width = 72
+    # Column A must fit "SECTION 4 — KEY COLUMN GLOSSARY" (32 chars) and
+    # the widest glossary labels ("profile_trade_density_total" = 27 chars).
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 144
 
     try:
         wb.save(file_path)

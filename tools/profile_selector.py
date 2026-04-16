@@ -191,13 +191,33 @@ def enrich_ledger_row(strategy_id, df_ledger):
 
     # reference_capital_usd: OWNED BY Step 7 — do not overwrite here.
 
-    # --- Fix 3: Recompute profile_trade_density with actual rejection rate ---
-    # Stage-4 computes this before capital wrapper, so rejection_rate is None.
-    if "trade_density" in df_ledger.columns and "profile_trade_density" in df_ledger.columns:
-        td_raw = _safe_float(df_ledger.loc[mask, "trade_density"].iloc[-1], 0.0)
-        if td_raw > 0 and rejection_rate > 0:
-            profile_td = int(round(td_raw * (1.0 - rejection_rate / 100.0)))
-            df_ledger.loc[mask, "profile_trade_density"] = profile_td
+    # --- Recompute profile_trade_density_{total,min} ---
+    # Preferred: per-symbol realized density from portfolio_tradelevel.csv
+    # (captures per-symbol asymmetric capital rejection + the specific
+    # parameterization selected per symbol — not the max-across-reruns
+    # theoretical). Fallback: raw × (1 - portfolio_rejection_rate).
+    sim_years = _safe_float(profile_metrics.get("simulation_years"), 0.0)
+    from tools.portfolio_evaluator import _per_symbol_realized_density
+    realized_map = _per_symbol_realized_density(
+        strategy_id, sim_years, rejection_rate_pct=rejection_rate)
+    if realized_map and ("profile_trade_density_total" in df_ledger.columns
+                         and "profile_trade_density_min" in df_ledger.columns):
+        vals = list(realized_map.values())
+        df_ledger.loc[mask, "profile_trade_density_total"] = int(sum(vals))
+        df_ledger.loc[mask, "profile_trade_density_min"] = int(min(vals))
+    else:
+        if ("trade_density_total" in df_ledger.columns
+                and "profile_trade_density_total" in df_ledger.columns):
+            td_total_raw = _safe_float(df_ledger.loc[mask, "trade_density_total"].iloc[-1], 0.0)
+            if td_total_raw > 0 and rejection_rate > 0:
+                df_ledger.loc[mask, "profile_trade_density_total"] = int(round(
+                    td_total_raw * (1.0 - rejection_rate / 100.0)))
+        if ("trade_density_min" in df_ledger.columns
+                and "profile_trade_density_min" in df_ledger.columns):
+            td_min_raw = _safe_float(df_ledger.loc[mask, "trade_density_min"].iloc[-1], 0.0)
+            if td_min_raw > 0 and rejection_rate > 0:
+                df_ledger.loc[mask, "profile_trade_density_min"] = int(round(
+                    td_min_raw * (1.0 - rejection_rate / 100.0)))
 
     print(
         f"  [OK] {strategy_id} -> {profile_name} (enriched) "
@@ -211,8 +231,11 @@ COLUMN_ORDER = [
     "source_strategy",
 
     "reference_capital_usd",
-    "trade_density",
-    "profile_trade_density",
+    "symbol_count",
+    "trade_density_total",
+    "trade_density_min",
+    "profile_trade_density_total",
+    "profile_trade_density_min",
     "theoretical_pnl",
     "realized_pnl",
     "sharpe",

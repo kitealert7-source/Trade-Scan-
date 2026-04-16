@@ -247,6 +247,13 @@ class PortfolioState:
     max_risk_multiple: Optional[float] = 3.0
     track_risk_override: bool = False
     raw_lot_mode: bool = False  # If True: bypass all gates, execute every signal at min_lot
+    tier_ramp: bool = False
+    tier_base_pct: float = 0.02
+    tier_step_pct: float = 0.01
+    tier_cap_pct: float = 0.05
+    tier_multiplier: float = 2.0
+    retail_max_lot: Optional[float] = None
+    fixed_risk_usd_floor: Optional[float] = None  # FIXED_USD_V1: risk = max(equity*risk_per_trade, floor)
     equity: float = 0.0
     realized_pnl: float = 0.0
     total_open_risk: float = 0.0
@@ -280,8 +287,20 @@ class PortfolioState:
     def compute_lot_size(self, risk_distance: float, usd_per_pu_per_lot: float) -> float:
         if self.fixed_risk_usd is not None:
             base_risk_capital = self.fixed_risk_usd
+        elif self.tier_ramp and self.starting_capital > 0 and self.equity > 0:
+            ratio = self.equity / self.starting_capital
+            if ratio < 1.0 or self.tier_multiplier <= 1.0:
+                tier = 0
+            else:
+                tier = int(math.floor(math.log(ratio) / math.log(self.tier_multiplier)))
+                if tier < 0:
+                    tier = 0
+            effective_risk = min(self.tier_base_pct + self.tier_step_pct * tier, self.tier_cap_pct)
+            base_risk_capital = self.equity * effective_risk
         else:
             base_risk_capital = self.equity * self.risk_per_trade
+            if self.fixed_risk_usd_floor is not None:
+                base_risk_capital = max(base_risk_capital, self.fixed_risk_usd_floor)
 
         risk_capital = base_risk_capital
         if self.dynamic_scaling and self.equity > 0:
@@ -359,6 +378,14 @@ class PortfolioState:
             else:
                 self._reject(event, "LOT_TOO_SMALL", f"computed={lot_size:.4f} < min={self.min_lot}")
                 return False
+
+        if self.retail_max_lot is not None and lot_size > self.retail_max_lot:
+            self._reject(
+                event,
+                "RETAIL_MAX_LOT_EXCEEDED",
+                f"computed={lot_size:.4f} > cap={self.retail_max_lot}",
+            )
+            return False
 
         trade_risk_usd = event.risk_distance * usd_per_pu_per_lot * lot_size
         trade_notional = lot_size * event.entry_price * usd_per_pu_per_lot
@@ -557,6 +584,13 @@ def run_simulation(
             max_risk_multiple=params.get("max_risk_multiple", 3.0),
             track_risk_override=params.get("track_risk_override", False),
             raw_lot_mode=params.get("raw_lot_mode", False),
+            tier_ramp=params.get("tier_ramp", False),
+            tier_base_pct=params.get("tier_base_pct", 0.02),
+            tier_step_pct=params.get("tier_step_pct", 0.01),
+            tier_cap_pct=params.get("tier_cap_pct", 0.05),
+            tier_multiplier=params.get("tier_multiplier", 2.0),
+            retail_max_lot=params.get("retail_max_lot"),
+            fixed_risk_usd_floor=params.get("fixed_risk_usd_floor"),
         )
 
     # MT5-verified static valuation: usd_per_pu_per_lot = tick_value / tick_size

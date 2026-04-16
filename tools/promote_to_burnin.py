@@ -1163,22 +1163,13 @@ def promote(strategy_id: str, profile: str, description: str = "",
 
     entries_added = len(entry_ids)
 
-    # 10. DB FIRST — write IN_PORTFOLIO to ledger.db (must succeed)
-    print(f"\n  --- Update IN_PORTFOLIO (DB) ---")
-    from tools.ledger_db import set_in_portfolio, _connect as _ldb_connect, create_tables as _ldb_ct
-    _ldb = _ldb_connect()
-    _ldb_ct(_ldb)
-    _previous_ids = {
-        r[0] for r in _ldb.execute(
-            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
-        ).fetchall()
-    }
-    _ldb.close()
-    _new_ids = _previous_ids | {run_id}
-    synced = set_in_portfolio(_new_ids)
-    print(f"  [DB] IN_PORTFOLIO: {synced} run_id(s) flagged (added {run_id[:12]}...).")
+    # 10. [RETIRED 2026-04-16] Previously: write IN_PORTFOLIO to ledger.db.
+    #     Retired along with the IN_PORTFOLIO column — authority is now
+    #     portfolio.yaml alone. Master Filter exposes a transient
+    #     Analysis_selection flag for FSP-driven composite analysis, which
+    #     is unrelated to deployment state and must not be touched here.
 
-    # 11. ATOMIC COMMIT: portfolio.yaml + burn_in_registry.yaml
+    # 11. ATOMIC COMMIT: portfolio.yaml + burn_in_registry.yaml.
     #     Both must succeed. If either fails, rollback all changes.
 
     # 11a. Write portfolio.yaml
@@ -1189,11 +1180,36 @@ def promote(strategy_id: str, profile: str, description: str = "",
             f.flush()
             os.fsync(f.fileno())
         os.replace(str(tmp_yaml), str(PORTFOLIO_YAML))
+        try:
+            from tools.event_log import log_event
+            log_event(
+                action="PORTFOLIO_YAML_ADD",
+                target=f"strategy:{strategy_id}",
+                actor="promote_to_burnin",
+                after={
+                    "entry_ids": entry_ids,
+                    "profile": profile,
+                    "vault_id": vault_id,
+                    "run_id": run_id,
+                    "lifecycle": LIFECYCLE_BURN_IN,
+                },
+            )
+        except Exception:
+            pass  # observational only
     except Exception as e:
         print(f"  [FATAL] portfolio.yaml write failed ({e}).")
-        print(f"  [ROLLBACK] Reverting DB to previous state.")
-        set_in_portfolio(_previous_ids)
-        print(f"  [ROLLBACK] DB reverted. Promotion aborted.")
+        print(f"  [ABORT] No state change. Promotion aborted.")
+        try:
+            from tools.event_log import log_event
+            log_event(
+                action="TRANSACTION_FAILED",
+                target=f"strategy:{strategy_id}",
+                actor="promote_to_burnin",
+                reason=f"portfolio.yaml write failed: {e}",
+                stage="11a_portfolio_yaml_write",
+            )
+        except Exception:
+            pass
         sys.exit(1)
 
     # 11b. Write burn_in_registry.yaml (normalized entry_ids with symbol suffix)
@@ -1210,15 +1226,24 @@ def promote(strategy_id: str, profile: str, description: str = "",
         print(f"  [REGISTRY] burn_in_registry.yaml updated: added {_registry_entry_ids}")
     except Exception as e:
         print(f"  [FATAL] burn_in_registry.yaml write failed ({e}).")
-        print(f"  [ROLLBACK] Reverting portfolio.yaml and DB.")
+        print(f"  [ROLLBACK] Reverting portfolio.yaml.")
         # Rollback portfolio.yaml
         with open(PORTFOLIO_YAML, "w", encoding="utf-8") as f:
             f.write(_original_yaml)
             f.flush()
             os.fsync(f.fileno())
-        # Rollback DB
-        set_in_portfolio(_previous_ids)
-        print(f"  [ROLLBACK] All reverted. Promotion aborted.")
+        print(f"  [ROLLBACK] portfolio.yaml reverted. Promotion aborted.")
+        try:
+            from tools.event_log import log_event
+            log_event(
+                action="TRANSACTION_FAILED",
+                target=f"strategy:{strategy_id}",
+                actor="promote_to_burnin",
+                reason=f"burn_in_registry.yaml write failed: {e}",
+                stage="11b_burn_in_registry_write",
+            )
+        except Exception:
+            pass
         sys.exit(1)
 
     print(f"[OK] Appended {entries_added} entry/entries to {PORTFOLIO_YAML}")
@@ -1273,43 +1298,36 @@ def promote(strategy_id: str, profile: str, description: str = "",
     _write_audit_log(strategy_id, profile, "SUCCESS", dry_run=False,
                      vault_id=vault_id, run_id=run_id, quality_gate=_qg)
 
-    # 14. CONSISTENCY ASSERTION — DB run_ids must match YAML run_ids (exact identity)
+    # 14. CONSISTENCY ASSERTION — portfolio.yaml must carry a run_id for every
+    #     enabled entry, and they must be unique. (Post-2026-04-16 the DB no
+    #     longer mirrors run_ids, so the cross-store check was retired.)
     print(f"\n  --- Consistency Check ---")
     try:
         _yaml_data = yaml.safe_load(Path(PORTFOLIO_YAML).read_text(encoding="utf-8"))
         _yaml_run_ids_list = []
+        _missing_run_id = []
         for s in _yaml_data.get("portfolio", {}).get("strategies", []):
             if s.get("enabled", False):
                 _rid = s.get("run_id", "")
                 if _rid:
                     _yaml_run_ids_list.append(str(_rid))
+                else:
+                    _missing_run_id.append(s.get("id", "<no-id>"))
         _yaml_run_ids = set(_yaml_run_ids_list)
+
+        if _missing_run_id:
+            print(f"  [ERROR] {len(_missing_run_id)} enabled YAML entrie(s) "
+                  f"missing run_id:")
+            for _id in _missing_run_id:
+                print(f"    - {_id}")
 
         if len(_yaml_run_ids_list) != len(_yaml_run_ids):
             _dupes = [r for r in _yaml_run_ids_list if _yaml_run_ids_list.count(r) > 1]
             print(f"  [ERROR] Duplicate run_ids in YAML: {sorted(set(_dupes))}")
 
-        from tools.ledger_db import _connect as _ck_conn
-        _ck = _ck_conn()
-        _db_rows = _ck.execute(
-            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
-        ).fetchall()
-        _ck.close()
-        _db_run_ids = {str(r[0]) for r in _db_rows}
-
-        if _db_run_ids == _yaml_run_ids:
-            print(f"  [OK] DB run_ids == YAML run_ids ({len(_db_run_ids)}) — consistent.")
-        else:
-            _missing_in_yaml = _db_run_ids - _yaml_run_ids
-            _missing_in_db = _yaml_run_ids - _db_run_ids
-            print(f"  [MISMATCH] run_id sets differ.")
-            if _missing_in_yaml:
-                print(f"    Missing in YAML: {sorted(_missing_in_yaml)}")
-            if _missing_in_db:
-                print(f"    Missing in DB:   {sorted(_missing_in_db)}")
-            if not _yaml_run_ids:
-                print(f"    [HINT] YAML entries may be missing run_id fields. Backfill needed.")
-            print(f"  Run: python tools/sync_portfolio_flags.py --save  to reconcile.")
+        if not _missing_run_id and len(_yaml_run_ids_list) == len(_yaml_run_ids):
+            print(f"  [OK] portfolio.yaml: {len(_yaml_run_ids)} enabled entries, "
+                  f"all with unique run_ids.")
     except Exception as e:
         print(f"  [WARN] Consistency check failed ({e}).")
 
@@ -1489,15 +1507,20 @@ def _run_batch(profile: str, dry_run: bool = False,
     ]
 
     # Also report blocked
+    # Status string returned by promote_readiness._check_portfolio_yaml.
+    # "IN_YAML" means the strategy is already deployed in portfolio.yaml —
+    # nothing to promote. Renamed from the ambiguous "IN_PORTFOLIO" on
+    # 2026-04-16 to avoid collision with the retired DB column of the
+    # same name.
     blocked = [
         r for r in report
         if not r["ready"] and not r.get("is_composite")
-        and r["checks"]["portfolio_yaml"] != "IN_PORTFOLIO"
+        and r["checks"]["portfolio_yaml"] != "IN_YAML"
     ]
     in_portfolio = [
         r for r in report
         if not r.get("is_composite")
-        and r["checks"]["portfolio_yaml"] == "IN_PORTFOLIO"
+        and r["checks"]["portfolio_yaml"] == "IN_YAML"
     ]
 
     print(f"  Scan results:")

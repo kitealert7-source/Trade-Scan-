@@ -72,7 +72,7 @@ MASTER_FILTER_COLUMNS = [
     "trades_neutral",
     "trades_weak_down",
     "trades_strong_down",
-    "IN_PORTFOLIO",
+    "Analysis_selection",
 ]
 
 # Required Performance Summary metric labels (EXACT, no fuzzy matching)
@@ -124,7 +124,6 @@ TRADE_DENSITY_LABEL = "Trade Density (Trades/Year)"
 _REPORT_SHEET       = "Performance Summary"
 _REPORT_METRIC_COL  = "Metric"
 _REPORT_VALUE_COL   = "All Trades"
-_DAILY_NAN_MARKER   = "Daily_Nan"
 _DAILY_SESSION_COLS = frozenset({"net_profit_asia", "net_profit_london", "net_profit_ny"})
 
 # Optional metrics: present in new runs, absent in old. Extraction never hard-fails.
@@ -215,7 +214,9 @@ def extract_from_report(report_path, metadata):
         "timeframe": metadata.get("timeframe"),
         "test_start": metadata.get("date_range", {}).get("start"),
         "test_end": metadata.get("date_range", {}).get("end"),
-        "IN_PORTFOLIO": False,
+        # Analysis_selection defaults to 0 on new rows. Only control_panel
+        # --select-analysis promotes it to 1 for the next composite run.
+        "Analysis_selection": 0,
     }
 
     # All lookups use canonical col_name — no label strings at runtime.
@@ -240,11 +241,12 @@ def extract_from_report(report_path, metadata):
     for col_name in VOLATILITY_METRICS:
         row_data[col_name] = metrics.get(col_name)
 
-    # Daily bars do not have meaningful session attribution.
+    # Daily bars do not have meaningful session attribution — leave as NaN.
+    # The timeframe column already signals "this is a daily row"; no string sentinel needed.
     timeframe = str(metadata.get("timeframe", "")).strip().lower()
     if timeframe in {"1d", "d", "daily"}:
         for col in _DAILY_SESSION_COLS:
-            row_data[col] = _DAILY_NAN_MARKER
+            row_data[col] = None
 
     # Trend metrics: REQUIRED. validate_required_metrics() guarantees all keys present above.
     for col_name in TREND_METRICS:
@@ -310,10 +312,14 @@ def compile_stage3(strategy_filter=None):
     master_filter_path = POOL_DIR / "Strategy_Master_Filter.xlsx"
     df_master = get_existing_master_df(master_filter_path)
     
-    # Ensure IN_PORTFOLIO exists
-    if "IN_PORTFOLIO" not in df_master.columns:
-        print("[MIGRATION] Adding IN_PORTFOLIO column")
-        df_master["IN_PORTFOLIO"] = False
+    # Ensure Analysis_selection exists (replaces retired IN_PORTFOLIO).
+    if "Analysis_selection" not in df_master.columns:
+        print("[MIGRATION] Adding Analysis_selection column")
+        df_master["Analysis_selection"] = 0
+    # Drop the legacy IN_PORTFOLIO column if the Excel still carries it.
+    if "IN_PORTFOLIO" in df_master.columns:
+        print("[MIGRATION] Dropping retired IN_PORTFOLIO column")
+        df_master = df_master.drop(columns=["IN_PORTFOLIO"])
     
     existing_ids = set(df_master["run_id"].astype(str).tolist()) if "run_id" in df_master.columns else set()
     print(f"Existing runs in Master Filter: {len(existing_ids)}")
@@ -361,25 +367,25 @@ def compile_stage3(strategy_filter=None):
         
         df_master = pd.concat([df_master, df_new], ignore_index=True)
 
-        # --- IN_PORTFOLIO RESTORE FROM DB ---
-        # ledger.db is the single source of truth for IN_PORTFOLIO.
-        # Only promote_to_burnin.py writes it. This block restores flags
-        # after a Master Filter rebuild (new rows default to False).
-        # Fails hard — if DB can't provide flags, abort rather than persist wrong state.
+        # --- Analysis_selection RESTORE FROM DB ---
+        # Analysis_selection is a transient user-intent flag (picks rows for
+        # the next composite_portfolio_analysis). The DB is its home; this
+        # block preserves user selections across a Master Filter rebuild.
+        # New rows default to 0 and remain 0 unless explicitly re-selected.
         from tools.ledger_db import _connect as _db_conn_fn, create_tables as _db_ct
         _rc = _db_conn_fn()
         _db_ct(_rc)
-        _true_rows = _rc.execute(
-            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+        _selected_rows = _rc.execute(
+            'SELECT run_id FROM master_filter WHERE "Analysis_selection" = 1'
         ).fetchall()
-        _true_ids = {str(r[0]) for r in _true_rows}
+        _selected_ids = {str(r[0]) for r in _selected_rows}
         _rc.close()
-        if _true_ids:
-            _restore_mask = df_master["run_id"].astype(str).isin(_true_ids)
+        if _selected_ids:
+            _restore_mask = df_master["run_id"].astype(str).isin(_selected_ids)
             _restored = int(_restore_mask.sum())
             if _restored:
-                df_master.loc[_restore_mask, "IN_PORTFOLIO"] = True
-                print(f"[IN_PORTFOLIO] Restored {_restored} flag(s) from ledger.db.")
+                df_master.loc[_restore_mask, "Analysis_selection"] = 1
+                print(f"[Analysis_selection] Restored {_restored} flag(s) from ledger.db.")
         # ----------------------------------------
 
         # DB FIRST (mandatory) — SQLite is the source of truth

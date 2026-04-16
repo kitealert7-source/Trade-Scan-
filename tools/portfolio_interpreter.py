@@ -30,9 +30,125 @@ from tools.ledger_db import (
     upsert_portfolio_control, log_control_action,
     export_mps, export_master_filter,
 )
+from tools.event_log import log_event
 
 # Lock threshold: skip rows updated < N seconds ago (prevents double execution)
 LOCK_THRESHOLD_SECONDS = 30
+
+
+# ---------------------------------------------------------------------------
+# Startup self-check — fail-hard on authority drift
+# ---------------------------------------------------------------------------
+
+def authority_self_check() -> None:
+    """Verify integrity of durable authorities before acting on intent.
+
+    Runs on every interpreter invocation (except --sync-only). The goal is
+    to convert silent drift — the class of bug responsible for the FAKEBREAK
+    P01/P02 incident — into loud, immediate failures at the exact moment a
+    user is about to issue a transition.
+
+    Checks:
+      1. portfolio.yaml parses as valid YAML.
+      2. Every strategy entry has a non-empty `id` and a recognised
+         `lifecycle` value.
+      3. No duplicate IDs within portfolio.yaml.
+      4. burn_in_registry.yaml parses as valid YAML (if present).
+      5. Every burn-in entry has a non-empty `id`.
+      6. No duplicate IDs within a single burn-in layer.
+
+    Violations raise RuntimeError — the interpreter refuses to act on
+    pending intent while the authorities are inconsistent. The violating
+    details are also emitted to governance/events.jsonl for forensic
+    recovery.
+    """
+    import yaml
+
+    VALID_LIFECYCLES = {"LEGACY", "BURN_IN", "WAITING", "LIVE", "DISABLED"}
+    violations: list[str] = []
+
+    # ---- portfolio.yaml ----
+    yaml_path = TS_EXEC_ROOT / "portfolio.yaml"
+    if yaml_path.exists():
+        try:
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            violations.append(f"portfolio.yaml is not valid YAML: {e}")
+            data = {}
+
+        strategies = (data.get("portfolio") or {}).get("strategies") or []
+        seen_ids: dict[str, int] = {}
+        for idx, s in enumerate(strategies):
+            sid = s.get("id") if isinstance(s, dict) else None
+            if not isinstance(sid, str) or not sid.strip():
+                violations.append(
+                    f"portfolio.yaml entry #{idx} has empty or non-string id: {s!r}"
+                )
+                continue
+            if sid in seen_ids:
+                violations.append(
+                    f"portfolio.yaml duplicate id {sid!r} "
+                    f"(entries #{seen_ids[sid]} and #{idx})"
+                )
+            else:
+                seen_ids[sid] = idx
+            lc = s.get("lifecycle")
+            if lc is not None and lc not in VALID_LIFECYCLES:
+                violations.append(
+                    f"portfolio.yaml entry {sid!r} has unknown lifecycle={lc!r} "
+                    f"(valid: {sorted(VALID_LIFECYCLES)})"
+                )
+    # portfolio.yaml missing is OK — a fresh install has no portfolio yet.
+
+    # ---- burn_in_registry.yaml ----
+    reg_path = TS_EXEC_ROOT / "burn_in_registry.yaml"
+    if reg_path.exists():
+        try:
+            rdata = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            violations.append(f"burn_in_registry.yaml is not valid YAML: {e}")
+            rdata = {}
+
+        for layer in ("primary", "coverage"):
+            entries = rdata.get(layer) or []
+            if not isinstance(entries, list):
+                violations.append(
+                    f"burn_in_registry.yaml layer {layer!r} is not a list"
+                )
+                continue
+            seen_layer_ids: dict[str, int] = {}
+            for idx, e in enumerate(entries):
+                eid = e.get("id") if isinstance(e, dict) else None
+                if not isinstance(eid, str) or not eid.strip():
+                    violations.append(
+                        f"burn_in_registry.yaml:{layer} entry #{idx} "
+                        f"has empty or non-string id: {e!r}"
+                    )
+                    continue
+                if eid in seen_layer_ids:
+                    violations.append(
+                        f"burn_in_registry.yaml:{layer} duplicate id {eid!r} "
+                        f"(entries #{seen_layer_ids[eid]} and #{idx})"
+                    )
+                else:
+                    seen_layer_ids[eid] = idx
+
+    if violations:
+        log_event(
+            action="INVARIANT_VIOLATION",
+            target="authorities:portfolio_yaml+burn_in_registry",
+            actor="portfolio_interpreter.authority_self_check",
+            reason="startup self-check failed",
+            violations=violations,
+        )
+        msg_lines = [
+            "[SELF-CHECK] Authority integrity violation — refusing to run:",
+            *[f"  - {v}" for v in violations],
+            "",
+            "Resolve each violation, then re-run. See governance/events.jsonl "
+            "for a machine-readable record.",
+        ]
+        raise RuntimeError("\n".join(msg_lines))
 
 
 # ---------------------------------------------------------------------------
@@ -70,23 +186,10 @@ def _expand_portfolio_to_yaml_ids(portfolio_id: str) -> list[str]:
     return matches
 
 
-def _resolve_run_ids_for_portfolio(portfolio_id: str) -> list[str]:
-    """Resolve run_ids for a portfolio_id from master_filter.
-
-    Uses startswith matching to find all per-symbol entries.
-    """
-    conn = _connect()
-    try:
-        rows = conn.execute(
-            'SELECT run_id, strategy FROM master_filter WHERE "IN_PORTFOLIO" = 1'
-        ).fetchall()
-        matched = []
-        for run_id, strat in rows:
-            if strat == portfolio_id or strat.startswith(portfolio_id + "_"):
-                matched.append(run_id)
-        return matched
-    finally:
-        conn.close()
+# [RETIRED 2026-04-16] _resolve_run_ids_for_portfolio was never called and
+# relied on the legacy IN_PORTFOLIO column. The authoritative run_id mapping
+# now lives in portfolio_sheet.constituent_run_ids (for composites) and
+# portfolio.yaml (for deployed strategies).
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +513,15 @@ def main() -> int:
     print(f"\n{'=' * 60}")
     print(f"PORTFOLIO INTERPRETER")
     print(f"{'=' * 60}")
+
+    # Fail-hard authority self-check before acting on any pending intent.
+    # If portfolio.yaml or burn_in_registry.yaml is structurally inconsistent,
+    # executing transitions would compound the damage — refuse to run.
+    try:
+        authority_self_check()
+    except RuntimeError as exc:
+        print(str(exc))
+        return 2
 
     result = interpret(dry_run=args.dry_run)
 

@@ -35,6 +35,10 @@ TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
 SHADOW_TRADES  = TS_EXEC_ROOT / "outputs" / "shadow_trades.jsonl"
 
+# Centralised shadow-trade reader — single lifecycle filter point
+sys.path.insert(0, str(TS_EXEC_ROOT / "src"))
+from shadow_trades_reader import get_valid_trades  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Default gate thresholds (from portfolio.yaml burn-in comments)
 # Strategies can override via per-strategy config in future.
@@ -86,21 +90,15 @@ def _load_portfolio() -> list[dict[str, Any]]:
 
 
 def _load_shadow_trades() -> list[dict[str, Any]]:
-    """Load ALL events from shadow_trades.jsonl (SIGNAL, ENTRY, EXIT)."""
+    """Load ALL events from shadow_trades.jsonl (SIGNAL, ENTRY, EXIT).
+
+    Delegates to the centralized shadow_trades_reader which enforces
+    the global lifecycle filter (INVALIDATED excluded).
+    """
     if not SHADOW_TRADES.exists():
         print(f"  [WARN] shadow_trades.jsonl not found: {SHADOW_TRADES}")
         return []
-    records: list[dict[str, Any]] = []
-    with open(SHADOW_TRADES, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return records
+    return get_valid_trades(SHADOW_TRADES)
 
 
 def _count_shadow_events(

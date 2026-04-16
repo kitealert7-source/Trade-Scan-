@@ -105,9 +105,12 @@ def load_symbol_metrics(strategy_id):
     except Exception as e:
         raise ValueError(f"Failed to read Strategy Master Filter: {e}")
 
-    # 2. Filter Rows
-    if 'strategy' not in df_master.columns or 'IN_PORTFOLIO' not in df_master.columns or 'run_id' not in df_master.columns or 'symbol' not in df_master.columns:
-         raise ValueError("Master Sheet missing required columns: 'strategy', 'IN_PORTFOLIO', 'run_id', or 'symbol'")
+    # 2. Filter Rows.
+    # IN_PORTFOLIO was retired 2026-04-16 and is no longer required; the
+    # filter below matches by strategy prefix, which is the authoritative
+    # semantics for resolving per-symbol run rows.
+    if 'strategy' not in df_master.columns or 'run_id' not in df_master.columns or 'symbol' not in df_master.columns:
+         raise ValueError("Master Sheet missing required columns: 'strategy', 'run_id', or 'symbol'")
 
     selected_rows = df_master[
         (df_master['strategy'].astype(str).str.startswith(strategy_id + "_")) 
@@ -216,6 +219,7 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
     dd_pct = drawdown / running_max
     max_dd_usd = drawdown.min()
     max_dd_pct = dd_pct.min()
+    peak_dd_ratio = round(float(running_max.max()) / abs(float(max_dd_usd)), 4) if max_dd_usd != 0 else 0.0
 
     # Return/DD
     return_dd = abs(net_pnl / max_dd_usd) if max_dd_usd != 0 else 0.0
@@ -357,6 +361,7 @@ def compute_portfolio_metrics(portfolio_equity, daily_pnl, portfolio_df, num_sym
         'gross_loss': gross_loss,
         'sqn': sqn,
         'edge_quality': edge_quality,
+        'peak_dd_ratio': peak_dd_ratio,
     }
 
 
@@ -1205,6 +1210,63 @@ def _profile_return_dd(profile_metrics):
     return realized / max(max_dd, 1.0)
 
 
+def _per_symbol_realized_density(strategy_id, sim_years, rejection_rate_pct=0.0, mf_df=None):
+    """Return {symbol: trades_per_year_int} — per-symbol density AFTER deployed
+    profile's rejection filter.
+
+    Two-stage derivation:
+      1. Raw per-symbol density = portfolio_tradelevel.csv trade count per
+         symbol / deployed profile's simulation_years. This captures the
+         actual parameterization selected per symbol (not the max-across-reruns
+         theoretical from master_filter).
+      2. Apply deployed profile's portfolio-wide rejection_rate_pct uniformly
+         (only resolution available — capital wrapper doesn't emit per-symbol
+         rejection counts).
+
+    Resolves symbol via source_run_id → master_filter lookup.
+    Returns None if the tradelevel file is missing / unreadable / empty.
+    """
+    try:
+        sim_years = float(sim_years) if sim_years is not None else 0.0
+    except (TypeError, ValueError):
+        sim_years = 0.0
+    if sim_years <= 0:
+        return None
+    try:
+        rej = float(rejection_rate_pct) if rejection_rate_pct is not None else 0.0
+    except (TypeError, ValueError):
+        rej = 0.0
+    retention = max(0.0, 1.0 - rej / 100.0)
+    tl_path = (STRATEGIES_ROOT / str(strategy_id)
+               / "portfolio_evaluation" / "portfolio_tradelevel.csv")
+    if not tl_path.exists():
+        return None
+    try:
+        import pandas as _pd
+        tl = _pd.read_csv(tl_path)
+        if tl.empty or "source_run_id" not in tl.columns:
+            return None
+        if mf_df is None:
+            from tools.ledger_db import read_master_filter
+            mf_df = read_master_filter()
+        if mf_df is None or mf_df.empty:
+            return None
+        if "run_id" not in mf_df.columns or "symbol" not in mf_df.columns:
+            return None
+        run_to_sym = dict(zip(mf_df["run_id"].astype(str),
+                              mf_df["symbol"].astype(str)))
+        tl = tl.copy()
+        tl["_symbol"] = tl["source_run_id"].astype(str).map(run_to_sym)
+        tl = tl.dropna(subset=["_symbol"])
+        if tl.empty:
+            return None
+        per_sym = (tl.groupby("_symbol").size() / sim_years) * retention
+        return {str(k): int(round(v)) for k, v in per_sym.items()}
+    except Exception as e:
+        print(f"  [WARN] per-symbol realized density failed for {strategy_id}: {e}")
+        return None
+
+
 def _to_mt5_timeframe(signal_tf: str) -> str:
     """Convert signal_timeframes string to MT5 notation (M5, M15, H1, D1, …).
     For multi-timeframe composites (e.g. '15m|1h'), returns pipe-separated MT5 names."""
@@ -1235,7 +1297,7 @@ from config.asset_classification import parse_strategy_name as _parse_strategy_n
 
 def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
                               expectancy=0.0, portfolio_id="",
-                              trade_density=None,
+                              trade_density_min=None,
                               edge_quality=None, sqn=None,
                               is_single_asset=False):
     """Deterministic portfolio status classification for ledger rows.
@@ -1244,12 +1306,15 @@ def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
       Portfolios tab  → edge_quality >= 0.12 for CORE, >= 0.08 for WATCH
       Single-Asset tab → sqn >= 2.5 for CORE, >= 2.0 for WATCH
     ``is_single_asset`` controls which quality metric governs the WATCH gate.
+
+    The density gate uses the PER-SYMBOL FLOOR (trade_density_min), not the
+    composite sum. A portfolio is only as calendar-viable as its slowest leg.
     """
     realized = _safe_float(realized_pnl, 0.0)
     accepted = int(round(_safe_float(total_accepted, 0.0)))
     rejection = _safe_float(rejection_rate_pct, 0.0)
     exp = _safe_float(expectancy, 0.0)
-    td = _safe_float(trade_density, None)
+    td = _safe_float(trade_density_min, None)
     eq = _safe_float(edge_quality, None)
     sq = _safe_float(sqn, None)
 
@@ -1260,8 +1325,9 @@ def _compute_portfolio_status(realized_pnl, total_accepted, rejection_rate_pct,
     # ── FAIL gates (any one triggers) ────────────────────────────────
     if realized <= 0.0 or accepted < 50:
         return "FAIL"
-    # Per-symbol trade density gate: portfolio total can inflate past 50
-    # while individual symbols have statistically meaningless sample sizes.
+    # Per-symbol trade density floor: composite total can inflate past 50
+    # while the weakest leg has statistically meaningless sample size.
+    # Burn-in calendar viability binds to the slowest symbol, not the sum.
     if td is not None and td < 50:
         return "FAIL"
     if exp < exp_gate:
@@ -1371,11 +1437,18 @@ def _resolve_deployed_profile(strategy_id, profiles, df_ledger):
         capital_valid = _safe_bool(metrics.get("capital_validity_flag"), False)
         avg_risk = _safe_float(metrics.get("avg_risk_multiple"), 0.0)
         rej = _safe_float(metrics.get("rejection_rate_pct"), 0.0)
+        # Execution-health penalty uses execution_rejection_rate_pct when present:
+        # excludes RETAIL_MAX_LOT_EXCEEDED skips (capital-ceiling saturation is
+        # evidence of outstanding returns, not weak execution — penalizing it
+        # was upside-down logic). Falls back to raw rej for legacy metrics.
+        rej_health = _safe_float(
+            metrics.get("execution_rejection_rate_pct", rej), rej
+        )
         accepted = int(round(_safe_float(metrics.get("total_accepted"), 0.0)))
         sim_years = _safe_float(metrics.get("simulation_years"), 0.0)
         base_score = _profile_return_dd(metrics)
 
-        health = _execution_health(rej)
+        health = _execution_health(rej_health)
         if health == "DEGRADED":
             penalty = 0.4
         elif health == "WARNING":
@@ -1387,7 +1460,10 @@ def _resolve_deployed_profile(strategy_id, profiles, df_ledger):
         flags = {
             "pnl_invalid": realized <= 0.0,
             "capital_invalid": not capital_valid,
-            "risk_overextended": avg_risk > 1.5,
+            # Retail-realistic oversizing tolerance: compounding small-account profiles
+            # (REAL_MODEL_V1 tier-ramp) exceed 1.5× early in the curve before equity
+            # grows past the min-lot barrier. 2.5 matches industry realistic-retail norm.
+            "risk_overextended": avg_risk > 2.5,
             "low_samples": accepted < RELIABILITY_MIN_ACCEPTED,
             "low_years": sim_years < RELIABILITY_MIN_SIM_YEARS,
         }
@@ -1522,6 +1598,7 @@ def _get_deployed_profile_metrics(strategy_id, df_ledger):
         "trades_accepted": int(round(_safe_float(profile_metrics.get("total_accepted"), 0.0))),
         "trades_rejected": int(round(_safe_float(profile_metrics.get("total_rejected"), 0.0))),
         "rejection_rate_pct": round(_safe_float(profile_metrics.get("rejection_rate_pct"), 0.0), 2),
+        "simulation_years": _safe_float(profile_metrics.get("simulation_years"), 0.0),
         "source": source,
         "selection_debug": selection_debug,
     }
@@ -1559,8 +1636,11 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "reference_capital_usd",
         "portfolio_status",
         "evaluation_timeframe",
-        "trade_density",
-        "profile_trade_density",
+        "symbol_count",
+        "trade_density_total",
+        "trade_density_min",
+        "profile_trade_density_total",
+        "profile_trade_density_min",
         "theoretical_pnl",
         "realized_pnl",
         "sharpe",
@@ -1665,7 +1745,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
             row.get("rejection_rate_pct", 0.0),
             expectancy=row.get("expectancy", 0.0),
             portfolio_id=row.get("portfolio_id", ""),
-            trade_density=row.get("trade_density", None),
+            trade_density_min=row.get("trade_density_min",
+                                     row.get("trade_density", None)),
             edge_quality=row.get("edge_quality", None),
             sqn=row.get("sqn", None),
             is_single_asset=is_single_asset,
@@ -1724,10 +1805,59 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         ratio_realized_vs_theoretical = round(realized_pnl / theoretical_pnl, 4)
     else:
         ratio_realized_vs_theoretical = 0.0
+
+    # ── Per-symbol trade density (computed BEFORE status so density gate applies to new row) ──
+    # Rule: groupby symbol → take MAX across reruns (most favorable run per symbol),
+    # then sum for total, min for floor. min governs burn-in calendar viability.
+    td_total = None
+    td_min = None
+    symbol_count = None
+    if isinstance(constituent_run_ids, list) and len(constituent_run_ids) > 0:
+        try:
+            from tools.ledger_db import read_master_filter
+            ms_df = read_master_filter()
+            if (not ms_df.empty
+                    and 'run_id' in ms_df.columns
+                    and 'trade_density' in ms_df.columns
+                    and 'symbol' in ms_df.columns):
+                valid = ms_df[ms_df['run_id'].astype(str)
+                              .isin([str(x) for x in constituent_run_ids])]
+                valid = valid.dropna(subset=['trade_density'])
+                if not valid.empty:
+                    per_sym = valid.groupby('symbol')['trade_density'].max()
+                    td_total = int(per_sym.sum())
+                    td_min = int(per_sym.min())
+                    symbol_count = int(per_sym.size)
+        except Exception as e:
+            print(f"  [WARN] Failed to aggregate component trade density: {e}")
+
+    # ── Profile-adjusted per-symbol density ──
+    # Preferred: derive from portfolio_tradelevel.csv (true realized per-symbol
+    # density under the deployed profile — captures per-symbol asymmetric
+    # capital rejection AND the actual parameterization selected per symbol).
+    # Fallback: raw × (1 - portfolio_rejection) — uniform approximation when
+    # tradelevel is unavailable.
+    profile_td_total = None
+    profile_td_min = None
+    sim_years = deployed.get("simulation_years") if isinstance(deployed, dict) else None
+    realized_map = _per_symbol_realized_density(
+        strategy_id, sim_years, rejection_rate_pct=rejection_rate_pct)
+    if realized_map:
+        vals = list(realized_map.values())
+        profile_td_total = int(sum(vals))
+        profile_td_min = int(min(vals))
+    else:
+        effective_rejection = rejection_rate_pct if rejection_rate_pct is not None else 0.0
+        profile_td_total = (int(round(td_total * (1.0 - effective_rejection / 100.0)))
+                            if td_total is not None else None)
+        profile_td_min = (int(round(td_min * (1.0 - effective_rejection / 100.0)))
+                          if td_min is not None else None)
+
     portfolio_status = _compute_portfolio_status(
         realized_pnl, trades_accepted, rejection_rate_pct,
         expectancy=metrics.get("expectancy", 0.0),
         portfolio_id=strategy_id,
+        trade_density_min=td_min,
         edge_quality=metrics.get("edge_quality", None),
         sqn=metrics.get("sqn", None),
         is_single_asset=is_single_asset,
@@ -1757,9 +1887,13 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "full_load_cluster": concurrency_data["full_load_cluster"],
         "total_trades": metrics["total_trades"],
 
-        # We will populate trade_density below after building the row, since we need to cross-check Master Sheet
-        "trade_density": "NA",
-        "profile_trade_density": "NA",
+        # Per-symbol density fields (computed above, before status gate).
+        # total = SUM across symbols; min = SLOWEST leg; profile_* = same × (1-rejection).
+        "symbol_count": symbol_count if symbol_count is not None else "NA",
+        "trade_density_total": td_total if td_total is not None else "NA",
+        "trade_density_min": td_min if td_min is not None else "NA",
+        "profile_trade_density_total": profile_td_total if profile_td_total is not None else "NA",
+        "profile_trade_density_min": profile_td_min if profile_td_min is not None else "NA",
 
         "portfolio_engine_version": PORTFOLIO_ENGINE_VERSION,
         "portfolio_net_profit_low_vol": metrics.get("portfolio_net_profit_low_vol", 0.0),
@@ -1773,8 +1907,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         "exposure_pct": metrics.get("exposure_pct", 0.0),
         "equity_stability_k_ratio": metrics.get("equity_stability_k_ratio", 0.0),
         "deployed_profile": deployed_profile,
-        "sqn": metrics.get("sqn", 0.0),
         "edge_quality": metrics.get("edge_quality", 0.0),
+        "peak_dd_ratio": metrics.get("peak_dd_ratio", 0.0),
         "trades_accepted": trades_accepted,
         "trades_rejected": trades_rejected,
         "rejection_rate_pct": rejection_rate_pct,
@@ -1791,6 +1925,7 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
     if is_single_asset:
         n_strats = len(constituent_run_ids) if isinstance(constituent_run_ids, list) else 1
         row_data["n_strategies"] = n_strats
+        row_data["sqn"] = metrics.get("sqn", 0.0)
         # Fix 3: readable_alias — human-readable label for PF_ hash composites.
         # Format: <SYMBOL>_<N>S_<PRIMARY_FAMILY>_<TF>
         if strategy_id.upper().startswith("PF_"):
@@ -1829,22 +1964,8 @@ def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_c
         row_data["avg_pairwise_corr"] = corr_data["avg_pairwise_corr"]
         row_data["max_pairwise_corr_stress"] = max_stress_corr
 
-    # Calculate Trade Density natively from components
-    if isinstance(constituent_run_ids, list) and len(constituent_run_ids) > 0:
-        try:
-            from tools.ledger_db import read_master_filter
-            ms_df = read_master_filter()
-            if not ms_df.empty:
-                if 'run_id' in ms_df.columns and 'trade_density' in ms_df.columns:
-                    valid_density = ms_df[ms_df['run_id'].astype(str).isin([str(x) for x in constituent_run_ids])]['trade_density']
-                    if not valid_density.empty and not valid_density.isna().all():
-                        td = int(valid_density.dropna().sum())
-                        row_data["trade_density"] = td
-                        effective_rejection = rejection_rate_pct if rejection_rate_pct is not None else 0.0
-                        row_data["profile_trade_density"] = int(round(td * (1.0 - (effective_rejection / 100.0))))
-        except Exception as e:
-            print(f"  [WARN] Failed to aggregate component trade density: {e}")
-                
+    # (Trade density already computed above, before status gate — no post-row writeback.)
+
     # Check Duplicate & Append-Only Idempotent Guard
     if strategy_id in df_ledger["portfolio_id"].astype(str).values:
         existing_row = df_ledger[df_ledger["portfolio_id"].astype(str) == strategy_id].iloc[-1]

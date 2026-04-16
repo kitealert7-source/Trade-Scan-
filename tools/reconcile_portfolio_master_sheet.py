@@ -22,9 +22,14 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from tools.profile_selector import load_profile_comparison  # read-only loader
+from config.state_paths import STRATEGIES_DIR
 
-STRATEGIES_ROOT = PROJECT_ROOT / "strategies"
+STRATEGIES_ROOT = Path(STRATEGIES_DIR)
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
+
+# Sheet names in the canonical MPS workbook
+SHEET_PORTFOLIOS = "Portfolios"
+SHEET_SINGLE_ASSET = "Single-Asset Composites"
 
 LEDGER_PNL_COL = "realized_pnl"
 LEGACY_PNL_COL = "net_pnl_usd"
@@ -215,42 +220,113 @@ def _reorder_columns(df):
     return df[ordered + remaining]
 
 
+def _guard_multi_sheet(path: Path) -> None:
+    """Refuse to proceed if the on-disk MPS workbook has collapsed to a single
+    unnamed 'Sheet1'. Historically a downstream df.to_excel() overwrote the
+    two-sheet MPS with one flat sheet; proceeding from that state would cause
+    the DB sync to fan out one sheet's rows into both sheet tags. See
+    feedback_db_discipline.md (DB is the source of truth; fail hard on
+    structural corruption rather than silently repairing)."""
+    if not path.exists():
+        return  # fresh install — DB is authoritative, nothing to guard against
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True)
+        data_sheets = [s for s in wb.sheetnames if s != "Notes"]
+        wb.close()
+    except Exception as e:
+        print(f"[FATAL] Could not inspect {path.name} for sheet structure: {e}")
+        sys.exit(1)
+    expected = {SHEET_PORTFOLIOS, SHEET_SINGLE_ASSET}
+    if set(data_sheets) != expected:
+        print(
+            f"[FATAL] {path.name} has data sheets {data_sheets!r}; expected "
+            f"{sorted(expected)!r}. Workbook appears collapsed — refusing DB "
+            f"sync to avoid duplicating rows across both sheet tags. "
+            f"Regenerate via `python -c \"from tools.ledger_db import export_mps; export_mps()\"` "
+            f"before re-running reconcile."
+        )
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Reconcile Master Portfolio Sheet from profile_comparison.json")
     parser.add_argument("--portfolio", action="append", dest="portfolios", help="Portfolio ID to reconcile (repeatable)")
     args = parser.parse_args()
 
+    # Guard #1 (pre-read): workbook structure must match DB schema assumption.
+    _guard_multi_sheet(LEDGER_PATH)
+
     try:
         from tools.ledger_db import read_mps
-        df_ledger = read_mps()
-        if df_ledger.empty:
+        # CRITICAL: read each sheet separately and reconcile independently so
+        # sheet membership is preserved. A prior bug merged both into one
+        # DataFrame then upserted the union into *both* sheet tags, doubling
+        # row counts from 84+63 → 147+147.
+        df_port = _ensure_columns(read_mps(sheet=SHEET_PORTFOLIOS))
+        df_single = _ensure_columns(read_mps(sheet=SHEET_SINGLE_ASSET))
+        if df_port.empty and df_single.empty:
             print(f"[FATAL] Master Portfolio Sheet has no data")
             sys.exit(1)
     except Exception as e:
         print(f"[FATAL] Failed to read Master Portfolio Sheet: {e}")
         sys.exit(1)
-    df_ledger = _ensure_columns(df_ledger)
 
-    df_ledger, updated, skipped = reconcile(df_ledger, args.portfolios)
-    df_ledger = _reorder_columns(df_ledger)
+    # Route each --portfolio target to the sheet that actually contains it so
+    # the other sheet's reconcile pass does not emit spurious "not found" skips.
+    port_ids = set(df_port["portfolio_id"].astype(str)) if not df_port.empty else set()
+    single_ids = set(df_single["portfolio_id"].astype(str)) if not df_single.empty else set()
+    if args.portfolios:
+        targets_port = [pid for pid in args.portfolios if pid in port_ids]
+        targets_single = [pid for pid in args.portfolios if pid in single_ids]
+        unmatched = [pid for pid in args.portfolios if pid not in port_ids and pid not in single_ids]
+        for pid in unmatched:
+            print(f"[SKIP] {pid}: not found in either sheet of ledger.db")
+    else:
+        targets_port = None
+        targets_single = None
 
-    if LEGACY_PNL_COL in df_ledger.columns:
-        df_ledger = df_ledger.drop(columns=[LEGACY_PNL_COL])
+    up_p = sk_p = up_s = sk_s = 0
+    if targets_port is None or targets_port:
+        df_port, up_p, sk_p = reconcile(df_port, targets_port)
+    if targets_single is None or targets_single:
+        df_single, up_s, sk_s = reconcile(df_single, targets_single)
+    updated = up_p + up_s
+    skipped = sk_p + sk_s + (len(unmatched) if args.portfolios else 0)
 
-    # Write to DB first (single source of truth), then export to Excel
+    df_port = _reorder_columns(df_port)
+    df_single = _reorder_columns(df_single)
+    if LEGACY_PNL_COL in df_port.columns:
+        df_port = df_port.drop(columns=[LEGACY_PNL_COL])
+    if LEGACY_PNL_COL in df_single.columns:
+        df_single = df_single.drop(columns=[LEGACY_PNL_COL])
+
+    # Guard #2 (pre-sync): the two per-sheet frames must not share portfolio_ids.
+    # If they do, someone upstream merged them — refuse to upsert.
+    overlap = (set(df_port["portfolio_id"].astype(str))
+               & set(df_single["portfolio_id"].astype(str)))
+    if overlap:
+        print(
+            f"[FATAL] Cross-sheet portfolio_id overlap ({len(overlap)} ids, "
+            f"e.g. {sorted(overlap)[:3]}). Refusing DB sync — this would "
+            f"duplicate rows across both sheet tags."
+        )
+        sys.exit(1)
+
+    # Write to DB first (single source of truth), then export Excel via
+    # ledger_db.export_mps which preserves the two-sheet structure.
     try:
-        from tools.ledger_db import _connect, create_tables, upsert_mps_df
+        from tools.ledger_db import _connect, create_tables, upsert_mps_df, export_mps
         _conn = _connect()
         create_tables(_conn)
-        # Upsert to both sheets — reconcile applies to portfolios primarily
-        for _sheet in ("Portfolios", "Single-Asset Composites"):
-            upsert_mps_df(_conn, df_ledger, _sheet)
+        upsert_mps_df(_conn, df_port, SHEET_PORTFOLIOS)
+        upsert_mps_df(_conn, df_single, SHEET_SINGLE_ASSET)
         _conn.close()
-        print(f"  [DB] Synced {len(df_ledger)} row(s) to ledger.db.")
+        print(f"  [DB] Synced Portfolios={len(df_port)} + Single-Asset={len(df_single)} row(s) to ledger.db.")
+        export_mps()
     except Exception as e:
-        print(f"  [WARN] DB sync failed ({e}). Excel will still be written.")
-
-    df_ledger.to_excel(LEDGER_PATH, index=False)
+        print(f"  [FATAL] DB sync/export failed: {e}")
+        sys.exit(1)
 
     try:
         cmd = [

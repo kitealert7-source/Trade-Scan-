@@ -49,7 +49,11 @@ MASTER_FILTER_COLUMNS = [
     "total_net_profit", "gross_profit", "gross_loss",
     "profit_factor", "expectancy", "sharpe_ratio",
     "max_drawdown", "max_dd_pct", "return_dd_ratio",
-    "IN_PORTFOLIO",
+    # Analysis_selection — per-row user-intent flag (0/1) picked in FSP to
+    # drive the next composite_portfolio_analysis run. Auto-cleared after
+    # that analysis completes. NOT a portfolio-membership signal: actual
+    # deployment authority is portfolio.yaml + burn_in_registry.yaml.
+    "Analysis_selection",
     "worst_5_loss_pct", "longest_loss_streak",
     "pct_time_in_market", "avg_bars_in_trade",
     "net_profit_high_vol", "net_profit_normal_vol", "net_profit_low_vol",
@@ -63,7 +67,7 @@ MASTER_FILTER_COLUMNS = [
     # prior run's rows are flagged is_current=0 rather than deleted. FSP
     # readers filter on is_current=1 by default (NULL treated as 1 for pre-
     # migration rows via backfill). Quarterly cleanup moves aged is_current=0
-    # rows to parquet archive. See also: TOOLS_INDEX.md - rerun_backtest.
+    # rows to parquet archive. See also: TOOLS_INDEX.md § rerun_backtest.
     "is_current",        # 1 = live / 0 = superseded (default 1)
     "superseded_by",     # run_id of the replacement run, NULL for live rows
     "superseded_at",     # ISO timestamp when the supersession was recorded
@@ -75,7 +79,10 @@ MASTER_FILTER_COLUMNS = [
 _MPS_BASE = [
     "portfolio_id", "source_strategy",
     "reference_capital_usd", "portfolio_status", "evaluation_timeframe",
-    "trade_density", "profile_trade_density", "theoretical_pnl", "realized_pnl",
+    "symbol_count",
+    "trade_density_total", "trade_density_min",
+    "profile_trade_density_total", "profile_trade_density_min",
+    "theoretical_pnl", "realized_pnl",
     "sharpe", "max_dd_pct", "return_dd_ratio", "win_rate",
     "profit_factor", "expectancy", "total_trades", "exposure_pct",
     "equity_stability_k_ratio", "deployed_profile", "trades_accepted",
@@ -120,7 +127,12 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
 def _col_def(col: str) -> str:
     """Map column name to SQLite type. TEXT-heavy — Excel values are mixed."""
     numeric = {
-        "sqn", "total_trades", "trade_density", "total_net_profit",
+        "sqn", "total_trades",
+        "trade_density",  # Master Filter: per-symbol trades/yr (unchanged)
+        "symbol_count",
+        "trade_density_total", "trade_density_min",
+        "profile_trade_density_total", "profile_trade_density_min",
+        "total_net_profit",
         "gross_profit", "gross_loss", "profit_factor", "expectancy",
         "sharpe_ratio", "max_drawdown", "max_dd_pct", "return_dd_ratio",
         "worst_5_loss_pct", "longest_loss_streak", "pct_time_in_market",
@@ -140,11 +152,11 @@ def _col_def(col: str) -> str:
         return f'"{col}" REAL'
     if col in numeric:
         return f'"{col}" REAL'
-    if col == "IN_PORTFOLIO":
+    if col == "Analysis_selection":
         return f'"{col}" INTEGER DEFAULT 0'
-    # Supersession bookkeeping (added 2026-04-16): is_current defaults to 1
-    # so rows written by stage3_compiler (which doesn't know about this flag)
-    # land as live. quarantined defaults to 0. superseded_* are TEXT (nullable).
+    # Supersession bookkeeping: is_current defaults to 1 so rows written by
+    # stage3_compiler (which doesn't know about this flag) land as live.
+    # quarantined defaults to 0. superseded_* are TEXT (nullable).
     if col == "is_current":
         return f'"{col}" INTEGER DEFAULT 1'
     if col == "quarantined":
@@ -163,10 +175,43 @@ def create_tables(conn: sqlite3.Connection) -> None:
         )
     """)
 
-    # Schema migration (added 2026-04-16): add supersession columns to
-    # existing older tables that predate them. ADD COLUMN is universally
-    # supported and cheap (metadata-only). Backfill defaults below — SQLite
-    # ignores the DEFAULT clause for pre-existing rows, they get NULL.
+    # MPS (portfolio sheet) — union schema with sheet discriminator
+    mps_cols = ",\n    ".join(_col_def(c) for c in MPS_ALL_COLUMNS)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS portfolio_sheet (
+            {mps_cols},
+            PRIMARY KEY ("portfolio_id", "sheet")
+        )
+    """)
+
+    # Schema migration — add any columns present in MPS_ALL_COLUMNS but missing
+    # from an older existing table (e.g. symbol_count, trade_density_min/_total,
+    # profile_trade_density_min/_total from the 2026-04-15 density-split refactor).
+    # Legacy columns (trade_density, profile_trade_density) are dropped after
+    # backfill has run; we leave them in place during the transition so readers
+    # that still reference them by name do not crash.
+    existing = {row[1] for row in conn.execute(
+        'PRAGMA table_info("portfolio_sheet")').fetchall()}
+    for col in MPS_ALL_COLUMNS:
+        if col not in existing:
+            conn.execute(f'ALTER TABLE portfolio_sheet ADD COLUMN {_col_def(col)}')
+
+    # Schema migration — master_filter.
+    # 2026-04-16: retire IN_PORTFOLIO (misnomer — authority is portfolio.yaml
+    # and burn_in_registry.yaml, not this column) in favour of
+    # Analysis_selection, a transient per-row user-intent flag that drives
+    # composite_portfolio_analysis. No backfill — the previous column carried
+    # no semantic signal that downstream still depends on (start-fresh per
+    # user directive, 2026-04-16). Requires SQLite ≥ 3.35 for DROP COLUMN.
+    mf_existing = {row[1] for row in conn.execute(
+        'PRAGMA table_info("master_filter")').fetchall()}
+    if "IN_PORTFOLIO" in mf_existing:
+        try:
+            conn.execute('ALTER TABLE master_filter DROP COLUMN "IN_PORTFOLIO"')
+        except sqlite3.OperationalError as exc:
+            # Older SQLite — fall back to rebuild. Preserves all other data.
+            _rebuild_master_filter_without_column(conn, "IN_PORTFOLIO")
+    # Add Analysis_selection if missing. ADD COLUMN is universally supported.
     mf_existing = {row[1] for row in conn.execute(
         'PRAGMA table_info("master_filter")').fetchall()}
     newly_added: list[str] = []
@@ -175,8 +220,9 @@ def create_tables(conn: sqlite3.Connection) -> None:
             conn.execute(f'ALTER TABLE master_filter ADD COLUMN {_col_def(col)}')
             newly_added.append(col)
 
-    # Supersession backfill: readers filter WHERE is_current=1, so legacy
-    # rows with NULL would vanish from the decision view. Set defaults once.
+    # Supersession backfill: ALTER TABLE ADD COLUMN in SQLite ignores
+    # DEFAULT for existing rows (they get NULL). Backfill once so readers
+    # filtering WHERE is_current=1 pick up legacy rows.
     if "is_current" in newly_added:
         conn.execute(
             'UPDATE master_filter SET "is_current" = 1 '
@@ -187,15 +233,6 @@ def create_tables(conn: sqlite3.Connection) -> None:
             'UPDATE master_filter SET "quarantined" = 0 '
             'WHERE "quarantined" IS NULL'
         )
-
-    # MPS (portfolio sheet) — union schema with sheet discriminator
-    mps_cols = ",\n    ".join(_col_def(c) for c in MPS_ALL_COLUMNS)
-    conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS portfolio_sheet (
-            {mps_cols},
-            PRIMARY KEY ("portfolio_id", "sheet")
-        )
-    """)
 
     # Portfolio Control — user decision store for promote/disable
     conn.execute("""
@@ -358,44 +395,114 @@ def update_column(
     conn.commit()
 
 
-def set_in_portfolio(
-    run_ids: set[str],
+def _rebuild_master_filter_without_column(
+    conn: sqlite3.Connection, drop_col: str,
+) -> None:
+    """Fallback rebuild for SQLite < 3.35 (no native DROP COLUMN).
+
+    Copies master_filter into a new table that omits ``drop_col``, then
+    swaps. Runs inside a transaction — rolls back on failure, so a crash
+    mid-rebuild leaves the original table intact.
+    """
+    cols = [row[1] for row in conn.execute(
+        'PRAGMA table_info("master_filter")').fetchall()
+        if row[1] != drop_col]
+    keep = ", ".join(f'"{c}"' for c in cols)
+    mf_cols = ",\n    ".join(_col_def(c) for c in MASTER_FILTER_COLUMNS
+                              if c != drop_col and c in cols)
+    try:
+        conn.execute("BEGIN")
+        conn.execute(f"""
+            CREATE TABLE master_filter__new (
+                {mf_cols},
+                PRIMARY KEY ("run_id", "symbol")
+            )
+        """)
+        conn.execute(
+            f'INSERT INTO master_filter__new ({keep}) '
+            f'SELECT {keep} FROM master_filter'
+        )
+        conn.execute('DROP TABLE master_filter')
+        conn.execute('ALTER TABLE master_filter__new RENAME TO master_filter')
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def set_analysis_selection(
+    run_ids: set[str] | list[str],
     conn: sqlite3.Connection | None = None,
 ) -> int:
-    """Authoritative IN_PORTFOLIO writer. Sets given run_ids to True, all others to False.
+    """Authoritative Analysis_selection writer.
 
-    This is the ONLY function that should flip IN_PORTFOLIO. Called by promote_to_burnin.py.
-    Returns count of rows set to True.
-    Raises ValueError if run_ids is empty (prevents catastrophic wipe).
+    REPLACE semantics: clears every row's flag, then sets rows whose
+    ``run_id`` is in ``run_ids`` to 1. Pass an empty set/list to clear all
+    selections (see ``clear_analysis_selection`` for the named alias).
+
+    Unlike the retired ``set_in_portfolio``, empty input is legitimate here
+    because this flag is transient user intent, not portfolio membership —
+    the post-analysis reset is a normal lifecycle step, not a catastrophic
+    wipe. Callers who want the "replace with at least one selection" guard
+    should check ``len(run_ids)`` themselves before calling.
+
+    Returns the count of rows now flagged = 1.
     """
-    if not run_ids:
-        raise ValueError(
-            "set_in_portfolio() called with empty run_ids — "
-            "this would wipe all IN_PORTFOLIO flags. Aborting."
-        )
+    run_ids = set(run_ids)
     _conn = conn or _connect()
     try:
         create_tables(_conn)
-        _conn.execute('UPDATE master_filter SET "IN_PORTFOLIO" = 0 WHERE "IN_PORTFOLIO" = 1')
-        placeholders = ", ".join("?" for _ in run_ids)
         _conn.execute(
-            f'UPDATE master_filter SET "IN_PORTFOLIO" = 1 WHERE "run_id" IN ({placeholders})',
-            list(run_ids),
+            'UPDATE master_filter SET "Analysis_selection" = 0 '
+            'WHERE "Analysis_selection" = 1'
         )
+        if run_ids:
+            placeholders = ", ".join("?" for _ in run_ids)
+            _conn.execute(
+                f'UPDATE master_filter SET "Analysis_selection" = 1 '
+                f'WHERE "run_id" IN ({placeholders})',
+                list(run_ids),
+            )
         synced = _conn.execute(
-            'SELECT COUNT(*) FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+            'SELECT COUNT(*) FROM master_filter WHERE "Analysis_selection" = 1'
         ).fetchone()[0]
-        if synced != len(run_ids):
+        if run_ids and synced != len(run_ids):
             matched = {r[0] for r in _conn.execute(
-                'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
+                'SELECT run_id FROM master_filter WHERE "Analysis_selection" = 1'
             ).fetchall()}
             missing = run_ids - matched
             import warnings
             warnings.warn(
-                f"set_in_portfolio: {len(missing)} run_id(s) not found in DB: {sorted(missing)}"
+                f"set_analysis_selection: {len(missing)} run_id(s) not found "
+                f"in DB: {sorted(missing)}"
             )
         _conn.commit()
         return synced
+    except Exception:
+        _conn.rollback()
+        raise
+    finally:
+        if conn is None:
+            _conn.close()
+
+
+def clear_analysis_selection(
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Wipe all Analysis_selection flags. Invoked post-analysis so the next
+    FSP regeneration starts with a blank slate. Returns the number of rows
+    that were flipped from 1 → 0.
+    """
+    _conn = conn or _connect()
+    try:
+        create_tables(_conn)
+        cur = _conn.execute(
+            'UPDATE master_filter SET "Analysis_selection" = 0 '
+            'WHERE "Analysis_selection" = 1'
+        )
+        cleared = cur.rowcount
+        _conn.commit()
+        return cleared
     except Exception:
         _conn.rollback()
         raise
@@ -470,6 +577,23 @@ def mark_superseded(
     except Exception:
         _conn.rollback()
         raise
+    finally:
+        if conn is None:
+            _conn.close()
+
+
+def read_analysis_selection(
+    conn: sqlite3.Connection | None = None,
+) -> set[str]:
+    """Return the set of run_ids currently flagged for the next analysis run."""
+    _conn = conn or _connect()
+    try:
+        if not LEDGER_DB_PATH.exists():
+            return set()
+        rows = _conn.execute(
+            'SELECT "run_id" FROM master_filter WHERE "Analysis_selection" = 1'
+        ).fetchall()
+        return {r[0] for r in rows}
     finally:
         if conn is None:
             _conn.close()

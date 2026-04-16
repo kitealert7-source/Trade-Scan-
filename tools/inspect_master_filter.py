@@ -10,10 +10,14 @@ if file_path.exists():
     subset = df[df['strategy'].astype(str).str.startswith("Range_Breakout01")]
     print(f"\nFound {len(subset)} rows for Range_Breakout01:")
     if not subset.empty:
-        print(subset[['run_id', 'strategy', 'symbol', 'IN_PORTFOLIO']])
+        _cols = [c for c in ['run_id', 'strategy', 'symbol', 'Analysis_selection']
+                 if c in subset.columns]
+        print(subset[_cols])
     else:
         print("No rows found starting with Range_Breakout01")
-        
-    print("\nTotal rows where IN_PORTFOLIO is True:", len(df[df['IN_PORTFOLIO'] == True]))
+
+    if 'Analysis_selection' in df.columns:
+        print("\nTotal rows with Analysis_selection = 1:",
+              int((df['Analysis_selection'] == 1).sum()))
 else:
     print("Strategy_Master_Filter.xlsx not found")

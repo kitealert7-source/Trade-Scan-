@@ -44,7 +44,6 @@
 - `reconcile_portfolio_master_sheet`: Portfolio sheet reconstruction
 - `profile_selector`: Ledger enrichment utility
 - `rebuild_all_reports`: Batch report regeneration
-- `configure_portfolio`: Portfolio setup/config utility
 - `research_memory_append`: Research logging management
 - `portfolio_evaluator`: Historical multi-instrument analysis
 - `generate_sweep_08`: Targeted research sweep generator
