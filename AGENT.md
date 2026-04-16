@@ -55,7 +55,7 @@ Non-negotiable. The agent must never violate any of these.
 17. **Root-of-Trust Vault Binding** — `verify_engine_integrity.py` is hash-bound via `vault/root_of_trust.json`. Agent MUST NOT modify.
 18. **Engine Manifest Generator** — `tools/generate_engine_manifest.py` is human-only.
 19. **Directive Schema Freeze** — `tools/canonical_schema.py` (FREEZE policy). Unknown keys, misplaced blocks, type mismatches = HARD FAIL.
-20. **Capital Model Invariant** — Per-symbol: $1,000 reference capital. Total portfolio: $10,000. Leverage cap: 5x. Must be synchronized across `broker_specs/`, `portfolio_evaluator.py`, `capital_wrapper.py`.
+20. **Capital Model Invariant (v3.0 Retail Amateur — 2026-04-16)** — Seed capital: **$1,000 total** (not per-symbol). Active profiles: `RAW_MIN_LOT_V1` (0.01 lot unconditional), `FIXED_USD_V1` (retail conservative: max(2% equity, $20 floor); heat/leverage caps disabled), `REAL_MODEL_V1` (retail aggressive: tier-ramp 2%→5% per equity doubling; `retail_max_lot=10`). Must be synchronized across `broker_specs/`, `portfolio_evaluator.py`, `capital_wrapper.py`, `tools/capital_engine/`. Retired profiles (`DYNAMIC_V1`, `CONSERVATIVE_V1`, `MIN_LOT_FALLBACK_V1`, `MIN_LOT_FALLBACK_UNCAPPED_V1`, `BOUNDED_MIN_LOT_V1`, institutional `FIXED_USD_V1`/$10k/5x) must not be reintroduced without governance plan.
 21. **Namespace Governance** — `filename == test.name == test.strategy`. Must pass `tools/namespace_gate.py` at Stage -0.30.
 22. **Sweep Registry Integrity** — Sweeps reserved at Stage -0.35. Reuse only for exact idempotent matches (same directive + same hash).
 23. **Symbol Universe Admission** — Each symbol must exist in broker specs + have RESEARCH data before Stage-1.

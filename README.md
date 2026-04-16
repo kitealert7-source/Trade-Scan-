@@ -2,7 +2,7 @@
 
 Research pipeline: directive → backtest → deployable strategy.
 
-**Before doing anything, read `AGENT.md`.** It contains the full failure playbook and all 25 system invariants.
+**Before doing anything, read `AGENT.md`.** It contains the full failure playbook and all 29 system invariants.
 
 ---
 
