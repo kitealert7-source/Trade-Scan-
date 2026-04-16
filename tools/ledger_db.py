@@ -58,6 +58,17 @@ MASTER_FILTER_COLUMNS = [
     "net_profit_weak_down", "net_profit_strong_down",
     "trades_strong_up", "trades_weak_up", "trades_neutral",
     "trades_weak_down", "trades_strong_down",
+    # --- Supersession bookkeeping (added 2026-04-16) -----------------------
+    # When rerun_backtest.py produces a new run for the same strategy, the
+    # prior run's rows are flagged is_current=0 rather than deleted. FSP
+    # readers filter on is_current=1 by default (NULL treated as 1 for pre-
+    # migration rows via backfill). Quarterly cleanup moves aged is_current=0
+    # rows to parquet archive. See also: TOOLS_INDEX.md - rerun_backtest.
+    "is_current",        # 1 = live / 0 = superseded (default 1)
+    "superseded_by",     # run_id of the replacement run, NULL for live rows
+    "superseded_at",     # ISO timestamp when the supersession was recorded
+    "supersede_reason",  # category string (DATA_FRESH|SIGNAL|PARAMETER|BUG_FIX|...)
+    "quarantined",       # 1 = never resurrect (BUG_FIX reruns set this)
 ]
 
 # MPS base columns shared by both sheets
@@ -131,6 +142,13 @@ def _col_def(col: str) -> str:
         return f'"{col}" REAL'
     if col == "IN_PORTFOLIO":
         return f'"{col}" INTEGER DEFAULT 0'
+    # Supersession bookkeeping (added 2026-04-16): is_current defaults to 1
+    # so rows written by stage3_compiler (which doesn't know about this flag)
+    # land as live. quarantined defaults to 0. superseded_* are TEXT (nullable).
+    if col == "is_current":
+        return f'"{col}" INTEGER DEFAULT 1'
+    if col == "quarantined":
+        return f'"{col}" INTEGER DEFAULT 0'
     return f'"{col}" TEXT'
 
 
@@ -144,6 +162,31 @@ def create_tables(conn: sqlite3.Connection) -> None:
             PRIMARY KEY ("run_id", "symbol")
         )
     """)
+
+    # Schema migration (added 2026-04-16): add supersession columns to
+    # existing older tables that predate them. ADD COLUMN is universally
+    # supported and cheap (metadata-only). Backfill defaults below — SQLite
+    # ignores the DEFAULT clause for pre-existing rows, they get NULL.
+    mf_existing = {row[1] for row in conn.execute(
+        'PRAGMA table_info("master_filter")').fetchall()}
+    newly_added: list[str] = []
+    for col in MASTER_FILTER_COLUMNS:
+        if col not in mf_existing:
+            conn.execute(f'ALTER TABLE master_filter ADD COLUMN {_col_def(col)}')
+            newly_added.append(col)
+
+    # Supersession backfill: readers filter WHERE is_current=1, so legacy
+    # rows with NULL would vanish from the decision view. Set defaults once.
+    if "is_current" in newly_added:
+        conn.execute(
+            'UPDATE master_filter SET "is_current" = 1 '
+            'WHERE "is_current" IS NULL'
+        )
+    if "quarantined" in newly_added:
+        conn.execute(
+            'UPDATE master_filter SET "quarantined" = 0 '
+            'WHERE "quarantined" IS NULL'
+        )
 
     # MPS (portfolio sheet) — union schema with sheet discriminator
     mps_cols = ",\n    ".join(_col_def(c) for c in MPS_ALL_COLUMNS)
@@ -353,6 +396,77 @@ def set_in_portfolio(
             )
         _conn.commit()
         return synced
+    except Exception:
+        _conn.rollback()
+        raise
+    finally:
+        if conn is None:
+            _conn.close()
+
+
+def mark_superseded(
+    old_run_id: str,
+    new_run_id: str,
+    reason: str,
+    *,
+    quarantine: bool = False,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Flag all master_filter rows belonging to old_run_id as superseded.
+
+    Called by rerun_backtest.py after the replacement pipeline run writes
+    its own rows. Does NOT delete the old rows — append-only invariant is
+    preserved. FSP readers default to is_current=1, so superseded rows
+    vanish from the decision view but remain available for diff/forensics
+    and quarterly archive.
+
+    Args:
+        old_run_id: run_id of the prior run being retired.
+        new_run_id: run_id of the replacement run (must already exist in DB).
+        reason: short category/reason string. Persisted to supersede_reason.
+        quarantine: if True, also set quarantined=1 (BUG_FIX reruns — the
+            prior result is semantically wrong, never resurrect it).
+        conn: optional connection (for transactional composition).
+
+    Returns the count of rows flipped. Zero means either old_run_id wasn't
+    found or it was already superseded.
+    """
+    from datetime import datetime, timezone
+    _conn = conn or _connect()
+    try:
+        create_tables(_conn)
+        # Validate new_run_id exists — fail loud rather than pointing to
+        # a phantom run in superseded_by.
+        new_exists = _conn.execute(
+            'SELECT 1 FROM master_filter WHERE "run_id" = ? LIMIT 1',
+            (new_run_id,),
+        ).fetchone()
+        if not new_exists:
+            raise ValueError(
+                f"mark_superseded: new_run_id {new_run_id!r} not present "
+                f"in master_filter. Run the pipeline first, then supersede."
+            )
+        ts = datetime.now(timezone.utc).isoformat()
+        if quarantine:
+            cur = _conn.execute(
+                'UPDATE master_filter SET '
+                '"is_current" = 0, "superseded_by" = ?, '
+                '"superseded_at" = ?, "supersede_reason" = ?, '
+                '"quarantined" = 1 '
+                'WHERE "run_id" = ? AND ("is_current" = 1 OR "is_current" IS NULL)',
+                (new_run_id, ts, reason, old_run_id),
+            )
+        else:
+            cur = _conn.execute(
+                'UPDATE master_filter SET '
+                '"is_current" = 0, "superseded_by" = ?, '
+                '"superseded_at" = ?, "supersede_reason" = ? '
+                'WHERE "run_id" = ? AND ("is_current" = 1 OR "is_current" IS NULL)',
+                (new_run_id, ts, reason, old_run_id),
+            )
+        flipped = cur.rowcount
+        _conn.commit()
+        return flipped
     except Exception:
         _conn.rollback()
         raise

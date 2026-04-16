@@ -54,7 +54,11 @@ def run_skill(skill_name, **kwargs):
             args.append(f"--{key}")
             args.append(str(kwargs[key]))
 
-    cmd = ["python", script] + args
+    # Use sys.executable (not "python") so the child process uses the same
+    # interpreter as the parent — matters in venvs and on Windows where the
+    # PATH may resolve "python" to a different install. Matches the convention
+    # used elsewhere in the codebase (e.g. filter_strategies.py).
+    cmd = [sys.executable, script] + args
 
     print(f"[SKILL] Executing {skill_name}: {' '.join(cmd)}")
 

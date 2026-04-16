@@ -232,13 +232,34 @@ def filter_strategies():
     _exp_gate = _ac_col.map(lambda ac: EXP_FAIL_GATES.get(ac, 0.0))
     _exp_gate_pass = _exp_col >= _exp_gate
 
+    # Supersession discipline (added 2026-04-16): the append-only ledger may
+    # contain rows that have been retired by a later rerun. Only live, non-
+    # quarantined rows are eligible for promotion.
+    #
+    #   is_current  = 1  -> this is the latest result for its run_id lineage
+    #   quarantined = 0  -> not flagged as semantically broken (BUG_FIX rerun)
+    #
+    # Pre-2026-04-16 rows may carry NULLs in these columns; the ledger_db
+    # migration backfilled defaults (1/0), but we fillna() defensively in
+    # case any legacy row slipped through a non-migrated path. Any NEW
+    # column added to master_filter must pass this same filter-safety
+    # test before being relied on downstream.
+    _is_current = pd.to_numeric(
+        df.get('is_current', pd.Series(1, index=df.index)), errors='coerce'
+    ).fillna(1).astype(int)
+    _quarantined = pd.to_numeric(
+        df.get('quarantined', pd.Series(0, index=df.index)), errors='coerce'
+    ).fillna(0).astype(int)
+
     mask = (
         (df['total_trades'] >= 40) &
         (df['profit_factor'] >= 1.05) &
         (df['return_dd_ratio'] >= 0.6) &
         _exp_gate_pass &
         (df['sharpe_ratio'] >= 0.3) &
-        (_dd_col <= 80.0)
+        (_dd_col <= 80.0) &
+        (_is_current == 1) &
+        (_quarantined == 0)
     )
 
     passed_df = df[mask].copy()

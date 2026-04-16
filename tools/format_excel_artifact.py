@@ -1007,6 +1007,29 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
                                   "Thresholds: <1.5 FAIL, 1.5–2.5 WATCH, ≥2.5 required for CORE."),
             ("IN_PORTFOLIO",     "True if strategy is active in TS_Execution/portfolio.yaml"),
             ("candidate_status", "CORE / WATCH / FAIL / BURN_IN / RBIN — see Section 3"),
+            ("is_current",       "1 = this row represents the live result for its (strategy, run_id) "
+                                  "combination; 0 = superseded by a later rerun. Written by "
+                                  "tools/rerun_backtest.py finalize via ledger_db.mark_superseded(). "
+                                  "Append-only invariant preserved — superseded rows are flagged, never "
+                                  "deleted. Filter with is_current=1 for all downstream analytics; "
+                                  "is_current=0 rows are retained only for provenance and audit. "
+                                  "NULL on pre-2026-04-16 rows (treat as 1 for backward compatibility)."),
+            ("superseded_by",    "run_id of the replacement run that retired this row. NULL for live "
+                                  "rows (is_current=1). Traces the lineage chain — a strategy may be "
+                                  "rerun multiple times, each old row pointing to the next one."),
+            ("superseded_at",    "ISO-8601 UTC timestamp when this row was flagged superseded. NULL "
+                                  "for live rows."),
+            ("supersede_reason", "Category tag written at finalize time: DATA_FRESH | SIGNAL | "
+                                  "PARAMETER | ENGINE | BUG_FIX. Mirrors the category passed to "
+                                  "tools/rerun_backtest.py prepare. Free-form extension allowed — "
+                                  "audit_log (outputs/logs/rerun_audit.jsonl) carries the human "
+                                  "reason string. NULL for live rows."),
+            ("quarantined",      "1 = this row's result was semantically wrong (BUG_FIX rerun) and "
+                                  "must NEVER be resurrected for analytics. 0 = normal (default). "
+                                  "Distinguishes 'this was an older view of a still-valid backtest' "
+                                  "(is_current=0, quarantined=0) from 'this was a broken computation' "
+                                  "(is_current=0, quarantined=1). Set by rerun_backtest.py finalize "
+                                  "--quarantine. NULL on pre-2026-04-16 rows (treat as 0)."),
         ]
     else:
         glossary = [
