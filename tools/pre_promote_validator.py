@@ -573,7 +573,7 @@ def _run_replay_pass(strategy_id: str, symbol: str, tf: str,
         return -1
 
     try:
-        from engine_dev.universal_research_engine.v1_5_4.main import run_engine
+        from engine_dev.universal_research_engine.v1_5_6.main import run_engine
         trades = run_engine(df_window, strategy)
     except Exception as e:
         result.add("replay_engine", "FAIL", f"run_engine() failed: {e}")

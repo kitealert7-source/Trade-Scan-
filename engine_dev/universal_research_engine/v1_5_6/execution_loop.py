@@ -47,12 +47,12 @@ ENGINE_ATR_MULTIPLIER = 2.0  # Last-resort default; overridden per-run by
                              # STRATEGY_SIGNATURE.execution_rules.stop_loss.atr_multiplier
                              # when present (see _resolve_atr_multipliers below).
 ENGINE_VERSION    = "1.5.6"
-ENGINE_STATUS     = "PROBE"  # Experimental — dual regime-age clock + cross-flip
-                             # probe. NOT vaulted. Last stable vaulted engine is
-                             # v1.5.5 (DR_BASELINE_2026_04_14_v0_0_0). Do not
-                             # treat v1.5.6 output as production; promote only
-                             # after cross-flip edge validates or is discarded.
-ENGINE_FREEZE_DATE = None  # Intentionally unfrozen — probe branch
+ENGINE_STATUS     = "FROZEN"  # Canonical engine. Vaulted baseline for all
+                              # research runs. Dual regime-age clock + cross-flip
+                              # probe fields are part of the frozen schema.
+                              # Successor engines (v1.5.7+, v1.6.x) must be
+                              # evaluated against v1.5.6 output, not v1.5.5.
+ENGINE_FREEZE_DATE = "2026-04-16"
 
 
 class ContextView:

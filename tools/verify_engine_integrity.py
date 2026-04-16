@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # --- Single Source of Truth: import ENGINE_VERSION from runtime engine ---
-_engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "v1_5_5" / "main.py"
+_engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "v1_5_6" / "main.py"
 _spec = importlib.util.spec_from_file_location("_engine_main", _engine_main_path)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)

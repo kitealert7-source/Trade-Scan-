@@ -26,7 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.directive_utils import load_directive_yaml, get_key_ci
-from engine_dev.universal_research_engine.v1_5_4.execution_loop import ContextView
+from engine_dev.universal_research_engine.v1_5_6.execution_loop import ContextView
 from engines.regime_state_machine import apply_regime_model
 
 

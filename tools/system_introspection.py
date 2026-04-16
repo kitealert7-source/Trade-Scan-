@@ -98,8 +98,14 @@ def collect_engine() -> dict[str, str]:
         manifest_data = _safe_json(manifest_path)
         manifest_status = "VALID" if manifest_data else "INVALID"
 
-    # Check if frozen (convention: FROZEN if no changes in 3+ days)
-    status = "FROZEN" if version == "v1_5_4" else "ACTIVE"
+    # v1.5.6 is the canonical frozen engine (2026-04-16). All prior versions
+    # are legacy — retained for history, not for execution.
+    if version == "v1_5_6":
+        status = "FROZEN"
+    elif version == "UNKNOWN":
+        status = "UNKNOWN"
+    else:
+        status = "LEGACY"
 
     return {
         "version": version.replace("_", ".").lstrip("v") if version != "UNKNOWN" else version,
