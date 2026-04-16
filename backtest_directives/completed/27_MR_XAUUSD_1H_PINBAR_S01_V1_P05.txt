@@ -1,0 +1,48 @@
+test:
+  name: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P05
+  strategy: 27_MR_XAUUSD_1H_PINBAR_S01_V1_P05
+  broker: OctaFx
+  timeframe: 1h
+  start_date: '2024-01-02'
+  end_date: '2026-04-14'
+  description: Pin Bar XAUUSD 1H - hybrid exit TP + delayed trail
+  repeat_override_reason: '[RERUN:ENGINE@2026-04-16 origin=directive-clone strategy=27_MR_XAUUSD_1H_PINBAR_S01_V1_P05] Upgrading
+    from pre-v1.5.6 to v1.5.6 canonical baseline. Adds exec-TF clock fields (regime_age_exec_signal, regime_age_exec_fill).
+    No signal or logic change.'
+symbols:
+- XAUUSD
+indicators:
+- indicators.volatility.atr
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: pin_bar_reversal
+    long_condition: bullish_pin_bar_wick_rejection_from_below
+    short_condition: bearish_pin_bar_wick_rejection_from_above
+  exit_logic:
+    type: tp_or_time
+    max_bars: 10
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  take_profit:
+    type: atr_multiple
+    atr_multiplier: 2.0
+    enabled: true
+  trailing_stop:
+    type: delayed_atr_trail
+    activation_threshold: 1.0
+    enabled: true
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  operator: gte
+  required_regime: 1

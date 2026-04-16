@@ -5,26 +5,28 @@ test:
   version: 1
   broker: OctaFx
   timeframe: 30m
-  start_date: "2021-01-01"
-  end_date: "2026-03-20"
+  start_date: '2021-01-01'
+  end_date: '2026-04-15'
   research_mode: true
   tuning_allowed: false
   parameter_mutation: false
-  description: "GBPJPY-only 5yr retest of S02 P03 (no macro filter, trend+vol filter, max_bars=2). Extended window for portfolio combination with JPY_SYNTH variants."
-  notes: "Same strategy as S02 P03 but GBPJPY-only with 5-year window. For portfolio combo with S11 P02 (JPY_SYNTH 30M) and S12 P01 (JPY_SYNTH 1H)."
-
+  description: GBPJPY-only 5yr retest of S02 P03 (no macro filter, trend+vol filter, max_bars=2). Extended window for portfolio
+    combination with JPY_SYNTH variants.
+  notes: Same strategy as S02 P03 but GBPJPY-only with 5-year window. For portfolio combo with S11 P02 (JPY_SYNTH 30M) and
+    S12 P01 (JPY_SYNTH 1H).
+  repeat_override_reason: '[RERUN:ENGINE@2026-04-16 origin=directive-clone strategy=22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P05]
+    Upgrading from pre-v1.5.6 to v1.5.6 canonical baseline. Adds exec-TF clock fields (regime_age_exec_signal, regime_age_exec_fill).
+    No signal or logic change.'
 symbols:
-  - GBPJPY
-
+- GBPJPY
 indicators:
-  - indicators.trend.linreg_regime
-  - indicators.trend.linreg_regime_htf
-  - indicators.trend.kalman_regime
-  - indicators.trend.trend_persistence
-  - indicators.trend.efficiency_ratio_regime
-  - indicators.momentum.rsi
-  - indicators.volatility.atr
-
+- indicators.trend.linreg_regime
+- indicators.trend.linreg_regime_htf
+- indicators.trend.kalman_regime
+- indicators.trend.trend_persistence
+- indicators.trend.efficiency_ratio_regime
+- indicators.momentum.rsi
+- indicators.volatility.atr
 execution_rules:
   pyramiding: false
   entry_when_flat_only: true
@@ -36,7 +38,6 @@ execution_rules:
     enabled: false
   take_profit:
     enabled: false
-
 mean_reversion_rules:
   entry:
     rsi_period: 2
@@ -48,16 +49,13 @@ mean_reversion_rules:
     rsi_exit_long: 75
     rsi_exit_short: 25
     max_bars: 2
-
 order_placement:
   type: market
   execution_timing: next_bar_open
-
 trade_management:
   direction_restriction: none
   reentry:
     allowed: true
-
 trend_filter:
   enabled: true
   direction_gate: true
@@ -67,7 +65,6 @@ trend_filter:
   short_when:
     operator: lte
     required_regime: -2
-
 volatility_filter:
   enabled: true
   operator: eq

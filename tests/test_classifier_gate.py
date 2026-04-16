@@ -251,6 +251,198 @@ def test_block_on_indicator_hash_drift_without_sv_bump(sandbox):
     assert v.details.get("indicator_hash_delta_detected") is True
 
 
+def test_engine_rerun_narrows_to_same_timeframe_and_sweep(sandbox):
+    """ENGINE-category reruns must restrict the baseline search to priors
+    sharing (family, timeframe, sweep). When BOTH a same-identity prior and
+    a structurally-distant sibling exist, the same-identity prior must win
+    — even if the distant sibling has a more recent mtime.
+
+    Scenario:
+      * 15M/S01 prior (wide match only; distant) — written FIRST, then its
+        mtime bumped by rewriting it LAST so it sorts first under the old
+        wide-match logic.
+      * 30M/S02 prior (same-identity) with only numeric (ATR) differences.
+      * Current: ENGINE-rerun 30M/S02 with one numeric tweak.
+    Without narrowing: 15M/S01 would be picked (more recent) → SIGNAL diff
+    from indicator delta → BLOCK. With narrowing: 30M/S02 is picked →
+    PARAMETER diff → PASS.
+    """
+    import os
+    import time
+
+    # Same-identity prior — written first.
+    same_id = _write_directive(
+        sandbox["prior_dir"], "22_CONT_FX_30M_CHOCH_S02_V1_P00",
+        sv=1, atr=1.5,
+        indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    # Wide-but-wrong prior — written second, and touched again below to force
+    # the most-recent mtime (would be picked under the old wide-only logic).
+    wrong_prior = _write_directive(
+        sandbox["prior_dir"], "22_CONT_FX_15M_CHOCH_S01_V1_P05",
+        sv=1, atr=1.5,
+        indicators=["indicators.volatility.atr", "indicators.structure.choch_v2"],
+    )
+    # Force wrong_prior to have a strictly-newer mtime than same_id.
+    now = time.time()
+    os.utime(str(same_id), (now - 10, now - 10))
+    os.utime(str(wrong_prior), (now, now))
+
+    # Current: ENGINE rerun, 30M/S02, numeric-only diff vs same-identity prior.
+    name = "22_CONT_FX_30M_CHOCH_S02_V1_P03"
+    block = "\n".join(
+        f"  - {i}" for i in
+        ("indicators.volatility.atr", "indicators.structure.choch")
+    )
+    body = _DIRECTIVE_TEMPLATE.format(
+        name=name, sv=1, indicators_block=block,
+        atr=1.7,  # differs from same-identity prior's 1.5 → PARAMETER diff
+        desc="engine-rerun verification", symbol="EURUSD",
+    )
+    body = body.replace(
+        "  signal_version: 1",
+        (
+            "  signal_version: 1\n"
+            "  repeat_override_reason: '[RERUN:ENGINE@2026-04-16 "
+            "origin=directive-clone strategy=22_CONT_FX_30M_CHOCH_S02_V1_P03] "
+            "engine-only rerun to validate invariance post v1.5.6 freeze'"
+        ),
+    )
+    sandbox["inbox"].mkdir(parents=True, exist_ok=True)
+    cur = sandbox["inbox"] / f"{name}.txt"
+    cur.write_text(body, encoding="utf-8")
+
+    v = evaluate(
+        cur,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    # Narrowing must pick the 30M/S02 prior despite the 15M/S01 prior being
+    # more recent. PARAMETER diff → PASS.
+    assert v.verdict == "PASS", f"unexpected BLOCK: {v.reason}"
+    assert v.prior_directive == "22_CONT_FX_30M_CHOCH_S02_V1_P00", (
+        f"narrowing failed — picked {v.prior_directive} instead of same-identity prior"
+    )
+    assert v.classification == "PARAMETER"
+
+
+def test_engine_rerun_falls_back_to_wide_when_no_same_identity_prior(sandbox):
+    """Fallback path: per the user directive, if no same-identity prior
+    exists the wide (MODEL, ASSET_CLASS) match set is used. This preserves
+    the classifier's ability to catch drift when the rerun is the first
+    of its (family, TF, sweep) — a conservative default.
+    """
+    _write_directive(
+        sandbox["prior_dir"], "22_CONT_FX_15M_CHOCH_S01_V1_P05",
+        sv=1, atr=1.5,
+        indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    name = "22_CONT_FX_30M_CHOCH_S02_V1_P03"
+    block = "\n".join(
+        f"  - {i}" for i in
+        ("indicators.volatility.atr", "indicators.structure.choch")
+    )
+    body = _DIRECTIVE_TEMPLATE.format(
+        name=name, sv=1, indicators_block=block,
+        atr=1.5, desc="engine-rerun verification", symbol="EURUSD",
+    )
+    body = body.replace(
+        "  signal_version: 1",
+        (
+            "  signal_version: 1\n"
+            "  repeat_override_reason: '[RERUN:ENGINE@2026-04-16 "
+            "origin=directive-clone strategy=22_CONT_FX_30M_CHOCH_S02_V1_P03] "
+            "engine-only rerun to validate invariance post v1.5.6 freeze'"
+        ),
+    )
+    sandbox["inbox"].mkdir(parents=True, exist_ok=True)
+    cur = sandbox["inbox"] / f"{name}.txt"
+    cur.write_text(body, encoding="utf-8")
+
+    v = evaluate(
+        cur,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    # No same-identity prior → fall back to wide → pick the 15M/S01 prior.
+    # Only cosmetic diffs → PASS.
+    assert v.verdict == "PASS"
+    assert v.prior_directive == "22_CONT_FX_15M_CHOCH_S01_V1_P05"
+    assert v.classification == "COSMETIC"
+
+
+def test_engine_rerun_narrowing_disabled_without_override_reason(sandbox):
+    """Sanity check: the narrowing path must NOT activate for directives
+    that carry no ENGINE override reason. A structurally-distant prior
+    with a SIGNAL-level indicator diff must still be selected (and block)
+    as before. Ensures the new code path is opt-in via override reason.
+    """
+    _write_directive(
+        sandbox["prior_dir"], "22_CONT_FX_15M_CHOCH_S01_V1_P05",
+        sv=1, atr=1.5,
+        indicators=["indicators.volatility.atr", "indicators.structure.choch_v2"],
+    )
+    # No override reason on current directive.
+    cur = _write_directive(
+        sandbox["inbox"], "22_CONT_FX_30M_CHOCH_S02_V1_P03",
+        sv=1, atr=1.5,
+        indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    v = evaluate(
+        cur,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    # No narrowing → wide 15M/S01 prior picked → SIGNAL diff → BLOCK on SV.
+    assert v.verdict == "BLOCK"
+    assert v.classification == "SIGNAL"
+    assert v.prior_directive == "22_CONT_FX_15M_CHOCH_S01_V1_P05"
+
+
+def test_engine_rerun_still_matches_same_identity_prior(sandbox):
+    """Positive path: when a same-(family, timeframe, sweep) prior exists,
+    ENGINE-rerun narrowing must still select it. Ensures the fix doesn't
+    over-suppress legitimate comparisons.
+    """
+    # Prior with the SAME structural identity as current.
+    _write_directive(
+        sandbox["prior_dir"], "22_CONT_FX_30M_CHOCH_S02_V1_P00",
+        sv=1, atr=1.5,
+    )
+    # Current: same TF + sweep, different P-tag, ENGINE override, numeric diff.
+    name = "22_CONT_FX_30M_CHOCH_S02_V1_P03"
+    block = "\n".join(
+        f"  - {i}" for i in
+        ("indicators.volatility.atr", "indicators.structure.choch")
+    )
+    body = _DIRECTIVE_TEMPLATE.format(
+        name=name, sv=1, indicators_block=block,
+        atr=1.7, desc="engine-rerun verification", symbol="EURUSD",
+    )
+    body = body.replace(
+        "  signal_version: 1",
+        (
+            "  signal_version: 1\n"
+            "  repeat_override_reason: '[RERUN:ENGINE@2026-04-16 "
+            "origin=directive-clone strategy=22_CONT_FX_30M_CHOCH_S02_V1_P03] "
+            "engine-only rerun to validate invariance post v1.5.6 freeze'"
+        ),
+    )
+    sandbox["inbox"].mkdir(parents=True, exist_ok=True)
+    cur = sandbox["inbox"] / f"{name}.txt"
+    cur.write_text(body, encoding="utf-8")
+
+    v = evaluate(
+        cur,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    # Same-identity prior selected → PARAMETER diff (atr 1.5 → 1.7) → PASS.
+    assert v.verdict == "PASS"
+    assert v.prior_directive == "22_CONT_FX_30M_CHOCH_S02_V1_P00"
+    assert v.classification == "PARAMETER"
+
+
 def test_pass_when_indicator_hash_matches_and_no_signal_change(sandbox):
     _write_directive(
         sandbox["prior_dir"], "11_STR_FX_1H_CHOCH_S01_V1_P00",

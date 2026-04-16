@@ -1,0 +1,57 @@
+test:
+  name: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P02
+  strategy: 33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P02
+  broker: OctaFx
+  timeframe: 1h
+  start_date: '2020-01-04'
+  end_date: '2026-04-15'
+  version: 1
+  description: Momentum ignition BTCUSD 1H - regime age 1 excluded
+  repeat_override_reason: '[RERUN:ENGINE@2026-04-16 origin=directive-clone strategy=33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P02]
+    Upgrading from pre-v1.5.6 to v1.5.6 canonical baseline. Adds exec-TF clock fields (regime_age_exec_signal, regime_age_exec_fill).
+    No signal or logic change.'
+symbols:
+- BTCUSD
+indicators:
+- indicators.volatility.atr
+- indicators.structure.avg_range
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: momentum_ignition
+    condition: bar_range_exceeds_avg
+    long_condition: close_in_top_zone_of_impulse_bar
+    short_condition: close_in_bottom_zone_of_impulse_bar
+    atr_length: 14
+  exit_logic:
+    type: time_exit
+    max_bars: 48
+  stop_loss:
+    type: bar_wick
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: true
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+regime_age_filter:
+  enabled: true
+  exclude_min: 1
+  exclude_max: 1
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+trend_filter:
+  enabled: true
+  direction_gate: true
+  exclude_regime: 1
+  long_when:
+    operator: gt
+    required_regime: -2
+  short_when:
+    operator: lt
+    required_regime: 2

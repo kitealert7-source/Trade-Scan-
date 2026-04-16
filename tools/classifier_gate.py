@@ -39,6 +39,7 @@ Useful for manual pre-flight of a directive before submitting to the pipeline.
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +59,10 @@ from config.asset_classification import (
     MixedAssetClassError,
     UnknownSymbolError,
 )
+
+# Prefix injected by tools/rerun_backtest.py for ENGINE-category reruns.
+# Shape: [RERUN:ENGINE@YYYY-MM-DD origin=... strategy=...] <user reason>
+_RERUN_ENGINE_PREFIX_RE = re.compile(r"^\[RERUN:ENGINE@", re.IGNORECASE)
 
 # Default directories scanned when discovering prior directives.
 # Order is informational only — all are unioned.
@@ -139,10 +144,18 @@ def _find_prior_matches(
     current_model: str,
     current_asset_class: str,
     search_dirs: Iterable[Path],
+    *,
+    allow_same_stem: bool = False,
 ) -> list[tuple[Path, dict, int]]:
     """Return prior directives matching (model, asset_class), each as
     (path, parsed_dict, signal_version). Excludes the current directive by path.
     Sorted by mtime descending (most recent first).
+
+    allow_same_stem: when True (ENGINE reruns), the completed/ copy of the
+    source directive is included so it can serve as the comparison baseline.
+    The exact-path exclusion still applies; only the same-stem exclusion is
+    lifted, preventing a directive from comparing against itself while still
+    allowing the source directive to be the prior.
     """
     current_resolved = current_path.resolve()
     current_stem = current_path.stem
@@ -151,9 +164,12 @@ def _find_prior_matches(
         if path.resolve() == current_resolved:
             continue
         # Same basename => this is the same directive at a different lifecycle
-        # location (e.g. completed/ copy of a re-run from INBOX). Exclude so
-        # re-runs don't "compare against themselves".
-        if path.stem == current_stem:
+        # location (e.g. completed/ copy of a re-run from INBOX). For ENGINE
+        # reruns the completed/ copy IS the valid source baseline; lift the
+        # exclusion so the cosmetic-only delta (end_date + repeat_override_reason)
+        # is what the classifier sees.  For all other runs keep the exclusion so
+        # a directive never "compares against itself".
+        if path.stem == current_stem and not allow_same_stem:
             continue
         try:
             parsed = parse_directive(path)
@@ -168,6 +184,95 @@ def _find_prior_matches(
             matches.append((path, parsed, sv, mtime))
     matches.sort(key=lambda t: t[3], reverse=True)
     return [(p, d, sv) for (p, d, sv, _m) in matches]
+
+
+def _is_engine_rerun(directive: dict) -> bool:
+    """True when this directive carries an ENGINE-category override reason.
+
+    Detects the prefix injected by tools/rerun_backtest.py for the ENGINE
+    category: ``[RERUN:ENGINE@<date> origin=... strategy=...] <reason>``.
+    Any other override reason (SIGNAL / PARAMETER / DATA_FRESH / BUG_FIX)
+    returns False — only ENGINE reruns expect the engine-only-change
+    invariance that justifies narrowing.
+    """
+    test_block = directive.get("test") or {}
+    if not isinstance(test_block, dict):
+        return False
+    reason = test_block.get("repeat_override_reason") or ""
+    if not isinstance(reason, str):
+        return False
+    return bool(_RERUN_ENGINE_PREFIX_RE.match(reason.strip()))
+
+
+def _extract_structural_identity(directive: dict) -> dict | None:
+    """Return {family, timeframe, sweep} parsed from the directive's strategy
+    name. Returns None if the strategy name is unstructured (PF_ hash or
+    non-conforming), in which case narrowing should not be attempted.
+    """
+    strategy_name = str(directive.get("strategy") or directive.get("name") or "")
+    if not strategy_name:
+        return None
+    parsed = parse_strategy_name(strategy_name)
+    if not parsed:
+        return None
+    return {
+        "family":    str(parsed.get("family", "")).upper(),
+        "timeframe": str(parsed.get("timeframe", "")).upper(),
+        "sweep":     str(parsed.get("sweep", "")).upper(),
+    }
+
+
+def _find_prior_matches_narrowed(
+    current_path: Path,
+    current_directive: dict,
+    current_model: str,
+    current_asset_class: str,
+    search_dirs: Iterable[Path],
+) -> list[tuple[Path, dict, int]]:
+    """Wrapper around _find_prior_matches that restricts the candidate set to
+    priors sharing the same structural identity (family, timeframe, sweep)
+    when the current directive is an ENGINE-category rerun.
+
+    Rationale: engine-only reruns expect full invariance of the directive.
+    Comparing against a structurally-distant sibling (different timeframe or
+    sweep variant) produces spurious UNCLASSIFIABLE verdicts on legitimate
+    filter/regime differences that were never part of the engine upgrade.
+
+    Falls back to the wide (model, asset_class) match set when:
+      * the override reason is not an ENGINE rerun, or
+      * the current strategy name is unstructured, or
+      * the narrowed set is empty (nothing comparable exists yet).
+    """
+    engine_rerun = _is_engine_rerun(current_directive)
+    wide = _find_prior_matches(
+        current_path, current_model, current_asset_class, search_dirs,
+        allow_same_stem=engine_rerun,
+    )
+    if not wide:
+        return wide
+    if not engine_rerun:
+        return wide
+    cur_id = _extract_structural_identity(current_directive)
+    if cur_id is None:
+        return wide
+    narrowed: list[tuple[Path, dict, int]] = []
+    for path, parsed, sv in wide:
+        pid = _extract_structural_identity(parsed)
+        if pid is None:
+            continue
+        if (pid["family"] == cur_id["family"]
+                and pid["timeframe"] == cur_id["timeframe"]
+                and pid["sweep"] == cur_id["sweep"]):
+            narrowed.append((path, parsed, sv))
+    # For ENGINE reruns: if the same-structure prior set is empty, there is
+    # no structurally comparable baseline → treat as first-of-kind (PASS).
+    # Do NOT fall back to the wide set; comparing an ENGINE rerun against a
+    # structurally different strategy (different family/TF/sweep) always
+    # produces UNCLASSIFIABLE verdicts for differences that predate the
+    # engine upgrade and are irrelevant to the engine-only change.
+    if engine_rerun:
+        return narrowed  # empty list → evaluate() will PASS as first-of-kind
+    return narrowed if narrowed else wide
 
 
 def evaluate(
@@ -205,7 +310,9 @@ def evaluate(
         cur_indicators, project_root=project_root
     )
 
-    priors = _find_prior_matches(directive_path, cur_model, cur_asset, dirs)
+    priors = _find_prior_matches_narrowed(
+        directive_path, current, cur_model, cur_asset, dirs
+    )
 
     if not priors:
         return GateVerdict(
