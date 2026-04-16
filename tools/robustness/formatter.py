@@ -53,6 +53,7 @@ def format_report(
     out.append(f"| Net Profit | {_fmt_usd(em.get('net_profit', 0))} |")
     out.append(f"| Max DD (USD) | {_fmt_usd(em.get('max_dd_usd', 0))} |")
     out.append(f"| Recovery Factor | {em.get('recovery_factor', 0):.2f} |")
+    out.append(f"| Peak / Max DD | {em.get('peak_dd_ratio', 0):.2f}x |")
     out.append("")
 
     # Section 2 & 3: Tail

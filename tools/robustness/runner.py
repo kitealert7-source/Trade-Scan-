@@ -49,6 +49,8 @@ def run_robustness_suite(
     max_dd_usd = float((peak - daily).max())
     net = float(pnls.sum())
     recovery_factor = net / max_dd_usd if max_dd_usd > 0 else 999
+    peak_equity = float(peak.max())
+    peak_dd_ratio = round(peak_equity / max_dd_usd, 4) if max_dd_usd > 0 else 0.0
 
     results["edge_metrics"] = {
         "final_equity": metrics.get("final_equity", 0),
@@ -65,6 +67,7 @@ def run_robustness_suite(
         "net_profit": net,
         "max_dd_usd": max_dd_usd,
         "recovery_factor": float(recovery_factor),
+        "peak_dd_ratio": peak_dd_ratio,
     }
 
     # Section 2: Tail

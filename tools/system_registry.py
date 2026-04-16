@@ -7,19 +7,65 @@ import hashlib
 from filelock import FileLock
 
 from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR, POOL_DIR, QUARANTINE_DIR
+from tools.event_log import log_event
 
 PROJECT_ROOT = Path(__file__).parent.parent
 REGISTRY_PATH = REGISTRY_DIR / "run_registry.json"
 LOCK_PATH = REGISTRY_PATH.with_suffix(".lock")
 
 def _load_registry() -> dict:
+    """Load run_registry.json with fail-hard semantics on corruption.
+
+    Absence is a valid state (fresh install → empty dict). Corruption is not —
+    silently degrading a corrupt registry to {} caused the FAKEBREAK P01/P02
+    incident: downstream reconcilers saw every physical run as an orphan and
+    queued legitimate directives for purge.
+    """
     if not REGISTRY_PATH.exists():
         return {}
     try:
         with open(REGISTRY_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
-        return {}
+    except json.JSONDecodeError as e:
+        # Preserve forensic trail before raising.
+        try:
+            from tools.event_log import log_event
+            log_event(
+                action="INVARIANT_VIOLATION",
+                target=f"file:{REGISTRY_PATH.name}",
+                actor="_load_registry",
+                reason="run_registry.json is corrupt",
+                error=str(e),
+                path=str(REGISTRY_PATH),
+            )
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"run_registry.json is present but not valid JSON: {REGISTRY_PATH}\n"
+            f"  Error: {e}\n"
+            f"Refusing to return an empty dict — silent empty-registry return "
+            f"would cause downstream reconcilers to treat every physical run as "
+            f"an orphan and may trigger catastrophic purges. Restore the file "
+            f"from backup or fix manually before re-running."
+        )
+    except OSError as e:
+        # Permission denied, I/O error, etc. — distinct from corruption.
+        try:
+            from tools.event_log import log_event
+            log_event(
+                action="INVARIANT_VIOLATION",
+                target=f"file:{REGISTRY_PATH.name}",
+                actor="_load_registry",
+                reason="run_registry.json unreadable",
+                error=str(e),
+                path=str(REGISTRY_PATH),
+            )
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"run_registry.json exists but cannot be read: {REGISTRY_PATH}\n"
+            f"  Error: {e}"
+        )
 
 def _save_registry_atomic(data: dict):
     REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -42,17 +88,63 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
     """
     Log a run into the master lifecycle ledger.
     Extracts the artifact_hash from the run_state.json if available.
+
+    Write-time invariants (enforced at source instead of healed by reconciler):
+
+      1. ``directive_id`` must be a non-empty string. Empty / None / whitespace
+         linkage produces orphan registry entries that downstream reconcilers
+         cannot repair without human investigation — fail hard at the source.
+
+      2. The literal sentinel "recovered" is refused whenever ``run_state.json``
+         carries a real ``directive_id``. The sentinel was the root cause of
+         the 2026-04-09 FAKEBREAK P01/P02 incident: legitimate
+         PORTFOLIO_COMPLETE directives were silently purged because their
+         registry linkage had been corrupted to "recovered" while the real
+         linkage still sat on disk. If the caller is trying to write the
+         sentinel but reality contradicts it, reality wins.
     """
-    # Try to extract the computed artifact_hash from run_state
+    # ---- Invariant 1: directive_id must be a non-empty string ----
+    if not isinstance(directive_id, str) or not directive_id.strip():
+        raise ValueError(
+            f"log_run_to_registry: directive_id must be a non-empty string "
+            f"(run_id={run_id!r}, got directive_id={directive_id!r})"
+        )
+
+    # Try to extract the computed artifact_hash AND the real directive_id from
+    # run_state. Both are used below — artifact_hash for the registry entry,
+    # state_directive_id for invariant 2.
     state_file = RUNS_DIR / run_id / "run_state.json"
     artifact_hash = None
+    state_directive_id = None
     if state_file.exists():
         try:
             with open(state_file, "r", encoding="utf-8") as f:
                 state_data = json.load(f)
                 artifact_hash = state_data.get("artifact_hash")
+                state_directive_id = state_data.get("directive_id")
         except Exception:
             pass
+
+    # ---- Invariant 2: refuse "recovered" sentinel when real ID is on disk ----
+    if (
+        directive_id == "recovered"
+        and isinstance(state_directive_id, str)
+        and state_directive_id.strip()
+    ):
+        print(
+            f"[INVARIANT] log_run_to_registry: refusing 'recovered' sentinel "
+            f"for run {run_id}; using real directive_id={state_directive_id} "
+            f"from run_state.json."
+        )
+        log_event(
+            action="INVARIANT_HEAL",
+            target=f"run_id:{run_id}",
+            actor="log_run_to_registry",
+            reason="refused 'recovered' sentinel; used run_state.json directive_id",
+            before={"directive_hash": "recovered"},
+            after={"directive_hash": state_directive_id},
+        )
+        directive_id = state_directive_id
 
     with FileLock(str(LOCK_PATH)):
         reg = _load_registry()
@@ -72,9 +164,39 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
                 status = "failed"
 
         if run_id in reg:
+            _prev_status = reg[run_id].get("status")
+            _prev_directive = reg[run_id].get("directive_hash")
             reg[run_id]["status"] = status
             if artifact_hash and not reg[run_id].get("artifact_hash"):
                 reg[run_id]["artifact_hash"] = artifact_hash
+            # Back-heal: if the existing entry carries the "recovered" sentinel
+            # and we now have a real directive_id, upgrade it. Symmetric to the
+            # reconcile_registry() back-heal pass — keeps both write paths in
+            # agreement so they cannot drift apart.
+            if (
+                reg[run_id].get("directive_hash") == "recovered"
+                and directive_id != "recovered"
+            ):
+                print(
+                    f"[INVARIANT] log_run_to_registry: healing 'recovered' "
+                    f"sentinel on existing entry {run_id} -> directive={directive_id}."
+                )
+                log_event(
+                    action="REGISTRY_DIRECTIVE_HEAL",
+                    target=f"run_id:{run_id}",
+                    actor="log_run_to_registry",
+                    before={"directive_hash": "recovered"},
+                    after={"directive_hash": directive_id},
+                )
+                reg[run_id]["directive_hash"] = directive_id
+            log_event(
+                action="REGISTRY_STATUS_CHANGE",
+                target=f"run_id:{run_id}",
+                actor="log_run_to_registry",
+                before={"status": _prev_status},
+                after={"status": status},
+                directive_hash=reg[run_id].get("directive_hash"),
+            )
         else:
             reg[run_id] = {
                 "run_id": run_id,
@@ -84,39 +206,90 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
                 "directive_hash": directive_id,
                 "artifact_hash": artifact_hash
             }
+            log_event(
+                action="REGISTRY_UPSERT",
+                target=f"run_id:{run_id}",
+                actor="log_run_to_registry",
+                after={
+                    "tier": "sandbox",
+                    "status": status,
+                    "directive_hash": directive_id,
+                },
+            )
 
         _save_registry_atomic(reg)
 
 def get_active_portfolio_runs() -> set:
-    """Scan strategies/ for portfolio_composition.json files and collect active dependencies."""
+    """Collect the set of run_ids that back deployed/burn-in strategies.
+
+    Authority (2026-04-16 refactor): portfolio.yaml is the sole deployment
+    authority. burn_in_registry.yaml is a derived archetype projection and
+    carries strategy_ids, not run_ids — so it adds nothing for this check.
+    The legacy DB ``IN_PORTFOLIO`` column has been retired along with this
+    call site's dependency on it.
+
+    Sources merged here:
+      1. ``strategies/**/portfolio_composition.json`` (``constituent_run_ids``)
+         — composite portfolios' constituent runs.
+      2. ``portfolio.yaml`` ``portfolio.strategies[].run_id`` — every
+         single-strategy deployment (BURN_IN, WAITING, LIVE, LEGACY, DISABLED).
+
+    Failure policy: if portfolio.yaml exists but cannot be parsed, raise.
+    A silent empty read would cause downstream reconcilers to treat every
+    deployed run as an orphan (see FAKEBREAK P01/P02 incident). Absence is
+    OK — a fresh install has no portfolio yet.
+    """
+    active_runs: set = set()
+
+    # 1. Composite portfolio constituents.
     strategies_dir = STRATEGIES_DIR
-    if not strategies_dir.exists():
-        return set()
-        
-    active_runs = set()
-    for fname in ["portfolio_composition.json", "portfolio_metadata.json"]:
-        for comp_file in strategies_dir.rglob(fname):
-            try:
-                with open(comp_file, "r") as f:
-                    data = json.load(f)
+    if strategies_dir.exists():
+        for fname in ["portfolio_composition.json", "portfolio_metadata.json"]:
+            for comp_file in strategies_dir.rglob(fname):
+                try:
+                    with open(comp_file, "r") as f:
+                        data = json.load(f)
                     run_ids = data.get("constituent_run_ids", [])
                     if isinstance(run_ids, list):
-                        active_runs.update(run_ids)
-            except Exception:
-                continue
+                        active_runs.update(str(r) for r in run_ids if r)
+                except Exception:
+                    continue
 
-    # Shield IN_PORTFOLIO run_ids — read from ledger.db (single source of truth)
-    # No fallback. If DB fails, fail hard — silent fallback masks corruption.
-    from tools.ledger_db import _connect, create_tables
-    from config.state_paths import LEDGER_DB_PATH
-    if LEDGER_DB_PATH.exists():
-        conn = _connect()
-        create_tables(conn)
-        rows = conn.execute(
-            'SELECT run_id FROM master_filter WHERE "IN_PORTFOLIO" = 1'
-        ).fetchall()
-        active_runs.update(str(r[0]) for r in rows)
-        conn.close()
+    # 2. portfolio.yaml — authoritative deployment ledger.
+    ts_exec_portfolio = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+    if ts_exec_portfolio.exists():
+        try:
+            import yaml
+            with open(ts_exec_portfolio, "r", encoding="utf-8") as f:
+                ydata = yaml.safe_load(f) or {}
+        except Exception as e:
+            try:
+                log_event(
+                    action="INVARIANT_VIOLATION",
+                    target="file:portfolio.yaml",
+                    actor="get_active_portfolio_runs",
+                    reason="portfolio.yaml is present but unparseable",
+                    error=str(e),
+                    path=str(ts_exec_portfolio),
+                )
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"portfolio.yaml is present but not valid YAML: "
+                f"{ts_exec_portfolio}\n"
+                f"  Error: {e}\n"
+                f"Refusing to return a partial active-run set — silent empty "
+                f"read would cause downstream reconcilers to treat every "
+                f"deployed run as an orphan."
+            )
+        strategies = (ydata.get("portfolio") or {}).get("strategies") or []
+        if isinstance(strategies, list):
+            for entry in strategies:
+                if not isinstance(entry, dict):
+                    continue
+                rid = entry.get("run_id")
+                if isinstance(rid, str) and rid.strip():
+                    active_runs.add(rid.strip())
 
     return active_runs
 
@@ -139,15 +312,53 @@ def reconcile_registry() -> dict:
     }
 
     # 1. Physical vs Registry (Across sandbox, candidate, and pool boundaries)
+    # Track each physical run's home directory so we can read its run_state.json
+    # during recovery (required to preserve directive_id linkage).
     physical_runs = set()
+    physical_run_home: dict[str, Path] = {}
     for directory in [RUNS_DIR, SELECTED_DIR, POOL_DIR]: # Also check pool (completed/migrated runs)
         if directory.exists():
             for item in directory.iterdir():
                 if item.is_dir() and (item / "data").exists():
                     physical_runs.add(item.name)
+                    # First-seen wins; RUNS_DIR is scanned first, so sandbox
+                    # takes priority over selected/pool for state lookups.
+                    physical_run_home.setdefault(item.name, item)
         elif directory == RUNS_DIR:
              # Runs dir must exist or we have no sandbox
              pass
+
+    def _recover_directive_hash(run_id: str) -> str:
+        """Read run_state.json to recover the real directive_id.
+
+        Falls back to the literal sentinel "recovered" only when run_state.json
+        is missing, corrupt, or does not carry a directive_id. Keeping the real
+        linkage is essential — `directive_reconciler.is_directive_living()`
+        uses `directive_hash` to decide whether a .txt in completed/ is orphan
+        garbage or an intact PORTFOLIO_COMPLETE directive. A blanket
+        "recovered" sentinel breaks that contract and causes silent purges of
+        legitimate directives on next --execute (see 41_REV_FX_*_FAKEBREAK
+        P01/P02 incident, 2026-04-09).
+        """
+        home = physical_run_home.get(run_id)
+        if home is None:
+            return "recovered"
+        state_file = home / "run_state.json"
+        if not state_file.exists():
+            # Check archived state files from prior resets — they still carry
+            # the original directive_id.
+            baks = sorted(home.glob("run_state.json.bak*"))
+            if not baks:
+                return "recovered"
+            state_file = baks[-1]  # most recent archive
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            return "recovered"
+        d_id = data.get("directive_id")
+        if isinstance(d_id, str) and d_id.strip():
+            return d_id
+        return "recovered"
 
     # 2. Load registry, compute mutations, and save — all under lock to prevent TOCTOU race.
     #    Filesystem moves (step 3) happen outside the lock since they don't touch the registry file.
@@ -158,16 +369,53 @@ def reconcile_registry() -> dict:
         # Missing from registry
         for phys_id in physical_runs:
             if phys_id not in reg:
-                print(f"[RECONCILE] Recovered orphaned physical run {phys_id} -> sandbox.")
+                recovered_hash = _recover_directive_hash(phys_id)
+                if recovered_hash == "recovered":
+                    print(f"[RECONCILE] Recovered orphaned physical run {phys_id} -> sandbox (directive_id unknown).")
+                else:
+                    print(f"[RECONCILE] Recovered orphaned physical run {phys_id} -> sandbox (directive={recovered_hash}).")
                 results["orphaned_on_disk"].append(phys_id)
                 reg[phys_id] = {
                     "run_id": phys_id,
                     "tier": "sandbox",
                     "status": "complete", # Assume complete if it has a data folder
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                    "directive_hash": "recovered",
+                    "directive_hash": recovered_hash,
                     "artifact_hash": None
                 }
+                log_event(
+                    action="REGISTRY_UPSERT",
+                    target=f"run_id:{phys_id}",
+                    actor="reconcile_registry",
+                    reason="orphaned physical run injected as sandbox",
+                    after={
+                        "tier": "sandbox",
+                        "status": "complete",
+                        "directive_hash": recovered_hash,
+                    },
+                )
+                dirty = True
+
+        # Back-heal existing entries whose directive_hash is the legacy
+        # "recovered" sentinel. If run_state.json now reveals the real
+        # directive_id, upgrade the registry entry so downstream reconcilers
+        # stop treating the run as an unlinked orphan.
+        for run_id, data in reg.items():
+            if data.get("directive_hash") != "recovered":
+                continue
+            if run_id not in physical_runs:
+                continue
+            real = _recover_directive_hash(run_id)
+            if real != "recovered":
+                print(f"[RECONCILE] Healed recovered-sentinel linkage: {run_id} -> directive={real}")
+                log_event(
+                    action="REGISTRY_DIRECTIVE_HEAL",
+                    target=f"run_id:{run_id}",
+                    actor="reconcile_registry",
+                    before={"directive_hash": "recovered"},
+                    after={"directive_hash": real},
+                )
+                data["directive_hash"] = real
                 dirty = True
 
         # Build quarantine index once — runs intentionally archived by lifecycle cleanup.
@@ -185,6 +433,14 @@ def reconcile_registry() -> dict:
                 if run_id in quarantined_on_disk:
                     if current_status != "quarantined":
                         print(f"[RECONCILE] Registry entry {run_id} found in quarantine -> status corrected to quarantined.")
+                        log_event(
+                            action="REGISTRY_STATUS_CHANGE",
+                            target=f"run_id:{run_id}",
+                            actor="reconcile_registry",
+                            reason="physical folder found in quarantine",
+                            before={"status": current_status},
+                            after={"status": "quarantined"},
+                        )
                         reg[run_id]["status"] = "quarantined"
                         dirty = True
                     results["invalid_in_registry"].append(run_id)
@@ -196,6 +452,14 @@ def reconcile_registry() -> dict:
 
                 if not (runs_dir / run_id).exists():
                     print(f"[RECONCILE] Registry entry {run_id} missing physical folder -> marked invalid.")
+                    log_event(
+                        action="RUN_INVALIDATE",
+                        target=f"run_id:{run_id}",
+                        actor="reconcile_registry",
+                        reason="physical folder missing",
+                        before={"status": current_status},
+                        after={"status": "invalid"},
+                    )
                     results["missing_from_disk"].append(run_id)
                     reg[run_id]["status"] = "invalid"
                     dirty = True
@@ -203,6 +467,14 @@ def reconcile_registry() -> dict:
                 # Run IS physically present but registry says invalid — stale flag, restore it.
                 if data.get("status") == "invalid":
                     print(f"[RECONCILE] Run {run_id} is physically present but marked invalid -> restored to complete.")
+                    log_event(
+                        action="REGISTRY_STATUS_CHANGE",
+                        target=f"run_id:{run_id}",
+                        actor="reconcile_registry",
+                        reason="stale invalid flag; physical folder present",
+                        before={"status": "invalid"},
+                        after={"status": "complete"},
+                    )
                     reg[run_id]["status"] = "complete"
                     dirty = True
 

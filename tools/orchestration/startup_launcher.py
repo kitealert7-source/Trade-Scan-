@@ -235,28 +235,110 @@ def wait_for_mt5_api() -> bool:
 # Step 3 — Watchdog single-instance guard
 # ---------------------------------------------------------------------------
 def _pid_is_alive(pid: int) -> bool:
+    """
+    Liveness check with fallback. Mirrors watchdog_daemon._pid_is_alive.
+    Tasklist primary, psutil fallback, fail-safe ALIVE if both error.
+    The launcher *must not* treat a transient tasklist glitch as "process
+    dead" — that would defeat the single-instance guard and spawn duplicates.
+    """
     try:
         r = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
             capture_output=True, text=True, timeout=10,
         )
-        return str(pid) in r.stdout
+        if r.returncode == 0:
+            return str(pid) in r.stdout
     except Exception:
-        return False
+        pass
+    try:
+        import psutil  # type: ignore
+        return psutil.pid_exists(pid)
+    except Exception:
+        pass
+    return True  # fail-safe: assume alive
+
+
+# Cmdline signatures to identify our processes by their command line.
+# Match is substring, case-insensitive. Covers both slash styles.
+_WATCHDOG_SIGS  = ("watchdog_daemon.py",)
+_EXECUTION_SIGS = ("src/main.py", "src\\main.py")
+
+
+def _find_python_pids_by_cmdline(signatures: tuple[str, ...]) -> list[int]:
+    """
+    Enumerate python.exe processes and return those whose command line
+    contains any of the given signatures (case-insensitive substring).
+
+    Uses WMIC; returns empty list on any error (conservative — caller
+    should not mistake "scan failed" for "no duplicates"). Excludes
+    this process's own PID.
+    """
+    pids: list[int] = []
+    try:
+        r = subprocess.run(
+            ["wmic", "process", "where", "name='python.exe'", "get",
+             "ProcessId,CommandLine", "/FORMAT:LIST"],
+            capture_output=True, text=True, timeout=15,
+        )
+        current_cmdline = ""
+        current_pid: int | None = None
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("CommandLine="):
+                current_cmdline = line[len("CommandLine="):]
+            elif line.startswith("ProcessId="):
+                try:
+                    current_pid = int(line[len("ProcessId="):])
+                except ValueError:
+                    current_pid = None
+                if current_pid and current_pid != os.getpid():
+                    cmdline_lower = current_cmdline.lower()
+                    for sig in signatures:
+                        if sig.lower() in cmdline_lower:
+                            pids.append(current_pid)
+                            break
+                current_cmdline = ""
+                current_pid = None
+    except Exception as e:
+        _log(f"CMDLINE_SCAN_ERROR | sigs={signatures} | {type(e).__name__}: {e}")
+    return pids
 
 
 def watchdog_already_running() -> bool:
-    """Return True if a live watchdog process exists."""
-    if not WDOG_PID.exists():
-        return False
-    try:
-        pid = int(WDOG_PID.read_text(encoding="utf-8").strip())
-        if _pid_is_alive(pid):
-            _log(f"WATCHDOG_ALREADY_RUNNING | pid={pid} | skipping")
-            return True
-    except Exception:
-        pass
-    return False  # stale PID file — proceed
+    """
+    Return True if at least one live watchdog process exists AND we should
+    skip spawning a new one.
+
+    Discovery is by command-line scan, not just the PID file, so it detects
+    watchdog processes whose PID file is stale or missing. If more than one
+    watchdog is found, we log DUPLICATE_WATCHDOG_DETECTED and STILL return
+    True — launcher's job is not to kill; stop_burnin + watchdog recovery
+    handle that. We return True so no THIRD watchdog gets spawned.
+    """
+    live_pids = _find_python_pids_by_cmdline(_WATCHDOG_SIGS)
+    if len(live_pids) >= 2:
+        _log(f"DUPLICATE_WATCHDOG_DETECTED | pids={live_pids} | refusing to spawn more")
+        try:
+            _telegram(f"[DUPLICATE_WATCHDOG_DETECTED] pids={live_pids} — manual intervention required.")
+        except Exception:
+            pass
+        return True
+    if len(live_pids) == 1:
+        _log(f"WATCHDOG_ALREADY_RUNNING | pid={live_pids[0]} | skipping")
+        return True
+
+    # Scan found nothing. Sanity-check the PID file: if it points at a live
+    # pid that the scan missed (unlikely but possible if WMIC was disabled),
+    # still honour it rather than spawning a duplicate.
+    if WDOG_PID.exists():
+        try:
+            pid = int(WDOG_PID.read_text(encoding="utf-8").strip())
+            if _pid_is_alive(pid):
+                _log(f"WATCHDOG_PID_FILE_ALIVE | pid={pid} | scan missed it — skipping")
+                return True
+        except Exception:
+            pass
+    return False  # no live watchdog — proceed to spawn
 
 
 # ---------------------------------------------------------------------------
@@ -372,18 +454,37 @@ def _fx_market_open() -> bool:
 # Step 5 — Execution process guard + initial start
 # ---------------------------------------------------------------------------
 def _execution_running() -> bool:
-    """Return True if an execution process with the recorded PID is alive."""
-    if not EXEC_PID.exists():
-        return False
-    try:
-        pid = int(EXEC_PID.read_text(encoding="utf-8").strip())
-        r = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-            capture_output=True, text=True, timeout=10,
-        )
-        return str(pid) in r.stdout
-    except Exception:
-        return False
+    """
+    Return True if at least one execution process is alive AND launcher
+    should skip spawning a new one.
+
+    Discovery is by command-line scan (src/main.py) so orphan processes
+    whose PID file is stale are still detected. If more than one is found,
+    logs DUPLICATE_EXECUTION_DETECTED and still returns True — the launcher
+    will not spawn a third; the watchdog's new EARLY_EXIT_ALIVE_AT_RESTART
+    path + stop_burnin are the only sanctioned killers.
+    """
+    live_pids = _find_python_pids_by_cmdline(_EXECUTION_SIGS)
+    if len(live_pids) >= 2:
+        _log(f"DUPLICATE_EXECUTION_DETECTED | pids={live_pids} | refusing to spawn more")
+        try:
+            _telegram(f"[DUPLICATE_EXECUTION_DETECTED] pids={live_pids} — manual intervention required.")
+        except Exception:
+            pass
+        return True
+    if len(live_pids) == 1:
+        return True
+
+    # Scan found nothing. Honour PID file as fallback in case WMIC is disabled.
+    if EXEC_PID.exists():
+        try:
+            pid = int(EXEC_PID.read_text(encoding="utf-8").strip())
+            if _pid_is_alive(pid):
+                _log(f"EXECUTION_PID_FILE_ALIVE | pid={pid} | scan missed it — skipping")
+                return True
+        except Exception:
+            pass
+    return False  # no live execution — proceed to spawn
 
 
 def _archive_stale_burnin_logs() -> None:

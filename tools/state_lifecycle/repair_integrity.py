@@ -1,9 +1,11 @@
+import subprocess
 import sys
 import argparse
 import pandas as pd
 from pathlib import Path
 
 STATE_ROOT = Path(__file__).resolve().parents[2].parent / "TradeScan_State"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def check_file_writable(path: Path) -> None:
     """Verify file can be opened for writing (catches Excel lock)."""
@@ -176,6 +178,16 @@ def main():
 
     df_filtered_repaired.to_excel(FILTERED_SHEET_PATH, index=False)
     print(f"-> Repaired {FILTERED_SHEET_PATH.name} (Dropped {original_filtered_count - len(df_filtered_repaired)} rows)")
+
+    # Re-run formatter so rank column and sort order stay fresh after row drops.
+    _formatter = PROJECT_ROOT / "tools" / "format_excel_artifact.py"
+    try:
+        subprocess.run(
+            [sys.executable, str(_formatter), "--file", str(FILTERED_SHEET_PATH), "--profile", "strategy"],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"[WARN] Failed to re-format {FILTERED_SHEET_PATH.name}: {e.stderr.decode(errors='replace')}")
 
     df_master_repaired.to_excel(MASTER_SHEET_PATH, index=False)
     print(f"-> Repaired {MASTER_SHEET_PATH.name} (Dropped {len(portfolios_to_drop)} dead portfolios)")

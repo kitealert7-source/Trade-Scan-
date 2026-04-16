@@ -88,11 +88,13 @@ def main():
         # Trend Breakdown (Expected)
         "net_profit_strong_up", "net_profit_weak_up", "net_profit_neutral", 
         "net_profit_weak_down", "net_profit_strong_down",
-        "trades_strong_up", "trades_weak_up", "trades_neutral", 
+        "trades_strong_up", "trades_weak_up", "trades_neutral",
         "trades_weak_down", "trades_strong_down",
-        
-        # Governance
-        "IN_PORTFOLIO"
+
+        # Governance — Analysis_selection is the current per-row user-intent
+        # flag (driving composite_portfolio_analysis). Replaced IN_PORTFOLIO
+        # on 2026-04-16 when the latter was retired in favour of portfolio.yaml.
+        "Analysis_selection"
     }
 
     # 1. results_tradelevel.csv (Representative)

@@ -5,8 +5,16 @@ Responsibilities:
   - Poll heartbeat.log every 60s for liveness
   - SOFT breach (180s stale): log warning only
   - HARD breach (300s stale): kill execution process + restart
+  - EARLY_EXIT_DETECTED: PID file exists but process dead → immediate restart
   - DEGRADED: heartbeat OK but no bar processed in 7200s → log warning only
   - Storm guard: max 3 auto-restarts per 10-minute window
+
+Authority boundary (IMPORTANT):
+  - watchdog_daemon.py  → RECOVERY ONLY (restart, kill, storm guard)
+  - src/main.py          → DETECTION ONLY (alerts: THREAD_DEAD, THREAD_STALE,
+                            SILENT_STRATEGY, CONFIG_INTEGRITY_FAIL, etc.)
+  - No overlap: main.py never restarts itself. Watchdog never inspects strategy
+    logic. Telegram alerts originate from whichever layer detects the issue.
 
 Operational rules:
   1. Start this daemon BEFORE starting src/main.py --phase 2
@@ -37,6 +45,14 @@ HARD_THRESHOLD_S      = 300    # 5 polls ≈ 4 missed heartbeats → kill + rest
 BAR_STALL_THRESHOLD_S = 3600   # 1 × H1 interval — heartbeat OK but no bar processed
 MAX_RESTARTS          = 3
 COOLDOWN_WINDOW_S     = 600    # 10-minute storm guard window
+
+# EARLY_EXIT confirmation gate: number of consecutive polls that must observe
+# "pid dead" before EARLY_EXIT_DETECTED fires. Immunizes against transient
+# tasklist glitches (single-shot subprocess timeouts/errors) that would
+# otherwise spawn an orphan duplicate process alongside a still-alive pid.
+# Time cost: EARLY_EXIT_CONFIRMATIONS × POLL_INTERVAL_S extra before real
+# crash recovery begins (≈120s at 2 polls × 60s).
+EARLY_EXIT_CONFIRMATIONS = 2
 
 # ts_execution root — defaults to sibling directory of Trade_Scan.
 # Override with TS_EXEC_ROOT env var if the directory layout differs.
@@ -172,15 +188,38 @@ def _read_exec_pid() -> int | None:
 
 
 def _pid_is_alive(pid: int) -> bool:
-    """Check if a process with the given PID is alive using tasklist."""
+    """
+    Liveness check with fallback. Returns True iff pid is confirmed alive.
+
+    Primary:   tasklist (fast, no extra dep).
+    Fallback:  psutil.pid_exists — used when tasklist errors, times out,
+               or returns non-zero.
+    Unknown:   if BOTH methods fail, returns True (fail-safe ALIVE).
+               Better to delay recovery by one poll than to spawn an orphan
+               duplicate process on a transient subprocess glitch.
+    """
+    # --- Primary: tasklist ---
     try:
         r = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
             capture_output=True, text=True, timeout=10
         )
-        return str(pid) in r.stdout
-    except Exception:
-        return False
+        if r.returncode == 0:
+            return str(pid) in r.stdout
+        _log(f"PID_CHECK_TASKLIST_RC | pid={pid} | rc={r.returncode} | falling back to psutil")
+    except Exception as e:
+        _log(f"PID_CHECK_TASKLIST_ERROR | pid={pid} | {type(e).__name__}: {e} | falling back to psutil")
+
+    # --- Fallback: psutil ---
+    try:
+        import psutil  # type: ignore
+        return psutil.pid_exists(pid)
+    except Exception as e:
+        _log(f"PID_CHECK_PSUTIL_ERROR | pid={pid} | {type(e).__name__}: {e}")
+
+    # --- Both methods failed — fail-safe ALIVE ---
+    _log(f"PID_CHECK_UNKNOWN | pid={pid} | assuming alive (fail-safe, skipping EARLY_EXIT this poll)")
+    return True
 
 
 def _kill_pid(pid: int) -> bool:
@@ -316,11 +355,37 @@ def _is_clean_shutdown() -> bool:
         return False
 
 
+def _rotate_log(path: Path) -> None:
+    """Rename log to .prev on startup. Never raises."""
+    try:
+        if path.exists() and path.stat().st_size > 0:
+            prev = path.with_suffix(path.suffix + ".prev")
+            shutil.move(str(path), str(prev))
+    except Exception:
+        pass
+
+
 def run_watchdog_loop() -> None:
     if _check_single_instance():
         return
 
+    # Rotate logs on startup — keep one .prev generation
+    _rotate_log(WATCHDOG_LOG)
+    _rotate_log(HB_LOG)
+
+    # Post-reboot/startup grace period: suppress EARLY_EXIT restarts while
+    # main.py may still be initializing (handles machine reboot races where
+    # stale execution.pid from previous run survives on disk).
+    EARLY_EXIT_GRACE_S = 90
+    _watchdog_start_monotonic = time.monotonic()
+
     observed_run_id: str | None = None
+
+    # Consecutive-poll counter for EARLY_EXIT confirmation gate.
+    # Incremented each poll where (PID file exists AND pid reports dead).
+    # Reset on any observation that contradicts that state. Only when the
+    # counter reaches EARLY_EXIT_CONFIRMATIONS do we fire the restart.
+    _early_exit_strike_count = 0
 
     _log(
         f"WATCHDOG_DAEMON_STARTED"
@@ -328,6 +393,7 @@ def run_watchdog_loop() -> None:
         f" | hard={HARD_THRESHOLD_S}s"
         f" | bar_stall={BAR_STALL_THRESHOLD_S}s"
         f" | poll={POLL_INTERVAL_S}s"
+        f" | early_exit_confirmations={EARLY_EXIT_CONFIRMATIONS}"
         f" | ts_exec_root={TS_EXEC_ROOT}"
     )
 
@@ -353,6 +419,98 @@ def run_watchdog_loop() -> None:
             hb_age  = _get_heartbeat_age()
             bar_age = _get_bar_stall()
 
+            # --- Early exit detection ---
+            # If PID file exists but process is dead, this is an abnormal exit
+            # (e.g. CONFIG_INTEGRITY_FAIL exit code 78). Restart quickly instead
+            # of waiting for heartbeat HARD_THRESHOLD (saves up to 300s blind time).
+            #
+            # Two safeguards against spawning an orphan duplicate:
+            #   1. N-of-M confirmation gate (EARLY_EXIT_CONFIRMATIONS consecutive
+            #      polls of "pid dead") so a single tasklist glitch cannot trigger
+            #      a restart while the process is actually alive.
+            #   2. Belt-and-braces taskkill before restart, guarded by a fresh
+            #      liveness check: if the supposedly-dead pid is actually alive
+            #      when we go to restart, kill it first so we never run two.
+            if EXEC_PID.exists():
+                _exit_pid = _read_exec_pid()
+                if _exit_pid is not None and not _pid_is_alive(_exit_pid):
+                    # Post-reboot guard: during startup grace, a stale PID file
+                    # with no heartbeat is almost certainly pre-reboot residue,
+                    # not a crash. Main.py may be initializing right now.
+                    _uptime = time.monotonic() - _watchdog_start_monotonic
+                    if _uptime < EARLY_EXIT_GRACE_S and hb_age is None:
+                        _log(f"STALE_PID_IGNORED | pid={_exit_pid} | watchdog_uptime={_uptime:.0f}s < grace={EARLY_EXIT_GRACE_S}s | likely pre-reboot residue — clearing PID file, no restart")
+                        try:
+                            EXEC_PID.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        _early_exit_strike_count = 0
+                        time.sleep(POLL_INTERVAL_S)
+                        continue
+
+                    # N-of-M confirmation: require N consecutive polls of "dead"
+                    # before declaring EARLY_EXIT. Prevents a single tasklist
+                    # glitch from spawning an orphan duplicate.
+                    _early_exit_strike_count += 1
+                    if _early_exit_strike_count < EARLY_EXIT_CONFIRMATIONS:
+                        _log(
+                            f"EARLY_EXIT_PENDING | pid={_exit_pid}"
+                            f" | strike={_early_exit_strike_count}/{EARLY_EXIT_CONFIRMATIONS}"
+                            f" | awaiting confirmation before restart"
+                        )
+                        time.sleep(POLL_INTERVAL_S)
+                        continue
+
+                    _log(
+                        f"EARLY_EXIT_DETECTED | pid={_exit_pid}"
+                        f" | confirmed_across={_early_exit_strike_count}_polls"
+                        f" | immediate restart"
+                    )
+                    _send_alert("EARLY_EXIT_DETECTED",
+                        f"pid={_exit_pid} died abnormally "
+                        f"(confirmed across {_early_exit_strike_count} polls). Restarting.")
+
+                    # Belt-and-braces force-kill BEFORE spawning a replacement.
+                    # If liveness check was a false positive and the pid is
+                    # actually alive, we must kill it first or we end up with
+                    # two execution processes on the same state files.
+                    if _pid_is_alive(_exit_pid):
+                        _log(f"EARLY_EXIT_ALIVE_AT_RESTART | pid={_exit_pid} | liveness check flipped — force-killing before spawn")
+                        _send_alert("EARLY_EXIT_ALIVE_AT_RESTART",
+                            f"pid={_exit_pid} liveness re-check returned ALIVE at restart time. "
+                            f"Force-killing before spawning replacement.")
+                        killed = _kill_pid(_exit_pid)
+                        _log(f"EARLY_EXIT_FORCE_KILL | pid={_exit_pid} | success={killed}")
+
+                    # Clean up stale PID file so restart writes a new one
+                    try:
+                        EXEC_PID.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    _early_exit_strike_count = 0
+                    guard = _load_guard()
+                    if _check_restart_storm(guard):
+                        _log(f"STORM_GUARD_ACTIVE | restart_count={guard.get('restart_count')} | BLOCKED")
+                        _send_alert("STORM_GUARD_ACTIVE",
+                            f"restart_count={guard.get('restart_count')} in {COOLDOWN_WINDOW_S}s — "
+                            f"HALTED. Manual intervention required.")
+                    else:
+                        _do_restart(guard)
+                    time.sleep(POLL_INTERVAL_S)
+                    continue
+                else:
+                    # PID file exists AND pid is alive → reset strike counter.
+                    if _early_exit_strike_count > 0:
+                        _log(
+                            f"EARLY_EXIT_STRIKE_RESET | pid={_exit_pid}"
+                            f" | was {_early_exit_strike_count}/{EARLY_EXIT_CONFIRMATIONS}"
+                            f" | pid confirmed alive"
+                        )
+                    _early_exit_strike_count = 0
+            else:
+                # No PID file → no EARLY_EXIT condition to track.
+                _early_exit_strike_count = 0
+
             # --- Liveness check ---
             if hb_age is None:
                 _log("HB_LOG_MISSING | heartbeat.log not found — execution not yet started or path wrong")
@@ -368,6 +526,9 @@ def run_watchdog_loop() -> None:
                         f" | last_restart={guard.get('last_restart_ts')}"
                         f" | BLOCKED"
                     )
+                    _send_alert("STORM_GUARD_ACTIVE",
+                        f"restart_count={guard.get('restart_count')} in {COOLDOWN_WINDOW_S}s — "
+                        f"HALTED. Manual intervention required.")
                 else:
                     # PID file absent = clean shutdown (atexit deleted it). Do not restart.
                     if not EXEC_PID.exists():
@@ -411,6 +572,9 @@ def run_watchdog_loop() -> None:
                         f" | restart_count={guard.get('restart_count')}"
                         f" | BLOCKED — manual intervention required"
                     )
+                    _send_alert("STORM_GUARD_ACTIVE",
+                        f"restart_count={guard.get('restart_count')} in {COOLDOWN_WINDOW_S}s — "
+                        f"HALTED. Manual intervention required.")
                 else:
                     if not EXEC_PID.exists():
                         _log("CLEAN_SHUTDOWN_DETECTED | execution.pid absent | no restart")

@@ -90,7 +90,16 @@ def _normalize_hash_timestamp(entry_timestamp) -> str:
     """
     Normalize timestamp input for stable cross-environment signal hashing.
 
+    Accepted inputs:
+        - datetime (naive treated as UTC)
+        - ISO 8601 string, with or without "+00:00" / "Z" suffix
+        - MT5 server-time string with " SVR" trailer (e.g. "2026-04-16 00:30 SVR")
+          This is what the live bar loop emits — the broker server runs on UTC
+          for our terminal, so we treat SVR as UTC when normalizing.
+
     Output format is always UTC second precision: YYYY-MM-DD HH:MM:SS
+    Returns the raw token (stripped) only if every parse attempt fails, so
+    upstream callers can still see the unparsed string for logging.
     """
     if isinstance(entry_timestamp, datetime):
         dt = entry_timestamp
@@ -98,9 +107,23 @@ def _normalize_hash_timestamp(entry_timestamp) -> str:
         token = str(entry_timestamp).strip()
         if not token:
             return ""
+        # Strip live-mode " SVR" suffix (MT5 server-time marker). Broker is UTC.
+        if token.endswith(" SVR"):
+            token = token[:-4].strip()
+        # Accept "Z" as UTC
+        token_iso = token.replace("Z", "+00:00")
+        # Try ISO first; fall back to space-separated "YYYY-MM-DD HH:MM[:SS]"
+        dt = None
         try:
-            dt = datetime.fromisoformat(token.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(token_iso)
         except ValueError:
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                try:
+                    dt = datetime.strptime(token, fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
             return token
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -191,13 +214,15 @@ def _load_baseline(
             tid = t["trade_id"]
             if t.get("signal_hash"):
                 signal_index[tid] = t["signal_hash"]
-            # Build detail record for tolerant matching
+            # Build detail record for tolerant matching.
+            # entry_ts is normalized at load time so _timestamp_diff_seconds
+            # compares like-for-like against the live-side normalized timestamp.
             try:
                 signal_details[tid] = {
                     "symbol": t.get("symbol", ""),
                     "direction": int(t.get("direction", 0)),
                     "entry_price": float(t.get("entry_price", 0)),
-                    "entry_ts": t.get("entry_timestamp", ""),
+                    "entry_ts": _normalize_hash_timestamp(t.get("entry_timestamp", "")),
                     "risk_distance": float(t.get("risk_distance", 0)),
                 }
             except (ValueError, TypeError):
@@ -262,7 +287,7 @@ def _load_baseline_from_vault(
                     "symbol": t.get("symbol", ""),
                     "direction": int(t.get("direction", 0)),
                     "entry_price": float(t.get("entry_price", 0)),
-                    "entry_ts": t.get("entry_timestamp", ""),
+                    "entry_ts": _normalize_hash_timestamp(t.get("entry_timestamp", "")),
                     "risk_distance": float(t.get("risk_distance", 0)),
                 }
             except (ValueError, TypeError):

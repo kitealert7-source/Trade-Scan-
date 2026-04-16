@@ -877,6 +877,17 @@ def main():
                 except Exception as e:
                     print(f"[WARN] Run summary generation failed: {e}")
 
+                # Phase 4: dual-age regime alignment audit (warn-only, never blocks).
+                # Audits regime_age_signal/regime_age_fill structural invariants +
+                # HTF-quantization sanity. See tools/regime_alignment_guard.py.
+                try:
+                    run_command(
+                        [PYTHON_EXE, "tools/regime_alignment_guard.py", directive_id],
+                        "Regime Alignment Guard (warn)",
+                    )
+                except Exception as e:
+                    print(f"[WARN] Regime alignment guard failed: {e}")
+
             _report_data_freshness()
             print("\n[SUCCESS] Pipeline Completed Successfully.")
     except PipelineError as err:
