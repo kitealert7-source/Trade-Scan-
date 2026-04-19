@@ -20,6 +20,7 @@ Secondary signal: substring fallback for "PartialLegRecord" or
                   inferred == declared equality check enforced at preflight.
 """
 import ast
+import json
 import sys
 from pathlib import Path
 
@@ -30,6 +31,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 CATALOG_PATH = PROJECT_ROOT / "governance" / "capability_catalog.yaml"
+
+CAP_BLOCK_START = "# --- CAPABILITY REQUIREMENTS START ---"
+CAP_BLOCK_END = "# --- CAPABILITY REQUIREMENTS END ---"
 
 
 def load_catalog() -> dict:
@@ -105,3 +109,59 @@ def read_declared_fields(strategy_path: Path) -> tuple:
             contracts = value
 
     return caps, contracts
+
+
+def resolve_frozen_contract_id(required_caps) -> str:
+    """
+    Select the FROZEN engine whose capability set satisfies the required
+    set, return its contract_id. Raises if zero satisfying engines.
+    Shared between the backfill tool and strategy_provisioner so that
+    both emit identical REQUIRED_CONTRACT_IDS values at write time.
+    """
+    engine_dev = PROJECT_ROOT / "engine_dev" / "universal_research_engine"
+    vault = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine"
+    required = set(required_caps)
+
+    candidates = []
+    for root in (engine_dev, vault):
+        if not root.exists():
+            continue
+        for d in sorted(root.iterdir()):
+            mpath = d / "engine_manifest.json"
+            if not mpath.exists():
+                continue
+            with open(mpath, encoding="utf-8") as f:
+                m = json.load(f)
+            if m.get("engine_status") != "FROZEN":
+                continue
+            if not m.get("contract_id"):
+                continue
+            engine_caps = set(m.get("capabilities") or [])
+            if not required.issubset(engine_caps):
+                continue
+            candidates.append(m["contract_id"])
+
+    unique = sorted(set(candidates))
+    if not unique:
+        raise RuntimeError(
+            f"no FROZEN engine with contract_id satisfies {sorted(required)}"
+        )
+    return unique[0]
+
+
+def render_capability_block(caps, contracts) -> str:
+    """
+    Render the module-level REQUIRED_CAPABILITIES / REQUIRED_CONTRACT_IDS
+    block with sentinel markers. Shared between provisioner (new files)
+    and backfill tool (existing files) so bytes match exactly, keeping
+    idempotency checks stable across both codepaths.
+    """
+    def _fmt(items):
+        inner = ",\n    ".join(f'"{x}"' for x in sorted(items))
+        return f"[\n    {inner},\n]" if items else "[]"
+    return (
+        f"{CAP_BLOCK_START}\n"
+        f"REQUIRED_CAPABILITIES = {_fmt(caps)}\n"
+        f"REQUIRED_CONTRACT_IDS = {_fmt(contracts)}\n"
+        f"{CAP_BLOCK_END}\n"
+    )

@@ -87,7 +87,8 @@ class Strategy:
         Return True to close position. Use ctx.get('bars_held', 0) not ctx.bars_held.
         \"\"\"
         return False
-"""
+
+{capability_block}"""
 
 def _generate_import_lines(indicators):
     lines = []
@@ -395,6 +396,19 @@ def provision_strategy(directive_path: str) -> bool:
             sig_json = json.dumps(signature, indent=4, sort_keys=True)
             sig_json = sig_json.replace(": true", ": True").replace(": false", ": False").replace(": null", ": None")
 
+            # Fresh-template capabilities: the generated strategy has
+            # check_entry + check_exit (no check_partial_exit), so
+            # inference will yield exactly these two tokens. Resolve the
+            # contract_id from the current FROZEN engine so CHECK 6.8
+            # passes on first run.
+            from tools.capability_inference import (
+                render_capability_block,
+                resolve_frozen_contract_id,
+            )
+            fresh_caps = ["execution.entry.v1", "execution.exit.v1"]
+            fresh_contract = resolve_frozen_contract_id(fresh_caps)
+            cap_block = render_capability_block(fresh_caps, [fresh_contract])
+
             content = STRATEGY_TEMPLATE.format(
                 strategy_name=s_name,
                 timestamp=datetime.now().isoformat(),
@@ -402,6 +416,7 @@ def provision_strategy(directive_path: str) -> bool:
                 timeframe=timeframe,
                 signature_json=sig_json,
                 signature_hash=_hash_sig_dict(signature),
+                capability_block=cap_block.rstrip(),
             )
 
             # 8. Write File

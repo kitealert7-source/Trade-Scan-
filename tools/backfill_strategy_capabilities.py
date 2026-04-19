@@ -40,16 +40,18 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.capability_inference import (  # noqa: E402
+    CAP_BLOCK_END,
+    CAP_BLOCK_START,
     infer_capabilities,
     load_catalog,
     read_declared_fields,
+    render_capability_block,
+    resolve_frozen_contract_id,
 )
 from tools.engine_resolver import resolve_engine  # noqa: E402
 
 STRATEGIES_DIR = PROJECT_ROOT / "strategies"
 
-BLOCK_START = "# --- CAPABILITY REQUIREMENTS START ---"
-BLOCK_END = "# --- CAPABILITY REQUIREMENTS END ---"
 HASH_RE = re.compile(r"# --- SIGNATURE HASH: ([0-9a-f]{16}) ---")
 
 
@@ -58,65 +60,13 @@ def _extract_sig_hash(text: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _format_list(items):
-    """Python-formatted list literal with stable ordering."""
-    inner = ",\n    ".join(f'"{x}"' for x in sorted(items))
-    return f"[\n    {inner},\n]" if items else "[]"
-
-
-def _resolve_contract_id(required_caps: set) -> str:
-    """
-    Select the FROZEN engine whose capability set exactly satisfies the
-    required set. Returns its contract_id. Raises if zero or many.
-    """
-    engine_dev = PROJECT_ROOT / "engine_dev" / "universal_research_engine"
-    vault = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine"
-
-    candidates = []
-    for root in (engine_dev, vault):
-        if not root.exists():
-            continue
-        for d in sorted(root.iterdir()):
-            mpath = d / "engine_manifest.json"
-            if not mpath.exists():
-                continue
-            with open(mpath, encoding="utf-8") as f:
-                m = json.load(f)
-            if m.get("engine_status") != "FROZEN":
-                continue
-            if not m.get("contract_id"):
-                continue
-            engine_caps = set(m.get("capabilities") or [])
-            if not required_caps.issubset(engine_caps):
-                continue
-            candidates.append(m["contract_id"])
-
-    unique = sorted(set(candidates))
-    if not unique:
-        raise RuntimeError(
-            f"no FROZEN engine with contract_id satisfies {sorted(required_caps)}"
-        )
-    return unique[0]
-
-
-def _render_block(caps: list, contracts: list) -> str:
-    caps_lit = _format_list(caps)
-    contracts_lit = _format_list(contracts)
-    return (
-        f"{BLOCK_START}\n"
-        f"REQUIRED_CAPABILITIES = {caps_lit}\n"
-        f"REQUIRED_CONTRACT_IDS = {contracts_lit}\n"
-        f"{BLOCK_END}\n"
-    )
-
-
 def _inject_or_replace(text: str, block: str) -> str:
     """
     If the markers exist, replace the block in place. Otherwise append
     at end-of-file. Markers keep the block idempotently locatable.
     """
     pattern = re.compile(
-        re.escape(BLOCK_START) + r".*?" + re.escape(BLOCK_END) + r"\n?",
+        re.escape(CAP_BLOCK_START) + r".*?" + re.escape(CAP_BLOCK_END) + r"\n?",
         re.DOTALL,
     )
     if pattern.search(text):
@@ -147,7 +97,7 @@ def process_strategy(strategy_py: Path, apply: bool) -> dict:
                 "note": f"inferred tokens not in catalog: {sorted(unknown)}"}
 
     try:
-        contract_id = _resolve_contract_id(inferred)
+        contract_id = resolve_frozen_contract_id(inferred)
     except Exception as e:
         return {"status": "ERROR", "strategy": strategy_py.parent.name,
                 "note": f"contract resolution failed: {e}"}
@@ -164,7 +114,7 @@ def process_strategy(strategy_py: Path, apply: bool) -> dict:
                 "inferred": declared_caps, "contract_id": contract_id,
                 "hash_before": hash_before, "hash_after": hash_before}
 
-    block = _render_block(declared_caps, declared_contracts)
+    block = render_capability_block(declared_caps, declared_contracts)
     new_text = _inject_or_replace(text, block)
 
     if not apply:
