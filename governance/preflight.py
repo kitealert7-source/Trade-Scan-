@@ -389,6 +389,24 @@ def run_preflight(
     if not date_pattern.match(str(resolved_scope["end_date"])):
         return ("BLOCK_EXECUTION", f"End Date malformed: {resolved_scope['end_date']}", None)
 
+    # --- CHECK 5.5: Engine Version Consistency (directive vs runtime) ---
+    # Invariant: a directive declaring `test.engine_version` MUST run on that
+    # engine. Absent field defaults to runtime (backward compatible).
+    try:
+        from tools.pipeline_utils import resolve_engine_version_from_directive, parse_directive as _pd_ev
+        _directive_engine = resolve_engine_version_from_directive(_pd_ev(directive_full_path), default=engine_version)
+        if _directive_engine != engine_version:
+            return (
+                "BLOCK_EXECUTION",
+                f"ENGINE_VERSION_MISMATCH: directive requires v{_directive_engine}, "
+                f"runtime is v{engine_version}. "
+                f"Re-run with ENGINE_VERSION_OVERRIDE=v{_directive_engine.replace('.', '_')}.",
+                None
+            )
+        print(f"[PREFLIGHT] Engine version consistency: VERIFIED (directive={_directive_engine}, runtime={engine_version})")
+    except Exception as _ev_err:
+        return ("BLOCK_EXECUTION", f"Engine version gate failed: {_ev_err}", None)
+
     broker_name = str(resolved_scope["broker"])
     timeframe = str(resolved_scope["timeframe"])
     broker_specs_dir = PROJECT_ROOT / "data_access" / "broker_specs" / broker_name
@@ -555,6 +573,115 @@ def run_preflight(
                             )
             except Exception:
                 pass  # fail-safe: allow on any helper read error
+
+    # --- CHECK 6.75: Directive ↔ Strategy Signature Hash Consistency ---
+    # Invariant: embedded SIGNATURE HASH in strategy.py MUST equal the hash of
+    # normalize_signature(directive). Defense-in-depth against provisioner bugs
+    # or manual edits to STRATEGY_SIGNATURE that bypass the approval gate.
+    if _strategy_name:
+        _strat_py_sig = PROJECT_ROOT / "strategies" / _strategy_name / "strategy.py"
+        if _strat_py_sig.exists():
+            try:
+                from tools.directive_schema import normalize_signature
+                from tools.strategy_provisioner import _hash_sig_dict
+                _expected_sig_hash = _hash_sig_dict(normalize_signature(parse_directive(directive_full_path)))
+                _strat_text = _strat_py_sig.read_text(encoding="utf-8")
+                _hash_match = re.search(r"SIGNATURE HASH: ([0-9a-f]{16})", _strat_text)
+                if _hash_match and _hash_match.group(1) != _expected_sig_hash:
+                    return (
+                        "BLOCK_EXECUTION",
+                        f"STRATEGY_SIGNATURE_DRIFT: strategy.py embedded hash "
+                        f"{_hash_match.group(1)!r} != directive-derived hash "
+                        f"{_expected_sig_hash!r} for {_strategy_name}. "
+                        f"Re-provision via `python tools/new_pass.py --rehash {_strategy_name}`.",
+                        None
+                    )
+            except Exception as _sig_err:
+                return ("BLOCK_EXECUTION", f"Signature hash gate failed: {_sig_err}", None)
+
+    # --- CHECK 6.8: Capability-Based Engine Resolution ---
+    # Bidirectional inferred == declared check on strategy capabilities,
+    # catalog whitelist, contract-id format, then capability-driven engine
+    # resolution. Failure codes F1–F10 map to the hardening plan. No
+    # silent fallback: each violation returns BLOCK_EXECUTION with a
+    # discrete F-code so operator action is unambiguous.
+    if _strategy_name:
+        _strat_py_cap = PROJECT_ROOT / "strategies" / _strategy_name / "strategy.py"
+        if _strat_py_cap.exists():
+            try:
+                from tools.capability_inference import (
+                    infer_capabilities,
+                    load_catalog,
+                    read_declared_fields,
+                )
+                from tools.engine_resolver import EngineResolverError, resolve_engine
+                from config.state_paths import STRATEGIES_DIR
+
+                _decl_caps, _decl_contracts = read_declared_fields(_strat_py_cap)
+                if _decl_caps is None:
+                    return ("BLOCK_EXECUTION",
+                            f"[F1] STRATEGY_SIGNATURE.required_capabilities missing "
+                            f"for {_strategy_name}", None)
+                if _decl_contracts is None:
+                    return ("BLOCK_EXECUTION",
+                            f"[F2] STRATEGY_SIGNATURE.required_contract_ids missing "
+                            f"for {_strategy_name}", None)
+                if not _decl_caps or not _decl_contracts:
+                    return ("BLOCK_EXECUTION",
+                            f"[F3] required_capabilities or required_contract_ids "
+                            f"is empty for {_strategy_name}", None)
+
+                _inferred = infer_capabilities(_strat_py_cap)
+                _declared_set = set(_decl_caps)
+                if not _inferred.issubset(_declared_set):
+                    return ("BLOCK_EXECUTION",
+                            f"[F4] inferred capabilities not declared: "
+                            f"{sorted(_inferred - _declared_set)} for {_strategy_name}",
+                            None)
+                if not _declared_set.issubset(_inferred):
+                    return ("BLOCK_EXECUTION",
+                            f"[F5] declared capabilities not inferred: "
+                            f"{sorted(_declared_set - _inferred)} for {_strategy_name}",
+                            None)
+
+                _catalog_tokens = set(load_catalog().keys())
+                _unknown = _declared_set - _catalog_tokens
+                if _unknown:
+                    return ("BLOCK_EXECUTION",
+                            f"[F6] capability tokens not in catalog: "
+                            f"{sorted(_unknown)} for {_strategy_name}", None)
+
+                for _cid in _decl_contracts:
+                    if not re.match(r"^sha256:[0-9a-f]{64}$", str(_cid)):
+                        return ("BLOCK_EXECUTION",
+                                f"[F7] malformed contract_id: {_cid!r} "
+                                f"for {_strategy_name}", None)
+
+                _resolved = resolve_engine(_decl_caps, _decl_contracts)
+
+                _res_dir = STRATEGIES_DIR / _strategy_name
+                _res_dir.mkdir(parents=True, exist_ok=True)
+                _res_path = _res_dir / "engine_resolution.json"
+                _tmp = _res_path.with_suffix(".json.tmp")
+                with open(_tmp, "w", encoding="utf-8") as _f:
+                    json.dump({
+                        "strategy_id": _strategy_name,
+                        "required_capabilities": sorted(_decl_caps),
+                        "inferred_capabilities": sorted(_inferred),
+                        "required_contract_ids": sorted(_decl_contracts),
+                        "resolved_engine_version": _resolved["engine_version"],
+                        "resolved_engine_path": _resolved["engine_path"],
+                        "resolved_contract_id": _resolved["contract_id"],
+                    }, _f, indent=2)
+                _tmp.replace(_res_path)
+                print(f"[PREFLIGHT] Capability resolution: {_strategy_name} → "
+                      f"{_resolved['engine_version']}")
+            except EngineResolverError as _er:
+                return ("BLOCK_EXECUTION",
+                        f"ENGINE_RESOLUTION_FAILED: {_er}", None)
+            except Exception as _cap_err:
+                return ("BLOCK_EXECUTION",
+                        f"Capability resolution failed: {_cap_err}", None)
 
     # --- CHECK 7: Semantic Validation ---
     from tools.semantic_validator import validate_semantic_signature
