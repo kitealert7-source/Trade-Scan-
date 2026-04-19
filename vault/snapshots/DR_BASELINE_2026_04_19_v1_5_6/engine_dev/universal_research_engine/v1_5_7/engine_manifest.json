@@ -1,0 +1,29 @@
+{
+    "engine_name": "Universal_Research_Engine",
+    "engine_version": "v1_5_7",
+    "engine_status": "EXPERIMENTAL",
+    "vaulted": false,
+    "freeze_date": null,
+    "predecessor": "v1_5_6 (FROZEN 2026-04-16)",
+    "timestamp_utc": "2026-04-19T14:17:45.312471+00:00",
+    "adds": [
+        "partial_exit primitive via strategy.check_partial_exit(ctx) — fraction in [0.01, 0.99]",
+        "stop_mutation primitive via strategy.check_stop_mutation(ctx) — monotone guard",
+        "ctx.unrealized_r (close-based, initial-stop denominator) exposed in per-bar context",
+        "trade dict gains partial_leg, partial_of_parent, stop_mutation_rejected when applicable"
+    ],
+    "invariants": [
+        "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
+        "Partial guard: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001",
+        "Stop mutation is monotone: long tightens up only, short tightens down only; silent reject otherwise",
+        "Entry market state initial_stop_price is FROZEN; stop_price_active is live-mutable",
+        "No-hook strategies produce byte-equivalent trade dicts to v1.5.6"
+    ],
+    "file_hashes": {
+        "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "execution_emitter_stage1.py": "56A2FF1E76DEC7505BA197BB8CC30F277F7C7DCAF1496A8ABB74A6199CFD1DA0",
+        "execution_loop.py": "A344DBE1BEF4A77722547114230E23C1062C34342FF1EE3174C6501CF8CF5673",
+        "main.py": "79D966515A8A1954F6D709438E5DCCD1E0658B0CD83AC70504EFAF309FE36C7B",
+        "stage2_compiler.py": "34CA0429846F900DDEF633C97A0CBBB62B934391B6F9F3BA940B3C4797A67AC0"
+    }
+}

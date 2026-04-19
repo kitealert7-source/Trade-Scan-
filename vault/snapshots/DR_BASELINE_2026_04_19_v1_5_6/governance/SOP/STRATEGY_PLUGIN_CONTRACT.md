@@ -1,0 +1,179 @@
+# Strategy Plugin Contract — Trade_Scan (LOCKED)
+
+**Status:** AUTHORITATIVE  
+**Applies to:** All strategies executed by Trade_Scan  
+**Purpose:** Define the mandatory interface and placement rules for strategy plugins.
+
+This document defines **what a strategy is allowed to be**, and **what the engine is forbidden from knowing**.
+
+---
+
+## Strategy Placement (Directive-Driven Mode)
+
+Strategies are engine-managed artifacts.
+
+Source of truth is the Directive.
+
+At runtime:
+
+- If strategy folder is missing, engine provisions it.
+- If strategy exists, engine aligns it deterministically to directive.
+- Manual edits are not authoritative.
+
+Folder structure:
+
+Trade_Scan/
+└── strategies/
+    └── <StrategyName>/
+        └── strategy.py
+
+---
+
+## 1A. Provisioner Safeguard (MANDATORY)
+
+When a strategy folder already exists, the provisioner MUST:
+
+1. **Snapshot before overwrite** — Copy `strategy.py` to `strategy.py.bak` before any regeneration.
+2. **STRATEGY_SIGNATURE identity check** — If the existing `STRATEGY_SIGNATURE` already matches the directive fields (indicators, parameters, timeframe, trade limits, filters), provisioning MUST skip regeneration entirely.
+3. **Preserve custom logic** — If regeneration is required (signature mismatch), the provisioner MUST log a warning and retain the `.bak` file until the next successful RUN_COMPLETE.
+
+Destructive overwrites without backup are a contract violation.
+
+If a provisioner destroys a working `strategy.py` and the replacement produces `NO_TRADES`, the directive MUST be shelved and the `.bak` file used for forensic recovery.
+
+---
+
+## 2. Ownership Rules (LOCKED)
+
+- All **indicator invocation and parameter selection** belong to the strategy.
+- All **entry / exit decision logic** belongs to the strategy.
+- All **indicator implementation** belongs to the `indicators/` repository and MUST NOT be reimplemented inline.
+
+- The engine MUST NOT:
+  - compute indicators
+  - inspect indicator values
+  - branch on strategy identity
+
+The engine interacts with strategies **only through this contract**.
+
+---
+
+## 3. Mandatory Strategy Interface
+
+Every `strategy.py` MUST expose exactly one class named `Strategy`.
+
+```python
+class Strategy:
+    # --- Static Declarations ---
+    name: str                  # Strategy ID (must match directive)
+    instrument_class: str       # FOREX | INDEX | CRYPTO
+    timeframe: str              # Execution timeframe (e.g. 15m, D1)
+
+    # --- Lifecycle Hooks ---
+    def prepare_indicators(self, df):
+        """
+        Compute and attach all indicators.
+        Must return a dataframe.
+        """
+
+    def check_entry(self, ctx) -> dict | None:
+        """
+        Return a signal dict to enter a new position, or None/falsy to skip.
+        Mandatory key:  'signal'  (1 = long, -1 = short)
+        Optional keys:  'stop_price'           — overrides ATR fallback stop
+                        'tp_price'             — take-profit level
+                        'entry_reference_price'— reference price for slippage tracking
+                        'entry_reason'         — label logged with trade record
+        ctx contains current and historical bar context.
+        """
+
+    def check_exit(self, ctx) -> bool:
+        """
+        Return True to exit the active position.
+        ctx contains current bar and trade state.
+        """
+```
+
+No additional public methods are allowed.
+
+---
+
+## 4. Context Object (Read-Only)
+
+The engine supplies a read-only `ctx` object (**implemented as `ContextView`** — a typed adapter over the bar namespace) containing:
+
+- `ctx.row`: current bar data (pandas Series)
+- `ctx.index`: current row index (integer)
+- `ctx.direction`: active position direction (1 for Long, -1 for Short, 0 for None)
+- `ctx.trend_regime` / `ctx.volatility_regime`: market state context if captured
+- `ctx.bars_held`: number of bars the trade has been open
+- `ctx.entry_index`: integer index of entry
+
+**Crucial Note:** Strategies MUST access context properties via attribute dot notation (e.g., `ctx.row`, `ctx.direction`). Dictionary-style access (`ctx['row']`) will result in a runtime crash and is legally invalid under this contract.
+
+Strategies MUST NOT:
+
+- mutate engine state
+- access broker specs directly
+- write artifacts
+
+---
+
+## 5. Indicator Constraints
+
+- Indicators may use:
+  - numpy
+  - pandas
+  - pure helper functions
+- Indicators MUST be:
+  - deterministic
+  - NaN-safe
+  - stateless
+
+No caching, global state, or cross-strategy sharing.
+
+---
+
+## 6. Governance Integration
+
+### SOP_TESTING
+
+- Strategy logic MUST comply with this contract.
+- Any deviation invalidates the run.
+
+### Preflight Agent
+
+Preflight MUST provision strategy module if missing.
+
+Execution MUST be blocked only if:
+
+- strategy provisioning fails
+- Strategy class fails to import
+- STRATEGY_SIGNATURE is missing or malformed
+
+---
+
+## 6A. Admission Rule
+
+No new strategy plugin may enter the governed `strategies/` directory,
+and no logic-affecting edit to an existing `strategy.py` may be
+executed by the pipeline, without explicit human approval.
+
+This rule is enforced procedurally at the agent level, before FSM
+initialization. See SOP_TESTING §4 for the full definition of
+"logic-affecting modification."
+
+---
+
+## 7. Change Policy (HARD)
+
+Any change to this contract:
+
+- is **engine evolution**
+- requires a new engine version
+- requires SOP update
+- requires explicit human approval
+
+---
+
+**End of Strategy Plugin Contract**

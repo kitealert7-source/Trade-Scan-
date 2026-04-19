@@ -1,0 +1,134 @@
+# ════════════════════════════════════════════════════════════════════
+# SYSTEM INVARIANTS — DO NOT VIOLATE
+#
+# 1. FILTER tokens MUST end with "FILT" (e.g. TRENDFILT, VOLFILT).
+# 2. MODEL tokens MUST NOT contain "FILT" anywhere in the string.
+#
+# These two rules form the structural boundary that allows the
+# optional FILTER token to be unambiguously parsed from a strategy
+# name without lookahead or positional counting. Every downstream
+# parser (namespace_gate.py, asset_classification.py) depends on
+# this invariant. Breaking it causes silent misclassification
+# across the entire pipeline: portfolio evaluation, candidate
+# filtering, trade-level attribution, and Excel reporting.
+#
+# Enforced at:  namespace_gate.py  (creation-time validation)
+# Consumed by:  asset_classification.parse_strategy_name()
+# Verified:     2026-04-07 — 361 IDs, 0 violations
+# ════════════════════════════════════════════════════════════════════
+version: 1
+family:
+  - MR
+  - TREND
+  - VOL
+  - BRK
+  - PA
+  - PORT
+  - CONT
+  - REV
+  - STR
+  - RSI
+model:
+  - RSIAVG
+  - ZREV
+  - VOLEXP
+  - ATRBRK
+  - BOS
+  - CHOCH
+  - SFP
+  - IBREAK
+  - PINBAR
+  - ENGULF
+  - LIQGRAB
+  - PORT
+  - ULTC
+  - DAYOC
+  - SMI
+  - LORB
+  - RSIPULL
+  - SPKFADE
+  - GAPFILL
+  - BBSQZ
+  - ATRSQZ
+  - ASRANGE
+  - FAKEBREAK
+  - LIQSWEEP
+  - IMPULSE
+  - CMR
+  - MICROREV
+  - EMAXO
+  - MACDX
+  - MACDE
+  - MACDM
+  - MACDB
+  - MACDA
+  - MACDXE
+  - MACDBE
+  - MACDXH
+  - MACDXHE
+filter:
+  - ATRFILT
+  - VOLFILT
+  - TRENDFILT
+  - STRUCTFILT
+  - REGFILT
+  - SMIFILT
+  - SESSFILT
+timeframe:
+  - 1M
+  - 5M
+  - 15M
+  - 30M
+  - 1H
+  - 4H
+  - 1D
+  - 1W
+# SLOT-3 (stem token between FAMILY and TF) must be either:
+#   - an asset_class token  (broad scope — the directive applies to many symbols)
+#   - a symbol token        (narrow scope — single-pair directive)
+#
+# Historically slot-3 was parsed without a whitelist, allowing typos AND
+# allowing layer violations (idea registered at class-scope but directive
+# hardcoding a single symbol). The namespace gate now enforces membership
+# in one of these two sets; an advisory is emitted when slot-3 is a symbol
+# but the idea's instruments field is a class (class -> symbol drift).
+asset_class:
+  - FX
+  - XAU
+  - IDX
+  - CRYPTO
+  - BTC
+  - ETH
+symbol:
+  - AUDJPY
+  - AUDNZD
+  - AUDUSD
+  - BTCUSD
+  - CADJPY
+  - CHFJPY
+  - ETHUSD
+  - EURAUD
+  - EURGBP
+  - EURJPY
+  - EURUSD
+  - GBPAUD
+  - GBPJPY
+  - GBPNZD
+  - GBPUSD
+  - GER40
+  - JPN225
+  - NZDJPY
+  - NZDUSD
+  - UK100
+  - USDCAD
+  - USDCHF
+  - USDJPY
+  - XAUUSD
+aliases:
+  family: {}
+  model:
+    VOL_EXP: VOLEXP
+    ATR_BRK: ATRBRK
+  filter:
+    ATR_FILTER: ATRFILT
+  timeframe: {}
