@@ -7,7 +7,11 @@ capability-resolution step before engine binding.
 
 Primary signal  : AST trigger rules from governance/capability_catalog.yaml
                   (presence of a top-level or class-level function whose
-                  name matches the token's ast_trigger).
+                  name matches the token's ast_trigger). Every capability
+                  is tied to a concrete AST symbol — there is no "always"
+                  baseline. A strategy missing check_entry or check_exit
+                  will fail preflight F5 (declared-not-inferred) instead
+                  of AttributeError at engine runtime.
 
 Secondary signal: substring fallback for "PartialLegRecord" or
                   "partial_exit" anywhere in source — catches partial-exit
@@ -56,9 +60,7 @@ def infer_capabilities(strategy_path: Path) -> set:
     inferred = set()
     for token, spec in catalog.items():
         trigger = (spec or {}).get("ast_trigger")
-        if trigger == "always":
-            inferred.add(token)
-        elif trigger and trigger in fn_names:
+        if trigger and trigger in fn_names:
             inferred.add(token)
 
     if "PartialLegRecord" in source or "partial_exit" in source:
