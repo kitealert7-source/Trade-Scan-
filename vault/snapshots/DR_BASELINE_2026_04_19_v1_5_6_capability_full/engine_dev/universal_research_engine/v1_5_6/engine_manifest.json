@@ -1,0 +1,22 @@
+{
+    "engine_name": "Universal_Research_Engine",
+    "engine_version": "v1_5_6",
+    "engine_status": "FROZEN",
+    "vaulted": true,
+    "freeze_date": "2026-04-16",
+    "predecessor": "v1_5_5 (DR_BASELINE_2026_04_14_v0_0_0)",
+    "timestamp_utc": "2026-04-14T18:15:27.738744+00:00",
+    "file_hashes": {
+        "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "execution_emitter_stage1.py": "118AB6EA114AD3AA87223D76EC9D179B001FB0EA38F56E68478E63E576E6B493",
+        "execution_loop.py": "14086F77C71363C3CC391D9AF74CDBECACC3B16EE2439AA1ACEAF0D10C043183",
+        "main.py": "EED875CE24B621D5D8714B5B2650335286803596168CA3087F296FFF887A8B47",
+        "stage2_compiler.py": "34CA0429846F900DDEF633C97A0CBBB62B934391B6F9F3BA940B3C4797A67AC0",
+        "contract.json": "82A5F54C003C069BA4A45053F0C0D3780B8DE5EBCB29A9F149B5570E92DE88C1"
+    },
+    "capabilities": [
+        "execution.entry.v1",
+        "execution.exit.v1"
+    ],
+    "contract_id": "sha256:82a5f54c003c069ba4a45053f0c0d3780b8de5ebcb29a9f149b5570e92de88c1"
+}

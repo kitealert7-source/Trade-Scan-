@@ -4,7 +4,7 @@
 - WARNING: 18 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 6 uncommitted
 
-> Generated: 2026-04-19T17:58:20Z
+> Generated: 2026-04-19T18:05:02Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -44,7 +44,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 6 uncommitted
-- Last commit: `62eae8f Phase 2: backfill REQUIRED_CAPABILITIES across strategies`
+- Last commit: `84a4671 chore(session-close): refresh SYSTEM_STATE + tools_manifest`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
