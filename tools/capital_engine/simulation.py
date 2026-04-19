@@ -19,10 +19,15 @@ FLOAT_TOLERANCE = 1e-9
 
 EVENT_TYPE_ENTRY = "ENTRY"
 EVENT_TYPE_EXIT = "EXIT"
+EVENT_TYPE_PARTIAL = "PARTIAL"
 SIMULATION_SEED = 42
+# EXIT frees capital -> process first so freed slots are observable that bar
+# PARTIAL operates on still-open trade -> after EXITs, before ENTRYs
+# ENTRY consumes slots -> last
 EVENT_TYPE_PRIORITY = {
     EVENT_TYPE_EXIT: 0,
-    EVENT_TYPE_ENTRY: 1,
+    EVENT_TYPE_PARTIAL: 1,
+    EVENT_TYPE_ENTRY: 2,
 }
 
 CONVERSION_MAP = {
@@ -86,6 +91,9 @@ class TradeEvent:
     volatility_regime: str = ""
     trend_regime: str = ""
     trend_label: str = ""
+    # Populated only on PARTIAL events; ignored on ENTRY/EXIT.
+    partial_fraction: Optional[float] = None
+    partial_exit_price: Optional[float] = None
 
     @property
     def sort_key(self):
@@ -228,6 +236,13 @@ class OpenTrade:
     trend_regime: str = ""
     trend_label: str = ""
     fx_rate_source: str = "static"  # "static" | "static_fallback" — queryable in post-analysis
+    # Partial-exit state. partial_fraction_applied is the fraction realized at PARTIAL;
+    # the final EXIT realizes (1 - partial_fraction_applied) of the nominal position.
+    partial_taken: bool = False
+    partial_fraction_applied: float = 0.0
+    partial_pnl_usd: float = 0.0
+    partial_exit_price_applied: Optional[float] = None
+    partial_exit_timestamp_applied: Optional[datetime] = None
 
 
 @dataclass
@@ -458,13 +473,61 @@ class PortfolioState:
         self._check_invariants()
         return True
 
+    def process_partial(self, event: TradeEvent) -> Optional[float]:
+        """Realize proportional PnL mid-trade. Does NOT free risk/notional/slot."""
+        trade = self.open_trades.get(event.trade_id)
+        if trade is None:
+            return None  # parent was rejected at entry
+        if trade.partial_taken:
+            raise RuntimeError(f"Double partial on {event.trade_id}")
+
+        f = event.partial_fraction
+        # Hard invariants (engine contract: partial fraction in (0,1); timestamp in trade window)
+        assert f is not None and 0.0 < f < 1.0, (
+            f"PARTIAL fraction out of range on {event.trade_id}: {f}"
+        )
+        assert trade.entry_timestamp is not None, (
+            f"PARTIAL on trade {event.trade_id} with no entry timestamp"
+        )
+        assert trade.entry_timestamp <= event.timestamp, (
+            f"PARTIAL before entry on {event.trade_id}: {event.timestamp} < {trade.entry_timestamp}"
+        )
+
+        price_delta = (event.partial_exit_price - trade.entry_price) * trade.direction
+        pnl_usd = price_delta * trade.usd_per_price_unit_per_lot * trade.lot_size * f
+
+        self.equity += pnl_usd
+        self.realized_pnl += pnl_usd
+        if self.equity > self.peak_equity:
+            self.peak_equity = self.equity
+        dd = self.peak_equity - self.equity
+        if dd > self.max_drawdown_usd:
+            self.max_drawdown_usd = dd
+
+        trade.partial_taken = True
+        trade.partial_fraction_applied = f
+        trade.partial_pnl_usd = pnl_usd
+        trade.partial_exit_price_applied = event.partial_exit_price
+        trade.partial_exit_timestamp_applied = event.timestamp
+
+        # Risk/notional/heat/slot: intentionally unchanged until final EXIT.
+        self.equity_timeline.append((event.timestamp, self.equity))
+        self._check_invariants()
+        return pnl_usd
+
     def process_exit(self, event: TradeEvent) -> Optional[float]:
         trade = self.open_trades.get(event.trade_id)
         if trade is None:
             return None
 
+        # Partial-aware exit: realize remainder of nominal position.
+        remainder = 1.0 - trade.partial_fraction_applied
+        if trade.partial_taken:
+            assert trade.partial_exit_timestamp_applied <= event.timestamp, (
+                f"EXIT before partial on {event.trade_id}"
+            )
         price_delta = (trade.exit_price - trade.entry_price) * trade.direction
-        pnl_usd = price_delta * trade.usd_per_price_unit_per_lot * trade.lot_size
+        pnl_usd = price_delta * trade.usd_per_price_unit_per_lot * trade.lot_size * remainder
         self.equity += pnl_usd
         self.realized_pnl += pnl_usd
 
@@ -521,6 +584,15 @@ class PortfolioState:
                     "target_risk_usd": round(trade.target_risk_usd, 2),
                     "actual_risk_usd": round(trade.actual_risk_usd, 2),
                     "risk_multiple": round(trade.risk_multiple, 2),
+                }
+            )
+        if trade.partial_taken:
+            log_entry.update(
+                {
+                    "partial_fraction": trade.partial_fraction_applied,
+                    "partial_pnl_usd": round(trade.partial_pnl_usd, 2),
+                    "partial_exit_price": trade.partial_exit_price_applied,
+                    "partial_exit_timestamp": str(trade.partial_exit_timestamp_applied),
                 }
             )
         self.closed_trades_log.append(log_entry)
@@ -616,10 +688,11 @@ def run_simulation(
         i = j
 
         exits = [e for e in group if e.event_type == EVENT_TYPE_EXIT]
+        partials = [e for e in group if e.event_type == EVENT_TYPE_PARTIAL]
         entries = [e for e in group if e.event_type == EVENT_TYPE_ENTRY]
         rng.shuffle(entries)
 
-        for event in exits + entries:
+        for event in exits + partials + entries:
             sym = event.symbol
             if sym not in symbol_contract_size:
                 raise ValueError(f"No broker spec loaded for symbol: {sym}")
@@ -632,6 +705,9 @@ def run_simulation(
 
                 for state in states.values():
                     state.process_entry(event, usd_per_pu, cs, usd_source=usd_src)
+            elif event.event_type == EVENT_TYPE_PARTIAL:
+                for state in states.values():
+                    state.process_partial(event)
             elif event.event_type == EVENT_TYPE_EXIT:
                 for state in states.values():
                     state.process_exit(event)

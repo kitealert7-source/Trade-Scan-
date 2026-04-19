@@ -17,7 +17,14 @@ def load_canonical_artifacts(prefix: str, profile: str, project_root: Path):
     # Load trades
     tr_df = pd.read_csv(deploy_dir / "deployable_trade_log.csv")
     validate_trade_df(tr_df)
-    
+
+    # Partial-aware totalization: if partial legs are present, pnl_usd in the raw
+    # log carries ONLY the final leg. Merge partial_pnl_usd in so every downstream
+    # consumer (MC, tail, bootstrap, temporal, symbol) sees the full trade PnL.
+    # When the column is absent (pre-v1.5.7 runs), this is a no-op.
+    if "partial_pnl_usd" in tr_df.columns:
+        tr_df["pnl_usd"] = tr_df["pnl_usd"].fillna(0) + tr_df["partial_pnl_usd"].fillna(0)
+
     # Parse timestamps computationally once
     tr_df["entry_timestamp"] = pd.to_datetime(tr_df["entry_timestamp"])
     tr_df["exit_timestamp"] = pd.to_datetime(tr_df["exit_timestamp"])
