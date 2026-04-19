@@ -4,7 +4,7 @@
 - WARNING: 18 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 6 uncommitted
 
-> Generated: 2026-04-19T17:43:07Z
+> Generated: 2026-04-19T17:58:20Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -44,7 +44,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 6 uncommitted
-- Last commit: `ee55d91 Capability-driven engine resolver + inference + catalog (baseline + hardening)`
+- Last commit: `62eae8f Phase 2: backfill REQUIRED_CAPABILITIES across strategies`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
