@@ -40,7 +40,7 @@ ROOT         = Path(__file__).resolve().parent.parent
 RM           = ROOT / "RESEARCH_MEMORY.md"
 ARC          = ROOT / "RESEARCH_MEMORY_ARCHIVE.md"
 
-ARCHIVE_BEFORE   = "2026-04-07"   # strict less-than; entries before this date → archive
+ARCHIVE_BEFORE   = "2026-04-14"   # strict less-than; entries before this date → archive
 SIZE_LIMIT_LINES = 600
 SIZE_LIMIT_KB    = 40
 
