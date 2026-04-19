@@ -1,0 +1,28 @@
+# Capability catalog — single source of truth for legal capability tokens
+# consumed by tools/capability_inference.py and tools/engine_resolver.py.
+#
+# Each entry declares:
+#   ast_trigger    : method name whose presence in strategy.py infers this
+#                    token. Special value "always" means baseline (inferred
+#                    for every strategy, regardless of source).
+#   compatible_with: explicit list of capability tokens that an engine
+#                    declaring *this* token also satisfies. EXPLICIT only —
+#                    resolver never applies transitive or implicit
+#                    compatibility.
+#
+# Token format is strict: <domain>.<feature>.v<N>. A new major revision
+# (e.g. execution.partial_exit.v2) is a DISTINCT token from v1 and requires
+# its own entry.
+
+capabilities:
+  execution.entry.v1:
+    ast_trigger: always
+    compatible_with: []
+
+  execution.exit.v1:
+    ast_trigger: always
+    compatible_with: []
+
+  execution.partial_exit.v1:
+    ast_trigger: check_partial_exit
+    compatible_with: []

@@ -1,9 +1,10 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 5 commits not pushed to origin
+## SESSION STATUS: WARNING
+- WARNING: 18 symbol(s) stale (>3 days behind)
+- WARNING: Working tree 6 uncommitted
 
-> Generated: 2026-04-19T16:12:08Z
+> Generated: 2026-04-19T17:43:07Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,15 +13,13 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 187 directives
+- Completed: 127 directives
 
 ## Ledgers
 
-- **Master Filter:** 735 rows
+- **Master Filter:** ERROR — No module named 'tools'
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
-  - **Portfolios:** 104 rows — CORE: 4, FAIL: 96, PROFILE_UNRESOLVED: 1, WATCH: 3
-  - **Single-Asset Composites:** 63 rows — CORE: 9, FAIL: 47, PROFILE_UNRESOLVED: 1, WATCH: 6
 
 - **Candidates (FPS):** 407 rows — BURN_IN: 15, CORE: 12, FAIL: 270, RBIN: 11, RESERVE: 21, WATCH: 78
 
@@ -29,7 +28,7 @@
 - BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260418T181517Z_9320 | bars=22
+- **Process:** RUNNING | run_id=20260418T181517Z_9320 | bars=23
 - **Shadow trades:** 0 active | **Signals (7d):** 16 entry, 6 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -40,12 +39,12 @@
 - Latest bar: **2026-04-19** | Symbols: 242 | **Stale (>3d): 18**
 
 ## Artifacts
-- Run directories: 958
+- Run directories: 903
 
 ## Git Sync
-- Remote: **5 commits ahead of origin**
-- Working tree: 156 uncommitted
-- Last commit: `1f5c094 Compact RESEARCH_MEMORY: advance archive threshold to 2026-04-14`
+- Remote: IN SYNC
+- Working tree: 6 uncommitted
+- Last commit: `ee55d91 Capability-driven engine resolver + inference + catalog (baseline + hardening)`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
