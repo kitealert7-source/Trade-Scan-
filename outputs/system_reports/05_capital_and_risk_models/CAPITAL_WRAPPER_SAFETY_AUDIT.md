@@ -1,7 +1,12 @@
 # Capital Wrapper Safety Audit
-## Changes Applied 2026-03-11 — Universal Research Engine v1.5.3
+## Changes Applied 2026-03-11 — Universal Research Engine v1.5.3 *(HISTORICAL engine label)*
 ## Updated 2026-04-03 — MT5 Static Valuation + Leverage Calibration
 ## Updated 2026-04-16 — v3.0 Retail Amateur Model (institutional profiles retired)
+
+> **[ENGINE-VERSION NOTE — 2026-04-17]** The current canonical engine is **v1.5.6 (FROZEN)**.
+> In-text references to v1.5.3 / v1.5.4 below reflect the engine version at the time each
+> update was written and are retained verbatim for audit traceability. The capital-wrapper
+> safety fixes and the v3.0 Retail Amateur Model content remain current.
 
 **Audit Date:** 2026-03-11 (original) | 2026-04-03 (valuation + calibration) | 2026-04-16 (retail retirement)
 **Scope:** tools/capital_wrapper.py + tools/capital_engine/simulation.py + execution_engine/ + data_access/broker_specs/
@@ -483,3 +488,84 @@ Full data tables: see `CAPITAL_SIZING_AUDIT.md` Sections 10-11.
 ---
 
 *Generated: 2026-03-11 | Updated: 2026-04-03 | Engine: Universal_Research_Engine v1.5.4*
+
+---
+
+## 2026-04-19 Update — Partial-Aware Event Model (engine v1.5.7 EXPERIMENTAL)
+
+Engine v1.5.7 emits `results_partial_legs.csv` alongside `results_tradelevel.csv`.
+The capital wrapper now consumes both through a unified event queue. No schema
+change at the directive or strategy layer; the engine contract is additive.
+
+### Event Model
+
+`tools/capital_engine/simulation.py` defines three event types with deterministic
+tie-breaking when timestamps collide:
+
+| Priority | Type               | Constant                | Effect on state |
+|----------|--------------------|-------------------------|-----------------|
+| 0        | `EXIT`             | `EVENT_TYPE_EXIT`       | Closes remainder of `OpenTrade`; releases capital + slot |
+| 1        | `PARTIAL`          | `EVENT_TYPE_PARTIAL`    | Books leg PnL; updates `partial_fraction_closed`; **no capital or slot release** |
+| 2        | `ENTRY`            | `EVENT_TYPE_ENTRY`      | Allocates capital + slot; opens `OpenTrade` |
+
+Ordering rule: `EXIT < PARTIAL < ENTRY`. On same-timestamp collisions, exits
+free capacity before partials or new entries consume it. Partials resolve
+before the concurrent new entry sees the book, preserving leverage/slot gates.
+
+### Capital Rule (partial does NOT free capital)
+
+`process_partial()` books `partial_pnl_usd` into realized PnL and equity but
+leaves the `OpenTrade` on the book with its original allocated capital and
+slot. Size-for-risk remains anchored to the **full initial position** until
+the final exit. This is a deliberate choice: partials in this pipeline
+represent de-risking on an existing trade, not scaling out to reuse capacity.
+Treating a partial as a capital release would let the portfolio oversize
+relative to the actual risk the trade carried at entry time.
+
+Hard asserts inside `process_partial()`:
+- `0 < partial_fraction < 1`
+- `entry_ts <= partial_ts <= exit_ts`
+- `partial_fraction_closed + f <= 1.0` (no double-closing)
+
+### Conservation Check
+
+`_assert_partial_conservation()` runs once per profile after simulation:
+
+```
+sum(pnl_usd + partial_pnl_usd over all closed trades) == state.realized_pnl
+```
+
+Fails fast on any drift beyond tolerance. Tolerance is count-aware:
+`max(TOL_ABS, TOL_REL * |realized|, 0.005 * (n_rows + n_partial))`.
+The per-row rounding budget (0.005 USD) covers the round-to-2dp applied to
+`pnl_usd` in `log_entry` against raw accumulation in `realized_pnl`; without
+it, a 1000-trade run accumulates ~0.05 USD drift and false-positives the
+guard. The absolute/relative floors catch real accounting errors.
+
+### Artifact Schema (conditional)
+
+`deployable_trade_log.csv` adds four columns **only when** any partial leg
+exists for that strategy-profile pair:
+
+- `partial_fraction`
+- `partial_pnl_usd`
+- `partial_exit_price`
+- `partial_exit_timestamp`
+
+Pre-v1.5.7 (no partials) strategies keep the original schema byte-identical.
+S21 regression test confirms byte-identical `deployable_trade_log.csv` +
+`equity_curve.csv` against the frozen v1.5.6 baseline.
+
+### Downstream Consumer Fix
+
+`tools/robustness/loader.py` merges `partial_pnl_usd` into `pnl_usd` at load
+time when the column is present, so MC, bootstrap, tail, temporal, and
+symbol-isolation analyses see the **full per-trade PnL**. No-op on pre-v1.5.7
+runs. Without this merge, raw `pnl_usd` holds only the final leg and MC
+under-counts realized PnL by the cumulative partial-leg total.
+
+### Engine Status
+
+v1.5.7 is **EXPERIMENTAL**. Canonical engine remains **v1.5.6 FROZEN**.
+v1.5.7 is opt-in via `ENGINE_VERSION_OVERRIDE=v1_5_7`. Do not promote
+without a separate EXPERIMENTAL → FROZEN review.
