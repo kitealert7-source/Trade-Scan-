@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "entry_interface": {
+    "function": "check_entry",
+    "returns": {
+      "required_keys": [
+        "signal",
+        "entry_price",
+        "stop_price"
+      ],
+      "optional_keys": [
+        "tp_price",
+        "entry_reason"
+      ]
+    }
+  },
+  "exit_interface": {
+    "function": "check_exit",
+    "returns": {
+      "required_keys": [
+        "exit_signal"
+      ],
+      "optional_keys": [
+        "exit_price",
+        "exit_reason"
+      ]
+    }
+  },
+  "partial_exit_interface": null,
+  "data_contract": {
+    "price_fields": [
+      "entry_price",
+      "exit_price",
+      "stop_price",
+      "tp_price"
+    ]
+  }
+}
