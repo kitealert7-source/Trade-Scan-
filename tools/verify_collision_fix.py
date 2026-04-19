@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import tools.capital_wrapper as cw
+from config.state_paths import BACKTESTS_DIR
 
 
 def run_old(sorted_events, broker_specs, conv_lookup):
@@ -67,7 +68,7 @@ def sym_stats(states):
 def main():
     strategy = "01_MR_FX_1H_ULTC_REGFILT_S08_V1_P00"
     run_dirs = sorted(
-        [d for d in Path("backtests").iterdir() if d.is_dir() and d.name.startswith(strategy)]
+        [d for d in BACKTESTS_DIR.iterdir() if d.is_dir() and d.name.startswith(strategy)]
     )
     symbols = sorted(set(d.name.split("_")[-1] for d in run_dirs))
     broker_specs = {s: cw.load_broker_spec(s) for s in symbols}

@@ -88,20 +88,24 @@ class TestCapitalWrapperEvents(unittest.TestCase):
         states_dynamic_2 = run_simulation(sorted_events, broker_specs, conv_lookup=conv)
 
         # 1. EURUSD: static == dynamic (USD quote, rate = 1.0)
-        con_s = states_static["CONSERVATIVE_V1"]
-        con_d = states_dynamic["CONSERVATIVE_V1"]
+        con_s = states_static["FIXED_USD_V1"]
+        con_d = states_dynamic["FIXED_USD_V1"]
         eurusd_static_lots = [t["lot_size"] for t in con_s.closed_trades_log if "EURUSD" in t["trade_id"]]
         eurusd_dynamic_lots = [t["lot_size"] for t in con_d.closed_trades_log if "EURUSD" in t["trade_id"]]
         if eurusd_static_lots and eurusd_dynamic_lots:
             for a, b in zip(eurusd_static_lots, eurusd_dynamic_lots):
                 self.assertAlmostEqual(a, b, places=8)
 
-        # 2. USDJPY: dynamic should differ from static because rate varies
-        usdjpy_static_lots = [t["lot_size"] for t in con_s.closed_trades_log if "USDJPY" in t["trade_id"]]
-        usdjpy_dynamic_lots = [t["lot_size"] for t in con_d.closed_trades_log if "USDJPY" in t["trade_id"]]
-        if usdjpy_static_lots and usdjpy_dynamic_lots:
-            differs = any(abs(a - b) > 1e-8 for a, b in zip(usdjpy_static_lots, usdjpy_dynamic_lots))
-            self.assertTrue(differs, "USDJPY sizing should vary by date")
+        # 2. Static-vs-dynamic USDJPY parity. The conv_lookup argument was
+        # DEPRECATED in the 2026-04-03 calibration (simulation.py:636 marks it
+        # "ignored, kept for API compat") — both runs now resolve through the
+        # same static-only valuation path. The test asserts the unification:
+        # a conv_lookup supplied at the API boundary must not alter portfolio
+        # output. If this ever differs, the deprecation was silently undone.
+        for t_s, t_d in zip(con_s.closed_trades_log, con_d.closed_trades_log):
+            self.assertEqual(t_s["trade_id"], t_d["trade_id"])
+            self.assertAlmostEqual(t_s["lot_size"], t_d["lot_size"], places=8)
+            self.assertAlmostEqual(t_s["pnl_usd"], t_d["pnl_usd"], places=6)
 
         # 4. Invariants
         for label, states in [("STATIC", states_static), ("DYNAMIC", states_dynamic)]:
