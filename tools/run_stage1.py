@@ -415,15 +415,44 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
     except ModuleNotFoundError:
          print(f"    [WARN] Dynamic emitter resolution failed for {module_path}. Using fallback.")
          from engine_dev.universal_research_engine.v1_5_6.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
+         PartialLegRecord = None
     else:
         emit_stage1 = emitter_mod.emit_stage1
         RawTradeRecord = emitter_mod.RawTradeRecord
         Stage1Metadata = emitter_mod.Stage1Metadata
-    
+        PartialLegRecord = getattr(emitter_mod, "PartialLegRecord", None)
+
+    # Detect which fields the emitter's RawTradeRecord supports. v1.5.7 adds
+    # has_partial/partial_fraction/partial_exit_r; v1.5.6 lacks them. Gate kwargs
+    # so no-hook strategies running on the v1.5.6 emitter remain byte-identical.
+    from dataclasses import fields as _dc_fields
+    _raw_record_fields = {f.name for f in _dc_fields(RawTradeRecord)}
+    _emitter_supports_partials = (
+        PartialLegRecord is not None
+        and "has_partial" in _raw_record_fields
+    )
+
+    # Fail-fast guard: partials in engine output require the v1.5.7 emitter.
+    # Without this, partial_leg would be silently dropped under the v1.5.6
+    # emitter and the strategy would ship composite-PnL as final-leg only.
+    _partials_emitted = any(
+        isinstance(t, dict) and t.get("partial_leg") is not None
+        for t in trades
+    )
+    if _partials_emitted and not _emitter_supports_partials:
+        raise RuntimeError(
+            f"[STAGE1 GUARD] Partial exits detected in engine output but active "
+            f"engine (v{engine_ver}) does not support partial-aware emission. "
+            f"Silent downgrade would drop the partial-leg audit and ship "
+            f"composite-PnL as final-leg only. "
+            f"Re-run with ENGINE_VERSION_OVERRIDE=v1_5_7."
+        )
+
     contract_size = float(broker_spec["contract_size"])
     min_lot = float(broker_spec["min_lot"])
-    
+
     raw_trades = []
+    partial_legs_list = []
     for i, t in enumerate(trades):
         entry = t['entry_price']
         exit_p = t['exit_price']
@@ -441,18 +470,56 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         units = size_lots * contract_size
         # --- PnL Calculation (Currency Aware) ---
         base_ccy, quote_ccy = parse_symbol_properties(symbol)
-        
-        # Raw PnL in Quote Currency
-        raw_pnl_quote = (exit_p - entry) * direction * units
-        
+
+        # v1.5.7 partial-exit composite PnL. When the engine fires a partial on
+        # this trade, it attaches a `partial_leg` sub-dict. Option A sidecar
+        # architecture: main CSV pnl_usd is the composite (partial + remainder);
+        # per-leg detail goes to results_partial_legs.csv.
+        #
+        # Invariants enforced here:
+        #  - Executed fraction comes from engine, not strategy config.
+        #  - Leg USD is computed with per-leg exit timestamp FX rate. No reuse.
+        #  - R composite is leg-first (never USD -> R back-conversion).
+        partial_leg = t.get("partial_leg") if isinstance(t, dict) else None
+        has_partial = partial_leg is not None
+        executed_partial_fraction = float(partial_leg["fraction"]) if has_partial else 0.0
+        partial_exit_r_val = float(partial_leg["unrealized_r"]) if has_partial else 0.0
+
         try:
-            pnl_usd = normalize_pnl_to_usd(
-                raw_pnl_quote=raw_pnl_quote,
-                base_ccy=base_ccy,
-                quote_ccy=quote_ccy,
-                exit_price=exit_p,
-                timestamp=pd.Timestamp(t['exit_timestamp']) # Ensure Timestamp type
-            )
+            if has_partial:
+                partial_units = units * executed_partial_fraction
+                remainder_units = units * (1.0 - executed_partial_fraction)
+                partial_exit_price = float(partial_leg["exit_price"])
+                partial_exit_ts = pd.Timestamp(partial_leg["exit_timestamp"])
+
+                raw_pnl_quote_partial = (partial_exit_price - entry) * direction * partial_units
+                pnl_usd_partial = normalize_pnl_to_usd(
+                    raw_pnl_quote=raw_pnl_quote_partial,
+                    base_ccy=base_ccy,
+                    quote_ccy=quote_ccy,
+                    exit_price=partial_exit_price,
+                    timestamp=partial_exit_ts,
+                )
+
+                raw_pnl_quote_remainder = (exit_p - entry) * direction * remainder_units
+                pnl_usd_remainder = normalize_pnl_to_usd(
+                    raw_pnl_quote=raw_pnl_quote_remainder,
+                    base_ccy=base_ccy,
+                    quote_ccy=quote_ccy,
+                    exit_price=exit_p,
+                    timestamp=pd.Timestamp(t['exit_timestamp']),
+                )
+
+                pnl_usd = pnl_usd_partial + pnl_usd_remainder
+            else:
+                raw_pnl_quote = (exit_p - entry) * direction * units
+                pnl_usd = normalize_pnl_to_usd(
+                    raw_pnl_quote=raw_pnl_quote,
+                    base_ccy=base_ccy,
+                    quote_ccy=quote_ccy,
+                    exit_price=exit_p,
+                    timestamp=pd.Timestamp(t['exit_timestamp']) # Ensure Timestamp type
+                )
         except ValueError as e:
             # Propagate error with context
             raise ValueError(f"[PnL Fail] Trade {i+1} on {symbol}: {e}")
@@ -547,10 +614,19 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         risk_distance = t.get('risk_distance')
 
         if risk_distance and risk_distance > 0:
-            pnl_price = (exit_p - entry) * direction
-            r_multiple = pnl_price / risk_distance
             mfe_r = mfe_price / risk_distance
             mae_r = mae_price / risk_distance
+            if has_partial:
+                # Leg-first composite R. Never back-convert USD -> R:
+                # cross-pair FX skew would contaminate the R-multiple.
+                remainder_r_leg = (exit_p - entry) * direction / risk_distance
+                r_multiple = (
+                    executed_partial_fraction * partial_exit_r_val
+                    + (1.0 - executed_partial_fraction) * remainder_r_leg
+                )
+            else:
+                pnl_price = (exit_p - entry) * direction
+                r_multiple = pnl_price / risk_distance
         else:
             r_multiple = None
             mfe_r = None
@@ -563,8 +639,9 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             vol_map = {-1: 'low', 0: 'normal', 1: 'high'}
             vol = vol_map.get(raw, 'unknown')
 
-        raw_trades.append(RawTradeRecord(
-            strategy_name=f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}",
+        _strategy_name_full = f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}"
+        _record_kwargs = dict(
+            strategy_name=_strategy_name_full,
             parent_trade_id=i + 1,
             sequence_index=i,
             entry_timestamp=str(t['entry_timestamp']),
@@ -609,8 +686,44 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             # v1.5.6 exec-TF clock probe
             regime_age_exec_signal=_regime_age_exec_signal,
             regime_age_exec_fill=_regime_age_exec_fill,
-        ))
-    
+        )
+        # v1.5.7 partial-exit main-row markers (only passed if emitter supports).
+        if _emitter_supports_partials:
+            _record_kwargs["has_partial"] = bool(has_partial)
+            _record_kwargs["partial_fraction"] = round(executed_partial_fraction, 6)
+            _record_kwargs["partial_exit_r"] = round(partial_exit_r_val, 6)
+
+        raw_trades.append(RawTradeRecord(**_record_kwargs))
+
+        # Sidecar PartialLegRecord — only when emitter supports it AND this trade
+        # actually took a partial. All audit fields (entry_timestamp, entry_price,
+        # initial_stop_price, risk_distance) are duplicated from the main row so
+        # conservation tests can detect cross-file mutation.
+        if _emitter_supports_partials and has_partial:
+            partial_legs_list.append(PartialLegRecord(
+                strategy_name=_strategy_name_full,
+                parent_trade_id=i + 1,
+                symbol=symbol,
+                direction=direction,
+                entry_timestamp=str(t['entry_timestamp']),
+                entry_price=entry,
+                initial_stop_price=t.get('initial_stop_price'),
+                risk_distance=t.get('risk_distance'),
+                partial_exit_timestamp=str(partial_leg["exit_timestamp"]),
+                partial_exit_price=float(partial_leg["exit_price"]),
+                partial_fraction=round(executed_partial_fraction, 6),
+                partial_bars_held=int(partial_leg.get("bars_held", 0)),
+                partial_unrealized_r=round(partial_exit_r_val, 6),
+                partial_pnl_usd=round(pnl_usd_partial, 2),
+                partial_position_units=units * executed_partial_fraction,
+                partial_trade_high_at_exit=float(partial_leg.get("trade_high", 0.0)),
+                partial_trade_low_at_exit=float(partial_leg.get("trade_low", 0.0)),
+                partial_reason=str(partial_leg.get("reason", "partial")),
+                final_exit_timestamp=str(t['exit_timestamp']),
+                final_exit_price=float(exit_p),
+            ))
+
+
     # Metadata includes Deterministic Run details
     metadata = Stage1Metadata(
         run_id=run_id,
@@ -640,7 +753,15 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
     # Directive filename for backup: {DIRECTIVE}_{SYMBOL}.txt
     out_name = f"{DIRECTIVE_FILENAME.replace('.txt', '')}_{symbol}.txt"
     
-    out_folder = emit_stage1(raw_trades, metadata, directive_content, out_name, output_root, median_bar_seconds)
+    # v1.5.7+ emitter accepts a `partial_legs` kwarg for sidecar emission.
+    # Pass only when supported; older emitters reject unknown kwargs.
+    if _emitter_supports_partials:
+        out_folder = emit_stage1(
+            raw_trades, metadata, directive_content, out_name, output_root,
+            median_bar_seconds, partial_legs=partial_legs_list,
+        )
+    else:
+        out_folder = emit_stage1(raw_trades, metadata, directive_content, out_name, output_root, median_bar_seconds)
     
     # Consolidate directly into `runs/<run_id>/data/` to match unified architecture
     final_data_dir = RUNS_DIR / run_id / "data"
@@ -789,25 +910,41 @@ def main():
     if "End Date" in parsed_config: END_DATE = parsed_config["End Date"]
     elif "end_date" in parsed_config: END_DATE = parsed_config["end_date"]
     
-    # --- WARM-UP EXTENSION PROVISION ---
+    # --- WARM-UP EXTENSION PROVISION (time-aware, invariant #8) ---
     # Resolve per-strategy warmup bars from the indicator registry BEFORE data loading.
-    # This ensures the data window is extended backward from start_date by exactly
-    # the number of bars required to fully initialize all strategy indicators.
+    # Warmup is computed as a TIME DURATION across the full indicator stack
+    # (including HTF indicators which are declared in their own TF). The resolver
+    # returns a base-TF bar count = ceil(max_warmup_minutes / base_tf_minutes).
+    #
+    # base_tf_minutes is extracted from the directive config (Timeframe field) ONLY.
+    # If missing or unparseable, the run aborts — silent under-sizing of HTF warmup
+    # would be a correctness bug.
     global RESOLVED_WARMUP_BARS
+    from engines.utils.timeframe import parse_freq_to_minutes
+    try:
+        _base_tf_min = parse_freq_to_minutes(str(TIMEFRAME))
+    except Exception as _tf_err:
+        print(f"[FATAL] WARMUP: cannot parse directive Timeframe {TIMEFRAME!r}: {_tf_err}. "
+              "Refusing to execute.")
+        return
     try:
         strategy_id_for_warmup = parsed_config.get("Strategy", parsed_config.get("strategy"))
         if strategy_id_for_warmup:
             _early_strategy = load_strategy(strategy_id_for_warmup, run_id=None)
             from engines.indicator_warmup_resolver import extract_indicators_from_strategy, resolve_strategy_warmup
             _indicator_list = extract_indicators_from_strategy(_early_strategy)
-            _resolved = resolve_strategy_warmup(_indicator_list)
+            _resolved = resolve_strategy_warmup(_indicator_list, base_tf_minutes=_base_tf_min)
             RESOLVED_WARMUP_BARS = max(_resolved, 50)  # Safety floor of 50 bars
             print(f"[WARMUP] Per-strategy warmup resolved: {RESOLVED_WARMUP_BARS} bars "
-                  f"(will be prepended before {START_DATE})")
+                  f"(base_tf={_base_tf_min}m; will be prepended before {START_DATE})")
+    except ValueError as _wu_err:
+        # Fail-fast on resolver-side invariant violations (HTF without base_tf, etc.)
+        print(f"[FATAL] WARMUP: resolver invariant violation: {_wu_err}. Refusing to execute.")
+        return
     except Exception as _wu_err:
         print(f"[WARMUP] Could not resolve per-strategy warmup, using default 250: {_wu_err}")
         RESOLVED_WARMUP_BARS = 250
-    # ------------------------------------
+    # -----------------------------------------------------------
 
     # --- INVARIANT: WARMUP RESOLUTION MUST NOT SILENTLY FAIL ---
     # Hard-fail if warmup is nonsensical. A value of 0 or negative means

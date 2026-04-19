@@ -43,6 +43,15 @@ import hashlib
 import re
 from pathlib import Path
 
+# --- ENCODING BOOTSTRAP ---
+# Ensures UTF-8 I/O across the process and all spawned subprocesses.
+# Must run before any subprocess calls or print statements.
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -571,12 +580,52 @@ def map_pipeline_error(err):
     print(f"[ORCHESTRATOR] Unhandled Error: {err}")
     return 1
 
+def _announce_run_engine(directive_id: str) -> None:
+    """Print the resolved engine version + an early warning when a strategy
+    defines check_partial_exit but the engine pin is not v1.5.7.
+
+    Stage1 has a hard guard (tools/run_stage1.py) that fail-fasts if partial
+    legs make it out of the engine under a non-partial emitter. This helper
+    is the softer upstream counterpart: it fires before any stage runs, so
+    operators see the mismatch immediately rather than deep into Stage1.
+    """
+    import os
+    from tools.pipeline_utils import get_engine_version
+    try:
+        engine_ver = get_engine_version()
+    except Exception as exc:
+        print(f"[ENGINE] Version lookup failed: {exc}")
+        return
+
+    override = os.environ.get("ENGINE_VERSION_OVERRIDE", "").strip()
+    label = f"v{engine_ver}" + (" (EXPERIMENTAL)" if engine_ver == "1.5.7" else "")
+    suffix = f"  [override={override}]" if override else ""
+    print(f"[ENGINE] Running {directive_id} on engine {label}{suffix}")
+
+    # Authority copy lives in PROJECT_ROOT/strategies (not STRATEGIES_DIR which
+    # resolves to TradeScan_State and holds only deployable/ref artifacts).
+    strat_py = PROJECT_ROOT / "strategies" / directive_id / "strategy.py"
+    if not strat_py.exists():
+        return
+    try:
+        source = strat_py.read_text(encoding="utf-8")
+    except Exception:
+        return
+    if "def check_partial_exit" in source and engine_ver != "1.5.7":
+        print(
+            f"[WARN] Strategy {directive_id} defines check_partial_exit but "
+            f"engine is v{engine_ver} (not v1.5.7). Partial legs will be "
+            f"blocked by the Stage1 fail-fast guard. "
+            f"Re-run with ENGINE_VERSION_OVERRIDE=v1_5_7 to enable partials."
+        )
+
+
 def run_single_directive(directive_id, provision_only=False):
     """Execution logic for a single directive."""
     ctx = None
     # 1.1 Uniqueness Check
     verify_directive_uniqueness_guard(directive_id)
-    
+
     # 1.2 Bootstrap
     bootstrap = BootstrapController(PROJECT_ROOT)
 
@@ -589,6 +638,8 @@ def run_single_directive(directive_id, provision_only=False):
         if "already COMPLETE" in str(e):
             return  # Clean exit if already done
         raise
+
+    _announce_run_engine(directive_id)
 
     try:
         # StageRunner iterates STAGE_REGISTRY, skipping completed_stages on resume.
@@ -704,23 +755,10 @@ def run_batch_mode(provision_only=False):
 
     print(f"[BATCH] Found {len(directives)} directives: {[d.name for d in directives]}")
 
-    # --- SEQUENTIAL EXECUTION GATE (Invariant #26) ---
-    if len(directives) > 1:
-        ids = [d.stem for d in directives]
-        msg = (
-            f"\n{'='*60}\n"
-            f"SEQUENTIAL_EXECUTION_VIOLATION\n"
-            f"Multiple directives detected in INBOX: {ids}\n"
-            f"Only 1 directive is permitted at a time.\n"
-            f"Run one directive to PORTFOLIO_COMPLETE before submitting the next.\n"
-            f"{'='*60}"
-        )
-        print(msg)
-        raise PipelineExecutionError(
-            "SEQUENTIAL_EXECUTION_VIOLATION",
-            directive_id="BATCH",
-        )
-    # --------------------------------------------------
+    # Invariant #26 — Sequential Execution: multiple directives in INBOX are
+    # permitted, but MUST be processed strictly sequentially with a cooldown
+    # between runs. The Phase-2 loop below enforces this (one directive at a
+    # time, 15s cooldown between iterations). No parallelism anywhere.
 
     # --- ACTIVE Bypass Guard ---
     try:
@@ -756,8 +794,19 @@ def run_batch_mode(provision_only=False):
 
     # --- PHASE 2: EXECUTION (sequential — Invariant #26) ---
     # Direct loop — ProcessPoolExecutor(1) was pure overhead (subprocess spawn
-    # + IPC for zero parallelism). Fail-fast on first error.
-    for d_id in admitted:
+    # + IPC for zero parallelism). Fail-fast on first error. A 15s cooldown
+    # between directives (Invariant #26) gives ledger writers, Excel file
+    # handles, and sweep-registry flushes time to settle before the next run.
+    import time as _time
+
+    INTER_DIRECTIVE_COOLDOWN_SECONDS = 15
+    for idx, d_id in enumerate(admitted):
+        if idx > 0:
+            print(
+                f"[BATCH] Cooldown: sleeping {INTER_DIRECTIVE_COOLDOWN_SECONDS}s "
+                f"before next directive (Invariant #26)..."
+            )
+            _time.sleep(INTER_DIRECTIVE_COOLDOWN_SECONDS)
         try:
             run_single_directive(d_id, provision_only)
             print(f"[BATCH] Completed: {d_id}")
