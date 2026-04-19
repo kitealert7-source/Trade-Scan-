@@ -143,3 +143,13 @@ class Strategy:
 
     def check_exit(self, ctx):
         return False
+
+# --- CAPABILITY REQUIREMENTS START ---
+REQUIRED_CAPABILITIES = [
+    "execution.entry.v1",
+    "execution.exit.v1",
+]
+REQUIRED_CONTRACT_IDS = [
+    "sha256:82a5f54c003c069ba4a45053f0c0d3780b8de5ebcb29a9f149b5570e92de88c1",
+]
+# --- CAPABILITY REQUIREMENTS END ---

@@ -620,15 +620,15 @@ def run_preflight(
                 _decl_caps, _decl_contracts = read_declared_fields(_strat_py_cap)
                 if _decl_caps is None:
                     return ("BLOCK_EXECUTION",
-                            f"[F1] STRATEGY_SIGNATURE.required_capabilities missing "
-                            f"for {_strategy_name}", None)
+                            f"[F1] REQUIRED_CAPABILITIES module constant missing "
+                            f"in strategy.py for {_strategy_name}", None)
                 if _decl_contracts is None:
                     return ("BLOCK_EXECUTION",
-                            f"[F2] STRATEGY_SIGNATURE.required_contract_ids missing "
-                            f"for {_strategy_name}", None)
+                            f"[F2] REQUIRED_CONTRACT_IDS module constant missing "
+                            f"in strategy.py for {_strategy_name}", None)
                 if not _decl_caps or not _decl_contracts:
                     return ("BLOCK_EXECUTION",
-                            f"[F3] required_capabilities or required_contract_ids "
+                            f"[F3] REQUIRED_CAPABILITIES or REQUIRED_CONTRACT_IDS "
                             f"is empty for {_strategy_name}", None)
 
                 _inferred = infer_capabilities(_strat_py_cap)

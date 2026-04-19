@@ -69,30 +69,37 @@ def infer_capabilities(strategy_path: Path) -> set:
 
 def read_declared_fields(strategy_path: Path) -> tuple:
     """
-    Extract (required_capabilities, required_contract_ids) from the
-    STRATEGY_SIGNATURE dict embedded in strategy.py, using ast.literal_eval.
+    Extract (REQUIRED_CAPABILITIES, REQUIRED_CONTRACT_IDS) from module-
+    level assignments in strategy.py, using ast.literal_eval.
+
+    These live OUTSIDE STRATEGY_SIGNATURE so that adding them does not
+    perturb the strategy↔directive signature hash (CHECK 6.7). They
+    describe the strategy↔engine binding, not the trading identity.
 
     Returns (value, value) where each value is a list or None. None
-    signals the key is absent from the signature (distinguishing F1/F2
-    from F3-empty-list at preflight). Returns (None, None) if the
-    signature itself cannot be located or parsed.
+    signals the constant is absent entirely (distinguishing F1/F2 from
+    F3-empty-list at preflight).
     """
     source = strategy_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
+    caps = None
+    contracts = None
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
             continue
         if not node.targets or not isinstance(node.targets[0], ast.Name):
             continue
-        if node.targets[0].id != "STRATEGY_SIGNATURE":
-            continue
-        if not isinstance(node.value, ast.Dict):
+        target = node.targets[0].id
+        if target not in ("REQUIRED_CAPABILITIES", "REQUIRED_CONTRACT_IDS"):
             continue
         try:
-            sig = ast.literal_eval(node.value)
+            value = ast.literal_eval(node.value)
         except (ValueError, SyntaxError):
-            return None, None
-        return sig.get("required_capabilities"), sig.get("required_contract_ids")
+            continue
+        if target == "REQUIRED_CAPABILITIES":
+            caps = value
+        else:
+            contracts = value
 
-    return None, None
+    return caps, contracts
