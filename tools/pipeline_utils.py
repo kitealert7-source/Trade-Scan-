@@ -248,6 +248,33 @@ def get_engine_version(engine_path=None):
 
     return module.__version__
 
+
+def resolve_engine_version_from_directive(directive: dict, default: str = "1.5.6") -> str:
+    """Extract the engine version a directive targets.
+
+    Reads `directive["test"]["engine_version"]`. Accepts any of:
+        "v1_5_7"   -> "1.5.7"
+        "v1.5.7"   -> "1.5.7"
+        "1.5.7"    -> "1.5.7"
+        "1_5_7"    -> "1.5.7"
+    Returns `default` when the field is absent (pre-v1.5.7 directives default
+    to the runtime engine).
+    """
+    if not isinstance(directive, dict):
+        return default
+    test_block = directive.get("test") or {}
+    raw = test_block.get("engine_version") if isinstance(test_block, dict) else None
+    if raw is None:
+        return default
+    s = str(raw).strip()
+    if not s:
+        return default
+    if s[0].lower() == "v":
+        s = s[1:]
+    s = s.replace("_", ".")
+    return s
+
+
 def generate_run_id(directive_path: Path, symbol: str, attempt_id: str = "attempt_01") -> tuple[str, str]:
     """
     Generate Deterministic Run ID based on Governance Rules.

@@ -580,14 +580,20 @@ def map_pipeline_error(err):
     print(f"[ORCHESTRATOR] Unhandled Error: {err}")
     return 1
 
+_PARTIAL_CAPABLE_ENGINES = {"1.5.7", "1.5.8"}
+
 def _announce_run_engine(directive_id: str) -> None:
     """Print the resolved engine version + an early warning when a strategy
-    defines check_partial_exit but the engine pin is not v1.5.7.
+    defines check_partial_exit but the engine pin is not partial-capable.
 
     Stage1 has a hard guard (tools/run_stage1.py) that fail-fasts if partial
     legs make it out of the engine under a non-partial emitter. This helper
     is the softer upstream counterpart: it fires before any stage runs, so
     operators see the mismatch immediately rather than deep into Stage1.
+
+    Partial-capable engines: v1.5.7 (EXPERIMENTAL) and v1.5.8 (FROZEN). Any
+    future engine that ships `check_partial_exit` support should be added
+    to _PARTIAL_CAPABLE_ENGINES.
     """
     import os
     from tools.pipeline_utils import get_engine_version
@@ -611,12 +617,12 @@ def _announce_run_engine(directive_id: str) -> None:
         source = strat_py.read_text(encoding="utf-8")
     except Exception:
         return
-    if "def check_partial_exit" in source and engine_ver != "1.5.7":
+    if "def check_partial_exit" in source and engine_ver not in _PARTIAL_CAPABLE_ENGINES:
         print(
             f"[WARN] Strategy {directive_id} defines check_partial_exit but "
-            f"engine is v{engine_ver} (not v1.5.7). Partial legs will be "
-            f"blocked by the Stage1 fail-fast guard. "
-            f"Re-run with ENGINE_VERSION_OVERRIDE=v1_5_7 to enable partials."
+            f"engine v{engine_ver} is not in the partial-capable set "
+            f"({sorted(_PARTIAL_CAPABLE_ENGINES)}). Partial legs will be "
+            f"blocked by the Stage1 fail-fast guard."
         )
 
 
