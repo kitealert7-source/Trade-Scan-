@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: BROKEN
-- BROKEN: 3 commits not pushed to origin
+- BROKEN: 1 commits not pushed to origin
 
-> Generated: 2026-04-20T02:53:40Z
+> Generated: 2026-04-20T02:56:29Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -41,9 +41,9 @@
 - Run directories: 903
 
 ## Git Sync
-- Remote: **3 commits ahead of origin**
+- Remote: **1 commits ahead of origin**
 - Working tree: 6 uncommitted
-- Last commit: `05bc250 strategies: re-backfill REQUIRED_CONTRACT_IDS for v1.1 contract`
+- Last commit: `ea4b821 contract: v1.2 â€” stop_price is engine-fillable, not strategy-required`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
