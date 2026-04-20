@@ -194,3 +194,18 @@ Volatility-regime filter (exclude low) on S13 triple-convergence MACDX improves 
 Partial-exit infra integrated; exits rejected as edge lever after full accounting validation.
 ---
 
+---
+2026-04-20 | Tags: 54_STR, MACDX, XAUUSD, 5M, BE, partial_exit, engine_v157, sweep, close_based_ur | Strategy: S21-style sweep variants | Engine: v1.5.7
+v1.5.7 parity PASS: no-hook S21 produces 1301 trades PF=1.182 R=170.32 — byte-identical to v1.5.6 (both baseline variants). S22 control (1532 trades, close-based UR stub) also PASS: every entry/exit timestamp and price identical across both engines. Key findings from 6-variant sweep on 20-month 5M XAUUSD data (neutral regime stub):
+
+BE-only (V1) — ZERO effect: The v1.5.7 stop_mutation hook triggers on close-based UR >= 1.0001. On volatile 5M XAUUSD, losing trades frequently wick intrabar to 1R+ but close BELOW 1R — the close-based UR never fires for these trades. SL is checked against bar_low (resolve_exit uses OHLC), so a trade that wicks to 1R intraday but closes below 1R gets SL-hit at -1R later without BE ever firing. Result: 0 trades converted from -1R to 0R in 20 months. Close-based UR is too conservative for volatile short-TF markets.
+
+Partial only (V2) — modest impact: 585/1301 trades (45%) had close >= UR 1.0001 and triggered partial at 50%. PF drops 1.182 → 1.169 (partial surrenders upside on subsequent TP hits), DD drops 39.89 → 29.33 R (−10.56R, −26%). Trade-off: slightly worse expectancy, meaningfully lower variance. Partial does activate — close-based barrier is crossed for 45% of trades even though losing trades never reach it.
+
+BE+Partial+TP off (V3) — pathological lock-in: With TP disabled and BE at entry, trades reaching 1R are trapped indefinitely (stop=entry, no TP). Result: 11 total trades over 20 months. entry_when_flat_only blocks new entries while position is open. CONFIRMED: TP-off + BE creates near-immortal positions on XAUUSD 5M; do not use without a time-exit gate.
+
+BE+Partial+TP on (V4) — identical to V2: BE adds nothing on top of partial for same reason as V1.
+
+Design implication: For BE to be effective on 5M volatile markets, either (a) use bar_high-based UR threshold (intrabar; requires engine change), or (b) lower close-based UR trigger to 0.5 to capture partial runs, or (c) use bars_held-based BE gate instead of UR. DO NOT test BE further with close-based UR >= 1.0001 on 5M assets — the effect is zero.
+---
+
