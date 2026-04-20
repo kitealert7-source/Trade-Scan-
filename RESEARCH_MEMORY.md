@@ -209,3 +209,18 @@ BE+Partial+TP on (V4) — identical to V2: BE adds nothing on top of partial for
 Design implication: For BE to be effective on 5M volatile markets, either (a) use bar_high-based UR threshold (intrabar; requires engine change), or (b) lower close-based UR trigger to 0.5 to capture partial runs, or (c) use bars_held-based BE gate instead of UR. DO NOT test BE further with close-based UR >= 1.0001 on 5M assets — the effect is zero.
 ---
 
+---
+2026-04-20 | Tags: 54_STR, MACDX, XAUUSD, 5M, BE, intrabar_ur, engine_design, CRITICAL | Strategy: S21-style baseline 1301 trades | Engine: post-hoc probe
+CRITICAL FINDING — Intrabar BE is MATERIAL on XAUUSD 5M MACDX baseline.
+
+Post-hoc probe on engine's exact 1301 trades: replaced close-based UR with bar_high (long) / bar_low (short) for BE trigger. Result: 301/933 SL exits (32.3%) convert from -1R to 0R. PF: 1.1819 -> 1.7481 (+0.5662). Total R: 170.3 -> 473.6 (+303.3R). Max DD: 39.89R -> 12.00R (-70%). Mean converted R before: -1.008R (exactly the SL level). After: 0.000R. Net gain: +303.3R across 301 trades (1.008R per conversion). The remaining 632 SL trades had intrabar UR < 1 throughout — those are genuine losers that bar_high never crossed entry+1R.
+
+Math check: 368 TP wins x ~3R + 0R x 301 BE + (-1R) x 632 genuine_SL = ~472R (~473.6 reported, consistent).
+
+Root cause: SL check uses bar_low (OHLC), but UR uses close. Trades that spike to 1R+ intrabar then close below 1R get SL-hit later — this mismatch is the asymmetry BE is solving. Intrabar UR (bar_high for longs) aligns the trigger with the actual market path, not just the close.
+
+Action required: v1.5.8 engine must expose ctx.unrealized_r_intrabar (bar_high for long, bar_low for short) alongside existing close-based ctx.unrealized_r. Strategy check_stop_mutation uses intrabar UR >= threshold to fire BE. No other engine changes. Probe is conservative (no downstream entry re-scheduling modeled) — real improvement may be higher or lower depending on position freed-up slots.
+
+Do NOT implement via close-based UR workaround (threshold lowering etc.) — the mechanism is fundamentally bar_high/bar_low. Engine change is the correct path.
+---
+
