@@ -659,6 +659,79 @@ def run_preflight(
 
                 _resolved = resolve_engine(_decl_caps, _decl_contracts)
 
+                # [F11] Runtime-shape binding: contract.json's declared
+                # required_keys for check_entry() must match _schema_sample().
+                # Without this the contract_id is just an opaque whitelist;
+                # with it, the contract becomes a real strategy<->engine
+                # surface gate. Fires BEFORE CHECK 8's dry-run import so the
+                # operator sees a discrete F-code, not a generic ImportError.
+                _contract_path = Path(_resolved["engine_path"]) / "contract.json"
+                try:
+                    with open(_contract_path, encoding="utf-8") as _cf:
+                        _contract = json.load(_cf)
+                except Exception as _ce:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] cannot read contract.json at "
+                            f"{_contract_path}: {_ce}", None)
+
+                _required_keys = set(
+                    _contract.get("entry_interface", {})
+                             .get("returns", {})
+                             .get("required_keys", []))
+                if not _required_keys:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] contract.json missing entry_interface."
+                            f"returns.required_keys: {_contract_path}", None)
+
+                import importlib.util as _ilu
+                _mod_name = f"_f11_strat_{_strategy_name}"
+                _spec = _ilu.spec_from_file_location(_mod_name, str(_strat_py_cap))
+                if _spec is None or _spec.loader is None:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] cannot load strategy.py for "
+                            f"{_strategy_name}", None)
+                _mod = _ilu.module_from_spec(_spec)
+                try:
+                    _spec.loader.exec_module(_mod)
+                except Exception as _ie:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] strategy import failed for "
+                            f"{_strategy_name}: {_ie}", None)
+                _StrategyCls = getattr(_mod, "Strategy", None)
+                if _StrategyCls is None:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] Strategy class missing in "
+                            f"{_strategy_name}", None)
+                _sample_fn = getattr(_StrategyCls, "_schema_sample", None)
+                if _sample_fn is None:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] _schema_sample() missing in "
+                            f"{_strategy_name} — required to bind contract "
+                            f"{_resolved['contract_id'][:24]}...", None)
+                try:
+                    _sample = _sample_fn()
+                except NotImplementedError:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] _schema_sample() is a stub in "
+                            f"{_strategy_name} — implement it to match "
+                            f"check_entry() return shape", None)
+                except Exception as _se:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] _schema_sample() raised in "
+                            f"{_strategy_name}: {_se}", None)
+                if not isinstance(_sample, dict):
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] _schema_sample() must return dict, "
+                            f"got {type(_sample).__name__} in "
+                            f"{_strategy_name}", None)
+                _missing_keys = _required_keys - set(_sample.keys())
+                if _missing_keys:
+                    return ("BLOCK_EXECUTION",
+                            f"[F11] _schema_sample() missing contract "
+                            f"required_keys: {sorted(_missing_keys)} for "
+                            f"{_strategy_name} (contract "
+                            f"{_resolved['contract_id'][:24]}...)", None)
+
                 _res_dir = STRATEGIES_DIR / _strategy_name
                 _res_dir.mkdir(parents=True, exist_ok=True)
                 _res_path = _res_dir / "engine_resolution.json"
