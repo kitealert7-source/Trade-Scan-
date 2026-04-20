@@ -105,7 +105,7 @@ and strategies/ (metadata only). It generates a SHA-256 hash manifest at
 Workspace snapshots are distinct from engine vault promotions — see §11.
 
 The `/update-vault` workflow automates the full process. See:
-`.agents/workflows/update-vault.md`
+`.claude/skills/update-vault/SKILL.md`
 
 ---
 

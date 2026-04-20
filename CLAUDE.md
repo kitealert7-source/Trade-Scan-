@@ -21,7 +21,7 @@ Six-repo research-to-execution pipeline:
 - `SYSTEM_STATE.md` — check SESSION STATUS (OK/WARNING/BROKEN), acknowledge system condition before acting
 
 **Task-conditional:**
-- `.agents/workflows/execute-directives.md` — before any `run_pipeline.py` call
+- `.claude/skills/execute-directives/SKILL.md` — before any `run_pipeline.py` call
 - `RESEARCH_MEMORY.md` — before strategy design or directive creation
 - `FAILURE_PLAYBOOK.md` — when any failure or anomaly occurs
 
@@ -34,7 +34,7 @@ Six-repo research-to-execution pipeline:
 3. **Artifact Authority** — all gating decisions derive from physical artifact existence, not memory or assumptions
 4. **Snapshot Immutability** — `TradeScan_State/runs/<RUN_ID>/strategy.py` is write-once after creation
 5. **Human Gating** — no strategy enters TS_Execution without explicit human approval (PORTFOLIO_COMPLETE)
-6. **Protected Infrastructure** — `tools/`, `engines/`, `engine_dev/`, `governance/`, `.agents/workflows/` require implementation plan + explicit human approval before modification
+6. **Protected Infrastructure** — `tools/`, `engines/`, `engine_dev/`, `governance/`, `.claude/skills/` require implementation plan + explicit human approval before modification
 7. **Sequential Execution Only** — one directive at a time; batch submission prohibited; minimum 15s cooldown between runs
 8. **Scratch Script Placement** — all ad-hoc/diagnostic scripts go to `/tmp/` exclusively; no transient scripts in the repo root
 9. **Indicator Separation** — all indicator logic must live in `indicators/` as importable modules; inline computation and external data loading in strategy.py is prohibited (enforced at Stage-0.5)
@@ -45,7 +45,7 @@ Six-repo research-to-execution pipeline:
 
 | Task | Document |
 |---|---|
-| Pipeline run or directive work | `AGENT.md` + `.agents/workflows/execute-directives.md` |
+| Pipeline run or directive work | `AGENT.md` + `.claude/skills/execute-directives/SKILL.md` |
 | Pipeline failure or FSM repair | `FAILURE_PLAYBOOK.md` |
 | Pipeline stage flow | `outputs/system_reports/01_system_architecture/pipeline_flow.md` |
 | Entrypoints | `outputs/system_reports/01_system_architecture/SYSTEM_ENTRYPOINTS.md` |
@@ -57,13 +57,13 @@ Six-repo research-to-execution pipeline:
 | Backtest dates, warm-up, regime | `outputs/system_reports/06_strategy_research/BACKTEST_DATE_POLICY_AND_DATA_FLOW.md` |
 | Artifact provenance or storage | `outputs/system_reports/08_pipeline_audit/ARTIFACT_STORAGE_AUDIT_2026_03_24.md` |
 | Directive state, lifecycle, cleanup | `outputs/system_reports/10_State Lifecycle Management/Workflow_Design.md` |
-| Promoting a strategy to burn-in | `.agents/workflows/promote.md` |
-| Burn-in → waiting transition | `.agents/workflows/to-waiting.md` |
+| Promoting a strategy to burn-in | `.claude/skills/promote/SKILL.md` |
+| Burn-in → waiting transition | `.claude/skills/to-waiting/SKILL.md` |
 | Waiting → live transition | `tools/transition_to_live.py` |
 | Deployment, burn-in, go-live | `outputs/system_reports/11_deployment_and_burnin/README.md` (index) |
 | Directory/file authority | `outputs/system_reports/01_system_architecture/REPOSITORY_AUTHORITY_MAP.md` |
 | System audit or review | Browse `outputs/system_reports/` folder READMEs first — each subfolder has an index |
-| Ending a work session | `.agents/workflows/session-close.md` — commit, push, document, clean up |
+| Ending a work session | `.claude/skills/session-close/SKILL.md` — commit, push, document, clean up |
 
 ---
 

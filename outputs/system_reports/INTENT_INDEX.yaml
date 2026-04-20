@@ -1,0 +1,128 @@
+# INTENT_INDEX.yaml
+# ------------------------------------------------------------------
+# Maps natural-language user intents to skills/workflows that must be
+# invoked. Consumed by .claude/hooks/intent_injector.py on every
+# UserPromptSubmit event.
+#
+# Fields per intent:
+#   id             : unique slug (used in telemetry log)
+#   priority       : int, higher wins on overlap
+#   enforcement    : "hard" | "soft"
+#                    hard -> MANDATORY blocking directive
+#                    soft -> advisory skill hint
+#   must_skill     : slug under .claude/skills/ (resolves to .claude/skills/<slug>/SKILL.md)
+#   threshold      : optional int (default 3) for fuzzy score
+#   regex_patterns : authoritative; any hit -> score 100
+#   semantic_tags  : fuzzy fallback, each has {tag, weight}
+#                    exact word-boundary hit -> weight * 2
+#                    substring-only hit      -> weight * 1
+#                    proximity bonus (+3) if two distinct exact hits
+#                    lie within <=3 tokens of each other
+#
+# Cap: MAX_INTENTS = 25. Adding a 26th requires merging or deleting
+# an existing entry. Index growth past that point kills maintainability.
+# ------------------------------------------------------------------
+
+intents:
+
+  # ---------- HARD ENFORCEMENT ----------
+  - id: engine_change
+    priority: 100
+    enforcement: hard
+    must_skill: update-vault
+    expected_file_category: engine
+    reason: "Engine build/modify requires vault push + manifest refresh. Engine v1.5.6 shipped unvaulted for days -- root cause: no enforced workflow."
+    regex_patterns:
+      - "(?i)\\b(new|build|bump|promote|release|freeze|finalize|ship)\\s+(the\\s+)?engine\\b"
+      - "(?i)\\bengine\\s+v?\\d+[._]\\d+[._]\\d+\\b"
+      - "(?i)\\b(push|vault|snapshot|publish)\\s+(the\\s+|this\\s+)?engine\\b"
+      - "(?i)\\bengine_dev/"
+      - "(?i)\\bENGINE_VERSION\\b"
+    semantic_tags:
+      - {tag: "engine", weight: 2}
+      - {tag: "vault", weight: 2}
+      - {tag: "v1.5", weight: 3}
+      - {tag: "v1.6", weight: 3}
+      - {tag: "canonical", weight: 2}
+      - {tag: "frozen", weight: 1}
+      - {tag: "manifest", weight: 1}
+      - {tag: "execution_loop", weight: 3}
+      - {tag: "engine_registry", weight: 3}
+
+  - id: promote_strategy
+    priority: 90
+    enforcement: hard
+    must_skill: promote
+    expected_file_category: strategy
+    reason: "Promotion touches append-only ledgers, vault, FSM state. Ad-hoc promotion has left orphan strategies and stale PORTFOLIO_COMPLETE markers."
+    regex_patterns:
+      - "(?i)\\bpromote\\b"
+      - "(?i)\\b(burn[- ]?in|BURN_IN)\\b"
+      - "(?i)\\b(move|send|advance|go)\\b.*\\b(live|waiting|burn[- ]?in)\\b"
+      - "(?i)\\bto[ _-]?waiting\\b"
+      - "(?i)\\bgo[- ]?live\\b"
+    semantic_tags:
+      - {tag: "promote", weight: 3}
+      - {tag: "burn_in", weight: 3}
+      - {tag: "burnin", weight: 3}
+      - {tag: "waiting", weight: 2}
+      - {tag: "deployable", weight: 2}
+      - {tag: "portfolio_complete", weight: 3}
+      - {tag: "live", weight: 1}
+
+  # ---------- SOFT REMINDERS ----------
+  - id: run_directive
+    priority: 50
+    enforcement: soft
+    must_skill: execute-directives
+    reason: "Pipeline execution has a mandatory pre-directive gate and sequential-only rule."
+    regex_patterns:
+      - "(?i)\\brun_pipeline\\.py\\b"
+      - "(?i)\\brun\\s+(the\\s+)?directive\\b"
+      - "(?i)\\b(execute|kick\\s*off|start)\\s+(directive|backtest)\\b"
+    semantic_tags:
+      - {tag: "directive", weight: 2}
+      - {tag: "pipeline", weight: 1}
+      - {tag: "backtest", weight: 1}
+      - {tag: "stage1", weight: 2}
+      - {tag: "stage3", weight: 2}
+
+  - id: rerun_backtest
+    priority: 55
+    enforcement: soft
+    must_skill: rerun-backtest
+    reason: "Re-run requires ledger cleanup + reset_directive before pipeline re-entry; skipping causes stale rows."
+    regex_patterns:
+      - "(?i)\\b(re[- ]?run|rerun)\\b.*\\b(directive|backtest|stage)\\b"
+      - "(?i)\\breset_directive\\.py\\b"
+      - "(?i)\\b__E15[0-9]\\b"
+    semantic_tags:
+      - {tag: "rerun", weight: 3}
+      - {tag: "re-run", weight: 3}
+      - {tag: "reset", weight: 1}
+      - {tag: "cleanup", weight: 1}
+
+  - id: session_close
+    priority: 30
+    enforcement: soft
+    must_skill: session-close
+    reason: "Closing a session has a fixed commit/push/cleanup checklist."
+    regex_patterns:
+      - "(?i)\\b(end|close|wrap\\s*up|finish)\\s+(the\\s+)?session\\b"
+      - "(?i)\\bsession[- ]?close\\b"
+    semantic_tags:
+      - {tag: "session_close", weight: 3}
+      - {tag: "wrap_up", weight: 3}
+
+  - id: portfolio_edit
+    priority: 40
+    enforcement: soft
+    must_skill: portfolio-selection-add
+    reason: "Portfolio add/remove writes to append-only MPS; must use the dedicated workflow."
+    regex_patterns:
+      - "(?i)\\badd\\b.*\\bportfolio\\b"
+      - "(?i)\\bportfolio\\b.*\\b(add|include|admit)\\b"
+    semantic_tags:
+      - {tag: "portfolio_add", weight: 3}
+      - {tag: "mps", weight: 1}
+      - {tag: "master_portfolio_sheet", weight: 3}

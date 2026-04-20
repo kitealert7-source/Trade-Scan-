@@ -82,7 +82,12 @@ backtest_directives/active_backup/
 *.pickle
 
 # Environment metadata
-.claude/
+# .claude/ is machine-local except for skills/ (shared skill definitions).
+# Pattern uses .claude/* (not .claude/) so the negation below can re-include
+# a specific subdirectory — git cannot re-include anything beneath an
+# excluded parent directory.
+.claude/*
+!.claude/skills/
 .agents/
 .vscode/
 .idea/

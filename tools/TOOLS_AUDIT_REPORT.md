@@ -36,7 +36,7 @@ Tools layer is currently **100% accounted for** against the active operational s
 Classification evidence:
 - `if __name__ == "__main__":` block ⇒ CLI entrypoint candidate.
 - Script-on-import (logic at module top level) ⇒ documented explicitly.
-- Presence in `run_pipeline.py`, `finalize_batch.py`, `.agents/workflows/*.md`, or `.claude/skills/*/SKILL.md` ⇒ ACTIVE.
+- Presence in `run_pipeline.py`, `finalize_batch.py`, or `.claude/skills/*/SKILL.md` ⇒ ACTIVE.
 
 ---
 

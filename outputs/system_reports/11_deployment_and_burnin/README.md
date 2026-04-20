@@ -40,12 +40,12 @@ This folder covers the full deployment lifecycle from research completion to liv
 
 | Workflow | File |
 |----------|------|
-| Promote to burn-in | `.agents/workflows/promote.md` + `tools/promote_to_burnin.py` |
-| Transition to waiting | `.agents/workflows/to-waiting.md` + `tools/transition_to_waiting.py` |
+| Promote to burn-in | `.claude/skills/promote/SKILL.md` + `tools/promote_to_burnin.py` |
+| Transition to waiting | `.claude/skills/to-waiting/SKILL.md` + `tools/transition_to_waiting.py` |
 | Transition to live | `tools/transition_to_live.py` |
-| Add strategy to portfolio | `.agents/workflows/portfolio-selection-add.md` |
-| Remove strategy from portfolio | `.agents/workflows/portfolio-selection-remove.md` |
-| Workspace vault snapshot | `.agents/workflows/update-vault.md` |
+| Add strategy to portfolio | `.claude/skills/portfolio-selection-add/SKILL.md` |
+| Remove strategy from portfolio | `.claude/skills/portfolio-selection-remove/SKILL.md` |
+| Workspace vault snapshot | `.claude/skills/update-vault/SKILL.md` |
 
 ## Key Findings
 
