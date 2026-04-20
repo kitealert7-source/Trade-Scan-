@@ -1,18 +1,18 @@
 {
-  "active_engine": "v1_5_6",
+  "active_engine": "v1_5_7",
   "status": "FROZEN",
-  "freeze_date": "2026-04-16",
+  "freeze_date": "2026-04-20",
   "vaulted": true,
   "engines": {
     "v1_5_6": {
       "status": "FROZEN",
-      "canonical": true,
-      "note": "Canonical frozen engine. All promotions reference this version."
+      "canonical": false,
+      "note": "Predecessor. Retained for history and byte-equivalence regression tests."
     },
     "v1_5_7": {
-      "status": "EXPERIMENTAL",
-      "canonical": false,
-      "note": "Partial-exit + stop-mutation hooks. Opt-in via ENGINE_VERSION_OVERRIDE=v1_5_7. DO NOT PROMOTE."
+      "status": "FROZEN",
+      "canonical": true,
+      "note": "Canonical frozen engine. Adds partial_exit + stop_mutation hooks. Frozen 2026-04-20."
     }
   }
 }
