@@ -1,0 +1,107 @@
+# Directive Supersession Map — lineage preservation artifact.
+#
+# Purpose: durable mapping of superseded directive IDs to their canonical
+# successors. Consumed by report tooling, audit queries, and cross-time
+# comparison logic so that references to old IDs can resolve to current
+# canonical IDs without mutating the old artifacts.
+#
+# Invariants:
+#   - Append-only. Never edit or remove a mapping once published.
+#   - Superseded directives retain their original names on disk (in
+#     completed/, runs/, strategies/, Master Filter rows with is_current=0).
+#   - This file is the single source of truth for (old -> new) lineage.
+#
+# Schema:
+#   <old_directive_id>:
+#     superseded_by: <new_directive_id>
+#     reason: <short human-readable cause>
+#     superseded_at_utc: <ISO-8601>
+#     path_b_batch: <batch identifier grouping the migration>
+
+schema_version: "1.0"
+
+supersessions:
+
+  # ---- Path-B batch 001: 53_MR_EURUSD_* -> 53_MR_FX_* ----
+  # SLOT-3 layer correction: SLOT-3 must be an asset class (FX), not an
+  # execution symbol (EURUSD). Directive body is otherwise unchanged; the
+  # symbols list broadens to the full-18 FX basket so the FX claim is a
+  # coverage claim, not a label.
+
+  53_MR_EURUSD_4H_CMR_S01_V1_P00:
+    superseded_by: 53_MR_FX_4H_CMR_S01_V1_P00
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_4H_CMR_S01_V1_P01:
+    superseded_by: 53_MR_FX_4H_CMR_S01_V1_P01
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_4H_CMR_S01_V1_P02:
+    superseded_by: 53_MR_FX_4H_CMR_S01_V1_P02
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_4H_CMR_S01_V1_P03:
+    superseded_by: 53_MR_FX_4H_CMR_S01_V1_P03
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_4H_CMR_S01_V1_P05:
+    superseded_by: 53_MR_FX_4H_CMR_S01_V1_P05
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P00:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P00
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P01:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P01
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P02:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P02
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P03:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P03
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P04:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P04
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P05:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P05
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P06:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P06
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"
+
+  53_MR_EURUSD_1D_CMR_S02_V1_P07:
+    superseded_by: 53_MR_FX_1D_CMR_S02_V1_P07
+    reason: slot3_layer_correction_EURUSD_to_FX
+    superseded_at_utc: "2026-04-18T00:00:00+00:00"
+    path_b_batch: "001"

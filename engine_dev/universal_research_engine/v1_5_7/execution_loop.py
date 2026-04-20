@@ -467,20 +467,32 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                 if guards_pass:
                     partial_sig = strategy.check_partial_exit(ctx)
                     if partial_sig is not None:
-                        frac = float(partial_sig.get('fraction', 0.0))
-                        if _PARTIAL_FRACTION_MIN <= frac <= _PARTIAL_FRACTION_MAX:
-                            partial_leg = {
-                                'exit_index':     i,
-                                'exit_price':     row['close'],
-                                'exit_timestamp': row.get('timestamp', row.get('time', df.index[i])),
-                                'fraction':       frac,
-                                'reason':         str(partial_sig.get('reason', 'partial')),
-                                'bars_held':      bars_held_now,
-                                'trade_high':     trade_high,
-                                'trade_low':      trade_low,
-                                'unrealized_r':   ur,
-                            }
-                            partial_taken = True
+                        _frac_raw = partial_sig.get('fraction')
+                        try:
+                            frac = float(_frac_raw)
+                        except (TypeError, ValueError):
+                            raise RuntimeError(
+                                f"check_partial_exit() returned non-numeric fraction={_frac_raw!r}. "
+                                "Contract requires fraction in [0.01, 0.99]."
+                            )
+                        if not (_PARTIAL_FRACTION_MIN <= frac <= _PARTIAL_FRACTION_MAX):
+                            raise RuntimeError(
+                                f"check_partial_exit() returned fraction={frac} outside "
+                                f"[{_PARTIAL_FRACTION_MIN}, {_PARTIAL_FRACTION_MAX}]. "
+                                "Return None to skip."
+                            )
+                        partial_leg = {
+                            'exit_index':     i,
+                            'exit_price':     row['close'],
+                            'exit_timestamp': row.get('timestamp', row.get('time', df.index[i])),
+                            'fraction':       frac,
+                            'reason':         str(partial_sig.get('reason', 'partial')),
+                            'bars_held':      bars_held_now,
+                            'trade_high':     trade_high,
+                            'trade_low':      trade_low,
+                            'unrealized_r':   ur,
+                        }
+                        partial_taken = True
 
             # --- (3) STOP MUTATION (monotone; applies from next bar) ---
             if (not exit_triggered) and _has_stop_mut_hook:

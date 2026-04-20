@@ -768,3 +768,38 @@ Stage-4 detected that `Master_Portfolio_Sheet.xlsx` already contains a historica
 
 ---
 
+## OPERATIONAL NOTES (Session Discoveries)
+
+### 5M Data Path — 2026-04-20
+
+**Discovery:** XAUUSD 5M RESEARCH data exists at the correct path but was missed by
+filename grep (`grep 5m` matches `15m`). Always search with exact token `_5m_`.
+
+**Correct path:** `Anti_Gravity_DATA_ROOT/MASTER_DATA/XAUUSD_OCTAFX_MASTER/RESEARCH/XAUUSD_OCTAFX_5m_YYYY_RESEARCH.csv`
+
+**Available years:** 2024, 2025, 2026
+
+**Root cause:** `ls | grep 5m` matches `15m` first; `grep _5m_` or `ls | grep "_5m_"` returns correct files only.
+
+**Rule:** When loading sub-hourly XAUUSD data, always use `_5m_` as the exact search token, not `5m`.
+
+---
+
+### Missing Indicator Source Files — 2026-04-20
+
+**Discovery:** `indicators/trend/ema_cross.py` and `indicators/momentum/macd.py` source files
+are absent. Only `.pyc` bytecode remains in `__pycache__/`. Strategy `54_STR_XAUUSD_5M_MACDX_S21_V1_P00`
+imports both and fails at load time.
+
+**Symptom:** `ModuleNotFoundError: No module named 'indicators.trend.ema_cross'` (and `.momentum.macd`)
+
+**Impact:** Any strategy using `ema_cross` or `macd` will fail at Stage-0.5 or at runtime
+`prepare_indicators()`. Pipeline aborts with EXECUTION_ERROR.
+
+**Recovery:** Restore `ema_cross.py` and `macd.py` from git history or re-implement from `.pyc`.
+Do NOT use `.pyc` as source substitute.
+
+**Classification:** EXECUTION_ERROR -> Environmental Failure (missing indicator modules)
+
+---
+
