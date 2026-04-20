@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 6 uncommitted
+## SESSION STATUS: BROKEN
+- BROKEN: 3 commits not pushed to origin
 
-> Generated: 2026-04-20T02:39:27Z
+> Generated: 2026-04-20T02:53:40Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -27,7 +27,7 @@
 - BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260418T181517Z_9320 | bars=32
+- **Process:** RUNNING | run_id=20260420T024639Z_28776 | bars=0
 - **Shadow trades:** 0 active | **Signals (7d):** 16 entry, 5 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -41,9 +41,9 @@
 - Run directories: 903
 
 ## Git Sync
-- Remote: IN SYNC
+- Remote: **3 commits ahead of origin**
 - Working tree: 6 uncommitted
-- Last commit: `3892f08 provisioner: inject REQUIRED_CAPABILITIES for new strategies`
+- Last commit: `05bc250 strategies: re-backfill REQUIRED_CONTRACT_IDS for v1.1 contract`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
