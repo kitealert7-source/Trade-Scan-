@@ -8,6 +8,12 @@ description: End-of-session checklist — commit, push, document, clean up befor
 Mandatory checklist before ending any work session. Prevents commit drift,
 stale documentation, and orphaned artifacts.
 
+> **Ordering principle:** `SYSTEM_STATE.md` is regenerated as the **final**
+> step, *after* the main push, so its snapshot reads `0 unpushed` and
+> accurately reflects the session's end state rather than a mid-close
+> moment. Committing it earlier bakes a misleading "BROKEN: N unpushed"
+> line into the snapshot.
+
 ---
 
 ## Checklist (execute in order)
@@ -23,6 +29,7 @@ git diff --stat
 - Follow repo commit style: summary line + detail body + `Co-Authored-By` trailer
 - Do NOT commit secrets, .env, or credentials
 - **Tracked deletions MUST be committed or restored** — never left unstaged
+- **Do NOT regenerate or commit `SYSTEM_STATE.md` here** — that is Step 10.
 
 **File handling rules:**
 
@@ -33,29 +40,7 @@ git diff --stat
 | Ignored files (.gitignore) | Ignore — no action needed |
 | Untracked files (new, not yet staged) | OK to leave |
 
-### 2. Push to Remote
-
-```bash
-git log --oneline origin/main..HEAD   # check what's unpushed
-git push origin main
-```
-
-- If commits are ahead of origin, push them
-- Never end a session with unpushed commits
-
-### 3. Regenerate SYSTEM_STATE.md
-
-```bash
-python tools/system_introspection.py
-```
-
-- Produces a fresh snapshot for the next session (engine, queue, ledgers, portfolio, git sync)
-- Review output — explicitly read **SESSION STATUS** (OK / WARNING / BROKEN)
-- Do NOT attempt to fix issues during session close
-- If WARNING or BROKEN, ensure reasons are clear; optionally note in Known Issues section
-- Stage and include in the final commit
-
-### 4. Refresh Idea Gate Data Sources
+### 2. Refresh Idea Gate Data Sources
 
 If any pipeline runs completed this session, regenerate the data sources that
 feed the Idea Evaluation Gate (Stage -0.20). These are append-only / regenerated
@@ -90,7 +75,7 @@ python tools/generate_guard_manifest.py
 - Stage all regenerated files and include in the session-close commit
 - Skip data source refresh if no pipeline runs were done this session
 
-### 5. Burn-In Evaluation
+### 3. Burn-In Evaluation
 
 Run the burn-in evaluator to check all BURN_IN strategies against their
 pass/abort gates. Read-only — no MT5 required, uses shadow_trades.jsonl.
@@ -106,7 +91,7 @@ python tools/burnin_evaluator.py
 - Exit code 2 if any ABORT, 0 otherwise
 - For single strategy: `python tools/burnin_evaluator.py --strategy RSIAVG`
 
-### 6. Ledger DB Export
+### 4. Ledger DB Export
 
 If any pipeline runs completed this session, regenerate Excel exports from
 the authoritative SQLite ledger. This ensures Excel files stay in sync.
@@ -120,7 +105,7 @@ python tools/ledger_db.py --export
 - Use `--stats` to verify row counts before export
 - Skip if no pipeline runs or ledger changes this session
 
-### 7. Document Updates
+### 5. Document Updates
 
 Check if any of these need updating based on today's work:
 
@@ -134,13 +119,13 @@ Check if any of these need updating based on today's work:
 | `.claude/skills/` | New or changed operational procedure |
 | `outputs/system_reports/INTENT_INDEX.yaml` | MISS cluster revealed a real coverage gap, or a skill under `.claude/skills/` was renamed/added/removed |
 
-### 8. Artifact Cleanup
+### 6. Artifact Cleanup
 
 - Delete any `/tmp/` scratch scripts created during session
 - Check for orphaned files in repo root (Invariant 25: no transient scripts in root)
 - If pipeline was run: verify `TradeScan_State/` artifacts are consistent
 
-### 9. Enforcement System Health
+### 7. Enforcement System Health
 
 Verify the intent-routing + violation-detection hook system is not in a
 degraded state. This runs the structural, overlap, dead-intent,
@@ -169,28 +154,61 @@ Also review:
   extend `INTENT_INDEX.yaml` before close. Keep the `MAX_INTENTS = 25`
   cap in mind.
 
-### 10. Final Gate — Strict Clean Working Tree (NON-NEGOTIABLE)
+### 8. Pre-Push Gate — Strict Clean Working Tree (NON-NEGOTIABLE)
 
 ```bash
 git status --porcelain | grep -v "^??"
 ```
 
-**This MUST return empty output.**
+**This MUST return empty output** (except for `SYSTEM_STATE.md`, which is
+regenerated in Step 10 and intentionally not touched yet).
 
 - Any tracked file that is modified or deleted and not committed = **ERROR**
 - Do NOT label dirty state as "intentional" or "pre-existing"
 - Do NOT end the session if this check fails — go back and commit or revert
 
-If output is non-empty:
+If output is non-empty (aside from `SYSTEM_STATE.md`):
 ```
 ERROR: Dirty working tree — tracked changes detected. Commit or revert before closing.
 ```
 
-Then verify push is clean:
+### 9. Push to Remote
+
 ```bash
-git log --oneline origin/main..HEAD   # must show nothing
-git log --oneline -3                  # confirm last commits look correct
+git log --oneline origin/main..HEAD   # review what's about to go out
+git push origin main
 ```
+
+- All work commits must be pushed BEFORE the SYSTEM_STATE snapshot is taken,
+  so the snapshot's "unpushed count" reflects reality (0).
+- Never end a session with unpushed work commits.
+
+### 10. Regenerate SYSTEM_STATE.md — Final Step
+
+```bash
+python tools/system_introspection.py
+```
+
+- Runs AFTER Step 9's push, so the snapshot reports `0 unpushed` and the
+  true end-of-session state instead of a mid-close artifact.
+- Review output — `SESSION STATUS` should be `OK` (or `WARNING` with
+  clearly-documented burn-in/runtime reasons).
+- Commit and push this snapshot as the closing entry:
+
+```bash
+git add SYSTEM_STATE.md
+git commit -m "session: closing SYSTEM_STATE snapshot"
+git push origin main
+```
+
+- The committed snapshot is the historical record of the session's end
+  state — the next session's first read reflects what was true when the
+  previous session closed.
+- If a background pipeline run has altered other tracked files between
+  Step 9 and Step 10 (e.g. sweep_registry reservation, tools_manifest
+  regen, new directive file), those are NOT part of this session's close
+  — `git checkout --` the SYSTEM_STATE you just wrote, note the in-flight
+  activity in the session summary, and let the next session close it.
 
 ### 11. Session Summary (Optional but Recommended)
 
@@ -206,40 +224,41 @@ This helps the next session (which starts fresh) pick up context faster.
 ## Quick Version (Copy-Paste)
 
 ```bash
-# 1. Commit all tracked changes (including deletions)
+# 1. Commit all tracked changes (including deletions) — NOT SYSTEM_STATE.md
 git status
 git add <files>
 git commit -m "message"
 
-# 2. Push
-git push origin main
-
-# 3. System snapshot
-python tools/system_introspection.py
-git add SYSTEM_STATE.md && git commit -m "Update SYSTEM_STATE.md"
-
-# 4. Refresh idea gate sources (skip if no pipeline runs this session)
+# 2. Refresh idea gate sources (skip if no pipeline runs this session)
 python tools/generate_run_summary.py
 python tools/backfill_hypothesis_log.py
 python -m tools.research_memory_append        # only after human approves candidate entry
 python tools/generate_guard_manifest.py       # only if tools/*.py changed
 git add ../TradeScan_State/research/run_summary.csv ../TradeScan_State/hypothesis_log.json RESEARCH_MEMORY.md tools/tools_manifest.json
+git commit -m "session: idea gate refresh"
 
-# 5. Burn-in check
+# 3. Burn-in check
 python tools/burnin_evaluator.py
 
-# 6. Ledger DB export (skip if no pipeline runs)
+# 4. Ledger DB export (skip if no pipeline runs)
 python tools/ledger_db.py --export
 
-# 7. Enforcement system health — exit 2 blocks close, exit 1 note warnings
+# 5. Enforcement system health — exit 2 blocks close, exit 1 note warnings
 python tools/audit_intent_index.py --all
 
-# 8. Final gate — MUST be empty (excluding untracked)
-git status --porcelain | grep -v "^??"
+# 6. Pre-push gate — MUST be empty (excluding untracked, excluding SYSTEM_STATE.md)
+git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$"
 
-# 9. Final push + verify
+# 7. Push all work commits
 git push origin main
 git log --oneline origin/main..HEAD   # should show nothing
+
+# 8. FINAL — regen SYSTEM_STATE post-push, commit + push as closing snapshot
+python tools/system_introspection.py
+git add SYSTEM_STATE.md
+git commit -m "session: closing SYSTEM_STATE snapshot"
+git push origin main
+git status --porcelain | grep -v "^??"   # must be empty
 ```
 
 ---
@@ -253,6 +272,9 @@ git log --oneline origin/main..HEAD   # should show nothing
 
 - Ending with "I'll push later" — you won't
 - Committing everything as one giant commit — group logically
+- Regenerating `SYSTEM_STATE.md` BEFORE the main push — the snapshot then
+  bakes in a misleading "BROKEN: N unpushed" line that misrepresents the
+  session's end state to the next session
 - Skipping doc updates — causes stale docs that mislead future sessions
 - Pushing without reviewing `git diff` — catches accidental includes
 - Labelling tracked deletions or modifications as "intentional unstaged" — this is never acceptable
