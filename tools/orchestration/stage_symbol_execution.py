@@ -325,6 +325,26 @@ def run_stage3_aggregation(context: PipelineContext) -> None:
 
     from tools.orchestration.execution_adapter import run_command
 
+    # --- PRE-ENTRY GUARD: No FAILED runs (excluding legitimate NO_TRADES) ---
+    # Invariant: Stage-3 aggregation must not proceed if any symbol run is in
+    # FAILED state without a NO_TRADES marker. Aggregating over partial symbol
+    # data silently produces misleading Master Filter rows.
+    _hard_failed: list[tuple[str, str]] = []
+    for _rid, _sym in zip(run_ids, symbols):
+        _state = PipelineStateManager(_rid).get_state_data().get("current_state", "IDLE")
+        if _state == "FAILED" and not (RUNS_DIR / _rid / "status_no_trades.json").exists():
+            _hard_failed.append((_sym, _rid))
+    if _hard_failed:
+        _detail = ", ".join(f"{s}/{r[:8]}" for s, r in _hard_failed)
+        raise PipelineExecutionError(
+            f"STAGE3_BLOCKED_FAILED_RUNS: {len(_hard_failed)} symbol run(s) in FAILED "
+            f"state without NO_TRADES marker: {_detail}. "
+            f"Reset the directive and re-run — aggregation on partial data would "
+            f"silently produce incorrect portfolio metrics.",
+            directive_id=clean_id,
+            run_ids=[r for _, r in _hard_failed],
+        )
+
     # --- IDEMPOTENCY PRE-CHECK ---
     # If Master Filter already contains the expected number of rows for this
     # directive, skip the stage3_compiler write entirely. Prevents duplicate row

@@ -1391,6 +1391,23 @@ def _load_profile_comparison(strategy_id):
     if not isinstance(profiles, dict) or not profiles:
         print(f"  [WARN] Invalid profile comparison schema for {strategy_id}: missing non-empty 'profiles'.")
         return None, comparison_path
+
+    # Invariant: all profiles must share the same starting_capital — otherwise
+    # CAGR/ROI/score comparisons across profiles are built on inconsistent
+    # denominators and silently select the wrong deployed_profile.
+    _caps = {
+        name: m.get("starting_capital")
+        for name, m in profiles.items()
+        if isinstance(m, dict) and m.get("starting_capital") is not None
+    }
+    _cap_values = {round(float(v), 6) for v in _caps.values()}
+    if len(_cap_values) > 1:
+        raise ValueError(
+            f"PROFILE_CAPITAL_MISMATCH: profile_comparison.json for {strategy_id} "
+            f"has inconsistent starting_capital across profiles: {_caps}. "
+            f"All profiles must share the same starting_capital for valid "
+            f"CAGR/ROI/score comparison."
+        )
     return profiles, comparison_path
 
 

@@ -549,6 +549,21 @@ class PortfolioState:
     _equity_negative: bool = False
 
     def __post_init__(self):
+        # Invariant: risk_per_trade in [0, 0.50]; starting_capital > 0.
+        # Malformed profile would otherwise silently produce oversized lots or
+        # divide-by-zero downstream.
+        _MAX_RISK_PER_TRADE = 0.50
+        if not (0.0 <= self.risk_per_trade <= _MAX_RISK_PER_TRADE):
+            raise ValueError(
+                f"[CAPITAL_WRAPPER] risk_per_trade={self.risk_per_trade} out of range "
+                f"[0, {_MAX_RISK_PER_TRADE}] for profile {self.profile_name!r}. "
+                f"Check PROFILES dict in capital_wrapper.py."
+            )
+        if self.starting_capital <= 0.0:
+            raise ValueError(
+                f"[CAPITAL_WRAPPER] starting_capital={self.starting_capital} must be > 0 "
+                f"for profile {self.profile_name!r}."
+            )
         self.equity = self.starting_capital
         self.peak_equity = self.starting_capital
 
