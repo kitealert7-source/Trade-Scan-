@@ -3,7 +3,7 @@
 ## SESSION STATUS: BROKEN
 - BROKEN: 1 commits not pushed to origin
 
-> Generated: 2026-04-20T02:56:29Z
+> Generated: 2026-04-20T03:51:55Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -27,7 +27,7 @@
 - BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260420T024639Z_28776 | bars=0
+- **Process:** RUNNING | run_id=20260420T024639Z_28776 | bars=16
 - **Shadow trades:** 0 active | **Signals (7d):** 16 entry, 5 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -42,8 +42,8 @@
 
 ## Git Sync
 - Remote: **1 commits ahead of origin**
-- Working tree: 6 uncommitted
-- Last commit: `ea4b821 contract: v1.2 â€” stop_price is engine-fillable, not strategy-required`
+- Working tree: 8 uncommitted
+- Last commit: `240c561 engine(v1.5.7): recover EXPERIMENTAL engine + harden runtime contract`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->

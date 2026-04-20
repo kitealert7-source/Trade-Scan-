@@ -1,0 +1,389 @@
+version: 1
+ideas:
+  "01":
+    family: MR
+    title: Mean Reversion Research Track
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    status: active
+  "02":
+    family: VOL
+    title: Volatility Expansion Research Track
+    class: volatility_logic
+    regime: transition
+    role: volatility_capture
+    status: active
+  "03":
+    family: TREND
+    title: Trend Following Research Track
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    status: active
+  "04":
+    family: BRK
+    title: Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    status: active
+  "06":
+    family: PA
+    title: Price Action Research Track
+    class: price_action
+    regime: multi
+    role: entry_edge
+    instruments: any
+    status: active
+  "07":
+    family: MR
+    title: SMI Oscillator Mean Reversion Research Track
+    class: indicator_logic
+    regime: oversold_reversion
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "05":
+    family: PORT
+    title: Portability Research Track
+    class: portfolio_logic
+    regime: multi
+    role: stabilizer
+    status: active
+  "08":
+    family: BRK
+    title: Session Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "09":
+    family: BRK
+    title: London Open Range Breakout Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX
+    status: active
+  "10":
+    family: CONT
+    title: Trend Continuation RSI Pullback Research Track
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    instruments: FX
+    status: active
+  "11":
+    family: REV
+    title: Spike Fade Reversal Research Track
+    class: indicator_logic
+    regime: high_volatility
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "12":
+    family: STR
+    title: Break of Structure Pullback Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX
+    status: active
+  "13":
+    family: MR
+    title: Gap Fill Mean Reversion Research Track
+    class: price_action
+    regime: range
+    role: entry_edge
+    instruments: IDX
+    status: active
+  "14":
+    family: BRK
+    title: Squeeze Breakout Research Track (BBSQZ / ATRSQZ)
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: failed
+  "15":
+    family: MR
+    title: Asian Session Range Fade Research Track
+    class: structure_logic
+    regime: range
+    role: entry_edge
+    instruments: FX
+    status: active
+  "16":
+    family: BRK
+    title: ATR Squeeze Breakout Research Track
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: failed
+  "17":
+    family: REV
+    title: False Break / Stop Hunt Reversal Research Track
+    class: structure_logic
+    regime: range_boundary
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "18":
+    family: REV
+    title: London Open Liquidity Sweep Reversal Research Track
+    class: session_logic
+    regime: session_transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "19":
+    family: BRK
+    title: Volatility Expansion Breakout Research Track
+    class: volatility_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "20":
+    family: MR
+    title: Z-Score Range Oscillator Research Track
+    class: indicator_logic
+    regime: range
+    role: range_complement
+    instruments: XAUUSD
+    status: active
+  "21":
+    family: MR
+    title: Conditional Mean Reversion — Impulse Exhaustion Research Track
+    class: event_logic
+    regime: multi
+    role: range_complement
+    instruments: XAUUSD
+    status: active
+  "22":
+    family: CONT
+    title: RSI(2) Average Pullback — Trend-Aligned 15M FX Research Track
+    class: indicator_logic
+    regime: trend
+    role: pullback_entry
+    instruments: FX
+    status: active
+  "23":
+    family: RSI
+    title: RSI Micro Exhaustion — RSI(2) Reversal Research Track
+    class: indicator_logic
+    regime: neutral_weak
+    role: mean_reversion
+    instruments: XAUUSD
+    status: active
+  "24":
+    family: PA
+    title: Swing Failure Pattern Research Track
+    class: price_action
+    regime: range_boundary
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "25":
+    family: REV
+    title: Asian Session Liquidity Grab Reversal Research Track
+    class: session_logic
+    regime: session_transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "26":
+    family: STR
+    title: Change of Character Research Track
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "27":
+    family: MR
+    title: Pin Bar Wick Rejection — Low-Vol Mean Reversion Research Track
+    class: price_action
+    regime: low_volatility
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "28":
+    family: PA
+    title: Engulfing at Structure Level — Pure Price Action Reversal Research Track
+    class: price_action
+    regime: all
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "29":
+    family: MR
+    title: London Close Mean Reversion — Session VWAP Fade Research Track
+    class: session_logic
+    regime: session
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "30":
+    family: REV
+    title: SMI Divergence Counter-Trend — Momentum Exhaustion Reversal
+    class: divergence_logic
+    regime: trending
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "31":
+    family: BRK
+    title: ATR Squeeze Breakout — Compression-to-Expansion Momentum
+    class: volatility_breakout
+    regime: low_volatility
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "32":
+    family: TREND
+    title: EMA Crossover — Baseline Trend Signal Evaluation
+    class: indicator_logic
+    regime: multi
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  "33":
+    family: TREND
+    title: Momentum Ignition — Crypto Impulse Breakout
+    class: indicator_logic
+    regime: multi
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "34":
+    family: REV
+    title: False Break Reversal — EURUSD Range Boundary Fade
+    class: structure_logic
+    regime: range_boundary
+    role: entry_edge
+    instruments: FX
+    status: active
+  "35":
+    family: PA
+    title: Day Open Reference — Session-Anchored Index Price Action
+    class: price_action
+    regime: session
+    role: entry_edge
+    instruments: IDX
+    status: active
+  "36":
+    family: TREND
+    title: Momentum Ignition — ETH Impulse Breakout
+    class: indicator_logic
+    regime: multi
+    role: entry_edge
+    instruments: ETH
+    status: active
+  "40":
+    family: CONT
+    title: London Open Pullback Continuation - Session-Constrained Trend Resume
+    class: session_logic
+    regime: session_transition
+    role: pullback_entry
+    instruments: FX
+    status: active
+  "41":
+    family: REV
+    title: Two-Bar Reversal — Directional Exhaustion Fade Research Track
+    class: price_action
+    regime: multi
+    role: entry_edge
+    instruments: FX
+    status: active
+  "42":
+    family: REV
+    title: Liquidity Sweep + Momentum Divergence Reversal
+    class: hybrid_reversal
+    regime: multi
+    role: entry_edge
+    instruments: FX
+    status: active
+  "43":
+    family: STR
+    title: CHOCH Structural Reversal at 1H — FX Cross-Asset Transfer (USDJPY)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: active
+  "44":
+    family: STR
+    title: CHOCH Structural Reversal at 1H — Crypto Cross-Asset Transfer (BTCUSD)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "45":
+    family: STR
+    title: CHOCH Structural Reversal at 1H — XAUUSD Baseline under Canonical (First-Break) Definition
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAU
+    status: active
+  "46":
+    family: STR
+    title: CHOCH_PIVOT_V2 Structural Reversal at 1H — XAUUSD (true symmetric swing pivots, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAU
+    status: active
+  "47":
+    family: STR
+    title: CHOCH_PIVOT_V2 Structural Reversal at 1H — USDJPY (true symmetric swing pivots, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: active
+  "48":
+    family: STR
+    title: CHOCH_PIVOT_V2 Structural Reversal at 1H — BTCUSD (true symmetric swing pivots, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "49":
+    family: STR
+    title: CHOCH_V3 Structure-Aware Reversal at 1H — XAUUSD (HH+HL / LL+LH gate, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAU
+    status: active
+  "50":
+    family: STR
+    title: CHOCH_V3 Structure-Aware Reversal at 1H — USDJPY (HH+HL / LL+LH gate, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: FX
+    status: active
+  "51":
+    family: STR
+    title: CHOCH_V3 Structure-Aware Reversal at 1H — BTCUSD (HH+HL / LL+LH gate, k=3)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: BTC
+    status: active
+  "52":
+    family: STR
+    title: CHOCH_V2 Pivot-Based Reversal at 15M — ETHUSD (k=3, first CHOCH_V2 on 15M)
+    class: structure_logic
+    regime: transition
+    role: entry_edge
+    instruments: ETH
+    status: active

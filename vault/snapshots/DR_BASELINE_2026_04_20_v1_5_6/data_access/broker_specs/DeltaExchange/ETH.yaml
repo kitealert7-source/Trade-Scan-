@@ -1,0 +1,8 @@
+broker: DeltaExchange
+reference_capital_usd: 5000
+symbol: ETH
+min_lot: 0.01
+lot_step: 0.01
+max_lot: 50.0
+contract_size: PLACEHOLDER_UPDATE_ME
+
