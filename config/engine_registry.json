@@ -13,6 +13,11 @@
       "status": "FROZEN",
       "canonical": true,
       "note": "Canonical frozen engine. Adds partial_exit + stop_mutation hooks. Frozen 2026-04-20."
+    },
+    "v1_5_8": {
+      "status": "EXPERIMENTAL",
+      "canonical": false,
+      "note": "Experimental. Adds ctx.unrealized_r_intrabar (bar_high/bar_low) and ctx.entry_price. Byte-equivalent to v1.5.7 for no-hook strategies."
     }
   }
 }
