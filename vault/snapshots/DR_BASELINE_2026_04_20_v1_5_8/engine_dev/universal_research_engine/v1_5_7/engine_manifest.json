@@ -1,0 +1,36 @@
+{
+    "engine_name": "Universal_Research_Engine",
+    "engine_version": "v1_5_7",
+    "engine_status": "FROZEN",
+    "vaulted": true,
+    "freeze_date": "2026-04-20",
+    "predecessor": "v1_5_6 (FROZEN 2026-04-16)",
+    "timestamp_utc": "2026-04-20T03:40:38.220555+00:00",
+    "adds": [
+        "partial_exit primitive via strategy.check_partial_exit(ctx) \u2014 fraction in [0.01, 0.99]",
+        "stop_mutation primitive via strategy.check_stop_mutation(ctx) \u2014 monotone guard",
+        "ctx.unrealized_r (close-based, initial-stop denominator) exposed in per-bar context",
+        "trade dict gains partial_leg, partial_of_parent, stop_mutation_rejected when applicable"
+    ],
+    "invariants": [
+        "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
+        "Partial guard: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001",
+        "Stop mutation is monotone: long tightens up only, short tightens down only; silent reject otherwise",
+        "Entry market state initial_stop_price is FROZEN; stop_price_active is live-mutable",
+        "No-hook strategies produce byte-equivalent trade dicts to v1.5.6"
+    ],
+    "file_hashes": {
+        "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "execution_emitter_stage1.py": "515B5908E872A1D63C97DF348A104BE37478F7B3A626001675CE08219EE0A390",
+        "execution_loop.py": "7E3BA90263FB917BFC043352C836122C3E16A5797ADDCA5B441DC8DDD162A690",
+        "main.py": "79D966515A8A1954F6D709438E5DCCD1E0658B0CD83AC70504EFAF309FE36C7B",
+        "stage2_compiler.py": "ED60087EB8DC93E44B9497BEDF746D49BA9BB9EF36692FA432FA625B395D1FBE",
+        "contract.json": "F5239B85A22697B1745EA3483DCE78BBE6561EBFF9A44FB3879603FEE1C22039"
+    },
+    "capabilities": [
+        "execution.entry.v1",
+        "execution.exit.v1",
+        "execution.partial_exit.v1"
+    ],
+    "contract_id": "sha256:f5239b85a22697b1745ea3483dce78bbe6561ebff9a44fb3879603fee1c22039"
+}
