@@ -1,0 +1,53 @@
+[
+  {
+    "max_dd_pct": 45.45024321333511,
+    "duration_days": 2310,
+    "exposure": {
+      "total_trades": 1399,
+      "pct_long": 49.60686204431737,
+      "pct_short": 50.39313795568263,
+      "symbol_concentration_top2": 42.601858470335955
+    },
+    "behavior": {
+      "trades_closed": 1397,
+      "win_rate": 47.95991410164638,
+      "avg_pnl": -3.6686542591266997,
+      "total_pnl": -5125.11,
+      "max_loss_streak": 9
+    }
+  },
+  {
+    "max_dd_pct": 34.30691292554592,
+    "duration_days": 1206,
+    "exposure": {
+      "total_trades": 820,
+      "pct_long": 49.390243902439025,
+      "pct_short": 50.609756097560975,
+      "symbol_concentration_top2": 44.26829268292683
+    },
+    "behavior": {
+      "trades_closed": 816,
+      "win_rate": 47.67156862745098,
+      "avg_pnl": -9.342426470588233,
+      "total_pnl": -7623.419999999998,
+      "max_loss_streak": 13
+    }
+  },
+  {
+    "max_dd_pct": 31.86091013011627,
+    "duration_days": 532,
+    "exposure": {
+      "total_trades": 161,
+      "pct_long": 49.68944099378882,
+      "pct_short": 50.31055900621118,
+      "symbol_concentration_top2": 45.962732919254655
+    },
+    "behavior": {
+      "trades_closed": 158,
+      "win_rate": 41.139240506329116,
+      "avg_pnl": -20.866139240506325,
+      "total_pnl": -3296.8499999999995,
+      "max_loss_streak": 7
+    }
+  }
+]

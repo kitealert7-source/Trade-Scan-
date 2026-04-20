@@ -1,0 +1,30 @@
+{
+  "version": "1.2",
+  "entry_interface": {
+    "function": "check_entry",
+    "returns": {
+      "required_keys": [
+        "signal"
+      ],
+      "optional_keys": [
+        "stop_price",
+        "entry_reference_price",
+        "entry_reason",
+        "tp_price"
+      ],
+      "notes": "Only 'signal' is required from the strategy. 'stop_price' is engine-fillable (2*ATR fallback when absent). 'entry_reference_price' and 'entry_reason' are used for slippage logging and diagnostics; omission is acceptable. 'tp_price' is purely optional."
+    }
+  },
+  "exit_interface": {
+    "function": "check_exit",
+    "return_type": "bool"
+  },
+  "partial_exit_interface": null,
+  "data_contract": {
+    "price_fields": [
+      "entry_reference_price",
+      "stop_price",
+      "tp_price"
+    ]
+  }
+}

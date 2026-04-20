@@ -1,0 +1,21 @@
+broker: OctaFX
+reference_capital_usd: 1000
+symbol: UK100
+min_lot: 0.01
+lot_step: 0.01
+max_lot: 500.0
+cost_model: embedded
+apply_additional_costs: false
+infer_missing_fields: false
+allow_manual_override: false
+contract_size: 10.0
+calibration:
+  base_lot: 0.01
+  usd_pnl_per_price_unit_0p01: 0.132131
+  price_unit: INDEX_POINT
+  status: MT5_VERIFIED
+  currency_profit: GBP
+  mt5_tick_value: 1.3213100000000002
+  mt5_tick_size: 0.1
+  usd_per_pu_per_lot: 13.2131
+  digits: 1

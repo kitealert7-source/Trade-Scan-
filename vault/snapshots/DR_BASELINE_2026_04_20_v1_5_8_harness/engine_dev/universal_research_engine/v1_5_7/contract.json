@@ -1,0 +1,74 @@
+{
+  "version": "1.3",
+  "engine_version": "v1_5_7",
+  "engine_status": "EXPERIMENTAL",
+  "predecessor_contract": "sha256:962bfed53b6e7b4ce7de7feb70d614625ff7b576fe18441356fca501f0010cef",
+  "entry_interface": {
+    "function": "check_entry",
+    "returns": {
+      "required_keys": [
+        "signal"
+      ],
+      "optional_keys": [
+        "stop_price",
+        "entry_reference_price",
+        "entry_reason",
+        "tp_price"
+      ],
+      "notes": "Only 'signal' is required from the strategy. 'stop_price' is engine-fillable (2*ATR fallback when absent). 'entry_reference_price' and 'entry_reason' are used for slippage logging and diagnostics; omission is acceptable. 'tp_price' is purely optional."
+    }
+  },
+  "exit_interface": {
+    "function": "check_exit",
+    "return_type": "bool"
+  },
+  "partial_exit_interface": {
+    "function": "check_partial_exit",
+    "return_type": "dict_or_none",
+    "returns": {
+      "none_allowed": true,
+      "required_keys_on_dict": [
+        "fraction",
+        "reason"
+      ],
+      "fraction_range": [0.01, 0.99],
+      "notes": "Return None to skip. Fires AT MOST ONCE per trade. Engine guards: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001. Sub-dict ignored silently if any guard fails."
+    }
+  },
+  "stop_mutation_interface": {
+    "function": "check_stop_mutation",
+    "return_type": "float_or_none",
+    "returns": {
+      "none_allowed": true,
+      "notes": "Absolute new SL price or None. Engine enforces monotone tightening: longs may only raise SL, shorts may only lower SL. Non-monotone updates silently rejected, counted in stop_mutation_rejected. initial_stop_price used for risk-distance is FROZEN at entry and never mutated."
+    }
+  },
+  "ctx_additions": {
+    "unrealized_r": "float (close-based, initial-stop denominator). long: (close-entry)/(entry-stop_init); short: (entry-close)/(stop_init-entry)"
+  },
+  "trade_dict_additions": {
+    "partial_leg": "dict | None — partial close details if partial fired during trade",
+    "partial_of_parent": "bool — True if this trade had a partial exit leg",
+    "stop_mutation_rejected": "int — count of rejected non-monotone stop mutations"
+  },
+  "per_bar_ordering": [
+    "1. SL/TP resolution via resolve_exit() (intrabar, highest priority)",
+    "2. Partial exit (bar close, realized event)",
+    "3. Stop mutation (applies from NEXT bar)",
+    "4. check_exit (time / signal, lowest priority)"
+  ],
+  "data_contract": {
+    "price_fields": [
+      "entry_reference_price",
+      "stop_price",
+      "tp_price"
+    ]
+  },
+  "invariants": [
+    "No-hook strategies produce byte-equivalent trade dicts to v1.5.6",
+    "Partial guard triple must hold: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001",
+    "Stop mutation is monotone; initial_stop_price is FROZEN",
+    "check_entry return MUST include 'signal' (no silent default)",
+    "check_exit return MUST be bool (no truthy coercion)"
+  ]
+}

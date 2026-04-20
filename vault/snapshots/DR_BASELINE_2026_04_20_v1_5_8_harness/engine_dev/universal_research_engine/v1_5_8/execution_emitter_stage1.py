@@ -1,0 +1,616 @@
+"""
+Stage-1 Execution Emitter — SOP_OUTPUT Compliant
+Owner: Stage-1
+Computes and emits all metrics as defined in SOP_OUTPUT Section 4.
+
+Required outputs:
+- raw/results_tradelevel.csv
+- raw/results_standard.csv
+- raw/results_risk.csv
+- raw/results_yearwise.csv
+- raw/metrics_glossary.csv
+- metadata/run_metadata.json
+"""
+
+import csv
+import json
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
+
+
+@dataclass
+class RawTradeRecord:
+    """Trade record for Stage-1 emission. Owner: Stage-1."""
+    strategy_name: str
+    parent_trade_id: int
+    sequence_index: int
+    entry_timestamp: str
+    exit_timestamp: str
+    direction: int          # 1 = Long, -1 = Short
+    entry_price: float
+    exit_price: float
+    bars_held: int
+    pnl_usd: float = 0.0
+    r_multiple: float = 0.0
+    trade_high: Optional[float] = None
+    trade_low: Optional[float] = None
+    atr_entry: Optional[float] = None
+    position_units: Optional[float] = None
+    notional_usd: Optional[float] = None
+    mfe_price: Optional[float] = None
+    mae_price: Optional[float] = None
+    mfe_r: Optional[float] = None
+    mae_r: Optional[float] = None
+    volatility_regime: Optional[str] = None  # "low", "normal", "high" per SOP_TESTING §7.y
+    trend_score: Optional[int] = None
+    trend_regime: Optional[int] = None
+    trend_label: Optional[str] = None
+    # Phase 1 Schema Extension (Deployable Capital Wrapper)
+    symbol: Optional[str] = None
+    initial_stop_price: Optional[float] = None
+    risk_distance: Optional[float] = None
+    market_regime: Optional[str] = None
+    regime_id: Optional[int] = None
+    regime_age: Optional[int] = None
+    # v1.5.5 Signal/Fill Alignment — explicit decision vs execution coordinates.
+    # regime_age (above) is retained as an alias of regime_age_fill for back-compat.
+    # signal_bar_idx / fill_bar_idx are absolute df row indices; reports can
+    # reconstruct either coordinate without arithmetic.
+    signal_bar_idx: Optional[int] = None
+    fill_bar_idx: Optional[int] = None
+    regime_age_signal: Optional[int] = None
+    regime_age_fill: Optional[int] = None
+    market_regime_signal: Optional[str] = None
+    market_regime_fill: Optional[str] = None
+    regime_id_signal: Optional[int] = None
+    regime_id_fill: Optional[int] = None
+    # v1.5.6 Exec-TF clock probe — bars-since-regime-change at exec granularity.
+    # HTF pair above is regime-TF quantized (broadcast from 4H etc); these
+    # exec-TF fields increment per exec bar and should show delta=+1 dominance.
+    regime_age_exec_signal: Optional[int] = None
+    regime_age_exec_fill: Optional[int] = None
+    # v1.5.7 Partial-exit schema extension (Option A — sidecar architecture).
+    # Main CSV remains ECONOMIC TRUTH (one row per parent trade, composite PnL/R).
+    # Partial execution detail lives in results_partial_legs.csv (see below).
+    # These three fields surface the partial event at the main row for quick
+    # filtering without a sidecar join. `partial_fraction` stores the ACTUAL
+    # EXECUTED fraction from the engine's partial_leg dict (not the configured
+    # value in strategy code) — protects against future hook logic that caps,
+    # rounds, or conditionally overrides the target fraction.
+    has_partial: bool = False
+    partial_fraction: float = 0.0      # executed, not configured; 0.0 if no partial
+    partial_exit_r: float = 0.0        # == partial_leg.unrealized_r; 0.0 if no partial
+
+
+@dataclass
+class PartialLegRecord:
+    """Sidecar record for a single partial-exit event (v1.5.7+).
+
+    One row per partial event in results_partial_legs.csv. Joins to main
+    results_tradelevel.csv on (strategy_name, parent_trade_id). The entry-side
+    audit fields (entry_timestamp, entry_price, initial_stop_price,
+    risk_distance) are duplicated from the main row so conservation tests
+    can verify NO mutation occurred across files — broken immutability
+    surfaces as a cross-file value mismatch.
+
+    NOTE: partial_unrealized_r is computed using the FROZEN initial_stop_price
+    as the denominator (engine v1.5.7 guarantee — see execution_loop.py
+    _compute_unrealized_r). Never recompute from a mutated stop.
+    """
+    strategy_name: str
+    parent_trade_id: int
+    symbol: str
+    direction: int
+    # Audit fields — must match main row exactly (enforced by conservation test)
+    entry_timestamp: str
+    entry_price: float
+    initial_stop_price: float
+    risk_distance: float
+    # Partial leg details
+    partial_exit_timestamp: str
+    partial_exit_price: float
+    partial_fraction: float
+    partial_bars_held: int
+    partial_unrealized_r: float
+    partial_pnl_usd: float
+    partial_position_units: float
+    partial_trade_high_at_exit: float
+    partial_trade_low_at_exit: float
+    partial_reason: str
+    # Final-exit reference — lets downstream compute partial->final time gap,
+    # continuation decay, etc. without joining the main table.
+    final_exit_timestamp: str
+    final_exit_price: float
+
+
+@dataclass
+class Stage1Metadata:
+    """Run metadata. Owner: Stage-1."""
+    run_id: str
+    strategy_name: str
+    symbol: str
+    timeframe: str
+    date_range_start: str
+    date_range_end: str
+    execution_timestamp_utc: str
+    engine_name: str
+    engine_version: str
+    broker: str
+    schema_version: str = "1.2.0"  # Updated for SOP_OUTPUT v4.2 compliance (Intrinsic Market State)
+    reference_capital_usd: Optional[float] = None
+
+
+# =============================================================================
+# METRIC COMPUTATION (SOP_OUTPUT Section 4)
+# =============================================================================
+
+
+
+
+def compute_standard_metrics(trades: List[RawTradeRecord]) -> dict:
+    """
+    Compute results_standard.csv metrics.
+    Owner: Stage-1
+    
+    Formulas from SOP_OUTPUT 4.2:
+    - net_pnl_usd = SUM(pnl_usd)
+    - trade_count = COUNT(trades)
+    - win_rate = COUNT(pnl_usd > 0) / trade_count
+    - profit_factor = SUM(pnl_usd > 0) / ABS(SUM(pnl_usd < 0))
+    - gross_profit = SUM(pnl_usd WHERE pnl_usd > 0)
+    - gross_loss = ABS(SUM(pnl_usd WHERE pnl_usd < 0))
+    """
+    if not trades:
+        return {
+            "net_pnl_usd": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "gross_profit": 0.0,
+            "gross_loss": 0.0
+        }
+    
+    pnls = [t.pnl_usd for t in trades]
+    
+    net_pnl_usd = sum(pnls)
+    trade_count = len(trades)
+    winning_trades = [p for p in pnls if p > 0]
+    losing_trades = [p for p in pnls if p < 0]
+    
+    win_count = len(winning_trades)
+    win_rate = win_count / trade_count if trade_count > 0 else 0.0
+    
+    gross_profit = sum(winning_trades)
+    gross_loss = abs(sum(losing_trades))
+    
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+    
+    return {
+        "net_pnl_usd": round(net_pnl_usd, 2),
+        "trade_count": trade_count,
+        "win_rate": round(win_rate, 4),  # Stored as decimal 0.0-1.0
+        "profit_factor": round(profit_factor, 2),
+        "gross_profit": round(gross_profit, 2),
+        "gross_loss": round(gross_loss, 2)
+    }
+
+
+def compute_risk_metrics(trades: List[RawTradeRecord], reference_capital: float) -> dict:
+    """
+    Compute results_risk.csv metrics.
+    Owner: Stage-1
+    
+    Formulas from SOP_OUTPUT 4.3 + SOP_TESTING §7:
+    - max_drawdown_usd = MAX(cumulative_peak - cumulative_pnl)
+    - max_drawdown_pct = max_drawdown_usd / reference_capital
+    - return_dd_ratio = net_pnl_usd / max_drawdown_usd
+    - sharpe_ratio = (avg_return - risk_free) / std_return * sqrt(252)
+    - sortino_ratio = (avg_return - risk_free) / downside_std * sqrt(252)
+    - k_ratio = equity_slope / std_error_of_slope
+    - sqn = sqrt(N) * expectancy / std_pnl
+    """
+    import math
+    
+    if not trades:
+        return {
+            "max_drawdown_usd": 0.0,
+            "max_drawdown_pct": 0.0,
+            "return_dd_ratio": 0.0,
+            "sharpe_ratio": 0.0,
+            "sortino_ratio": 0.0,
+            "k_ratio": 0.0,
+            "sqn": 0.0
+        }
+    
+    pnls = [t.pnl_usd for t in trades]
+    n = len(pnls)
+    
+    # Compute cumulative PnL series and equity curve
+    equity_curve = []
+    cumulative = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    
+    for pnl in pnls:
+        cumulative += pnl
+        equity_curve.append(cumulative)
+        if cumulative > peak:
+            peak = cumulative
+        drawdown = peak - cumulative
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+    
+    net_pnl = sum(pnls)
+    max_dd_pct = max_drawdown / reference_capital if reference_capital > 0 else 0.0
+    return_dd_ratio = net_pnl / max_drawdown if max_drawdown > 0 else 0.0
+    
+    # === SHARPE RATIO ===
+    returns = [pnl / reference_capital for pnl in pnls] if reference_capital > 0 else [0.0] * n
+    avg_return = sum(returns) / n if n > 0 else 0.0
+    variance = sum((r - avg_return) ** 2 for r in returns) / n if n > 0 else 0.0
+    std_return = math.sqrt(variance) if variance > 0 else 0.0
+    sharpe_ratio = (avg_return / std_return) * math.sqrt(252) if std_return > 0 else 0.0
+    
+    # === SORTINO RATIO ===
+    downside_returns = [r for r in returns if r < 0]
+    if downside_returns:
+        downside_variance = sum(r ** 2 for r in downside_returns) / len(downside_returns)
+        downside_std = math.sqrt(downside_variance) if downside_variance > 0 else 0.0
+        sortino_ratio = (avg_return / downside_std) * math.sqrt(252) if downside_std > 0 else 0.0
+    else:
+        sortino_ratio = avg_return * math.sqrt(252) if avg_return > 0 else 0.0
+    
+    # === K-RATIO ===
+    if n >= 3:
+        x_vals = list(range(n))
+        x_mean = sum(x_vals) / n
+        y_mean = sum(equity_curve) / n
+        
+        numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_vals, equity_curve))
+        denominator = sum((x - x_mean) ** 2 for x in x_vals)
+        
+        if denominator > 0:
+            slope = numerator / denominator
+            intercept = y_mean - slope * x_mean
+            residuals = [y - (slope * x + intercept) for x, y in zip(x_vals, equity_curve)]
+            residual_ss = sum(r ** 2 for r in residuals)
+            std_error = math.sqrt(residual_ss / (n - 2)) / math.sqrt(denominator) if n > 2 else 0.0
+            k_ratio = slope / std_error if std_error > 0 else slope
+        else:
+            k_ratio = 0.0
+    else:
+        k_ratio = 0.0
+    
+    # === SQN ===
+    avg_pnl = sum(pnls) / n if n > 0 else 0.0
+    pnl_variance = sum((p - avg_pnl) ** 2 for p in pnls) / n if n > 0 else 0.0
+    pnl_std = math.sqrt(pnl_variance) if pnl_variance > 0 else 0.0
+    sqn = math.sqrt(n) * avg_pnl / pnl_std if pnl_std > 0 else 0.0
+    
+    return {
+        "max_drawdown_usd": round(max_drawdown, 2),
+        "max_drawdown_pct": round(max_dd_pct, 4),  # Stored as decimal
+        "return_dd_ratio": round(return_dd_ratio, 2),
+        "sharpe_ratio": round(sharpe_ratio, 2),
+        "sortino_ratio": round(sortino_ratio, 2),
+        "k_ratio": round(k_ratio, 2),
+        "sqn": round(sqn, 2)
+    }
+
+
+def compute_yearwise_metrics(trades: List[RawTradeRecord]) -> List[dict]:
+    """
+    Compute results_yearwise.csv metrics.
+    Owner: Stage-1
+    
+    Columns from SOP_OUTPUT 4.4:
+    - year (Integer)
+    - net_pnl_usd (Float)
+    - trade_count (Integer)
+    - win_rate (Float)
+    """
+    if not trades:
+        return []
+    
+    # Group trades by year
+    yearly_data = {}
+    for t in trades:
+        try:
+            year = int(t.exit_timestamp[:4])
+        except (ValueError, TypeError):
+            continue
+        
+        if year not in yearly_data:
+            yearly_data[year] = {"pnls": [], "count": 0, "wins": 0}
+        
+        yearly_data[year]["pnls"].append(t.pnl_usd)
+        yearly_data[year]["count"] += 1
+        if t.pnl_usd > 0:
+            yearly_data[year]["wins"] += 1
+    
+    result = []
+    for year in sorted(yearly_data.keys()):
+        data = yearly_data[year]
+        net_pnl = sum(data["pnls"])
+        trade_count = data["count"]
+        win_rate = data["wins"] / trade_count if trade_count > 0 else 0.0
+        
+        result.append({
+            "year": year,
+            "net_pnl_usd": round(net_pnl, 2),
+            "trade_count": trade_count,
+            "win_rate": round(win_rate, 4)
+        })
+    
+    return result
+
+
+def get_metrics_glossary() -> List[dict]:
+    """
+    Generate metrics_glossary.csv content.
+    Owner: Stage-1
+    """
+    return [
+        {"metric_key": "net_pnl_usd", "full_name": "Net Profit (USD)", "definition": "Sum of all trade PnL", "unit": "USD"},
+        {"metric_key": "trade_count", "full_name": "Trade Count", "definition": "Total number of trades", "unit": "count"},
+        {"metric_key": "win_rate", "full_name": "Win Rate", "definition": "Fraction of winning trades", "unit": "decimal"},
+        {"metric_key": "profit_factor", "full_name": "Profit Factor", "definition": "Gross profit / Gross loss", "unit": "ratio"},
+        {"metric_key": "gross_profit", "full_name": "Gross Profit", "definition": "Sum of winning trades", "unit": "USD"},
+        {"metric_key": "gross_loss", "full_name": "Gross Loss", "definition": "Absolute sum of losing trades", "unit": "USD"},
+        {"metric_key": "max_drawdown_usd", "full_name": "Max Drawdown (USD)", "definition": "Maximum peak-to-trough decline", "unit": "USD"},
+        {"metric_key": "max_drawdown_pct", "full_name": "Max Drawdown (%)", "definition": "Max drawdown as fraction of capital", "unit": "decimal"},
+        {"metric_key": "return_dd_ratio", "full_name": "Return/DD Ratio", "definition": "Net profit / Max drawdown", "unit": "ratio"},
+        {"metric_key": "pnl_usd", "full_name": "Trade PnL", "definition": "(exit - entry) * position * direction", "unit": "USD"},
+        {"metric_key": "r_multiple", "full_name": "R-Multiple", "definition": "PnL / Risk per trade", "unit": "ratio"},
+        {"metric_key": "bars_held", "full_name": "Bars Held", "definition": "Number of bars in position", "unit": "count"},
+    ]
+
+
+# =============================================================================
+# EMISSION FUNCTION
+# =============================================================================
+
+PARTIAL_LEGS_FIELDS = [
+    "strategy_name", "parent_trade_id", "symbol", "direction",
+    # Audit fields — must match main row exactly (conservation invariant)
+    "entry_timestamp", "entry_price", "initial_stop_price", "risk_distance",
+    # Partial leg details
+    "partial_exit_timestamp", "partial_exit_price",
+    "partial_fraction", "partial_bars_held", "partial_unrealized_r",
+    "partial_pnl_usd", "partial_position_units",
+    "partial_trade_high_at_exit", "partial_trade_low_at_exit",
+    "partial_reason",
+    # Final-exit reference (enables partial->final gap / continuation audits
+    # without re-joining the main table)
+    "final_exit_timestamp", "final_exit_price",
+]
+
+
+def _emit_partial_legs_csv(raw_dir: Path, legs: List[PartialLegRecord]) -> Path:
+    """Always write results_partial_legs.csv — header-only when no partials
+    fired. Deterministic file existence simplifies downstream readers.
+
+    Returns the path written.
+    """
+    path = raw_dir / "results_partial_legs.csv"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=PARTIAL_LEGS_FIELDS)
+        writer.writeheader()
+        for leg in legs:
+            writer.writerow({
+                "strategy_name":               leg.strategy_name,
+                "parent_trade_id":             leg.parent_trade_id,
+                "symbol":                      leg.symbol,
+                "direction":                   leg.direction,
+                "entry_timestamp":             leg.entry_timestamp,
+                "entry_price":                 leg.entry_price,
+                "initial_stop_price":          leg.initial_stop_price,
+                "risk_distance":               leg.risk_distance,
+                "partial_exit_timestamp":      leg.partial_exit_timestamp,
+                "partial_exit_price":          leg.partial_exit_price,
+                "partial_fraction":            round(float(leg.partial_fraction), 6),
+                "partial_bars_held":           leg.partial_bars_held,
+                "partial_unrealized_r":        round(float(leg.partial_unrealized_r), 6),
+                "partial_pnl_usd":             round(float(leg.partial_pnl_usd), 2),
+                "partial_position_units":      leg.partial_position_units,
+                "partial_trade_high_at_exit":  leg.partial_trade_high_at_exit,
+                "partial_trade_low_at_exit":   leg.partial_trade_low_at_exit,
+                "partial_reason":              leg.partial_reason,
+                "final_exit_timestamp":        leg.final_exit_timestamp,
+                "final_exit_price":            leg.final_exit_price,
+            })
+    return path
+
+
+def emit_stage1(
+    trades: List[RawTradeRecord],
+    metadata: Stage1Metadata,
+    directive_content: str,
+    directive_filename: str,
+    output_root: Path,
+    median_bar_seconds: int = 0,
+    partial_legs: Optional[List[PartialLegRecord]] = None,
+) -> Path:
+    """
+    Emit all Stage-1 artifacts as defined in SOP_OUTPUT Section 4.
+    Owner: Stage-1
+    
+    Emits:
+    - raw/results_tradelevel.csv
+    - raw/results_standard.csv
+    - raw/results_risk.csv
+    - raw/results_yearwise.csv
+    - raw/metrics_glossary.csv
+    - metadata/run_metadata.json
+    - <directive_copy>
+    """
+    
+    # 1. Prepare Directory Structure
+    out_folder = output_root / metadata.strategy_name
+    raw_dir = out_folder / "raw"
+    metadata_dir = out_folder / "metadata"
+    
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 2. Emit results_tradelevel.csv (SOP 4.1)
+    # Updated for SOP_OUTPUT v4.2 Compliance (Intrinsic Market State)
+    tradelevel_fields = [
+        "run_id", "strategy_name", "parent_trade_id", "sequence_index",
+        "entry_timestamp", "exit_timestamp", "direction",
+        "entry_price", "exit_price", "pnl_usd", "r_multiple",
+        "trade_high", "trade_low", "bars_held", 
+        "atr_entry", "position_units", "notional_usd", 
+        "mfe_price", "mae_price", "mfe_r", "mae_r",
+        "volatility_regime", "trend_score", "trend_regime", "trend_label",
+        "symbol", "initial_stop_price", "risk_distance",
+        "market_regime", "regime_id", "regime_age",
+        # v1.5.5 signal/fill alignment fields
+        "signal_bar_idx", "fill_bar_idx",
+        "regime_age_signal", "regime_age_fill",
+        "market_regime_signal", "market_regime_fill",
+        "regime_id_signal", "regime_id_fill",
+        # v1.5.6 exec-TF clock probe
+        "regime_age_exec_signal", "regime_age_exec_fill",
+        # v1.5.7 partial-exit marker (economic summary at main row;
+        # execution detail in results_partial_legs.csv sidecar)
+        "has_partial", "partial_fraction", "partial_exit_r",
+    ]
+    
+    # Validate Intrinsic Market State Presence (SOP_TESTING §7.y)
+    # "Missing values → HARD FAIL"
+    if trades:
+        for t in trades:
+            if t.volatility_regime is None:
+                 raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'volatility_regime'. Engine failure.")
+            if t.trend_regime is None:
+                 raise ValueError(f"CRITICAL: Trade {t.parent_trade_id} missing 'trend_regime'. Engine failure.")
+
+    with open(raw_dir / "results_tradelevel.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=tradelevel_fields)
+        writer.writeheader()
+        for t in trades:
+            writer.writerow({
+                "run_id": metadata.run_id,
+                "strategy_name": t.strategy_name,
+                "parent_trade_id": t.parent_trade_id,
+                "sequence_index": t.sequence_index,
+                "entry_timestamp": t.entry_timestamp,
+                "exit_timestamp": t.exit_timestamp,
+                "direction": t.direction,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "pnl_usd": round(t.pnl_usd, 2),
+                "r_multiple": round(t.r_multiple, 2),
+                "trade_high": t.trade_high if t.trade_high is not None else "",
+                "trade_low": t.trade_low if t.trade_low is not None else "",
+                "bars_held": t.bars_held,
+                "atr_entry": t.atr_entry if t.atr_entry is not None else "",
+                "position_units": t.position_units if t.position_units is not None else "",
+                "notional_usd": t.notional_usd if t.notional_usd is not None else "",
+                "mfe_price": t.mfe_price if t.mfe_price is not None else "",
+                "mae_price": t.mae_price if t.mae_price is not None else "",
+                "mfe_r": t.mfe_r if t.mfe_r is not None else "",
+                "mae_r": t.mae_r if t.mae_r is not None else "",
+                "volatility_regime": t.volatility_regime,
+                "trend_score": t.trend_score,
+                "trend_regime": t.trend_regime,
+                "trend_label": t.trend_label,
+                "symbol": t.symbol if t.symbol is not None else "",
+                "initial_stop_price": t.initial_stop_price if t.initial_stop_price is not None else "",
+                "risk_distance": t.risk_distance if t.risk_distance is not None else "",
+                "market_regime": t.market_regime if t.market_regime is not None else "",
+                "regime_id": t.regime_id if t.regime_id is not None else "",
+                "regime_age": t.regime_age if t.regime_age is not None else "",
+                # v1.5.5 signal/fill alignment fields
+                "signal_bar_idx":        t.signal_bar_idx if t.signal_bar_idx is not None else "",
+                "fill_bar_idx":          t.fill_bar_idx if t.fill_bar_idx is not None else "",
+                "regime_age_signal":     t.regime_age_signal if t.regime_age_signal is not None else "",
+                "regime_age_fill":       t.regime_age_fill if t.regime_age_fill is not None else "",
+                "market_regime_signal":  t.market_regime_signal if t.market_regime_signal is not None else "",
+                "market_regime_fill":    t.market_regime_fill if t.market_regime_fill is not None else "",
+                "regime_id_signal":      t.regime_id_signal if t.regime_id_signal is not None else "",
+                "regime_id_fill":        t.regime_id_fill if t.regime_id_fill is not None else "",
+                # v1.5.6 exec-TF clock probe
+                "regime_age_exec_signal": t.regime_age_exec_signal if t.regime_age_exec_signal is not None else "",
+                "regime_age_exec_fill":   t.regime_age_exec_fill   if t.regime_age_exec_fill   is not None else "",
+                # v1.5.7 partial-exit marker (executed fraction from engine; 0.0 when no partial)
+                "has_partial":      bool(t.has_partial),
+                "partial_fraction": round(float(t.partial_fraction), 6),
+                "partial_exit_r":   round(float(t.partial_exit_r), 6),
+            })
+    
+    # 2b. Emit results_partial_legs.csv (v1.5.7 — Option A sidecar).
+    # Always created — header-only when no partials fired — so downstream
+    # readers don't need conditional existence checks.
+    _emit_partial_legs_csv(raw_dir, partial_legs or [])
+
+    # 3. Emit results_standard.csv (SOP 4.2)
+    standard_metrics = compute_standard_metrics(trades)
+    standard_fields = ["net_pnl_usd", "trade_count", "win_rate", "profit_factor", "gross_profit", "gross_loss"]
+    with open(raw_dir / "results_standard.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=standard_fields)
+        writer.writeheader()
+        writer.writerow(standard_metrics)
+    
+    # 4. Emit results_risk.csv (SOP 4.3)
+    if not metadata.reference_capital_usd or metadata.reference_capital_usd <= 0:
+        raise ValueError("Stage-1 Metadata missing valid reference_capital_usd")
+    reference_capital = metadata.reference_capital_usd
+    risk_metrics = compute_risk_metrics(trades, reference_capital)
+    risk_fields = ["max_drawdown_usd", "max_drawdown_pct", "return_dd_ratio", "sharpe_ratio", "sortino_ratio", "k_ratio", "sqn"]
+    with open(raw_dir / "results_risk.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=risk_fields)
+        writer.writeheader()
+        writer.writerow(risk_metrics)
+    
+    # 5. Emit results_yearwise.csv (SOP 4.4)
+    yearwise_metrics = compute_yearwise_metrics(trades)
+    yearwise_fields = ["year", "net_pnl_usd", "trade_count", "win_rate"]
+    with open(raw_dir / "results_yearwise.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=yearwise_fields)
+        writer.writeheader()
+        for row in yearwise_metrics:
+            writer.writerow(row)
+    
+    # 6. Emit metrics_glossary.csv (SOP 4.6)
+    glossary = get_metrics_glossary()
+    glossary_fields = ["metric_key", "full_name", "definition", "unit"]
+    with open(raw_dir / "metrics_glossary.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=glossary_fields)
+        writer.writeheader()
+        for row in glossary:
+            writer.writerow(row)
+    
+    # 7. Emit run_metadata.json (SOP 4.5)
+    meta_dict = {
+        "run_id": metadata.run_id,
+        "strategy_name": metadata.strategy_name,
+        "symbol": metadata.symbol,
+        "timeframe": metadata.timeframe,
+        "date_range": {
+            "start": metadata.date_range_start,
+            "end": metadata.date_range_end
+        },
+        "execution_timestamp_utc": metadata.execution_timestamp_utc,
+        "engine_name": metadata.engine_name,
+        "engine_version": metadata.engine_version,
+        "broker": metadata.broker,
+        "schema_version": metadata.schema_version,
+        "reference_capital_usd": metadata.reference_capital_usd
+    }
+    with open(metadata_dir / "run_metadata.json", "w", encoding="utf-8") as f:
+        json.dump(meta_dict, f, indent=2)
+        
+    # 7b. Emit bar_geometry.json (v5 Metric Integrity)
+    if median_bar_seconds > 0:
+        with open(raw_dir / "bar_geometry.json", "w", encoding="utf-8") as f:
+            json.dump({"median_bar_seconds": median_bar_seconds}, f, indent=2)
+    
+    # 8. Copy Directive
+    with open(out_folder / directive_filename, "w", encoding="utf-8") as f:
+        f.write(directive_content)
+    
+    return out_folder
