@@ -1,10 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: 18 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 6 uncommitted
 
-> Generated: 2026-04-19T18:05:02Z
+> Generated: 2026-04-20T02:39:27Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -28,15 +27,15 @@
 - BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260418T181517Z_9320 | bars=23
-- **Shadow trades:** 0 active | **Signals (7d):** 16 entry, 6 exit
+- **Process:** RUNNING | run_id=20260418T181517Z_9320 | bars=32
+- **Shadow trades:** 0 active | **Signals (7d):** 16 entry, 5 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
 - Snapshots: 16 | WAITING: 0 | Latest: `DRY_RUN_2026_04_12__a2571097`
 
 ## Data Freshness
-- Latest bar: **2026-04-19** | Symbols: 242 | **Stale (>3d): 18**
+- Latest bar: **2026-04-20** | Symbols: 242
 
 ## Artifacts
 - Run directories: 903
@@ -44,7 +43,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 6 uncommitted
-- Last commit: `84a4671 chore(session-close): refresh SYSTEM_STATE + tools_manifest`
+- Last commit: `3892f08 provisioner: inject REQUIRED_CAPABILITIES for new strategies`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
