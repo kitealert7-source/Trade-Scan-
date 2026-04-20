@@ -68,6 +68,12 @@ WDOG_PID     = TS_EXEC_ROOT / "outputs" / "logs" / "watchdog.pid"
 
 RESTART_CMD  = ["python", "src/main.py", "--phase", "2"]
 
+# Suppress console windows when spawning child processes from a windowless
+# parent (pythonw.exe / Task Scheduler "hidden" context). Without this flag
+# every subprocess.run/Popen call that spawns a console-subsystem exe briefly
+# flashes a black window on the user's desktop.
+_NO_WIN = subprocess.CREATE_NO_WINDOW
+
 # --- Alerts (observer-only, silent on failure) ---
 sys.path.insert(0, str(TS_EXEC_ROOT / "src"))
 try:
@@ -202,7 +208,8 @@ def _pid_is_alive(pid: int) -> bool:
     try:
         r = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            creationflags=_NO_WIN,
         )
         if r.returncode == 0:
             return str(pid) in r.stdout
@@ -227,7 +234,8 @@ def _kill_pid(pid: int) -> bool:
     try:
         r = subprocess.run(
             ["taskkill", "/F", "/PID", str(pid)],
-            capture_output=True, text=True, timeout=15
+            capture_output=True, text=True, timeout=15,
+            creationflags=_NO_WIN,
         )
         return r.returncode == 0
     except Exception as e:
@@ -303,7 +311,7 @@ def _do_restart(guard: dict) -> None:
             cwd=str(TS_EXEC_ROOT),
             stdout=_f,
             stderr=_f,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _NO_WIN,
         )
 
 
@@ -321,7 +329,8 @@ def _check_single_instance() -> bool:
             existing = int(WDOG_PID.read_text(encoding="utf-8").strip())
             r = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {existing}", "/NH", "/FO", "CSV"],
-                capture_output=True, text=True, timeout=10
+                capture_output=True, text=True, timeout=10,
+                creationflags=_NO_WIN,
             )
             if str(existing) in r.stdout:
                 _log(f"WATCHDOG_ALREADY_RUNNING | pid={existing} | exiting")

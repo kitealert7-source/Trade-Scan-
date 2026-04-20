@@ -43,6 +43,12 @@ EXEC_STATE      = TS_EXEC_ROOT / "outputs" / "logs" / "execution_state.json"
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+# Suppress console windows when spawning child processes from a windowless
+# parent (pythonw.exe / Task Scheduler context). Without this flag every
+# subprocess call that spawns a console-subsystem exe (tasklist, wmic,
+# python.exe) briefly flashes a black window on the user's desktop.
+_NO_WIN = subprocess.CREATE_NO_WINDOW
+
 MT5_PROCESS      = "terminal64.exe"
 MT5_POLL_S       = 10     # seconds between each probe poll
 MT5_PROC_TIMEOUT = 120    # max seconds to wait for terminal64.exe to appear
@@ -116,6 +122,7 @@ def _mt5_proc_alive() -> int | None:
         r = subprocess.run(
             ["tasklist", "/FI", f"IMAGENAME eq {MT5_PROCESS}", "/NH", "/FO", "CSV"],
             capture_output=True, text=True, timeout=10,
+            creationflags=_NO_WIN,
         )
         for line in r.stdout.splitlines():
             if MT5_PROCESS.lower() in line.lower():
@@ -139,7 +146,7 @@ def _try_launch_mt5() -> bool:
     try:
         proc = subprocess.Popen(
             [str(MT5_EXE_PATH)],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _NO_WIN,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -245,6 +252,7 @@ def _pid_is_alive(pid: int) -> bool:
         r = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
             capture_output=True, text=True, timeout=10,
+            creationflags=_NO_WIN,
         )
         if r.returncode == 0:
             return str(pid) in r.stdout
@@ -279,6 +287,7 @@ def _find_python_pids_by_cmdline(signatures: tuple[str, ...]) -> list[int]:
             ["wmic", "process", "where", "name='python.exe'", "get",
              "ProcessId,CommandLine", "/FORMAT:LIST"],
             capture_output=True, text=True, timeout=15,
+            creationflags=_NO_WIN,
         )
         current_cmdline = ""
         current_pid: int | None = None
@@ -353,7 +362,7 @@ def start_watchdog() -> None:
     proc = subprocess.Popen(
         [sys.executable, str(WATCHDOG_SCRIPT)],
         cwd=str(_TRADE_SCAN_ROOT),
-        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _NO_WIN,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -524,7 +533,7 @@ def start_execution() -> None:
             cwd=str(TS_EXEC_ROOT),
             stdout=f,
             stderr=f,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | _NO_WIN,
         )
 
 
