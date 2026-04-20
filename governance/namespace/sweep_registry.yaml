@@ -220,7 +220,7 @@ ideas:
     next_sweep: 1
     sweeps: {}
   '05':
-    next_sweep: 4
+    next_sweep: 5
     sweeps:
       S01:
         directive_name: 05_PORT_FX_4H_PORT_VOLFILT_S01_V1_P00
@@ -1806,11 +1806,6 @@ ideas:
         patches:
           P00:
             directive_name: 43_STR_FX_1H_CHOCH_S01_V2_P00
-            signature_hash: fc0eb02ef5540f94
-            signature_hash_full: fc0eb02ef5540f94fe4861c59ce3ba00dba4b061f8a1b02fad64afeb12ab726b
-            reserved_at_utc: '2026-04-14T14:05:50.861625+00:00'
-          P00:
-            directive_name: 43_STR_FX_1H_CHOCH_S01_V2_P00
             signature_hash: 8d465f58a5808932
             signature_hash_full: 8d465f58a58089328912bd129f5ded55e03de39f7c68fb2c345eaa1be8f80018
             reserved_at_utc: '2026-04-14T14:06:52.027070+00:00'
@@ -1826,21 +1821,6 @@ ideas:
         patches:
           P00:
             directive_name: 44_STR_BTC_1H_CHOCH_S01_V1_P00
-            signature_hash: fc0eb02ef5540f94
-            signature_hash_full: fc0eb02ef5540f94fe4861c59ce3ba00dba4b061f8a1b02fad64afeb12ab726b
-            reserved_at_utc: '2026-04-14T14:05:51.757099+00:00'
-          P00:
-            directive_name: 44_STR_BTC_1H_CHOCH_S01_V1_P00
-            signature_hash: 8d465f58a5808932
-            signature_hash_full: 8d465f58a58089328912bd129f5ded55e03de39f7c68fb2c345eaa1be8f80018
-            reserved_at_utc: '2026-04-14T14:06:52.895682+00:00'
-          P00:
-            directive_name: 44_STR_BTC_1H_CHOCH_S01_V1_P00
-            signature_hash: 8d465f58a5808932
-            signature_hash_full: 8d465f58a58089328912bd129f5ded55e03de39f7c68fb2c345eaa1be8f80018
-            reserved_at_utc: '2026-04-14T14:08:15.569847+00:00'
-          P00:
-            directive_name: 44_STR_BTC_1H_CHOCH_S01_V1_P00
             signature_hash: 099572ba0806b148
             signature_hash_full: 099572ba0806b1482caf354655389673ce0cfca74f12442f92dfd2e2c4a6ab0f
             reserved_at_utc: '2026-04-14T14:08:36.099977+00:00'
@@ -1854,16 +1834,6 @@ ideas:
         signature_hash_full: 099572ba0806b1482caf354655389673ce0cfca74f12442f92dfd2e2c4a6ab0f
         reserved_at_utc: '2026-04-14T01:30:00.000000+00:00'
         patches:
-          P00:
-            directive_name: 45_STR_XAU_1H_CHOCH_S01_V2_P00
-            signature_hash: fc0eb02ef5540f94
-            signature_hash_full: fc0eb02ef5540f94fe4861c59ce3ba00dba4b061f8a1b02fad64afeb12ab726b
-            reserved_at_utc: '2026-04-14T14:05:52.831427+00:00'
-          P00:
-            directive_name: 45_STR_XAU_1H_CHOCH_S01_V2_P00
-            signature_hash: 8d465f58a5808932
-            signature_hash_full: 8d465f58a58089328912bd129f5ded55e03de39f7c68fb2c345eaa1be8f80018
-            reserved_at_utc: '2026-04-14T14:06:53.770265+00:00'
           P00:
             directive_name: 45_STR_XAU_1H_CHOCH_S01_V2_P00
             signature_hash: 099572ba0806b148
@@ -1883,52 +1853,17 @@ ideas:
             directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P01
             signature_hash: 877fd6329fb86b96
             signature_hash_full: 877fd6329fb86b968cec2c0b06fc3286efe59379528914ec6df0a69928576a27
-            reserved_at_utc: '2026-04-14T13:26:24.194910+00:00'
-          P01:
-            directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P01
-            signature_hash: 54a00e3582fb6a49
-            signature_hash_full: 54a00e3582fb6a49acf74ff82e87aa1d6e277edbfc9a8b7a43b478b6d1973361
-            reserved_at_utc: '2026-04-14T14:18:49.854679+00:00'
-          P01:
-            directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P01
-            signature_hash: 877fd6329fb86b96
-            signature_hash_full: 877fd6329fb86b968cec2c0b06fc3286efe59379528914ec6df0a69928576a27
             reserved_at_utc: '2026-04-14T14:19:05.328334+00:00'
           P02:
             directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P02
             signature_hash: b13fe75a6b09129c
             signature_hash_full: b13fe75a6b09129c5f116936f1eee42b4e9e541bb95965bd62738ca1f38a6c78
-            reserved_at_utc: '2026-04-14T14:28:20.829333+00:00'
-          P02:
-            directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P02
-            signature_hash: ce095b5a9cdebd6b
-            signature_hash_full: ce095b5a9cdebd6ba2519398ec63838a4fb23077c318efaea85cce933ce7fc8e
-            reserved_at_utc: '2026-04-14T14:29:00.206933+00:00'
-          P02:
-            directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P02
-            signature_hash: 5a321afdc458de94
-            signature_hash_full: 5a321afdc458de94e4220d3af234c12a7621b2cf9c8c9ff6330880ea0b11f3b0
-            reserved_at_utc: '2026-04-14T14:31:35.112315+00:00'
-          P02:
-            directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P02
-            signature_hash: 5a321afdc458de94
-            signature_hash_full: 5a321afdc458de94e4220d3af234c12a7621b2cf9c8c9ff6330880ea0b11f3b0
-            reserved_at_utc: '2026-04-14T14:32:01.945286+00:00'
+            reserved_at_utc: '2026-04-14T17:08:40.468357+00:00'
           P03:
             directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P03
             signature_hash: 48c3599c7f2d2873
             signature_hash_full: 48c3599c7f2d28733a0acf1ca38e189eb1264a257eab3c4d88c2c9670a806fce
             reserved_at_utc: '2026-04-14T14:43:08.027952+00:00'
-          P02:
-            directive_name: 46_STR_XAU_1H_CHOCH_S01_V2_P02
-            signature_hash: b13fe75a6b09129c
-            signature_hash_full: b13fe75a6b09129c5f116936f1eee42b4e9e541bb95965bd62738ca1f38a6c78
-            reserved_at_utc: '2026-04-14T17:08:40.468357+00:00'
-          P00:
-            directive_name: 46_STR_XAU_1H_CHOCH_S01_V3_P00
-            signature_hash: 413d39c3f5053597
-            signature_hash_full: 413d39c3f5053597dd07d89c20dbf2c9535d461d1e85459cdbc7f5a1da55fbf6
-            reserved_at_utc: '2026-04-14T18:04:21.159237+00:00'
           P00:
             directive_name: 46_STR_XAU_1H_CHOCH_S01_V3_P00
             signature_hash: 413d39c3f5053597
@@ -1944,21 +1879,6 @@ ideas:
         signature_hash_full: 0aedbca46b17b79c9278e7326225494f7edbd0bcaeeaea2fd8295fe7d18c6969
         reserved_at_utc: '2026-04-14T07:30:00.000000+00:00'
         patches:
-          P00:
-            directive_name: 47_STR_FX_1H_CHOCH_S01_V2_P00
-            signature_hash: 90c46856d7cd7607
-            signature_hash_full: 90c46856d7cd7607b6b62f651378f503bf560e2331e27ac7ea19d628bf9e757b
-            reserved_at_utc: '2026-04-14T14:05:53.822174+00:00'
-          P00:
-            directive_name: 47_STR_FX_1H_CHOCH_S01_V2_P00
-            signature_hash: cb9f2723ce40ef4d
-            signature_hash_full: cb9f2723ce40ef4dd42f8093c6e0e11d5467f6d9daa573c4553d9f9e519f0176
-            reserved_at_utc: '2026-04-14T14:06:54.664516+00:00'
-          P00:
-            directive_name: 47_STR_FX_1H_CHOCH_S01_V2_P00
-            signature_hash: 0aedbca46b17b79c
-            signature_hash_full: 0aedbca46b17b79c9278e7326225494f7edbd0bcaeeaea2fd8295fe7d18c6969
-            reserved_at_utc: '2026-04-14T14:10:19.275747+00:00'
           P00:
             directive_name: 47_STR_FX_1H_CHOCH_S01_V3_P00
             signature_hash: 413d39c3f5053597
@@ -1991,21 +1911,6 @@ ideas:
         patches:
           P00:
             directive_name: 49_STR_XAU_1H_CHOCH_S01_V1_P00
-            signature_hash: 2c04f297115b41bb
-            signature_hash_full: 2c04f297115b41bb7bcb0987e630e939ffe56d5d1869473d38581750bace92e8
-            reserved_at_utc: '2026-04-14T14:05:54.790175+00:00'
-          P00:
-            directive_name: 49_STR_XAU_1H_CHOCH_S01_V1_P00
-            signature_hash: b4878cb93295b782
-            signature_hash_full: b4878cb93295b7820a6d8464c7f1514dd5e20887b60578c1eec57a4917daaad4
-            reserved_at_utc: '2026-04-14T14:06:55.578767+00:00'
-          P00:
-            directive_name: 49_STR_XAU_1H_CHOCH_S01_V1_P00
-            signature_hash: 125d911c78ea9029
-            signature_hash_full: 125d911c78ea90293144c423842d04396d8c4bd9e77e42c2284e7229155fdeed
-            reserved_at_utc: '2026-04-14T14:08:37.098362+00:00'
-          P00:
-            directive_name: 49_STR_XAU_1H_CHOCH_S01_V1_P00
             signature_hash: 926297db858ae00b
             signature_hash_full: 926297db858ae00b8695f8fd04fe23c1c8e15a2b21345221405fde5409311bdc
             reserved_at_utc: '2026-04-14T14:12:06.246373+00:00'
@@ -2019,21 +1924,6 @@ ideas:
         signature_hash_full: 926297db858ae00b8695f8fd04fe23c1c8e15a2b21345221405fde5409311bdc
         reserved_at_utc: '2026-04-14T08:30:00.000000+00:00'
         patches:
-          P00:
-            directive_name: 50_STR_FX_1H_CHOCH_S01_V1_P00
-            signature_hash: 2c04f297115b41bb
-            signature_hash_full: 2c04f297115b41bb7bcb0987e630e939ffe56d5d1869473d38581750bace92e8
-            reserved_at_utc: '2026-04-14T14:05:55.699907+00:00'
-          P00:
-            directive_name: 50_STR_FX_1H_CHOCH_S01_V1_P00
-            signature_hash: b4878cb93295b782
-            signature_hash_full: b4878cb93295b7820a6d8464c7f1514dd5e20887b60578c1eec57a4917daaad4
-            reserved_at_utc: '2026-04-14T14:06:56.449597+00:00'
-          P00:
-            directive_name: 50_STR_FX_1H_CHOCH_S01_V1_P00
-            signature_hash: 125d911c78ea9029
-            signature_hash_full: 125d911c78ea90293144c423842d04396d8c4bd9e77e42c2284e7229155fdeed
-            reserved_at_utc: '2026-04-14T14:08:38.126026+00:00'
           P00:
             directive_name: 50_STR_FX_1H_CHOCH_S01_V1_P00
             signature_hash: 926297db858ae00b
@@ -2051,21 +1941,6 @@ ideas:
         patches:
           P00:
             directive_name: 51_STR_BTC_1H_CHOCH_S01_V1_P00
-            signature_hash: 2c04f297115b41bb
-            signature_hash_full: 2c04f297115b41bb7bcb0987e630e939ffe56d5d1869473d38581750bace92e8
-            reserved_at_utc: '2026-04-14T14:05:56.785995+00:00'
-          P00:
-            directive_name: 51_STR_BTC_1H_CHOCH_S01_V1_P00
-            signature_hash: b4878cb93295b782
-            signature_hash_full: b4878cb93295b7820a6d8464c7f1514dd5e20887b60578c1eec57a4917daaad4
-            reserved_at_utc: '2026-04-14T14:06:57.363748+00:00'
-          P00:
-            directive_name: 51_STR_BTC_1H_CHOCH_S01_V1_P00
-            signature_hash: 125d911c78ea9029
-            signature_hash_full: 125d911c78ea90293144c423842d04396d8c4bd9e77e42c2284e7229155fdeed
-            reserved_at_utc: '2026-04-14T14:08:39.155396+00:00'
-          P00:
-            directive_name: 51_STR_BTC_1H_CHOCH_S01_V1_P00
             signature_hash: 926297db858ae00b
             signature_hash_full: 926297db858ae00b8695f8fd04fe23c1c8e15a2b21345221405fde5409311bdc
             reserved_at_utc: '2026-04-14T14:12:08.495628+00:00'
@@ -2081,21 +1956,40 @@ ideas:
         patches:
           P00:
             directive_name: 52_STR_BTC_15M_CHOCH_S01_V2_P00
-            signature_hash: cb9f2723ce40ef4d
-            signature_hash_full: cb9f2723ce40ef4dd42f8093c6e0e11d5467f6d9daa573c4553d9f9e519f0176
-            reserved_at_utc: '2026-04-14T12:54:39.163333+00:00'
-          P00:
-            directive_name: 52_STR_BTC_15M_CHOCH_S01_V2_P00
-            signature_hash: cb9f2723ce40ef4d
-            signature_hash_full: cb9f2723ce40ef4dd42f8093c6e0e11d5467f6d9daa573c4553d9f9e519f0176
-            reserved_at_utc: '2026-04-14T14:05:57.644641+00:00'
-          P00:
-            directive_name: 52_STR_BTC_15M_CHOCH_S01_V2_P00
-            signature_hash: cb9f2723ce40ef4d
-            signature_hash_full: cb9f2723ce40ef4dd42f8093c6e0e11d5467f6d9daa573c4553d9f9e519f0176
-            reserved_at_utc: '2026-04-14T14:06:58.254864+00:00'
-          P00:
-            directive_name: 52_STR_BTC_15M_CHOCH_S01_V2_P00
             signature_hash: 20d8de9e308c39d2
             signature_hash_full: 20d8de9e308c39d23ff3332c9a0a11da6d23c0923152b6dfabbab683acf0ae39
             reserved_at_utc: '2026-04-14T14:14:01.986353+00:00'
+  '54':
+    next_sweep: 23
+    sweeps:
+      S22:
+        directive_name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P00
+        signature_hash: 6914b5aaa6facc15
+        reserved_at_utc: '2026-04-20T07:08:37.918233+00:00'
+        signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+        patches:
+          P01:
+            directive_name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P01
+            signature_hash: 6914b5aaa6facc15
+            signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+            reserved_at_utc: '2026-04-20T07:37:47.046601+00:00'
+          P01:
+            directive_name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P01
+            signature_hash: 6914b5aaa6facc15
+            signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+            reserved_at_utc: '2026-04-20T07:38:12.193347+00:00'
+          P02:
+            directive_name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P02
+            signature_hash: 6914b5aaa6facc15
+            signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+            reserved_at_utc: '2026-04-20T07:58:04.221891+00:00'
+          P03:
+            directive_name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P03
+            signature_hash: 6914b5aaa6facc15
+            signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+            reserved_at_utc: '2026-04-20T07:58:08.165673+00:00'
+          P03:
+            directive_name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P03
+            signature_hash: 6914b5aaa6facc15
+            signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+            reserved_at_utc: '2026-04-20T08:09:17.637005+00:00'

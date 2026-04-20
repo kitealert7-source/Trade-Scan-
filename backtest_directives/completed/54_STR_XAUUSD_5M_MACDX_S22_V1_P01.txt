@@ -1,0 +1,65 @@
+test:
+  name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P01
+  family: STR
+  strategy: 54_STR_XAUUSD_5M_MACDX_S22_V1_P01
+  version: 1
+  signal_version: 17
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-04-17"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "P01 adds intrabar break-even stop mutation on top of P00 baseline. Trigger: ctx.unrealized_r_intrabar >= 1.0. Action: SL -> entry_price. Guard: once-per-trade (_be_applied). No other changes; same data, same config, same SL/TP/time-stop, same entry logic. Purpose: isolate BE contribution vs P00 baseline on v1.5.8."
+  description: "S22 P01 on v1.5.8 FROZEN. Adds intrabar BE @ +1R. Isolates BE effect vs P00 baseline."
+  notes: "S22 entry + 40-bar time-stop unchanged. Adds check_stop_mutation: move SL -> entry when unrealized_r_intrabar >= 1.0, once per trade. Engine enforces monotone tightening."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.ema_cross
+  - indicators.momentum.macd
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 6.0
+  entry_logic:
+    type: macd_crossover_transition
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

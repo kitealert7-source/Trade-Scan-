@@ -387,3 +387,11 @@ ideas:
     role: entry_edge
     instruments: ETH
     status: active
+  "54":
+    family: STR
+    title: MACD Multi-Dim Feature Probe -- XAUUSD 5M
+    class: indicator_logic
+    regime: multi
+    role: entry_edge
+    instruments: XAUUSD
+    status: active

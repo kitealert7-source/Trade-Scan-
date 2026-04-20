@@ -1,0 +1,16 @@
+{
+  "trades": 1434,
+  "wins": 348,
+  "losses": 692,
+  "break_even": 394,
+  "total_R": 215.4736,
+  "total_pnl": 215.4736,
+  "PF": 1.3239,
+  "avg_R": 0.1503,
+  "max_DD_R": 26.1724,
+  "sl_exits": 1047,
+  "tp_exits": 0,
+  "time_exits": 387,
+  "be_exits": 394,
+  "engine_version": "v1.5.8"
+}

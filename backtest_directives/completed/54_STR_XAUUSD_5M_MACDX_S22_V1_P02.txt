@@ -1,0 +1,65 @@
+test:
+  name: 54_STR_XAUUSD_5M_MACDX_S22_V1_P02
+  family: STR
+  strategy: 54_STR_XAUUSD_5M_MACDX_S22_V1_P02
+  version: 1
+  signal_version: 17
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-04-17"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "P02 variant on engine v1.5.8 FROZEN. Clones P00 entry/SL/TP/time-stop; adds strategy-level lock-profit stop mutation via check_stop_mutation + ctx.unrealized_r_intrabar. Rule: when intrabar r >= 2.0, move SL to entry +/- 1R. Once per trade. Tests whether late protection (not early BE) shrinks DD without truncating S22's mid-distribution winners."
+  description: "S22 lock-profit variant: SL -> +1R when intrabar >= 2R. Late protection probe on v1.5.8."
+  notes: "Same entry/SL/TP as P00. Lock-profit at +2R via check_stop_mutation. Engine enforces monotonic tightening."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.ema_cross
+  - indicators.momentum.macd
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 6.0
+  entry_logic:
+    type: macd_crossover_transition
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
