@@ -1,10 +1,17 @@
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 from datetime import datetime, timezone
 import hashlib
 from filelock import FileLock
+
+# Ensure project root is importable when run as a script (python tools/system_registry.py).
+# No-op when imported as a module from callers that already set sys.path.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR, POOL_DIR, QUARANTINE_DIR
 from tools.event_log import log_event
@@ -635,3 +642,19 @@ def _get_directive_first_execution_timestamp(directive_id: str):
             continue
 
     return fallback_ts
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="System registry CLI — operator entry point for registry maintenance.")
+    parser.add_argument("--reconcile", action="store_true",
+                        help="Run reconcile_registry() — aligns registry with disk state (quarantine sync, "
+                             "missing-on-disk resolution, portfolio_metadata auto-clean). Governance-audited.")
+    args = parser.parse_args()
+
+    if args.reconcile:
+        reconcile_registry()
+        print("[RECONCILE] Registry reconciliation complete")
+    else:
+        parser.print_help()

@@ -52,9 +52,11 @@ PORTFOLIO_STATUSES = frozenset({
     PORTFOLIO_PROFILE_UNRESOLVED,
 })
 
-# Statuses that block execution / require operator attention
+# Statuses that indicate system integrity failures requiring operator attention.
+# PORTFOLIO_FAIL is intentionally excluded — it is an expected research outcome
+# (quality gate did not pass), not a system error. Flagging FAIL as RED caused
+# permanent preflight RED as the append-only ledger accumulated research results.
 PORTFOLIO_BLOCKED_STATUSES = frozenset({
-    PORTFOLIO_FAIL,
     PORTFOLIO_PROFILE_UNRESOLVED,
 })
 

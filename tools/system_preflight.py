@@ -8,8 +8,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, ARCHIVE_DIR, QUARANTINE_DIR, BACKTESTS_DIR, SELECTED_DIR, POOL_DIR, resolve_base_strategy_dir
-from config.status_enums import PORTFOLIO_BLOCKED_STATUSES, RUN_ABORTED
+from config.status_enums import PORTFOLIO_BLOCKED_STATUSES, PORTFOLIO_FAIL, RUN_ABORTED
 STRICT_MODE = True # Any error makes overall status RED
+
+# -----------------------------------------------------------------------------
+# Canonical repair commands (single source of truth for routing hints).
+# Use `python -m <pkg>` form — cwd-agnostic, no sys.path tricks.
+# Each RED category maps to exactly one of these. Do not inline elsewhere.
+# -----------------------------------------------------------------------------
+CMD_LINEAGE_PRUNER   = "python -m tools.state_lifecycle.lineage_pruner --dry-run"
+CMD_SYSTEM_REGISTRY  = "python -m tools.system_registry --reconcile"
+CMD_REPAIR_INTEGRITY = "python -m tools.state_lifecycle.repair_integrity --dry-run"
+INVESTIGATE_STEP7    = "pipeline Step 7 (_resolve_deployed_profile)"
 
 
 def _build_quarantine_index():
@@ -69,10 +79,25 @@ def resolve_run_location(run_id: str):
 def get_hash(p: Path):
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
+def _burn_in_active() -> bool:
+    """Detect TS_Execution running without depending on lineage_pruner's
+    sys.exit behaviour on corrupt PID. Isolates the check so a missing or
+    malformed PID file never crashes preflight.
+    """
+    try:
+        from tools.state_lifecycle.lineage_pruner import execution_pid_exists
+        return bool(execution_pid_exists())
+    except SystemExit:
+        return False  # corrupt pid — preflight must not halt
+    except Exception:
+        return False
+
+
 class PreflightCheck:
     def __init__(self):
         self.stats = {"GREEN": 0, "YELLOW": 0, "RED": 0}
         self.results = {}
+        self.burn_in_active = _burn_in_active()
 
     def report(self, category, status, message):
         self.stats[status] += 1
@@ -148,7 +173,7 @@ class PreflightCheck:
                 corrupt_count += 1
 
         if red_count > 0:
-            self.report("RUNS", "RED", f"{red_count} runs failed schema validation.")
+            self.report("RUNS", "RED", f"{red_count} RUN_INCOMPLETE: runs missing required artifacts (data/, manifest.json, run_state.json).")
         elif corrupt_count > 0:
             self.report("RUNS", "RED", f"{corrupt_count} runs failed manifest hash verification.")
         else:
@@ -234,35 +259,49 @@ class PreflightCheck:
             self.report("PORTFOLIOS", "GREEN", f"{portfolio_count} portfolios verified for dependencies.")
 
     def _check_ledger_health(self):
-        """Flag strategies with blocked portfolio_status (e.g. PROFILE_UNRESOLVED).
+        """Check ledger for system integrity failures.
 
-        Also fails RED if the ledger exists but cannot be read (locked, corrupt,
-        partial write) — a readable authoritative ledger is a hard requirement.
+        FAIL is an expected research outcome (quality gate did not pass) and is
+        reported informationally only — it does NOT escalate to RED.
+
+        RED is raised only for statuses in PORTFOLIO_BLOCKED_STATUSES
+        (e.g. PROFILE_UNRESOLVED, which indicates a pipeline evaluation failure),
+        or if the ledger is unreadable.
         """
         try:
             from tools.ledger_db import read_mps
             df = read_mps()
             if df.empty:
-                return  # No ledger data yet ��� nothing to check
+                return  # No ledger data yet — nothing to check
         except PermissionError:
             self.report("LEDGER", "RED",
-                        f"Ledger locked — cannot read (close Excel or wait for pipeline)")
+                        "Ledger locked — cannot read (close Excel or wait for pipeline)")
             return
         except Exception as e:
             self.report("LEDGER", "RED",
                         f"Ledger unreadable: {type(e).__name__}: {e}")
             return
+
         if "portfolio_status" not in df.columns or "portfolio_id" not in df.columns:
             return
-        blocked = df[df["portfolio_status"].astype(str).isin(PORTFOLIO_BLOCKED_STATUSES)]
+
+        statuses = df["portfolio_status"].astype(str)
+
+        # System integrity check: blocked statuses only (PROFILE_UNRESOLVED etc.)
+        blocked = df[statuses.isin(PORTFOLIO_BLOCKED_STATUSES)]
         if not blocked.empty:
             ids = blocked["portfolio_id"].astype(str).tolist()
-            statuses = blocked["portfolio_status"].astype(str).tolist()
-            detail = ", ".join(f"{sid}={st}" for sid, st in zip(ids, statuses))
+            bstatuses = blocked["portfolio_status"].astype(str).tolist()
+            detail = ", ".join(f"{sid}={st}" for sid, st in zip(ids, bstatuses))
             self.report("LEDGER", "RED",
                         f"{len(blocked)} strategy(ies) in blocked status: {detail}")
         else:
-            self.report("LEDGER", "GREEN", "All ledger entries have valid portfolio_status.")
+            # Informational breakdown — FAIL is a normal research outcome, not an error
+            fail_count = (statuses == PORTFOLIO_FAIL).sum()
+            non_fail_count = len(df) - fail_count
+            self.report("LEDGER", "GREEN",
+                        f"No blocked entries. Research outcomes: {fail_count} FAIL "
+                        f"(informational), {non_fail_count} non-FAIL across {len(df)} rows.")
 
     def _check_aborted_runs(self):
         """Flag ABORTED runs that need cleanup or investigation."""
@@ -428,6 +467,66 @@ class PreflightCheck:
             self.report("EXEC_CONTRACT", "GREEN",
                         f"All {len(enabled)} deployed strategies pass execution contract{schema_note}.")
 
+    def _hint_for(self, category, msg):
+        """Map a single RED/YELLOW message to a canonical (verb, command) pair.
+
+        Canonical map (one action per issue type — no duplication elsewhere):
+          RUNS / RUN_INCOMPLETE           -> lineage_pruner   ("Run")
+          RUNS / ABORTED (pending cleanup)-> lineage_pruner   ("Then")
+          RUNS / manifest hash mismatch   -> repair_integrity ("Run")
+          REGISTRY / disk-registry drift  -> system_registry  ("Run")
+          PORTFOLIOS / missing deps       -> repair_integrity ("Run")
+          LEDGER / PROFILE_UNRESOLVED     -> investigate Step 7
+        """
+        if category == "RUNS":
+            if "RUN_INCOMPLETE" in msg:
+                return ("Run", CMD_LINEAGE_PRUNER)
+            if "ABORTED" in msg:
+                return ("Then", CMD_LINEAGE_PRUNER)
+            if "manifest hash verification" in msg:
+                return ("Run", CMD_REPAIR_INTEGRITY)
+        elif category == "REGISTRY":
+            # Orphan disk runs → quarantine them (reconcile does not add entries)
+            if "DISK_NOT_IN_REGISTRY" in msg:
+                return ("Run", CMD_LINEAGE_PRUNER)
+            # Stale registry entry or status drift → reconcile
+            if "QUARANTINED_BUT_NOT_FOUND" in msg or "REGISTRY_RUN_MISSING" in msg:
+                return ("Run", CMD_SYSTEM_REGISTRY)
+        elif category == "PORTFOLIOS":
+            if "Missing dependencies" in msg:
+                return ("Run", CMD_REPAIR_INTEGRITY)
+        elif category == "LEDGER":
+            if "PROFILE_UNRESOLVED" in msg:
+                return ("Investigate", INVESTIGATE_STEP7)
+        return None
+
+    def _collect_suggested_commands(self):
+        """Walk detected hints; return de-duplicated list of runnable commands.
+
+        Preserves first-seen order. Excludes:
+          - 'Investigate' verbs (not runnable commands)
+          - lineage_pruner when burn-in is active (the tool will [BLOCK])
+        """
+        ordered = []
+        seen = set()
+        for cat in ("RUNS", "REGISTRY", "PORTFOLIOS", "LEDGER", "STRATEGIES", "EXEC_CONTRACT"):
+            for status, msg in self.results.get(cat, []):
+                if status == "GREEN":
+                    continue
+                hint = self._hint_for(cat, msg)
+                if not hint:
+                    continue
+                verb, cmd = hint
+                if verb not in ("Run", "Then"):
+                    continue
+                if cmd == CMD_LINEAGE_PRUNER and self.burn_in_active:
+                    continue  # deferred until burn-in stops
+                if cmd in seen:
+                    continue
+                seen.add(cmd)
+                ordered.append(cmd)
+        return ordered
+
     def _print_summary(self):
         def get_color_tag(cat):
             stats = [r[0] for r in self.results.get(cat, [])]
@@ -435,48 +534,58 @@ class PreflightCheck:
             if "YELLOW" in stats: return "\033[93mYELLOW\033[0m"
             return "\033[92mGREEN\033[0m"
 
-        print(f"{'RUNS':<12} {get_color_tag('RUNS')}")
-        for status, msg in self.results.get("RUNS", []):
-            if status != "GREEN": print(f"  - {msg}")
-            
-        print(f"{'REGISTRY':<12} {get_color_tag('REGISTRY')}")
-        for status, msg in self.results.get("REGISTRY", []):
-            if status != "GREEN": print(f"  - {msg}")
-            
-        print(f"{'PORTFOLIOS':<12} {get_color_tag('PORTFOLIOS')}")
-        for status, msg in self.results.get("PORTFOLIOS", []):
-            if status != "GREEN": print(f"  - {msg}")
+        def print_category(cat, width=12):
+            print(f"{cat:<{width}} {get_color_tag(cat)}")
+            for status, msg in self.results.get(cat, []):
+                if status != "GREEN":
+                    print(f"  - {msg}")
+                    hint = self._hint_for(cat, msg)
+                    if hint:
+                        verb, cmd = hint
+                        if verb == "Investigate":
+                            # Non-executable action — render distinctly from commands.
+                            print(f"    [action] Read: {cmd}")
+                        else:
+                            suffix = ""
+                            if cmd == CMD_LINEAGE_PRUNER and self.burn_in_active:
+                                suffix = "  [DEFERRED: burn-in active]"
+                            print(f"    → {verb}: {cmd}{suffix}")
 
-        print(f"{'LEDGER':<12} {get_color_tag('LEDGER')}")
-        for status, msg in self.results.get("LEDGER", []):
-            if status != "GREEN": print(f"  - {msg}")
-
-        print(f"{'STRATEGIES':<12} {get_color_tag('STRATEGIES')}")
-        for status, msg in self.results.get("STRATEGIES", []):
-            if status != "GREEN": print(f"  - {msg}")
-            
+        print_category("RUNS")
+        print_category("REGISTRY")
+        print_category("PORTFOLIOS")
+        print_category("LEDGER")
+        print_category("STRATEGIES")
         print(f"{'ARCHIVE':<12} {get_color_tag('ARCHIVE')}")
-        print(f"{'GUARDRAILS':<12} {get_color_tag('GUARDRAILS')}")
-        for status, msg in self.results.get("GUARDRAILS", []):
-            if status != "GREEN": print(f"  - {msg}")
-
-        print(f"{'EXEC_CONTRACT':<14} {get_color_tag('EXEC_CONTRACT')}")
-        for status, msg in self.results.get("EXEC_CONTRACT", []):
-            if status != "GREEN": print(f"  - {msg}")
+        print_category("GUARDRAILS")
+        print_category("EXEC_CONTRACT", width=14)
 
         overall = "GREEN"
         if self.stats["RED"] > 0: overall = "RED"
         elif self.stats["YELLOW"] > 0: overall = "YELLOW"
-        
+
         color_map = {"RED": "\033[91m", "YELLOW": "\033[93m", "GREEN": "\033[92m"}
         print("\nOVERALL STATUS: " + color_map[overall] + overall + "\033[0m")
         if overall == "RED":
             print("!! Execution must halt.")
+            print("\n>> RED detected — structural inconsistencies present")
+            print(">> Recommended action:")
+            print(">>   /system-maintenance")
+            print(">> or run targeted tools below based on issue type")
+            if self.burn_in_active:
+                print(">> Note: burn-in is active. Structural cleanup (lineage_pruner) is "
+                      "deferred until burn-in stops — related RED is expected, not failure.")
+            suggested = self._collect_suggested_commands()
+            if suggested:
+                print("\nSuggested next step:")
+                for cmd in suggested:
+                    print(f"  {cmd}")
             sys.exit(1)
         elif overall == "YELLOW":
             print("-- Warning but execution allowed.")
         else:
             print("++ Pipeline safe to run.")
+
 
 if __name__ == "__main__":
     PreflightCheck().run()

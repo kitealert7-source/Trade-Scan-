@@ -490,8 +490,13 @@ def execute_purge(targets: dict):
 def main():
     parser = argparse.ArgumentParser(description="State Lifecycle Lineage Pruner")
     parser.add_argument("--execute", action="store_true", help="Acknowledge destructive move and bypass dry-run.")
+    parser.add_argument("--dry-run", action="store_true", help="Explicit dry-run (default behaviour — no mutations). Mutually exclusive with --execute.")
     parser.add_argument("--force-unlock", action="store_true", help="Bypass TS_Execution safety check. Use only when certain TS_Execution is not running.")
     args = parser.parse_args()
+
+    if args.dry_run and args.execute:
+        print("[ERROR] --dry-run and --execute are mutually exclusive.")
+        sys.exit(2)
 
     if args.force_unlock:
         print("[WARN] --force-unlock: Bypassing TS_Execution safety check. Use only when you are certain TS_Execution is not running.")
@@ -511,6 +516,7 @@ def main():
         execute_purge(targets)
     else:
         print("\n[HALT] Executed cleanly in DRY_RUN mode. Use --execute to structurally quarantine items.")
+        print("[DRY-RUN] No changes applied")
 
 
 if __name__ == "__main__":
