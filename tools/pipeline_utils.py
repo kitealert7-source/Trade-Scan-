@@ -212,19 +212,34 @@ def get_canonical_hash(parsed_data: dict) -> str:
 
 def get_engine_version(engine_path=None):
     """
-    Dynamically import engine module and read __version__.
-    Default path: engine_dev/universal_research_engine/v1_5_6/main.py
+    Resolve engine version from engine_registry.json (active_engine field),
+    with ENGINE_VERSION_OVERRIDE env var taking priority for test overrides.
+    Falls back to dynamically importing main.py if engine_path is given explicitly.
     """
+    override = os.environ.get("ENGINE_VERSION_OVERRIDE", "").strip()
+    if override:
+        # Normalize: "v1_5_7" -> "1.5.7", "1.5.7" -> "1.5.7"
+        ver = override.lstrip("v").replace("_", ".")
+        return ver
+
     if not engine_path:
+        registry_path = PROJECT_ROOT / "config" / "engine_registry.json"
+        if registry_path.exists():
+            with open(registry_path, encoding="utf-8") as f:
+                reg = json.load(f)
+            active = reg.get("active_engine", "")  # e.g. "v1_5_7"
+            if active:
+                return active.lstrip("v").replace("_", ".")
+        # Legacy fallback: hardcoded v1.5.6 path
         engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_6/main.py"
-        
+
     if not engine_path.exists():
         raise RuntimeError(f"Engine main.py not found at {engine_path}")
 
     spec = importlib.util.spec_from_file_location("universal_research_engine", engine_path)
     if spec is None or spec.loader is None:
         raise RuntimeError("Failed to load engine spec")
-        
+
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
