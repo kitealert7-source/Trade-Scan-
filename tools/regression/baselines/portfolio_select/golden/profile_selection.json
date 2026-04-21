@@ -1,0 +1,18 @@
+{
+  "A_clear_winner": {
+    "deployed_profile": "REAL_MODEL_V1",
+    "source": "best_scored"
+  },
+  "B_only_raw_profitable": {
+    "deployed_profile": "RAW_MIN_LOT_V1",
+    "source": "best_scored"
+  },
+  "C_all_invalid": {
+    "deployed_profile": null,
+    "source": "no_valid_profiles"
+  },
+  "D_tied_scores": {
+    "deployed_profile": "FIXED_USD_V1",
+    "source": "best_scored"
+  }
+}

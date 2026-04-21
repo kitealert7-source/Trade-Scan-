@@ -1,0 +1,8 @@
+{
+  "S01_core_portfolio": "CORE",
+  "S02_watch_portfolio": "WATCH",
+  "S03_fail_low_trades": "FAIL",
+  "S04_fail_negative_pnl": "FAIL",
+  "S05_core_single_asset": "CORE",
+  "S06_fail_low_sqn_single": "FAIL"
+}

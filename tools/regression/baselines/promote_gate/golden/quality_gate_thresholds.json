@@ -1,0 +1,32 @@
+{
+  "edge_ratio": {
+    "hard": 1.0,
+    "label": "Edge ratio (MFE/MAE)",
+    "warn": 1.2
+  },
+  "flat_pct": {
+    "hard": 40.0,
+    "label": "Flat period (%)",
+    "warn": 30.0
+  },
+  "pf_minus5": {
+    "hard": 1.0,
+    "label": "PF after removing top 5%",
+    "warn": 1.1
+  },
+  "top5_conc": {
+    "hard": 70.0,
+    "label": "Top-5 concentration (%)",
+    "warn": 50.0
+  },
+  "trade_count": {
+    "hard": 100,
+    "label": "Trade count",
+    "warn": 200
+  },
+  "wo5_pnl": {
+    "hard": 0.0,
+    "label": "PnL w/o top 5 trades (%)",
+    "warn": 30.0
+  }
+}
