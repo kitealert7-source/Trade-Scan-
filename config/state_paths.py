@@ -12,11 +12,14 @@ __all__ = [
     "BACKTESTS_DIR",
     "POOL_DIR",
     "SELECTED_DIR",
+    "RUN_DIRS_IN_LOOKUP_ORDER",
     "MASTER_FILTER_PATH",
     "CANDIDATE_FILTER_PATH",
     "LEDGER_DB_PATH",
     "initialize_state_directories",
     "resolve_base_strategy_dir",
+    "resolve_run_dir",
+    "iter_run_dirs",
 ]
 
 # Repository Root
@@ -42,6 +45,17 @@ BACKTESTS_DIR  = STATE_ROOT / "backtests"
 # selected → TradeScan_State/candidates  (promotion-ready strategies)
 POOL_DIR     = _SANDBOX_DIR   # strategies that have cleared the Master Filter
 SELECTED_DIR = CANDIDATES_DIR # strategies selected for portfolio consideration
+
+# Canonical run-directory lookup order.
+#
+# Runs begin life in RUNS_DIR (Stage 1 writes here), then migrate to POOL_DIR
+# once they pass the Master Filter (see tools/filter_strategies.py), and may
+# be staged in SELECTED_DIR as portfolio candidates. Every READER that needs
+# to locate an existing run's artifacts MUST iterate this tuple (or go through
+# resolve_run_dir / iter_run_dirs below) so lookups stay consistent across
+# the codebase. Writers that always target RUNS_DIR (Stage-1 emit, reset,
+# watchdog) continue to reference RUNS_DIR directly.
+RUN_DIRS_IN_LOOKUP_ORDER = (RUNS_DIR, POOL_DIR, SELECTED_DIR)
 
 # Derived Paths
 MASTER_FILTER_PATH    = POOL_DIR     / "Strategy_Master_Filter.xlsx"
@@ -77,6 +91,68 @@ def resolve_base_strategy_dir(sid: str, artifact: str = "portfolio_evaluation") 
             return candidate_dir
 
     return None
+
+
+def resolve_run_dir(run_id: str, require_data: bool = True) -> Path:
+    """Return the physical directory holding ``run_id``'s artifacts.
+
+    Single source of truth for "where does this run live right now?". Probes
+    RUN_DIRS_IN_LOOKUP_ORDER and returns the first match. Replaces callers
+    that hardcoded a single location and silently broke after the run was
+    migrated from RUNS_DIR to POOL_DIR (see 2026-04-21 portfolio_evaluator
+    incident on run 56fdb79f... — the loader only checked RUNS_DIR even
+    though every post-filter run lives in POOL_DIR).
+
+    Args:
+        run_id:       The atomic run UUID (folder name under one of the run dirs).
+        require_data: If True, the returned path is the ``data/`` subdir and
+                      the probe skips folders that lack it (guards against
+                      partially-written runs). If False, returns the run home.
+
+    Returns:
+        ``<dir>/<run_id>/data`` when require_data, else ``<dir>/<run_id>``.
+
+    Raises:
+        FileNotFoundError: No location holds the run. Message lists every
+            directory probed so a corrupt pipeline state is obvious.
+    """
+    for base in RUN_DIRS_IN_LOOKUP_ORDER:
+        home = base / run_id
+        if not home.exists():
+            continue
+        if require_data:
+            data = home / "data"
+            if data.exists():
+                return data
+            continue
+        return home
+    probed = ", ".join(str(d) for d in RUN_DIRS_IN_LOOKUP_ORDER)
+    raise FileNotFoundError(
+        f"Governance violation: run directory missing for {run_id!r} "
+        f"(probed {probed}; require_data={require_data})"
+    )
+
+
+def iter_run_dirs():
+    """Yield ``(run_id, home_path)`` for every run on disk, in lookup priority.
+
+    Order mirrors RUN_DIRS_IN_LOOKUP_ORDER: RUNS_DIR first, then POOL_DIR,
+    then SELECTED_DIR. First-seen wins, so a run that appears in multiple
+    locations (should never happen outside a mid-migration window) is yielded
+    exactly once from its highest-priority location. Only folders with a
+    ``data/`` subdir are yielded — half-written run homes are skipped.
+
+    Used by reconciliation and cleanup paths that need a full sweep; for a
+    single-run lookup use resolve_run_dir.
+    """
+    seen: set[str] = set()
+    for base in RUN_DIRS_IN_LOOKUP_ORDER:
+        if not base.exists():
+            continue
+        for item in base.iterdir():
+            if item.is_dir() and item.name not in seen and (item / "data").exists():
+                seen.add(item.name)
+                yield item.name, item
 
 
 def initialize_state_directories():

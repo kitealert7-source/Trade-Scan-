@@ -326,17 +326,38 @@ class PreflightCheck:
                         f"{len(aborted)} ABORTED run(s) pending cleanup: {aborted[:3]}{'...' if len(aborted) > 3 else ''}")
 
     def _check_strategy_drift(self):
+        """Flag strategies/<ID>/ folders that lack any valid-content signal.
+
+        A folder is considered valid if ANY of the following exist:
+          1. ``strategy.py`` (or any ``*.py``) — deployable strategy source.
+          2. ``portfolio_metadata.json`` at root or under ``portfolio_evaluation/``
+             — post-evaluation artifact for single-symbol strategies.
+          3. ``deployable/profile_comparison.json`` — multi-symbol base folder
+             holding per-profile artifacts consumed by profile_selector.py and
+             referenced by per-symbol child folders via resolve_base_strategy_dir.
+             Missed by the pre-2026-04-21 check, which caused 82 legitimate
+             base folders (e.g. 54_STR_..._MACDX_S22_V1_P01, whose per-symbol
+             MPS row lives under <ID>_XAUUSD) to be flagged as drift.
+
+        Folders with none of the above are genuine orphans — either truly
+        abandoned or produced by a failure mode that stranded them.
+        """
         if not STRATEGIES_DIR.exists(): return
-        
+
         drift = []
         for item in STRATEGIES_DIR.iterdir():
             if item.is_file() and item.name != "Master_Portfolio_Sheet.xlsx":
                 drift.append(item.name)
             elif item.is_dir() and not item.name.startswith("_"):
-                has_metadata = (item / "portfolio_metadata.json").exists() or (item / "portfolio_evaluation" / "portfolio_metadata.json").exists()
-                if not has_metadata and not any(item.glob("*.py")):
+                has_metadata = (
+                    (item / "portfolio_metadata.json").exists()
+                    or (item / "portfolio_evaluation" / "portfolio_metadata.json").exists()
+                )
+                has_deployable = (item / "deployable" / "profile_comparison.json").exists()
+                has_py = any(item.glob("*.py"))
+                if not (has_metadata or has_deployable or has_py):
                     drift.append(item.name)
-                    
+
         if drift:
             self.report("STRATEGIES", "YELLOW", f"Unexpected content in strategies/: {drift[:3]}")
         else:

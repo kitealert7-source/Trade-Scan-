@@ -44,6 +44,21 @@ Preflight Check (ALLOW or BLOCK)
   - MUST execute
   - MUST exit with code 0 (PASS)
   - Failure or omission → BLOCK
+    └─ Additional preflight gates enforced by `tools/system_preflight.py`
+       (all must PASS or the run is blocked):
+       - CHECK 6.8 — Capability-Based Engine Resolution: every required
+         capability declared in module-level `REQUIRED_CAPABILITIES` must
+         resolve to a vaulted engine version. Orphaned capabilities → BLOCK.
+       - F11 Contract-Binding Gate: strategy.py signature must bind to the
+         directive's STRATEGY_SIGNATURE (hash-compared).
+       - Baseline Freshness Gate: data_root freshness index must be within
+         policy window; stale baselines → BLOCK.
+       - Strategy Drift Check: for multi-symbol families, the base folder
+         `strategies/<ID>/` may be a dispatcher — the drift check recognizes
+         `portfolio_metadata.json`, `deployable/profile_comparison.json`, or
+         any `*.py` as valid-content signals (prevents false-positive orphan
+         flags on legitimate base folders).
+       - ARCHIVE + GUARDRAILS + EXEC_CONTRACT gates: see `system_preflight.py`.
 
     ## Strategy Provisioning (MANDATORY — Directive Mode)
 

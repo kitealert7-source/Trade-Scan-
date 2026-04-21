@@ -13,7 +13,15 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, SELECTED_DIR, POOL_DIR, QUARANTINE_DIR
+from config.state_paths import (
+    RUNS_DIR,
+    REGISTRY_DIR,
+    STRATEGIES_DIR,
+    SELECTED_DIR,
+    POOL_DIR,
+    QUARANTINE_DIR,
+    RUN_DIRS_IN_LOOKUP_ORDER,
+)
 from tools.event_log import log_event
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -318,22 +326,19 @@ def reconcile_registry() -> dict:
         "invalid_in_registry": []
     }
 
-    # 1. Physical vs Registry (Across sandbox, candidate, and pool boundaries)
+    # 1. Physical vs Registry — iterate every canonical run directory.
     # Track each physical run's home directory so we can read its run_state.json
     # during recovery (required to preserve directive_id linkage).
+    # Order is owned by config.state_paths.RUN_DIRS_IN_LOOKUP_ORDER — do not
+    # duplicate it here. First-seen wins.
     physical_runs = set()
     physical_run_home: dict[str, Path] = {}
-    for directory in [RUNS_DIR, SELECTED_DIR, POOL_DIR]: # Also check pool (completed/migrated runs)
+    for directory in RUN_DIRS_IN_LOOKUP_ORDER:
         if directory.exists():
             for item in directory.iterdir():
                 if item.is_dir() and (item / "data").exists():
                     physical_runs.add(item.name)
-                    # First-seen wins; RUNS_DIR is scanned first, so sandbox
-                    # takes priority over selected/pool for state lookups.
                     physical_run_home.setdefault(item.name, item)
-        elif directory == RUNS_DIR:
-             # Runs dir must exist or we have no sandbox
-             pass
 
     def _recover_directive_hash(run_id: str) -> str:
         """Read run_state.json to recover the real directive_id.

@@ -148,12 +148,25 @@ Manifest exists for audit, replay, and forensic validation.
 **Naming convention**: `v<Major>.<Minor>.<Patch>` (e.g. `v1.5.2`)
 
 All directories in both `engine_dev/` and `vault/engines/` must use this format.
-Legacy directories (`1.2.0`, `v1_4_0`) should be normalized at next promotion.
+Historical note: the pre-v1.5.3 `v1_4_0` directory (which held v1.5.2 code under an
+underscore alias) has been retired. `engine_dev/` now uses underscore-aliased version
+directories (`v1_5_3` … `v1_5_8`) as the canonical naming on disk; `vault/engines/`
+retains a mix of dotted (`v1.5.2`, `v1.5.3`, `v1.5.4`, `v1.5.6`) and underscored
+(`v1_5_7`, `v1_5_8`) directories from successive promotions. Both conventions resolve
+identically; do not rename existing vaulted directories (immutability rule §6).
 
-> **Note (2026-03-10):** The current operational engine is v1.5.3 (FROZEN), residing in
-> `engine_dev/universal_research_engine/v1_5_3/`. The v1.5.3 directory uses the correct
-> naming convention. The legacy `v1_4_0` directory (which held v1.5.2 code) remains for
-> stage2_compiler backwards compatibility only. Vault copy at `vault/engines/Universal_Research_Engine/v1.5.3/`.
+> **Note (2026-04-21):** The canonical FROZEN engine is **v1.5.6**, residing in
+> `engine_dev/universal_research_engine/v1_5_6/` with vault copy at
+> `vault/engines/Universal_Research_Engine/v1.5.6/`. v1.5.6 adds exec-TF clock fields
+> (`regime_age_exec_signal`, `regime_age_exec_fill`) on top of v1.5.5; all stage1,
+> stage2, dryrun_validator, pre_promote_validator, verify_engine_integrity, and
+> engine_registry resolve to v1.5.6. Successor engines v1.5.7 and v1.5.8 exist on disk
+> for research probes and must be evaluated against v1.5.6 output, not v1.5.5.
+> v1.5.3/v1.5.4/v1.5.5 are retained for historical replay only; no active imports
+> remain. The Capability-Based Engine Resolution system (preflight CHECK 6.8,
+> module-level `REQUIRED_CAPABILITIES`) governs which capabilities each engine
+> provides — see `governance/SOP/CAPABILITY_BASED_ENGINE_RESOLUTION.md` (if present)
+> or the capability-resolution memory entry for detail.
 
 Any change to:
 

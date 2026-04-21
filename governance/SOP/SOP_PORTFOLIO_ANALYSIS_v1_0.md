@@ -51,7 +51,7 @@ Each portfolio MUST define:
 - creation_timestamp_utc
 - constituent_run_ids (explicit list)
 - reference_capital_usd
-- capital_model_version = "v2.0_profile_based_scaling"
+- capital_model_version = "v3.0_retail_amateur" (see §4.5; supersedes `v2.0_profile_based_scaling` as of 2026-04-16)
 - deployed_profile (selected capital profile — one of `RAW_MIN_LOT_V1`, `FIXED_USD_V1`, `REAL_MODEL_V1`)
 - portfolio_engine_version
 - rolling_window_length (default: 252)
@@ -61,17 +61,17 @@ Portfolio is a synthetic research object.
 
 ------------------------------------------------------------------------
 
-## 4. Capital Model --- v2.0 (Profile-Based Scaling)
+## 4. Capital Model --- v3.0 (Retail Amateur, effective 2026-04-16)
 
 ### Model Type
 
-Profile-Based Capital Allocation with Dynamic Scaling
+Retail Amateur Capital Allocation — single-account OctaFx assumption, no desk-style heat/leverage caps. See §4.5 for the three active profiles (`RAW_MIN_LOT_V1`, `FIXED_USD_V1`, `REAL_MODEL_V1`).
 
 ### Rules
 
 1. Trades from constituent runs are evaluated against the active capital profile.
-2. Trades MAY be rejected if position sizing violates heat cap, leverage cap, or lot constraints.
-3. reference_capital_usd is the initial equity baseline (default: $10,000).
+2. Trades MAY be rejected if position sizing violates lot constraints or profile-specific caps (heat/leverage caps only apply where the profile declares them).
+3. reference_capital_usd is the initial equity baseline (default: $1,000 under v3.0; the legacy $10,000 default was retired with the v2.0 institutional set).
 4. Equity updates ONLY when trades close.
 5. No mark-to-market adjustments are permitted.
 6. EXIT events are processed before ENTRY events at the same timestamp.

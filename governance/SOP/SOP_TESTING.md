@@ -3,7 +3,7 @@
 **Stage:** BACKTESTING  
 **Applies to:** Trade_Scan  
 **Status:** AUTHORITATIVE | ACTIVE  
-**Companion SOP:** SOP_OUTPUT — VERSION 4.2 (POST_BACKTEST)
+**Companion SOP:** SOP_OUTPUT — VERSION 4.3 (POST_BACKTEST)
 
 ---
 
@@ -20,7 +20,7 @@ Trade_Scan:
 - participates in pipeline finalization through Stage-3A manifest binding
 - stops
 
-All post‑execution presentation, aggregation, and reporting are governed by **SOP_OUTPUT — VERSION 4.1**.
+All post‑execution presentation, aggregation, and reporting are governed by **SOP_OUTPUT — VERSION 4.3**.
 
 ---
 
@@ -329,7 +329,7 @@ Stage‑1 artifacts:
 Stage‑2 and Stage‑3:
 
 - MUST NOT recompute execution metrics already present in Stage-1 artifacts.
-- MAY aggregate only as allowed by SOP_OUTPUT — VERSION 4.1
+- MAY aggregate only as allowed by SOP_OUTPUT — VERSION 4.3
 
 ---
 
@@ -613,7 +613,7 @@ Forbidden:
 
 Upon RUN_COMPLETE:
 
-- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.2
+- Stage‑2 and Stage‑3 are executed per SOP_OUTPUT — VERSION 4.3
 - This SOP governs execution truth through Stage-1 and participates in RUN_COMPLETE validation through Stage-3A snapshot finalization.
 
 All presentation, aggregation, and portfolio synthesis remain governed by SOP_OUTPUT and SOP_PORTFOLIO_ANALYSIS.

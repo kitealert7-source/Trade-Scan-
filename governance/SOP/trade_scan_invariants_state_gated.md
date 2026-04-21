@@ -142,6 +142,16 @@ Partial success does not exist.
 
 ---
 
+## Invariant 8.5 — Canonical Run-Path Resolution
+
+- A run's on-disk location is not fixed; it migrates from `RUNS_DIR` → `POOL_DIR` (`sandbox/`) → `SELECTED_DIR` (`candidates/`) over its lifecycle.
+- Every reader (pipeline stage, evaluator, tool, agent) that needs to locate an existing run MUST call `resolve_run_dir(run_id, require_data=...)` from `config.state_paths`.
+- Hardcoding `TradeScan_State/runs/<run_id>/` or `RUNS_DIR / run_id` in any reader is an invariant violation.
+- Writers emitting fresh Stage-1 output may still target `RUNS_DIR` directly; the rule applies to **lookups of existing runs**, not initial Stage-1 placement.
+- The lookup order is fixed by `RUN_DIRS_IN_LOOKUP_ORDER` in `config/state_paths.py` and is the single source of truth.
+
+---
+
 ## Invariant 9 — Failure Semantics
 
 On **any** of the following:
@@ -176,7 +186,7 @@ No module inside `research/` may:
 
 - Import `PipelineStateManager` or `DirectiveStateManager`
 - Write to `TradeScan_State/runs/`
-- Modify `TradeScan_State/backtests/Strategy_Master_Filter.xlsx` or any registry artifact
+- Modify `TradeScan_State/sandbox/Strategy_Master_Filter.xlsx`, `TradeScan_State/candidates/Filtered_Strategies_Passed.xlsx`, or any registry artifact
 - Alter any `run_state.json` or `directive_state.json`
 
 The boundary is **symmetric and absolute**.

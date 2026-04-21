@@ -224,3 +224,19 @@ Action required: v1.5.8 engine must expose ctx.unrealized_r_intrabar (bar_high f
 Do NOT implement via close-based UR workaround (threshold lowering etc.) — the mechanism is fundamentally bar_high/bar_low. Engine change is the correct path.
 ---
 
+2026-04-21 | Tags: CMR, FX-1D, TF-dilation, basket, macro-filter, JPY-concentration
+
+Strategy: 53_MR_FX_1D_CMR_S02_V1_P00/P03
+Run IDs: 53_MR_FX_1D_CMR_S02_V1_P00, 53_MR_FX_1D_CMR_S02_V1_P01, 53_MR_FX_1D_CMR_S02_V1_P03
+
+Finding:
+3-bar consecutive-close pattern on FX 1D shows marginal basket edge (avg PF=1.08) with JPY pairs dominating: USDJPY PF=1.68, CADJPY PF=1.63 vs non-JPY/non-EUR pairs clustering near PF=1.0 or below (7/18 losing).
+
+Evidence:
+11/18 symbols PF>1.0; losers range PF=0.65-0.97. P03 macro union gate: PF avg 1.08->1.10, PnL +29% (268->345 USD total), trades 79->72 avg per symbol.
+
+Conclusion:
+TF dilation 4H->1D did not preserve edge uniformly. Residual signal concentrates in JPY crosses, likely driven by JPY macro-regime correlation with 3-bar directional patterns at daily resolution. Macro union gate adds mild selection value but does not rescue the non-JPY tail.
+
+Implication:
+If pursuing CMR at 1D, narrow to JPY pairs only as targeted follow-up. Full 18-pair basket is not viable. Do not promote any P00/P01/P03 symbols -- PF and trade counts are below portfolio quality gate.

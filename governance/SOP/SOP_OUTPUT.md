@@ -1,6 +1,6 @@
 # SOP_OUTPUT — Results Emission & Human Analysis (STAGE-WISE)
 
-**Companion SOP:** SOP_OUTPUT — VERSION 4.2 (POST_BACKTEST)
+**Companion SOP:** SOP_OUTPUT — VERSION 4.3 (POST_BACKTEST)
 
 **Applies to:** Trade_Scan  
 **Status:** AUTHORITATIVE | ACTIVE  
@@ -32,12 +32,12 @@ No replay, recomputation, or mutation allowed.
 **Ledger Authority Model**
 
 - The system operates under a **Materialized View + Immutable Ledger** model.
-- `TradeScan_State/runs/<run_id>/`: Immutable historical snapshot. Append-only. Becomes authoritative once indexed in `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`.
+- `TradeScan_State/runs/<run_id>/`: Immutable historical snapshot. Append-only. Becomes authoritative once indexed in `TradeScan_State/sandbox/Strategy_Master_Filter.xlsx` (SMF).
 - `TradeScan_State/backtests/<strategy_symbol>/`: Represents the latest materialized state for that strategy-symbol pair. May be overwritten during subsequent executions. Does NOT determine historical retention authority.
 
 **Retention Authority**
 
-- A run snapshot is considered valid and retained if and only if it has a corresponding row in `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`.
+- A run snapshot is considered valid and retained if and only if it has a corresponding row in the **Strategy Master Filter ledger (SMF)** at `TradeScan_State/sandbox/Strategy_Master_Filter.xlsx`, and additionally gains canonical-retention protection (`is_current=1` or non-terminal `candidate_status`) from the **Filtered Strategies Passed ledger (FSP)** at `TradeScan_State/candidates/Filtered_Strategies_Passed.xlsx`. See SOP_CLEANUP §4.3 for the Protected Canonical Set contract.
 - Historical snapshots in `TradeScan_State/runs/<run_id>/` are NOT deleted during overwrite of `TradeScan_State/backtests/<strategy_symbol>/`.
 
 **Overwrite Semantics**
@@ -59,6 +59,16 @@ Later stages may aggregate but must not redefine metrics.
 | `research/adhoc_experiments/` | Non-Authoritative | Unrestricted |
 
 Research scripts are prohibited from writing to `TradeScan_State/runs/` or `TradeScan_State/backtests/`.
+
+### 0.5 Canonical Run-Path Lookup (MANDATORY)
+
+A run's on-disk location migrates across its lifecycle:
+
+- Fresh Stage-1 output lives in `TradeScan_State/runs/<run_id>/`.
+- Post-Master-Filter it migrates to `TradeScan_State/sandbox/<run_id>/` (POOL_DIR).
+- Portfolio-staged runs further migrate to `TradeScan_State/candidates/<run_id>/` (SELECTED_DIR).
+
+**Every reader that needs to locate an existing run MUST call `resolve_run_dir(run_id, require_data=...)`** from `config.state_paths`. Hardcoding `RUNS_DIR / run_id` is forbidden — it silently breaks once the run migrates (see the 2026-04-21 `portfolio_evaluator` incident where a post-Master-Filter run on `POOL_DIR` was unreachable because the caller looked only in `RUNS_DIR`). Writers emitting fresh Stage-1 output may still reference `RUNS_DIR` directly; every downstream reader must go through the resolver. See SOP_CLEANUP §3 for the full lookup-order contract.
 
 ---
 
@@ -372,7 +382,10 @@ Rows MUST appear in this exact order.
 ### 3.1 Strategy Master Filter
 
 **File Location:**  
-`TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
+`TradeScan_State/sandbox/Strategy_Master_Filter.xlsx` (canonical SMF path — the `sandbox/` directory is `POOL_DIR` in `config/state_paths.py`).
+
+**Companion Ledger:**  
+`TradeScan_State/candidates/Filtered_Strategies_Passed.xlsx` (FSP) — `candidates/` is `SELECTED_DIR`. FSP is the portfolio-consideration ledger. Both FSP and SMF are consulted by `cleanup_reconciler` as the Protected Canonical Set (SOP_CLEANUP §4.3).
 
 **Scope Rules**
 
@@ -435,7 +448,7 @@ Trend regime aggregation:
 - MUST NOT reclassify or recompute trend state.
 - MUST operate strictly on emitted trade-level metadata.
 
-> **CRITICAL ARCHITECTURE NOTE (v4.2 Update)**
+> **CRITICAL ARCHITECTURE NOTE (v4.2 — retained through v4.3)**
 > Regime classifications (e.g., `market_regime`, `dominant_regime`) are explicitly **FORBIDDEN** from being dynamically aggregated or reported in the Stage-3 Master Filter.
 > All non-standard regime data MUST remain isolated to the Stage-2 Trade-Level reporting artifacts (`AK_Trade_Report`). The Master Filter must remain a strictly compact summary ledger.
 
@@ -492,7 +505,7 @@ If snapshot generation fails:
 
 - RUN_COMPLETE MUST NOT be emitted
 - No artifacts are considered valid
-- No row may be written to `TradeScan_State/backtests/Strategy_Master_Filter.xlsx`
+- No row may be written to `TradeScan_State/sandbox/Strategy_Master_Filter.xlsx`
 
 ### Immutability Rule
 
@@ -523,7 +536,7 @@ For every folder:
 
 there MUST exist exactly one valid and indexed `run_id` in:
 
-    TradeScan_State/backtests/Strategy_Master_Filter.xlsx
+    TradeScan_State/sandbox/Strategy_Master_Filter.xlsx
 
 and a corresponding immutable snapshot at:
 
@@ -578,4 +591,4 @@ Agents MUST NOT:
 
 ---
 
-### End of SOP — VERSION 4.2
+### End of SOP — VERSION 4.3
