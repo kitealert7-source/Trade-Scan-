@@ -1,0 +1,62 @@
+name: regression
+
+# Hard gate: any PR or push that changes tools/capital, tools/portfolio,
+# tools/report, tools/promote, or the harness itself must pass
+# `python -m tools.regression.cli`. Other changes skip the workflow so
+# unrelated work is not slowed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/capital/**'
+      - 'tools/portfolio/**'
+      - 'tools/report/**'
+      - 'tools/promote/**'
+      - 'tools/regression/**'
+      - 'requirements.txt'
+      - '.github/workflows/regression.yml'
+  pull_request:
+    paths:
+      - 'tools/capital/**'
+      - 'tools/portfolio/**'
+      - 'tools/report/**'
+      - 'tools/promote/**'
+      - 'tools/regression/**'
+      - 'requirements.txt'
+      - '.github/workflows/regression.yml'
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONHASHSEED: "0"
+      MPLBACKEND: "Agg"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run regression harness
+        # NEVER pass --update-baseline; CI only reads goldens.
+        run: python -m tools.regression.cli
+
+      - name: Upload diff artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-diffs
+          path: tools/regression/tmp/**/DIFF_*.txt
+          if-no-files-found: ignore
+          retention-days: 7

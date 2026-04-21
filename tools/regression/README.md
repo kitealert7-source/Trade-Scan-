@@ -93,3 +93,31 @@ diffs. Fix the first failures, then re-run.
 
 If a field is non-deterministic, either normalize it consistently or
 exclude it. Do not compare a flaky field without normalization.
+
+## Usage Policy
+
+Run the regression harness before:
+
+- committing changes that touch any of:
+  - `tools/capital/`
+  - `tools/portfolio/`
+  - `tools/report/`
+  - `tools/promote/`
+- pushing to remote
+
+Command:
+
+```bash
+python -m tools.regression.cli
+```
+
+PASS is required before proceeding. The commit-time check is enforced
+automatically by [.git/hooks/pre-commit](../../.git/hooks/pre-commit) — it
+skips the harness when no relevant tool directory is staged. Push-time
+enforcement lives in
+[.github/workflows/regression.yml](../../.github/workflows/regression.yml)
+and blocks the merge on a non-zero exit.
+
+Neither the hook nor CI ever passes `--update-baseline`. Baseline changes
+require a deliberate local `python -m tools.regression.cli
+--update-baseline --force` followed by a separate review + commit.
