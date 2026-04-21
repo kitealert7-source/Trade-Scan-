@@ -54,13 +54,19 @@ intents:
     enforcement: hard
     must_skill: promote
     expected_file_category: strategy
+    threshold: 8
     reason: "Promotion touches append-only ledgers, vault, FSM state. Ad-hoc promotion has left orphan strategies and stale PORTFOLIO_COMPLETE markers."
+    # Hard-fire requires BOTH a strategy identifier (FOO_V<n>_P<n>) AND an
+    # explicit promote/lifecycle keyword in the same prompt. Bare mentions
+    # of "promote" or "burn_in" in code, commit messages, or discussion no
+    # longer trigger routing on their own -- fuzzy threshold (8) is above
+    # any single tag's exact-match weight (6 max).
     regex_patterns:
-      - "(?i)\\bpromote\\b"
-      - "(?i)\\b(burn[- ]?in|BURN_IN)\\b"
-      - "(?i)\\b(move|send|advance|go)\\b.*\\b(live|waiting|burn[- ]?in)\\b"
-      - "(?i)\\bto[ _-]?waiting\\b"
-      - "(?i)\\bgo[- ]?live\\b"
+      # Co-occurrence: strategy-ID token anywhere + lifecycle keyword anywhere.
+      - "(?is)(?=.*\\b[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b)(?=.*\\b(promote|promoting|promotion|burn[- ]?in|BURN_IN|deployable|portfolio[_ ]complete|go[- ]?live|to[ _-]?waiting)\\b)"
+      # Direct phrasings with inline identifier.
+      - "(?i)\\bpromote\\s+[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b"
+      - "(?i)\\b(move|send|advance)\\s+[A-Z0-9][A-Z0-9_]*\\s+to\\s+(live|waiting|burn[- ]?in)\\b"
     semantic_tags:
       - {tag: "promote", weight: 3}
       - {tag: "burn_in", weight: 3}
@@ -68,7 +74,6 @@ intents:
       - {tag: "waiting", weight: 2}
       - {tag: "deployable", weight: 2}
       - {tag: "portfolio_complete", weight: 3}
-      - {tag: "live", weight: 1}
 
   # ---------- SOFT REMINDERS ----------
   - id: run_directive
