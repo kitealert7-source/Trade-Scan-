@@ -121,3 +121,16 @@ and blocks the merge on a non-zero exit.
 Neither the hook nor CI ever passes `--update-baseline`. Baseline changes
 require a deliberate local `python -m tools.regression.cli
 --update-baseline --force` followed by a separate review + commit.
+
+### First-time setup
+
+`.git/hooks/` is per-clone and not tracked. Install the hook once after
+cloning:
+
+```bash
+./tools/hooks/install.sh
+```
+
+Re-run the same command whenever [tools/hooks/pre-commit](../hooks/pre-commit)
+changes. The installer copies the tracked source into `.git/hooks/pre-commit`
+and marks it executable — no framework, no auto-install.

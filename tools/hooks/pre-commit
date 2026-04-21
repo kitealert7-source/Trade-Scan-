@@ -1,0 +1,71 @@
+#!/bin/sh
+# Pre-commit hook -- tracked canonical source.
+# Install into this clone with `./tools/hooks/install.sh`.
+#
+# Steps run in order; the first non-zero exit blocks the commit.
+#   1. Hardcoded user-path scan
+#   2. Bare .read_text() scan
+#   3. RESEARCH_MEMORY parse-integrity check
+#   4. Gate test suite
+#   5. Regression harness (selective -- only when staged paths touch a
+#      layer the harness covers)
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+echo "[pre-commit] Scanning staged .py files for hardcoded user paths..."
+python "$REPO_ROOT/tools/lint_no_hardcoded_paths.py" --staged
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. Fix the hardcoded paths above before committing."
+    exit 1
+fi
+
+echo "[pre-commit] Scanning staged .py files for bare .read_text()..."
+python "$REPO_ROOT/tools/lint_encoding.py" --staged
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. Use .read_text(encoding=\"utf-8\") instead."
+    exit 1
+fi
+
+echo "[pre-commit] Validating RESEARCH_MEMORY parse integrity..."
+python "$REPO_ROOT/tools/generate_research_memory_index.py" --check
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. RESEARCH_MEMORY has parse errors — fix before committing."
+    exit 1
+fi
+
+echo "[pre-commit] Running gate test suite..."
+python -m pytest tests/test_idea_evaluation_gate.py tests/test_namespace_gate_regex.py tests/test_sweep_registry_gate_regex.py tests/test_burnin_evaluator.py -q --maxfail=1 2>&1
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. Gate tests failed — fix before committing."
+    exit 1
+fi
+
+# --- regression harness (selective) --------------------------------------
+# Run tools/regression only when staged paths touch a layer the harness
+# actually covers. Unrelated commits (docs, governance, engine_dev, etc.)
+# are unaffected.
+STAGED="$(git diff --cached --name-only --diff-filter=ACMRT)"
+if echo "$STAGED" | grep -E '^tools/(capital|portfolio|report|promote)/' > /dev/null; then
+    echo "[pre-commit] Regression harness triggered (capital/portfolio/report/promote touched)..."
+    PYTHONHASHSEED=0 MPLBACKEND=Agg python -m tools.regression.cli
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "[pre-commit] COMMIT BLOCKED. Regression harness failed."
+        echo ""
+        echo "  Run:"
+        echo "    python -m tools.regression.cli"
+        echo ""
+        echo "  See diffs:"
+        echo "    tools/regression/tmp/*/DIFF_*.txt"
+        echo ""
+        exit 1
+    fi
+else
+    echo "[pre-commit] Regression harness skipped (no capital/portfolio/report/promote changes)."
+fi
+
+exit 0
