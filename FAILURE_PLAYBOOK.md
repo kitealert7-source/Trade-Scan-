@@ -8,6 +8,8 @@
 > Read AGENT.md before using this playbook.
 > Every recovery path assumes you have already stopped execution (Fail-Fast).
 > Do not attempt ad-hoc fixes. Follow the deterministic recovery path exactly.
+> Fast routing reference: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TABLE.md`
+> Supervised backtesting posture: flexible scopes (F02 exploratory, F19 re-run, tool sequencing, Tier 1 ambiguity) use `[ANNOUNCE] <SCENARIO> | risk: ... | action: ...` format and PROCEED. STRICT STOP is preserved only for F10 pre-traceback, F03/F04 cleanup without `--dry-run`, governance scopes (F05/F06/F08/F13/F15/F16), and system invariants. See TOOL_ROUTING_TABLE.md "Research Override Layer".
 
 ---
 

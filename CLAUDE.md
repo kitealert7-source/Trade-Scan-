@@ -27,6 +27,23 @@ Six-repo research-to-execution pipeline:
 
 ---
 
+## Supervised Backtesting Posture
+
+Backtests run under close human supervision. The four flexible scopes (F02 exploratory reset, F19 re-run, tool sequencing, Tier 1 ambiguity) default to **ANNOUNCE + PROCEED**, not STOP.
+
+**ANNOUNCE format (mandatory, one line):**
+```
+[ANNOUNCE] <SCENARIO> | risk: <what may go wrong> | action: <what is being done>
+```
+
+**STRICT STOP preserved for:** F10 pre-traceback, F03/F04 cleanup without `--dry-run`, governance scopes (F05/F06/F08/F13/F15/F16), system invariants.
+
+**F19 re-test guard (before authoring any new directive):** scan `RESEARCH_MEMORY.md` for prior `NO_TRADES` entries with matching strategy + symbol + TF + filter config. If match found → either document a material parameter delta in the new directive's rationale, or do not submit.
+
+Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TABLE.md` "Research Override Layer".
+
+---
+
 ## Critical Invariants (key 9 — full list of 29 in AGENT.md)
 
 1. **Fail-Fast** — any failure aborts the pipeline; never silently continue
@@ -47,6 +64,8 @@ Six-repo research-to-execution pipeline:
 |---|---|
 | Pipeline run or directive work | `AGENT.md` + `.claude/skills/execute-directives/SKILL.md` |
 | Pipeline failure or FSM repair | `FAILURE_PLAYBOOK.md` |
+| Tool routing (execution + recovery) | `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TABLE.md` |
+| Data ingestion / missing RESEARCH data | `../DATA_INGRESS/README.md` (cross-repo) |
 | Pipeline stage flow | `outputs/system_reports/01_system_architecture/pipeline_flow.md` |
 | Entrypoints | `outputs/system_reports/01_system_architecture/SYSTEM_ENTRYPOINTS.md` |
 | System boundaries + invariants | `outputs/system_reports/01_system_architecture/SYSTEM_SURFACE_MAP.md` |

@@ -13,6 +13,8 @@ This workflow executes directives in `backtest_directives/INBOX/` to produce aut
 - Directive YAML file(s) in `backtest_directives/INBOX/`
 - AGENT.md (Failure Playbook) exists at project root
 
+> **Supervised posture:** On failure, consult `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TABLE.md`. Flexible scopes (F02 exploratory, F19 re-run, tool sequencing, Tier 1 ambiguity) use `[ANNOUNCE] <SCENARIO> | risk: ... | action: ...` and PROCEED. STRICT STOP preserved for F10 pre-traceback, F03/F04 cleanup without `--dry-run`, governance scopes (F05/F06/F08/F13/F15/F16), and system invariants.
+
 ---
 
 ### Step 0: Directive Admission Gate

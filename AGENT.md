@@ -65,10 +65,37 @@ Non-negotiable. The agent must never violate any of these.
 27. **Multi-Symbol Deployment Contract** — Multi-symbol research strategies MUST be split into per-symbol instances for TS_Execution. `strategy.name == id` invariant enforced by `strategy_loader.py`.
 28. **Live Deployment Pre-Gate** — Before adding to `TS_Execution/portfolio.yaml`, ALL must pass: (1) Phase 0 smoke test, (2) signal schema validation (no `stop_price=0.0`), (3) ENGINE_FALLBACK parity (multiplier matches `ENGINE_ATR_MULTIPLIER`), (4) spot-check on live/recent bar.
 29. **Indicator Separation** — All indicator logic MUST live in `indicators/` as importable modules. Inline indicator computation in `strategy.py` (rolling windows, statistical aggregation, external data loading) is prohibited. Enforced at Stage-0.5 by three guards: FORBIDDEN_TERMS, ExternalDataGuard, InlineIndicatorDetector.
+30. **Mandatory Tool Routing** — On ANY pipeline failure the agent MUST:
+    1. Consult `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TABLE.md` (FAST PATH OVERRIDE first, Section 2 otherwise).
+    2. Match the symptom to a defined scenario (F01–F19).
+    3. Satisfy ALL preconditions before any tool execution.
+
+    **Violation → STOP tool execution.** Then: attempt classification via the routing table; if scenario is clear → proceed per its tier; if ambiguity remains → escalate to human.
+
+    **Additional rule — no tool execution without classification.**
+
+    **Tool exclusivity:** Only ONE primary tool may be executed per failure resolution step. Chaining tools without re-classifying the post-tool symptom state is prohibited — cascading fixes mask root causes and silently corrupt state.
+
+    **Supervised Research Posture:** Backtests run under close human supervision. Default posture for the four flexible scopes (F02 exploratory reset, F19 re-run, tool sequencing, Tier 1 ambiguity) is ANNOUNCE + PROCEED, not STOP. STRICT STOP is preserved ONLY for correctness-critical cases: F10 pre-traceback, F03/F04 cleanup without `--dry-run`, governance scopes (F05/F06/F08/F13/F15/F16), and system invariants.
+
+    **ANNOUNCE format (mandatory, one line):**
+    `[ANNOUNCE] <SCENARIO> | risk: <what may go wrong> | action: <what is being done>`
+    All three fields required. Missing any field = silent violation. Full scope table, examples, and decision rules in TOOL_ROUTING_TABLE.md "Research Override Layer".
+
+    For EXECUTION_ERROR (F10): HARD STOP — no tool may be selected before the traceback is read and subclassified.
+
+### Recovery Tiers (brief — see TOOL_ROUTING_TABLE.md for full tier assignment)
+
+| Tier | Meaning | Execution Rule |
+|:---:|:---|:---|
+| 1 | SAFE AUTO — deterministic, reversible | Execute directly |
+| 2 | GUARDED AUTO — requires dry-run + `--confirm` | Execute only after validation |
+| 3 | CONDITIONAL FLOW — classification required | NO execution until scenario identified |
+| 4 | HUMAN REQUIRED — ambiguous/non-reversible/authoring | Escalate to human |
 
 ### On Failure
 
-→ STOP immediately → Do NOT attempt ad-hoc fixes → Open `FAILURE_PLAYBOOK.md` → Follow the deterministic recovery path
+→ STOP immediately → Do NOT attempt ad-hoc fixes → Consult `TOOL_ROUTING_TABLE.md` FAST PATH OVERRIDE → If no match, Section 2 → Classify scenario + tier → Execute only per tier rule (Tier 4 = escalate)
 
 ---
 
