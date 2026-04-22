@@ -1,10 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: 73 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 28 uncommitted
+- WARNING: Working tree 12 uncommitted
 
-> Generated: 2026-04-21T10:02:45Z
+> Generated: 2026-04-22T11:36:12Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -28,23 +27,23 @@
 - BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260421T074036Z_32076 | bars=43
-- **Shadow trades:** 0 active | **Signals (7d):** 9 entry, 3 exit
+- **Process:** RUNNING | run_id=20260422T055015Z_37492 | bars=112
+- **Shadow trades:** 0 active | **Signals (7d):** 8 entry, 3 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
 - Snapshots: 16 | WAITING: 0 | Latest: `DRY_RUN_2026_04_12__a2571097`
 
 ## Data Freshness
-- Latest bar: **2026-04-21** | Symbols: 242 | **Stale (>3d): 73**
+- Latest bar: **2026-04-22** | Symbols: 242
 
 ## Artifacts
 - Run directories: 1114
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 28 uncommitted
-- Last commit: `6f012ac skills(session-close): move SYSTEM_STATE regen to final step`
+- Working tree: 12 uncommitted
+- Last commit: `c79a757 refactor: finish tools/test_*.py relocation from commit 72c95e5`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
