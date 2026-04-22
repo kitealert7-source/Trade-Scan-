@@ -48,7 +48,7 @@ The intended daily workflow for TradeScan operators is as follows:
 
 ### Automated Tests
 - **Startup Protection**: [test_guardrails_startup.py](file:///c:/Users/faraw/Documents/Trade_Scan/tools/tests/test_guardrails_startup.py) verified quarantine logic, registry drift diagnostics, and manifest corruption gates.
-- **Integrity Baseline**: [test_integrity_guards.py](file:///c:/Users/faraw/Documents/Trade_Scan/tools/test_integrity_guards.py) confirmed manifest freeze and partial run handling are still operational.
+- **Integrity Baseline**: [test_integrity_guards.py](file:///c:/Users/faraw/Documents/Trade_Scan/tools/tests/test_integrity_guards.py) confirmed manifest freeze and partial run handling are still operational.
 
 ```text
 Ran 6 tests in 0.062s

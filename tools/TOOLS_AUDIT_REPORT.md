@@ -183,11 +183,13 @@ Classification evidence:
 
 ## 5. TEST HARNESSES (CI-only)
 
-- `test_artifact_hash`
-- `test_concurrent_pipeline`
-- `test_integrity_guards`
-- `test_portfolio_rebuild`
-- `test_registry_sync`
+Located in `tools/tests/`:
+
+- `tests/test_artifact_hash`
+- `tests/test_concurrent_pipeline`
+- `tests/test_integrity_guards`
+- `tests/test_portfolio_rebuild`
+- `tests/test_registry_sync`
 
 These are not part of the operational surface. Do not invoke manually.
 

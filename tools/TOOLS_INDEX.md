@@ -212,15 +212,15 @@ execution_emitter_stage1 | Stage-1 execution event emitter (called by run_stage1
 analyze_range_breakout_vol | Analysis module for range breakout volatility (library, called by research notebooks)
 
 ## Test Harnesses
-CI-only; not part of the operational surface.
+CI-only; not part of the operational surface. Located in: `tools/tests/`.
 
 Tool | Purpose
 --- | ---
-test_artifact_hash | Artifact-hash reconciliation test
-test_concurrent_pipeline | Concurrency invariant test
-test_integrity_guards | Integrity-guard test battery
-test_portfolio_rebuild | MPS rebuild round-trip test
-test_registry_sync | Registry-sync round-trip test
+tests/test_artifact_hash | Artifact-hash reconciliation test
+tests/test_concurrent_pipeline | Concurrency invariant test
+tests/test_integrity_guards | Integrity-guard test battery
+tests/test_portfolio_rebuild | MPS rebuild round-trip test
+tests/test_registry_sync | Registry-sync round-trip test
 
 ## Scratch Tools
 Temporary debugging or one-off scripts located in: `tools/tmp/`. These scripts are not considered permanent system tools and are not indexed here.

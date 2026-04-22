@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DIRECTIVES_DIR = PROJECT_ROOT / "backtest_directives" / "active"
 REGISTRY_PATH = PROJECT_ROOT / "registry" / "run_registry.json"
 

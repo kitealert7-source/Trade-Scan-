@@ -2,7 +2,7 @@ import json
 import hashlib
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = PROJECT_ROOT / "runs"
 REGISTRY_PATH = PROJECT_ROOT / "registry" / "run_registry.json"
 
