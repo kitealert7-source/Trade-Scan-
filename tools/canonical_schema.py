@@ -169,10 +169,14 @@ ALLOWED_SUB_KEYS = {
         "narrow_range_atr_multiple", "tp_atr_multiple_narrow",
         # Engulfing at structure
         "structure_lookback", "min_body_ratio",
+        # HMA trend-follow entry (idea 55 family)
+        "hma_period", "slope_lookback",
     },
     "exit_logic": {
         "type", "price_exit", "time_exit_bars", "time_exit", "time_exit_utc",
         "exit_long_if", "exit_short_if", "max_bars",
+        # Z-score mean-extension exit (idea 55 family)
+        "zscore_window", "zscore_threshold",
     },
     "stop_loss": {
         "type", "atr_multiplier", "fixed_points", "multiple", "target", "pct",

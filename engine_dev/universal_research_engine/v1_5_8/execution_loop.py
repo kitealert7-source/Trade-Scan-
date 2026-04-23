@@ -548,12 +548,22 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                             stop_mutation_rejected_count += 1
 
             # --- (4) check_exit (time / signal) ---
+            # Contract v1.3 (additive, backward-compatible):
+            #   False         → keep position
+            #   True          → exit; strategy_exit_label = None (legacy)
+            #   "<LABEL>"     → exit; strategy_exit_label = normalized label
+            # Engine internal `exit_source` vocabulary unchanged
+            # (STOP/TP/TIME_EXIT/SIGNAL_EXIT/DATA_END) for backward compat with
+            # tests + verify_engine_integrity. The namespaced CSV column
+            # `exit_source` is derived in the Stage-1 emitter from the pair
+            # (engine exit_source, strategy_exit_label).
+            strategy_exit_label = None
             if not exit_triggered:
                 exit_result = strategy.check_exit(ctx)
-                if not isinstance(exit_result, bool):
+                if not isinstance(exit_result, (bool, str)):
                     raise RuntimeError(
-                        f"check_exit() must return bool, got {type(exit_result).__name__}. "
-                        "Contract v1.2 requires exit_interface.return_type == 'bool'."
+                        f"check_exit() must return bool or str, got {type(exit_result).__name__}. "
+                        "Contract v1.3 accepts: False | True | '<LABEL>'."
                     )
                 if exit_result:
                     exit_triggered = True
@@ -563,6 +573,11 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                         bool(row.get('is_penultimate_bar', False))
                     )
                     exit_source = 'TIME_EXIT' if is_time_exit else 'SIGNAL_EXIT'
+                    if isinstance(exit_result, str):
+                        # Deterministic normalization (strip + uppercase). Prefix
+                        # is enforced downstream in the emitter so the engine
+                        # stays vocabulary-neutral.
+                        strategy_exit_label = exit_result.strip().upper() or None
 
             if exit_triggered:
                 trade = {
@@ -587,6 +602,7 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                     "initial_stop_price": entry_market_state['initial_stop_price'],
                     "risk_distance":      entry_market_state['risk_distance'],
                     "exit_source":        exit_source,
+                    "strategy_exit_label": strategy_exit_label,
                     "stop_source":        entry_market_state['stop_source'],
                     "entry_reference_price": entry_market_state.get('entry_reference_price'),
                     "entry_slippage":        entry_market_state.get('entry_slippage'),
@@ -653,6 +669,7 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
             "initial_stop_price": entry_market_state.get('initial_stop_price'),
             "risk_distance":      entry_market_state.get('risk_distance'),
             "exit_source":        'DATA_END',
+            "strategy_exit_label": None,
             "stop_source":        entry_market_state.get('stop_source'),
             "entry_reference_price": entry_market_state.get('entry_reference_price'),
             "entry_slippage":        entry_market_state.get('entry_slippage'),

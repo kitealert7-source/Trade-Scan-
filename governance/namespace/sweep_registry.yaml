@@ -2029,3 +2029,22 @@ ideas:
             signature_hash: 38df74745943ad14
             signature_hash_full: 38df74745943ad14cb016f8c3e827fb8b3d6e2f5f653764e3668fe4a72c653a6
             reserved_at_utc: '2026-04-21T07:47:16.053010+00:00'
+  '55':
+    next_sweep: 3
+    sweeps:
+      S01:
+        directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V1_P00
+        signature_hash: 76a887204615cdd2
+        signature_hash_full: 76a887204615cdd282e5187a252689146c825167bf180eb91e596a66d5be8767
+        reserved_at_utc: '2026-04-23T09:35:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S01_V1_P00
+            signature_hash: 76a887204615cdd2
+            signature_hash_full: 76a887204615cdd282e5187a252689146c825167bf180eb91e596a66d5be8767
+            reserved_at_utc: '2026-04-23T09:46:29.303136+00:00'
+      S02:
+        directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P00
+        signature_hash: 4b080a7640320fb6
+        reserved_at_utc: '2026-04-23T10:58:33.215550+00:00'
+        signature_hash_full: 4b080a7640320fb6a610518c2d59c9770deec9aaf20fcb0e80f2032429e79f08

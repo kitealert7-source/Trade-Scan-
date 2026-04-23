@@ -1,0 +1,61 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S02_V2_P00
+  version: 2
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Contract v1.3 attribution canary. S02_V2 differs from S01_V1 only in check_exit return type: S01_V1 returns bare True (collapses to STRATEGY_UNSPECIFIED in the namespaced exit_source column); S02_V2 returns canonical STRATEGY_TIME_CAP / STRATEGY_Z_EXTENSION / STRATEGY_OPPOSITE_FLIP labels. Entry logic, signal generation, SL/TP placement, and bar-by-bar exit decisions are byte-identical. Filed under sweep S02 with signal_version=2 to express the contract v1.3 change in STRATEGY_SIGNATURE so the sweep gate's identity check distinguishes it from S01_V1. V2 (not V1) because the discipline gate forced a fresh directive after the V1 attempt failed admission at the sweep gate. Acceptance is binary on (a) trade count parity vs S01_V1, (b) net PnL parity vs S01_V1, (c) presence of all four namespaced labels in results_tradelevel.csv (ENGINE_STOP + 3 STRATEGY_*), (d) Unspecified Exit % == 0. NOT an edge re-test, NOT a parameter sweep. This validates the new exit_source pipeline added at the 2026-04-23 schema checkpoint."
+  description: "Burn-in attribution canary. Same logic as S01_V1 (HMA(200) trend-follow entry on XAUUSD 15M, mean-extension Z-score(30) exit, opposite-signal flip exit, 75-bar safety, 2xATR(14) stop, engine v1.5.8). Validates the namespaced exit_source CSV column + Unspecified Exit % metric + Exit Source Breakdown sheet introduced under contract v1.3."
+  notes: "Acceptance: trade count, net PnL, SL count, avg bars MUST match S01_V1 to within rounding. Exit Source Breakdown sheet MUST contain ENGINE_STOP + STRATEGY_TIME_CAP + STRATEGY_Z_EXTENSION + STRATEGY_OPPOSITE_FLIP. Unspecified Exit % MUST be 0.0%."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

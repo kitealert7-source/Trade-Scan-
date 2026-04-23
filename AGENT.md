@@ -147,6 +147,32 @@ Prevent structural drift, shadow routing, and split execution authority.
 
 ---
 
+## STRATEGY CONTRACT — `check_exit()` v1.3 (2026-04-23)
+
+`Strategy.check_exit(ctx) -> bool | str`
+
+- `False` → no exit
+- `True` → exit; engine attributes as `STRATEGY_UNSPECIFIED` (lossy — discouraged)
+- `"<LABEL>"` → exit with explicit attribution; surfaces as `STRATEGY_<LABEL>` in `results_tradelevel.csv`
+
+**Namespace** — the namespaced `exit_source` column is single-string with these prefixes:
+
+| Prefix | Owner | Examples |
+|---|---|---|
+| `ENGINE_*` | Engine | `ENGINE_STOP`, `ENGINE_TP`, `ENGINE_SESSION_RESET`, `ENGINE_DATA_END` |
+| `STRATEGY_*` | Strategy `check_exit()` | `STRATEGY_TIME_CAP`, `STRATEGY_OPPOSITE_FLIP`, `STRATEGY_Z_EXTENSION` |
+| `STRATEGY_UNSPECIFIED` | Bare `True` fallback | tech-debt marker — drives `Unspecified Exit %` metric |
+
+**Precedence** (highest → lowest): `ENGINE_STOP` > `ENGINE_TP` > `ENGINE_TRAIL` > `ENGINE_SESSION_RESET` > `STRATEGY_*`
+
+**Normalization** — `<LABEL>` is stripped + uppercased + auto-prefixed with `STRATEGY_` if it does not already start with `STRATEGY_` or `ENGINE_`. No further forgiveness.
+
+**Stage 2 surfaces** — `Performance Summary` adds `Unspecified Exit %`; `Exit Source Breakdown` sheet shows per-source counts + PnL across All/Long/Short.
+
+**Pre-commit guardrail** — `tools/lint_check_exit_labels.py` warns (does not block) on bare `return True` in `check_exit()`. Migrate to canonical labels when convenient.
+
+---
+
 > For failure classification and escalation matrix, see **FAILURE_PLAYBOOK.md**.
 
 **End of AGENT.md**

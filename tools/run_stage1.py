@@ -432,6 +432,12 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
         and "has_partial" in _raw_record_fields
     )
 
+    # v1.5.8 contract v1.3 — exit-source attribution support (additive).
+    # When the emitter has the new `exit_source` field we derive the namespaced
+    # canonical label from the engine's internal exit_source + the strategy's
+    # optional return-string. Older emitters silently skip the kwarg.
+    _emitter_supports_exit_source = "exit_source" in _raw_record_fields
+
     # Fail-fast guard: partials in engine output require the v1.5.7 emitter.
     # Without this, partial_leg would be silently dropped under the v1.5.6
     # emitter and the strategy would ship composite-PnL as final-leg only.
@@ -692,6 +698,38 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
             _record_kwargs["has_partial"] = bool(has_partial)
             _record_kwargs["partial_fraction"] = round(executed_partial_fraction, 6)
             _record_kwargs["partial_exit_r"] = round(partial_exit_r_val, 6)
+
+        # v1.5.8 contract v1.3 — namespaced exit_source (engine-internal label
+        # → canonical CSV label). Precedence (engine resolves SL/TP intrabar
+        # before check_exit, so engine wins by construction):
+        #   STOP        → ENGINE_STOP
+        #   TP          → ENGINE_TP
+        #   TIME_EXIT   → ENGINE_SESSION_RESET (engine-driven session boundary)
+        #   DATA_END    → ENGINE_DATA_END     (engine force-close at last bar)
+        #   SIGNAL_EXIT → STRATEGY_<LABEL>    (label normalized in engine)
+        #              or STRATEGY_UNSPECIFIED (legacy bool-True returns)
+        if _emitter_supports_exit_source:
+            _engine_label = t.get('exit_source')
+            _strat_label  = t.get('strategy_exit_label')
+            if _engine_label == 'STOP':
+                _ns = 'ENGINE_STOP'
+            elif _engine_label == 'TP':
+                _ns = 'ENGINE_TP'
+            elif _engine_label == 'TIME_EXIT':
+                _ns = 'ENGINE_SESSION_RESET'
+            elif _engine_label == 'DATA_END':
+                _ns = 'ENGINE_DATA_END'
+            elif _engine_label == 'SIGNAL_EXIT':
+                if _strat_label:
+                    if _strat_label.startswith('STRATEGY_') or _strat_label.startswith('ENGINE_'):
+                        _ns = _strat_label
+                    else:
+                        _ns = 'STRATEGY_' + _strat_label
+                else:
+                    _ns = 'STRATEGY_UNSPECIFIED'
+            else:
+                _ns = 'STRATEGY_UNSPECIFIED'
+            _record_kwargs["exit_source"] = _ns
 
         raw_trades.append(RawTradeRecord(**_record_kwargs))
 

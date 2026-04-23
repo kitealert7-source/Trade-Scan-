@@ -44,8 +44,22 @@ FORMAT_MAP = {
     "avg win (usd)": FMT_CURRENCY,
     "avg loss (usd)": FMT_CURRENCY,
 
-    "max drawdown (%)": FMT_PERCENT,
-    "% profitable": FMT_PERCENT,
+    # Pre-multiplied (0..100 scale) — emitted as such by Stage 2
+    # (engine stage2_compiler.py: max_dd_pct = raw_dd_pct * 100;
+    #  metrics_core: pct_profitable = win_rate * 100). Use literal-% format
+    # so Excel does NOT multiply by 100 again.
+    "max drawdown (%)": FMT_PCT_RAW,
+    "% profitable": FMT_PCT_RAW,
+    "unspecified exit %": FMT_PCT_RAW,
+
+    # Exit Source Breakdown sheet (Stage 2, contract v1.3)
+    "count (all)":      FMT_INT,
+    "count (long)":     FMT_INT,
+    "count (short)":    FMT_INT,
+    "pnl usd (all)":    FMT_CURRENCY,
+    "pnl usd (long)":   FMT_CURRENCY,
+    "pnl usd (short)":  FMT_CURRENCY,
+    # Raw fractions (0..1) — Excel's 0.0% format auto-multiplies by 100 for display
     "% of gross profit (top trades)": FMT_PERCENT,
     "worst 5 trades loss %": FMT_PERCENT,
     "return on capital": FMT_PERCENT,

@@ -79,6 +79,14 @@ class RawTradeRecord:
     # EXECUTED fraction from the engine's partial_leg dict (not the configured
     # value in strategy code) — protects against future hook logic that caps,
     # rounds, or conditionally overrides the target fraction.
+    # v1.5.8 contract v1.3 — exit-source attribution.
+    # `exit_source` is the namespaced canonical label (ENGINE_* | STRATEGY_* |
+    # STRATEGY_UNSPECIFIED). Derived in the bridge (run_stage1.py) from the
+    # engine's internal exit_source + the strategy's optional return-string.
+    # Invariant: prefix MUST be ENGINE_ or STRATEGY_; STRATEGY_UNSPECIFIED is
+    # a transitional tech-debt marker for legacy strategies that still return
+    # bare True from check_exit().
+    exit_source: Optional[str] = None
     has_partial: bool = False
     partial_fraction: float = 0.0      # executed, not configured; 0.0 if no partial
     partial_exit_r: float = 0.0        # == partial_leg.unrealized_r; 0.0 if no partial
@@ -477,6 +485,8 @@ def emit_stage1(
         # v1.5.7 partial-exit marker (economic summary at main row;
         # execution detail in results_partial_legs.csv sidecar)
         "has_partial", "partial_fraction", "partial_exit_r",
+        # v1.5.8 contract v1.3 — exit-source attribution (namespaced).
+        "exit_source",
     ]
     
     # Validate Intrinsic Market State Presence (SOP_TESTING §7.y)
@@ -540,6 +550,8 @@ def emit_stage1(
                 "has_partial":      bool(t.has_partial),
                 "partial_fraction": round(float(t.partial_fraction), 6),
                 "partial_exit_r":   round(float(t.partial_exit_r), 6),
+                # v1.5.8 contract v1.3 — namespaced exit attribution
+                "exit_source":      t.exit_source if t.exit_source is not None else "STRATEGY_UNSPECIFIED",
             })
     
     # 2b. Emit results_partial_legs.csv (v1.5.7 — Option A sidecar).

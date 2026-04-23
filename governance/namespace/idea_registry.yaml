@@ -412,3 +412,11 @@ ideas:
     role: entry_edge
     instruments: FX
     status: active
+  '55':
+    family: MR
+    title: "HMA(200) Trend Entry + Z-Score(30) Mean-Extension Exit -- XAUUSD 15M (engine v1.5.8 burn-in probe)"
+    class: indicator_logic
+    regime: trend
+    role: pipeline_probe
+    instruments: XAUUSD
+    status: active

@@ -1,0 +1,61 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S01_V1_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S01_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Pipeline integrity probe on engine v1.5.8 -- NOT a re-test of the prior ZREV edge. Materially different from 20_MR_XAUUSD_1H_ZREV_S01_V1_P00 (PF=0.89): (a) timeframe 15M vs 1H (4x signal density, distinct regime dynamics), (b) entry primitive is HMA(200) trend-follow with slope confirmation (NOT pure Z-reversion), (c) Z-score is exit-side only (mean-extension >|2|), (d) opposite-signal flip exit + 75-bar safety not present in prior run, (e) purpose is to validate indicator pipeline + signal/exit lifecycle on the newly canonical v1.5.8 engine, not to assess profitability. Acceptance is binary on log structure (Z exit, SL exit, flip exit all present), not PF."
+  description: "Burn-in probe: HMA(200) trend-follow entry on XAUUSD 15M with mean-extension Z-score(30) exit, opposite-signal flip exit, 75-bar safety, and 2xATR(14) stop on engine v1.5.8. Pipeline integrity test (indicator computation, signal generation, trade lifecycle, exit interactions) -- NOT for edge validation, performance, or parameter tuning."
+  notes: "Acceptance criteria: trades generated consistently (not zero / not extreme sparse), all three exit types appear in logs (Z exit, SL exit, opposite-signal exit), no pipeline errors / gate failures. New idea slot 55, S01 sweep, P00 baseline."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

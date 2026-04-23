@@ -28,6 +28,7 @@ __all__ = [
     "generate_excel_report",
     "get_performance_summary_df",
     "get_trades_df",
+    "get_exit_source_df",
 ]
 
 # Config
@@ -129,6 +130,105 @@ def _round_val(val: Any, decimals: int = 2) -> Any:
     if isinstance(val, (int, float)):
         return round(val, decimals)
     return val
+
+
+# ==================================================================
+# Exit Source Aggregates (contract v1.3 — namespaced exit_source column)
+# ==================================================================
+# Reads the namespaced `exit_source` column emitted by tools/run_stage1.py
+# (engine-internal label -> ENGINE_*/STRATEGY_*/STRATEGY_UNSPECIFIED).
+# Stage-1 always writes this column; legacy CSVs without it fall back to
+# STRATEGY_UNSPECIFIED so downstream code degrades gracefully.
+
+_UNSPECIFIED_LABEL = "STRATEGY_UNSPECIFIED"
+
+
+def _filter_trades_by_direction(trades: list[dict[str, Any]], direction: int | None) -> list[dict[str, Any]]:
+    if direction is None:
+        return trades
+    out = []
+    for t in trades:
+        try:
+            if int(float(t.get("direction", 0))) == direction:
+                out.append(t)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _compute_exit_source_aggregates(trades: list[dict[str, Any]], direction: int | None = None) -> dict[str, Any]:
+    """Return {label: {count, pnl_usd}, _unspecified_pct: float, _total: int}.
+
+    Aggregate pass over the namespaced `exit_source` column. Direction filter
+    matches Performance Summary convention (None = all, 1 = long, -1 = short).
+    """
+    subset = _filter_trades_by_direction(trades, direction)
+    counts: dict[str, int] = {}
+    pnls: dict[str, float] = {}
+    for t in subset:
+        label = str(t.get("exit_source") or "").strip().upper() or _UNSPECIFIED_LABEL
+        counts[label] = counts.get(label, 0) + 1
+        pnls[label] = pnls.get(label, 0.0) + _safe_float(t.get("pnl_usd", 0))
+    total = len(subset)
+    unspec = counts.get(_UNSPECIFIED_LABEL, 0)
+    unspec_pct = (unspec / total * 100.0) if total > 0 else 0.0
+    by_label = {lbl: {"count": counts[lbl], "pnl_usd": pnls.get(lbl, 0.0)} for lbl in counts}
+    return {
+        "by_label": by_label,
+        "_unspecified_pct": unspec_pct,
+        "_total": total,
+    }
+
+
+def get_exit_source_df(trades: list[dict[str, Any]]) -> pd.DataFrame:
+    """Per-source breakdown across All/Long/Short, sorted by All-Trades count desc."""
+    if not trades:
+        return pd.DataFrame()
+
+    agg_all   = _compute_exit_source_aggregates(trades, None)
+    agg_long  = _compute_exit_source_aggregates(trades, 1)
+    agg_short = _compute_exit_source_aggregates(trades, -1)
+
+    labels = sorted(
+        agg_all["by_label"].keys(),
+        key=lambda L: (-agg_all["by_label"][L]["count"], L),
+    )
+    if not labels:
+        return pd.DataFrame()
+
+    rows = []
+    for lbl in labels:
+        a = agg_all["by_label"].get(lbl, {"count": 0, "pnl_usd": 0.0})
+        l = agg_long["by_label"].get(lbl, {"count": 0, "pnl_usd": 0.0})
+        s = agg_short["by_label"].get(lbl, {"count": 0, "pnl_usd": 0.0})
+        rows.append({
+            "Exit Source": lbl,
+            "Count (All)":   a["count"],
+            "PnL USD (All)": _round_val(a["pnl_usd"], 2),
+            "Count (Long)":  l["count"],
+            "PnL USD (Long)": _round_val(l["pnl_usd"], 2),
+            "Count (Short)": s["count"],
+            "PnL USD (Short)": _round_val(s["pnl_usd"], 2),
+        })
+
+    total_all   = agg_all["_total"]
+    total_long  = agg_long["_total"]
+    total_short = agg_short["_total"]
+    pnl_all   = sum(v["pnl_usd"] for v in agg_all["by_label"].values())
+    pnl_long  = sum(v["pnl_usd"] for v in agg_long["by_label"].values())
+    pnl_short = sum(v["pnl_usd"] for v in agg_short["by_label"].values())
+
+    rows.append({
+        "Exit Source": "TOTAL",
+        "Count (All)":   total_all,
+        "PnL USD (All)": _round_val(pnl_all, 2),
+        "Count (Long)":  total_long,
+        "PnL USD (Long)": _round_val(pnl_long, 2),
+        "Count (Short)": total_short,
+        "PnL USD (Short)": _round_val(pnl_short, 2),
+    })
+
+    return pd.DataFrame(rows)
 
 
 
@@ -276,6 +376,12 @@ def get_performance_summary_df(trades: list[dict[str, Any]], starting_capital: f
     all_metrics = _compute_metrics_from_trades(trades, starting_capital, None, metadata)
     long_metrics = _compute_metrics_from_trades(trades, starting_capital, 1, metadata)
     short_metrics = _compute_metrics_from_trades(trades, starting_capital, -1, metadata)
+
+    # Exit Source aggregates (contract v1.3) — pre-multiplied to 0..100 scale
+    # to match Performance Summary convention for percent metrics.
+    all_metrics["unspecified_exit_pct"]   = _compute_exit_source_aggregates(trades, None)["_unspecified_pct"]
+    long_metrics["unspecified_exit_pct"]  = _compute_exit_source_aggregates(trades, 1)["_unspecified_pct"]
+    short_metrics["unspecified_exit_pct"] = _compute_exit_source_aggregates(trades, -1)["_unspecified_pct"]
     
     # OVERRIDE All Trades
     all_metrics["net_profit"] = _safe_float(standard_metrics.get("net_pnl_usd", 0))
@@ -381,6 +487,7 @@ def get_performance_summary_df(trades: list[dict[str, Any]], starting_capital: f
     add_row("Trades - Neutral", "trades_neutral")
     add_row("Trades - Weak Down", "trades_weak_down")
     add_row("Trades - Strong Down", "trades_strong_down")
+    add_row("Unspecified Exit %", "unspecified_exit_pct")
 
     return pd.DataFrame(rows)
 
@@ -749,6 +856,7 @@ def generate_excel_report(artifacts: dict[str, Any], output_path: Path) -> None:
     df_yearwise = get_yearwise_df(artifacts["tradelevel"], starting_capital, artifacts["yearwise"])
     df_trades = get_trades_df(artifacts["tradelevel"])
     df_age = get_regime_age_df(artifacts["tradelevel"])
+    df_exit_src = get_exit_source_df(artifacts["tradelevel"])
 
     # Write to Excel (Raw Data)
     with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
@@ -759,6 +867,8 @@ def generate_excel_report(artifacts: dict[str, Any], output_path: Path) -> None:
         df_yearwise.to_excel(writer, sheet_name="Yearwise Performance", index=False)
         if not df_age.empty:
             df_age.to_excel(writer, sheet_name="Regime Lifecycle (Age)", index=False)
+        if not df_exit_src.empty:
+            df_exit_src.to_excel(writer, sheet_name="Exit Source Breakdown", index=False)
         df_trades.to_excel(writer, sheet_name="Trades List", index=False)
         
     # Call Unified Formatter

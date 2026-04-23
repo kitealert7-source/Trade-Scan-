@@ -5,9 +5,10 @@
 # Steps run in order; the first non-zero exit blocks the commit.
 #   1. Hardcoded user-path scan
 #   2. Bare .read_text() scan
-#   3. RESEARCH_MEMORY parse-integrity check
-#   4. Gate test suite
-#   5. Regression harness (selective -- only when staged paths touch a
+#   3. Bare `return True` in check_exit() (warn-only, never blocks)
+#   4. RESEARCH_MEMORY parse-integrity check
+#   5. Gate test suite
+#   6. Regression harness (selective -- only when staged paths touch a
 #      layer the harness covers)
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -27,6 +28,10 @@ if [ $? -ne 0 ]; then
     echo "[pre-commit] COMMIT BLOCKED. Use .read_text(encoding=\"utf-8\") instead."
     exit 1
 fi
+
+echo "[pre-commit] Scanning staged strategy.py for bare \`return True\` in check_exit (warn-only)..."
+python "$REPO_ROOT/tools/lint_check_exit_labels.py" --staged
+# warn-only -- never blocks the commit (exit code is always 0)
 
 echo "[pre-commit] Validating RESEARCH_MEMORY parse integrity..."
 python "$REPO_ROOT/tools/generate_research_memory_index.py" --check
