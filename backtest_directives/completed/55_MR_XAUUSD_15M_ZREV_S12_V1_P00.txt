@@ -1,0 +1,78 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S12_V1_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S12_V1_P00
+  version: 1
+  signal_version: 13
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Entry-quality upgrade on S10 base. Adds z-score extension gate on top of S10's slope_norm filter. Long entry: close > HMA AND slope_norm > +0.0005 AND zscore > +0.5. Short entry: close < HMA AND slope_norm < -0.0005 AND zscore < -0.5. The z > 0.5 condition requires that extension already be in progress in the direction of the trade — removes near-HMA pullback entries that have no momentum confirmation. Z-window unchanged (30 bars) so the same indicator drives both entry gate and 2.15 exit. All other logic byte-identical to S10: SL 2.5 ATR, Z exit 2.15, max_bars 75, volatility_filter, trend_filter (direction_gate). No hooks, no partials, no TP. signal_version 12 -> 13 (SIGNAL-class: entry condition tightened with momentum gate). Hypothesis: entering on confirmed extension (z > 0.5) rather than mid-channel noise should lift expectancy and hold or improve tail-removal PF 0.87 from S10. Primary criteria: PF >= 1.35 (raw), Expectancy >= S10 $2.30, tail-removal PF > 0.70 (hold most of S10 gain), trade reduction vs S05 <= 40% (expect fewer than S10 due to additional gate). Failure: PF < 1.28 (raw), tail-removal PF < 0.60, or trade count collapse > 50% vs S05."
+  description: "S10 base with z-score extension gate (|z| > 0.5) added to entry. XAUUSD 15M. Engine v1.5.8."
+  notes: "Compare vs S10 AND S05. Failure if PF (raw) < 1.28, tail-removal PF < 0.60, or trade count < 900. Post-run: no further modifications until robustness evaluated."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.volatility.volatility_regime
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+    zscore_threshold: 2.15
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+volatility_filter:
+  enabled: true
+  operator: gte
+  required_regime: 0
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    required_regime: -2
+    operator: gte
+  short_when:
+    required_regime: 0
+    operator: gte

@@ -1,0 +1,78 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S08_V1_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S08_V1_P00
+  version: 1
+  signal_version: 10
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Probe E2 on S05 base: BE-at-+1R plus trailing stop after +2R MFE. check_stop_mutation three-phase: (a) peak_r < 1.0 -> no change; (b) 1.0 <= peak_r < 2.0 -> SL moves to entry (BE); (c) peak_r >= 2.0 -> SL trails at peak_r - 0.5R from entry. Peak_r tracks unrealized_r_intrabar across the trade. Engine monotone guard enforces one-way progression. risk = initial_ATR * 2.5 snapshotted at entry (approximation; engine uses atr_at_signal internally). No partials, no TP/Z changes. All S05 filters preserved. signal_version 9 -> 10 (SIGNAL-class: distribution shaper). Hypothesis: trail after +2R should cap the largest winners into mid-sized winners, compressing top-5 concentration and raising PF-after-top-5% removal toward >=0.8-0.9. Fallback if largest win cut too aggressively: widen trail to 0.75R or delay activation to +2.5R."
+  description: "S05 base + check_stop_mutation BE-at-+1R and soft-trail-after-+2R hook. XAUUSD 15M. Engine v1.5.8."
+  notes: "Guardrails: PF stable or up; PF-after-top-5% >= 0.8-0.9; max DD not worse; top-5 concentration drops meaningfully from 41.8%; largest win cut is expected but must remain > 40 percent of baseline S05 largest win ($156.67). Compare vs S05 and S07 on: PF, expectancy, tail concentration, largest win, Kelly fraction."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.volatility.volatility_regime
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+    zscore_threshold: 2.15
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+volatility_filter:
+  enabled: true
+  operator: gte
+  required_regime: 0
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    required_regime: -2
+    operator: gte
+  short_when:
+    required_regime: 0
+    operator: gte

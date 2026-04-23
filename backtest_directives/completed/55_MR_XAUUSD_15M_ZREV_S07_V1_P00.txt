@@ -1,0 +1,78 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S07_V1_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S07_V1_P00
+  version: 1
+  signal_version: 9
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Probe E1 on S05 base: break-even stop-lock hook. When ctx.unrealized_r_intrabar >= 1.0, check_stop_mutation returns entry_price (move SL to BE, hard floor, one-shot enforced by engine monotone gate). No trailing, no partials, no TP/Z changes. All S05 filters/indicators/exits preserved. signal_version bumped 7 -> 9 (SIGNAL-class change: stop-mutation hook alters exit distribution). Hypothesis: S05 is tail-dependent (PF-after-top-5% = 0.51). Capturing free R from trades that reach +1R then round-trip should raise tail-removal PF toward >= 0.7 without sacrificing composite PF > 0.02 or widening max DD."
+  description: "S05 base + check_stop_mutation BE-at-+1R hook. XAUUSD 15M. Engine v1.5.8."
+  notes: "Guardrails: composite PF not worse by >0.02; PF-after-top-5% improves from 0.51 to >=0.65; max DD not worse. Compare vs S05 on: trade count, expectancy, stop-distribution (BE vs full SL), largest winner (should not be cut — BE fires only once and only after +1R intrabar). Engine v1.5.8 unrealized_r_intrabar is mandatory for alignment with SL/TP resolver."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.volatility.volatility_regime
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+    zscore_threshold: 2.15
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+volatility_filter:
+  enabled: true
+  operator: gte
+  required_regime: 0
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    required_regime: -2
+    operator: gte
+  short_when:
+    required_regime: 0
+    operator: gte

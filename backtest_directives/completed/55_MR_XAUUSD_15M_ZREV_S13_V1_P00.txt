@@ -1,0 +1,78 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S13_V1_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S13_V1_P00
+  version: 1
+  signal_version: 14
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Exit-side probe on S10 base. Adds partial profit extraction at +1R plus BE stop lock. When intrabar reaches +1R, move SL to entry_price (one-shot BE from E1 pattern). When bar closes with unrealized_r >= 1.0001 and bars_held >= 1, partial close 50% of position (engine hook check_partial_exit). Remaining 50% continues with original Z-exit at |z| >= 2.15, max_bars 75, direction flip. Same volatility_filter(gte 0) + trend_filter(direction_gate: shorts >= 0) + slope_norm > 0.0005 entry as S10. No TP, no trailing after partial. signal_version 13 -> 14 (SIGNAL-class: exit logic added partial + BE). Hypothesis: S10 held tail-PF at 0.87 ceiling via entry filter. Partial at +1R converts tail-dependence directly: locks in a guaranteed +0.5R on half the position before the trade can become part of the tail or the body that funds losers. Should lift PF-after-top-5% removal above 1.0 (Gate 6 PASS) by decoupling body-of-distribution trades from full-size tail dependency. Primary criteria: PF >= 1.30 (raw), Expectancy preserved or improved, tail-removal PF > 1.0 (Gate 6 PASS target), Max DD not worse than S10. Failure: PF < 1.25, tail-removal PF < 0.80, Max DD > S10 * 1.3."
+  description: "S10 base + partial 50% at +1R + BE stop lock at +1R intrabar. XAUUSD 15M. Engine v1.5.8."
+  notes: "Compare vs S10 AND S05. Trades are expected to remain ~1000-1100 (same entries); report will show partial_of_parent flag in tradelevel. Post-run: if Gate 6 passes (tail-PF > 1.0), promote for robustness review."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.volatility.volatility_regime
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+    zscore_threshold: 2.15
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+volatility_filter:
+  enabled: true
+  operator: gte
+  required_regime: 0
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    required_regime: -2
+    operator: gte
+  short_when:
+    required_regime: 0
+    operator: gte

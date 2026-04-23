@@ -1,0 +1,78 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S11_V1_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S11_V1_P00
+  version: 1
+  signal_version: 12
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Threshold relaxation on S10 base. Single-parameter change: slope_norm threshold 0.0005 -> 0.0003. All other logic byte-identical to S10: slope = HMA - HMA[5], slope_norm = slope / close, long entry close > HMA AND slope_norm > +0.0003, short entry close < HMA AND slope_norm < -0.0003. SL 2.5 ATR, Z exit 2.15, volatility_filter, trend_filter (direction_gate), max_bars 75 all unchanged. No hooks, no partials, no TP. signal_version 11 -> 12 (SIGNAL-class: entry threshold widened). Hypothesis: S10 showed strong edge quality (tail-removal PF 0.53 -> 0.87, top-5 concentration 41.8% -> 29.2%) but collapsed trade count 41% and real-model PF slipped to 1.24. Relaxing threshold from 0.05% to 0.03% should recover sample size while preserving most of the flat-regime filtration. Primary criteria: PF >= 1.30 (raw AND real-model), Expectancy >= S10, tail-removal PF > 0.70 (hold most of S10 gain), trade count reduction vs S05 <= 25%."
+  description: "S10 base with slope_norm threshold relaxed 0.0005 -> 0.0003. XAUUSD 15M. Engine v1.5.8."
+  notes: "Compare vs S10 AND S05. Target: recover trade count toward S05 baseline (1755) while keeping tail-removal PF > 0.70. Failure if PF < 1.28 (raw), tail-removal PF < 0.65, or trade count still > 25% below S05. Post-run: no further threshold tweaks until robustness evaluated."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.volatility.volatility_regime
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+    zscore_threshold: 2.15
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+volatility_filter:
+  enabled: true
+  operator: gte
+  required_regime: 0
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    required_regime: -2
+    operator: gte
+  short_when:
+    required_regime: 0
+    operator: gte

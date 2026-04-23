@@ -262,3 +262,19 @@ Short-side weakness in S04 (PF=1.04) driven by counter-trend shorts in weak_down
 
 Implication:
 Default next-iteration probe: test asymmetric entry thresholds or long-side short-squeeze detection rather than stacking more FilterStack blocks. Do NOT stack regime_age on top of S05 - marginal PF gain is eaten by R/DD regression.
+
+---
+
+2026-04-23 | Tags: XAUUSD, 15M, ZREV, tail-dependence, structural-ceiling, S05-series-exhausted | Strategy: 55_MR_XAUUSD_15M_ZREV_S07/S08/S10/S11/S12/S13_V1_P00 | Run IDs: 97c6aa71ab48cd05bd27b876, be36a5e5cc2399515dec46fd, 98f343160e76a65512584a85, S11/S12/S13 (see FSP)
+
+Finding:
+S05 base (PF 1.31, tail-PF 0.53, Gate 6 HARD FAIL) cannot be lifted past robustness Gate 6 (PF-after-top-5%-removal >= 1.0) via any single- or dual-lever probe. Six successive probes (S07 BE-at-+1R, S08 BE+trail-after-+2R, S10 slope_norm 0.0005 entry filter, S11 slope_norm 0.0003 relax, S12 z-gate entry 0.5, S13 partial-50%-at-+1R + BE) walk tail-PF from 0.53 -> 0.87 -> 0.90 ceiling without breaching 1.0.
+
+Evidence:
+Stop-side probes (S07/S08) no-op on tail metrics (tail-PF 0.53/0.51): Z-extension exit at 2.15-sigma fires before trades reach +2R MFE in 95.5% of cases, so trail never fires and BE is noise-benign. Entry-side probe S10 (slope_norm > 0.0005) lifts tail-PF 0.53->0.87 but cuts trades 41% (1755->1038) and real-model PF drops 1.30->1.24. Relaxation S11 (0.0003) recovers trades but tail-PF collapses back to 0.55 -- the quality gain is non-linear and sits in the 0.0004-0.0005 window. S12 z-gate (|z|>0.5 entry) holds tail-PF at 0.87 but slips PF to 1.32. S13 (partial + BE exit) reaches tail-PF 0.90 (new best), Max DD $235 (new best), flat-period 16.5%, Top-5 concentration 28.5% -- every robustness dim improves but Gate 6 still XX at 0.90.
+
+Conclusion:
+The Z-extension exit at 2.15-sigma is itself the tail-generating mechanism. Winners that reach Z>=2.15 are structurally larger than median trades because the distance from entry (near HMA) to Z=2.15 is multi-sigma. Any exit-side intervention that preserves full position size to Z-exit preserves the fat tail. Stop mutation cannot help because trades rarely reach +2R MFE before Z-exit fires. Entry-side filtration has a ceiling at tail-PF ~0.87-0.90 because the trades that survive a tight entry filter are disproportionately the ones that go on to hit the tail. Partial extraction gets closer (0.90) but cannot breach 1.0 because the remaining 50% runner still carries the full tail.
+
+Implication:
+S05 series is exhausted at tail-PF 0.90 ceiling. Do NOT iterate further on ZREV S-variants (no threshold tweak, no stacking, no second partial) -- marginal gains are unlikely to clear 1.0 and risk of overfitting is high. S13 is the structurally cleanest variant (best-of-series on Gate 6, Max DD, flat-period, Top-5 concentration) but cannot promote because Gate 6 remains HARD FAIL. Pivot to a different mean-reversion architecture: the next MR probe should NOT use Z-sigma-extension exit as the primary profit-taking mechanism, since that mechanism is what manufactures the tail dependency being rejected by Gate 6.
