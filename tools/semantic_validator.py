@@ -350,55 +350,93 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     # From engine v1.5.3 onwards, the regime_state_machine's
     # apply_regime_model() runs AFTER prepare_indicators() and
     # authoritatively writes these columns to the df. Any strategy that
-    # re-imports, re-computes, or re-assigns them creates a silent
-    # second source of truth: the strategy's column is overwritten by
-    # the engine, so the gate reads one value while the trade record
-    # stamps another. Strategies must access these fields exclusively
-    # via ctx.require('<field>') at runtime — not ctx.get(), which
-    # silently returns a default on missing data instead of failing fast.
+    # re-computes or re-assigns them creates a silent second source of
+    # truth: the strategy's column is overwritten by the engine, so the
+    # gate reads one value while the trade record stamps another.
+    # Strategies must access these fields exclusively via
+    # ctx.require('<field>') at runtime -- not ctx.get(), which silently
+    # returns a default on missing data instead of failing fast.
     #
-    # Central registry — single definition used by all checks below.
+    # IMPORT POLICY (refined 2026-04-23):
+    #   An engine-owned module MAY be imported at module scope iff:
+    #     (a) the imported symbol has ZERO references anywhere outside
+    #         its own ImportFrom node -- it exists solely as a classifier
+    #         artifact to force SIGNAL-class diff when a new FilterStack
+    #         block consuming the field is introduced; AND
+    #     (b) STRATEGY_SIGNATURE declares at least one "consumer filter"
+    #         block that is behaviorally effective (enabled=True AND
+    #         >=1 key beyond "enabled").
+    #   Any reference to the imported symbol -- call, alias, attribute,
+    #   pass-through, decorator -- FAILS. No whitelist.
+    #
+    # Central registry. `consumer_filters` lists the FilterStack block
+    # names that legitimize the import (i.e. read the field from ctx at
+    # runtime).
+    from tools.filter_registry import is_behavioral_filter_config
+
     ENGINE_OWNED_FIELDS = {
-        # field_name: {forbidden_imports, forbidden_callables}
         "volatility_regime": {
             "imports": {"indicators.volatility.volatility_regime"},
             "callables": {"volatility_regime"},
+            "consumer_filters": {"volatility_filter", "market_regime_filter"},
         },
         "trend_regime": {
             "imports": set(),
             "callables": set(),
+            "consumer_filters": set(),
         },
         "trend_score": {
             "imports": set(),
             "callables": set(),
+            "consumer_filters": set(),
         },
         "trend_label": {
             "imports": set(),
             "callables": set(),
+            "consumer_filters": set(),
         },
     }
 
-    # Derived flat sets for fast lookup
     _eof_forbidden_imports = set()
     _eof_forbidden_callables = set()
-    for _field_def in ENGINE_OWNED_FIELDS.values():
+    _eof_import_to_field = {}
+    for _field_name, _field_def in ENGINE_OWNED_FIELDS.items():
         _eof_forbidden_imports |= _field_def["imports"]
         _eof_forbidden_callables |= _field_def["callables"]
+        for _mod in _field_def["imports"]:
+            _eof_import_to_field[_mod] = _field_name
     _eof_forbidden_columns = set(ENGINE_OWNED_FIELDS.keys())
 
     class EngineOwnedFieldsGuard(ast.NodeVisitor):
+        """
+        Strict three-rule guard:
+          1. df['<engine_owned_col>'] = ...            -> FAIL
+          2. <imported_engine_owned_symbol>(...)       -> FAIL (belt-and-braces)
+          3. Any ast.Name reference to a symbol bound
+             by a forbidden ImportFrom, anywhere other
+             than the ImportFrom node itself           -> FAIL
+        """
+
         def __init__(self, forbidden_imports, forbidden_columns, forbidden_callables):
             self.forbidden_imports_set = forbidden_imports
             self.forbidden_columns_set = forbidden_columns
             self.forbidden_callables_set = forbidden_callables
-            self.violations_imports = []
+            self.bound_engine_owned_names = {}  # bound_name -> module_path
+            self.imports_declared = []
             self.violations_assignments = []
             self.violations_calls = []
+            self.violations_references = []  # list of (name, lineno)
 
         def visit_ImportFrom(self, node):
             if node.module in self.forbidden_imports_set:
-                self.violations_imports.append(node.module)
-            self.generic_visit(node)
+                self.imports_declared.append(node.module)
+                for alias in node.names:
+                    bound = alias.asname or alias.name
+                    self.bound_engine_owned_names[bound] = node.module
+            # Intentionally do NOT generic_visit -- the ImportFrom's own
+            # alias binding is permitted; visiting children would treat
+            # the binding site as a reference.
+            return
 
         def visit_Assign(self, node):
             for target in node.targets:
@@ -412,11 +450,14 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
             self.generic_visit(node)
 
         def visit_Call(self, node):
-            # Detect bare function calls: atr(...), volatility_regime(...)
             if isinstance(node.func, ast.Name):
                 if node.func.id in self.forbidden_callables_set:
                     self.violations_calls.append(node.func.id)
+            self.generic_visit(node)
 
+        def visit_Name(self, node):
+            if node.id in self.bound_engine_owned_names:
+                self.violations_references.append((node.id, node.lineno))
             self.generic_visit(node)
 
         @staticmethod
@@ -434,10 +475,6 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     eof_guard.visit(tree)
 
     eof_violations = []
-    if eof_guard.violations_imports:
-        eof_violations.append(
-            f"forbidden imports: {sorted(set(eof_guard.violations_imports))}"
-        )
     if eof_guard.violations_assignments:
         eof_violations.append(
             f"forbidden df column writes: {sorted(set(eof_guard.violations_assignments))}"
@@ -446,11 +483,50 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
         eof_violations.append(
             f"forbidden function calls: {sorted(set(eof_guard.violations_calls))}"
         )
+    if eof_guard.violations_references:
+        refs = sorted({
+            f"{name}@L{lineno}" for name, lineno in eof_guard.violations_references
+        })
+        eof_violations.append(
+            f"engine-owned symbol referenced after import "
+            f"(only ctx.require() permitted): {refs}"
+        )
+
+    # Consumer-filter contract.
+    declared_imports_by_field = {}
+    for mod in eof_guard.imports_declared:
+        field = _eof_import_to_field.get(mod)
+        if field:
+            declared_imports_by_field.setdefault(field, []).append(mod)
+
+    for field, mods in declared_imports_by_field.items():
+        consumer_filters = ENGINE_OWNED_FIELDS[field]["consumer_filters"]
+        if not consumer_filters:
+            eof_violations.append(
+                f"engine-owned module(s) {sorted(mods)} imported but field "
+                f"'{field}' has no registered consumer filter; import not permitted"
+            )
+            continue
+        sig = visitor.signature_dict or {}
+        satisfied_by = None
+        for cf_name in consumer_filters:
+            block = sig.get(cf_name)
+            if is_behavioral_filter_config(block):
+                satisfied_by = cf_name
+                break
+        if satisfied_by is None:
+            eof_violations.append(
+                f"engine-owned module(s) {sorted(mods)} imported without a "
+                f"behavioral consumer filter; required one of "
+                f"{sorted(consumer_filters)} with enabled=True and at least "
+                f"one non-'enabled' key in STRATEGY_SIGNATURE"
+            )
+
     if eof_violations:
         raise ValueError(
             f"ENGINE_OWNED_FIELDS: Strategy violates engine-owned field boundary. "
             f"These fields are computed by apply_regime_model() after "
-            f"prepare_indicators() — re-implementing them causes silent drift "
+            f"prepare_indicators() -- re-implementing them causes silent drift "
             f"between gate logic and trade record labels. "
             f"Access exclusively via ctx.require('<field>'). "
             f"Violations: {'; '.join(eof_violations)}"

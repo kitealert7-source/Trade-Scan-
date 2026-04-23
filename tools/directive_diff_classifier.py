@@ -28,6 +28,8 @@ import hashlib
 from pathlib import Path
 from typing import Any, Iterable
 
+from tools.filter_registry import FILTER_STACK_BLOCKS, is_behavioral_filter_config
+
 # Keys whose differences do NOT alter trading behavior. Subset of
 # NON_SIGNATURE_KEYS but narrower: we consider ONLY genuinely cosmetic fields.
 # Identity fields (name, strategy, etc.) are expected to differ between two
@@ -50,6 +52,14 @@ _IDENTITY_KEYS = frozenset({
 _SIGNAL_KEYS = frozenset({
     "indicators",
 })
+
+# FilterStack block keys (imported from tools.filter_registry) are
+# signal-level ONLY when the diff represents a real behavioral change.
+# Crisp rule (see filter_registry.is_behavioral_filter_config):
+#   behavioral iff block has enabled=True AND >=1 key other than "enabled".
+# Empty-block adds, disabled-block adds, and disabled->disabled tweaks
+# are reclassified as cosmetic rather than structural.
+_FILTER_BLOCK_KEYS = FILTER_STACK_BLOCKS
 
 
 def _module_hash(module_path: str, project_root: Path) -> str | None:
@@ -85,6 +95,39 @@ def _is_numeric(v: Any) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+def _classify_filter_block_diffs(
+    directive_a: dict,
+    directive_b: dict,
+) -> tuple[list[str], list[str]]:
+    """Compare FilterStack top-level blocks between two directives.
+
+    Returns (behavioral_blocks, cosmetic_blocks):
+      - behavioral_blocks: filter block keys whose diff represents real
+        behavioral change (promotes classification to SIGNAL).
+      - cosmetic_blocks: filter block keys whose diff is inert (empty
+        adds, disabled->disabled tweaks).
+
+    Rule (crisp, no 'default value' semantics):
+      A filter-block diff is behavioral iff at least one side of the
+      diff is a behaviorally-effective config (enabled=True AND >=1
+      key other than 'enabled'). Otherwise the diff is cosmetic.
+    """
+    behavioral: list[str] = []
+    cosmetic: list[str] = []
+    for key in _FILTER_BLOCK_KEYS:
+        va = directive_a.get(key, _MISSING)
+        vb = directive_b.get(key, _MISSING)
+        if va == vb:
+            continue
+        block_a = va if va is not _MISSING else None
+        block_b = vb if vb is not _MISSING else None
+        if is_behavioral_filter_config(block_a) or is_behavioral_filter_config(block_b):
+            behavioral.append(key)
+        else:
+            cosmetic.append(key)
+    return sorted(behavioral), sorted(cosmetic)
+
+
 def _partition_diffs(
     leaves_a: dict[str, Any],
     leaves_b: dict[str, Any],
@@ -94,6 +137,11 @@ def _partition_diffs(
     Returns (cosmetic, identity, numeric, structural) sets of leaf paths
     where the two directives differ. Keys present in only one side are
     counted as structural (they indicate shape change).
+
+    Leaves belonging to FilterStack block keys are excluded here and
+    handled separately by _classify_filter_block_diffs at the block
+    (not leaf) level -- leaf-level partitioning mis-categorizes
+    block-level structural changes as numeric or raw structural.
     """
     all_keys = set(leaves_a) | set(leaves_b)
     cosmetic: set[str] = set()
@@ -108,6 +156,9 @@ def _partition_diffs(
             continue
 
         top = key.split(".", 1)[0]
+        if top in _FILTER_BLOCK_KEYS:
+            # Handled at block-level elsewhere -- do not leaf-partition.
+            continue
         if top in _COSMETIC_KEYS:
             cosmetic.add(key)
         elif top in _IDENTITY_KEYS:
@@ -179,7 +230,16 @@ def classify_diff(
     leaves_b = _flatten(directive_b)
     cosmetic, identity, numeric, structural = _partition_diffs(leaves_a, leaves_b)
 
-    # Rule 1: indicator import set differs OR module hash differs -> SIGNAL
+    # Block-level FilterStack diff handled separately (not via leaves).
+    filter_behavioral, filter_cosmetic = _classify_filter_block_diffs(
+        directive_a, directive_b
+    )
+    # Fold inert filter-block diffs into cosmetic set so they don't
+    # interfere with downstream SIGNAL/PARAMETER/COSMETIC reasoning.
+    for _k in filter_cosmetic:
+        cosmetic.add(_k)
+
+    # Rule 1a: indicator import set differs OR module hash differs -> SIGNAL
     if removed or added or hash_delta:
         return {
             "classification": "SIGNAL",
@@ -189,6 +249,23 @@ def classify_diff(
             ),
             "indicator_import_delta": {"removed": removed, "added": added},
             "indicator_hash_delta": hash_delta,
+            "filter_behavioral_blocks": filter_behavioral,
+            "numeric_diffs": sorted(numeric),
+            "cosmetic_diffs": sorted(cosmetic),
+            "structural_diffs": sorted(structural),
+        }
+
+    # Rule 1b: behavioral FilterStack block change -> SIGNAL
+    # (add/remove of an effective block, or param change in an enabled block)
+    if filter_behavioral:
+        return {
+            "classification": "SIGNAL",
+            "reason": (
+                f"filter-stack behavioral change: {filter_behavioral}"
+            ),
+            "indicator_import_delta": {"removed": [], "added": []},
+            "indicator_hash_delta": [],
+            "filter_behavioral_blocks": filter_behavioral,
             "numeric_diffs": sorted(numeric),
             "cosmetic_diffs": sorted(cosmetic),
             "structural_diffs": sorted(structural),
@@ -201,6 +278,7 @@ def classify_diff(
             "reason": f"only numeric parameter diffs: {sorted(numeric)}",
             "indicator_import_delta": {"removed": [], "added": []},
             "indicator_hash_delta": [],
+            "filter_behavioral_blocks": [],
             "numeric_diffs": sorted(numeric),
             "cosmetic_diffs": sorted(cosmetic),
             "structural_diffs": [],
@@ -216,6 +294,7 @@ def classify_diff(
             ),
             "indicator_import_delta": {"removed": [], "added": []},
             "indicator_hash_delta": [],
+            "filter_behavioral_blocks": [],
             "numeric_diffs": [],
             "cosmetic_diffs": sorted(cosmetic),
             "structural_diffs": [],
@@ -230,6 +309,7 @@ def classify_diff(
         ),
         "indicator_import_delta": {"removed": removed, "added": added},
         "indicator_hash_delta": hash_delta,
+        "filter_behavioral_blocks": filter_behavioral,
         "numeric_diffs": sorted(numeric),
         "cosmetic_diffs": sorted(cosmetic),
         "structural_diffs": sorted(structural),

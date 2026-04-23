@@ -64,14 +64,66 @@ def test_cosmetic_with_identity_diffs_is_still_cosmetic():
     assert r["classification"] == "COSMETIC"
 
 
-def test_unclassifiable_when_structural_change():
+def test_signal_when_behavioral_filter_block_added():
+    # Adding an enabled FilterStack block with real parameters is a
+    # behavioral change -> SIGNAL (not UNCLASSIFIABLE).
     a = _base_directive()
     b = _base_directive()
-    # Add a new structural block that doesn't exist in A.
-    b["volatility_filter"] = {"enabled": True, "required_regime": "high"}
+    b["volatility_filter"] = {"enabled": True, "required_regime": 0, "operator": "gte"}
+    r = classify_diff(a, b)
+    assert r["classification"] == "SIGNAL"
+    assert "volatility_filter" in r["filter_behavioral_blocks"]
+    assert "filter-stack behavioral change" in r["reason"]
+
+
+def test_cosmetic_when_disabled_filter_block_added():
+    # Adding a disabled filter block is inert -> not SIGNAL.
+    a = _base_directive()
+    b = _base_directive()
+    b["volatility_filter"] = {"enabled": False, "required_regime": 0}
+    r = classify_diff(a, b)
+    assert r["classification"] == "COSMETIC"
+    assert r["filter_behavioral_blocks"] == []
+
+
+def test_cosmetic_when_empty_filter_block_added():
+    # {"enabled": True} with no other keys is not behaviorally effective.
+    a = _base_directive()
+    b = _base_directive()
+    b["volatility_filter"] = {"enabled": True}
+    r = classify_diff(a, b)
+    assert r["classification"] == "COSMETIC"
+
+
+def test_signal_when_filter_block_parameter_changes():
+    # Modifying a parameter inside an existing enabled filter block -> SIGNAL.
+    base = _base_directive()
+    base["volatility_filter"] = {"enabled": True, "required_regime": 0}
+    b = _base_directive()
+    b["volatility_filter"] = {"enabled": True, "required_regime": 1}
+    r = classify_diff(base, b)
+    assert r["classification"] == "SIGNAL"
+    assert "volatility_filter" in r["filter_behavioral_blocks"]
+
+
+def test_signal_when_behavioral_filter_block_removed():
+    # Removing a previously-enabled behavioral block -> SIGNAL.
+    a = _base_directive()
+    a["volatility_filter"] = {"enabled": True, "required_regime": 0}
+    b = _base_directive()
+    r = classify_diff(a, b)
+    assert r["classification"] == "SIGNAL"
+    assert "volatility_filter" in r["filter_behavioral_blocks"]
+
+
+def test_unclassifiable_when_unknown_structural_block():
+    # Unknown (non-FilterStack) new top-level block -> still fail-closed.
+    a = _base_directive()
+    b = _base_directive()
+    b["foo_filter"] = {"enabled": True, "threshold": 0.5}
     r = classify_diff(a, b)
     assert r["classification"] == "UNCLASSIFIABLE"
-    assert any(leaf.startswith("volatility_filter") for leaf in r["structural_diffs"])
+    assert any(leaf.startswith("foo_filter") for leaf in r["structural_diffs"])
 
 
 def test_unclassifiable_when_type_change():
