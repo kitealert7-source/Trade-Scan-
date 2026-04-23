@@ -1,0 +1,61 @@
+test:
+  name: 56_CONT_EURUSD_15M_ZPULL_S03_V1_P00
+  family: CONT
+  strategy: 56_CONT_EURUSD_15M_ZPULL_S03_V1_P00
+  version: 1
+  signal_version: 19
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Cross-asset validation of S02 ZPULL architecture. Byte-identical clone of S02 (XAUUSD 15M) onto EURUSD with only two deltas: (a) symbol XAUUSD->EURUSD; (b) atr_with_dollar_floor(min_dollars=20) -> atr_with_pip_floor(min_pips=20, pip_size=0.0001). All other structure identical -- entry band [-0.5,-0.2] long-only, HMA(200) bias, z-continuation exit at +0.5, 15-bar cap, 2.5xATR stop. signal_version=19 distinguishes via indicator delta (atr_with_pip_floor). Purpose: if S02's distributed edge reproduces on EURUSD, architecture is real and portable; if it fails, S02 is XAUUSD-drift-specific and not generalizable. Same protocol that killed ZREV (S14 XAU -> S15 EUR)."
+  description: "EURUSD 15M ZPULL S03 -- cross-asset clone of S02 with pip-calibrated stop floor. Entry: close>HMA(200) AND -0.5<=z(30)<=-0.2 (long-only). Exit: z>=+0.5 (continuation TP) OR 15-bar time cap. Stop: max(2.5xATR(14), 20 pips) via atr_with_pip_floor. Engine v1.5.8."
+  notes: "Primary: (1) overall PF >= 1.15 (match S02 1.18); (2) Top-5 concentration < 60% (match S02 58%); (3) tail-removal PF >= 1.0; (4) trade density reasonable vs S02 530T. If all pass -> architecture validated, worth refining. If PF < 1.0 or Top-5 > 80% -> XAUUSD-specific, close ZPULL family."
+
+symbols:
+  - EURUSD
+
+indicators:
+  - indicators.volatility.atr_with_pip_floor
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: zscore_midband_hma_bias
+  exit_logic:
+    type: zscore_continuation_or_time
+    max_bars: 15
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

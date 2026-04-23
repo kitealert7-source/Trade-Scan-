@@ -1,0 +1,61 @@
+test:
+  name: 56_CONT_XAUUSD_15M_ZPULL_S01_V1_P00
+  family: CONT
+  strategy: 56_CONT_XAUUSD_15M_ZPULL_S01_V1_P00
+  version: 1
+  signal_version: 17
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "First probe of directional pullback continuation architecture. Distinct from closed ZREV family: entry is mid-band Z (not extreme), trend-aligned (not counter-trend), exit is Z-continuation (not Z-zero-cross). Long: close>HMA(200) AND -1.0<=z(30)<=-0.3; exit at z>=+0.5. Short: mirror. Stop: max(2.5xATR(14), $20). Time cap 30 bars. Hypothesis: avoiding extremes (MR failure mode) and avoiding chases (trend failure mode) captures mid-distribution edge with distributed PnL (Top-5 < 40%)."
+  description: "XAUUSD 15M Directional Pullback Continuation probe. HMA(200) trend filter + Z(30) mid-band entry [-1.0,-0.3]/[+0.3,+1.0] + Z-continuation exit at +/-0.5 + ATR($20 floor) stop + 30-bar time cap. Engine v1.5.8."
+  notes: "Primary validation: (1) Tail-removal PF >= 1.0 [MUST PASS -- closes cross-architecture tail-dependence hypothesis]; (2) Top-5 concentration < 40%; (3) overall PF >= 1.15. Secondary: lower SL clustering vs ZREV; balanced long/short. Failure: Top-5 > 80% OR PF < 1.1 -> conclude MR/mid-extraction family structurally tail-dependent, pivot to event-driven."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: zscore_midband_hma_bias
+  exit_logic:
+    type: zscore_continuation_or_time
+    max_bars: 30
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

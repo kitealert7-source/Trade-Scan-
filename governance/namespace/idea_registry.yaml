@@ -420,3 +420,11 @@ ideas:
     role: pipeline_probe
     instruments: XAUUSD
     status: active
+  '56':
+    family: CONT
+    title: "Directional Pullback Continuation -- HMA(200) trend filter + Z(30) mid-band entry [-1.0,-0.3]/[0.3,1.0] + Z-continuation exit at +/-0.5 -- XAUUSD 15M"
+    class: indicator_logic
+    regime: trend
+    role: entry_edge
+    instruments: XAUUSD
+    status: active

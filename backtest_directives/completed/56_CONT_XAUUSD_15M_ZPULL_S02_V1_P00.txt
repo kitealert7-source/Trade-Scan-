@@ -1,0 +1,61 @@
+test:
+  name: 56_CONT_XAUUSD_15M_ZPULL_S02_V1_P00
+  family: CONT
+  strategy: 56_CONT_XAUUSD_15M_ZPULL_S02_V1_P00
+  version: 1
+  signal_version: 18
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Minimal refinement of S01 (no optimization). Exactly 3 changes, each backed by S01 report evidence: (1) narrow entry band from [-1.0,-0.3] to [-0.5,-0.2] -- S01 Top-5=88.5% + expectancy $0.27 indicates band too wide admitting noise; (2) reduce time cap 30->15 bars -- S01 TIME exits 126T=-$1076 at -0.40R bleeding; (3) remove shorts -- S01 Short PF=0.90 asymmetric broken (Long PF 1.37). No regime/vol/session filters added. No stacking. Testing whether mid-move extraction produces distributed edge once obvious structural leaks are removed."
+  description: "XAUUSD 15M DPC S02 -- long-only ZPULL variant. Entry: close>HMA(200) AND -0.5<=z(30)<=-0.2. Exit: z>=+0.5 (continuation TP) OR 15-bar time cap. Stop: max(2.5xATR(14), $20). Engine v1.5.8."
+  notes: "Primary: (1) Tail-removal PF >= 1.0 must pass; (2) Top-5 concentration < 60% (S01 was 88.5%); (3) overall PF >= 1.15 (S01 was 1.06); (4) trade count drop 30-40% vs S01 1283T. Success closes 'distributed edge achievable with Z-primitive + trend-aligned entry' hypothesis. Failure -> ZPULL family closed, pivot to event-driven."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: zscore_midband_hma_bias
+  exit_logic:
+    type: zscore_continuation_or_time
+    max_bars: 15
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

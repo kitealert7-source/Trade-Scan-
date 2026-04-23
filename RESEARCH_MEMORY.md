@@ -278,3 +278,25 @@ The Z-extension exit at 2.15-sigma is itself the tail-generating mechanism. Winn
 
 Implication:
 S05 series is exhausted at tail-PF 0.90 ceiling. Do NOT iterate further on ZREV S-variants (no threshold tweak, no stacking, no second partial) -- marginal gains are unlikely to clear 1.0 and risk of overfitting is high. S13 is the structurally cleanest variant (best-of-series on Gate 6, Max DD, flat-period, Top-5 concentration) but cannot promote because Gate 6 remains HARD FAIL. Pivot to a different mean-reversion architecture: the next MR probe should NOT use Z-sigma-extension exit as the primary profit-taking mechanism, since that mechanism is what manufactures the tail dependency being rejected by Gate 6.
+2026-04-23
+Tags:
+MR
+ZREV
+architecture-dead
+cross-asset
+tail-dependence
+
+Strategy: 55_MR_EURUSD_15M_ZREV_S15_V1_P00
+Run IDs: 2212a1f63de22d584a3309da
+
+Finding:
+ZREV (Z-extreme entry + zero-cross exit) is architecturally tail-dependent across assets; XAUUSD directional drift masked weakness that EURUSD exposed.
+
+Evidence:
+S14 XAUUSD: PF 1.20, Top-5=123.4%, Long PF 1.82 vs Short PF 0.93. S15 EURUSD (S14 clone, pip-floor stop): PF 0.93, Top-5=148.4%, Long PF 0.96 vs Short PF 0.90 — symmetrically broken.
+
+Conclusion:
+Zero-cross exit manufactures the tail regardless of symbol; XAUUSD's apparent edge was Long-WeakDn drift (PF 3.45). Proper SL calibration does not resolve the distribution pathology.
+
+Implication:
+ZREV architecture is not viable under distributed-edge constraint. Do not probe further zero-cross MR variants on any symbol. S01-S13 tail-PF 0.90 ceiling + S14/S15 cross-asset confirmation closes this architecture.

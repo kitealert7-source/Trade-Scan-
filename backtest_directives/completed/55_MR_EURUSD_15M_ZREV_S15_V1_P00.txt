@@ -1,0 +1,61 @@
+test:
+  name: 55_MR_EURUSD_15M_ZREV_S15_V1_P00
+  family: MR
+  strategy: 55_MR_EURUSD_15M_ZREV_S15_V1_P00
+  version: 1
+  signal_version: 16
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-02"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "First valid cross-asset MR architecture test. Clones S14 (XAUUSD) architecture onto EURUSD with scale-appropriate stop floor (20 pips = 0.0020 price units) replacing XAUUSD's $20 dollar floor. Only two changes from S14: (a) symbol XAUUSD->EURUSD; (b) atr_with_dollar_floor(min_dollars=20) -> atr_with_pip_floor(min_pips=20, pip_size=0.0001). Entry logic (Z +-2.0 + HMA bias), exit logic (zero-crossing), max_bars (50), and all other structural elements are byte-identical to S14. Purpose: determine whether S14's tail-dependence pathology (Top-5 concentration 123.4% of PnL on XAUUSD) is XAUUSD-drift-specific or architecture-specific. signal_version=16 distinguishes via indicator delta (atr_with_pip_floor)."
+  description: "EURUSD 15M cross-asset clone of S14 with pip-calibrated stop floor. Z-score(30) entry at +-2.0 with HMA(200) bias guard. Exit: zscore crosses 0. Stop: max(2.5xATR(14), 20 pips) via atr_with_pip_floor. Time cap 50 bars. No regime/volatility filters. Engine v1.5.8."
+  notes: "First valid cross-asset MR test. Primary: (1) Top-5 concentration < 80% (major drop from XAUUSD's 123%); (2) tail-removal PF >= 0.90; (3) overall PF >= 1.15. Secondary: long/short PF balance (short PF >= 1.0 ideally); loss clustering reduced; DD controlled. Question being answered: does symmetric MR behave better on a structurally different asset? If improved -> test USDJPY/EURGBP next. If not improved -> conclude MR incompatibility under current constraints."
+
+symbols:
+  - EURUSD
+
+indicators:
+  - indicators.volatility.atr_with_pip_floor
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: zscore_hma_bias
+  exit_logic:
+    type: zscore_zero_cross_or_time
+    max_bars: 50
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
