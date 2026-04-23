@@ -240,3 +240,25 @@ TF dilation 4H->1D did not preserve edge uniformly. Residual signal concentrates
 
 Implication:
 If pursuing CMR at 1D, narrow to JPY pairs only as targeted follow-up. Full 18-pair basket is not viable. Do not promote any P00/P01/P03 symbols -- PF and trade counts are below portfolio quality gate.
+2026-04-23
+Tags:
+XAUUSD
+15M
+ZREV
+filter_stack
+directional_trend_filter
+
+Strategy: 55_MR_XAUUSD_15M_ZREV_S05_V1_P00
+Run IDs: 378c4f957101046dfbc0190f
+
+Finding:
+S05 locks in volatility_filter (gte 0) + trend_filter(direction_gate: shorts gated to trend_regime >= 0) over ZREV P08 base as the chosen XAUUSD 15M mean-reversion candidate across the S04/S05/S06 probe series.
+
+Evidence:
+S05 PF=1.31 exp=$1.70 R/DD=10.12 SQN=3.51 trades=1755 (vs S04 PF=1.20 exp=$1.13 R/DD=6.02; S06 added regime_age filter PF=1.33 but R/DD regressed to 9.56).
+
+Conclusion:
+Short-side weakness in S04 (PF=1.04) driven by counter-trend shorts in weak_down/strong_down regimes; directional trend filter eliminates that loss cluster (short PF 1.04 -> 1.21, WeakDn PnL -$233 -> +$73, StrongDn -$384 -> -$51) without touching long side. regime_age filter (S06) is a weaker probe: age 0/1 removed but edge dilutes at age 2.
+
+Implication:
+Default next-iteration probe: test asymmetric entry thresholds or long-side short-squeeze detection rather than stacking more FilterStack blocks. Do NOT stack regime_age on top of S05 - marginal PF gain is eaten by R/DD regression.

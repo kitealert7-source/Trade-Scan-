@@ -2030,7 +2030,7 @@ ideas:
             signature_hash_full: 38df74745943ad14cb016f8c3e827fb8b3d6e2f5f653764e3668fe4a72c653a6
             reserved_at_utc: '2026-04-21T07:47:16.053010+00:00'
   '55':
-    next_sweep: 3
+    next_sweep: 7
     sweeps:
       S01:
         directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V1_P00
@@ -2048,3 +2048,64 @@ ideas:
         signature_hash: 4b080a7640320fb6
         reserved_at_utc: '2026-04-23T10:58:33.215550+00:00'
         signature_hash_full: 4b080a7640320fb6a610518c2d59c9770deec9aaf20fcb0e80f2032429e79f08
+        patches:
+          P01:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P01
+            signature_hash: 956803a87580a40d
+            reserved_at_utc: '2026-04-23T11:23:18.014892+00:00'
+            signature_hash_full: 956803a87580a40d8fe53fcea21883dcd53f4d73dd881a4c1d7450147885655c
+          P02:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P02
+            signature_hash: 74cabe00b180d0da
+            reserved_at_utc: '2026-04-23T11:25:02.389020+00:00'
+            signature_hash_full: 74cabe00b180d0daa738f85340c2be19a804e6a3dc4232c015f72b43b766d737
+          P03:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P03
+            signature_hash: 4794d1639a82688e
+            reserved_at_utc: '2026-04-23T11:39:06.852430+00:00'
+            signature_hash_full: 4794d1639a82688ef81e7af79a9d182f6e1c5438bdb6dca3961b7b78711a02f5
+          P04:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P04
+            signature_hash: 225568367a34a1f2
+            reserved_at_utc: '2026-04-23T11:40:12.612319+00:00'
+            signature_hash_full: 225568367a34a1f2238a47529669240df9776c30556548a526c5ce7731621e5b
+          P05:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P05
+            signature_hash: 286e8671fca68d0f
+            reserved_at_utc: '2026-04-23T11:41:16.473360+00:00'
+            signature_hash_full: 286e8671fca68d0feb3bbf437b5fb362d94831073594752b05eaaf87692087d4
+          P06:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P06
+            signature_hash: 47eee027fab2c8b1
+            reserved_at_utc: '2026-04-23T12:03:12.142948+00:00'
+            signature_hash_full: 47eee027fab2c8b127171a902f1980fc42544b65335de6a5fed67dad9fc38de5
+          P07:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P07
+            signature_hash: 2917b242fb7f6f35
+            reserved_at_utc: '2026-04-23T12:04:17.442503+00:00'
+            signature_hash_full: 2917b242fb7f6f3546c7c7331fc6547517a95951b50fb3ad457039abb0f05b55
+          P08:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P08
+            signature_hash: 6d4e52133c0dc875
+            reserved_at_utc: '2026-04-23T12:05:17.161687+00:00'
+            signature_hash_full: 6d4e52133c0dc875d499f680f6d4c6c92c00396d995e2df451788831f777f8c1
+          P09:
+            directive_name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P09
+            signature_hash: c6932d6a7d9b2cdb
+            reserved_at_utc: '2026-04-23T12:06:13.409744+00:00'
+            signature_hash_full: c6932d6a7d9b2cdbdbca035da162c976504a0e0b06ab424a3d4b0058633edcea
+      S04:
+        directive_name: 55_MR_XAUUSD_15M_ZREV_S04_V1_P00
+        signature_hash: 19bcb9bcab21566c
+        reserved_at_utc: '2026-04-23T13:22:05.599598+00:00'
+        signature_hash_full: 19bcb9bcab21566ceb84d56e280acd0056141c198323aa3135f4578de355055c
+      S05:
+        directive_name: 55_MR_XAUUSD_15M_ZREV_S05_V1_P00
+        signature_hash: 0998e5774fce3b2d
+        reserved_at_utc: '2026-04-23T14:13:14.220645+00:00'
+        signature_hash_full: 0998e5774fce3b2d6cdce2f65789dcfe7ce5ebc3a64bcaa966fe617ac61a09fa
+      S06:
+        directive_name: 55_MR_XAUUSD_15M_ZREV_S06_V1_P00
+        signature_hash: 45f63289f52c06f9
+        reserved_at_utc: '2026-04-23T14:20:34.715581+00:00'
+        signature_hash_full: 45f63289f52c06f96affef74dfe617a4697918b30b35c152c48433469faf3525
