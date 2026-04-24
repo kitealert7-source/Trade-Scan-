@@ -97,6 +97,43 @@ indicators:
     - high
     - low
     - close
+  candle_sign_sequence:
+    module_path: indicators.price.candle_sign_sequence
+    category: price
+    function_name: apply
+    classification: Pattern
+    input_requirements:
+    - df: DataFrame with column [close]
+    parameters:
+      params: dict (optional, unused)
+    default_parameters:
+      params: null
+    output_type: DataFrame
+    output_columns:
+    - bar_sign: int — +1 (close>prev), -1 (close<prev), 0 (equal or warmup)
+    - run_len: int — signed consecutive same-sign streak ending at this bar
+    output_scale: 'bar_sign: -1/0/+1; run_len: signed int'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — signed run-length requires sequential state (annotated)
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Shared primitive for symbolic close-sequence patterns. run_len
+      <= -3 matches three consecutive lower closes; run_len >= 3 matches three consecutive
+      higher closes. Replaces inline close-rotation state previously carried in strategy
+      check_entry methods.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: 1
+    warmup: 1
+    input_columns:
+    - close
   previous_bar_breakout:
     module_path: indicators.price.previous_bar_breakout
     category: price
@@ -1633,7 +1670,7 @@ indicators:
     - time
     - close
 registry_summary:
-  total_indicators: 41
+  total_indicators: 42
   by_category:
     momentum_count: 6
     trend_count: 4
@@ -1643,11 +1680,12 @@ registry_summary:
     composite_count: 3
     statistical_count: 4
     macro_count: 2
-  intraday_ready: 41
-  daily_ready: 39
-  htf_ready: 38
-  lookahead_safe: 41
+    price_pattern_count: 1
+  intraday_ready: 42
+  daily_ready: 40
+  htf_ready: 39
+  lookahead_safe: 42
   vectorized: 35
-  files_validated: 41
+  files_validated: 42
   validation_status: PASS
   governance_status: PASS
