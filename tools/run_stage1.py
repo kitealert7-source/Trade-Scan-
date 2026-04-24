@@ -1151,49 +1151,56 @@ def main():
                 cols_to_drop = [f for f in available_fields if f in df_out.columns]
                 if cols_to_drop:
                     df_out = df_out.drop(columns=cols_to_drop)
-                
+
                 df_merged = pd.merge_asof(
-                    df_out.sort_index(), 
-                    df_regime[available_fields].sort_index(), 
+                    df_out.sort_index(),
+                    df_regime[available_fields].sort_index(),
                     left_index=True,
                     right_index=True,
                     direction='backward',
                     allow_exact_matches=True
                 )
-                
-                # In-place update for the emission-scope df
+
+                # Emission-scope mirror: outer caller (run_stage1) holds a
+                # reference to df_in and uses it for emit_result slicing after
+                # the execution loop returns. Mirror the regime fields onto
+                # df_in so that reference stays in sync.
                 for col in available_fields:
                     if col in df_merged.columns:
                         df_in[col] = df_merged[col]
 
-                # v1.5.5: derive exec-TF dual-time regime_age views.
-                # regime_age_signal == current bar's regime_age (the state the
-                # strategy sees at decision). regime_age_fill == next bar's
-                # regime_age (what the trade will actually fill under
-                # next_bar_open). Tail row's regime_age_fill is NaN (unreachable).
-                if 'regime_age' in df_in.columns:
-                    df_in['regime_age_signal'] = df_in['regime_age']
-                    df_in['regime_age_fill']   = df_in['regime_age'].shift(-1)
+                # Dual-time derivations — apply to BOTH df_in (emission scope)
+                # and df_merged (loop scope) so they stay in lockstep.
+                # - regime_age_signal: current bar's regime_age (decision state)
+                # - regime_age_fill:   next bar's regime_age (fill state under
+                #                      next_bar_open). Tail row NaN (unreachable).
+                # - regime_id_fill:    next-bar regime_id for cross-flip probe.
+                #                      FILTER-ONLY; never consume as signal input.
+                # - regime_age_exec:   exec-TF counter within a regime (resets
+                #                      on exec-TF regime_id flip). Separate from
+                #                      HTF-quantized regime_age.
+                for _df in (df_in, df_merged):
+                    if 'regime_age' in _df.columns:
+                        _df['regime_age_signal'] = _df['regime_age']
+                        _df['regime_age_fill']   = _df['regime_age'].shift(-1)
+                    if 'regime_id' in _df.columns:
+                        _df['regime_id_fill'] = _df['regime_id'].shift(-1)
+                    if 'regime_id' in _df.columns:
+                        _rid = _df['regime_id']
+                        _df['regime_age_exec'] = (
+                            _df.groupby((_rid != _rid.shift()).cumsum()).cumcount()
+                        )
 
-                # Cross-regime-flip probe (2026-04-14): expose next-bar regime_id
-                # at check_entry so a filter can decide whether the fill bar lands
-                # in a different regime than the signal bar. FILTER-ONLY — never
-                # consume as a signal/indicator input (would introduce lookahead).
-                if 'regime_id' in df_in.columns:
-                    df_in['regime_id_fill'] = df_in['regime_id'].shift(-1)
-
-                # v1.5.6: exec-TF clock probe.
-                # regime_age (above) is HTF-quantized (broadcast from 4H etc),
-                # so multiple exec bars share the same value. Derive a separate
-                # exec-TF counter that increments per exec bar within a regime
-                # and resets when regime_id flips (on exec TF).
-                if 'regime_id' in df_in.columns:
-                    _rid = df_in['regime_id']
-                    df_in['regime_age_exec'] = (
-                        df_in.groupby((_rid != _rid.shift()).cumsum()).cumcount()
-                    )
-
-                return df_in
+                # BUGFIX 2026-04-24: Return df_merged (not df_in) so that
+                # strategy-added indicator columns from copy-based indicator
+                # modules (e.g. indicators.price.candle_sign_sequence,
+                # indicators.price.previous_bar_breakout, which do
+                # `df = df.copy()` before adding columns) reach the execution
+                # loop intact. Previously returning df_in silently dropped
+                # those columns, so ctx.get() on them returned None and the
+                # strategy produced NO_TRADES despite the dry-run emitting
+                # signals via the un-wrapped prepare_indicators path.
+                return df_merged
             strategy.prepare_indicators = patched_prepare
 
             # Initial merge for any logic that runs before the loop
