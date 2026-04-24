@@ -31,6 +31,15 @@ intents:
     enforcement: hard
     must_skill: update-vault
     expected_file_category: engine
+    # Threshold raised from default 3 to 6 after a misfire on 2026-04-24:
+    # an indicator-only commit matched the bare tag "engine" (weight 2,
+    # word-boundary score 4) in a sentence that explicitly said NOT to
+    # touch engine work. Regex patterns continue to hard-fire exact
+    # engine phrases; fuzzy fallback now requires either a
+    # high-specificity solo hit (execution_loop / engine_registry /
+    # v1.5* / v1.6*, each scoring 6) or "engine" co-occurring with a
+    # second engine-scope tag (vault, canonical, frozen, manifest).
+    threshold: 6
     reason: "Engine build/modify requires vault push + manifest refresh. Engine v1.5.6 shipped unvaulted for days -- root cause: no enforced workflow."
     regex_patterns:
       - "(?i)\\b(new|build|bump|promote|release|freeze|finalize|ship)\\s+(the\\s+)?engine\\b"
