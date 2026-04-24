@@ -1,0 +1,78 @@
+test:
+  name: 53_MR_FX_1D_CMR_S02_V1_P01
+  family: MR
+  strategy: 53_MR_FX_1D_CMR_S02_V1_P01
+  version: 1
+  broker: OctaFx
+  timeframe: 1d
+  start_date: "2024-01-02"
+  end_date: "2026-04-15"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  signal_version: 3
+  repeat_override_reason: "Multi-pair expansion of S02 P00. Identical signal+exit logic (P000/P111, 3-bar time exit, 5xATR SL, no filters). Goal is to increase trade sample size from 63 (EURUSD-only) toward 200+ CORE gate without modifying signal or exit rules. Aggregate edge quality across 18 FX pairs is the primary readout."
+  description: "3-bar close-pattern probe on FX Daily basket. P000 (3 consecutive lower closes) => LONG; P111 (3 consecutive higher closes) => SHORT. Pure time exit at 3 bars (~3 days). No signal reversal, no PnL gating, no filters. Wide SL (5x ATR) backstop only. 18-pair basket expansion of EURUSD-only P00 result (PF 1.65, SQN 1.47)."
+  notes: "Multi-pair Daily basket — 18 FX pairs. Tests whether the close-pattern edge from EURUSD P00 generalizes across the FX universe. Same signal structure; only symbol set differs. Trade-count gate cure, not a parameter sweep."
+
+symbols:
+  - AUDJPY
+  - AUDNZD
+  - AUDUSD
+  - CADJPY
+  - CHFJPY
+  - EURAUD
+  - EURGBP
+  - EURJPY
+  - EURUSD
+  - GBPAUD
+  - GBPJPY
+  - GBPNZD
+  - GBPUSD
+  - NZDJPY
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - USDJPY
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.price.consecutive_closes
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: consecutive_close_pattern
+  exit_logic:
+    type: signal_reverse_with_time_stop
+    max_bars: 3
+    time_exit_utc: -1
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

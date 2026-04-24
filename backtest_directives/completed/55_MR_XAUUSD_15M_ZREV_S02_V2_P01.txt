@@ -1,0 +1,61 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P01
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S02_V2_P01
+  version: 2
+  signal_version: 3
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "SL parameter sweep variant P01 under canary baseline P00 (already validated against S01_V1 with byte-identical PnL/trade count). P01 changes ONE thing: stop loss distance is now max(2 x ATR, $20), implemented by flooring df['atr'] to $10 in prepare_indicators so the engine's (atr * 2.0) stop placement yields >= $20 distance on tight-volatility bars. Hypothesis: the very tightest 2x ATR stops (where 14-bar ATR collapses below ~$10) are clipping winners on noise. A $20 floor leaves wide-stop trades untouched and only widens the smallest. Differentiated from P00 in STRATEGY_SIGNATURE via stop_loss.type = atr_multiple_with_dollar_floor + min_distance_dollars: 20.0. NOT a re-test of failed concept; this is a structural risk-distance variant of an active baseline."
+  description: "SL = max(2 x ATR(14), $20). Same entry/exit logic as P00. XAUUSD 15M HMA(200) trend-follow + Z(30) extension exit + opposite-signal flip + 75-bar cap. Engine v1.5.8."
+  notes: "Compare vs P00 baseline on: trade count, net PnL, SL count, SL %, avg loss in R units, profit factor, expectancy. Floor only activates when raw ATR < $10."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

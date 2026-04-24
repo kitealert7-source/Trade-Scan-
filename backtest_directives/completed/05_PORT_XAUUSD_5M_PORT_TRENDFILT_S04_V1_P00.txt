@@ -1,0 +1,64 @@
+test:
+  name: 05_PORT_XAUUSD_5M_PORT_TRENDFILT_S04_V1_P00
+  family: STR
+  strategy: 05_PORT_XAUUSD_5M_PORT_TRENDFILT_S04_V1_P00
+  version: 1
+  signal_version: 17
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-07-19'
+  end_date: '2026-04-17'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: Canonical baseline re-run on FROZEN engine v1.5.8 post-promotion
+    (2026-04-20). S22 strategy logic byte-identical to V1 run; REQUIRED_CONTRACT_IDS
+    repointed from v1.5.6 contract (962bfed...) to v1.5.8 contract (680e8c0...) as
+    part of engine promotion. Run-context suffix __E158 creates distinct lineage while
+    preserving directive parameters unchanged (same data, same config). Baseline is
+    the reference fingerprint for all future v1.5.8 comparisons.
+  description: S22 canonical baseline on v1.5.8 FROZEN. Same data, same config. Reference
+    fingerprint.
+  notes: S21 entry logic + 40-bar time-stop (5M -> ~3h20m). SL=2xATR, TP=6xATR. __E158
+    = engine v1.5.8 baseline suffix.
+symbols:
+- XAUUSD
+indicators:
+- indicators.volatility.atr
+- indicators.trend.ema_cross
+- indicators.momentum.macd
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: atr_multiple
+    atr_multiplier: 6.0
+  entry_logic:
+    type: macd_crossover_transition
+  exit_logic:
+    type: sl_or_tp
+exit_rules:
+  type: sl_tp
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+  session_reset: none
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+position_management:
+  lots: 0.01

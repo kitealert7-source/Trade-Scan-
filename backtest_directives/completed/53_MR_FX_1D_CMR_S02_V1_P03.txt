@@ -1,0 +1,80 @@
+test:
+  name: 53_MR_FX_1D_CMR_S02_V1_P03
+  family: MR
+  strategy: 53_MR_FX_1D_CMR_S02_V1_P03
+  version: 1
+  broker: OctaFx
+  timeframe: 1d
+  start_date: "2024-01-02"
+  end_date: "2026-04-15"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  signal_version: 5
+  repeat_override_reason: "P02 + JPY_SYNTH Z union. Entry allowed when max(|usd_z|,|jpy_z|) >= 0.5. P01 overlay: BOTH_NEUTRAL bucket (both |z|<1.5) PF 0.92 on 458 trades; MIXED PF 1.32. Union gate at 0.5 targets the doubly-flat regime specifically. No signal/exit rule change."
+  description: "3-bar close-pattern FX Daily basket with combined USD+JPY macro-dispersion union gate. Entry allowed only when max(|usd_z_score|, |jpy_z_score|) >= 0.5. Otherwise identical to P01: P000=>LONG, P111=>SHORT, 3-bar time exit, 5xATR SL."
+  notes: "P03: Combined USD+JPY macro gate (union). Tests whether allowing either factor to be dispersive improves aggregate PF and PnL vs USD-only P02."
+
+symbols:
+  - AUDJPY
+  - AUDNZD
+  - AUDUSD
+  - CADJPY
+  - CHFJPY
+  - EURAUD
+  - EURGBP
+  - EURJPY
+  - EURUSD
+  - GBPAUD
+  - GBPJPY
+  - GBPNZD
+  - GBPUSD
+  - NZDJPY
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - USDJPY
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.price.consecutive_closes
+  - indicators.macro.usd_synth_zscore
+  - indicators.macro.jpy_synth_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: consecutive_close_pattern
+  exit_logic:
+    type: signal_reverse_with_time_stop
+    max_bars: 3
+    time_exit_utc: -1
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

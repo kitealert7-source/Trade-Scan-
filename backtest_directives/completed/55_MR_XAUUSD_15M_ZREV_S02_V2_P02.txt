@@ -1,0 +1,61 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P02
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S02_V2_P02
+  version: 2
+  signal_version: 4
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "SL parameter sweep variant P02 under canary baseline P00 (already validated against S01_V1 with byte-identical PnL/trade count). P02 changes ONE thing: stop loss multiplier widens from 2.0 x ATR to 3.0 x ATR, increasing per-trade risk distance by 50%. Hypothesis: 2x stops are clipping winners on routine retracement before mean-reversion exit fires. Wider stops let more z-extension and opposite-flip exits realize their target instead of being pre-empted by SL. Differentiated from P00 in STRATEGY_SIGNATURE via stop_loss.atr_multiplier = 3.0. NOT a re-test of failed concept; this is a structural risk-distance variant of an active baseline."
+  description: "SL = 3 x ATR(14) (wider stop). Same entry/exit logic as P00. XAUUSD 15M HMA(200) trend-follow + Z(30) extension exit + opposite-signal flip + 75-bar cap. Engine v1.5.8."
+  notes: "Compare vs P00 baseline on: trade count, net PnL, SL count, SL %, avg loss in R units, profit factor, expectancy. Wider stops should reduce SL count and grow avg-loss-in-dollars; net PnL outcome depends on whether saved trades exceed enlarged-loss cost."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 3.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

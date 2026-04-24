@@ -1,0 +1,78 @@
+test:
+  name: 53_MR_FX_1D_CMR_S02_V1_P00
+  family: MR
+  strategy: 53_MR_FX_1D_CMR_S02_V1_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 1d
+  start_date: "2024-01-01"
+  end_date: "2026-04-14"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  signal_version: 3
+  repeat_override_reason: "New sweep S02 — TF-dilation cross-check on EURUSD Daily. Structural divergence from S01 (H4) is deliberate: exit_logic type changes to pure time_exit (no signal reversal, no PnL gate), max_bars 3 = 3 trading days. Signal pattern identical (P000/P111). This pass tests whether the 3-consecutive-close edge exists at Daily horizon, not an incremental tuning of S01."
+  description: "3-bar close-pattern probe on EURUSD Daily. P000 (3 consecutive lower closes) => LONG; P111 (3 consecutive higher closes) => SHORT. Pure time exit at 3 bars (~3 days). No signal reversal, no PnL gating, no filters. Wide SL (5x ATR) backstop only. TF-dilation hypothesis probe against H4 CMR family."
+  notes: "TF cross-check: same 3-consecutive-close pattern on Daily — tests whether close-pattern edge survives dilation from H4 (6 intraday bars/day) to 1D (1 bar/day). No filters / no reversal / no PnL gate — isolates raw signal strength on Daily horizon. 3-bar cap = 3 trading days."
+
+symbols:
+  - AUDJPY
+  - AUDNZD
+  - AUDUSD
+  - CADJPY
+  - CHFJPY
+  - EURAUD
+  - EURGBP
+  - EURJPY
+  - EURUSD
+  - GBPAUD
+  - GBPJPY
+  - GBPNZD
+  - GBPUSD
+  - NZDJPY
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - USDJPY
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.price.consecutive_closes
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: consecutive_close_pattern
+  exit_logic:
+    type: signal_reverse_with_time_stop
+    max_bars: 3
+    time_exit_utc: -1
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

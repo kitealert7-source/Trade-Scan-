@@ -1,0 +1,61 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S14_V1_P00
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S14_V1_P00
+  version: 1
+  signal_version: 15
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Architectural exit pivot from exhausted S01-S13 series (tail-PF ceiling 0.90, Gate 6 hard fail). S01-S13 used Z-extension exit (profit at zscore +-threshold) which manufactured tail dependency. S14 replaces exit with zero-crossing (exit when zscore returns to 0), removes flip-exit, reduces max_bars 75->50, adds $20 ATR floor for stop protection, and simplifies entry to HMA bias only (no slope). Not a parameter variation: signal_version=8 distinguishes from all prior S-variants. Per RESEARCH_MEMORY: next MR probe must NOT use Z-sigma-extension as primary exit -- S14 complies."
+  description: "Zero-crossing MR baseline (M1 probe). XAUUSD 15M Z-score(30) entry at +-2.0 extremes with HMA(200) bias guard (close >= HMA for long, <= HMA for short). Exit: zscore crosses 0. Stop: max(2.5xATR(14), $20) via atr_with_dollar_floor. Time cap 50 bars. No regime/volatility filters. Architecture pivot eliminating the Z-extension tail mechanism that capped S01-S13. Engine v1.5.8."
+  notes: "Primary questions: (1) tail-removal PF >= 1.0? (2) Top-5 concentration <= 30%? Compare vs S13: PF, tail-removal PF, Top-5 concentration, max DD, loss distribution. Success: tail-removal PF >= 1.0, PF >= 1.15, concentration <= 30%. Failure triggers: large loss clusters on trend continuation, tail-removal PF < 0.8, PF < 1.1."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: zscore_hma_bias
+  exit_logic:
+    type: zscore_zero_cross_or_time
+    max_bars: 50
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

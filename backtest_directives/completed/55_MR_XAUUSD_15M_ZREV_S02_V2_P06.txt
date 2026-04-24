@@ -1,0 +1,62 @@
+test:
+  name: 55_MR_XAUUSD_15M_ZREV_S02_V2_P06
+  family: MR
+  strategy: 55_MR_XAUUSD_15M_ZREV_S02_V2_P06
+  version: 2
+  signal_version: 5
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Local 5-point Z-extension-threshold sweep around P05 base (SL=2.5xATR). P06=1.7. First variant introduces exit_logic.zscore_threshold key to SIGNATURE (structural diff vs P05 which lacks the key) -- classifier should mark SIGNAL via signal_version 4 -> 5. Subsequent P07/P08/P09 revert to PARAMETER at sv=5 (pure numeric zscore_threshold diffs). NOT a re-test; new parameter axis on top of the 2.5x SL winner."
+  description: "Z-extension exit threshold = 1.7 (tighter exit). Same entry/SL/flip/time logic as P05. XAUUSD 15M HMA(200) trend-follow + Z(30) extension at 1.7 + opposite-signal flip + 75-bar cap. SL = 2.5 x ATR(14). Engine v1.5.8."
+  notes: "Compare vs P05 (Z=2.0 base), P07 (1.85), P08 (2.15), P09 (2.3) on: trade count, net PnL, SL %, avg bars held, Z-exit count, flip-exit count, time-cap count, PF, expectancy."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.hull_moving_average
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: hma_trend_follow
+  exit_logic:
+    type: zscore_extension_or_flip_or_time
+    max_bars: 75
+    zscore_threshold: 1.7
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
