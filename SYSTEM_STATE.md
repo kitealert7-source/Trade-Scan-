@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 29 uncommitted
 
-> Generated: 2026-04-23T17:39:53Z
+> Generated: 2026-04-24T03:46:08Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,14 +11,16 @@
 - **Version:** 1.5.8 | **Status:** LEGACY | **Manifest:** VALID
 
 ## Pipeline Queue
-- **INBOX (1):** 55_MR_EURUSD_15M_ZREV_S14_V1_P00.txt
+- Queue empty. No directives in INBOX or active.
 - Completed: 161 directives
 
 ## Ledgers
 
-- **Master Filter:** ERROR — No module named 'tools'
+- **Master Filter:** 949 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
+  - **Portfolios:** 107 rows — CORE: 4, FAIL: 100, WATCH: 3
+  - **Single-Asset Composites:** 68 rows — CORE: 11, FAIL: 52, WATCH: 5
 
 - **Candidates (FPS):** 428 rows — BURN_IN: 12, CORE: 14, FAIL: 287, RBIN: 2, RESERVE: 25, WATCH: 88
 
@@ -27,15 +29,15 @@
 - BURN_IN: 8 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260423T072517Z_23648 | bars=206
-- **Shadow trades:** 0 active | **Signals (7d):** 4 entry, 3 exit
+- **Process:** RUNNING | run_id=20260423T072517Z_23648 | bars=376
+- **Shadow trades:** 0 active | **Signals (7d):** 1 entry, 0 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
 - Snapshots: 16 | WAITING: 0 | Latest: `DRY_RUN_2026_04_12__a2571097`
 
 ## Data Freshness
-- Latest bar: **2026-04-23** | Symbols: 242
+- Latest bar: **2026-04-24** | Symbols: 242
 
 ## Artifacts
 - Run directories: 1142
@@ -43,7 +45,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 29 uncommitted
-- Last commit: `fb8b991 session: idea gate refresh (run_summary + hypothesis_log + tools_manifest)`
+- Last commit: `2527ee3 fix: system_introspection.py insert PROJECT_ROOT into sys.path`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
