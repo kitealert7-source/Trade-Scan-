@@ -56,6 +56,15 @@ Thumbs.db
 !vault/engines/
 !vault/engines/**
 
+# Dry-run workspace snapshots — large archive artifacts, not source-controlled
+vault/snapshots/
+vault/snapshots_pre_edit/
+
+# Refactor scratch artifacts (large-file remediation working set)
+outputs/refactor_baseline/
+outputs/system_reports/LARGE_FILE_REFACTOR_PLAN.md
+outputs/system_reports/LARGE_FILE_SUMMARY.json
+
 tmp/
 
 # External runtime state
