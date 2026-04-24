@@ -2206,3 +2206,125 @@ ideas:
             signature_hash: 306d7345d4698238
             signature_hash_full: 306d7345d4698238dd18ef92e9e786771f7a64d8508b66d08df37470a36848b0
             reserved_at_utc: '2026-04-23T17:31:03.560123+00:00'
+  '57':
+    next_sweep: 3
+    sweeps:
+      S01:
+        directive_name: 57_TRANS_XAUUSD_15M_ZTRANS_S01_V1_P00
+        signature_hash: 35e4d742ed1ba11e
+        signature_hash_full: 35e4d742ed1ba11efff5353cb76afd389ab19ec52fb0274a6684be6b35679f78
+        reserved_at_utc: '2026-04-24T04:00:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 57_TRANS_XAUUSD_15M_ZTRANS_S01_V1_P00
+            signature_hash: 35e4d742ed1ba11e
+            signature_hash_full: 35e4d742ed1ba11efff5353cb76afd389ab19ec52fb0274a6684be6b35679f78
+            reserved_at_utc: '2026-04-24T03:54:40.689762+00:00'
+      S02:
+        directive_name: 57_TRANS_XAUUSD_15M_ZTRANS_S02_V1_P00
+        signature_hash: 03619805806034d5
+        signature_hash_full: 03619805806034d58ceb99fe908d5bcfbc7a26d6c5b0400875b3d5eaa0f3b8d7
+        reserved_at_utc: '2026-04-24T04:15:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 57_TRANS_XAUUSD_15M_ZTRANS_S02_V1_P00
+            signature_hash: 03619805806034d5
+            signature_hash_full: 03619805806034d58ceb99fe908d5bcfbc7a26d6c5b0400875b3d5eaa0f3b8d7
+            reserved_at_utc: '2026-04-24T04:17:07.453727+00:00'
+  '58':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
+        signature_hash: 43498e66f5989ed0
+        signature_hash_full: 43498e66f5989ed02136d85779c7ac102392548bd13eff763d599cfe002d31bb
+        reserved_at_utc: '2026-04-24T05:00:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
+            signature_hash: PLACEHOLDER
+            signature_hash_full: PLACEHOLDER
+            reserved_at_utc: '2026-04-24T05:00:00.000000+00:00'
+  '59':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V1_P00
+        signature_hash: 26f17462baaba181
+        signature_hash_full: 26f17462baaba1818f996096bcaea73c62d435df831b92e1fad520cdf05911e8
+        reserved_at_utc: '2026-04-24T06:00:00.000000+00:00'
+        patches:
+          P00:
+            directive_name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V1_P00
+            signature_hash: PLACEHOLDER
+            signature_hash_full: PLACEHOLDER
+            reserved_at_utc: '2026-04-24T06:00:00.000000+00:00'
+          P00:
+            directive_name: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
+            signature_hash: 43498e66f5989ed0
+            signature_hash_full: 43498e66f5989ed02136d85779c7ac102392548bd13eff763d599cfe002d31bb
+            reserved_at_utc: '2026-04-24T04:58:40.000014+00:00'
+          P00:
+            directive_name: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
+            signature_hash: 43498e66f5989ed0
+            signature_hash_full: 43498e66f5989ed02136d85779c7ac102392548bd13eff763d599cfe002d31bb
+            reserved_at_utc: '2026-04-24T05:01:16.870855+00:00'
+          P00:
+            directive_name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V2_P00
+            signature_hash: 70cef1d6beae7edb
+            signature_hash_full: 70cef1d6beae7edb632deb2b02e88b1d81603a8914b4bc1807beffcb93f94700
+            reserved_at_utc: '2026-04-24T06:25:40.607553+00:00'
+          P00:
+            directive_name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V2_P00
+            signature_hash: 70cef1d6beae7edb
+            signature_hash_full: 70cef1d6beae7edb632deb2b02e88b1d81603a8914b4bc1807beffcb93f94700
+            reserved_at_utc: '2026-04-24T06:29:40.477628+00:00'
+  '60':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S01_V1_P00
+        signature_hash: 089c55be934f2138
+        signature_hash_full: 089c55be934f213812c551f3e3157fdb4acb712af7accfa00257c6d51b0414ab
+        reserved_at_utc: '2026-04-24T06:52:48.607716+00:00'
+        patches:
+          P00:
+            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S01_V1_P00
+            signature_hash: 089c55be934f2138
+            signature_hash_full: 089c55be934f213812c551f3e3157fdb4acb712af7accfa00257c6d51b0414ab
+            reserved_at_utc: '2026-04-24T06:52:48.607716+00:00'
+          P00:
+            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
+            signature_hash: 722ec50ceb4ec5c3
+            signature_hash_full: 722ec50ceb4ec5c373fc0f6918cf1ab12342e26c9381f08248217949fbb848c2
+            reserved_at_utc: '2026-04-24T07:37:01.187032+00:00'
+          P00:
+            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
+            signature_hash: aaad6ac60a537c48
+            signature_hash_full: aaad6ac60a537c48e3353330885312c93d1b2990c436eae21c9cb569f6b52c7d
+            reserved_at_utc: '2026-04-24T07:37:11.190203+00:00'
+          P00:
+            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
+            signature_hash: 722ec50ceb4ec5c3
+            signature_hash_full: 722ec50ceb4ec5c373fc0f6918cf1ab12342e26c9381f08248217949fbb848c2
+            reserved_at_utc: '2026-04-24T07:41:33.351304+00:00'
+          P00:
+            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S03_V1_P00
+            signature_hash: 982f27acf3a141a5
+            signature_hash_full: 982f27acf3a141a53e9cc06d4f34482986ca0acd92531d13678dcef3e28dc907
+            reserved_at_utc: '2026-04-24T08:11:06.083422+00:00'
+          P00:
+            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S03_V1_P00
+            signature_hash: 982f27acf3a141a5
+            signature_hash_full: 982f27acf3a141a53e9cc06d4f34482986ca0acd92531d13678dcef3e28dc907
+            reserved_at_utc: '2026-04-24T08:11:26.956422+00:00'
+          P00:
+            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S04_V1_P00
+            signature_hash: fb7df12c7785737a
+            signature_hash_full: fb7df12c7785737aea1e5d7c9eb9474c81a0cc6b6e0a516dd29fae728667f9d6
+            reserved_at_utc: '2026-04-24T08:19:42.092500+00:00'
+          P00:
+            directive_name: 60_MICRO_BTCUSD_1H_SYMSEQ_S05_V1_P00
+            signature_hash: 2e0aab0366cf4454
+            signature_hash_full: 2e0aab0366cf4454442daa354510840449d51d6e84ccded204576be52b2ae238
+            reserved_at_utc: '2026-04-24T08:29:04.201607+00:00'

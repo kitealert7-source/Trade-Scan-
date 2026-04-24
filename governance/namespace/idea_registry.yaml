@@ -428,3 +428,35 @@ ideas:
     role: entry_edge
     instruments: XAUUSD
     status: active
+  '57':
+    family: TRANS
+    title: "Z-score impulse-to-collapse transition -- |Z(30)_prev|>=1.5 impulse + |Z_now|<|Z_prev| collapse + |slope_now|<|slope_prev| deceleration -- XAUUSD 15M"
+    class: indicator_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  '58':
+    family: STATE
+    title: "Regime desynchronization probe -- prev_trend_regime vs current trend_regime delta >= 2 + regime_age_exec <= 5 fresh-flip gate, direction follows current regime -- XAUUSD 15M"
+    class: state_logic
+    regime: transition
+    role: entry_edge
+    instruments: XAUUSD
+    status: active
+  '59':
+    family: MICRO
+    title: "Failed-breakdown confirmation probe -- 3 consecutive lower closes + close > previous candle midpoint, long-only, fixed 3-bar exit -- XAUUSD 15M"
+    class: price_action
+    regime: micro_reversal
+    role: entry_edge
+    instruments: XAUUSD
+    status: closed
+  '60':
+    family: MICRO
+    title: "Symbolic sequence event-study probe -- 0001 pattern (three down closes + one up close), long at '1' bar close, fixed 4-bar exit, 5 ATR stop -- BTCUSD 4H"
+    class: price_action
+    regime: multi
+    role: entry_edge
+    instruments: BTCUSD
+    status: active

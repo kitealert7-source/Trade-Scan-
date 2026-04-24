@@ -1,0 +1,60 @@
+test:
+  name: 60_MICRO_BTCUSD_4H_SYMSEQ_S04_V1_P00
+  family: MICRO
+  strategy: 60_MICRO_BTCUSD_4H_SYMSEQ_S04_V1_P00
+  version: 1
+  signal_version: 28
+  broker: OctaFx
+  timeframe: 4h
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 60 S04 -- short-side 'alive' check. Mirror of S02 (long 001, no filter, 494T PF 1.00). Pattern 110 (run_len.shift(1)>=2 AND bar_sign==-1) entered SHORT at close of '0' bar, hold=3, 5xATR stop, NO regime_age filter. Decision gate (alive bar): PF>=1.10 AND >=2/3 positive years {2024,2025,2026}. PASS -> promote to S05 with regime_age_filter allowed_values=[0,1] (mirror S02->S03 promotion). FAIL -> short side architecturally dead on BTC 4H; S03 long-side edge is asymmetric, not symmetric microstructure. Label note: entry_logic.type retained as 'symbolic_sequence_0001' for S01-S03 classifier lineage; ground-truth pattern is 110 as encoded in strategy code; differentiation is direction_restriction=short_only + flipped pattern."
+  description: "BTCUSD 4H SYMSEQ S04 V1 -- short-only 110 base run. Entry: run_len[i-1]>=2 AND bar_sign[i]==-1. SHORT only at close of bar i. Exit: 3-bar time cap. Stop: 5xATR(14). No regime filter. Engine v1.5.8."
+  notes: "S04 is the short-side counterpart of S02. If S04 dies (PF<1.00 or <2/3 positive years), do NOT transfer the regime_age filter to shorts -- that would stack two failed assumptions. Instead treat S03 long-side edge as directionally asymmetric and revisit interpretation."
+
+symbols:
+  - BTCUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.price.candle_sign_sequence
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: symbolic_sequence_0001
+  exit_logic:
+    type: fixed_time
+    max_bars: 3
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: short_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: short_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

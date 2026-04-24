@@ -1,0 +1,60 @@
+test:
+  name: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
+  family: MICRO
+  strategy: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
+  version: 1
+  signal_version: 26
+  broker: OctaFx
+  timeframe: 4h
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 60 S02 variant -- 001 pattern (two down closes then one up) with hold=3. NOTE on label: entry_logic.type is retained as 'symbolic_sequence_0001' for classifier compatibility with S01; ground-truth pattern is encoded in strategy.py as run_len.shift(1) <= -2 AND bar_sign == +1 (001, not 0001). Rationale: S01 (0001, hold=4) produced 267 trades at PF 0.97 -- not a clean falsification, trade-count too small to distinguish PF 1.0 from 1.10. S01 horizon replay showed hold=3 peak (PF 1.007) vs hold=4 (PF 0.935). S02 relaxes streak precondition from >=3 to >=2 down closes (expect ~2-3x events for statistical power) and adopts hold=3. Stop unchanged at 5 ATR (neutralized). Decision gate: PF>=1.10 AND net>0 in at least 2 of {2024,2025,2026} -> architecture alive; else close idea 60 with symmetric evidence."
+  description: "BTCUSD 4H SYMSEQ S02 V1 -- 001 pattern event study. Entry: run_len[i-1]<=-2 AND bar_sign[i]==+1 (two consecutive lower closes ending at i-1, current close above prev close). LONG only at close of bar i. Exit: fixed 3-bar time cap. Stop: 5xATR(14) -- neutralized. Engine v1.5.8."
+  notes: "Variant of S01 symbolic event-study. Increased event density via shorter precondition + shorter hold (horizon signal from S01 replay). Do NOT add filters, tune stop, or mutate hold. If S02 also hovers near PF 1.0 -> idea 60 closes with two-variant evidence and symbolic-streak architecture is dead on BTC 4H."
+
+symbols:
+  - BTCUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.price.candle_sign_sequence
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: symbolic_sequence_0001
+  exit_logic:
+    type: fixed_time
+    max_bars: 3
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

@@ -300,3 +300,71 @@ Zero-cross exit manufactures the tail regardless of symbol; XAUUSD's apparent ed
 
 Implication:
 ZREV architecture is not viable under distributed-edge constraint. Do not probe further zero-cross MR variants on any symbol. S01-S13 tail-PF 0.90 ceiling + S14/S15 cross-asset confirmation closes this architecture.
+2026-04-24
+Tags:
+state_primitive
+REGMISMATCH
+regime_age
+architecture_probe
+filter_layer_candidate
+
+Strategy: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
+Run IDs: 81dd13a679d1081c002bde4a
+
+Finding:
+State-mismatch (|delta_trend_regime|>=2 + regime_age_exec<=5) on XAUUSD 15M isolates a real but too-sparse edge to carry a standalone strategy; retain as filter-layer concept only.
+
+Evidence:
+34 trades / 25 months (1.4/mo); PF 3.13 but Top-5 concentration 90%, longest flat 539 days; Long PF 1.17 vs Short PF 6.25 (asymmetric); 100% of fills at regime_age 0-1, yearwise density collapses 28T/5T/1T across 2024/25/26.
+
+Conclusion:
+State primitive isolates rare, asymmetric events but produces insufficient density and excessive tail concentration for standalone deployment; the short/WeakDn cluster is mechanically real, the long side is near break-even.
+
+Implication:
+Do not pursue as standalone probe line; park REGMISMATCH state primitive as a candidate gating/filter feature on future price-based entries (e.g. zscore, momentum, breakout) where density is already sufficient. Re-evaluate only in filter-layer context, not as P00/P01 extension.
+2026-04-24
+Tags:
+idea59
+runfail
+engine-interface
+no-trades
+closure
+
+Strategy: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V2_P00
+Run IDs: efda76b5e8e4071861074500
+
+Finding:
+Idea 59 (RUNFAIL: 3-down-close + midpoint-confirm long) closed as engine-interface diagnostic branch, not economic falsification. V1 (inline close-rotation state) and V2 (validated candle_sign_sequence primitive) both produced NO_TRADES on XAUUSD 15M 2024-01-01..2026-03-20.
+
+Evidence:
+Shift-based reference counts 205 entry-eligible bars on same window; primitive matches bar-for-bar. Dry-run (1000-bar sample, direct check_entry) emits 2 signals. Stage-1 engine loop on full window emits 0 trades for both V1 and V2.
+
+Conclusion:
+Hypothesis was never economically tested. The bug lies downstream of strategy-owned state — in engine ctx field surfacing or FilterStack interaction — where run_len / prev_high / prev_low are not reaching check_entry during Stage-1 execution despite succeeding under dry-run.
+
+Implication:
+Do not re-open idea 59 as a research branch. Any similar signal-bar entry depending on multi-bar ctx fields requires an engine-side diagnostic first (compare dry-run vs Stage-1 ctx dict contents for the same bar). Treat dry-run vs Stage-1 trade-count divergence as a first-class engine bug, not a strategy bug.
+2026-04-24
+Tags:
+idea-60
+symseq
+btcusd
+regime-age
+local-edge
+asymmetric
+scale-local
+
+Strategy: 60_MICRO_BTCUSD_4H_SYMSEQ_S03_V1_P00
+Run IDs: dbd9f979388cd7de61698992, 73e52526fc336b2b0c764974, 19f8f9e807b9cc6197b9edd5
+
+Finding:
+SYMSEQ 001+regime_age{0,1} edge on BTCUSD 4H is narrow and non-generalizable: confirmed long-only, 4H-local, drift-carried. Short-side mirror (110) and 1H scale transport both fail.
+
+Evidence:
+S03 BTC 4H long: 90T PF 1.73 3/3 positive years. S04 BTC 4H short (110, no filter): 523T PF 0.995 1/3 positive. S05 BTC 1H long (same filter): 361T PF 0.988 1/3 positive. Post-hoc age-slice inverts: long age=0 PF 2.44 vs short age=0 PF 0.81.
+
+Conclusion:
+Mechanism is neither symmetric microstructure nor scale-invariant. It is a specific 4H+1D-HTF coupling capturing long-side continuation within 1 trading day of a regime flip on a trending asset; 'fresh-flip symbolic edge' as a general principle is unsupported.
+
+Implication:
+Do not promote regime_age{0,1}+001 to other symbols, timeframes, or short side without re-establishing each from scratch. Future symbolic-sequence probes must pre-declare direction + TF locality before generalization; post-hoc slices do not license extrapolation.

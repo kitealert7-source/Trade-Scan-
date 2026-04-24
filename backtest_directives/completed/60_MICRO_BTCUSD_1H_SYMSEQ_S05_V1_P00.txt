@@ -1,0 +1,65 @@
+test:
+  name: 60_MICRO_BTCUSD_1H_SYMSEQ_S05_V1_P00
+  family: MICRO
+  strategy: 60_MICRO_BTCUSD_1H_SYMSEQ_S05_V1_P00
+  version: 1
+  signal_version: 29
+  broker: OctaFx
+  timeframe: 1h
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 60 S05 -- PURE SCALE TRANSPORT TEST of S03. Same 001 pattern, same 5xATR stop, same 3-bar hold, same regime_age_filter allowed_values=[0,1], timeframe changed 4h -> 1h. Goal: test whether S03's confirmed 4H edge (90T PF 1.73 3/3 positive years) is scale-stable before any cross-symbol work. Note on semantics: regime_age HTF grid for 1H exec is 4H (vs 1D for 4H exec), so the filter semantic shifts from 'within 1 HTF-day of flip' to 'within 1 4H-window of flip' -- this is intentional; the test is whether the mechanism is scale-invariant in HTF-recency semantics. Decision gate: PF>=1.35 AND trades>=100 AND net>0 in >=2 of {2024,2025,2026}. PASS -> proceed to ETHUSD 4H cross-symbol probe. FAIL -> classify S03 as 4H-local edge; do NOT generalize regime_age mechanism across timeframes."
+  description: "BTCUSD 1H SYMSEQ S05 V1 -- S03 logic unchanged, timeframe = 1h. Entry: run_len[i-1]<=-2 AND bar_sign[i]==+1 AND regime_age_signal in {0,1}. LONG only. Exit: 3-bar time cap. Stop: 5xATR(14). Engine v1.5.8."
+  notes: "This is NOT a parameter sweep. It is a scale-stability falsification test. If S05 fails the gate, it strongly suggests the S03 edge depends on 4H-specific microstructure or the 1D regime-age grid, not a general 'fresh-flip 001' principle. In that case idea 60 does NOT proceed to cross-symbol generalization."
+
+symbols:
+  - BTCUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.price.candle_sign_sequence
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: symbolic_sequence_0001
+  exit_logic:
+    type: fixed_time
+    max_bars: 3
+
+regime_age_filter:
+  enabled: true
+  mode: signal
+  allowed_values: [0, 1]
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

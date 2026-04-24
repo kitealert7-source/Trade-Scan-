@@ -1,0 +1,60 @@
+test:
+  name: 60_MICRO_BTCUSD_4H_SYMSEQ_S01_V1_P00
+  family: MICRO
+  strategy: 60_MICRO_BTCUSD_4H_SYMSEQ_S01_V1_P00
+  version: 1
+  signal_version: 25
+  broker: OctaFx
+  timeframe: 4h
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "New idea 60 -- symbolic sequence event-study probe. Pattern: 0001 (three down closes followed by one up close, where 0=close<prev_close, 1=close>prev_close). Entry: LONG at close of the '1' bar. Exit: fixed 4-bar hold. Stop: 5 ATR(14) -- neutral stop, chosen solely to neutralize engine-default 2 ATR contamination and allow pattern horizon to resolve; NOT a tuning variable. No indicators beyond candle_sign_sequence + ATR(neutralized). No filters. No optimization. Pure event-study probe on first pattern class. Decision gate: if 0001 shows no edge, close branch immediately; only if positive, consider 1110 next."
+  description: "BTCUSD 4H SYMSEQ S01 V1 -- 0001 pattern event study. Entry: run_len[i-1]<=-3 AND bar_sign[i]==+1 (three consecutive lower closes ending at i-1, current close above prev close). LONG only at close of bar i. Exit: fixed 4-bar time cap. Stop: 5xATR(14) -- neutralized. Engine v1.5.8."
+  notes: "Event-study interpretation -- not a deployable strategy. Primary decision: does 0001 produce positive expectancy? Secondary: trade count must be >= 30 over 2024-01-01..2026-03-20 window (4H BTC, ~4800 bars, 0001 should fire ~50-150x on base rate). If trade count < 30 -> pattern too rare on this TF, close branch. If PF < 1.0 on clean horizon -> no edge, close branch. Do NOT tune horizon, stop, or add filters. Do NOT expand to 1110/00011/11100 without positive verdict on 0001."
+
+symbols:
+  - BTCUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.price.candle_sign_sequence
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: symbolic_sequence_0001
+  exit_logic:
+    type: fixed_time
+    max_bars: 4
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

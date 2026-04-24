@@ -1,0 +1,65 @@
+test:
+  name: 60_MICRO_BTCUSD_4H_SYMSEQ_S03_V1_P00
+  family: MICRO
+  strategy: 60_MICRO_BTCUSD_4H_SYMSEQ_S03_V1_P00
+  version: 1
+  signal_version: 27
+  broker: OctaFx
+  timeframe: 4h
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 60 S03 -- NEW strategy hypothesis derived from S02 mechanism discovery. S02 (001 pattern, hold=3) produced 494 trades at PF 1.00 unconditionally but post-hoc slicing by regime_age_signal revealed monotonic decay: age=0 PF 2.44, age=1 PF 1.78, age=2 PF 0.38, age>=5 PF 0.96. The {0,1} bucket alone gave 86 trades, PF 2.02, 3/3 positive years {2024,2025,2026}. S03 promotes this to an explicit filter: regime_age_filter.allowed_values=[0,1] gates entries to fresh-regime states only. Label note: entry_logic.type retained as 'symbolic_sequence_0001' for classifier compatibility with S01/S02; ground-truth pattern is 001 (run_len.shift(1)<=-2) as in S02, the differentiator vs S02 is the regime_age filter block. Decision gate: PF>=1.50 AND trades>=80 AND effect reproduces materially vs post-hoc slice (PF 2.02 / 86T / 3/3 years). PASS -> cross-symbol + cross-TF generalization. FAIL -> close idea 60 family with no further rescue probes."
+  description: "BTCUSD 4H SYMSEQ S03 V1 -- fresh-flip 001 strategy. Entry: run_len[i-1]<=-2 AND bar_sign[i]==+1 AND regime_age_signal in {0,1}. LONG only at close of bar i. Exit: fixed 3-bar time cap. Stop: 5xATR(14). Engine v1.5.8."
+  notes: "First architecturally distinct S-variant in idea 60. If S03 reproduces the post-hoc slice, the confirmed mechanism is 'symbolic pattern edge exists only within 1 HTF-day of regime flip'. Do NOT add further filters, tune hold, or expand patterns. If S03 fails the gate, idea 60 closes permanently -- no further rescue probes."
+
+symbols:
+  - BTCUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.price.candle_sign_sequence
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 5.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: symbolic_sequence_0001
+  exit_logic:
+    type: fixed_time
+    max_bars: 3
+
+regime_age_filter:
+  enabled: true
+  mode: signal
+  allowed_values: [0, 1]
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
