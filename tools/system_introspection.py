@@ -22,6 +22,9 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 # ── Paths (derived from state_paths.py pattern, no hardcoded user paths) ──
 STATE_ROOT = PROJECT_ROOT.parent / "TradeScan_State"
 RUNS_DIR = STATE_ROOT / "runs"
