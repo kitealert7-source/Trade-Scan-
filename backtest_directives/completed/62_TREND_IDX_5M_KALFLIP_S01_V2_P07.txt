@@ -1,0 +1,62 @@
+test:
+  name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P07
+  family: TREND
+  strategy: 62_TREND_IDX_5M_KALFLIP_S01_V2_P07
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-04-01"
+  end_date: "2026-04-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 62 S01 P00 -- GENESIS run for the Kalman-filter slope-flip family on NAS100 5M. Order-1 scalar Kalman price filter (BackQuant lineage) on OHLC4 source with process_var=0.01 and measurement_var=4 (Pine-calibrated optimum: M-sweep {3,4,5,6} found 4 maximizes per-trade $ and Sharpe). Enter LONG at bar close when Kalman trend slope flips from negative to positive (color green); exit LONG at bar close when slope flips back to negative (color red). LONG-ONLY -- the Pine Both-mode test bled $939 on shorts and triggered all 32 margin calls; NAS100's structural long bias makes shorting sub-zero-expectancy. Three orthogonal regime filters stacked AND: ADX(14) > 15 (trend strength gate, below textbook 20 because flip strategy needs early-trend entry), smoothed RSI(2)/SMA(3) > 35 (loose momentum confirmation, below 50 neutral because tighter is partially redundant with Kalman direction), Hurst(100) > 0.45 (regime persistence; using Trade_Scan's lag-variance scaling rather than Pine R/S -- threshold may need re-sweep due to estimation method difference). Optional 3xATR safety stop. Pine v1.2 prototype on NAS100 5m, 12mo Apr 2025 -> Apr 2026: PF 1.312 / Sortino 2.215 / Sharpe 0.640 / Net +$3,052 (+30.5%) / max DD $395 (4.0%) / 1,568 trades / per-trade $1.95 / B&H capture 78.1%. Decision gate: PF >= 1.20 AND Sortino >= 1.50 AND DD <= 6%. PASS -> lock as production strategy and consider promotion to burn-in via TS_Execution shadow trading. FAIL -> re-sweep Hurst threshold {0.40, 0.45, 0.50, 0.55} since Python Hurst uses different estimation method than Pine R/S; if still FAIL, write hurst_rs.py as faithful Pine port (SOP_INDICATOR) and re-test."
+  description: "TREND IDX 5M Kalman price-filter slope-flip with triple orthogonal stack (ADX 15 + smoothed-RSI 35 + Hurst 0.45), LONG-ONLY, 3xATR safety stop. OHLC4 Kalman source. Engine v1.5.x."
+  notes: "S01 P00 is the genesis baseline with calibrated triple-filter stack. If Pine numbers don't reproduce in Python within +/-5% (Net P&L), suspect either Hurst estimation difference or RSI smoothing behavior -- start by disabling Hurst, re-running, and comparing to Pine's ADX-only result. Signal-density principle: this strategy generates ~2,358 raw signals/year, which is HIGH-frequency in this family. The orthogonal filter stack is additive at this signal density (validated in Pine); it would likely be sub-additive on lower-frequency primitives like GMAFLIP."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.kalman_regime
+  - indicators.structure.adx
+  - indicators.momentum.rsi_smoothed
+  - indicators.trend.hurst_rs
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 3.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: kalman_slope_flip
+  exit_logic:
+    type: opposite_signal
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

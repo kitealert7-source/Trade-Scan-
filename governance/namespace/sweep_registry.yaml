@@ -2094,16 +2094,6 @@ ideas:
             signature_hash: c6932d6a7d9b2cdb
             reserved_at_utc: '2026-04-23T12:06:13.409744+00:00'
           P00:
-            directive_name: 55_MR_XAUUSD_15M_ZREV_S14_V1_P00
-            signature_hash: 024dbe2347c77f3f
-            signature_hash_full: 024dbe2347c77f3fd27fac0d1e5482ebd877762d7b417652618916004501ea63
-            reserved_at_utc: '2026-04-23T16:40:41.628763+00:00'
-          P00:
-            directive_name: 55_MR_XAUUSD_15M_ZREV_S14_V1_P00
-            signature_hash: 024dbe2347c77f3f
-            signature_hash_full: 024dbe2347c77f3fd27fac0d1e5482ebd877762d7b417652618916004501ea63
-            reserved_at_utc: '2026-04-23T16:45:07.600830+00:00'
-          P00:
             directive_name: 55_MR_EURUSD_15M_ZREV_S15_V1_P00
             signature_hash: c53c2e54bce75b72
             signature_hash_full: c53c2e54bce75b72d219782b382053d8faf83c36c2624e0f76cca0730c2d2997
@@ -2187,21 +2177,6 @@ ideas:
         reserved_at_utc: '2026-04-23T17:30:00.000000+00:00'
         patches:
           P00:
-            directive_name: 56_CONT_XAUUSD_15M_ZPULL_S01_V1_P00
-            signature_hash: fb5400a1d52c36bd
-            signature_hash_full: fb5400a1d52c36bd8aef62ce3cc17a955a47cc509abbdbc8846bd2e810ff32d4
-            reserved_at_utc: '2026-04-23T17:11:56.810147+00:00'
-          P00:
-            directive_name: 56_CONT_XAUUSD_15M_ZPULL_S02_V1_P00
-            signature_hash: ec73079b26a7e7ed
-            signature_hash_full: ec73079b26a7e7ed833340c191aeeebd5b69c2802b4339399db4952a11fa6401
-            reserved_at_utc: '2026-04-23T17:18:37.500303+00:00'
-          P00:
-            directive_name: 56_CONT_XAUUSD_15M_ZPULL_S02_V1_P00
-            signature_hash: ec73079b26a7e7ed
-            signature_hash_full: ec73079b26a7e7ed833340c191aeeebd5b69c2802b4339399db4952a11fa6401
-            reserved_at_utc: '2026-04-23T17:21:24.623459+00:00'
-          P00:
             directive_name: 56_CONT_EURUSD_15M_ZPULL_S03_V1_P00
             signature_hash: 306d7345d4698238
             signature_hash_full: 306d7345d4698238dd18ef92e9e786771f7a64d8508b66d08df37470a36848b0
@@ -2255,26 +2230,6 @@ ideas:
         reserved_at_utc: '2026-04-24T06:00:00.000000+00:00'
         patches:
           P00:
-            directive_name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V1_P00
-            signature_hash: PLACEHOLDER
-            signature_hash_full: PLACEHOLDER
-            reserved_at_utc: '2026-04-24T06:00:00.000000+00:00'
-          P00:
-            directive_name: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
-            signature_hash: 43498e66f5989ed0
-            signature_hash_full: 43498e66f5989ed02136d85779c7ac102392548bd13eff763d599cfe002d31bb
-            reserved_at_utc: '2026-04-24T04:58:40.000014+00:00'
-          P00:
-            directive_name: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
-            signature_hash: 43498e66f5989ed0
-            signature_hash_full: 43498e66f5989ed02136d85779c7ac102392548bd13eff763d599cfe002d31bb
-            reserved_at_utc: '2026-04-24T05:01:16.870855+00:00'
-          P00:
-            directive_name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V2_P00
-            signature_hash: 70cef1d6beae7edb
-            signature_hash_full: 70cef1d6beae7edb632deb2b02e88b1d81603a8914b4bc1807beffcb93f94700
-            reserved_at_utc: '2026-04-24T06:25:40.607553+00:00'
-          P00:
             directive_name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V2_P00
             signature_hash: 70cef1d6beae7edb
             signature_hash_full: 70cef1d6beae7edb632deb2b02e88b1d81603a8914b4bc1807beffcb93f94700
@@ -2289,42 +2244,227 @@ ideas:
         reserved_at_utc: '2026-04-24T06:52:48.607716+00:00'
         patches:
           P00:
-            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S01_V1_P00
-            signature_hash: 089c55be934f2138
-            signature_hash_full: 089c55be934f213812c551f3e3157fdb4acb712af7accfa00257c6d51b0414ab
-            reserved_at_utc: '2026-04-24T06:52:48.607716+00:00'
-          P00:
-            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
-            signature_hash: 722ec50ceb4ec5c3
-            signature_hash_full: 722ec50ceb4ec5c373fc0f6918cf1ab12342e26c9381f08248217949fbb848c2
-            reserved_at_utc: '2026-04-24T07:37:01.187032+00:00'
-          P00:
-            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
-            signature_hash: aaad6ac60a537c48
-            signature_hash_full: aaad6ac60a537c48e3353330885312c93d1b2990c436eae21c9cb569f6b52c7d
-            reserved_at_utc: '2026-04-24T07:37:11.190203+00:00'
-          P00:
-            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S02_V1_P00
-            signature_hash: 722ec50ceb4ec5c3
-            signature_hash_full: 722ec50ceb4ec5c373fc0f6918cf1ab12342e26c9381f08248217949fbb848c2
-            reserved_at_utc: '2026-04-24T07:41:33.351304+00:00'
-          P00:
-            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S03_V1_P00
-            signature_hash: 982f27acf3a141a5
-            signature_hash_full: 982f27acf3a141a53e9cc06d4f34482986ca0acd92531d13678dcef3e28dc907
-            reserved_at_utc: '2026-04-24T08:11:06.083422+00:00'
-          P00:
-            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S03_V1_P00
-            signature_hash: 982f27acf3a141a5
-            signature_hash_full: 982f27acf3a141a53e9cc06d4f34482986ca0acd92531d13678dcef3e28dc907
-            reserved_at_utc: '2026-04-24T08:11:26.956422+00:00'
-          P00:
-            directive_name: 60_MICRO_BTCUSD_4H_SYMSEQ_S04_V1_P00
-            signature_hash: fb7df12c7785737a
-            signature_hash_full: fb7df12c7785737aea1e5d7c9eb9474c81a0cc6b6e0a516dd29fae728667f9d6
-            reserved_at_utc: '2026-04-24T08:19:42.092500+00:00'
-          P00:
             directive_name: 60_MICRO_BTCUSD_1H_SYMSEQ_S05_V1_P00
             signature_hash: 2e0aab0366cf4454
             signature_hash_full: 2e0aab0366cf4454442daa354510840449d51d6e84ccded204576be52b2ae238
             reserved_at_utc: '2026-04-24T08:29:04.201607+00:00'
+  '61':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V1_P00
+        signature_hash: b7b79560b16667e6
+        signature_hash_full: b7b79560b16667e67e884f7eeaf08b595e384b181a02c5a18b5ac99220f81ff8
+        reserved_at_utc: '2026-04-28T19:24:09+00:00'
+        patches:
+          P00:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P00
+            signature_hash: b7b79560b16667e6
+            signature_hash_full: b7b79560b16667e67e884f7eeaf08b595e384b181a02c5a18b5ac99220f81ff8
+            reserved_at_utc: '2026-04-28T19:58:27.985936+00:00'
+          P01:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P01
+            signature_hash: c94a290593f801cc
+            signature_hash_full: c94a290593f801cc12e83c8c9b46184e0158df8930ba18bdd25db19e82885e16
+            reserved_at_utc: '2026-04-28T20:16:32.253589+00:00'
+          P02:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P02
+            signature_hash: 2c944a7ecde313db
+            signature_hash_full: 2c944a7ecde313db2b878138c524a73ef7bc84692d6299855532e7fe7c1ced40
+            reserved_at_utc: '2026-04-28T20:21:34.045315+00:00'
+          P03:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P03
+            signature_hash: f4e8d57807faa6a9
+            signature_hash_full: f4e8d57807faa6a97d16766958ff9cde01e5da0ab3e2b1e0d236ea372a2e62c4
+            reserved_at_utc: '2026-04-28T20:25:22.116440+00:00'
+          P04:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P04
+            signature_hash: c94a290593f801cc
+            signature_hash_full: c94a290593f801cc12e83c8c9b46184e0158df8930ba18bdd25db19e82885e16
+            reserved_at_utc: '2026-04-28T20:27:48.042793+00:00'
+          P05:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P05
+            signature_hash: b82500a84140a5d8
+            signature_hash_full: b82500a84140a5d85944b44fdec284a4d7945e25d131883d81c17655af43d4ba
+            reserved_at_utc: '2026-04-28T20:40:40.877605+00:00'
+          P06:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P06
+            signature_hash: 6685b43d7834a324
+            signature_hash_full: 6685b43d7834a324b65c8ba5045db27ab69983b876fc1d4b95f46c33b60bb331
+            reserved_at_utc: '2026-04-28T20:43:20.648079+00:00'
+          P07:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P07
+            signature_hash: e9eab312ed825861
+            signature_hash_full: e9eab312ed825861d20ade5f64a8bb8b4b96cb83e71a76dadbf222a8de5683c1
+            reserved_at_utc: '2026-04-28T20:45:29.261342+00:00'
+          P08:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P08
+            signature_hash: fbda9818a02d1144
+            signature_hash_full: fbda9818a02d1144556627f175f5a96010c7bc4ef62b70eac0764efaa522f3e6
+            reserved_at_utc: '2026-04-28T20:47:09.468241+00:00'
+          P09:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P09
+            signature_hash: af596b0c848d98f8
+            signature_hash_full: af596b0c848d98f859087d61d0b1ab13e2587136a27a7f24615049e564c38211
+            reserved_at_utc: '2026-04-28T20:53:08.218559+00:00'
+          P10:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P10
+            signature_hash: 5a682517fe978e79
+            signature_hash_full: 5a682517fe978e79fb3d2b33839211a2bff0ee92d62b5340300958dc9d090002
+            reserved_at_utc: '2026-04-28T20:54:44.516830+00:00'
+          P11:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P11
+            signature_hash: 88cc936ab9a0134b
+            signature_hash_full: 88cc936ab9a0134b130209ab74714958be2c3292d6757642912d728ea76dd5e1
+            reserved_at_utc: '2026-04-28T20:57:07.398307+00:00'
+          P12:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P12
+            signature_hash: 7dd79b390749ec31
+            signature_hash_full: 7dd79b390749ec315748731a3a54893f71d66f3c9000a59e26c9cd44fff0a853
+            reserved_at_utc: '2026-04-28T21:11:36.500529+00:00'
+          P13:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P13
+            signature_hash: bd6d888870c40b80
+            signature_hash_full: bd6d888870c40b80e98d5fe3f35a0f787c5929125c29896e1c976a2743a3c596
+            reserved_at_utc: '2026-04-28T21:14:13.972250+00:00'
+          P14:
+            directive_name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P14
+            signature_hash: 22531a9d09c39f15
+            signature_hash_full: 22531a9d09c39f154db8cf21d508f2b3b4a8dc5bbfe8c5cb770fd529eebd79c0
+            reserved_at_utc: '2026-04-28T21:29:23.916484+00:00'
+        attempt: 2
+  '62':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V1_P00
+        signature_hash: b494b4e0e011675e
+        signature_hash_full: b494b4e0e011675e30fead978dc808c43b8cd08852e6ca496dae208bf314254d
+        reserved_at_utc: '2026-04-29T07:12:29.209456+00:00'
+        patches:
+          P00:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P00
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T07:26:53.112900+00:00'
+          P01:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P01
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T07:39:23.378240+00:00'
+          P02:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P02
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T07:39:24.523085+00:00'
+          P03:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P03
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T07:39:25.652667+00:00'
+          P04:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P04
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T07:45:08.615406+00:00'
+          P05:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P05
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T07:45:09.536379+00:00'
+          P06:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
+            signature_hash: 9a3825ab1135faa0
+            signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
+            reserved_at_utc: '2026-04-29T07:52:19.646161+00:00'
+          P06:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
+            signature_hash: 5885751ec1142fbd
+            signature_hash_full: 5885751ec1142fbdc93cc3b5e70a8d3ea2bd9f9798b251c0aef5f5338facd6a6
+            reserved_at_utc: '2026-04-29T07:52:42.997576+00:00'
+          P06:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
+            signature_hash: 5885751ec1142fbd
+            signature_hash_full: 5885751ec1142fbdc93cc3b5e70a8d3ea2bd9f9798b251c0aef5f5338facd6a6
+            reserved_at_utc: '2026-04-29T07:53:13.085807+00:00'
+          P06:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
+            signature_hash: 9a3825ab1135faa0
+            signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
+            reserved_at_utc: '2026-04-29T07:53:51.459884+00:00'
+          P07:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P07
+            signature_hash: 9a3825ab1135faa0
+            signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
+            reserved_at_utc: '2026-04-29T08:00:00.746747+00:00'
+          P08:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P08
+            signature_hash: 9a3825ab1135faa0
+            signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
+            reserved_at_utc: '2026-04-29T08:00:01.805538+00:00'
+          P09:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
+            signature_hash: 02e38d1fe2a436fc
+            signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
+            reserved_at_utc: '2026-04-29T08:26:53.204059+00:00'
+          P10:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P10
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T08:26:54.637226+00:00'
+          P10:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P10
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T08:27:19.355056+00:00'
+          P09:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T08:31:16.124680+00:00'
+          P09:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
+            signature_hash: 75f8984c329c5dc8
+            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
+            reserved_at_utc: '2026-04-29T08:33:41.086203+00:00'
+          P09:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
+            signature_hash: 02e38d1fe2a436fc
+            signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
+            reserved_at_utc: '2026-04-29T08:34:00.658245+00:00'
+          P09:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
+            signature_hash: 02e38d1fe2a436fc
+            signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
+            reserved_at_utc: '2026-04-29T08:34:12.671295+00:00'
+          P11:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P11
+            signature_hash: 940fb6b4ac9bab08
+            signature_hash_full: 940fb6b4ac9bab08b13d3a8c0e215bd7a4a8c1adab016be464dae64d993a171a
+            reserved_at_utc: '2026-04-29T08:41:04.535156+00:00'
+          P12:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P12
+            signature_hash: 10c01b04e411d5da
+            signature_hash_full: 10c01b04e411d5dab1c175f14ec7e8348b7c7f8211b2aca08fa091f82f4cee44
+            reserved_at_utc: '2026-04-29T08:49:35.569948+00:00'
+          P13:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P13
+            signature_hash: 10c01b04e411d5da
+            signature_hash_full: 10c01b04e411d5dab1c175f14ec7e8348b7c7f8211b2aca08fa091f82f4cee44
+            reserved_at_utc: '2026-04-29T08:49:36.631731+00:00'
+          P14:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P14
+            signature_hash: 10c01b04e411d5da
+            signature_hash_full: 10c01b04e411d5dab1c175f14ec7e8348b7c7f8211b2aca08fa091f82f4cee44
+            reserved_at_utc: '2026-04-29T09:22:55.684082+00:00'
+          P15:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P15
+            signature_hash: 10c01b04e411d5da
+            signature_hash_full: 10c01b04e411d5dab1c175f14ec7e8348b7c7f8211b2aca08fa091f82f4cee44
+            reserved_at_utc: '2026-04-29T09:22:56.742768+00:00'
+          P16:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P16
+            signature_hash: 10c01b04e411d5da
+            signature_hash_full: 10c01b04e411d5dab1c175f14ec7e8348b7c7f8211b2aca08fa091f82f4cee44
+            reserved_at_utc: '2026-04-29T09:22:57.748244+00:00'
+        attempt: 2

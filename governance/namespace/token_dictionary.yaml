@@ -66,6 +66,8 @@ model:
   - REGMISMATCH
   - RUNFAIL
   - SYMSEQ
+  - GMAFLIP
+  - KALFLIP
 filter:
   - ATRFILT
   - VOLFILT

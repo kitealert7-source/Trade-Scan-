@@ -460,3 +460,19 @@ ideas:
     role: entry_edge
     instruments: BTCUSD
     status: active
+  '61':
+    family: TREND
+    title: "Gaussian-MA slope-flip trend follower -- single Gaussian-weighted MA, enter on slope sign change (color flip), exit on opposite flip, 3xATR safety stop -- IDX 5M genesis on NAS100"
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    instruments: NAS100
+    status: active
+  '62':
+    family: TREND
+    title: "Kalman-filter price slope-flip trend follower -- order-1 scalar Kalman on OHLC4 source, enter LONG on filter slope flip (color turns green), exit on opposite flip, 3xATR safety stop. Pine v1.2 prototype calibration: OHLC4 source, process_var=0.01, measurement_var=4, ADX(14)>15 + smoothed-RSI(2/3)>35 + Hurst(100)>~0.45 orthogonal filter stack. LONG-ONLY (NAS100 structural long bias). Pine prototype: PF 1.312 / Sortino 2.215 / Sharpe 0.640 / +30.5% over 12mo / max DD 4.0% / B&H capture 78.1%. Signal-density principle test: validates that loose orthogonal filter stacking is additive on HIGH-frequency signal generators (>1500T/yr) -- IDX 5M port to Trade_Scan from Pine."
+    class: indicator_logic
+    regime: trend
+    role: trend_carrier
+    instruments: NAS100
+    status: active
