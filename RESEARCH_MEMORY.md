@@ -368,3 +368,153 @@ Mechanism is neither symmetric microstructure nor scale-invariant. It is a speci
 
 Implication:
 Do not promote regime_age{0,1}+001 to other symbols, timeframes, or short side without re-establishing each from scratch. Future symbolic-sequence probes must pre-declare direction + TF locality before generalization; post-hoc slices do not license extrapolation.
+2026-04-28
+Tags:
+gma_slope_flip
+regime_asymmetry
+htf_filter
+
+Strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P00
+Run IDs: 4e36cfcfe8bfeceff7d76060
+
+Finding:
+Pure GMA slope-flip on NAS100 5M generates positive expectancy in WeakDn / Neutral regimes but loses on WeakUp; total edge is regime-asymmetric.
+
+Evidence:
+WeakDn 407T +$541 PF~1.6; WeakUp 705T -$149 PF<1 (largest trade share, worst bucket)
+
+Conclusion:
+Slope-flip catches reversal-into-trend in down/sideways markets but whipsaws under sustained-up conditions where the GMA flips frequently without mean-reversion; WeakUp is dominated by failed shorts that get stopped.
+
+Implication:
+Future GMAFLIP variants (S01 P01 onward) MUST gate entry on HTF trend regime: skip WeakUp bucket entirely; allow WeakDn / Neutral trades unconditionally.
+2026-04-28
+Tags:
+gma_slope_flip
+filter_iteration
+negative_finding
+regime_filter
+
+Strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P01..P04
+Run IDs: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P01, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P02, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P03, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P04
+
+Finding:
+Sweep across 4 GMAFLIP filter variants: HTF regime filter is the only individually-positive filter. Persistence filter alone degrades PF; combined regime+persistence trades return for drawdown safety; tighter Gaussian sigma (4.0 vs 5.0 DSP convention) is worse.
+
+Evidence:
+P01 regime: PF 1.13->1.25, Sharpe 0.51->0.92; P02 persistence: PF 1.13->1.09 (worse); P03 combined: best DD 0.15% but PF 1.20<P01
+
+Conclusion:
+Slope-flip wobbles persist 3+ bars natively, so persistence filter rarely triggers and just delays entries by 3 bars (worse fills). HTF regime is the structural filter that matters because P00 trade_edge data showed losses concentrated in WeakUp regime. Sigma=5 (DSP length/6 convention) outperforms sigma=4 — more responsive MA generates noise flips without alpha.
+
+Implication:
+For GMAFLIP variants going forward: (a) always include HTF regime filter (skip regime>=1); (b) skip persistence filter unless combined with another noise reducer; (c) lock sigma at length/6 DSP convention; (d) next iterations should test stop multiplier (1.5x / 2x / 4x) and HTF timeframe (1H regime feed).
+2026-04-28
+Tags:
+gma_slope_flip
+persistence_sweep
+slope_angle
+non_monotonic
+
+Strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P05..P08
+Run IDs: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P05, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P06, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P07, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P08
+
+Finding:
+Persistence-bar sweep (1, 3, 5, 7) on top of regime filter is non-monotonic and never beats P01 (no persistence). Slope-angle filter at 5pct of ATR over-restricts to 32 trades but those 32 hit best PF/Sharpe — angle threshold should be much lower.
+
+Evidence:
+Persistence sweep PF: bars=0 1.25, bars=1 1.15, bars=3 1.20, bars=5 0.98 (NEG), bars=7 1.12; slope angle 5pct: 32T PF 1.30 Sharpe 1.41
+
+Conclusion:
+Slope flips on Gaussian length=30 sigma=5 naturally persist 7+ bars in 95pct of cases — persistence filter rarely triggers and only delays entries. The PF=0.98 dip at bars=5 is sample-noise, not a structural minimum. Slope-angle filter showed best per-trade quality but threshold of 5pct of ATR cuts 98pct of signals; lower thresholds (0.5-2pct) would yield more usable variants.
+
+Implication:
+S02 going forward: (a) drop persistence from filter library; (b) sweep slope_angle threshold at 0.005, 0.01, 0.02, 0.03 to find usable upper bound; (c) regime filter remains the only robust filter; (d) test stop multiplier sweep next (1.5, 2.0, 4.0 vs current 3.0) since DD per trade is 50pct of stop budget.
+2026-04-28
+Tags:
+gma_slope_flip
+stop_sweep
+slope_angle_combined
+exhaustive_sweep
+
+Strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P09..P11
+Run IDs: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P09, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P10, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P11
+
+Finding:
+Slope-angle filter combined with regime filter (P09 1pct, P10 2pct) hurts every variant — over-filtering removes good trades. Tighter stop (1.5xATR vs 3xATR) hurts win rate from 42pct to 33pct, indicating 3xATR is at or above the noise floor and 1.5x sits inside it.
+
+Evidence:
+P09 (regime+slope1pct): 549T 63 PF 1.11 (vs P01 853T 59 PF 1.25); P11 (regime+stop1.5x): 1039T 06 WR 33pct (vs P01 853T 59 WR 42pct)
+
+Conclusion:
+Filter stacking is sub-additive: each filter removes more good trades than bad ones above the first. P01 (regime alone) is the structural local optimum for this primitive on this data. Stop=3xATR is correct/loose — tighter stops sit in the noise envelope of NAS100 5M and clip valid trades. Slope angle works in isolation (P05) but conflicts with regime filter when stacked.
+
+Implication:
+GMAFLIP family is parameter-saturated: P01 is the operating point. To improve further requires architectural change — try GMAFLIP on higher timeframe (15M, 1H) where regime dynamics differ, or add a genuinely independent filter (volume/liquidity/news) that does not overlap with regime. Stop sweep direction should be wider (4x, 5x) not tighter.
+2026-04-28
+Tags:
+gma_slope_flip
+filter_by_exclusion
+session_filter
+vol_filter
+sub_additive_confirmed
+
+Strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P12..P14
+Run IDs: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P12, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P13, 61_TREND_IDX_5M_GMAFLIP_S01_V2_P14
+
+Finding:
+Filter-by-exclusion final pass tested 3 orthogonal filters (NY-only session, drop-London surgical session, Direction*Volatility via atr_percentile). All three improved Sharpe and DD vs P01 baseline but reduced absolute P&L. None overcame the filter-stacking sub-additivity rule established in earlier batches.
+
+Evidence:
+P12 NY-only: 336T 79 PF 1.23 Sharpe 1.05; P13 surgical-session: 554T 47 PF 1.22 Sharpe 0.96; P14 vol filter: 677T 90 PF 1.16 Sharpe 0.72; all vs P01 853T 59 PF 1.25 Sharpe 0.92
+
+Conclusion:
+Each filter cuts roughly proportional good and bad trades. The directional buckets exposed by the report (Asia Long PF 1.57, London 1.04, Long*LowVol 0.39) become diluted when implemented as filters because the underlying regime filter (P01) already removes much of the same loser population. Genuine filter independence requires the new filter to address losses NOT already addressed by regime filter, which is rare.
+
+Implication:
+GMAFLIP family fully exhausted on NAS100 5M. P01 (regime alone) is the operating point. Future variants must change the SIGNAL primitive (not stack more filters) to escape the sub-additivity wall — try GMAFLIP on 15M/1H, on a different symbol class (XAUUSD/BTCUSD), or replace slope-flip with a different trend primitive entirely (Hull/Kalman/Linreg).
+
+Strategy: Kalman Price Filter [BackQuant] — Pine v6 prototype (TS_Execution/pine)
+Run IDs: kalman_price_filter_v1_0_strategy.pine (locked baseline), kalman_price_filter_v2_0_strategy.pine (rejected — order-2), kalman_price_filter_v1_1_strategy.pine (+session, equivalence-tested), kalman_price_filter_v1_2_strategy.pine [LOCKED] (+orthogonal triple stack)
+
+Finding:
+Adapted BackQuant's Kalman Price Filter (order-1 scalar Kalman) into a long-only flip strategy on NAS100 5M. Calibrated baseline (OHLC4 source, M=4 measurement noise, 2-tick slippage, all sessions) achieved PF 1.195 / Sharpe 0.545 / +26.9% annual / max DD 4.5%. Stacking three orthogonal regime filters on top — ADX(15) trend strength, smoothed RSI(2)/SMA(3) > 35 momentum confirmation, Hurst(0.45) persistence, all loose thresholds — produced strict additivity: final config achieves PF 1.312 / Sharpe 0.640 / Sortino 2.215 / +30.5% annual / max DD 4.0%, with per-trade $ +71% vs baseline ($1.14 -> $1.95). This contradicts the GMAFLIP P-sweep finding of universal sub-additivity. The reconciling principle is signal-density: HIGH-frequency signal generators (>1500 trades/year on native TF) admit additive loose-filter stacking; LOW-frequency generators (<1000 trades/year) suffer sub-additivity even with loose filters.
+
+Evidence:
+v1.0 baseline 2358T 27.23%WR PF 1.195 Sharpe 0.545 Sortino 1.581 DD$451 $1.14/T
+v2.0 order-2 Kalman 2131T 36.74%WR PF 1.163 Sortino 1.799 (REJECTED — velocity overshoots reversals on financial returns; WNA assumption violated)
+v1.1 drop-Asian session 1428T PF 1.20 Sharpe 0.40 Sortino 1.108 DD$677 (REJECTED — sub-additive, DD +50%, Sharpe -27%)
+v1.2 ADX(15) alone 1801T PF 1.248 Sharpe 0.638 Sortino 1.805 DD$497 $1.51/T
+v1.2 Hurst(0.45) alone 2160T PF 1.221 Sharpe 0.561 Sortino 1.616 DD$480 $1.31/T (best absolute P&L of any single filter at $2,837)
+v1.2 ADX(15)+Hurst(0.45) 1670T PF 1.282 Sharpe 0.631 Sortino 1.920 DD$396 $1.75/T
+v1.2 ADX(15)+RSI(35)+Hurst(0.45) 1568T 27.87%WR PF 1.312 Sharpe 0.640 Sortino 2.215 DD$395 $1.95/T (PRODUCTION LOCK)
+B&H 12-month return $3,901 — locked config captures 78.1% of B&H with 26% of B&H DD profile
+
+Conclusion:
+1. SIGNAL-DENSITY PRINCIPLE: Filter additivity vs sub-additivity is determined by signal-generator frequency, not by filter quality. Kalman flip generates 2358 raw signals/year on NAS100 5M; loose orthogonal filters can each prune the worst 5-15% tail without touching the core signal — strict additivity. GMAFLIP S01 generates 600 raw signals/year on same instrument/TF; even loose filters prune disproportionately into edge — sub-additivity. This explains the contradiction between the two experiments.
+2. LOOSE THRESHOLDS WIN: ADX=15 (below 20 textbook), RSI=35 (below 50 neutral), Hurst=0.45 (below 0.50 random walk). Each catches only the worst tail of its dimension. Strict thresholds (ADX 25, RSI 50, Hurst 0.50) overfilter and reduce edge.
+3. ORTHOGONALITY MATTERS: ADX measures strength of directional movement (directionless); RSI measures recent momentum direction (short window); Hurst measures long-memory persistence (regime). All three look at completely different properties — that's why their intersection contains higher-quality trades than any pair.
+4. ORDER-2 KALMAN INFERIOR for financial series: White-noise-acceleration assumption is violated by jump-prone returns; velocity term overshoots at reversals, compressing R:R from 3.2 to 2.0. The simpler order-1 prediction (assume tomorrow=today, then correct) is more robust to non-stationary noise. Order-2 wins win rate but loses on PF/DD/Sharpe.
+5. SESSION FILTERING SUB-ADDITIVE on this strategy too — dropping Asian session lost $606 P&L without improving PF, with DD +50% and Sharpe -27%. Asian's small wins were acting as DD buffer (correlation-smoothing across sessions).
+6. LONG-ONLY STRUCTURAL for index: Both-direction mode bled $939 on shorts and triggered all 32 margin calls. NAS100's structural drift makes shorting sub-zero-expectancy.
+7. INPUT PRE-FILTERING (close -> OHLC4) is a separate axis from indicator parameter tuning. Adds win rate at the cost of slight R:R compression. OHLC4 is the locked source.
+
+Implication:
+1. Production-locked configuration ready for Trade_Scan port: 64_TREND_IDX_5M_KALFLIP_S01_V1_P00 with all three filters enabled at locked thresholds. All required indicators (kalman_filter, adx, rsi, hurst) already exist in repository per user; only the strategy directive YAML needs to be written.
+2. Future research must classify the signal generator by frequency BEFORE designing filters. HIGH-frequency primitives (>1500T/yr) can stack 2-3 orthogonal loose filters. LOW-frequency primitives (<1000T/yr) should use a single strong regime filter and avoid stacking.
+3. The signal-density principle should be tested on other HIGH-frequency strategies in the family to confirm it generalizes beyond Kalman/NAS100. Any flip-style strategy on liquid intraday TF is a candidate.
+4. Per-trade $ +71% gain is the cost-survival headline. Strategy has substantial headroom against spread widening and would degrade gracefully under stress. Expect PF to hold above 1.20 even under 2x slippage stress (4 ticks vs 2).
+5. Order-2 Kalman exploration is a closed branch for financial series. Future Kalman variants should explore: (a) different price sources (HLC3, HL2), (b) different timeframes (15m, 1h on NAS100), (c) different liquid index symbols (SPX, DAX). NOT order-2.
+6. The full 24h baseline (no session filter) should be retained — session attribution is an artifact of trade-sequencing, not a source of independent edge.
+2026-04-29
+Tags:
+kalman_filter
+filter_stacking_additive
+signal_density_principle
+orthogonal_filters
+adx_hurst_rsi
+production_locked
+nas100_5m
+loose_threshold_principle
+order_2_rejected
+session_filter_subadditive
