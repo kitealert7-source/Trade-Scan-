@@ -1,0 +1,60 @@
+test:
+  name: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
+  family: STATE
+  strategy: 58_STATE_XAUUSD_15M_REGMISMATCH_S01_V1_P00
+  version: 1
+  signal_version: 22
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "First probe of new STATE family (idea 58, MODEL=REGMISMATCH). First non-price, state-driven primitive. Hypothesis: edge exists in regime desynchronization events -- abrupt (>=2-step) trend_regime shifts produce tradable asymmetry independent of price structure. Entry: abs(prev_trend_regime - trend_regime) >= 2 AND regime_age_exec <= 5; direction follows current trend_regime sign (skip when zero). State tracked via self._prev_trend_regime, updated from both check_entry (flat) and check_exit (in-position) so the delta is always current-vs-immediate-prior regardless of position state. Uses only engine-provided ctx fields (trend_regime, regime_age_exec) populated by apply_regime_model -- no new regime indicators, no inline computation. Exit: regime flip (long_exit when trend_regime <= 0; short_exit when trend_regime >= 0) OR zscore +/-0.3 OR 10-bar time cap. Stop: max(2.5xATR, $20). signal_version=22, architecturally distinct from ZREV/ZPULL/ZTRANS price-primitive families via entry_logic type 'regime_desynchronization'."
+  description: "XAUUSD 15M REGMISMATCH S01 -- regime desynchronization probe. Entry: abs(prev_regime - cur_regime) >= 2 AND regime_age_exec <= 5; follow current regime direction. Exit: regime flip / zscore threshold / 10-bar cap. Stop: max(2.5xATR(14), $20). Engine v1.5.8."
+  notes: "Primary: (1) PF >= 1.10; (2) tail-removal PF >= 1.0; (3) Top-5 concentration < 60%. Secondary: (a) trade count low (rare event); (b) TIME exits < 30%; (c) long/short symmetry. Do NOT tune thresholds, add filters, or stack conditions. If trade count explodes -> mismatch gate too loose; if zero trades -> mismatch too rare (still a valid kill). Looking for: asymmetry not drift-dependence, not tail-concentration."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: regime_desynchronization
+  exit_logic:
+    type: regime_flip_or_zscore_or_time
+    max_bars: 10
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

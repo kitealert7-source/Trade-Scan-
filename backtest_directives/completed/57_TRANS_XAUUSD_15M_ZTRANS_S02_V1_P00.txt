@@ -1,0 +1,61 @@
+test:
+  name: 57_TRANS_XAUUSD_15M_ZTRANS_S02_V1_P00
+  family: TRANS
+  strategy: 57_TRANS_XAUUSD_15M_ZTRANS_S02_V1_P00
+  version: 1
+  signal_version: 21
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "S02 refines the S01 trigger, not the family. S01 (|z_prev|>=1.5 + |z_now|<|z_prev| + |slope_now|<|slope_prev|) detected smooth post-impulse decay (default mean reversion), not instability -- hence 2549 trades, PF 0.88, TIME-exits 65%. S02 replaces the collapse/decel conditions with two instability markers: (a) range_now > range_prev [bar-level expansion, not contraction]; (b) |z_now| < 1.0 [impulse has broken, z out of the extreme band]. Impulse gate (|z_prev|>=1.5) and direction mapping unchanged. Exit, SL, and time cap bytewise identical to S01. Architecturally distinct via indicator swap (ROC dropped, bar_range added) and entry_logic type rename. Isolates one variable: whether the transition detector itself was the flaw, separate from the family hypothesis."
+  description: "XAUUSD 15M ZTRANS S02 -- impulse + range-expansion + z-modest. Entry: |z_prev|>=1.5 + range_now>range_prev + |z_now|<1.0. Exit / SL / time cap unchanged from S01. Engine v1.5.8."
+  notes: "Expected behavior (if fix is correct): trade count drops drastically from 2549, TIME-exit share drops from 65%, immediate-adverse share drops from 42% of SL trades. Primary criteria: (1) tail-removal PF >= 1.0; (2) overall PF >= 1.10; (3) Top-5 concentration < 60%. No filters, no tuning."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.volatility.bar_range
+  - indicators.stats.rolling_zscore
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: zscore_impulse_range_expansion_transition
+  exit_logic:
+    type: zscore_threshold_or_time
+    max_bars: 10
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

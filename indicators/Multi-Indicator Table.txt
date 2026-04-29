@@ -1,0 +1,188 @@
+//@version=6
+indicator('Multi-Indicator Table', shorttitle = 'Tech Indicators', overlay = true)
+
+// ── Inputs ─────────────────────────────────────────────────────────────────
+adx_length = input.int(14, 'ADX Length', minval = 1)
+dmi_length = input.int(14, 'DMI Length', minval = 1)
+mtf_adx_timeframe = input.timeframe('30', 'ADX MTF Timeframe')
+mtf_adx_length = input.int(14, 'ADX MTF Length', minval = 1)
+mtf_dmi_length = input.int(14, 'DMI MTF Length', minval = 1)
+rsi_length = input.int(14, 'RSI Length', minval = 1)
+stk_length = input.int(14, 'Stochastic K Length', minval = 1)
+stk_smooth = input.int(3, 'Stochastic %K Smoothing', minval = 1)
+stk_d_smooth = input.int(3, 'Stochastic %D Smoothing', minval = 1)
+smi_length = input.int(14, 'SMI Length', minval = 1)
+smi_smooth = input.int(3, 'SMI Smoothing', minval = 1)
+atr_length = input.int(14, 'ATR 14 Length', minval = 1)
+atr100_length = input.int(100, 'ATR 100 Length', minval = 1)
+bb_length = input.int(20, 'BB Length', minval = 1)
+bb_stdev = input.float(2.0, 'BB Standard Deviation', minval = 0.1)
+bb_percentile_length = input.int(500, 'BB Width Percentile Length', minval = 50)
+chop_length = input.int(14, 'Choppiness Index Length', minval = 1)
+ema5_length = input.int(5, 'EMA 5 Length', minval = 1)
+ema10_length = input.int(10, 'EMA 10 Length', minval = 1)
+ema20_length = input.int(20, 'EMA 20 Length', minval = 1)
+hma200_length = input.int(200, 'Hull MA 200 Length', minval = 1)
+
+// NEW: Z-score window (bars)
+z_len = input.int(200, 'Z window (bars)', minval = 20, maxval = 2000)
+
+// ── Core calcs ─────────────────────────────────────────────────────────────
+[diplus, diminus, adx] = ta.dmi(adx_length, dmi_length)
+
+// Multi-timeframe ADX (30 min by default)
+[mtf_diplus, mtf_diminus, mtf_adx] = request.security(syminfo.tickerid, mtf_adx_timeframe, ta.dmi(mtf_adx_length, mtf_dmi_length))
+
+// Create dynamic label for MTF ADX (e.g., "ADX 30", "ADX 60", etc.)
+mtf_adx_label = 'ADX ' + mtf_adx_timeframe
+
+rsi = ta.rsi(close, rsi_length)
+
+rsi_for_stoch = ta.rsi(close, rsi_length)
+stoch_rsi = ta.stoch(rsi_for_stoch, rsi_for_stoch, rsi_for_stoch, stk_length)
+stoch_rsi_k = ta.sma(stoch_rsi, stk_smooth)
+stoch_rsi_d = ta.sma(stoch_rsi_k, stk_d_smooth)
+
+// SMI
+ll = ta.lowest(low, smi_length)
+hh = ta.highest(high, smi_length)
+diff = hh - ll
+rdiff = close - (hh + ll) / 2
+avgrel = ta.ema(ta.ema(rdiff, smi_smooth), smi_smooth)
+avgdiff = ta.ema(ta.ema(diff, smi_smooth), smi_smooth)
+smi = avgdiff != 0 ? avgrel / (avgdiff / 2) * 100 : 0
+
+// ATRs
+atr = ta.atr(atr_length)
+atr100 = ta.atr(atr100_length)
+
+// Bollinger + width percentile
+bb_basis = ta.sma(close, bb_length)
+bb_dev = bb_stdev * ta.stdev(close, bb_length)
+bb_upper = bb_basis + bb_dev
+bb_lower = bb_basis - bb_dev
+bb_width = (bb_upper - bb_lower) / bb_basis * 100
+bb_width_percentile = ta.percentrank(bb_width, bb_percentile_length)
+
+// Choppiness Index
+sum_atr = math.sum(ta.atr(1), chop_length)
+high_low_range = ta.highest(high, chop_length) - ta.lowest(low, chop_length)
+chop = high_low_range != 0 ? 100 * math.log10(sum_atr / high_low_range) / math.log10(chop_length) : 0
+
+// EMAs/HMA
+ema5 = ta.ema(close, ema5_length)
+ema10 = ta.ema(close, ema10_length)
+ema20 = ta.ema(close, ema20_length)
+hma200 = ta.hma(close, hma200_length)
+
+// VWAP
+vwap = ta.vwap(close)
+
+// ── Z-score (vs today's session open) ──────────────────────────────────────
+// 1σ based on bar-to-bar price changes over z_len (chart timeframe)
+float _ret = close - close[1]
+float _zden = ta.stdev(_ret, z_len)
+
+// Anchor = price z_len bars ago (rolling window drift)
+// Use na when not enough history yet
+float _anchor = bar_index >= z_len ? close[z_len] : na
+
+// Z-score: how far price has drifted over the last z_len bars, in σ units
+float z_score = na(_anchor) or _zden == 0 ? na : (close - _anchor) / _zden
+
+
+
+// ── Table helpers ──────────────────────────────────────────────────────────
+var table info_table = table.new(position.top_right, 2, 18, bgcolor = color.white, border_width = 1)
+
+format_number(num) =>
+    str.tostring(num, '#.##')
+
+get_adx_color(val) =>
+    val >= 22 ? color.green : val >= 20 ? color.yellow : color.red
+
+get_rsi_color(val) =>
+    val >= 70 ? color.red : val <= 30 ? color.green : color.gray
+
+get_smi_color(val) =>
+    val >= 40 ? color.red : val <= -40 ? color.green : color.gray
+
+get_dmi_color(plus_di, minus_di) =>
+    plus_di > minus_di ? color.green : color.red
+
+get_atr_color(val, current_close) =>
+    atr_percent = val / current_close * 100
+    atr_percent >= 3 ? color.red : atr_percent >= 2 ? color.orange : atr_percent >= 1 ? color.yellow : color.green
+
+get_bb_width_color(percentile) =>
+    percentile >= 60 ? color.green : percentile <= 40 ? color.red : color.gray
+
+get_chop_color(val) =>
+    val >= 61.8 ? color.red : val <= 38.2 ? color.green : color.gray
+
+
+get_z_color(z) =>
+    na(z) ? color.gray : math.abs(z) >= 4 ? color.new(color.purple, 0) : color.gray // highlight near 4σ by default
+
+// ── Update table every bar (good for Replay) ───────────────────────────────
+table.cell(info_table, 0, 0, 'Indicator', text_color = color.black, bgcolor = color.silver)
+table.cell(info_table, 1, 0, 'Value', text_color = color.black, bgcolor = color.silver)
+
+table.cell(info_table, 0, 1, 'ADX', text_color = color.black)
+table.cell(info_table, 1, 1, format_number(adx), text_color = get_adx_color(adx))
+
+table.cell(info_table, 0, 2, mtf_adx_label, text_color = color.black)
+table.cell(info_table, 1, 2, format_number(mtf_adx), text_color = get_adx_color(mtf_adx))
+
+table.cell(info_table, 0, 3, '+DI', text_color = color.black)
+table.cell(info_table, 1, 3, format_number(diplus), text_color = get_dmi_color(diplus, diminus))
+
+table.cell(info_table, 0, 4, '-DI', text_color = color.black)
+table.cell(info_table, 1, 4, format_number(diminus), text_color = get_dmi_color(diminus, diplus))
+
+table.cell(info_table, 0, 5, 'Stoch RSI', text_color = color.black)
+table.cell(info_table, 1, 5, format_number(stoch_rsi_k), text_color = get_rsi_color(stoch_rsi_k))
+
+table.cell(info_table, 0, 6, 'RSI', text_color = color.black)
+table.cell(info_table, 1, 6, format_number(rsi), text_color = get_rsi_color(rsi))
+
+table.cell(info_table, 0, 7, 'SMI', text_color = color.black)
+table.cell(info_table, 1, 7, format_number(smi), text_color = get_smi_color(smi))
+
+table.cell(info_table, 0, 8, 'ATR 14', text_color = color.black)
+table.cell(info_table, 1, 8, format_number(atr), text_color = get_atr_color(atr, close))
+
+table.cell(info_table, 0, 9, 'ATR 100', text_color = color.black)
+table.cell(info_table, 1, 9, format_number(atr100), text_color = get_atr_color(atr100, close))
+
+table.cell(info_table, 0, 10, 'BB Width %', text_color = color.black)
+table.cell(info_table, 1, 10, format_number(bb_width_percentile), text_color = get_bb_width_color(bb_width_percentile))
+
+table.cell(info_table, 0, 11, 'Chop Index', text_color = color.black)
+table.cell(info_table, 1, 11, format_number(chop), text_color = get_chop_color(chop))
+
+
+table.cell(info_table, 0, 12, 'VWAP', text_color = color.black)
+table.cell(info_table, 1, 12, format_number(vwap), text_color = close > vwap ? color.green : color.red)
+
+table.cell(info_table, 0, 13, 'EMA 5', text_color = color.black)
+table.cell(info_table, 1, 13, format_number(ema5), text_color = close > ema5 ? color.green : color.red)
+
+table.cell(info_table, 0, 14, 'EMA 10', text_color = color.black)
+table.cell(info_table, 1, 14, format_number(ema10), text_color = close > ema10 ? color.green : color.red)
+
+table.cell(info_table, 0, 15, 'EMA 20', text_color = color.black)
+table.cell(info_table, 1, 15, format_number(ema20), text_color = close > ema20 ? color.green : color.red)
+
+table.cell(info_table, 0, 16, 'Hull MA 200', text_color = color.black)
+table.cell(info_table, 1, 16, format_number(hma200), text_color = close > hma200 ? color.green : color.red)
+
+// NEW: single, simple Z row
+table.cell(info_table, 0, 17, 'Z-score (σ)', text_color = color.black)
+table.cell(info_table, 1, 17, format_number(z_score), text_color = get_z_color(z_score))
+
+// Optional plots
+plot(ema5, 'EMA 5', color = color.orange, linewidth = 1)
+plot(ema10, 'EMA 10', color = color.purple, linewidth = 1)
+plot(ema20, 'EMA 20', color = color.blue, linewidth = 1)
+plot(hma200, 'Hull MA 200', color = color.red, linewidth = 2)

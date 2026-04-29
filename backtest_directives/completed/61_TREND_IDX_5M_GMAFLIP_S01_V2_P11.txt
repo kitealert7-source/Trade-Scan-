@@ -1,0 +1,69 @@
+test:
+  name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P11
+  family: TREND
+  strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P11
+  version: 1
+  signal_version: 11
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-04-01"
+  end_date: "2026-04-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 61 S01 V2 P01 -- HTF trend filter variant. Tests V2_P00 research finding: trend_edge breakdown showed WeakUp regime (regime=+1) generated 705 trades with -$149 net (worst bucket); WeakDn (-1) generated 407T +$541 (best bucket). Hypothesis: blocking trades when trend_regime >= 1 (skip WeakUp + StrongUp) eliminates dominant loss bucket without sacrificing the WeakDn / Neutral edge. Expected lift: ~25% net P&L improvement over P00 baseline ($503). Decision gate: PF >= 1.10 AND >= 2/3 positive years AND net P&L > P00 baseline."
+  description: "TREND IDX 5M Gaussian-MA Slope-Flip S01 V2 P01 -- HTF trend regime filter. Entry: gma_slope sign change AND trend_regime < 1 (block all trades when HTF trend is WeakUp or StrongUp). Exit: opposite slope flip OR safety stop. Safety stop: 3xATR(14). Engine v1.5.x."
+  notes: "P01 tests the WeakUp-block hypothesis from P00 research entry. If PF improves AND drawdown stays bounded, regime asymmetry is real. If PF degrades, WeakUp losses are not regime-driven but timing-driven and another filter is needed."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.gaussian_slope
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 1.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: gma_slope_flip
+  exit_logic:
+    type: opposite_signal
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+trend_filter:
+  enabled: true
+  direction_gate: true
+  long_when:
+    operator: lt
+    required_regime: 1
+  short_when:
+    operator: lt
+    required_regime: 1
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

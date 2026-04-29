@@ -1,0 +1,61 @@
+test:
+  name: 57_TRANS_XAUUSD_15M_ZTRANS_S01_V1_P00
+  family: TRANS
+  strategy: 57_TRANS_XAUUSD_15M_ZTRANS_S01_V1_P00
+  version: 1
+  signal_version: 20
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "First probe of new TRANS family (idea 57, MODEL=ZTRANS). Tests whether edge exists in momentum-collapse transitions: strong impulse -> deceleration -> early phase of next move. Entry combines three conditions on Z(30) + ROC(1) slope: (a) |zscore_prev|>=1.5 [impulse]; (b) |zscore_now|<|zscore_prev| [z-magnitude collapse]; (c) |slope_now|<|slope_prev| [momentum deceleration, symmetric reading of user spec]. Direction = sign of impulse (long after down-impulse, short after up-impulse). Exit: zscore crosses +/-0.3 OR 10-bar time cap. Stop: max(2.5xATR, $20). signal_version=20 distinguishes via new indicator (ROC) + new entry logic type. Architecturally distinct from ZREV (Z-extreme + zero-cross) and ZPULL (Z mid-band + trend continuation). No filters, no stacking."
+  description: "XAUUSD 15M ZTRANS S01 -- z-impulse collapse transition probe. Entry: |z_prev|>=1.5 + |z_now|<|z_prev| + |slope_now|<|slope_prev|. Exit: z>=+0.3 (long) / z<=-0.3 (short) / 10-bar cap. Stop: max(2.5xATR(14), $20). Engine v1.5.8."
+  notes: "Primary: (1) tail-removal PF >= 1.0; (2) overall PF >= 1.10; (3) Top-5 concentration < 60%. Secondary: (a) trade count expected low (rare transition event); (b) fast exits dominate, TIME bleed minimal; (c) reduced drift dependency. Question: does momentum-collapse transition produce distributed edge independent of prior z-primitive failures (ZREV, ZPULL)?"
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.stats.rolling_zscore
+  - indicators.momentum.roc
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: zscore_impulse_collapse_transition
+  exit_logic:
+    type: zscore_threshold_or_time
+    max_bars: 10
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

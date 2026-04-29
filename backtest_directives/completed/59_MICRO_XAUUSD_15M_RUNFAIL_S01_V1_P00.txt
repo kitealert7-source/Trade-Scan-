@@ -1,0 +1,60 @@
+test:
+  name: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V1_P00
+  family: MICRO
+  strategy: 59_MICRO_XAUUSD_15M_RUNFAIL_S01_V1_P00
+  version: 1
+  signal_version: 23
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "First probe of new MICRO family (idea 59, MODEL=RUNFAIL). First micro-pattern price-action primitive. Hypothesis: after 3 consecutive lower closes (short-run down auction), if current close finishes above prior bar's midpoint ((prev_high+prev_low)/2), downside continuation has failed and a mean-reversal long becomes tradable. LONG-ONLY probe; no short mirror; no filters; no sweeps. Entry: close[i]<close[i-1]<close[i-2]<close[i-3] AND close[i] > (prev_high + prev_low)/2. Exit: fixed 3-bar hold. Stop: max(2.5xATR(14), $20). State: self._prev{1,2,3}_close rotated on every bar regardless of position. prev_high/prev_low via indicators.price.previous_bar_breakout (shift(1) of high/low). signal_version=23, architecturally distinct from prior families via entry_logic type 'runfail_midpoint_confirmation'. Single-probe only; do not extend into P01/P02/sweep."
+  description: "XAUUSD 15M RUNFAIL S01 -- failed-breakdown confirmation probe. Entry: 3 consecutive lower closes + close > previous bar midpoint. Exit: fixed 3-bar time cap. Stop: max(2.5xATR(14), $20). LONG-only. Engine v1.5.8."
+  notes: "Primary: (1) PF >= 1.10; (2) Top-5 concentration < 60%; (3) trade density >= 1/month (hypothetical baseline of 3-red-only pattern on 15M is dense enough; midpoint gate should halve not decimate). Secondary: (a) tail-removal PF >= 1.0; (b) long-side symmetry check against hypothetical 3-red-only baseline (should show uplift on confirmation -- if not, confirmation kills edge rather than refining it). Do NOT tune midpoint thresholds, add filters, or stack conditions. If trades < ~15 across 25 months -> too sparse, close branch. If trades similar to hypothetical base and PF worse -> confirmation removes edge."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr_with_dollar_floor
+  - indicators.price.previous_bar_breakout
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: runfail_midpoint_confirmation
+  exit_logic:
+    type: fixed_time
+    max_bars: 3
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

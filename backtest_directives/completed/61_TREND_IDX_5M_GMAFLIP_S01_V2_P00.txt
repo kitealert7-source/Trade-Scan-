@@ -1,0 +1,59 @@
+test:
+  name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P00
+  family: TREND
+  strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-04-01"
+  end_date: "2026-04-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 61 S01 P00 -- GENESIS run for the Gaussian-MA slope-flip family. Single-MA trend-following primitive: enter LONG at bar close when Gaussian-weighted MA slope flips from negative to positive (color turns green); enter SHORT at bar close when slope flips from positive to negative (color turns red). Always-in-market design -- the next opposite slope flip IS the exit. Optional ATR safety stop guards against single-trade catastrophic loss. No filters in this S01 P00 base run -- slope flip is its own filter (rare in chop, frequent in trends). Empirically derived from a Pine prototype on NAS100 5M (FOREXCOM). Pine v2.0 prototype showed +$753 raw P&L over 3.5 months (37% WR, PF 1.08, DD 13.7% -- DD is the problem this Trade_Scan validation aims to characterize and quantify). Decision gate: PF >= 1.10 AND >= 2/3 positive years. PASS -> promote to S02 with persistence-bar filter (wait N bars after flip). FAIL -> Gaussian slope-flip is not a tradable trend primitive on IDX 5M; archive and revisit on higher TF or with HTF-confirmation filter."
+  description: "TREND IDX 5M Gaussian-MA Slope-Flip S01 V1 P00 -- pure slope-flip trend follower. Entry: gma_slope sign change at bar close (+/-). Exit: opposite slope flip OR safety stop. Safety stop: 3xATR(14). No regime/session/conviction filters. Engine v1.5.x."
+  notes: "S01 is the genesis baseline. Drawdown will likely be the dominant failure mode (chop-period whipsaws). If S01 dies on DD, S02 should add slope-persistence filter (require N bars in new direction before entering). If S01 dies on PF<1.0 entirely, the GMAFLIP primitive is structurally weak and the family should not be expanded."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.gaussian_slope
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 3.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: gma_slope_flip
+  exit_logic:
+    type: opposite_signal
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

@@ -1,0 +1,59 @@
+test:
+  name: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P02
+  family: TREND
+  strategy: 61_TREND_IDX_5M_GMAFLIP_S01_V2_P02
+  version: 1
+  signal_version: 3
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-04-01"
+  end_date: "2026-04-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 61 S01 V2 P02 -- slope-persistence variant. Tests V2_P00 finding that single-bar slope wobbles generate noise trades. Entry now requires 3 consecutive bars in the new slope direction AFTER a flip event before opening a position. Hypothesis: filtering single-bar wobbles cuts whipsaw losses while preserving real trend captures. Decision gate: PF >= 1.10 AND >= 2/3 positive years AND DD does not increase materially over P00."
+  description: "TREND IDX 5M Gaussian-MA Slope-Flip S01 V2 P02 -- persistence-filtered slope flip. Entry: gma_slope sign change AT bar close, then wait 3 confirming bars; if slope holds, enter at bar close 3 bars later. Exit: opposite slope flip OR safety stop. Safety stop: 3xATR(14). No regime filter. Engine v1.5.x."
+  notes: "P02 isolates the persistence effect from regime filtering (P01 tests regime separately). Expected: fewer trades than P00 but higher per-trade quality."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.gaussian_slope
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 3.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: gma_slope_flip
+  exit_logic:
+    type: opposite_signal
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

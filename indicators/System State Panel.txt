@@ -1,0 +1,549 @@
+//@version=6
+indicator('System State Panel', shorttitle='SYS', overlay=true)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INPUTS
+// ─────────────────────────────────────────────────────────────────────────────
+g_regime    = 'Regime'
+lr_len      = input.int(50,  'LinReg Length',       minval=10, group=g_regime)
+ema_len     = input.int(20,  'EMA Length',          minval=5,  group=g_regime)
+confirm_n   = input.int(3,   'Regime Confirm Bars', minval=1,  group=g_regime)
+voter5_mode = input.string('Kalman', '5th Direction Voter', options=['Kalman', 'Donchian'], group=g_regime, tooltip='Kalman = 2D constant-velocity filter (sign of velocity). Donchian = midline slope of 20-bar high/low channel. Switch to Donchian if Kalman appears noisy on this asset.')
+
+g_htf       = 'HTF'
+htf_mode    = input.string('Auto', 'HTF Mode', options=['Auto', 'Manual'], group=g_htf, tooltip='Auto maps chart TF to a structurally-relevant higher TF (12-30x separation). Manual lets you pick.')
+htf_manual  = input.timeframe('D', 'HTF (Manual)', group=g_htf)
+
+g_vol       = 'Volatility'
+atr_s_len   = input.int(14,  'ATR Short',            minval=1,  group=g_vol)
+atr_l_len   = input.int(100, 'ATR Long',             minval=20, group=g_vol)
+rv_win      = input.int(20,  'Realized Vol Window',  minval=5,  group=g_vol)
+rv_pct_win  = input.int(200, 'RV Percentile Window', minval=50, group=g_vol)
+
+g_str       = 'Stretch'
+z_len       = input.int(50,  'Z-Score Window', minval=20, group=g_str)
+
+g_disp      = 'Display'
+mode_str    = input.string('Core', 'Display Mode', options=['Core', 'Core+Context', 'Full Research'], group=g_disp, tooltip='Core = 15 state rows. Core+Context adds raw indicator anchors (VWAP, EMA20, ADX, Chop, BBW). Full Research adds diagnostic depth (RV%, BarRange, R², Autocorr, HTF LinReg, Kalman Velocity, Transition).')
+bool show_context  = mode_str == 'Core+Context' or mode_str == 'Full Research'
+bool show_research = mode_str == 'Full Research'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HTF RESOLUTION  (auto-mapping targets 12-30x separation between chart and HTF)
+// Mapping:  ≤1m→30m  ≤3m→30m  ≤5m→1H  ≤15m→4H  ≤30m→D  ≤1H→D  ≤2H→D  ≤4H→W  ≤D→W  ≤W→M
+// ─────────────────────────────────────────────────────────────────────────────
+int chart_s = timeframe.in_seconds()
+string htf_auto = chart_s <= 60 ? '30' : chart_s <= 180 ? '30' : chart_s <= 300 ? '60' : chart_s <= 900 ? '240' : chart_s <= 1800 ? 'D' : chart_s <= 3600 ? 'D' : chart_s <= 7200 ? 'D' : chart_s <= 14400 ? 'W' : chart_s <= 86400 ? 'W' : 'M'
+string htf_resolved = htf_mode == 'Manual' ? htf_manual : htf_auto
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DIRECTION VOTERS  →  each returns +1 or -1
+// 5-voter model mirrors Python: linreg_regime, ema_regime, sha_regime, linreg_regime_htf, kalman_regime
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. Linear regression slope direction (linreg_regime window=50)
+float lr_val = ta.linreg(close, lr_len, 0)
+int   lr_dir = lr_val > lr_val[1] ? 1 : -1
+
+// 2. EMA slope direction (ema_regime window=20)
+float ema_val = ta.ema(close, ema_len)
+int   ema_dir = ema_val > ema_val[1] ? 1 : -1
+
+// 3. Smoothed Heikin-Ashi direction (sha_regime smooth=3 approximation)
+//    Exact Python SHA is iterative; this EMA-smoothed HA close is directionally faithful
+float ha_close = (open + high + low + close) / 4.0
+float sha_val  = ta.ema(ha_close, 3)
+int   sha_dir  = sha_val > sha_val[1] ? 1 : -1
+
+// 4. HTF LinReg slope direction (linreg_regime_htf — uses adaptive HTF)
+float lr_htf_val   = request.security(syminfo.tickerid, htf_resolved, ta.linreg(close, 50, 0), barmerge.gaps_off, barmerge.lookahead_off)
+int   lr_htf_dir   = lr_htf_val > lr_htf_val[1] ? 1 : -1
+string lr_htf_label = lr_htf_dir > 0 ? 'BULL' : 'BEAR'
+
+// 5a. Kalman 2D constant-velocity filter (mirrors kalman_regime)
+//     State: [position kx, velocity kv].  Direction = sign(kv).
+//     Q/R kept internal — calibrated for typical 15m–4H equity/FX/crypto behavior.
+float kal_q_x = 0.0001
+float kal_q_v = 0.001
+float kal_r   = 1.0
+var float kx  = na
+var float kv  = 0.0
+var float p00 = 1.0
+var float p01 = 0.0
+var float p11 = 1.0
+if na(kx)
+    kx := close
+else
+    float xp   = kx + kv
+    float p00p = p00 + 2.0 * p01 + p11 + kal_q_x
+    float p01p = p01 + p11
+    float p11p = p11 + kal_q_v
+    float s    = p00p + kal_r
+    float k0   = p00p / s
+    float k1   = p01p / s
+    float dx   = close - xp
+    kx  := xp + k0 * dx
+    kv  := kv + k1 * dx
+    p00 := (1.0 - k0) * p00p
+    p01 := (1.0 - k0) * p01p
+    p11 := p11p - k1 * p01p
+int kalman_dir = kv > 0.0 ? 1 : -1
+
+// 5b. Donchian midline slope — fallback voter (selectable via input)
+float dch_mid = (ta.highest(high, 20) + ta.lowest(low, 20)) / 2.0
+int   donch_dir = dch_mid > dch_mid[1] ? 1 : -1
+
+// 5th voter — selected by user
+int voter5_dir = voter5_mode == 'Kalman' ? kalman_dir : donch_dir
+
+// Combined direction score (5 voters, range -1.0 to +1.0, buckets at {-1, -0.6, -0.2, +0.2, +0.6, +1})
+float direction_score = (lr_dir + ema_dir + sha_dir + lr_htf_dir + voter5_dir) / 5.0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STRUCTURE VOTERS  →  each normalized 0.0–1.0
+// 3 components: ADX/100, R² of LinReg fit (replaces ER), Chop-inverse
+// R² is more forgiving of volatile-but-trending markets than ER, which over-penalizes pullbacks.
+// ─────────────────────────────────────────────────────────────────────────────
+// ADX as structure score (mirrors Python: adx_score = val_adx / 100)
+[_dip, _dim, adx_val] = ta.dmi(14, 14)
+float adx_score = math.min(adx_val / 100.0, 1.0)
+
+// R² of linear regression fit (replaces Efficiency Ratio)
+// Measures how linear the price path is over the last 50 bars; insensitive to slope magnitude.
+float r_val  = ta.correlation(close, bar_index, 50)
+float r2_val = r_val * r_val   // 0.0–1.0
+
+// Choppiness Index inverted → high chop = low structure
+float ch_atr = math.sum(ta.atr(1), 14)
+float ch_hl  = ta.highest(high, 14) - ta.lowest(low, 14)
+float ch_raw = ch_hl > 0.0 ? 100.0 * math.log10(ch_atr / ch_hl) / math.log10(14.0) : 50.0
+float ch_inv = 1.0 - math.min(ch_raw / 100.0, 1.0)
+
+float structure_score = (adx_score + r2_val + ch_inv) / 3.0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VOLATILITY VOTERS  →  each 0.0–1.0 percentile
+// Approximates Python: val_atr_percentile, val_rv_percentile → volatility_state
+// ─────────────────────────────────────────────────────────────────────────────
+float atr14     = ta.atr(atr_s_len)
+float atr100    = ta.atr(atr_l_len)
+float atr_ratio = atr100 > 0.0 ? atr14 / atr100 : 1.0
+float atr_pct   = ta.percentrank(atr14, 200) / 100.0
+
+float log_ret = math.log(close / close[1])
+float rv_val  = ta.stdev(log_ret, rv_win)
+float rv_pct  = ta.percentrank(rv_val, rv_pct_win) / 100.0
+
+float volatility_score = (atr_pct + rv_pct) / 2.0
+
+string vol_tag = volatility_score < 0.25 ? 'COMPRESSED' : volatility_score < 0.55 ? 'NORMAL' : volatility_score < 0.80 ? 'EXPANDED' : 'EXTREME'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Z-SCORE  (mean-reversion; fixes prior drift-Z formula)
+// Mirrors Python rolling_zscore: (close - rolling_mean) / rolling_std
+// ─────────────────────────────────────────────────────────────────────────────
+float z_mean  = ta.sma(close, z_len)
+float z_std   = ta.stdev(close, z_len)
+float z_score = z_std > 0.0 ? (close - z_mean) / z_std : 0.0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTOCORRELATION  (lag-1 log-return; feeds regime resolver + hazard)
+// Mirrors Python log_return_autocorr
+// ─────────────────────────────────────────────────────────────────────────────
+float autocorr        = ta.correlation(log_ret, log_ret[1], 50)
+bool  is_mean_rev_mkt = autocorr < -0.05
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXTENDED CONTEXT / RESEARCH COMPUTATIONS  (always computed; only displayed if mode allows)
+// ─────────────────────────────────────────────────────────────────────────────
+// VWAP (context)
+float vwap_val = ta.vwap(close)
+
+// Bar Range Ratio — bar_range.py equivalent: current bar HL vs 20-bar mean
+float br_now   = high - low
+float br_avg   = ta.ema(br_now, 20)
+float br_ratio = br_avg > 0.0 ? br_now / br_avg : 1.0
+
+// Autocorr Regime label (research diagnostic — replaced by Hazard flag in core)
+string autocorr_label = autocorr > 0.05 ? 'MOMENTUM' : autocorr < -0.05 ? 'MEAN-REV' : 'NOISE'
+
+// HTF LinReg already computed in direction voters block (lr_htf_val, lr_htf_dir, lr_htf_label)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAW REGIME CLASSIFICATION  (6-state resolver)
+// Mirrors Python resolve_market_regime() thresholds
+// ─────────────────────────────────────────────────────────────────────────────
+float abs_dir = math.abs(direction_score)
+
+// Decompose to intermediate booleans for clarity (and to avoid multi-line ternary)
+// 5-voter buckets: {-1, -0.6, -0.2, +0.2, +0.6, +1}. Threshold 0.55 catches 4/5 + 5/5 supermajority.
+// PROBE during validation: 0.55 vs 0.60 are functionally identical with discrete voters,
+// but kept as 0.55 for now in case continuous voter outputs are introduced later.
+bool  is_trending     = abs_dir >= 0.55
+bool  is_high_struct  = structure_score > 0.6
+bool  is_high_vol     = volatility_score > 0.6
+bool  is_low_vol      = volatility_score < 0.4
+
+string raw_regime = ''
+if is_trending and is_high_struct and is_high_vol
+    raw_regime := 'trend_expansion'
+else if is_trending and is_high_struct and not is_high_vol
+    raw_regime := 'trend_compression'
+else if is_trending and not is_high_struct
+    raw_regime := 'unstable_trend'
+else if not is_trending and is_high_struct and is_mean_rev_mkt
+    raw_regime := 'mean_reversion'
+else if not is_trending and is_low_vol
+    raw_regime := 'range_low_vol'
+else
+    raw_regime := 'range_high_vol'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGIME STABILITY FILTER  (3-bar confirmation, matches Python regime_confirm_bars=3)
+// ─────────────────────────────────────────────────────────────────────────────
+var string stable_regime     = ''
+var string candidate_regime  = ''
+var int    confirm_count     = 0
+var int    regime_age_bars   = 0
+var bool   regime_transition = false
+
+if raw_regime == stable_regime
+    confirm_count     := 0
+    candidate_regime  := raw_regime
+    regime_age_bars   += 1
+    regime_transition := false
+else if raw_regime == candidate_regime
+    confirm_count += 1
+    if confirm_count >= confirm_n
+        stable_regime     := raw_regime
+        confirm_count     := 0
+        regime_age_bars   := 0
+        regime_transition := true
+    else
+        regime_age_bars   += 1
+        regime_transition := false
+else
+    candidate_regime  := raw_regime
+    confirm_count     := 1
+    regime_age_bars   += 1
+    regime_transition := false
+
+string market_regime = stable_regime == '' ? raw_regime : stable_regime
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DERIVED LABELS
+// ─────────────────────────────────────────────────────────────────────────────
+// Trend label — 5-state vote summary
+string trend_label = direction_score >= 0.6 ? 'STRONG UP' : direction_score >= 0.2 ? 'WEAK UP' : direction_score > -0.2 ? 'NEUTRAL' : direction_score > -0.6 ? 'WEAK DOWN' : 'STRONG DOWN'
+
+// Regime stability label — mirrors Python regime_confirm_bars logic
+string stab_label = regime_age_bars < 3 ? 'FRESH' : regime_age_bars < 8 ? 'NEW' : 'STABLE'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STRATEGY SUITABILITY  (0-5 point scoring per type)
+// ─────────────────────────────────────────────────────────────────────────────
+// Trend-Following Fit (thresholds aligned to 5-voter buckets)
+int tf_pts = 0
+tf_pts += abs_dir >= 0.55                                     ? 1 : 0
+tf_pts += structure_score > 0.6                               ? 1 : 0
+tf_pts += volatility_score > 0.25 and volatility_score < 0.80 ? 1 : 0
+tf_pts += math.abs(z_score) < 1.5                             ? 1 : 0
+tf_pts += regime_age_bars > 5                                 ? 1 : 0
+string tf_label = tf_pts >= 4 ? 'HIGH' : tf_pts >= 2 ? 'MED' : 'LOW'
+
+// Mean-Reversion Fit (thresholds aligned to 5-voter buckets)
+int mr_pts = 0
+mr_pts += abs_dir <= 0.2          ? 1 : 0
+mr_pts += math.abs(z_score) > 1.2 ? 1 : 0
+mr_pts += is_mean_rev_mkt         ? 1 : 0
+mr_pts += volatility_score < 0.55 ? 1 : 0
+mr_pts += structure_score < 0.5   ? 1 : 0
+string mr_label = mr_pts >= 4 ? 'HIGH' : mr_pts >= 2 ? 'MED' : 'LOW'
+
+// Breakout Fit (compression → expansion setup)
+float bb_b     = ta.sma(close, 20)
+float bb_width = bb_b > 0.0 ? 4.0 * ta.stdev(close, 20) / bb_b * 100.0 : 0.0
+float bb_pct   = ta.percentrank(bb_width, 200)
+int   bo_pts   = 0
+// Criterion 1 — Compression CONFIRMED (percentile + absolute corroboration).
+//   bb_pct alone saturates to 0 when current bb_width is the 200-bar minimum, which can
+//   produce false positives during mild compression where the lookback window contains
+//   higher-vol bars. Requiring atr_ratio < 0.85 forces non-percentile corroboration —
+//   percentile says "compressed relative to recent past," ratio says "compressed in
+//   absolute terms vs long baseline." Both must agree for the criterion to fire.
+bo_pts += (bb_pct < 30 and atr_ratio < 0.85)   ? 1 : 0
+// Criterion 2 — Volatility contraction persistence (vol regime below baseline).
+//   Looser threshold (< 0.9) than criterion 1; serves a different role — confirms the
+//   broader vol-regime context, not the compression event itself.
+bo_pts += atr_ratio < 0.9                      ? 1 : 0
+// Criterion 3 — Price near equilibrium (not yet broken).
+bo_pts += math.abs(z_score) < 0.8              ? 1 : 0
+// Criterion 4 — Structure improving over smoothed window.
+bo_pts += structure_score > structure_score[5] ? 1 : 0
+string bo_label = bo_pts >= 4 ? 'PRIME' : bo_pts >= 2 ? 'FORMING' : 'LOW'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENVIRONMENT STATE  (Supportive / Neutral / Degrading)
+// ─────────────────────────────────────────────────────────────────────────────
+int env_pts = 0
+env_pts += regime_age_bars >= 8       ? 1 : 0
+env_pts += vol_tag != 'EXTREME'       ? 1 : 0
+env_pts += math.abs(z_score) < 1.5    ? 1 : 0
+env_pts += tf_pts >= 4 or mr_pts >= 4 ? 1 : 0
+string env_label = env_pts >= 3 ? 'SUPPORTIVE' : env_pts >= 2 ? 'NEUTRAL' : 'DEGRADING'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKET HAZARD  (composite instability flag — replaces autocorr in core)
+// ─────────────────────────────────────────────────────────────────────────────
+bool hz_hard = regime_age_bars < 3 or vol_tag == 'EXTREME' or math.abs(z_score) > 2.5
+bool hz_soft_cond = regime_age_bars < 8 or math.abs(z_score) > 1.5 or (math.abs(autocorr) < 0.05 and math.abs(z_score) > 1.2)
+bool hz_soft = not hz_hard and hz_soft_cond
+string hazard_label = hz_hard ? 'HAZARD' : hz_soft ? 'CAUTION' : 'CLEAR'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRADE BIAS RESOLVER  (synthesized summary — no new inputs)
+// Resolves Regime + Direction + Hazard + Fit into one operator-facing bias label.
+//
+// PRIORITY CASCADE (first match wins):
+//   1. HAZARD or range_high_vol → STAND ASIDE                  (hard veto)
+//   2. mean_reversion + MR HIGH → fade biases (Z sign inverted to trade direction)
+//   3. Breakout PRIME           → break biases (Direction = resolution side)
+//   4. trend regimes            → long/short bias (Direction sign = trade side)
+//   5. unstable_trend / leftovers → COIL / UNRESOLVED          (informative ambiguity)
+//
+// NOTE: unstable_trend deliberately routes to ambiguity, NOT stand-aside. The regime
+// label encodes "structure poor under directional pressure" — informative, not vetoed.
+// ─────────────────────────────────────────────────────────────────────────────
+string trade_bias            = ''
+string trade_bias_confidence = 'HIGH'
+
+if hz_hard or market_regime == 'range_high_vol'
+    // Priority 1 — hard veto (HAZARD or range_high_vol only)
+    trade_bias            := 'STAND ASIDE'
+    trade_bias_confidence := 'LOW'
+else if market_regime == 'mean_reversion' and mr_label == 'HIGH'
+    // Priority 2 — Mean-reversion fade. Z sign inverts to trade direction.
+    //   z > 0 (price stretched up)   → fade by shorting → 'FADE SHORT' (trade is short)
+    //   z < 0 (price stretched down) → fade by going long → 'FADE LONG' (trade is long)
+    if z_score > 0.5
+        trade_bias            := 'FADE SHORT'
+        trade_bias_confidence := stab_label == 'STABLE' ? 'HIGH' : 'MED'
+    else if z_score < -0.5
+        trade_bias            := 'FADE LONG'
+        trade_bias_confidence := stab_label == 'STABLE' ? 'HIGH' : 'MED'
+    else
+        trade_bias            := 'COIL / UNRESOLVED'
+        trade_bias_confidence := 'LOW'
+else if bo_label == 'PRIME'
+    // Priority 3 — Breakout PRIME. Direction = expected resolution side.
+    //   |D| >= 0.6 → committed BREAK BIAS (4-5/5 voter agreement)
+    //   |D| < 0.6 (= 0.2 with 5 discrete voters) → BREAK WATCH state
+    //   Inside WATCH, Kalman velocity sign is tiebreaker → WATCH UP / WATCH DOWN
+    //   PRIME is rare; this branch must never fall back to COIL — at minimum produce a watching state.
+    if direction_score >= 0.6
+        trade_bias            := 'UP BREAK BIAS'
+        trade_bias_confidence := 'HIGH'
+    else if direction_score <= -0.6
+        trade_bias            := 'DOWN BREAK BIAS'
+        trade_bias_confidence := 'HIGH'
+    else
+        // BREAK WATCH state — setup confirmed but voter consensus weak
+        if kv > 0.0
+            trade_bias := 'WATCH UP'
+        else if kv < 0.0
+            trade_bias := 'WATCH DOWN'
+        else
+            trade_bias := 'BREAK WATCH'
+        trade_bias_confidence := 'MED'
+else if market_regime == 'trend_expansion' or market_regime == 'trend_compression'
+    // Priority 4 — Trend regime. Direction sign = trade side.
+    if direction_score > 0.0
+        trade_bias            := 'LONG BIAS'
+        trade_bias_confidence := (stab_label == 'STABLE' and tf_label == 'HIGH') ? 'HIGH' : 'MED'
+    else if direction_score < 0.0
+        trade_bias            := 'SHORT BIAS'
+        trade_bias_confidence := (stab_label == 'STABLE' and tf_label == 'HIGH') ? 'HIGH' : 'MED'
+    else
+        trade_bias            := 'COIL / UNRESOLVED'
+        trade_bias_confidence := 'LOW'
+else
+    // Priority 5 — unstable_trend, range_low_vol w/o PRIME, or any leftover
+    trade_bias            := 'COIL / UNRESOLVED'
+    trade_bias_confidence := 'LOW'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLOR GRAMMAR  (light theme — calibrated for white background readability)
+// Fixed semantic meanings — same color = same meaning on every row
+//
+//   Teal-green  (#00897b) = confirmed / favorable / clear
+//   Light teal  (#80cbc4) = mildly positive / soft
+//   Dark amber  (#ef6c00) = caution / transitioning / watch
+//   Red         (#d32f2f) = adverse / extreme / alert
+//   Light red   (#ef9a9a) = mildly negative / soft adverse
+//   Purple      (#8e24aa) = instability / hazard / fresh transition
+//   Mid gray    (#616161) = neutral / normal  ← DEFAULT
+//   Light gray  (#bdbdbd) = not applicable / muted  ← LOW favorability rows
+//
+// Background tinting only for three alert states:
+//   HAZARD / FRESH regime age   → pale lavender bg
+//   DEGRADING / CAUTION warning → pale amber bg
+// ─────────────────────────────────────────────────────────────────────────────
+color C_GREEN  = #00897b
+color C_GDIM   = #80cbc4
+color C_YELLOW = #ef6c00
+color C_RED    = #d32f2f
+color C_RDIM   = #ef9a9a
+color C_PURPLE = #8e24aa
+color C_GRAY   = #616161
+color C_DIMGRY = #bdbdbd
+color C_LABEL  = #212121   // dark gray for label-column text on white
+
+color BG_NORM  = #ffffff
+color BG_ALERT = #f3e5f5   // pale lavender — purple-family tint
+color BG_WARN  = #fff3e0   // pale amber  — caution-family tint
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLOR RESOLVER FUNCTIONS  (single-line bodies — no continuation issues)
+// ─────────────────────────────────────────────────────────────────────────────
+col_fit(string lbl) => (lbl == 'HIGH' or lbl == 'PRIME') ? C_GREEN : (lbl == 'MED' or lbl == 'FORMING') ? C_YELLOW : C_DIMGRY
+
+col_regime(string r) => r == 'trend_expansion' ? C_GREEN : r == 'trend_compression' ? C_GDIM : r == 'unstable_trend' ? C_YELLOW : r == 'mean_reversion' ? C_GRAY : r == 'range_low_vol' ? C_DIMGRY : r == 'range_high_vol' ? C_YELLOW : C_GRAY
+
+col_trend(string tl) => tl == 'STRONG UP' ? C_GREEN : tl == 'WEAK UP' ? C_GDIM : tl == 'NEUTRAL' ? C_GRAY : tl == 'WEAK DOWN' ? C_RDIM : C_RED
+
+col_dir(float d) => d > 0.4 ? C_GREEN : d > 0.0 ? C_GDIM : d > -0.4 ? C_RDIM : C_RED
+
+col_struct(float s) => s > 0.6 ? C_GREEN : s > 0.35 ? C_GRAY : C_YELLOW
+
+col_vol_score(float v) => v < 0.25 ? C_YELLOW : v < 0.80 ? C_GREEN : C_RED
+
+col_vol_tag(string tag) => tag == 'COMPRESSED' ? C_YELLOW : tag == 'NORMAL' ? C_GREEN : tag == 'EXPANDED' ? C_GDIM : C_RED
+
+col_atr_ratio(float r) => r > 1.3 ? C_RED : r > 1.05 ? C_YELLOW : C_GREEN
+
+col_z(float z) => math.abs(z) > 2.5 ? C_RED : math.abs(z) > 1.5 ? C_YELLOW : C_GRAY
+
+col_env(string e) => e == 'SUPPORTIVE' ? C_GREEN : e == 'NEUTRAL' ? C_GRAY : C_RED
+
+col_age(string stab) => stab == 'STABLE' ? C_GREEN : stab == 'NEW' ? C_YELLOW : C_PURPLE
+
+col_hazard(string h) => h == 'CLEAR' ? C_GREEN : h == 'CAUTION' ? C_YELLOW : C_PURPLE
+
+// Trade Bias resolver — label routed first:
+//   STAND ASIDE → red, COIL → gray informational, WATCH states → yellow (PRIME-gated watching)
+// then confidence determines green/yellow/dim for active bias labels
+col_trade_bias(string lbl, string conf) => lbl == 'STAND ASIDE' ? C_RED : lbl == 'COIL / UNRESOLVED' ? C_GRAY : (lbl == 'BREAK WATCH' or lbl == 'WATCH UP' or lbl == 'WATCH DOWN') ? C_YELLOW : conf == 'HIGH' ? C_GREEN : conf == 'MED' ? C_YELLOW : C_DIMGRY
+
+// Extended-mode resolvers
+col_autocorr(string a) => a == 'MOMENTUM' ? C_GREEN : a == 'MEAN-REV' ? C_GDIM : C_DIMGRY
+col_transition(bool tr) => tr ? C_PURPLE : C_GRAY
+col_above(float price, float ref) => price > ref ? C_GREEN : C_RDIM
+col_adx_raw(float v) => v >= 25 ? C_GREEN : v >= 20 ? C_YELLOW : C_GRAY
+col_chop_raw(float v) => v >= 61.8 ? C_YELLOW : v <= 38.2 ? C_GREEN : C_GRAY
+col_bbw(float v) => v < 30 ? C_YELLOW : v > 70 ? C_GDIM : C_GRAY
+col_rv_pct(float v) => v < 0.25 ? C_YELLOW : v > 0.80 ? C_RED : C_GREEN
+col_br_ratio(float v) => v > 1.5 ? C_YELLOW : v < 0.7 ? C_GDIM : C_GRAY
+col_er_raw(float v) => v > 0.4 ? C_GREEN : v < 0.2 ? C_DIMGRY : C_GRAY
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TABLE
+// ─────────────────────────────────────────────────────────────────────────────
+// Table sized to max possible rows (Full Research mode):
+//   1 header + 15 core + 1 divider + 5 context + 1 divider + 7 research = 30
+var table t = table.new(position.top_right, 2, 30, bgcolor=color.white, border_color=color.new(#bdbdbd, 0), border_width=1, frame_color=color.new(#9e9e9e, 0), frame_width=1)
+
+// Cell setter — multi-statement function body keeps its structure (this is correct Pine)
+row_set(int r, string lbl, string val, color vcol, color bg) =>
+    table.cell(t, 0, r, lbl, text_color=C_LABEL, text_size=size.small, bgcolor=#fafafa)
+    table.cell(t, 1, r, val, text_color=vcol, text_size=size.small, bgcolor=bg)
+
+// Conditional row — populated only if `show` is true; otherwise rendered as blank white
+// (Pine table cells persist; explicit blanking is required to keep mode toggling clean)
+row_cond(int r, bool show, string lbl, string val, color vcol, color bg) =>
+    if show
+        table.cell(t, 0, r, lbl, text_color=C_LABEL, text_size=size.small, bgcolor=#fafafa)
+        table.cell(t, 1, r, val, text_color=vcol, text_size=size.small, bgcolor=bg)
+    else
+        table.cell(t, 0, r, '', bgcolor=color.white)
+        table.cell(t, 1, r, '', bgcolor=color.white)
+
+// Section divider — small label spanning the row, slightly tinted bg
+row_section(int r, bool show, string title) =>
+    if show
+        table.cell(t, 0, r, title, text_color=C_LABEL, text_size=size.tiny, bgcolor=#eeeeee)
+        table.cell(t, 1, r, '',    bgcolor=#eeeeee)
+    else
+        table.cell(t, 0, r, '', bgcolor=color.white)
+        table.cell(t, 1, r, '', bgcolor=color.white)
+
+// ── Header row ────────────────────────────────────────────────────────────────
+table.cell(t, 0, 0, 'State', text_color=C_LABEL, bgcolor=#e0e0e0, text_size=size.small)
+table.cell(t, 1, 0, 'Value', text_color=C_LABEL, bgcolor=#e0e0e0, text_size=size.small)
+
+// ── Regime Core (rows 1–6) ────────────────────────────────────────────────────
+row_set(1, 'Market Regime', market_regime, col_regime(market_regime), BG_NORM)
+row_set(2, 'Trend Label',   trend_label,   col_trend(trend_label),    BG_NORM)
+row_set(3, 'Direction',     str.tostring(direction_score, '#.##'),  col_dir(direction_score),       BG_NORM)
+
+// Trade Bias (row 4) — synthesized summary; sits between Direction and Structure.
+// Background tint:
+//   lavender (BG_ALERT)  → STAND ASIDE or active HAZARD
+//   amber    (BG_WARN)   → WATCH states (PRIME-gated, side not yet committed)
+//   white    (BG_NORM)   → all other states
+bool tb_is_watch = trade_bias == 'BREAK WATCH' or trade_bias == 'WATCH UP' or trade_bias == 'WATCH DOWN'
+color tb_bg = (trade_bias == 'STAND ASIDE' or hz_hard) ? BG_ALERT : tb_is_watch ? BG_WARN : BG_NORM
+row_set(4, 'Trade Bias',    trade_bias, col_trade_bias(trade_bias, trade_bias_confidence), tb_bg)
+
+row_set(5, 'Structure',     str.tostring(structure_score, '#.##'),  col_struct(structure_score),    BG_NORM)
+row_set(6, 'Volatility',    str.tostring(volatility_score, '#.##'), col_vol_score(volatility_score), BG_NORM)
+
+// ── Vol & Stretch (rows 7–9) ──────────────────────────────────────────────────
+row_set(7, 'Vol Regime',       vol_tag,                          col_vol_tag(vol_tag),        BG_NORM)
+row_set(8, 'ATR Ratio 14/100', str.tostring(atr_ratio, '#.##'),  col_atr_ratio(atr_ratio),    BG_NORM)
+row_set(9, 'Z-Score',          str.tostring(z_score,   '#.##'),  col_z(z_score),              BG_NORM)
+
+// ── Strategy Suitability (rows 10–12)  — LOW renders as dim gray, not red ─────
+row_set(10, 'TF Fit',       tf_label, col_fit(tf_label), BG_NORM)
+row_set(11, 'MR Fit',       mr_label, col_fit(mr_label), BG_NORM)
+row_set(12, 'Breakout Fit', bo_label, col_fit(bo_label), BG_NORM)
+
+// ── Trade Qualification (rows 13–15) ─────────────────────────────────────────
+color env_bg = env_label == 'DEGRADING' ? BG_WARN : BG_NORM
+row_set(13, 'Environment', env_label, col_env(env_label), env_bg)
+
+color age_bg = stab_label == 'FRESH' ? BG_ALERT : BG_NORM
+string age_display = str.tostring(regime_age_bars) + ' bars / ' + stab_label
+row_set(14, 'Regime Age', age_display, col_age(stab_label), age_bg)
+
+color hz_bg = hz_hard ? BG_ALERT : hz_soft ? BG_WARN : BG_NORM
+row_set(15, 'Market Hazard', hazard_label, col_hazard(hazard_label), hz_bg)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXTENDED ROWS  (rendered only when display mode allows)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Context section divider (row 16) ─────────────────────────────────────────
+row_section(16, show_context, '── CONTEXT LAYER ──')
+
+// ── Context rows (17–21) ─────────────────────────────────────────────────────
+row_cond(17, show_context, 'VWAP',         str.tostring(vwap_val, '#.##'), col_above(close, vwap_val), BG_NORM)
+row_cond(18, show_context, 'EMA 20',       str.tostring(ema_val,  '#.##'), col_above(close, ema_val),  BG_NORM)
+row_cond(19, show_context, 'ADX',          str.tostring(adx_val,  '#.##'), col_adx_raw(adx_val),       BG_NORM)
+row_cond(20, show_context, 'Chop Index',   str.tostring(ch_raw,   '#.##'), col_chop_raw(ch_raw),       BG_NORM)
+row_cond(21, show_context, 'BB Width %',   str.tostring(bb_pct,   '#.#'),  col_bbw(bb_pct),            BG_NORM)
+
+// ── Research section divider (row 22) ────────────────────────────────────────
+row_section(22, show_research, '── RESEARCH LAYER ──')
+
+// ── Research rows (23–29) ────────────────────────────────────────────────────
+string htf_row_label = 'LinReg HTF (' + htf_resolved + ')'
+string kv_display    = str.tostring(kv, '#.######')   // small magnitude — show enough decimals to read sign + scale
+
+row_cond(23, show_research, 'RV %ile',          str.tostring(rv_pct * 100, '#.#'),  col_rv_pct(rv_pct),     BG_NORM)
+row_cond(24, show_research, 'Bar Range Ratio',  str.tostring(br_ratio, '#.##'),     col_br_ratio(br_ratio), BG_NORM)
+row_cond(25, show_research, 'R² (LinReg)',      str.tostring(r2_val,   '#.##'),     col_er_raw(r2_val),     BG_NORM)
+row_cond(26, show_research, 'Autocorr',         autocorr_label,                     col_autocorr(autocorr_label), BG_NORM)
+row_cond(27, show_research, htf_row_label,      lr_htf_label,                       lr_htf_dir > 0 ? C_GREEN : C_RED, BG_NORM)
+row_cond(28, show_research, 'Kalman Velocity',  kv_display,                         kv > 0.0 ? C_GREEN : C_RED, BG_NORM)
+
+color trans_bg = regime_transition ? BG_ALERT : BG_NORM
+row_cond(29, show_research, 'Regime Transition', regime_transition ? 'YES' : 'no',  col_transition(regime_transition), trans_bg)
