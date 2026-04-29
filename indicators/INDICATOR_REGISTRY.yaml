@@ -240,6 +240,49 @@ indicators:
     warmup: period
     input_columns:
     - close
+  rsi_smoothed:
+    module_path: indicators.momentum.rsi_smoothed
+    category: momentum
+    function_name: rsi_smoothed
+    classification: Momentum
+    input_requirements:
+    - series: pd.Series of prices (typically close)
+    parameters:
+      period: int — RSI period (default 2 — Connors fast-RSI convention)
+      smoothing: int — SMA window applied to RSI (default 3 — averages T, T-1, T-2)
+    default_parameters:
+      period: 2
+      smoothing: 3
+    output_type: Series
+    output_columns:
+    - rsi_smoothed: float — SMA-smoothed RSI value (0–100 scale)
+    output_scale: 0-100
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators:
+    - rsi
+    typical_use_case: 'Momentum confirmation gate for trend-following strategies.
+      Loose threshold (e.g. >35 for long entries) catches only severely-against-direction
+      momentum without requiring strong confirmation. Used in flip-style strategies
+      to reject "long against decisively bearish momentum" tail.
+
+      '
+    notes: 'SMA(3) of RSI(2) dampens single-bar oscillator jitter while preserving
+      fast response. Built on top of indicators.momentum.rsi (Wilder''s smoothing).
+      Output scale invariant guard: raises RuntimeError if max value exceeds 100.0001.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Medium
+    lookback: period + smoothing
+    warmup: period + smoothing
+    input_columns:
+    - close
   ultimate_c_percent:
     module_path: indicators.momentum.ultimate_c_percent
     category: momentum
@@ -1669,23 +1712,110 @@ indicators:
     input_columns:
     - time
     - close
+  hurst_rs:
+    module_path: indicators.trend.hurst_rs
+    category: trend
+    function_name: hurst_rs
+    classification: Regime
+    input_requirements:
+    - series: pd.Series of prices (typically close)
+    parameters:
+      window: int — rolling R/S analysis window in bars (default 100)
+    default_parameters:
+      window: 100
+    output_type: Series
+    output_columns:
+    - hurst: float — R/S Hurst exponent (typical range 0.0-1.0)
+    output_scale: 0.0-1.0 (typical, theoretical 0-1)
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: false
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Faithful Pine v1.2 R/S Hurst port. Used as a regime persistence
+      gate where threshold > 0.5 captures trending regimes, < 0.5 captures
+      mean-reverting. Different from hurst_regime (lag-variance scaling) - R/S
+      and lag-variance produce different absolute Hurst values for the same data.
+      Use this module when calibrating against a Pine R/S baseline.
+
+      '
+    notes: 'Algorithm: log returns -> rolling window -> mean -> cumulative deviation
+      -> R (range) / S (std) -> log(R/S) / log(N). Population std (ddof=0) matches
+      Pine. Returns 0.5 (neutral) for warmup, NaN windows, or numerical edge cases.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Medium
+      risk_of_overfitting: Medium
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
+  adx_wilder:
+    module_path: indicators.structure.adx_wilder
+    category: structure
+    function_name: adx_wilder
+    classification: Trend
+    input_requirements:
+    - high: pd.Series of high prices
+    - low: pd.Series of low prices
+    - close: pd.Series of close prices
+    parameters:
+      period: int — lookback period (default 14, Wilder standard)
+    default_parameters:
+      period: 14
+    output_type: Series
+    output_columns:
+    - adx_wilder: float — ADX value (0-100 scale, higher = stronger trend)
+    output_scale: 0-100
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Faithful Pine ta.adx() / ta.dmi() port using Wilder RMA
+      smoothing (alpha = 1/period). Use for trend-strength gating with thresholds
+      calibrated against Pine baselines (typically 15-25 for "trending"). Different
+      from indicators.structure.adx which uses EMA span (alpha = 2/(n+1)) and
+      requires higher thresholds to achieve same selectivity.
+
+      '
+    notes: 'Wilder''s RMA reacts ~2x slower than EMA span at the same period.
+      Pine "ADX > 15" (Wilder''s) is roughly equivalent to EMA-ADX "ADX > 20-25"
+      on the same data. All four smoothing steps (TR, +DM, -DM, ADX) use
+      Wilder''s. min_periods=period for clean warmup.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Medium
+    lookback: period
+    warmup: period
+    input_columns:
+    - high
+    - low
+    - close
 registry_summary:
-  total_indicators: 42
+  total_indicators: 45
   by_category:
-    momentum_count: 6
-    trend_count: 4
+    momentum_count: 7
+    trend_count: 5
     volatility_count: 5
-    regime_count: 9
-    structure_count: 8
+    regime_count: 10
+    structure_count: 9
     composite_count: 3
     statistical_count: 4
     macro_count: 2
     price_pattern_count: 1
-  intraday_ready: 42
-  daily_ready: 40
-  htf_ready: 39
-  lookahead_safe: 42
-  vectorized: 35
-  files_validated: 42
+  intraday_ready: 45
+  daily_ready: 43
+  htf_ready: 42
+  lookahead_safe: 45
+  vectorized: 37
+  files_validated: 45
   validation_status: PASS
   governance_status: PASS
