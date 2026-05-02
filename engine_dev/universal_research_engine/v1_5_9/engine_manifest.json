@@ -1,0 +1,43 @@
+{
+    "engine_name": "Universal_Research_Engine",
+    "engine_version": "v1_5_9",
+    "engine_status": "EXPERIMENTAL",
+    "vaulted": false,
+    "freeze_date": null,
+    "contract_id": "sha256:680e8c0014b58e76550da0326601402c498fb376dbf17fc69c027e7e95465df8",
+    "predecessor": "v1_5_8 (EXPERIMENTAL 2026-04-23)",
+    "spike_purpose": "Extract per-bar block from v1.5.8 run_execution_loop into standalone evaluate_bar() callable to enable shared signal-generation between research and live runtimes without re-implementation. Mechanical lift only — no logic changes.",
+    "adds": [
+        "evaluate_bar.py: standalone per-bar evaluator (lifted body of v1.5.8 for-loop)",
+        "BarState dataclass: cross-bar mutable state (was outer-scope locals in v1.5.8)",
+        "EngineConfig dataclass: resolved STRATEGY_SIGNATURE config (was inline setup in v1.5.8)",
+        "resolve_engine_config(): config resolver function (was inline lines 215-256 in v1.5.8)",
+        "finalize_force_close(): end-of-data force-close handler (was inline lines 646-694 in v1.5.8)"
+    ],
+    "removes": [],
+    "logic_changes": [],
+    "invariants": [
+        "Byte-identical output to v1.5.8 for every strategy on identical input data",
+        "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
+        "Partial guard: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001",
+        "Stop mutation is monotone: long tightens up only, short tightens down only; silent reject otherwise",
+        "Entry market state initial_stop_price is FROZEN; stop_price_active is live-mutable",
+        "All v1.5.8 invariants inherited unchanged"
+    ],
+    "spike_acceptance_test": {
+        "method": "Run identical historical bar set through v1.5.8 and v1.5.9; diff outputs.",
+        "strategies": [
+            "33_TREND_BTCUSD_1H_IMPULSE_S03_V1_P02 (sanity)",
+            "62_TREND_IDX_5M_KALFLIP_S01_V2_P15 (hardest)",
+            "27_MR_XAUUSD_1H_PINBAR_S01_V1_P05 (cross-archetype)"
+        ],
+        "diff_targets": ["signals.jsonl", "trades.csv", "ledger.csv"],
+        "tolerance": "ZERO. Diff must return zero output."
+    },
+    "capabilities": [
+        "execution.entry.v1",
+        "execution.exit.v1",
+        "execution.partial_exit.v1",
+        "execution.intrabar_ur.v1"
+    ]
+}
