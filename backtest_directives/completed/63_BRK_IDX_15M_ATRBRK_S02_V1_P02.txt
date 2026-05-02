@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_15M_ATRBRK_S02_V1_P02
+  family: BRK
+  strategy: 63_BRK_IDX_15M_ATRBRK_S02_V1_P02
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-05-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S02 V1 P02 -- N-sweep test: Donchian window N=9 (vs N=13 baseline in P00/P01). Pine source defaults to length=13 but the input is user-configurable; testing tighter channel to see if faster signal extraction beats the noise penalty on OctaFX 15M index data. Baselines on same symbols: P00 (N=13, ATR 2.5x) NAS100 PF 1.14, JPN225 PF 1.05, combined PF 1.13. P01 (N=13, ATR 10x Pine-parity) NAS100 PF 1.10, JPN225 PF 1.07, combined PF 1.10. Both FAIL-BOTH on PF >= 1.20. Hypothesis: a smaller N captures earlier news-driven breakouts (where the edge clearly concentrates -- News PF 5.47 vs Outside PF 0.74 in P01) at the cost of more whipsaw entries. Decision gate: PF >= 1.20 AND SQN >= 2.0 AND Max DD <= 30% on EACH symbol. Comparison axis: trade count, per-symbol PF, news-window PF concentration."
+  description: "BRK IDX 15M Donchian N=9 (sweep), intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop. NAS100 + JPN225. Engine v1.5.8."
+  notes: "P02 = N=9 sweep on top of P01 Pine-parity baseline. Comparison: P00 (N=13, 2.5x SL), P01 (N=13, 10x SL), P02 (N=9, 10x SL). All other parameters identical."
+
+symbols:
+  - NAS100
+  - JPN225
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

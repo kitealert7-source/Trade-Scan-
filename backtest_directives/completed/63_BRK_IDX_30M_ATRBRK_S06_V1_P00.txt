@@ -1,0 +1,65 @@
+test:
+  name: 63_BRK_IDX_30M_ATRBRK_S06_V1_P00
+  family: BRK
+  strategy: 63_BRK_IDX_30M_ATRBRK_S06_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-04-30"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S06 V1 P00 -- ESP35 cross-market addition to S05 5-index transport test. TradingView testing on user's side showed promise for ESP35; running it here on OctaFX 30M to verify against the same logic baseline as S05. S05 results recap: 2/5 transport (NAS100 PF 1.22, GER40 PF 1.22 winners; JPN225 1.06 / EUSTX50 1.05 flat; UK100 0.83 negative). The two winners are both tech/cyclical high-beta indices. ESP35 (IBEX 35) is heavily banking + telecom (BBVA, Santander, Telefonica) -- defensive composition, more like UK100 than GER40. If ESP35 PASSES (PF >= 1.10), it would falsify the 'tech-only' hypothesis and broaden the edge profile. If it FAILS, it would reinforce that the edge concentrates on growth-tilted indices. ESP35 is also in 02_VOL_IDX_1D_VOLEXP active portfolio per RESEARCH_MEMORY.md. Logic byte-identical to S04/S05: intrabar Donchian N=13, reverse-only exits, ATR 10x safety stop, long+short, no filters."
+  description: "BRK IDX 30M Donchian N=13, intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop. Cross-market transport adds ESP35: NAS100 + JPN225 + GER40 + UK100 + EUSTX50 + ESP35. Engine v1.5.8."
+  notes: "S06 = S05 + ESP35 (TradingView indicated promise). Composition test: ESP35 is defensive (banks + telecom). PASS would broaden edge profile beyond growth-tech indices."
+
+symbols:
+  - NAS100
+  - JPN225
+  - GER40
+  - UK100
+  - EUSTX50
+  - ESP35
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

@@ -476,3 +476,11 @@ ideas:
     role: trend_carrier
     instruments: NAS100
     status: active
+  '63':
+    family: BRK
+    title: "Donchian Channel Breakout -- N-bar highest-high / lowest-low channel (N=13, shift=1), close-confirmation entry (gap-aware stop-order equivalent), reverse-only exit on opposite channel breach, ATR(14) 2.5x safety stop. Pine ChannelBreakOutStrategy port. Cross-asset genesis on NAS100 + JPN225 15M."
+    class: structure_logic
+    regime: trend
+    role: entry_edge
+    instruments: IDX
+    status: active

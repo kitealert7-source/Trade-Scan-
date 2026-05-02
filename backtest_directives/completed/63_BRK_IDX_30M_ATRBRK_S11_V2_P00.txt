@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_30M_ATRBRK_S11_V2_P00
+  family: BRK
+  strategy: 63_BRK_IDX_30M_ATRBRK_S11_V2_P00
+  version: 1
+  signal_version: 5
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-04-30"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S11 V2 P00 -- Long-only architectural variant on confirmed growth-cluster (NAS100 + GER40, 30M, N=13). S07 robustness REJECTED on Top-5%-removal gate (PF collapses to 0.66 if top 93 trades removed). Hypothesis: short side dilutes the edge density. S11 V2 strips the short side entirely (direction_restriction: long_only) -- all other config byte-identical to S07. V token bumped to V2 to signal architectural change (not just parameter sweep). S07 sub-data: long PF 1.38 ($1,818 net on 959 trades), long x High Vol cell PF 1.77. PASS-criterion: same robustness gate as S07 (Top-5% removal PF >= 1.0). PASS qualifies long-only variant for promotion. FAIL means top-5% concentration is structural to the long side too, and we move to S12 (long-only + high-vol filter)."
+  description: "BRK IDX 30M Donchian N=13, LONG-ONLY (V2), intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop. NAS100 + GER40. Engine v1.5.8."
+  notes: "S11 V2 = S07 + long-only filter. Direction restriction is the only logic delta. V token bumped to V2 for architectural change. Tests whether long-only concentration passes the Top-5% robustness gate where S07 (long+short) failed."
+
+symbols:
+  - NAS100
+  - GER40
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

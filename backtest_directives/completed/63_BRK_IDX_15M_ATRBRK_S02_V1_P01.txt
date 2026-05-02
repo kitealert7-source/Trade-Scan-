@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_15M_ATRBRK_S02_V1_P01
+  family: BRK
+  strategy: 63_BRK_IDX_15M_ATRBRK_S02_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-05-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S02 V1 P01 -- Pine-parity Donchian Channel Breakout. P00 ran with ATR(14) 2.5x safety stop and produced 1369 SL exits (28.6% of trades, avg -1.04R) while TP exits averaged +3.03R -- the safety stop was truncating winners. P01 widens the ATR stop to 10x, effectively disabling it (engine still requires a stop, but 10 ATR is rarely hit on 15M index data). This brings the engine into parity with the Pine source (TS_Pine/pine_strategies/ChannelBreakOutStrategy.txt) which has NO stop_loss, NO take_profit, NO time exit -- only auto-reverse via strategy.entry() stop orders on both sides. P00 baseline: NAS100 PF 1.14, JPN225 PF 1.05, combined PF 1.13 (FAIL-BOTH on PF >= 1.20). Hypothesis: removing premature SL allows winners to run to opposite-channel reversal, raising PF. Decision gate: PF >= 1.20 AND SQN >= 2.0 AND Max DD <= 30% on EACH symbol. PASS-BOTH -> N-sweep + direction split + session filter. PASS-ONE -> expand to AUS200/GER40/UK100. FAIL-BOTH -> long-only filter (P00 long PF 1.28 vs short PF 1.00)."
+  description: "BRK IDX 15M Donchian N=13, intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop (effectively disabled, Pine parity). NAS100 + JPN225. Engine v1.5.8."
+  notes: "Pine-parity rerun of P00 with safety stop widened from 2.5 ATR to 10 ATR. Pine source has no stop at all; engine requires one so 10x is the effective-disable proxy. If passes gate: (1) N-sweep {8,13,20,34}; (2) direction split (long-only on NAS100); (3) session filter; (4) vol regime gate."
+
+symbols:
+  - NAS100
+  - JPN225
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

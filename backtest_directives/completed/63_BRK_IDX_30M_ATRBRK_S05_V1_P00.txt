@@ -1,0 +1,64 @@
+test:
+  name: 63_BRK_IDX_30M_ATRBRK_S05_V1_P00
+  family: BRK
+  strategy: 63_BRK_IDX_30M_ATRBRK_S05_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-04-30"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S05 V1 P00 -- Cross-market transport test on 30M Pine-parity baseline (clone of S04). S04 (NAS100 + JPN225 only) showed combined PF 1.18 with NAS100 hitting PF 1.20 and Top-5 concentration 49.6% — qualifying for downstream extension. S05 expands to 5 indices to test whether the 30M Donchian breakout edge transports across markets. Symbol additions: GER40, UK100, EUSTX50 (all OctaFX 30M, all clean data through 2026). Logic byte-identical to S04: intrabar Donchian N=13, reverse-only exits, ATR(14) 10x effective-disable stop, long+short, no filters, no sessions, no news gates. Objective: cross-market transport test, NOT optimization. Success criterion: per-symbol PF >= 1.10 on 3+ of 5 markets (50%+ transport rate) with combined Top-5 < 60% confirms structural edge. Per-symbol PF distribution and outliers will inform whether the edge is general or NAS100-specific."
+  description: "BRK IDX 30M Donchian N=13, intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop. Cross-market transport: NAS100 + JPN225 + GER40 + UK100 + EUSTX50. Engine v1.5.8."
+  notes: "S05 = cross-market clone of S04 30M. Adds GER40, UK100, EUSTX50 to NAS100/JPN225. Byte-identical config except symbol list. No filters, no direction cuts. Decision: 3+/5 PF>=1.10 -> structural edge confirmed."
+
+symbols:
+  - NAS100
+  - JPN225
+  - GER40
+  - UK100
+  - EUSTX50
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

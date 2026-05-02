@@ -2376,21 +2376,6 @@ ideas:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
             signature_hash: 9a3825ab1135faa0
             signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
-            reserved_at_utc: '2026-04-29T07:52:19.646161+00:00'
-          P06:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
-            signature_hash: 5885751ec1142fbd
-            signature_hash_full: 5885751ec1142fbdc93cc3b5e70a8d3ea2bd9f9798b251c0aef5f5338facd6a6
-            reserved_at_utc: '2026-04-29T07:52:42.997576+00:00'
-          P06:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
-            signature_hash: 5885751ec1142fbd
-            signature_hash_full: 5885751ec1142fbdc93cc3b5e70a8d3ea2bd9f9798b251c0aef5f5338facd6a6
-            reserved_at_utc: '2026-04-29T07:53:13.085807+00:00'
-          P06:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
-            signature_hash: 9a3825ab1135faa0
-            signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
             reserved_at_utc: '2026-04-29T07:53:51.459884+00:00'
           P07:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P07
@@ -2406,37 +2391,12 @@ ideas:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
             signature_hash: 02e38d1fe2a436fc
             signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
-            reserved_at_utc: '2026-04-29T08:26:53.204059+00:00'
-          P10:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P10
-            signature_hash: 75f8984c329c5dc8
-            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
-            reserved_at_utc: '2026-04-29T08:26:54.637226+00:00'
+            reserved_at_utc: '2026-04-29T08:34:12.671295+00:00'
           P10:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P10
             signature_hash: 75f8984c329c5dc8
             signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
             reserved_at_utc: '2026-04-29T08:27:19.355056+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 75f8984c329c5dc8
-            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
-            reserved_at_utc: '2026-04-29T08:31:16.124680+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 75f8984c329c5dc8
-            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
-            reserved_at_utc: '2026-04-29T08:33:41.086203+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 02e38d1fe2a436fc
-            signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
-            reserved_at_utc: '2026-04-29T08:34:00.658245+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 02e38d1fe2a436fc
-            signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
-            reserved_at_utc: '2026-04-29T08:34:12.671295+00:00'
           P11:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P11
             signature_hash: 940fb6b4ac9bab08
@@ -2467,4 +2427,88 @@ ideas:
             signature_hash: 10c01b04e411d5da
             signature_hash_full: 10c01b04e411d5dab1c175f14ec7e8348b7c7f8211b2aca08fa091f82f4cee44
             reserved_at_utc: '2026-04-29T09:22:57.748244+00:00'
+          P17:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P17
+            signature_hash: 30547d69cfd7a14b
+            signature_hash_full: 30547d69cfd7a14b43778bb679ba82711d8567222f32aee5eaffddf108e25729
+            reserved_at_utc: '2026-04-29T14:59:42.054319+00:00'
+          P18:
+            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P18
+            signature_hash: 01868b5436cb8cdd
+            signature_hash_full: 01868b5436cb8cddf56cf703e294690caef952c2bde39192a80f683a0b1c14be
+            reserved_at_utc: '2026-04-30T02:21:08.164753+00:00'
         attempt: 2
+  '63':
+    next_sweep: 9
+    sweeps:
+      S01:
+        directive_name: 63_BRK_IDX_15M_ATRBRK_S01_V1_P00
+        signature_hash: 8b550ebfddd9afff
+        reserved_at_utc: '2026-05-02T12:31:17.584365+00:00'
+        signature_hash_full: 8b550ebfddd9afff71c28b9394fbe604f4969834e1d23610be349f25def02577
+      S02:
+        directive_name: 63_BRK_IDX_15M_ATRBRK_S02_V1_P00
+        signature_hash: cca2e626e73bca0c
+        reserved_at_utc: '2026-05-02T12:51:04.004228+00:00'
+        signature_hash_full: cca2e626e73bca0c5d0c74c175c17836b7185bb9d00faa5ba7461df85c26a5be
+        patches:
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S09_V1_P00
+            signature_hash: f18735b136c56eff
+            signature_hash_full: f18735b136c56eff7c8c77f4a0dd62cb9f71997019ecb0459ca0b16441ef4cf8
+            reserved_at_utc: '2026-05-02T14:25:41.230782+00:00'
+          P01:
+            directive_name: 63_BRK_IDX_15M_ATRBRK_S02_V1_P01
+            signature_hash: 4bdd2d44807c67ea
+            signature_hash_full: 4bdd2d44807c67eae41ea671287bff34250a17b3c83ba036410cb8ed65a103c6
+            reserved_at_utc: '2026-05-02T13:16:34.645400+00:00'
+          P02:
+            directive_name: 63_BRK_IDX_15M_ATRBRK_S02_V1_P02
+            signature_hash: f6ac4721049809b6
+            signature_hash_full: f6ac4721049809b684ab1ae644e1100e50b9aa1d281a95da6fb525fb5f45cf8e
+            reserved_at_utc: '2026-05-02T13:31:27.668417+00:00'
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S10_V1_P00
+            signature_hash: 377124198853b4e6
+            signature_hash_full: 377124198853b4e6d8b8cc6036dfef82195ef9c909b6e90461d28da0f79deead
+            reserved_at_utc: '2026-05-02T14:35:01.563683+00:00'
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S11_V1_P00
+            signature_hash: c513f48b4d6c5c06
+            signature_hash_full: c513f48b4d6c5c0658cc3cee5ad58f51b70bc3e8085aa539c50b90d65b692d1a
+            reserved_at_utc: '2026-05-02T14:47:08.417583+00:00'
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S11_V2_P00
+            signature_hash: 35917052d098e400
+            signature_hash_full: 35917052d098e4004ab7b022be8131390b53906570789efa43ab2859f106661d
+            reserved_at_utc: '2026-05-02T14:50:07.024491+00:00'
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S11_V2_P00
+            signature_hash: 35917052d098e400
+            signature_hash_full: 35917052d098e4004ab7b022be8131390b53906570789efa43ab2859f106661d
+            reserved_at_utc: '2026-05-02T14:51:01.548175+00:00'
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S12_V2_P00
+            signature_hash: e78a1473429e2d53
+            signature_hash_full: e78a1473429e2d536dcb641f40a1a03d04e97e8fe9508942d51a4d0ccc4f9353
+            reserved_at_utc: '2026-05-02T15:00:16.152599+00:00'
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S13_V2_P00
+            signature_hash: 833b2c19bc32b8ea
+            signature_hash_full: 833b2c19bc32b8eacd09733a05b9b9a6df4ea2012a49f7ae60e71b09ce97351d
+            reserved_at_utc: '2026-05-02T15:12:42.687711+00:00'
+          P00:
+            directive_name: 63_BRK_IDX_30M_ATRBRK_S13_V2_P00
+            signature_hash: 833b2c19bc32b8ea
+            signature_hash_full: 833b2c19bc32b8eacd09733a05b9b9a6df4ea2012a49f7ae60e71b09ce97351d
+            reserved_at_utc: '2026-05-02T15:12:56.872589+00:00'
+      S03:
+        directive_name: 63_BRK_IDX_5M_ATRBRK_S03_V1_P00
+        signature_hash: 4bdd2d44807c67ea
+        reserved_at_utc: '2026-05-02T13:47:09.606408+00:00'
+        signature_hash_full: 4bdd2d44807c67eae41ea671287bff34250a17b3c83ba036410cb8ed65a103c6
+      S08:
+        directive_name: 63_BRK_IDX_30M_ATRBRK_S08_V1_P00
+        signature_hash: f6ac4721049809b6
+        reserved_at_utc: '2026-05-02T14:25:52.146879+00:00'
+        signature_hash_full: f6ac4721049809b684ab1ae644e1100e50b9aa1d281a95da6fb525fb5f45cf8e

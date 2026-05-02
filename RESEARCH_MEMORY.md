@@ -518,3 +518,49 @@ nas100_5m
 loose_threshold_principle
 order_2_rejected
 session_filter_subadditive
+2026-05-02
+Tags:
+workflow
+methodology
+per-symbol-research
+decomposition-discipline
+multi-symbol-aggregation-bias
+
+Strategy: 63_BRK_IDX_30M_ATRBRK_S07-S12 series
+Run IDs: 0fbca8cf990bb30dbfd3119e, 56ab1736171d9ec2084ee049, 33882bb3a2a66caee7f4ed4e, 7add7c9da329e1fad8b175f9, 43474c416f4f693019c22017, baa4d8ed04f1a744cac1e970
+
+Finding:
+Multi-symbol baskets in research masked per-symbol heterogeneity. S12 V2 combined PF 1.34 hid that NAS100 alone was PF 1.55 while GER40 had degraded to PF 1.07; S07 aggregate short PF 1.07 hid that 2 of 5 short trend cells were structurally profitable (Short x WeakDown PF 1.53, Short x StrongDown PF 1.35) -- those cells were destroyed when blanket long-only filter was applied in S11 V2.
+
+Evidence:
+S12 V2: NAS100 PF 1.55 / 303 trades vs GER40 PF 1.07 / 178 trades; combined PF 1.34. S07 short side: 2 of 5 trend cells profitable (PF 1.35-1.53), aggregate short PF 1.07 hid them.
+
+Conclusion:
+Aggregate metrics (PF, Sharpe, top-5%) on multi-symbol or aggregated direction populations average over heterogeneous sub-populations. Filter decisions made on aggregates strip working cells alongside losing ones. Robustness gates run on combined trades cannot reveal which symbol carries the edge or which direction-cell pairs work.
+
+Implication:
+Workflow rule: Test ONE symbol at a time in research. Multi-symbol baskets are for DEPLOYMENT (per Multi-Symbol Deployment Contract), not hypothesis testing. Direction filters must be evaluated per-cell (Direction x Vol x Trend), not at aggregate Long/Short level. Per-symbol robustness must precede multi-symbol promotion. Sequence: single-symbol baseline -> per-cell decomposition -> aggregate only proven cells -> per-symbol robustness gate -> portfolio composition.
+2026-05-02
+Tags:
+kill-record
+donchian-breakout
+news-event-only
+robustness-reject
+kalflip-precedent-not-applicable
+architectural-null
+idea-63-parked
+
+Strategy: 63_BRK family parked: 15M/5M/30M ATRBRK on NAS100/JPN225/GER40/UK100/ESP35/EUSTX50, all variants S00-S13
+Run IDs: 0fbca8cf990bb30dbfd3119e, 56ab1736171d9ec2084ee049, 33882bb3a2a66caee7f4ed4e, 7add7c9da329e1fad8b175f9, 43474c416f4f693019c22017, baa4d8ed04f1a744cac1e970, 3290130654b3179087aabddf
+
+Finding:
+Idea 63 (Donchian Channel Breakout, Pine port) is structurally a news-event detector on OctaFX index data, not a continuous-edge breakout strategy. Outside news windows the strategy loses money on every variant tested (S07 outside-news PF 0.74, S11 V2 long-only 0.93, S12 V2 long+highvol 0.86, S13 V2 NAS100-alone 0.56). Filters (long-only, high-vol regime) successfully concentrated the edge cell and improved the Top-5%-removal robustness gate from 0.66 -> 0.78 -> 0.85, but never crossed the 1.0 threshold. Per-symbol research discipline (S13 V2 NAS100-alone) confirmed the structural news-event dependency is intrinsic to NAS100 signal, not an artifact of multi-symbol aggregation -- in fact GER40 was mildly diversifying the tail damage in the basket.
+
+Evidence:
+Donchian S13 V2 NAS100-alone: News PF 4.83 vs Outside PF 0.56 (Outside loses 2208 USD over 28mo). KALFLIP P15 (override precedent): News PF 3.50 vs Outside PF 1.11 (continuous edge intact).
+
+Conclusion:
+The edge mechanism is breakout direction selection during forced volatility expansion (news releases). Without that exogenous shock, the channel breakout signal has negative expectancy on these markets at this timeframe. KALFLIP-style --skip-quality-gate override is not justified here: KALFLIP had a positive outside-news baseline (PF 1.11) so news amplified an existing edge; Donchian has no baseline edge (PF 0.56) so news IS the edge. A news-feed disruption would convert KALFLIP from PF 1.27 to ~1.11 (degradation) but would convert Donchian from PF 1.22 to ~0.56 (catastrophic). Confirmed across 4 robustness runs (S07, S11 V2, S12 V2, S13 V2).
+
+Implication:
+Park family 63_BRK_IDX_*_ATRBRK across all timeframes (5M, 15M, 30M) and symbols. Do not retest classical Donchian channel breakout on OctaFX index data. Future work in this thread must explicitly frame as a news-window strategy (tag NEWSBRK or similar), declare the news-feed dependency upfront, and validate the news-calendar is a stable production input before any promotion attempt. Confirmed structurally distinct from KALFLIP precedent: --skip-quality-gate requires positive outside-news PF >= 1.0 as documented precondition, not just event-driven. Workflow rule reaffirmed: per-symbol research discipline is mandatory; multi-symbol aggregation hides per-symbol heterogeneity (S12 V2 NAS100 PF 1.55 vs GER40 PF 1.07 within combined 1.34).

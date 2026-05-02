@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_15M_ATRBRK_S02_V1_P00
+  family: BRK
+  strategy: 63_BRK_IDX_15M_ATRBRK_S02_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-05-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S02 V1 P00 -- Genesis run for Donchian Channel Breakout family on NAS100 + JPN225 15M. S01 V1 was blocked by EXPERIMENT_DISCIPLINE after a signal patch (close-confirmation to intrabar high/low). S02 is the actual genesis baseline with the correct intrabar entry implementation. Pine ChannelBreakOutStrategy port: upper bound = highest_high(high, N=13, shift=1), lower bound = lowest_low(low, N=13, shift=1). Entry: intrabar breakout -- long when high[t] > up_bound[t], short when low[t] < down_bound[t]; fill at open[t+1]. Mirrors Pine stop order: strategy.entry('ChBrkLE', strategy.long, stop=upBound+tick). Exit: reverse-only -- long exits when low[t] < down_bound[t], short exits when high[t] > up_bound[t]. No time cap. ATR(14) 2.5x safety stop. No filters, no regime gate. OctaFX data (spread embedded). Decision gate: PF >= 1.20 AND SQN >= 2.0 AND Max DD <= 30% on EACH symbol. PASS-BOTH -> IDX candidate pool, probe N-sweep + direction split + session filter. PASS-ONE -> asset-specific, expand to AUS200/GER40/UK100. FAIL-BOTH -> try long-only or vol-regime filter."
+  description: "BRK IDX 15M Donchian N=13, intrabar high/low entry (Pine stop-order equivalent), reverse-only exit, ATR(14) 2.5x safety stop. NAS100 + JPN225. Engine v1.5.8."
+  notes: "Genesis run for idea 63 BRK family. Uses high > up_bound / low < down_bound to mirror Pine stop-order trigger exactly. If passes gate: (1) N-sweep {8,13,20,34}; (2) direction split (NAS100 structural long bias); (3) session filter (exclude Asia/overnight); (4) vol regime gate."
+
+symbols:
+  - NAS100
+  - JPN225
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

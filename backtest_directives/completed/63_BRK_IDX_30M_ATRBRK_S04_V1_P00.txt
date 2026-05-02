@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_30M_ATRBRK_S04_V1_P00
+  family: BRK
+  strategy: 63_BRK_IDX_30M_ATRBRK_S04_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-05-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S04 V1 P00 -- Timeframe transport probe (30M variant of P01 Pine-parity baseline). Identical logic to 63_BRK_IDX_15M_ATRBRK_S02_V1_P01: intrabar Donchian N=13, reverse-only exits, ATR(14) 10x effective-disable stop, no filters, no direction cuts, no session/news gates. Only timeframe metadata and data source TF differ. Objective: structural edge discovery via timeframe transport, NOT edge extraction. P01 baseline (15M): NAS100 PF 1.10, JPN225 PF 1.07, combined PF 1.10. Success criterion for this probe: PF improvement over 1.10 with stable/lower DD AND Top-5 trade concentration < 60% qualifies for downstream N-sweep {9,13,20}. If both 5M (S03) and 30M remain weak, timeframe transport is not the issue and we move to directional decomposition."
+  description: "BRK IDX 30M Donchian N=13, intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop (Pine parity). NAS100 + JPN225. Engine v1.5.8. Timeframe transport probe."
+  notes: "30M variant of P01 (15M baseline). Byte-identical config except timeframe field and data source TF. NO additional filters/cuts/sweeps. Decision: PF > 1.10 + DD stable + top-5 < 60% -> qualifies for N-sweep."
+
+symbols:
+  - NAS100
+  - JPN225
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

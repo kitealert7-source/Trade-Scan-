@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_30M_ATRBRK_S12_V2_P00
+  family: BRK
+  strategy: 63_BRK_IDX_30M_ATRBRK_S12_V2_P00
+  version: 1
+  signal_version: 6
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-04-30"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S12 V2 P00 -- Long-only + high-vol regime filter on growth-cluster (NAS100 + GER40, 30M, N=13). Stacks on top of S11 V2 (long-only): S11 V2 robustness improved most metrics (PF 1.32, SQN 2.22, Sharpe 1.43, t=3.03 Harvey-grade) but still REJECTED on Top-5% removal gate (PF 0.78 < 1.0 threshold). Hypothesis: long-only concentrated the right population, but the sub-population is still bloated with low-edge trades; restricting to high-volatility regime only should isolate the dense edge cell. S07 long x High Vol cell PF was 1.77 vs combined long PF 1.38. Filter implementation: reads ctx.get('volatility_regime') and admits entries only when regime == 1 (high), per MEMORY.md encoding (-1=low, 0=normal, 1=high). Engine populates volatility_regime in ctx via regime_state_machine. PASS-criterion: PF After Top-5% Removal >= 1.0 (the gate that killed S07 and S11). Other config byte-identical to S11 V2: long-only, NAS100+GER40, N=13, ATR 10x safety stop, no news filter, no session filter, no further symbol changes. PASS = candidate for promotion. FAIL means the strategy IS news-event-driven structurally and pivots to deliberate news-window framing or KALFLIP-style override."
+  description: "BRK IDX 30M Donchian N=13, LONG-ONLY + HIGH-VOL (V2), intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop. NAS100 + GER40. Engine v1.5.8."
+  notes: "S12 V2 = S11 V2 (long-only) + ctx-level volatility_regime==1 gate in check_entry. Vol filter is the only delta vs S11. signal_version bumped to 6 for the new filter logic."
+
+symbols:
+  - NAS100
+  - GER40
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_30M_ATRBRK_S07_V1_P00
+  family: BRK
+  strategy: 63_BRK_IDX_30M_ATRBRK_S07_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-04-30"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S07 V1 P00 -- Growth-cluster confirmation. Six-symbol cross-market sweep (S05/S06) revealed clean composition pattern: tech/growth indices NAS100 + GER40 both hit PF 1.22 while defensive indices UK100 (PF 0.83) and ESP35 (PF 0.97) lost money, and diversified Asian/EU indices JPN225 + EUSTX50 stayed flat (PF 1.05-1.06). S07 isolates the 2-symbol growth cluster (NAS100 + GER40) to confirm whether the edge holds independently when the dilution from defensive/flat markets is removed. Logic byte-identical to S04/S05/S06: intrabar Donchian N=13, reverse-only exits, ATR(14) 10x effective-disable stop, long+short, no filters, no sessions, no news gates. Objective: composition-cluster confirmation, NOT optimization. Success criterion: combined PF >= 1.20 AND both per-symbol PF >= 1.20 (matches S05 individual results) AND Top-5 < 60% AND DD < 0.50%. PASS qualifies the 2-symbol growth-cluster as a tradeable composite, opens path to N-sweep on this composition. FAIL would mean S05's PF 1.22 on each symbol was not stable in isolation."
+  description: "BRK IDX 30M Donchian N=13, intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop. Growth-cluster confirmation: NAS100 + GER40. Engine v1.5.8."
+  notes: "S07 = 2-symbol composition cluster (NAS100 + GER40). All other config identical to S05/S06. No filters. Decision: combined PF>=1.20 + both individual PF>=1.20 -> growth-cluster composite confirmed."
+
+symbols:
+  - NAS100
+  - GER40
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

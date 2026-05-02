@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_30M_ATRBRK_S10_V1_P00
+  family: BRK
+  strategy: 63_BRK_IDX_30M_ATRBRK_S10_V1_P00
+  version: 1
+  signal_version: 4
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-04-30"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S10 V1 P00 -- N=11 plateau refinement on confirmed growth-cluster (NAS100 + GER40, 30M). Bracketed between S08 (N=9, PASS: PF 1.18, Top-5 44.7%, DD 0.35%) and S07 (N=13, peak: PF 1.22, Top-5 39.7%, DD 0.36%). S09 (N=20) FAILED on Top-5 72.2% concentration spike. S10 tests whether N in [9,11,13] forms a true bilateral micro-plateau, satisfying parameter-stability discipline for promotion despite the N=20 failure. PASS-criterion: PF >= 1.15, DD < 0.50%, Top-5 < 60%. PASS qualifies S07 N=13 for robustness/promotion track. FAIL would confirm N=13 as a sharp peak (not a plateau) and the strategy stays in research."
+  description: "BRK IDX 30M Donchian N=11 (plateau probe vs N=13 S07 baseline), intrabar high/low entry, reverse-only exit, ATR(14) 10x safety stop. NAS100 + GER40. Engine v1.5.8."
+  notes: "S10 = N=11 sweep on S07 growth-cluster composite. Plateau refinement between S08 (N=9 PASS) and S07 (N=13 peak). signal_version bumped to 4."
+
+symbols:
+  - NAS100
+  - GER40
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 10.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
