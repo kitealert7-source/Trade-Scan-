@@ -748,5 +748,374 @@ class TestCaching(unittest.TestCase):
         self.assertIsNone(r2)
 
 
+# =====================================================================
+# 11. Extended classifier — pre/post/overlap + impact + currency tags
+# =====================================================================
+
+class TestExtendedClassifier(unittest.TestCase):
+
+    def _make_windows_by_ccy_meta(self, events: list[tuple]) -> dict:
+        """Build windows_by_currency from (event_dt, pre, post, ccy, impact)."""
+        from tools.news_calendar import group_windows_by_currency
+        rows = []
+        for ev_str, pre_min, post_min, ccy, impact in events:
+            ev = pd.Timestamp(ev_str, tz='UTC')
+            rows.append({
+                'window_start': ev - pd.Timedelta(minutes=pre_min),
+                'window_end': ev + pd.Timedelta(minutes=post_min),
+                'currency': ccy, 'event': 'E', 'impact': impact,
+                'datetime_utc': ev,
+            })
+        return group_windows_by_currency(pd.DataFrame(rows))
+
+    def _make_classified(self, trades, wbc, sym_ccys):
+        from tools.report.report_news_policy import (
+            _classify_all_trades_news_extended,
+        )
+        df = _make_trades_df(trades)
+        df['_entry_dt'] = pd.to_datetime(df['entry_timestamp'], utc=True)
+        df['_exit_dt'] = pd.to_datetime(df['exit_timestamp'], utc=True)
+        return df, _classify_all_trades_news_extended(df, wbc, sym_ccys)
+
+    def test_pre_only_classification(self):
+        """Trade fully before event_dt within pre-window → news_pre_only."""
+        wbc = self._make_windows_by_ccy_meta([
+            ('2024-01-05 13:30:00', 30, 30, 'USD', 'High'),
+        ])
+        df, tags = self._make_classified([{
+            'entry_timestamp': '2024-01-05 13:05:00+00:00',
+            'exit_timestamp': '2024-01-05 13:20:00+00:00',
+            'symbol': 'XAUUSD',
+        }], wbc, {'XAUUSD': ['USD']})
+        self.assertTrue(tags['news_flag'].iloc[0])
+        self.assertTrue(tags['news_pre_only'].iloc[0])
+        self.assertFalse(tags['news_post_only'].iloc[0])
+        self.assertFalse(tags['news_overlap'].iloc[0])
+
+    def test_post_only_classification(self):
+        """Trade fully after event_dt within post-window → news_post_only."""
+        wbc = self._make_windows_by_ccy_meta([
+            ('2024-01-05 13:30:00', 30, 30, 'USD', 'High'),
+        ])
+        df, tags = self._make_classified([{
+            'entry_timestamp': '2024-01-05 13:35:00+00:00',
+            'exit_timestamp': '2024-01-05 13:55:00+00:00',
+            'symbol': 'XAUUSD',
+        }], wbc, {'XAUUSD': ['USD']})
+        self.assertTrue(tags['news_flag'].iloc[0])
+        self.assertFalse(tags['news_pre_only'].iloc[0])
+        self.assertTrue(tags['news_post_only'].iloc[0])
+        self.assertFalse(tags['news_overlap'].iloc[0])
+
+    def test_overlap_straddles_event_dt(self):
+        """Trade straddling event_dt → news_overlap."""
+        wbc = self._make_windows_by_ccy_meta([
+            ('2024-01-05 13:30:00', 30, 30, 'USD', 'High'),
+        ])
+        df, tags = self._make_classified([{
+            'entry_timestamp': '2024-01-05 13:20:00+00:00',
+            'exit_timestamp': '2024-01-05 13:40:00+00:00',
+            'symbol': 'XAUUSD',
+        }], wbc, {'XAUUSD': ['USD']})
+        self.assertTrue(tags['news_flag'].iloc[0])
+        self.assertTrue(tags['news_overlap'].iloc[0])
+        self.assertFalse(tags['news_pre_only'].iloc[0])
+        self.assertFalse(tags['news_post_only'].iloc[0])
+
+    def test_buckets_mutually_exclusive(self):
+        """For any news-flagged trade, exactly one of pre/post/overlap is True."""
+        wbc = self._make_windows_by_ccy_meta([
+            ('2024-01-05 13:30:00', 30, 30, 'USD', 'High'),
+        ])
+        df, tags = self._make_classified([
+            {'entry_timestamp': '2024-01-05 13:05:00+00:00',
+             'exit_timestamp': '2024-01-05 13:25:00+00:00',
+             'symbol': 'XAUUSD'},  # pre only
+            {'entry_timestamp': '2024-01-05 13:32:00+00:00',
+             'exit_timestamp': '2024-01-05 13:55:00+00:00',
+             'symbol': 'XAUUSD'},  # post only
+            {'entry_timestamp': '2024-01-05 13:25:00+00:00',
+             'exit_timestamp': '2024-01-05 13:40:00+00:00',
+             'symbol': 'XAUUSD'},  # overlap
+        ], wbc, {'XAUUSD': ['USD']})
+        flagged = tags['news_flag']
+        for i in df.index:
+            if not flagged.iloc[i]:
+                continue
+            count = int(tags['news_pre_only'].iloc[i]) \
+                + int(tags['news_post_only'].iloc[i]) \
+                + int(tags['news_overlap'].iloc[i])
+            self.assertEqual(count, 1, f"Row {i} bucket count = {count}")
+
+    def test_matched_impact_recorded(self):
+        """Classifier records impact label of matched windows per trade."""
+        wbc = self._make_windows_by_ccy_meta([
+            ('2024-01-05 13:30:00', 30, 30, 'USD', 'High'),
+        ])
+        df, tags = self._make_classified([{
+            'entry_timestamp': '2024-01-05 13:35:00+00:00',
+            'exit_timestamp': '2024-01-05 13:50:00+00:00',
+            'symbol': 'XAUUSD',
+        }], wbc, {'XAUUSD': ['USD']})
+        self.assertEqual(tags['matched_impact'].iloc[0], 'High')
+
+    def test_matched_currencies_multi(self):
+        """Multi-currency symbol matching multiple events records both currencies."""
+        wbc = self._make_windows_by_ccy_meta([
+            ('2024-01-05 13:30:00', 30, 30, 'USD', 'High'),
+            ('2024-01-05 13:35:00', 30, 30, 'EUR', 'Medium'),
+        ])
+        df, tags = self._make_classified([{
+            'entry_timestamp': '2024-01-05 13:32:00+00:00',
+            'exit_timestamp': '2024-01-05 13:50:00+00:00',
+            'symbol': 'EURUSD',
+        }], wbc, {'EURUSD': ['EUR', 'USD']})
+        self.assertTrue(tags['news_flag'].iloc[0])
+        self.assertEqual(
+            sorted(tags['matched_currencies'].iloc[0].split(',')),
+            ['EUR', 'USD']
+        )
+        self.assertEqual(
+            sorted(tags['matched_impact'].iloc[0].split(',')),
+            ['High', 'Medium']
+        )
+
+    def test_legacy_tuple_wrapper_still_works(self):
+        """The legacy 4-tuple `_classify_all_trades_news` keeps its contract."""
+        from tools.report.report_news_policy import _classify_all_trades_news
+        wbc = self._make_windows_by_ccy_meta([
+            ('2024-01-05 13:30:00', 15, 15, 'USD', 'High'),
+        ])
+        df = _make_trades_df([{
+            'entry_timestamp': '2024-01-05 13:35:00+00:00',
+            'exit_timestamp': '2024-01-05 14:00:00+00:00',
+            'symbol': 'XAUUSD',
+        }])
+        df['_entry_dt'] = pd.to_datetime(df['entry_timestamp'], utc=True)
+        df['_exit_dt'] = pd.to_datetime(df['exit_timestamp'], utc=True)
+        nf, eiw, strad, ews = _classify_all_trades_news(
+            df, wbc, {'XAUUSD': ['USD']}
+        )
+        self.assertTrue(nf.iloc[0])
+        self.assertTrue(eiw.iloc[0])
+
+
+# =====================================================================
+# 12. News-subset robustness metrics
+# =====================================================================
+
+class TestNewsRobustness(unittest.TestCase):
+
+    def test_empty_subset(self):
+        from tools.report.report_news_policy import _compute_news_robustness
+        df = pd.DataFrame({'pnl_usd': [], '_entry_dt': pd.to_datetime([])})
+        m = _compute_news_robustness(df)
+        self.assertEqual(m['trades'], 0)
+        self.assertEqual(m['pf'], 0.0)
+        self.assertEqual(m['top5_pct'], 0.0)
+        self.assertEqual(m['longest_flat_days'], 0)
+
+    def test_basic_top5_concentration(self):
+        from tools.report.report_news_policy import _compute_news_robustness
+        df = pd.DataFrame({
+            'pnl_usd': [100, 100, 100, 100, 100, 1, 1, 1, 1, 1],
+            '_entry_dt': pd.to_datetime([f'2024-01-{i:02d}'
+                                          for i in range(1, 11)], utc=True),
+        })
+        m = _compute_news_robustness(df)
+        # Top 5 contribute 500/505 = ~99% of net
+        self.assertGreater(m['top5_pct'], 95)
+        self.assertEqual(m['trades'], 10)
+
+    def test_pf_after_top5pct_removal(self):
+        from tools.report.report_news_policy import _compute_news_robustness
+        # 20 wins of $5, 1 monster win of $1000, 10 losses of -$10
+        pnls = [5.0]*20 + [1000.0] + [-10.0]*10
+        df = pd.DataFrame({
+            'pnl_usd': pnls,
+            '_entry_dt': pd.to_datetime([f'2024-01-{i:02d}'
+                                          for i in range(1, 32)][:31], utc=True),
+        })
+        m = _compute_news_robustness(df)
+        # Removing top-5% of 21 wins = 1 win = the $1000 monster
+        # Remaining: 20 wins of $5 = $100 vs 10 losses = $100 → PF ≈ 1.0
+        self.assertLess(m['pf_ex_top5pct'], m['pf'])
+
+    def test_yearwise_split(self):
+        from tools.report.report_news_policy import _compute_news_yearwise
+        df = pd.DataFrame({
+            'pnl_usd': [10, 20, -5, 30, -10],
+            '_entry_dt': pd.to_datetime([
+                '2024-01-01', '2024-06-01',
+                '2025-01-01', '2025-06-01', '2025-12-01',
+            ], utc=True),
+        })
+        rows = _compute_news_yearwise(df)
+        self.assertEqual(len(rows), 2)
+        years = [r['year'] for r in rows]
+        self.assertEqual(years, [2024, 2025])
+
+
+# =====================================================================
+# 13. Impact-slice windows
+# =====================================================================
+
+class TestImpactSlicing(unittest.TestCase):
+
+    def test_single_impact_slice(self):
+        from tools.report.report_news_policy import _build_impact_slice_windows
+        wdf = pd.DataFrame({
+            'window_start': pd.to_datetime([
+                '2024-01-05 13:15', '2024-01-05 14:45',
+            ], utc=True),
+            'window_end': pd.to_datetime([
+                '2024-01-05 13:45', '2024-01-05 15:15',
+            ], utc=True),
+            'currency': ['USD', 'USD'],
+            'impact': ['High', 'Medium'],
+            'event': ['NFP', 'ISM'],
+            'datetime_utc': pd.to_datetime([
+                '2024-01-05 13:30', '2024-01-05 15:00',
+            ], utc=True),
+        })
+        sub, by_ccy = _build_impact_slice_windows(wdf, 'High')
+        self.assertEqual(len(sub), 1)
+        self.assertEqual(sub.iloc[0]['impact'], 'High')
+
+    def test_union_impact_slice(self):
+        from tools.report.report_news_policy import _build_impact_slice_windows
+        wdf = pd.DataFrame({
+            'window_start': pd.to_datetime([
+                '2024-01-05 13:15', '2024-01-05 14:45', '2024-01-05 16:00',
+            ], utc=True),
+            'window_end': pd.to_datetime([
+                '2024-01-05 13:45', '2024-01-05 15:15', '2024-01-05 16:30',
+            ], utc=True),
+            'currency': ['USD', 'USD', 'USD'],
+            'impact': ['High', 'Medium', 'Low'],
+            'event': ['NFP', 'ISM', 'Misc'],
+            'datetime_utc': pd.to_datetime([
+                '2024-01-05 13:30', '2024-01-05 15:00', '2024-01-05 16:15',
+            ], utc=True),
+        })
+        sub, _ = _build_impact_slice_windows(wdf, 'High+Medium')
+        self.assertEqual(len(sub), 2)
+        self.assertEqual(set(sub['impact']), {'High', 'Medium'})
+
+    def test_empty_slice(self):
+        from tools.report.report_news_policy import _build_impact_slice_windows
+        wdf = pd.DataFrame({
+            'window_start': pd.to_datetime(['2024-01-05 13:15'], utc=True),
+            'window_end': pd.to_datetime(['2024-01-05 13:45'], utc=True),
+            'currency': ['USD'], 'impact': ['Medium'],
+            'event': ['ISM'], 'datetime_utc': pd.to_datetime(['2024-01-05 13:30'], utc=True),
+        })
+        sub, by_ccy = _build_impact_slice_windows(wdf, 'High')
+        self.assertEqual(len(sub), 0)
+        self.assertEqual(by_ccy, {})
+
+
+# =====================================================================
+# 14. Section-builder kwargs and byte-stability
+# =====================================================================
+
+class TestSectionBuilderExtended(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.cal_dir = self.tmpdir / "research_calendar"
+        self.cal_dir.mkdir()
+        _CALENDAR_CACHE.clear()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        _CALENDAR_CACHE.clear()
+
+    def _setup_calendar_and_trades(self):
+        _make_research_csv(self.cal_dir / "cal.csv", [
+            "2024-01-05 13:30:00,USD,High,NFP,ForexFactory",
+            "2024-01-08 13:30:00,USD,Medium,ISM,ForexFactory",
+        ])
+        trades = []
+        for i in range(15):
+            day = f'2024-01-{i+1:02d}'
+            trades.append({
+                'entry_timestamp': f'{day} 13:25:00+00:00',
+                'exit_timestamp': f'{day} 13:50:00+00:00',
+                'pnl_usd': 10.0 if i % 2 == 0 else -5.0,
+                'symbol': 'XAUUSD',
+                'entry_price': 2000.0,
+                'exit_price': 2010.0 if i % 2 == 0 else 1995.0,
+                'direction': 1,
+                'r_multiple': 1.0 if i % 2 == 0 else -0.5,
+            })
+        return _make_trades_df(trades)
+
+    def test_default_kwargs_byte_stable(self):
+        """Default kwargs produce identical output to no-kwargs call."""
+        df = self._setup_calendar_and_trades()
+        md_a = _build_news_policy_section(
+            [df], "1h", self.tmpdir, self.cal_dir
+        )
+        _CALENDAR_CACHE.clear()
+        md_b = _build_news_policy_section(
+            [df], "1h", self.tmpdir, self.cal_dir,
+            pre_window_minutes=15, post_window_minutes=15,
+            impact_filter="High",
+        )
+        self.assertEqual(md_a, md_b)
+
+    def test_extended_metrics_emits_new_sections(self):
+        df = self._setup_calendar_and_trades()
+        md = _build_news_policy_section(
+            [df], "1h", self.tmpdir, self.cal_dir,
+            extended_metrics=True,
+        )
+        text = "\n".join(md)
+        self.assertIn("Extended News Research", text)
+        self.assertIn("News Pre vs Post-Event Split", text)
+        self.assertIn("Per-Impact Breakdown", text)
+        self.assertIn("Per-Currency Breakdown", text)
+        self.assertIn("News-Subset Robustness Metrics", text)
+
+    def test_extended_metrics_off_produces_legacy_only(self):
+        df = self._setup_calendar_and_trades()
+        md = _build_news_policy_section(
+            [df], "1h", self.tmpdir, self.cal_dir,
+        )
+        text = "\n".join(md)
+        self.assertNotIn("Extended News Research", text)
+        self.assertNotIn("News Pre vs Post-Event Split", text)
+        self.assertNotIn("Per-Impact Breakdown", text)
+        self.assertNotIn("News-Subset Robustness Metrics", text)
+
+    def test_impact_sweep_emits_comparison(self):
+        df = self._setup_calendar_and_trades()
+        md = _build_news_policy_section(
+            [df], "1h", self.tmpdir, self.cal_dir,
+            impact_sweep=["High", "High+Medium", "Medium"],
+        )
+        text = "\n".join(md)
+        self.assertIn("Impact Sweep", text)
+        self.assertIn("| High |", text)
+        self.assertIn("| High+Medium |", text)
+        self.assertIn("| Medium |", text)
+
+    def test_asymmetric_window_threading(self):
+        """Asymmetric pre/post threading reaches the loader (cache key changes)."""
+        df = self._setup_calendar_and_trades()
+        _CALENDAR_CACHE.clear()
+        _build_news_policy_section(
+            [df], "1h", self.tmpdir, self.cal_dir,
+            pre_window_minutes=5, post_window_minutes=60,
+        )
+        # Cache should have an entry keyed with (5, 60, 'High')
+        keys = list(_CALENDAR_CACHE.keys())
+        self.assertTrue(
+            any(k[1] == 5 and k[2] == 60 for k in keys),
+            f"Expected (pre=5, post=60) cache key, got {keys}"
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -77,67 +77,142 @@ def _news_pf(series):
 def _classify_all_trades_news(df, windows_by_currency, symbol_currencies):
     """Classify every trade's relationship to news windows.
 
-    For each symbol, collects all relevant currency windows, then uses
-    vectorised numpy comparisons per trade for speed.
-
+    Backward-compatible 4-tuple wrapper around the extended classifier.
     Returns four Series aligned to *df.index*:
       news_flag, entry_in_window, straddles, earliest_window_start
     """
-    n = len(df)
-    news_flag = pd.Series(False, index=df.index)
-    entry_in_window = pd.Series(False, index=df.index)
-    straddles = pd.Series(False, index=df.index)
-    earliest_ws = pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns, UTC]')
+    out = _classify_all_trades_news_extended(
+        df, windows_by_currency, symbol_currencies
+    )
+    return out['news_flag'], out['entry_in_window'], out['straddles'], out['earliest_ws']
+
+
+def _classify_all_trades_news_extended(df, windows_by_currency, symbol_currencies):
+    """Extended classifier — emits pre/post/overlap split + impact + currency tags.
+
+    Window geometry per matching event:
+      pre region  = [window_start, event_dt)
+      post region = [event_dt, window_end]
+
+    Per-trade buckets (mutually exclusive when news_flag is True):
+      news_overlap   — at least one matched window has trade entry < event_dt
+                       < exit (trade straddles the event timestamp itself), OR
+                       trade touches both pre region of one event AND post region
+                       of a different event.
+      news_pre_only  — trade touches at least one window AND for every matched
+                       window, exit <= event_dt (entirely before each event).
+      news_post_only — trade touches at least one window AND for every matched
+                       window, entry >= event_dt (entirely after each event).
+
+    Returns dict of pd.Series aligned to *df.index*:
+      news_flag, entry_in_window, straddles, earliest_ws,
+      news_pre_only, news_post_only, news_overlap,
+      matched_impact, matched_currencies, match_count
+    """
+    out = {
+        'news_flag': pd.Series(False, index=df.index),
+        'entry_in_window': pd.Series(False, index=df.index),
+        'straddles': pd.Series(False, index=df.index),
+        'earliest_ws': pd.Series(pd.NaT, index=df.index, dtype='datetime64[ns, UTC]'),
+        'news_pre_only': pd.Series(False, index=df.index),
+        'news_post_only': pd.Series(False, index=df.index),
+        'news_overlap': pd.Series(False, index=df.index),
+        'matched_impact': pd.Series('', index=df.index, dtype=object),
+        'matched_currencies': pd.Series('', index=df.index, dtype=object),
+        'match_count': pd.Series(0, index=df.index, dtype=int),
+    }
 
     for sym in df['symbol'].dropna().unique():
         sym_str = str(sym)
         ccys = symbol_currencies.get(sym_str, ['USD'])
 
-        # Collect all windows for this symbol's currencies, deduplicate
-        pairs_set: set = set()
+        # Collect windows with full metadata, dedup on (ws, we, event_dt, impact, ccy)
+        rec_set: set = set()
         for ccy in ccys:
             wdf = windows_by_currency.get(ccy)
-            if wdf is not None and len(wdf) > 0:
+            if wdf is None or len(wdf) == 0:
+                continue
+            req = ['window_start', 'window_end', 'datetime_utc',
+                   'impact', 'currency']
+            if not all(c in wdf.columns for c in req):
+                # Fallback: minimal window-only records (impact/ccy unknown).
                 for ws, we in zip(wdf['window_start'], wdf['window_end']):
-                    pairs_set.add((ws, we))
+                    rec_set.add((ws, we, ws, '', ccy))
+                continue
+            for _, row in wdf.iterrows():
+                rec_set.add((
+                    row['window_start'], row['window_end'],
+                    row['datetime_utc'], str(row['impact']),
+                    str(row['currency']),
+                ))
 
-        if not pairs_set:
+        if not rec_set:
             continue
 
-        pairs = sorted(pairs_set, key=lambda x: x[0])
-        ws_arr = pd.DatetimeIndex([p[0] for p in pairs])
-        we_arr = pd.DatetimeIndex([p[1] for p in pairs])
-        # Ensure tz-aware (UTC) for comparison with trade timestamps
+        recs = sorted(rec_set, key=lambda x: x[0])
+        ws_arr = pd.DatetimeIndex([r[0] for r in recs])
+        we_arr = pd.DatetimeIndex([r[1] for r in recs])
+        ev_arr = pd.DatetimeIndex([r[2] for r in recs])
+        impacts = [r[3] for r in recs]
+        ccys_arr = [r[4] for r in recs]
+
         if ws_arr.tz is None:
             ws_arr = ws_arr.tz_localize('UTC')
             we_arr = we_arr.tz_localize('UTC')
+            ev_arr = ev_arr.tz_localize('UTC')
 
         sym_mask = df['symbol'] == sym
-        sym_df = df.loc[sym_mask]
-
-        for idx in sym_df.index:
+        for idx in df.index[sym_mask]:
             entry = df.at[idx, '_entry_dt']
             exit_ = df.at[idx, '_exit_dt']
 
-            # Vectorised overlap: entry <= window_end AND exit > window_start
+            # Overlap = trade interval intersects window interval
             overlap = (entry <= we_arr) & (exit_ > ws_arr)
             if not overlap.any():
                 continue
 
-            news_flag.at[idx] = True
+            out['news_flag'].at[idx] = True
+            mc = int(overlap.sum())
+            out['match_count'].at[idx] = mc
 
-            # Entry in window: window_start <= entry <= window_end
+            uniq_imp = sorted({impacts[i] for i in range(len(recs))
+                               if overlap[i] and impacts[i]})
+            uniq_ccy = sorted({ccys_arr[i] for i in range(len(recs))
+                               if overlap[i]})
+            out['matched_impact'].at[idx] = ','.join(uniq_imp)
+            out['matched_currencies'].at[idx] = ','.join(uniq_ccy)
+
             eiw = (ws_arr <= entry) & (entry <= we_arr)
-            if eiw.any():
-                entry_in_window.at[idx] = True
+            if (eiw & overlap).any():
+                out['entry_in_window'].at[idx] = True
 
-            # Straddle: entry < window_start < exit
             strad = (entry < ws_arr) & (exit_ > ws_arr)
             if strad.any():
-                straddles.at[idx] = True
-                earliest_ws.at[idx] = ws_arr[strad].min()
+                out['straddles'].at[idx] = True
+                out['earliest_ws'].at[idx] = ws_arr[strad].min()
 
-    return news_flag, entry_in_window, straddles, earliest_ws
+            # Pre/post/overlap relative to each matched event_dt
+            event_in_trade = (entry < ev_arr) & (exit_ > ev_arr) & overlap
+            if event_in_trade.any():
+                out['news_overlap'].at[idx] = True
+                continue
+
+            # No matched event_dt is straddled by the trade.
+            # Decide whether the trade is uniformly before, uniformly after,
+            # or split across event_dts of different matched events.
+            touched_ev = ev_arr[overlap]
+            all_pre = bool((exit_ <= touched_ev).all())
+            all_post = bool((entry >= touched_ev).all())
+            if all_pre:
+                out['news_pre_only'].at[idx] = True
+            elif all_post:
+                out['news_post_only'].at[idx] = True
+            else:
+                # Mixed pre+post across multiple events without straddling
+                # any single event_dt — count as overlap (multi-event coincidence).
+                out['news_overlap'].at[idx] = True
+
+    return out
 
 
 def _compute_news_metrics(df):
@@ -187,6 +262,109 @@ def _news_prepare_df(all_trades_dfs):
     if len(df) < _NEWS_MIN_TRADES:
         return None
     return df
+
+
+def _compute_news_robustness(df):
+    """News-subset robustness metrics mirroring the main quality gate.
+
+    Returns dict with: trades, net_pnl, pf, top5_pct, pf_ex_top5pct,
+    longest_flat_days, edge_ratio.
+
+    Designed to be applied to the news subset (df[df['_news_flag']]) so it
+    can be compared apples-to-apples against the baseline risk section.
+    """
+    n = len(df)
+    if n == 0:
+        return {'trades': 0, 'net_pnl': 0.0, 'pf': 0.0,
+                'top5_pct': 0.0, 'pf_ex_top5pct': 0.0,
+                'longest_flat_days': 0, 'edge_ratio': 0.0}
+
+    pnl = df['pnl_usd']
+    net = float(pnl.sum())
+    pf = _news_pf(pnl)
+
+    total_abs = abs(net)
+    if total_abs > 0 and n >= 5:
+        top5 = float(df.nlargest(5, 'pnl_usd')['pnl_usd'].sum())
+        top5_pct = (top5 / total_abs) * 100
+    else:
+        top5_pct = 0.0
+
+    # PF after removing top 5 % of winning trades by PnL
+    wins = df[pnl > 0].sort_values('pnl_usd', ascending=False)
+    if len(wins) > 0:
+        k = max(1, int(round(len(wins) * 0.05)))
+        kept = df.drop(wins.head(k).index)
+        pf_ex = _news_pf(kept['pnl_usd']) if len(kept) else 0.0
+    else:
+        pf_ex = pf
+
+    # Longest flat: days between equity-curve peaks
+    longest_flat = 0
+    if '_entry_dt' in df.columns and n >= 2:
+        sorted_df = df.sort_values('_entry_dt').copy()
+        cum = sorted_df['pnl_usd'].cumsum()
+        peak = cum.cummax()
+        ts = pd.to_datetime(sorted_df['_entry_dt'], errors='coerce')
+        at_peak = cum >= peak
+        peak_dates = ts[at_peak].dropna()
+        if len(peak_dates) >= 2:
+            gaps = peak_dates.diff().dt.days.dropna()
+            longest_flat = int(gaps.max()) if len(gaps) > 0 else 0
+
+    # Edge ratio (avg MFE / avg MAE)
+    if 'mfe_r' in df.columns and 'mae_r' in df.columns and n > 0:
+        avg_mfe = float(df['mfe_r'].mean())
+        avg_mae = abs(float(df['mae_r'].mean()))
+        edge_ratio = (avg_mfe / avg_mae) if avg_mae > 0 else 0.0
+    else:
+        edge_ratio = 0.0
+
+    return {'trades': n, 'net_pnl': net, 'pf': pf,
+            'top5_pct': top5_pct, 'pf_ex_top5pct': pf_ex,
+            'longest_flat_days': longest_flat, 'edge_ratio': edge_ratio}
+
+
+def _compute_news_yearwise(df):
+    """News-subset yearwise PF / trades / net_pnl.
+
+    Returns list of dicts sorted by year ascending.
+    """
+    if len(df) == 0 or '_entry_dt' not in df.columns:
+        return []
+    work = df.copy()
+    work['_year'] = pd.to_datetime(work['_entry_dt'], errors='coerce').dt.year
+    work = work.dropna(subset=['_year'])
+    out = []
+    for y, sub in work.groupby('_year', sort=True):
+        out.append({
+            'year': int(y),
+            'trades': len(sub),
+            'net_pnl': float(sub['pnl_usd'].sum()),
+            'pf': _news_pf(sub['pnl_usd']),
+        })
+    return out
+
+
+def _build_impact_slice_windows(windows_df, impact_label):
+    """Slice an all-impact windows_df down to a labeled subset.
+
+    impact_label may be a single string ("High") or a "+"-joined union
+    ("High+Medium"). Returns (windows_df_slice, windows_by_currency_slice).
+    """
+    if windows_df is None or len(windows_df) == 0:
+        return None, {}
+    if impact_label is None or impact_label == "" or impact_label.lower() == "all":
+        sub = windows_df.copy()
+    else:
+        wanted = {p.strip() for p in impact_label.split('+') if p.strip()}
+        sub = windows_df[windows_df['impact'].isin(wanted)].copy()
+    if len(sub) == 0:
+        return sub, {}
+    by_ccy = {}
+    for ccy, group in sub.groupby('currency'):
+        by_ccy[ccy] = group.sort_values('window_start').reset_index(drop=True)
+    return sub, by_ccy
 
 
 def _news_compute_go_flat(df, timeframe, data_root):
