@@ -1,0 +1,62 @@
+test:
+  name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P18
+  family: TREND
+  strategy: 62_TREND_IDX_5M_KALFLIP_S01_V2_P18
+  version: 1
+  signal_version: 11
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-04-01"
+  end_date: "2026-04-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 62 S01 V2 P18 -- KALMAN SOURCE ABLATION (close vs OHLC4) on OctaFX. Three-way data-feed parity check (Apr 13-28 2026, 3,262 matched bars) established that OANDA and FOREXCOM are effectively the same NAS100 instrument (close-diff std $4.11, mean offset $27) while OctaFX diverges from BOTH consumer feeds by ~$80 stdev with only 1.0% bar agreement. OctaFX master data has prices_include_spread=TRUE; intra-bar H/L on OctaFX captures broker-specific LP composite noise that OANDA/FXCM mid-prices do not. The Pine v1.2 OHLC4 source choice and measurement_var=4 calibration were both discovered on FXCM mid-price data and have never been validated on OctaFX. Hypothesis: OHLC4 averages 4 LP-noisy samples per bar; close uses only the bar-end settled print (the most cross-broker-stable component of an OHLC bar). Single knob change vs P14 base: kalman_regime price_col argument changes from 'ohlc4_kalman' to 'close'. All other parameters held identical (process_var=0.01, measurement_var=4, ADX>15, smoothed_RSI>35, Hurst>0.45, _MIN_HOLD_BARS=10, 3xATR engine stop). Decision gate: IF 0-15 bar trade-death rate falls below 40% (P14 baseline: 54.7% of 1,193 trades die in 0-15 bars at 4.6% win rate, accounting for net -$7,042) -> close source meaningfully reduces noise-induced flips on OctaFX, adopt as new family base, then re-sweep measurement_var on close source. IF unchanged -> source is not the dominant noise channel; investigate regime model gating or Kalman-vs-spread-loaded-price misfit. This is a clean ablation, no parallel parameter changes."
+  description: "TREND IDX 5M KALFLIP P18 = P14 base + Kalman source = 'close' (vs P14 OHLC4). Single-knob ablation testing whether OctaFX intra-bar LP noise is the source of P14's 54.7% early-trade-death pathology."
+  notes: "Acceptance criterion: 0-15 bar death rate < 40% would confirm hypothesis. Secondary acceptance: net P&L on FIXED_USD_V1 > $200 (P14: $28). If hypothesis confirmed AND P-sweep continues, next probe is measurement_var re-calibration on close source -- the FXCM-derived M=4 may be wrong for OctaFX-close (likely too low if close is less noisy). If falsified, the source choice is exonerated and the noise problem must lie in the regime model or in the Kalman primitive itself when run on spread-loaded prices."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.kalman_regime
+  - indicators.structure.adx_wilder
+  - indicators.momentum.rsi_smoothed
+  - indicators.trend.hurst_rs
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 3.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: kalman_slope_flip
+  exit_logic:
+    type: opposite_signal
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

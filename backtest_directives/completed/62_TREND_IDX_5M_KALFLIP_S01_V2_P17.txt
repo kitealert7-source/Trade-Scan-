@@ -1,0 +1,62 @@
+test:
+  name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P17
+  family: TREND
+  strategy: 62_TREND_IDX_5M_KALFLIP_S01_V2_P17
+  version: 1
+  signal_version: 10
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-04-01"
+  end_date: "2026-04-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 62 S01 V2 P17 -- BASELINE-ESTABLISHING DIAGNOSTIC for the Pine-vs-Python equity-smoothness gap. Apples-to-apples comparison of Python KALFLIP P14 (Net +$28, max DD 33.3%, top-5 winners 2755% of net P&L = severe tail dependence) vs Pine v1.4 cat-SL-only Case C (Net +$3,780 / +37.8%, max DD 3.34%, top-5 winners 39.4% of net P&L = smooth equity curve) revealed that the cat-SL itself is firing identically in both (largest loss ~$57 in both). The asymmetry is in stop dynamics: Pine recomputes cat_stop_price = position_avg_price - 3.0*current_atr every bar and re-issues strategy.exit() with the new level (tightens on vol contraction, loosens on vol expansion); Python engine v1.5.8 freezes the stop at signal-bar ATR for the entire trade lifecycle. P17 inherits P14 verbatim (triple filter stack + hold=10 bars) and adds check_stop_mutation(ctx) hook that returns entry_price - 3.0*current_atr each bar. Engine enforces monotone ratchet -- only TIGHTENING moves are accepted (long: stop must move UP). This is a deliberate one-way port: replicates Pine's profit-protection effect on volatility contraction without re-introducing the loosening side. DECISION GATE: IF top-5 winner concentration drops below 100% of net P&L AND Sortino lifts toward Pine's 3.22 -> static-stop hypothesis CONFIRMED, ALL prior KALFLIP P00..P16 results are CONTAMINATED and the entire family must be re-baselined against P17-style dynamic stops before any further sweeps. IF P17 metrics ~= P14 metrics -> hypothesis FALSIFIED, escalate to data-feed comparison (export Pine bars to Python, replay) or regime-model overhead audit. This run is non-iterative -- success or failure both require a research-memory entry."
+  description: "TREND IDX 5M Kalman slope-flip P17 = P14 base + check_stop_mutation hook for dynamic ATR stop tightening (Pine v1.4 cat SL parity). Engine v1.5.8 monotone ratchet -- one-way tighten. Diagnostic for Pine-vs-Python equity-smoothness gap."
+  notes: "Acceptance criteria for hypothesis confirmation (any one is sufficient evidence): (1) top-5 winners as % of net P&L falls below 100% (P14: 2755%); (2) Sortino rises above 2.50 (P14: well below 1.0 on FIXED_USD_V1); (3) max DD on FIXED_USD_V1 below 15% (P14: 33.3%). If hypothesis confirmed: do NOT proceed with any further P-sweep iterations; first re-baseline P00..P16 by adding the same hook (or revisit indicator/data parity questions if the hook alone cannot lift Python toward Pine). If hypothesis falsified: next probe is data-feed parity (export FX:NAS100 bars from TradingView, run Python on identical bars). Engine compatibility: requires v1.5.7+ (check_stop_mutation hook); active engine v1.5.8 confirmed in config/engine_registry.json."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.trend.kalman_regime
+  - indicators.structure.adx_wilder
+  - indicators.momentum.rsi_smoothed
+  - indicators.trend.hurst_rs
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 3.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: kalman_slope_flip
+  exit_logic:
+    type: opposite_signal
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_only
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

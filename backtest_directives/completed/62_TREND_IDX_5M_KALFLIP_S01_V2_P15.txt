@@ -6,8 +6,8 @@ test:
   signal_version: 6
   broker: OctaFx
   timeframe: 5m
-  start_date: "2025-04-01"
-  end_date: "2026-04-01"
+  start_date: "2025-04-29"
+  end_date: "2026-04-29"
   research_mode: true
   tuning_allowed: false
   parameter_mutation: false
