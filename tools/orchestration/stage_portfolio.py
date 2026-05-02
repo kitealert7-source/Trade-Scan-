@@ -85,20 +85,15 @@ def run_portfolio_and_post_stages(
 
         print(f"[ORCHESTRATOR] Verified Integrity: {rid}")
 
-    # Gate: skip full portfolio evaluation for single-asset strategies.
-    # Portfolio evaluation (correlation matrix, contribution charts, stress tests)
-    # is meaningless with 1 constituent. Capital wrapper + profile selector still run.
-    is_multi_asset = (
-        len(run_ids) > 1
-        or len(symbols) > 1
-        or clean_id.startswith("PF_")
-    )
-
-    if is_multi_asset:
-        cmd_args = [python_exe, "tools/portfolio_evaluator.py", clean_id, "--run-ids"] + run_ids
-        run_command(cmd_args, "Stage-4 Evaluation")
-    else:
-        print(f"[GATE] Portfolio evaluation skipped: single-asset strategy ({symbols[0] if symbols else '?'}). No composite metrics to compute.")
+    # Always run portfolio evaluation, including for single-asset strategies.
+    # --force-ledger guarantees a Master Ledger row for every directive (single-asset
+    # rows land in the "Single-Asset Composites" sheet; multi-asset/PF_* in
+    # "Portfolios"). The portfolio_evaluation/ artifact directory is always
+    # written — required by TS_Execution Phase 0 validation for burn-in promotion.
+    # For single-asset directives the correlation matrix is the 1x1 diagonal and
+    # stress tests reference the single symbol — degenerate but consistent output.
+    cmd_args = [python_exe, "tools/portfolio_evaluator.py", clean_id, "--run-ids"] + run_ids + ["--force-ledger"]
+    run_command(cmd_args, "Stage-4 Evaluation")
 
     portfolio_ledger_path = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
     if not portfolio_ledger_path.exists():
@@ -108,59 +103,52 @@ def run_portfolio_and_post_stages(
             run_ids=run_ids,
         )
 
-    # Mirror the evaluator's ledger-write eligibility check.
-    # Single-run / single-asset strategies intentionally skip the master ledger;
-    # the gate must honour the same condition to avoid a false failure.
-    is_valid_for_master = is_multi_asset
+    # With --force-ledger, every directive must produce a Master Ledger row.
+    import pandas as pd
+    from tools.ledger_db import read_mps
 
-    if not is_valid_for_master:
-        print(f"[GATE] Stage-4 ledger gate skipped: single-run / single-asset strategy (evaluator intentionally omits ledger write).")
-    else:
-        import pandas as pd
-        from tools.ledger_db import read_mps
-
-        try:
-            df_ledger = read_mps()
-            if "portfolio_id" not in df_ledger.columns or "constituent_run_ids" not in df_ledger.columns:
-                raise PipelineExecutionError(
-                    f"Failed to resolve columns in Master Ledger.",
-                    directive_id=clean_id,
-                    run_ids=run_ids,
-                )
-
-            if df_ledger.empty:
-                raise PipelineExecutionError(
-                    f"Stage-4 validation failed: {portfolio_ledger_path.name} is empty (0 data rows).",
-                    directive_id=clean_id,
-                    run_ids=run_ids,
-                )
-
-            matching_rows = df_ledger[df_ledger["portfolio_id"].astype(str) == clean_id]
-            if len(matching_rows) != 1:
-                raise PipelineExecutionError(
-                    f"Stage-4 validation failed: Expected exactly 1 row for {clean_id} in Master Ledger, found {len(matching_rows)}",
-                    directive_id=clean_id,
-                    run_ids=run_ids,
-                )
-
-            portfolio_row = matching_rows.iloc[0]
-            raw_runs_str = str(portfolio_row["constituent_run_ids"]) if pd.notna(portfolio_row["constituent_run_ids"]) else ""
-            saved_runs = [r.strip() for r in raw_runs_str.split(",") if r.strip()]
-            if len(saved_runs) != len(symbols):
-                raise PipelineExecutionError(
-                    f"Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}",
-                    directive_id=clean_id,
-                    run_ids=run_ids,
-                )
-
-            print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
-        except Exception as err:
-            if isinstance(err, PipelineExecutionError):
-                raise
+    try:
+        df_ledger = read_mps()
+        if "portfolio_id" not in df_ledger.columns or "constituent_run_ids" not in df_ledger.columns:
             raise PipelineExecutionError(
-                f"Failed to read Master Ledger: {err}",
+                f"Failed to resolve columns in Master Ledger.",
                 directive_id=clean_id,
                 run_ids=run_ids,
+            )
+
+        if df_ledger.empty:
+            raise PipelineExecutionError(
+                f"Stage-4 validation failed: {portfolio_ledger_path.name} is empty (0 data rows).",
+                directive_id=clean_id,
+                run_ids=run_ids,
+            )
+
+        matching_rows = df_ledger[df_ledger["portfolio_id"].astype(str) == clean_id]
+        if len(matching_rows) != 1:
+            raise PipelineExecutionError(
+                f"Stage-4 validation failed: Expected exactly 1 row for {clean_id} in Master Ledger, found {len(matching_rows)}",
+                directive_id=clean_id,
+                run_ids=run_ids,
+            )
+
+        portfolio_row = matching_rows.iloc[0]
+        raw_runs_str = str(portfolio_row["constituent_run_ids"]) if pd.notna(portfolio_row["constituent_run_ids"]) else ""
+        saved_runs = [r.strip() for r in raw_runs_str.split(",") if r.strip()]
+        if len(saved_runs) != len(symbols):
+            raise PipelineExecutionError(
+                f"Stage-4 validation failed: Expected {len(symbols)} constituent runs but found {len(saved_runs)}",
+                directive_id=clean_id,
+                run_ids=run_ids,
+            )
+
+        print(f"[GATE] Stage-4 artifact verified: {clean_id} present in Master Ledger with {len(saved_runs)} runs.")
+    except Exception as err:
+        if isinstance(err, PipelineExecutionError):
+            raise
+        raise PipelineExecutionError(
+            f"Failed to read Master Ledger: {err}",
+            directive_id=clean_id,
+            run_ids=run_ids,
         ) from err
 
     try:

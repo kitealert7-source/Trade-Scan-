@@ -2,13 +2,14 @@
 
 ## What This System Is
 
-Six-repo research-to-execution pipeline:
+Seven-repo research-to-execution pipeline:
 - **Trade_Scan** (this repo) — research pipeline: directive → backtest → deployable strategy
 - **TradeScan_State** (`../TradeScan_State`) — all pipeline output; shared artifact store
 - **TS_Execution** (`../TS_Execution`) — MT5 live execution bridge
 - **DATA_INGRESS** (`../DATA_INGRESS`) — 5-phase data pipeline: RAW → CLEAN → RESEARCH
 - **Anti_Gravity_DATA_ROOT** (`../Anti_Gravity_DATA_ROOT`) — master data store
 - **DRY_RUN_VAULT** (`../DRY_RUN_VAULT`) — dry run archive
+- **TS_Pine** (`../TS_Pine`) — Pine Script research workspace (exploratory; no production authority)
 
 **No execution authority here. No live trading. No automation.**
 
@@ -83,6 +84,37 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 | Directory/file authority | `outputs/system_reports/01_system_architecture/REPOSITORY_AUTHORITY_MAP.md` |
 | System audit or review | Browse `outputs/system_reports/` folder READMEs first — each subfolder has an index |
 | Ending a work session | `.claude/skills/session-close/SKILL.md` — commit, push, document, clean up |
+
+---
+
+## Research Interpretation Conventions (read before quoting metrics)
+
+| Layer | Authority | Use for |
+|---|---|---|
+| **Stage-1 raw signal** (`backtests/<ID>_<SYM>/REPORT_*.md`) | **AUTHORITATIVE** | PF, Sharpe, Sortino, win rate, expectancy. The truth. |
+| **RAW_MIN_LOT_V1** (`strategies/<ID>/deployable/RAW_MIN_LOT_V1/`) | **HEADLINE** for ranking | CAGR%, Max DD%, MAR — scale-invariant. Translates 1:1 in % terms to any notional. |
+| **FIXED_USD_V1 / REAL_MODEL_V1** | Stress test only | Models retail $1k account with equity-scaled lot sizing. **Do NOT cite as headline** — equity-spiral effects produce double-digit DD% that has no relation to a $10k production deployment. |
+
+**Common misread**: anchoring to FIXED_USD_V1 metrics as if they describe strategy quality.
+A "33% Max DD" in FIXED_USD_V1 typically maps to <0.2% Max DD in Stage-1 — they're different
+questions. Always cross-check against Stage-1 + RAW_MIN_LOT_V1 before any decision.
+
+**Pine vs Python data feed parity**: Pine Script research on FOREXCOM/FXCM data does NOT
+translate directly to Python research on OctaFX data. Empirical parity check (NAS100 5m,
+Apr 2026): 1.0% bar agreement, $80+ stdev close-difference, while OANDA-vs-FXCM agrees 99.9%.
+OctaFX has spread embedded (`prices_include_spread: TRUE`) and uses a different LP composite.
+**Pine work on FXCM is exploratory only — Python on OctaFX is authoritative for live.**
+
+**Default profile policy (effective 2026-04-30)**: New burn-in promotions use
+`--profile RAW_MIN_LOT_V1`. Pre-2026-04-30 promotions tagged `CONSERVATIVE_V1` are
+grandfathered. Profile is metadata only at runtime; it documents the evaluation framework
+in force at promotion time.
+
+**Event-driven strategies**: When the 6-metric quality gate fails on "PF after removing top
+5%" (typical of event-driven systems where alpha concentrates in news-window trades),
+`--skip-quality-gate` is the deliberate override path. Document the decision in the directive
+and add tightened abort gates to burn-in monitoring (event-trade R-multiple watch, news
+calendar feed health check). See P15 (KALFLIP) promotion 2026-04-30 for a worked example.
 
 ---
 

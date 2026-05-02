@@ -119,9 +119,16 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
       BURN_IN candidates must have expectancy >= class threshold (enforced at promotion):
         FX $0.25 | XAU $0.80 | BTC $0.80 | INDEX $0.80
 
-    BURN_IN requires: portfolio.yaml entry with promotion_source="promote_to_burnin"
-    AND valid vault_id. Only promote_to_burnin.py can create these entries.
-    Removing a strategy from portfolio.yaml reverts it to computed status.
+    BURN_IN sources (both write to candidate_status):
+      1. Auto-set: portfolio.yaml entry with promotion_source="promote_to_burnin"
+         AND valid vault_id (only promote_to_burnin.py can create these).
+      2. Manual tag: user edits candidate_status in FSP to "BURN_IN" before
+         promotion (preserved across recomputation by the caller; see the
+         _burnin_ids_manual restore block in filter_strategies()).
+
+    Removing a strategy from portfolio.yaml does NOT auto-revert it to computed
+    status if FSP still carries the manual BURN_IN tag — clear the tag explicitly
+    or set RBIN to demote.
     """
     total_trades = pd.to_numeric(df.get("total_trades"), errors="coerce").fillna(0.0)
     max_dd_pct = pd.to_numeric(df.get("max_dd_pct"), errors="coerce").fillna(float("inf"))
@@ -405,13 +412,21 @@ def filter_strategies():
             else:
                 df_merged = passed_df
 
-            # Preserve manually-set RBIN (Removed from Burn-In) status — these rows
-            # were flagged by human review and should not revert to computed status.
+            # Preserve manually-set RBIN (Removed from Burn-In) and BURN_IN status —
+            # these rows were flagged by human review and should not revert to
+            # computed status. BURN_IN preservation is symmetric to RBIN: tagging
+            # a row in FSP is the user-facing handoff to sync_burn_in_registry.py
+            # (which reads BURN_IN from FSP) before promote_to_burnin.py runs.
+            # Recomputation must not silently strip the tag mid-workflow.
             _rbin_ids = set()
-            if "candidate_status" in df_merged.columns:
+            _burnin_ids_manual = set()
+            if "candidate_status" in df_merged.columns and "run_id" in df_merged.columns:
                 _rbin_mask = df_merged["candidate_status"] == "RBIN"
-                if _rbin_mask.any() and "run_id" in df_merged.columns:
+                if _rbin_mask.any():
                     _rbin_ids = set(df_merged.loc[_rbin_mask, "run_id"].astype(str))
+                _burnin_mask = df_merged["candidate_status"] == "BURN_IN"
+                if _burnin_mask.any():
+                    _burnin_ids_manual = set(df_merged.loc[_burnin_mask, "run_id"].astype(str))
 
             # Deterministic classification-only field; no filtering side effects.
             df_merged = _apply_candidate_status(df_merged)
@@ -421,6 +436,15 @@ def filter_strategies():
                 restore_mask = df_merged["run_id"].astype(str).isin(_rbin_ids)
                 df_merged.loc[restore_mask, "candidate_status"] = "RBIN"
                 print(f"[CANDIDATES] Preserved RBIN status for {restore_mask.sum()} row(s)")
+
+            # Restore manually-tagged BURN_IN where it was set before recomputation.
+            # _compute_candidate_status() also auto-sets BURN_IN from portfolio.yaml
+            # for already-promoted strategies; this restore additionally covers
+            # manual tags that have not yet been processed by promote_to_burnin.py.
+            if _burnin_ids_manual and "run_id" in df_merged.columns:
+                restore_mask = df_merged["run_id"].astype(str).isin(_burnin_ids_manual)
+                df_merged.loc[restore_mask, "candidate_status"] = "BURN_IN"
+                print(f"[CANDIDATES] Preserved manual BURN_IN status for {restore_mask.sum()} row(s)")
 
             # Overwrite burn_in_layer deterministically from burn_in_registry.yaml.
             # Registry is the sole source of truth; stale/demoted values get cleared.
