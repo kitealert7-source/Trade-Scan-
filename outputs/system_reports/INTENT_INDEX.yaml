@@ -31,6 +31,25 @@ intents:
     enforcement: hard
     must_skill: update-vault
     expected_file_category: engine
+    # File-scope filter (added 2026-05-03 after 10+ misfires during the
+    # NEWS-execution work). Even when the prompt text matches engine
+    # phrasing, the intent must ALSO see at least one changed file in
+    # the frozen-engine scope or it suppresses. Mutable shared infra
+    # (engines/, tools/, governance/) does NOT trigger by itself.
+    frozen_path_only: true
+    # Frozen scope (regex anchored at repo-root-relative path):
+    #   engine_dev/universal_research_engine/<version>/...
+    #   vault/engines/...
+    #   any engine_manifest.json
+    #   any contract.json
+    # Mutable shared infra (engines/, tools/, governance/, tests/, outputs/)
+    # is explicitly NOT in scope unless it ALSO touches one of the above
+    # in the same change set.
+    frozen_paths:
+      - "^engine_dev/universal_research_engine/[^/]+/"
+      - "^vault/engines/"
+      - "(^|/)engine_manifest\\.json$"
+      - "(^|/)contract\\.json$"
     # Threshold raised from default 3 to 6 after a misfire on 2026-04-24:
     # an indicator-only commit matched the bare tag "engine" (weight 2,
     # word-boundary score 4) in a sentence that explicitly said NOT to
