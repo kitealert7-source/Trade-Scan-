@@ -1,0 +1,61 @@
+test:
+  name: 63_BRK_IDX_15M_ATRBRK_S01_V1_P00
+  family: BRK
+  strategy: 63_BRK_IDX_15M_ATRBRK_S01_V1_P00
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-05-01"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 63 S01 P00 -- GENESIS run for Donchian Channel Breakout family on NAS100 + JPN225 15M. Pine ChannelBreakOutStrategy port: upper bound = highest_high(high, N=13, shift=1) [= ta.highest(high,13)[1]], lower bound = lowest_low(low, N=13, shift=1) [= ta.lowest(low,13)[1]]. Entry: intrabar high/low breakout -- long when high[t] > up_bound[t], short when low[t] < down_bound[t]; fill at open[t+1]. Mirrors Pine stop order: strategy.entry('ChBrkLE', strategy.long, stop=upBound+tick). Gap opens through level yield natural slippage; gap opens below level yield below-channel fills -- same real-world behavior as a live stop order. Exit: reverse-only -- long exits when low[t] < down_bound[t] (short signal fires), short exits when high[t] > up_bound[t] (long signal fires). No time cap. ATR(14) 2.5x safety stop from fill price. No filters, no regime gate -- clean unfiltered baseline signal test. Cross-asset (NAS100 + JPN225) exposes whether edge is index-class universal or asset-specific. OctaFX data has spread embedded (prices_include_spread: TRUE). Decision gate: PF >= 1.20 AND SQN >= 2.0 AND Max DD <= 30% on EACH symbol. PASS-BOTH -> hold as IDX candidate pool, probe N-sweep + session split + direction split. PASS-ONE -> asset-specific edge, expand to similar indices (AUS200, GER40, UK100). FAIL-BOTH -> baseline dead; try filtered variant (vol regime, long-only) before closing family. Signal v2: patched from close-confirmation (v1) to intrabar high/low breakout per user spec."
+  description: "BRK IDX 15M Donchian channel breakout N=13, intrabar high/low entry (Pine stop-order equivalent), reverse-only exit. ATR(14) 2.5x safety stop. NAS100 + JPN225 cross-asset genesis test. Engine v1.5.8."
+  notes: "S01 v2 is the corrected intrabar-entry baseline. v1 used close-confirmation; v2 uses high > up_bound / low < down_bound, faithfully mirroring Pine stop-order trigger. If it passes decision gate, next probes in order: (1) N-sweep {8, 13, 20, 34} -- sensitivity to channel width; (2) direction split: long-only vs short-only -- NAS100 has structural long bias; (3) session filter -- exclude Asia/overnight for NAS100, London for JPN225; (4) vol regime gate -- exclude low-vol environments where breakouts fade. Pine source (FOREXCOM data) is exploratory reference only -- Python OctaFX is authoritative."
+
+symbols:
+  - NAS100
+  - JPN225
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: channel_breakout_intrabar
+  exit_logic:
+    type: opposite_channel_only
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
