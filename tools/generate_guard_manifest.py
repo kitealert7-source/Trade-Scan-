@@ -5,17 +5,23 @@ Usage:
   python tools/generate_guard_manifest.py
 
 Authority: AGENT.md — Protected Infrastructure Policy
-Purpose: Compute SHA-256 hashes for all Critical Guard Set files
-         and write tools/tools_manifest.json.
+Purpose: Compute canonical (LF-normalized) SHA-256 hashes for all Critical
+         Guard Set files and write tools/tools_manifest.json.
 
-WARNING: This tool must ONLY be executed by a human operator.
-         The agent is strictly forbidden from calling this script.
-         Unauthorized manifest updates constitute a governance violation.
+Hashing: delegates to tools.verify_engine_integrity.canonical_sha256 so
+         the same single LF-normalized implementation is used by both
+         tools-manifest generation and integrity verification (parity
+         with engine manifest generator after Phase 1 commit 09443f4).
+         Eliminates Windows CRLF false-failures on tools integrity.
+
+WARNING: This tool must ONLY be executed by a human operator OR by an
+         agent acting on an explicit, scoped, in-session human
+         authorization. Unauthorized manifest updates constitute a
+         governance violation.
 """
 
 import sys
 import json
-import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +29,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 TOOLS_ROOT = PROJECT_ROOT / "tools"
 MANIFEST_PATH = TOOLS_ROOT / "tools_manifest.json"
+
+sys.path.insert(0, str(PROJECT_ROOT))
+from tools.verify_engine_integrity import canonical_sha256  # noqa: E402
 
 # Critical Guard Set — files that constitute the governance boundary
 GUARD_FILES = [
@@ -44,15 +53,6 @@ GUARD_FILES = [
 ]
 
 
-def compute_sha256(filepath: Path) -> str:
-    """Compute SHA-256 hash of a file."""
-    sha256 = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256.update(chunk)
-    return sha256.hexdigest().upper()
-
-
 def main():
     print("=" * 60)
     print("GUARD-LAYER MANIFEST GENERATOR")
@@ -68,7 +68,7 @@ def main():
             print(f"  [MISS] {filename}")
             continue
 
-        file_hash = compute_sha256(filepath)
+        file_hash = canonical_sha256(filepath).upper()
         file_hashes[filename] = file_hash
         print(f"  [HASH] {filename}: {file_hash[:16]}...")
 

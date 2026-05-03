@@ -1,7 +1,7 @@
 {
-  "active_engine": "v1_5_8",
+  "active_engine": "v1_5_8a",
   "status": "FROZEN",
-  "freeze_date": "2026-04-20",
+  "freeze_date": "2026-05-03",
   "vaulted": true,
   "engines": {
     "v1_5_6": {
@@ -16,8 +16,15 @@
     },
     "v1_5_8": {
       "status": "FROZEN",
+      "canonical": false,
+      "superseded_by": "v1_5_8a",
+      "note": "Adds ctx.unrealized_r_intrabar + ctx.entry_price for intrabar-aware BE. Frozen 2026-04-20. Superseded 2026-05-03 by v1_5_8a after f3ae767 post-freeze drift; vault preserved unchanged. See governance/engine_lineage.yaml for full supersession reason."
+    },
+    "v1_5_8a": {
+      "status": "FROZEN",
       "canonical": true,
-      "note": "Canonical frozen engine. Adds ctx.unrealized_r_intrabar + ctx.entry_price for intrabar-aware BE. Byte-equivalent to v1.5.7 for no-hook strategies. Frozen 2026-04-20."
+      "predecessor": "v1_5_8",
+      "note": "Canonical frozen engine. Captures the post-f3ae767 source state of v1.5.8 with a freshly computed canonical-LF manifest. Byte-identical execution code to v1.5.8 (only main.py ENGINE_VERSION + contract.json engine_version differ). Frozen + vaulted 2026-05-03."
     }
   }
 }
