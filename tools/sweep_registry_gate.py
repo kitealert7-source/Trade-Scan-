@@ -560,6 +560,115 @@ def reserve_sweep_identity(
         _release_lock(lock_fd, SWEEP_LOCK_PATH)
 
 
+def update_sweep_signature_hash(
+    idea_id: str,
+    directive_name: str,
+    signature_hash: str,
+) -> dict[str, str]:
+    """Lock-protected, exact-identity hash update for an existing sweep entry.
+
+    INFRA-AUDIT C3+M5 closure 2026-05-03. Replaces direct YAML writes in
+    callers (previously: tools/orchestration/pre_execution.py:227 used
+    string substitution + write_text(), no lock, with substring matching
+    on directive_name that could corrupt the wrong sweep slot when names
+    shared a prefix).
+
+    Walks the registry by EXACT directive_name match across sweep entries
+    AND patch entries. Acquires the canonical sweep_registry lock before
+    any read-modify-write. Returns {"status", "idea_id", "sweep",
+    "patch"?, "directive_name", "signature_hash"}. Raises
+    SweepRegistryError if no exact match found.
+
+    Idempotent: if the recorded hash already matches the new hash, returns
+    {"status": "unchanged"} without rewriting.
+    """
+    idea_id = str(idea_id).strip()
+    directive_name = str(directive_name).strip()
+    signature_hash = _normalize_signature_hash(signature_hash)
+    stored_hash, stored_short = _hash_for_storage(signature_hash)
+
+    if not idea_id or not re.fullmatch(r"\d{2}", idea_id):
+        raise SweepRegistryError(
+            f"Invalid idea_id '{idea_id}'. Expected two digits."
+        )
+    if not directive_name:
+        raise SweepRegistryError("directive_name is required.")
+    if not signature_hash:
+        raise SweepRegistryError("signature_hash is required.")
+
+    lock_fd = _acquire_lock(SWEEP_LOCK_PATH)
+    try:
+        registry = _load_yaml(SWEEP_REGISTRY_PATH)
+        ideas = registry.get("ideas", {})
+        idea_block = ideas.get(idea_id) if isinstance(ideas, dict) else None
+        if not isinstance(idea_block, dict):
+            raise SweepRegistryError(
+                f"SWEEP_IDEA_UNREGISTERED: idea_id='{idea_id}' missing from "
+                "sweep_registry.yaml"
+            )
+        sweeps = idea_block.get("sweeps", idea_block.get("allocated", {}))
+        if not isinstance(sweeps, dict):
+            raise SweepRegistryError(
+                f"Invalid sweeps mapping for idea_id='{idea_id}'"
+            )
+
+        # Exact match scan: sweep owner OR patch entry. NO substring.
+        target_path: tuple[str, str | None] | None = None
+        for sweep_key, sweep_data in sweeps.items():
+            if not isinstance(sweep_data, dict):
+                continue
+            if str(sweep_data.get("directive_name", "")).strip() == directive_name:
+                target_path = (sweep_key, None)
+                break
+            for patch_key, patch_data in sweep_data.get("patches", {}).items():
+                if not isinstance(patch_data, dict):
+                    continue
+                if str(patch_data.get("directive_name", "")).strip() == directive_name:
+                    target_path = (sweep_key, patch_key)
+                    break
+            if target_path:
+                break
+
+        if target_path is None:
+            raise SweepRegistryError(
+                f"SWEEP_NOT_FOUND: directive_name='{directive_name}' has no "
+                f"existing entry in idea_id='{idea_id}'. Use reserve_sweep_identity "
+                "to allocate first."
+            )
+
+        sweep_key, patch_key = target_path
+        node = sweeps[sweep_key] if patch_key is None else sweeps[sweep_key]["patches"][patch_key]
+        existing_hash = _get_stored_hash(node)
+        if _hashes_match(existing_hash, signature_hash):
+            return {
+                "status": "unchanged",
+                "idea_id": idea_id,
+                "sweep": sweep_key,
+                "patch": patch_key,
+                "directive_name": directive_name,
+                "signature_hash": signature_hash,
+            }
+
+        node["signature_hash"] = stored_short
+        if len(stored_hash) == 64:
+            node["signature_hash_full"] = stored_hash
+        idea_block["sweeps"] = sweeps
+        ideas[idea_id] = idea_block
+        registry["ideas"] = ideas
+        _write_yaml_atomic(SWEEP_REGISTRY_PATH, registry)
+
+        return {
+            "status": "updated",
+            "idea_id": idea_id,
+            "sweep": sweep_key,
+            "patch": patch_key,
+            "directive_name": directive_name,
+            "signature_hash": signature_hash,
+        }
+    finally:
+        _release_lock(lock_fd, SWEEP_LOCK_PATH)
+
+
 def reserve_sweep(
     directive_path: str | Path,
     auto_advance: bool = True,

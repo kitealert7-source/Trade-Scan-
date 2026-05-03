@@ -191,41 +191,50 @@ def _directive_full_hash(directive_path: Path) -> tuple[str, str]:
 def _update_sweep_registry_hash(
     strategy_name: str, short_hash: str, full_hash: str, project_root: Path
 ) -> bool:
-    """Update sweep_registry.yaml entry for this strategy with new hashes. Returns True if changed."""
+    """Update sweep_registry.yaml entry for this strategy with new hashes.
+
+    INFRA-AUDIT C3+M5 closure 2026-05-03: routes through the canonical
+    lock-protected `update_sweep_signature_hash` API in
+    `tools/sweep_registry_gate.py`. Previous implementation (substring
+    matching + direct write_text without lock) could corrupt the wrong
+    sweep slot when strategy names shared a prefix, and could race with
+    concurrent sweep registrations.
+
+    Returns True iff the registry was actually modified.
+    """
     registry_path = project_root / "governance" / "namespace" / "sweep_registry.yaml"
     if not registry_path.exists():
         return False
 
-    content = registry_path.read_text(encoding="utf-8")
-    if strategy_name not in content:
+    # Derive idea_id from the strategy name (NN_FAMILY_..._SXX_VX_PXX format).
+    m = re.match(r"^(\d{2})_", strategy_name)
+    if not m:
+        return False
+    idea_id = m.group(1)
+
+    # Use the longer hash form (full_hash if 64-char hex, else short_hash).
+    sig_hash = full_hash if len(full_hash) == 64 else short_hash
+
+    try:
+        from tools.sweep_registry_gate import (
+            update_sweep_signature_hash,
+            SweepRegistryError,
+        )
+    except Exception:
         return False
 
-    # Find the directive_name line for this strategy and update hashes in its block
-    lines = content.split("\n")
-    changed = False
-    i = 0
-    while i < len(lines):
-        if f"directive_name: {strategy_name}" in lines[i]:
-            # Found the entry — update the next signature_hash lines
-            for j in range(i + 1, min(i + 5, len(lines))):
-                if "signature_hash_full:" in lines[j]:
-                    old_val = lines[j].split(":", 1)[1].strip().strip("'\"")
-                    if old_val != full_hash:
-                        indent = lines[j][: len(lines[j]) - len(lines[j].lstrip())]
-                        lines[j] = f"{indent}signature_hash_full: {full_hash}"
-                        changed = True
-                elif "signature_hash:" in lines[j] and "full" not in lines[j]:
-                    old_val = lines[j].split(":", 1)[1].strip().strip("'\"")
-                    if old_val != short_hash:
-                        indent = lines[j][: len(lines[j]) - len(lines[j].lstrip())]
-                        lines[j] = f"{indent}signature_hash: {short_hash}"
-                        changed = True
-            break
-        i += 1
+    try:
+        result = update_sweep_signature_hash(
+            idea_id=idea_id,
+            directive_name=strategy_name,
+            signature_hash=sig_hash,
+        )
+    except SweepRegistryError:
+        # Strategy not registered in the sweep_registry — caller may be
+        # pre-registration; not a hard error here.
+        return False
 
-    if changed:
-        registry_path.write_text("\n".join(lines), encoding="utf-8")
-    return changed
+    return result.get("status") == "updated"
 
 
 def enforce_signature_consistency(

@@ -37,7 +37,7 @@ def load_canonical_artifacts(prefix: str, profile: str, project_root: Path):
     eq_df["timestamp"] = pd.to_datetime(eq_df["timestamp"])
 
     # Load metrics
-    with open(deploy_dir / "summary_metrics.json", "r") as f:
+    with open(deploy_dir / "summary_metrics.json", "r", encoding="utf-8") as f:
         metrics = json.load(f)
 
     # Canonical deterministic ordering
@@ -51,7 +51,7 @@ def load_canonical_artifacts(prefix: str, profile: str, project_root: Path):
     comp_path = deploy_dir.parent / "profile_comparison.json"
     if comp_path.exists():
         try:
-            with open(comp_path, "r") as f:
+            with open(comp_path, "r", encoding="utf-8") as f:
                 _comp = json.load(f)
             all_profiles = _comp.get("profiles", {})
         except Exception:

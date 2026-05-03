@@ -379,34 +379,54 @@ def verify_manifest_integrity(project_root: Path):
         raise PipelineAdmissionPause("Manifest integrity violation. Pipeline halted to prevent corrupt data propagation.")
 
 
+def _compute_manifest_file_hash(filepath: Path) -> str:
+    """Compute sha256 of a file in the same canonical form as
+    tools/generate_guard_manifest.py — uppercase hex digest of the raw
+    bytes. Module-level so regression tests can compare deterministically."""
+    import hashlib
+    return hashlib.sha256(filepath.read_bytes()).hexdigest().upper()
+
+
 def verify_tools_timestamp_guard(project_root: Path):
-    """Guardrail: Ensure no protected tools were modified after manifest generation."""
+    """Guardrail: ensure protected tools match their recorded sha256 hashes
+    in `tools/tools_manifest.json`. (Function name retained for backward
+    compatibility, but content gate is now hash-based, not mtime-based — see
+    INFRA-AUDIT C2 closure 2026-05-03.)
+
+    Failure modes:
+      * file present in manifest but missing on disk -> WARN (legacy behavior)
+      * file present in both, hash mismatch          -> raise PipelineExecutionError
+      * manifest unreadable                          -> WARN (legacy behavior)
+    """
     manifest_path = project_root / "tools" / "tools_manifest.json"
     if not manifest_path.exists():
         return
 
-    manifest_mtime = manifest_path.stat().st_mtime
-    
     try:
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
-            
+
         file_hashes = manifest.get("file_hashes", {})
-        for filename in file_hashes:
+        for filename, recorded_hash in file_hashes.items():
             # Resolve relative to PROJECT_ROOT as per hardening scope
             filepath = project_root / filename
             # Fallback: maintain compatibility with current manifest (contained in 'tools/')
             if not filepath.exists():
                 filepath = project_root / "tools" / filename
-                
-            if filepath.exists():
-                if filepath.stat().st_mtime > manifest_mtime:
-                    raise PipelineExecutionError(
-                        f"Tool modified after manifest generation: {filename}. "
-                        "Run python tools/generate_guard_manifest.py",
-                        fail_directive=False,
-                        fail_runs=False
-                    )
+
+            if not filepath.exists():
+                continue
+
+            recorded = (recorded_hash or "").upper()
+            actual = _compute_manifest_file_hash(filepath)
+            if recorded and recorded != actual:
+                raise PipelineExecutionError(
+                    f"Tool content hash mismatch for {filename}: "
+                    f"manifest=[{recorded[:16]}...] actual=[{actual[:16]}...]. "
+                    "Run python tools/generate_guard_manifest.py",
+                    fail_directive=False,
+                    fail_runs=False
+                )
     except (json.JSONDecodeError, KeyError) as e:
         print(f"[WARN] Failed to parse tools manifest for timestamp check: {e}")
     except PipelineExecutionError:
