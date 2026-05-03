@@ -400,18 +400,67 @@ def collect_runs() -> dict[str, int]:
     return {"total": _count_dirs(RUNS_DIR)}
 
 
+def _resolve_upstream(cwd: Path | None = None) -> tuple[str | None, str]:
+    """Return (upstream_ref, kind) where kind is one of:
+        "tracked"     — current branch has an upstream (use upstream_ref)
+        "detached"    — HEAD is detached (no branch); upstream_ref is None
+        "no_upstream" — branch has no @{u} configured; upstream_ref is None
+        "error"       — git invocation failed; upstream_ref is None
+
+    The previous implementation hard-coded `origin/main..HEAD`, which gave a
+    misleading "N commits not pushed" reading whenever the working branch
+    wasn't `main`. With this helper, the unpushed count is computed against
+    the CURRENT branch's actual upstream, falling back to non-int sentinels
+    when no comparison is possible.
+    """
+    if cwd is None:
+        cwd = PROJECT_ROOT
+    try:
+        head = subprocess.run(
+            ["git", "symbolic-ref", "--quiet", "HEAD"],
+            cwd=cwd, capture_output=True, text=True, timeout=10
+        )
+    except Exception:
+        return None, "error"
+    if head.returncode != 0:
+        return None, "detached"
+
+    try:
+        up = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            cwd=cwd, capture_output=True, text=True, timeout=10
+        )
+    except Exception:
+        return None, "error"
+    if up.returncode != 0:
+        return None, "no_upstream"
+    ref = up.stdout.strip()
+    return (ref, "tracked") if ref else (None, "no_upstream")
+
+
 def collect_git() -> dict[str, Any]:
-    """Git sync status: commits ahead, clean working tree."""
+    """Git sync status: commits ahead of CURRENT branch's upstream, clean working tree."""
     result: dict[str, Any] = {}
     try:
-        # Commits ahead of origin
-        ahead = subprocess.run(
-            ["git", "log", "--oneline", "origin/main..HEAD"],
-            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
-        )
-        if ahead.returncode == 0:
-            lines = [l for l in ahead.stdout.strip().splitlines() if l.strip()]
-            result["commits_ahead"] = len(lines)
+        upstream_ref, kind = _resolve_upstream()
+        result["upstream_kind"] = kind
+        if upstream_ref:
+            result["upstream"] = upstream_ref
+
+        if kind == "tracked":
+            ahead = subprocess.run(
+                ["git", "log", "--oneline", f"{upstream_ref}..HEAD"],
+                cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
+            )
+            if ahead.returncode == 0:
+                lines = [l for l in ahead.stdout.strip().splitlines() if l.strip()]
+                result["commits_ahead"] = len(lines)
+            else:
+                result["commits_ahead"] = "unknown"
+        elif kind == "detached":
+            result["commits_ahead"] = "n/a (detached HEAD)"
+        elif kind == "no_upstream":
+            result["commits_ahead"] = "n/a (no upstream configured)"
         else:
             result["commits_ahead"] = "unknown"
 
@@ -647,8 +696,12 @@ def render_markdown(
     else:
         ahead = git.get("commits_ahead", "unknown")
         tree = git.get("working_tree", "unknown")
-        sync = "IN SYNC" if ahead == 0 else f"**{ahead} commits ahead of origin**"
-        lines.append(f"- Remote: {sync}")
+        upstream = git.get("upstream")
+        if isinstance(ahead, int):
+            sync = "IN SYNC" if ahead == 0 else f"**{ahead} commits ahead of {upstream or 'upstream'}**"
+        else:
+            sync = str(ahead)  # "n/a (detached HEAD)" / "n/a (no upstream configured)" / "unknown"
+        lines.append(f"- Remote: {sync}" + (f" (upstream: `{upstream}`)" if upstream and isinstance(ahead, int) else ""))
         lines.append(f"- Working tree: {tree}")
         if git.get("last_commit"):
             lines.append(f"- Last commit: `{git['last_commit']}`")
