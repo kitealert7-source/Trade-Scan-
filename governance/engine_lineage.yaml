@@ -1,0 +1,121 @@
+# governance/engine_lineage.yaml
+# ----------------------------------------------------------------------------
+# Authoritative supersession registry for the Universal Research Engine.
+#
+# Purpose:
+#   Records each engine version's lifecycle status (frozen / experimental),
+#   vault membership, and supersession relationships. The engine_resolver
+#   consumes this file to apply the "latest FROZEN + vaulted + manifest-clean
+#   + not-superseded" selection policy (post-Phase-2 v1.5.8 governance repair).
+#
+# Mutability:
+#   Append-only governance record. Existing entries' core fields
+#   (status, vaulted, freeze_date, predecessor) are NEVER modified or
+#   deleted; only `superseded_by` may be set later (when a successor lands)
+#   and `historical_anomalies` may be appended (forensic-only).
+#
+# Vault discipline:
+#   This file lives under governance/ specifically so it can be updated
+#   without mutating any vaulted engine directory. Vault contents
+#   (vault/engines/Universal_Research_Engine/<version>/) remain immutable
+#   per ENGINE_VAULT_CONTRACT.md §4A.
+#
+# Schema:
+#   engines:
+#     <canonical_version_key>:        # e.g. v1_5_8 or v1_5_8a (matches dir name)
+#       status: frozen | experimental | retired
+#       vaulted: bool
+#       freeze_date: YYYY-MM-DD | null
+#       predecessor: <canonical_version_key> | null
+#       superseded_by: <canonical_version_key> | null
+#       supersession_reason: |
+#         (optional, free text — required when superseded_by is non-null)
+#       purpose: (optional, free text — common for experimental versions)
+#       historical_anomalies: (optional list — forensic notes)
+#         - description: (one-line)
+#           detail: |
+#             (multi-line forensic detail)
+# ----------------------------------------------------------------------------
+
+version: 1
+engines:
+
+  v1_5_6:
+    status: frozen
+    vaulted: true
+    freeze_date: "2026-04-12"
+    predecessor: v1_5_5
+    superseded_by: v1_5_7
+
+  v1_5_7:
+    status: frozen
+    vaulted: true
+    freeze_date: "2026-04-20"
+    predecessor: v1_5_6
+    superseded_by: v1_5_8
+
+  v1_5_8:
+    status: frozen
+    vaulted: true
+    freeze_date: "2026-04-20"
+    predecessor: v1_5_7
+    superseded_by: v1_5_8a
+    supersession_reason: |
+      Post-freeze additive drift via commit f3ae767 (2026-04-23, "contract:
+      introduce check_exit() v1.3 — namespaced exit_source attribution")
+      modified 3 source files in engine_dev/v1_5_8/
+      (execution_emitter_stage1.py, execution_loop.py, stage2_compiler.py)
+      WITHOUT regenerating engine_manifest.json. The vault directory
+      vault/engines/Universal_Research_Engine/v1_5_8/ remains immutable per
+      ENGINE_VAULT_CONTRACT.md §4A. v1_5_8a captures the post-f3ae767 source
+      state with a freshly computed canonical-LF manifest and is the
+      canonical successor for new research runs.
+    historical_anomalies:
+      - description: |
+          vault execution_loop.py canonical hash differs from both the
+          v1_5_8 manifest's recorded value AND the engine_dev/v1_5_8 source
+          at every commit since the b63e94f freeze.
+        detail: |
+          v1_5_8/engine_manifest.json file_hashes records:
+              execution_loop.py: 3004095B83D11D09...
+
+          Actual canonical (LF-normalized) sha256s observed at audit
+          (2026-05-03, Phase 2):
+              vault/engines/Universal_Research_Engine/v1_5_8/execution_loop.py
+                  -> 30252572 9C198AA0...
+              engine_dev/universal_research_engine/v1_5_8/execution_loop.py
+                  -> 1A0077CD 7A3A43BC...   (post-f3ae767 source state)
+
+          Three distinct hashes; the manifest's recorded value matches
+          neither vault nor engine_dev at any commit visible in
+          `git log --all -- vault/engines/.../v1_5_8/execution_loop.py`
+          (which shows only the freeze commit b63e94f). This is consistent
+          with the manifest having been generated against an uncommitted
+          working-tree state at freeze time, OR the manifest having been
+          hand-edited after generation. Origin cannot be determined from
+          available history.
+
+          Resolution: HISTORICAL ANOMALY, NO MUTATION. The vault directory
+          is preserved as-shipped (b63e94f). The discrepancy is documented
+          here so future audits do not re-discover it as new drift.
+          v1_5_8a is generated cleanly from current source and does not
+          inherit this anomaly.
+
+  v1_5_8a:
+    status: frozen
+    vaulted: true
+    freeze_date: "2026-05-03"
+    predecessor: v1_5_8
+    superseded_by: null
+
+  v1_5_9:
+    status: experimental
+    vaulted: false
+    freeze_date: null
+    predecessor: v1_5_8
+    superseded_by: null
+    purpose: |
+      TS_Execution / Trade_Scan engine parity work for the burn-in
+      pipeline. Out of scope for backtest research runs — the resolver
+      filters this out via status == experimental. Listed here for
+      operational visibility, not for selection eligibility.
