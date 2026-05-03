@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-lint_encoding.py -- Pre-commit gate: block bare .read_text() without encoding
+lint_encoding.py -- Pre-commit gate: block I/O calls missing encoding="utf-8"
 =============================================================================
 On Windows, Python defaults to cp1252 (not UTF-8). Any file containing
 em-dashes, arrows, or other multi-byte UTF-8 characters will cause
 UnicodeDecodeError when read without explicit encoding="utf-8".
+
+Detects three classes of violation:
+    1. Bare .read_text() — Path.read_text() with no arguments
+    2. Bare .write_text(...) — Path.write_text() with content arg but no encoding=
+    3. Bare open(...) in text mode without encoding= (excludes binary modes)
+
+INFRA-AUDIT H2 closure 2026-05-03 added open()/write_text() coverage.
 
 Usage:
     python tools/lint_encoding.py          # scan all .py in repo
@@ -12,7 +19,7 @@ Usage:
 
 Exit codes:
     0 = clean
-    1 = bare .read_text() detected (prints file:line for each violation)
+    1 = violation detected (prints file:line for each)
 """
 from __future__ import annotations
 
@@ -21,15 +28,36 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows consoles default to cp1252 — violation lines may contain → or other
+# multi-byte chars that crash the print itself. Force stdout to UTF-8 so the
+# lint can report on the very content it's trying to police.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
+
 # Directories exempt from scanning (frozen archives, throwaway scripts)
 EXEMPT_DIRS = {"vault", "tmp", "archive", ".git", "__pycache__", "node_modules"}
 
-# Files exempt (this lint script references the pattern in docstrings/messages)
-EXEMPT_FILES = {"lint_encoding.py"}
+# Files exempt: this lint script references the patterns in docstrings/messages,
+# and the regression test embeds them in fixture strings to verify detection.
+EXEMPT_FILES = {"lint_encoding.py", "test_lint_encoding_extended.py"}
 
-# The pattern: .read_text() with no arguments, or .read_text( ) with only whitespace
-# Does NOT flag .read_text(encoding="utf-8") or similar
+# Pattern 1: bare .read_text() with no args
 BARE_READ_TEXT = re.compile(r'\.read_text\(\s*\)')
+
+# Pattern 2: .write_text(...) — flag if call args do NOT contain encoding=
+# Match the .write_text(...) span allowing nested parens (one level deep).
+RE_WRITE_TEXT = re.compile(r'\.write_text\s*\(((?:[^()]|\([^()]*\))*)\)')
+
+# Pattern 3: open(...) at use-site — flag if text-mode and missing encoding=
+# Excludes os.open (returns int fd, not file object). Match span up to first
+# unmatched ')'. Allows one level of nested parens (typical: open(Path(x))).
+RE_BUILTIN_OPEN = re.compile(r'(?<![\.\w])open\s*\(((?:[^()]|\([^()]*\))*)\)')
+
+# Mode arg detection inside open()/write_text() argstring
+RE_MODE_ARG = re.compile(r"['\"]([rwxabt+]+)['\"]")
 
 
 def is_exempt(filepath: Path) -> bool:
@@ -65,13 +93,41 @@ def get_all_py_files(root: Path) -> list[Path]:
     return results
 
 
-def scan_file(filepath: Path) -> list[tuple[int, str]]:
-    violations = []
+def _arg_has_encoding(args: str) -> bool:
+    """True iff the argstring of an open()/write_text() call contains a
+    keyword 'encoding=' (any value)."""
+    return bool(re.search(r"\bencoding\s*=", args))
+
+
+def _arg_is_binary_mode(args: str) -> bool:
+    """True iff the argstring contains a binary-mode literal ('rb', 'wb', etc.)."""
+    m = RE_MODE_ARG.search(args)
+    if not m:
+        return False
+    return "b" in m.group(1)
+
+
+def scan_file(filepath: Path) -> list[tuple[int, str, str]]:
+    """Return list of (lineno, kind, line) tuples for each violation."""
+    violations: list[tuple[int, str, str]] = []
     try:
         with open(filepath, "r", encoding="utf-8", errors="replace") as f:
             for lineno, line in enumerate(f, start=1):
+                # Pattern 1: bare .read_text()
                 if BARE_READ_TEXT.search(line):
-                    violations.append((lineno, line.rstrip()))
+                    violations.append((lineno, "read_text", line.rstrip()))
+                # Pattern 2: .write_text(...) without encoding=
+                for m in RE_WRITE_TEXT.finditer(line):
+                    if not _arg_has_encoding(m.group(1)):
+                        violations.append((lineno, "write_text", line.rstrip()))
+                # Pattern 3: open(...) text-mode without encoding=
+                for m in RE_BUILTIN_OPEN.finditer(line):
+                    args = m.group(1)
+                    if _arg_is_binary_mode(args):
+                        continue
+                    if _arg_has_encoding(args):
+                        continue
+                    violations.append((lineno, "open", line.rstrip()))
     except (OSError, UnicodeDecodeError):
         pass
     return violations
@@ -89,21 +145,24 @@ def main() -> None:
     files = [f for f in files if not is_exempt(f)]
 
     total_violations = 0
+    by_kind: dict[str, int] = {}
     for filepath in sorted(files):
         violations = scan_file(filepath)
         if violations:
             rel = filepath.relative_to(repo_root) if filepath.is_relative_to(repo_root) else filepath
-            for lineno, line in violations:
-                print(f"  VIOLATION: {rel}:{lineno}  {line.strip()}")
+            for lineno, kind, line in violations:
+                print(f"  VIOLATION ({kind}): {rel}:{lineno}  {line.strip()}")
                 total_violations += 1
+                by_kind[kind] = by_kind.get(kind, 0) + 1
 
     if total_violations > 0:
-        print(f"\n  BLOCKED: {total_violations} bare .read_text() call(s) found.")
-        print('  Fix: use .read_text(encoding="utf-8") instead')
+        breakdown = ", ".join(f"{n} {k}" for k, n in sorted(by_kind.items()))
+        print(f"\n  BLOCKED: {total_violations} encoding-missing call(s) found ({breakdown}).")
+        print('  Fix: add encoding="utf-8" to read_text(), write_text(), and open() calls in text mode.')
         sys.exit(1)
     else:
         if not staged_only:
-            print("  PASS: No bare .read_text() calls detected.")
+            print("  PASS: No encoding-missing I/O calls detected.")
         sys.exit(0)
 
 

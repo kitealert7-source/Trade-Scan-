@@ -156,7 +156,7 @@ def _get_bar_stall() -> float | None:
     if not EXEC_STATE.exists():
         return None
     try:
-        with open(EXEC_STATE) as f:
+        with open(EXEC_STATE, encoding="utf-8") as f:
             d = json.load(f)
         return time.time() - d["last_bar_time"]
     except Exception:
@@ -172,7 +172,7 @@ def _get_process_uptime() -> float | None:
     if not EXEC_STATE.exists():
         return None
     try:
-        with open(EXEC_STATE) as f:
+        with open(EXEC_STATE, encoding="utf-8") as f:
             d = json.load(f)
         st = d.get("start_time")
         if st is None:
@@ -249,7 +249,7 @@ def _kill_pid(pid: int) -> bool:
 def _load_guard() -> dict:
     """Load restart storm guard state. Returns defaults on missing/corrupt file."""
     try:
-        with open(GUARD_FILE) as f:
+        with open(GUARD_FILE, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {"restart_count": 0, "last_restart_ts": 0.0}
@@ -260,7 +260,7 @@ def _save_guard(guard: dict) -> None:
     try:
         GUARD_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = GUARD_FILE.with_suffix(".tmp")
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(guard, f)
         shutil.move(str(tmp), str(GUARD_FILE))
     except Exception as e:

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 __all__ = [
@@ -20,13 +21,85 @@ __all__ = [
     "resolve_base_strategy_dir",
     "resolve_run_dir",
     "iter_run_dirs",
+    "_resolve_repo_root",
+    "_resolve_state_root",
 ]
 
-# Repository Root
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# ---------------------------------------------------------------------------
+# Repo + state root resolution (worktree-safe)
+# ---------------------------------------------------------------------------
+# INFRA-AUDIT C1 closure 2026-05-03.
+#
+# The naive parents[1] / parent pattern silently mis-resolves under a git
+# worktree at .claude/worktrees/<NAME>/, sending state writes to
+# "worktrees/TradeScan_State" (which doesn't exist) instead of the real
+# sibling Trade_Scan/../TradeScan_State.
+#
+# Resolution priority (first match wins):
+#   1. TRADE_SCAN_ROOT env var (explicit override; useful for CI / Docker /
+#      cross-checkout shells). Validated to contain a `strategies/` dir.
+#   2. Walk up from this file until we find a directory that looks like the
+#      real repo root: a `strategies/` AND `engines/` AND `governance/`
+#      directory present. This works in main checkout AND in a worktree.
+#   3. Fallback to legacy parents[1] (maintains backward compat for any
+#      caller that mocks Path resolution; emits no warning to avoid noise).
+#
+# State root resolution (first match wins):
+#   1. TRADE_SCAN_STATE env var (explicit override).
+#   2. <real_repo_root>.parent / "TradeScan_State"  — the canonical sibling.
+
+_REPO_MARKER_DIRS = ("strategies", "engines", "governance")
+
+
+def _looks_like_repo_root(p: Path) -> bool:
+    """A directory is the repo root iff it has all three marker subdirs."""
+    return all((p / m).is_dir() for m in _REPO_MARKER_DIRS)
+
+
+def _resolve_repo_root() -> Path:
+    """Resolve the real Trade_Scan repo root.
+
+    Works from:
+      * main checkout: <repo>/config/state_paths.py
+      * worktree:      <repo>/.claude/worktrees/<NAME>/config/state_paths.py
+      * any nested location with strategies/+engines/+governance siblings
+    """
+    # 1. Env var override
+    env = os.environ.get("TRADE_SCAN_ROOT")
+    if env:
+        candidate = Path(env).resolve()
+        if _looks_like_repo_root(candidate):
+            return candidate
+        # If env var is set but invalid, fall through (don't silently misroute).
+
+    # 2. Walk up from this file
+    here = Path(__file__).resolve()
+    # Try up to 6 ancestors (covers main + worktree + double-nested cases)
+    for ancestor in (here.parent, *here.parents):
+        if _looks_like_repo_root(ancestor):
+            return ancestor
+    # 3. Last-resort fallback: legacy behavior
+    return Path(__file__).resolve().parents[1]
+
+
+def _resolve_state_root(repo_root: Path) -> Path:
+    """Resolve the TradeScan_State directory.
+
+    1. TRADE_SCAN_STATE env var (explicit override).
+    2. <repo_root>.parent / "TradeScan_State" (canonical sibling layout).
+    """
+    env = os.environ.get("TRADE_SCAN_STATE")
+    if env:
+        return Path(env).resolve()
+    return repo_root.parent / "TradeScan_State"
+
+
+# Repository Root (worktree-safe via _resolve_repo_root)
+PROJECT_ROOT = _resolve_repo_root()
 
 # Research State Root (Sibling to Repository)
-STATE_ROOT = PROJECT_ROOT.parent / "TradeScan_State"
+STATE_ROOT = _resolve_state_root(PROJECT_ROOT)
 
 # Physical Lifecycle Directories (authoritative path definitions — do not rename folders)
 # DEPRECATED (internal): _SANDBOX_DIR, CANDIDATES_DIR — access via POOL_DIR / SELECTED_DIR only

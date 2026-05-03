@@ -84,7 +84,7 @@ def load_broker_spec(symbol: str) -> dict:
     spec_path = BROKER_SPECS_ROOT / f"{symbol}.yaml"
     if not spec_path.exists():
         raise FileNotFoundError(f"Missing broker spec: {spec_path}")
-    with open(spec_path, "r") as f:
+    with open(spec_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 

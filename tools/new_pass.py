@@ -75,79 +75,53 @@ def _find_directive(strategy_name: str) -> Path:
 # ── Sweep registry update ───────────────────────────────────────────────────
 def _register_patch(new_pass_name: str, short_hash: str, full_hash: str) -> None:
     """
-    Append a new patch entry to sweep_registry.yaml under the correct family S01 patches block.
-    Reads/writes raw text to preserve formatting of other entries.
+    Register a new patch entry under its parent sweep slot via the canonical
+    lock-protected API. INFRA-AUDIT C3+M5 closure 2026-05-03: replaces the
+    previous text-substitution + direct-write implementation, which:
+      * bypassed SWEEP_LOCK (race-prone under concurrent invocation)
+      * used substring matching that could corrupt the wrong block when
+        strategy names or family IDs shared a prefix
+
+    Routes through `tools/sweep_registry_gate.py::reserve_sweep_identity`
+    which performs exact-identity match, atomic lock, and patch-sibling
+    placement under the parent sweep slot.
     """
-    import yaml
-
-    content = SWEEP_REGISTRY.read_text(encoding="utf-8")
-
-    # Extract family ID and patch ID from strategy name
+    # Extract family ID and parent sweep key from strategy name
     # Pattern: NN_FAMILY_SYMBOL_TF_MODEL_SXX_VX_PXX
-    parts = new_pass_name.split("_")
-    family_id = parts[0]        # e.g. "23"
-    patch_id  = parts[-1]       # e.g. "P13"
+    family_id = new_pass_name.split("_")[0]
+    sweep_match = re.search(r"_S(\d{2})_V\d+_P\d+", new_pass_name)
+    if not sweep_match:
+        print(f"[new_pass] WARNING: cannot parse sweep slot from '{new_pass_name}'. "
+              "Manual registry update required.")
+        return
+    parent_sweep_key = f"S{sweep_match.group(1)}"
+    sig_hash = full_hash if len(full_hash) == 64 else short_hash
 
-    now_utc = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
-
-    new_entry = (
-        f"          {patch_id}:\n"
-        f"            directive_name: {new_pass_name}\n"
-        f"            signature_hash: {short_hash}\n"
-        f"            signature_hash_full: {full_hash}\n"
-        f"            reserved_at_utc: '{now_utc}'\n"
-    )
-
-    # Find the last patch entry for this family and append after it
-    # Strategy: look for the last "directive_name: <family_id>_" line and insert after its block
-    # More robust: find the family block and locate the last patch entry
-
-    # Build a marker — find the family block header
-    family_marker = f"  '{family_id}':" if f"  '{family_id}':" in content else f"  {family_id}:"
-
-    if family_marker not in content:
-        print(f"[new_pass] WARNING: Family '{family_id}' not found in sweep_registry.yaml.")
-        print(f"[new_pass] Add the following manually under family '{family_id}' patches:")
-        print(new_entry)
+    try:
+        from tools.sweep_registry_gate import (
+            reserve_sweep_identity,
+            SweepRegistryError,
+        )
+    except Exception as exc:
+        print(f"[new_pass] WARNING: sweep_registry_gate unavailable ({exc}). "
+              "Manual registry update required.")
         return
 
-    # Find the position of the last patch entry in this family block
-    # Use the pattern: look for the last reserved_at_utc within the family's section
-    family_pos = content.index(family_marker)
-
-    # Find next family marker after this one (to bound our search)
-    next_family_match = re.search(r"^\s{2}['\"]?\d+['\"]?:", content[family_pos + 1:], re.MULTILINE)
-    family_block_end = family_pos + 1 + next_family_match.start() if next_family_match else len(content)
-    family_block = content[family_pos:family_block_end]
-
-    # Find the last 'reserved_at_utc' line within this block (patch-level = 12-space indent)
-    last_reserved = list(re.finditer(r"            reserved_at_utc:.*\n", family_block))
-    if not last_reserved:
-        # No existing patches. Auto-insert the first patch in the right sweep block.
-        # Works for the common case where a fresh sweep still has `patches: {}`.
-        # Search within family_block only; rewrite the matched "patches: {}" once.
-        empty_patches_re = re.compile(r"^(?P<indent>        )patches:\s*\{\}\s*\n", re.MULTILINE)
-        m = empty_patches_re.search(family_block)
-        if not m:
-            print(f"[new_pass] WARNING: No existing patches and no 'patches: {{}}' anchor found in family '{family_id}'.")
-            print(f"[new_pass] Add the following manually:\n{new_entry}")
-            return
-        # Replace `patches: {}` with `patches:\n<entry>` at the first occurrence
-        # (first sweep block; callers only register one sweep per family on GENESIS).
-        replacement = f"{m.group('indent')}patches:\n{new_entry}"
-        insert_start = family_pos + m.start()
-        insert_end = family_pos + m.end()
-        content = content[:insert_start] + replacement + content[insert_end:]
-        SWEEP_REGISTRY.write_text(content, encoding="utf-8")
-        print(f"[new_pass] Sweep registry auto-seeded: family {family_id}, first patch {patch_id}")
+    try:
+        result = reserve_sweep_identity(
+            idea_id=family_id,
+            directive_name=new_pass_name,
+            signature_hash=sig_hash,
+            requested_sweep=parent_sweep_key,
+            auto_advance=True,
+        )
+    except SweepRegistryError as exc:
+        print(f"[new_pass] WARNING: registry registration failed: {exc}")
         return
 
-    # Insert the new entry after the last reserved_at_utc line in the family block
-    insert_offset = family_pos + last_reserved[-1].end()
-    content = content[:insert_offset] + new_entry + content[insert_offset:]
-
-    SWEEP_REGISTRY.write_text(content, encoding="utf-8")
-    print(f"[new_pass] Sweep registry updated: family {family_id}, patch {patch_id}")
+    status = result.get("status", "?")
+    print(f"[new_pass] Sweep registry {status}: family {family_id}, "
+          f"sweep {parent_sweep_key}, patch {new_pass_name.rsplit('_', 1)[-1]}")
 
 
 # ── Strategy.py canonical pre-formatting ───────────────────────────────────

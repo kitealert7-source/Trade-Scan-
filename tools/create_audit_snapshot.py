@@ -102,11 +102,11 @@ def main():
         "content_hash_method": "SHA256"
     }
     
-    with open(TARGET_DIR / "AUDIT_METADATA.json", "w") as f:
+    with open(TARGET_DIR / "AUDIT_METADATA.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
-        
+
     # 4. Save Manifest
-    with open(TARGET_DIR / "FILE_HASH_MANIFEST.json", "w") as f:
+    with open(TARGET_DIR / "FILE_HASH_MANIFEST.json", "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=4)
         
     print("-" * 60)
