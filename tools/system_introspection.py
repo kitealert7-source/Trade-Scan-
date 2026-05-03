@@ -471,8 +471,13 @@ def collect_git() -> dict[str, Any]:
         )
         if status.returncode == 0:
             changes = [l for l in status.stdout.strip().splitlines() if l.strip()]
-            # Exclude data_root runtime changes
-            code_changes = [l for l in changes if not l.strip().lstrip("?MA ").startswith("data_root/")]
+            # Exclude data_root runtime changes and SYSTEM_STATE.md itself
+            # (which this very script is in the act of regenerating — flagging
+            # its own output would mean the file can never read "clean").
+            def _is_runtime(line: str) -> bool:
+                p = line.strip().lstrip("?MA ").strip()
+                return p.startswith("data_root/") or p == "SYSTEM_STATE.md"
+            code_changes = [l for l in changes if not _is_runtime(l)]
             result["working_tree"] = "clean" if not code_changes else f"{len(code_changes)} uncommitted"
         else:
             result["working_tree"] = "unknown"
