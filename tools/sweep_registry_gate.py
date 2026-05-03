@@ -515,10 +515,19 @@ def reserve_sweep_identity(
                             f"directive='{directive_name}' because a COMPLETE run exists."
                         )
 
+                # INFRA-NEWS-009: surface the next free slot in the error so the
+                # caller has an obvious remediation path. Manual stub creators
+                # (and the CLI wrapper) should receive a HARD_FAIL plus the
+                # next-free suggestion in one shot.
+                next_free_num = int(idea_block.get("next_sweep", _compute_next_sweep(sweeps)))
+                while f"S{next_free_num:02d}" in sweeps:
+                    next_free_num += 1
+                next_free_slot = f"S{next_free_num:02d}"
                 raise SweepRegistryError(
                     "SWEEP_COLLISION: "
                     f"idea_id='{idea_id}' sweep='{requested_key}' already allocated to "
-                    f"directive='{existing_directive}' hash='{existing_hash}'."
+                    f"directive='{existing_directive}' hash='{existing_hash}'. "
+                    f"Next free slot for idea_id='{idea_id}': '{next_free_slot}'."
                 )
             if not auto_advance:
                 raise SweepRegistryError(

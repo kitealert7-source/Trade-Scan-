@@ -165,7 +165,10 @@ class FilterStack:
                         return False
 
         # Session exclusion gate: blocks trades during excluded UTC hours.
-        # Requires bar_hour to be computed in prepare_indicators().
+        # bar_hour is derived from (in order): ctx.bar_hour column → ctx.row.name.hour
+        # (DatetimeIndex fallback). The fallback eliminates the INFRA-NEWS-001 silent-
+        # zero-trades trap where a strategy with session_filter enabled but no
+        # df["bar_hour"] populated in prepare_indicators() would reject every bar.
         sf = self.signature.get("session_filter", {})
         if sf.get("enabled", False):
             exclude_hours = sf.get("exclude_hours_utc", [])
@@ -174,6 +177,14 @@ class FilterStack:
                     bar_hour = ctx.require("bar_hour")
                 except Exception:
                     bar_hour = None
+                # Fallback: derive from row index timestamp when column absent.
+                if bar_hour is None:
+                    try:
+                        row = getattr(ctx, "row", None)
+                        if row is not None and hasattr(row, "name") and hasattr(row.name, "hour"):
+                            bar_hour = int(row.name.hour)
+                    except Exception:
+                        bar_hour = None
                 if bar_hour is None:
                     self.filter_counts["session_filter"] = self.filter_counts.get("session_filter", 0) + 1
                     self.filtered_bars += 1
