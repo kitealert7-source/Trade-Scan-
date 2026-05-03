@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: BROKEN
-- BROKEN: 23 commits not pushed to origin
+- BROKEN: 24 commits not pushed to origin
 
-> Generated: 2026-05-03T14:57:49Z
+> Generated: 2026-05-03T15:09:06Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -43,9 +43,9 @@
 - Run directories: 1238
 
 ## Git Sync
-- Remote: **23 commits ahead of origin**
+- Remote: **24 commits ahead of origin**
 - Working tree: clean
-- Last commit: `2f55ddf research: archive Phase 2 RSIAVG path study + orphan completed directives`
+- Last commit: `ca8c083 session: SYSTEM_STATE post-NEWSBRK-integration + vault snapshot`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
