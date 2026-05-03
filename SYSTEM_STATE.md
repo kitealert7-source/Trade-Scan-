@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 24 commits not pushed to origin
+## SESSION STATUS: OK
 
-> Generated: 2026-05-03T15:09:06Z
+> Generated: 2026-05-03T15:17:52Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -43,9 +42,9 @@
 - Run directories: 1238
 
 ## Git Sync
-- Remote: **24 commits ahead of origin**
+- Remote: IN SYNC (upstream: `origin/spike/v1_5_9_extraction`)
 - Working tree: clean
-- Last commit: `ca8c083 session: SYSTEM_STATE post-NEWSBRK-integration + vault snapshot`
+- Last commit: `54fc9d3 fix(introspection): exempt SYSTEM_STATE.md from working-tree counter`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
