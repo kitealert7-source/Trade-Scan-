@@ -58,6 +58,8 @@ _ALLOWED_PRIMITIVES = {
     "linear_regression_slope", "linear_regression_slope_htf",
     "trend_persistence_count",
     "session_range_breakout",
+    "news_event_window",
+    "pre_event_range",
 }
 _ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}
