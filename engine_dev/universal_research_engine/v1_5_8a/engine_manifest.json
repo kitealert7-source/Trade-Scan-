@@ -1,0 +1,38 @@
+{
+    "engine_name": "Universal_Research_Engine",
+    "engine_version": "v1_5_8a",
+    "engine_status": "FROZEN",
+    "vaulted": true,
+    "freeze_date": "2026-05-03",
+    "predecessor": "v1_5_8 (FROZEN 2026-04-20, superseded 2026-05-03)",
+    "supersession_reason": "Post-freeze additive drift via f3ae767 (2026-04-23, contract: introduce check_exit() v1.3) modified 3 source files in engine_dev/v1_5_8/ without regenerating the manifest. v1_5_8a captures the post-f3ae767 source state with a freshly computed canonical-LF manifest. v1_5_8 vault remains immutable; v1_5_8a is the canonical successor for new research runs.",
+    "timestamp_utc": "2026-05-03T05:13:11.339932+00:00",
+    "adds": [
+        "check_exit() v1.3 namespaced exit_source attribution (inherited from f3ae767 source changes)",
+        "Stage-2 Performance Summary now includes Unspecified Exit % (from f3ae767)",
+        "Stage-2 Exit Source Breakdown sheet (from f3ae767)"
+    ],
+    "invariants": [
+        "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
+        "Partial guard: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001",
+        "Stop mutation is monotone: long tightens up only, short tightens down only; silent reject otherwise",
+        "Entry market state initial_stop_price is FROZEN; stop_price_active is live-mutable",
+        "No-hook strategies produce byte-equivalent trade dicts to v1.5.7 (and v1.5.6)",
+        "unrealized_r (close-based) is UNCHANGED from v1.5.7 \u2014 additive only"
+    ],
+    "file_hashes": {
+        "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "contract.json": "EDB81B5BF26B41788845CA17135B3108C36EC9BC7C0542BCE487EA9953C50F2A",
+        "execution_emitter_stage1.py": "AF137FFDE29D1E68EB97AC459BC6C93B7AE642A0A9E1F20625E97A6D33DD620F",
+        "execution_loop.py": "1A0077CD7A3A43BCE679F58C0C4417A473746A97B9E7E0B97A9B96411FB48A09",
+        "main.py": "EC740913E2EF92165063D14503ED790A4E208038B7FF249F12A51EAEDE6332EA",
+        "stage2_compiler.py": "77B590A4CFA29243348128DBEA263053BEF679953EC2F4CA30C4CD4FFCB0B3B6"
+    },
+    "capabilities": [
+        "execution.entry.v1",
+        "execution.exit.v1",
+        "execution.partial_exit.v1",
+        "execution.intrabar_ur.v1"
+    ],
+    "contract_id": "sha256:edb81b5bf26b41788845ca17135b3108c36ec9bc7c0542bce487ea9953c50f2a"
+}

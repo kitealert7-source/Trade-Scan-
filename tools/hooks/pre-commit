@@ -49,6 +49,63 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# --- engine-dev manifest sync guard --------------------------------------
+# Any change under engine_dev/universal_research_engine/<version>/ MUST be
+# accompanied by an updated engine_manifest.json in the same version dir.
+# This prevents the f3ae767-class drift where engine source was modified
+# post-freeze without manifest regeneration.
+ENGINE_DEV_CHANGES="$(git diff --cached --name-only --diff-filter=ACMRT \
+    | grep -E '^engine_dev/universal_research_engine/v[^/]+/' || true)"
+if [ -n "$ENGINE_DEV_CHANGES" ]; then
+    echo "[pre-commit] engine_dev/universal_research_engine/ changes detected — checking manifest sync..."
+    MISSING_MANIFEST_VERSIONS=""
+    # Collect every version directory touched in the staged set
+    TOUCHED_VERSIONS="$(echo "$ENGINE_DEV_CHANGES" \
+        | sed -E 's|^(engine_dev/universal_research_engine/v[^/]+)/.*$|\1|' \
+        | sort -u)"
+    for VERSION_DIR in $TOUCHED_VERSIONS; do
+        # If any non-manifest file in this version dir is staged, the manifest
+        # for the same dir must also be staged.
+        NON_MANIFEST_STAGED="$(echo "$ENGINE_DEV_CHANGES" \
+            | grep "^${VERSION_DIR}/" \
+            | grep -v "/engine_manifest.json$" || true)"
+        MANIFEST_STAGED="$(echo "$ENGINE_DEV_CHANGES" \
+            | grep "^${VERSION_DIR}/engine_manifest.json$" || true)"
+        if [ -n "$NON_MANIFEST_STAGED" ] && [ -z "$MANIFEST_STAGED" ]; then
+            MISSING_MANIFEST_VERSIONS="${MISSING_MANIFEST_VERSIONS}${VERSION_DIR}\n"
+        fi
+    done
+    if [ -n "$MISSING_MANIFEST_VERSIONS" ]; then
+        echo ""
+        echo "[pre-commit] COMMIT BLOCKED. Engine source changed without manifest update."
+        echo ""
+        echo "  The following engine version directories have staged source changes"
+        echo "  but no corresponding engine_manifest.json update in the same commit:"
+        echo ""
+        printf "    %b" "$MISSING_MANIFEST_VERSIONS"
+        echo ""
+        echo "  Root cause: f3ae767 (Apr 23) shipped engine source changes to v1.5.8"
+        echo "  without regenerating its manifest, breaking integrity verification"
+        echo "  for all subsequent backtest runs. This guard prevents recurrence."
+        echo ""
+        echo "  Fix: regenerate the manifest for each version above and stage it"
+        echo "  alongside the source change:"
+        echo ""
+        for VERSION_DIR in $TOUCHED_VERSIONS; do
+            VNAME=\$(basename \"$VERSION_DIR\")
+            echo "    python tools/generate_engine_manifest.py --version $(basename "$VERSION_DIR")"
+            echo "    git add ${VERSION_DIR}/engine_manifest.json"
+        done
+        echo ""
+        echo "  If the source change is intentional and the manifest is deliberately"
+        echo "  unchanged (e.g. comment-only edit), explicitly stage the manifest"
+        echo "  unchanged: git add ${VERSION_DIR}/engine_manifest.json (no-op stage)."
+        echo ""
+        exit 1
+    fi
+    echo "[pre-commit] engine-dev manifest sync OK — all touched versions have manifest staged."
+fi
+
 # --- regression harness (selective) --------------------------------------
 # Run tools/regression only when staged paths touch a layer the harness
 # actually covers. Unrelated commits (docs, governance, engine_dev, etc.)
