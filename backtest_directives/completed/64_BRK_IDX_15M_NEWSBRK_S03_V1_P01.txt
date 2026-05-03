@@ -1,0 +1,60 @@
+test:
+  name: 64_BRK_IDX_15M_NEWSBRK_S03_V1_P01
+  family: BRK
+  strategy: 64_BRK_IDX_15M_NEWSBRK_S03_V1_P01
+  version: 1
+  signal_version: 11
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 64 NEWSBRK Architecture A1 sweep -- pre-event compression breakout on NAS100 15M, USD High-impact events, box_bars=8. Same arm/exit window asymmetry as S01 P00 (entry [event-30m, event+30m), exit [event-30m, event+90m)). Patch parametrizes _BOX_BARS only. Hypothesis: lower TF gives the pre-event compression window enough bars to actually fire breakouts (S01 P00 on 30M produced 0 pre-event-only entries; bar density was the bottleneck). SUCCESS: news-only PF >1 after top-5% removal AND yearwise news PF >1 across 2024/25/26 AND distributed (top-5 conc <60%). FAIL: any of those gates miss."
+  description: "BRK IDX 15M A1 NEWSBRK on NAS100. USD High events; pre-event box 8 bars; arm [event-30m, event+30m); exit [event-30m, event+90m); ATR 2.5x. Engine v1.5.8a."
+  notes: "A1 sweep, patch P01. No filters, no TP, both directions."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.macro.news_event_window
+  - indicators.structure.pre_event_range
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: news_event_compression_breakout
+  exit_logic:
+    type: window_exit_or_stop
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

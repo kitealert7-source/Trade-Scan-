@@ -1,0 +1,61 @@
+test:
+  name: 64_BRK_IDX_5M_NEWSBRK_S04_V1_P01
+  family: BRK
+  strategy: 64_BRK_IDX_5M_NEWSBRK_S04_V1_P01
+  version: 1
+  signal_version: 20
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 64 NEWSBRK Architecture A2 sweep -- post-event Donchian breakout on NAS100 5M, USD High-impact events, trigger_min=30. Reuses ATRBRK Donchian primitive (highest_high/lowest_low over 13-bar lookback, intrabar Pine semantics) gated by news_in_window with pre_min=0 -> arm strictly post-event. Patch parametrizes _TRIGGER_MIN only. Hypothesis: news shocks create directional continuation captured by standard breakout primitive when armed only post-event (the existing 63_ATRBRK family already shows news_pf 4-6 fully unarmed -- A2 tests whether news-arm gate concentrates that edge). SUCCESS: news-only PF >1 after top-5% removal AND yearwise news PF >1 AND distributed (top-5 conc <60%). FAIL: any gate misses."
+  description: "BRK IDX 5M A2 NEWSBRK on NAS100. USD High events; Donchian 13-bar; arm [event_dt, event_dt+30m); ATR 2.5x. Engine v1.5.8a."
+  notes: "A2 sweep, patch P01. No filters, no TP, both directions."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.macro.news_event_window
+  - indicators.structure.highest_high
+  - indicators.structure.lowest_low
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: post_event_donchian_breakout
+  exit_logic:
+    type: trigger_window_exit_or_stop
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01

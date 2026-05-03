@@ -1,0 +1,60 @@
+test:
+  name: 64_BRK_IDX_30M_NEWSBRK_S01_V1_P00
+  family: BRK
+  strategy: 64_BRK_IDX_30M_NEWSBRK_S01_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 30m
+  start_date: "2024-01-01"
+  end_date: "2026-03-20"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  repeat_override_reason: "Idea 64 NEWSBRK S01 P00 -- GENESIS run for the news-event compression-box breakout family on NAS100 30M. Hypothesis from NEWSBRK_DISCOVERY_REPORT.md: USD High-impact scheduled macro events create a repeatable immediate release-overlap breakout edge on equity indices that is independent of session/regime context. The existing 63_BRK_IDX_*M_ATRBRK family already shows news_pf 4-6 vs out_pf 0.62-0.86 across NAS100/GER40/JPN225/EUSTX50/ESP35/UK100, but ATRBRK fires on every breakout regardless of cause -- the report-layer post-hoc tags news trades, the strategy itself does not know news exists. Strategy logic: ASYMMETRIC arm vs exit windows for hypothesis isolation. ENTRY-ARM is the TIGHT window [event_dt - 30min, event_dt + 30min) -- entries past +30min would be measuring post-event drift, not release alpha. EXIT (force-flat) is the WIDER window [event_dt - 30min, event_dt + 90min) -- trades opened inside the arm window are allowed to mature for up to ~60min after the release before forced close, enough room for the immediate reaction without truncating it on the very next bar. Build pre-event compression box from the 4 bars (2 hours) STRICTLY BEFORE event_dt; intrabar entries when high > pre_event_high (long) or low < pre_event_low (short); both directions; ATR(14) x 2.5 safety stop. NO take-profit, NO session filter, NO regime filter, NO portfolio aggregation, NAS100 only. Decision rule (NOT a PF threshold): SUCCESS if news-only PF > 1 AFTER top-5%-wins removal AND yearwise news PF > 1 across ALL years (2024, 2025, 2026) AND distributed (not single-year-driven) edge. FAIL if news subset is sparse (<100 trades), tail-concentrated (top-5% > 60% of news PnL), or yearwise-collapsed (any year < 0.9). On FAIL: hypothesis falsified -- mark idea 64 architecture-dead and stop, no optimization. News-window parameters (currencies=USD, impact=High, pre_min=30, post_min_entry=30, post_min_exit=90, box_bars=4) are encoded as class constants in strategy.py and bound into the indicator calls there; rewriting them is a P01 concern, not a P00 patch."
+  description: "BRK IDX 30M news-event compression-box breakout on NAS100. USD High-impact events from live RESEARCH calendar; pre-event box of 4x30m=2h; intrabar entries inside the TIGHT arm window [event-30m, event+30m); force-flat at the WIDER exit window [event-30m, event+90m); ATR 2.5x safety stop. Engine v1.5.8."
+  notes: "P00 GENESIS for NEWSBRK family. The two new indicators (indicators.macro.news_event_window and indicators.structure.pre_event_range) were added in commit 19edd59 specifically to enable this strategy without engine FilterStack changes. Calendar-armed gating happens entirely inside check_entry via _entry_arm_active, derived in prepare_indicators from news_event_dt + a sec_since_event check against post_min_entry=30. Window boundary convention: [start, end) -- bar at exactly the right edge is OUTSIDE both arm and exit windows. If P00 confirms hypothesis, P01 explores impact_filter sweep (High vs High+Medium) and P02 explores arm/exit window sweeps. If P00 falsifies, NEWSBRK closes."
+
+symbols:
+  - NAS100
+
+indicators:
+  - indicators.volatility.atr
+  - indicators.macro.news_event_window
+  - indicators.structure.pre_event_range
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.5
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: news_event_compression_breakout
+  exit_logic:
+    type: window_exit_or_stop
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+  session_reset: none
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
+
+position_management:
+  lots: 0.01
