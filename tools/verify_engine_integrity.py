@@ -11,6 +11,25 @@ import importlib.util
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+
+def canonical_sha256(filepath: Path) -> str:
+    """sha256 of *filepath* with line endings normalized to LF.
+
+    Engine and tools manifests record canonical (LF) hashes — they are
+    generated against the line-ending-normalized form of each file. Hashing
+    raw on-disk bytes via `hashlib.sha256(file.read())` fails on Windows
+    checkouts with `core.autocrlf=true` because CRLF rendering produces a
+    different byte stream from the canonical form, even though the file
+    content is logically identical at the git-blob level.
+
+    Normalizing CRLF -> LF before hashing reproduces the canonical hash
+    identically on LF and CRLF working trees. This is the same
+    normalization git applies internally when computing blob hashes for
+    text files.
+    """
+    data = filepath.read_bytes().replace(b'\r\n', b'\n')
+    return hashlib.sha256(data).hexdigest()
+
 # --- Single Source of Truth: import ENGINE_VERSION from runtime engine ---
 _engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "v1_5_6" / "main.py"
 _spec = importlib.util.spec_from_file_location("_engine_main", _engine_main_path)
@@ -63,11 +82,7 @@ def verify_hashes():
             failures.append(f"  {filename}: FILE MISSING")
             continue
 
-        sha256 = hashlib.sha256()
-        with open(filepath, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), b''):
-                sha256.update(chunk)
-        actual_hash = sha256.hexdigest().upper()
+        actual_hash = canonical_sha256(filepath).upper()
 
         if actual_hash != expected_hash.upper():
             failures.append(f"  {filename}: HASH MISMATCH (expected {expected_hash[:16]}..., got {actual_hash[:16]}...)")
@@ -116,15 +131,11 @@ def verify_tools_integrity():
             failures.append(f"  {filename}: TOOL MISSING")
             continue
 
-        sha256 = hashlib.sha256()
-        with open(filepath, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), b''):
-                sha256.update(chunk)
-        actual_hash = sha256.hexdigest().upper()
+        actual_hash = canonical_sha256(filepath).upper()
 
         if actual_hash != expected_hash.upper():
             failures.append(f"  {filename}: HASH MISMATCH")
-    
+
     if failures:
         print("[FAIL] Tools Integrity Failed:")
         for f in failures:
