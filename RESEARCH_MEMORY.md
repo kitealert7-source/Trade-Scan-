@@ -564,3 +564,77 @@ The edge mechanism is breakout direction selection during forced volatility expa
 
 Implication:
 Park family 63_BRK_IDX_*_ATRBRK across all timeframes (5M, 15M, 30M) and symbols. Do not retest classical Donchian channel breakout on OctaFX index data. Future work in this thread must explicitly frame as a news-window strategy (tag NEWSBRK or similar), declare the news-feed dependency upfront, and validate the news-calendar is a stable production input before any promotion attempt. Confirmed structurally distinct from KALFLIP precedent: --skip-quality-gate requires positive outside-news PF >= 1.0 as documented precondition, not just event-driven. Workflow rule reaffirmed: per-symbol research discipline is mandatory; multi-symbol aggregation hides per-symbol heterogeneity (S12 V2 NAS100 PF 1.55 vs GER40 PF 1.07 within combined 1.34).
+
+
+2026-05-03
+Tags:
+kill-record
+news-window-strategy
+nas100-jpn225-ger40
+event-window-dependency
+tail-pf-ceiling
+news-feed-production-risk
+idea-64-parked
+
+Strategy: 64_BRK_IDX_5M/15M/30M_NEWSBRK_S01-S05 family on NAS100, JPN225, GER40
+Run IDs: see outputs/NEWSBRK_DISCOVERY_REPORT.md, outputs/NEWSBRK_15M_COMPARATIVE_2026_05_03.md, outputs/NEWSBRK_A1_5M_PRE_EVENT_TEST_2026_05_03.md, outputs/NEWS_EDGE_DISCOVERY_2026_05_03.md
+
+Finding:
+NEWSBRK family -- pre-event range break with calendar-aware indicator surface -- fails on every NAS100/JPN225/GER40 variant tested (5M, 15M, 30M; S01 through S05; mixed A1 pre-event range and A2 event-window architectures). Edge concentrates entirely inside the news window: outside-news PF on the strongest variant remains < 1.0. The pattern is the inverse of KALFLIP precedent -- KALFLIP had positive outside-news baseline (PF 1.11) and news amplified existing edge; NEWSBRK has no baseline so news IS the edge.
+
+Evidence:
+12-directive matrix S02-S05 across 5M/15M, 6/6 with adequate coverage ran admission -> Stage 4 -> PORTFOLIO_COMPLETE; classifier-gate verdicts all PASSED with COSMETIC against same-sweep-slot priors. None met the promote quality gate. Tail-PF ceiling held below the threshold across the family; flat-period and edge-ratio gates both failed on lead variants. Multi-symbol aggregation initially masked NAS100-specific weakness but per-symbol decomposition confirmed structural null on each symbol independently.
+
+Conclusion:
+NEWSBRK on OctaFX index data is a news-event detector, not a continuous-edge architecture. The same architectural-null verdict reached on idea 63 (Donchian) applies here for the same reason: the strategy's only profitable trades require an exogenous volatility shock from a known news release. Without a stable, low-latency news-calendar feed in production this is a non-starter; with one, the strategy is wagering all alpha on calendar correctness rather than signal correctness.
+
+Implication:
+Park family 64_BRK_IDX_*_NEWSBRK across all timeframes (5M, 15M, 30M) and symbols (NAS100, JPN225, GER40). Do not extend to additional indices or to FX/Crypto without first proving outside-news PF >= 1.0 on a different asset class. Future news-window work must declare the calendar dependency upfront and validate the calendar source as a production input before promotion. The KALFLIP --skip-quality-gate override precedent does NOT extend to news-only strategies -- it requires positive outside-news baseline as a precondition.
+
+2026-05-03
+Tags:
+methodology
+selection-bias
+post-hoc-filtering
+path-a-vs-path-b
+entry-when-flat-only
+causal-wrapper-required
+research-discipline
+
+Strategy: RSIAVG EURUSD 30M (Path A vs Path B comparative study)
+Run IDs: see outputs/PHASE2_PATHA_RSIAVG_EURUSD_2026_05_03.md, outputs/PHASE2_PATHB_RSIAVG_EURUSD_2026_05_03.md, outputs/PHASE2_PATHA_GENERALITY_TEST_2026_05_03.md
+
+Finding:
+Two filtering approaches were tested on the same RSIAVG EURUSD 30M baseline: (Path A) restrict trade ENTRIES via the FilterStack so the strategy only takes signals during the allowed window, vs (Path B) take all trades during backtest then post-hoc filter the trade log to keep only those whose entry timestamp falls in the allowed window. Path A is the causally honest version. Path B systematically OVERESTIMATES the restricted-window edge whenever the strategy has flat-state interactions (entry_when_flat_only, position-overlap rules, capital recycling).
+
+Evidence:
+RSIAVG carries entry_when_flat_only -- a held position blocks the next entry until close. In Path A, blocking a "good" trade during a forbidden window also blocks the strategy from being flat-and-ready when the next allowed window opens, so the next allowed trade may itself be missed or land at a different price. In Path B, the held position from the forbidden window is "free" -- it consumed its blocking effect in the live backtest but then gets stripped from the metric. Result: Path B's filtered subset benefits from setup-conditions (price levels, indicator state) that the live strategy with the same filter applied at entry would never have reached.
+
+Conclusion:
+Post-hoc trade-list filtering is not a substitute for causal entry-side filtering when any state variable couples consecutive trades. The bias is one-directional and can be substantial -- easily large enough to flip a real edge from negative to positive on paper.
+
+Implication:
+Workflow rule: any "is the edge concentrated in window X?" question must be answered with a Path A backtest (entry-side filter), never with Path B (post-hoc trade-list slicing). Path B is exploratory only and must never support promotion, deployment, or capital-allocation decisions; any number it produces is a ceiling, not a point estimate. When promoting filtered-subset findings, require the Path A re-run to match within tolerance before claiming the filter restores the edge. Build a causal-wrapper helper that takes a full-backtest run + a window predicate, re-runs the engine with FilterStack restricted to that window, and compares Path B "implied" metrics to Path A "actual" metrics to surface the bias automatically.
+
+2026-05-03
+Tags:
+namespace-integrity
+duplicate-execution-logic
+port-macdx-aliased
+not-independent-alpha
+naming-discipline
+
+Strategy: PORT family vs MACDX family (cross-namespace audit)
+Run IDs: code-audit finding (no run lineage); evidence in outputs/NEWS_INFRA_CLEANUP_2026_05_03.md cross-reference table
+
+Finding:
+PORT and MACDX strategies share identical execution logic at check_entry / check_exit / capital sizing. The token_dictionary.yaml lists them as separate model tokens, the sweep_registry tracks them as parallel idea families, and the portfolio ledger has been counting their PnL as if they were independent alpha streams. They are not -- they are aliases of the same underlying strategy with cosmetic differences in indicator naming and parameter labels.
+
+Evidence:
+Source-level diff of strategy.py files in deployable/ subtrees for PORT vs MACDX: identical signal logic (MACD-cross plus volume confirmation), identical position-sizing math, identical exit rules. The split appears to be a historical accident -- one was renamed mid-development without retiring the prior token. No commit explicitly adds independent logic to one branch.
+
+Conclusion:
+Treating PORT and MACDX as independent in portfolio composition double-counts the same edge. Originally suspected to be a CRITICAL governance violation; on closer read it is intentional code reuse plus namespace mislabeling, so severity downgraded from CRITICAL to LOW. Still must be fixed at the namespace + portfolio level -- leaving the alias active risks future capital allocation across what looks like two strategies but is one.
+
+Implication:
+Pick one canonical token (recommend MACDX, the more descriptive of the two) and retire the other in token_dictionary.yaml aliases. Re-tag PORT-family directives in the sweep_registry to MACDX. Run a one-time portfolio_evaluator pass that collapses the two families in the ledger so capital allocation does not double-count. Add a namespace-integrity check that rejects new model tokens whose canonical signal hash matches an existing token (silent-alias detector -- same kind of structural test used by classifier_gate Rule 3 silent-hash-drift). Operator rule: no new model token may enter token_dictionary without passing signal-hash uniqueness validation.
