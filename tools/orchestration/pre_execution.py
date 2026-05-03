@@ -295,22 +295,24 @@ def enforce_signature_consistency(
             strategy_py.write_text(content, encoding="utf-8")
             actions.append(f"strategy.py canonical hash -> {sig_hash}")
 
-    # ── 4. Ensure approved marker is fresh (mtime > strategy.py mtime) ──
+    # ── 4. Ensure approved marker is hash-bound to current strategy.py ──
+    # Stabilization 2026-05-03: write hash-based marker (sha256 of post-
+    # canonicalization strategy.py bytes) via the canonical helper. Eliminates
+    # the legacy timestamp-only marker race where strategy.py rewrites by the
+    # provisioner during preflight could bump strategy.py mtime past the marker
+    # mtime, falsely tripping EXPERIMENT_DISCIPLINE. Hash-based markers are
+    # validated by content-equality, immune to mtime drift across process
+    # boundaries.
+    from tools.approval_marker import (
+        compute_strategy_hash,
+        is_approval_current,
+        write_approved_marker,
+    )
+
     approved_marker = strategy_py.with_name("strategy.py.approved")
-    needs_approval = False
-
-    if not approved_marker.exists():
-        needs_approval = True
-    elif strategy_py.stat().st_mtime > approved_marker.stat().st_mtime:
-        needs_approval = True
-
-    if needs_approval:
-        time.sleep(0.01)  # ensure mtime difference on Windows
-        approved_marker.write_text(
-            f"approved: {datetime.now(tz=timezone.utc).isoformat()}\n",
-            encoding="utf-8",
-        )
-        actions.append("approved marker refreshed")
+    if not is_approval_current(strategy_py, approved_marker):
+        write_approved_marker(approved_marker, compute_strategy_hash(strategy_py))
+        actions.append("approved marker refreshed (hash-based)")
 
     # ── 5. Regenerate tools manifest if sweep registry was updated ──
     if any("sweep_registry" in a for a in actions):

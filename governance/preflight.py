@@ -518,9 +518,18 @@ def run_preflight(
             _next_ver = _strategy_name.replace("_V1_", "_V2_") if "_V1_" in _strategy_name else _strategy_name + "_V2"
             _strat_mtime = _strat_py.stat().st_mtime
 
-            # Fast path: approval marker present and stale
+            # Fast path: approval marker present and stale.
+            # Stabilization 2026-05-03: use is_approval_current (hash-aware)
+            # instead of raw mtime comparison. Hash-based markers are validated
+            # by content equality of strategy.py — immune to mtime drift across
+            # the admission(auto-consistency) -> provisioner -> preflight chain
+            # where strategy.py can be rewritten byte-identically multiple times.
+            # Legacy timestamp-only markers fall back to mtime via the helper's
+            # internal logic; auto-consistency upgrades them to hash-based on
+            # the next admission pass.
             if _approved.exists():
-                if _strat_mtime > _approved.stat().st_mtime:
+                from tools.approval_marker import is_approval_current as _is_appr
+                if not _is_appr(_strat_py, _approved):
                     return (
                         "AWAITING_HUMAN_APPROVAL",
                         f"EXPERIMENT_DISCIPLINE: strategy.py was modified after last approval. "
@@ -531,11 +540,23 @@ def run_preflight(
                         None,
                     )
 
-            # Primary + fallback: shared helper (registry → RUNS_DIR scan)
+            # Primary + fallback: shared helper (registry → RUNS_DIR scan).
+            # Stabilization 2026-05-03: short-circuit when the approval marker
+            # is hash-bound and its sha256 matches the current strategy.py —
+            # the file is content-unchanged regardless of mtime, so the
+            # first_execution_ts check is moot. This eliminates false trips
+            # caused by provisioner idempotent rewrites (byte-identical content
+            # but newer mtime).
             try:
                 from datetime import datetime as _dt, timezone as _tz
                 from tools.system_registry import _get_directive_first_execution_timestamp
-                _first_exec_ts = _get_directive_first_execution_timestamp(_strategy_name)
+                from tools.approval_marker import (
+                    is_approval_current as _is_appr_hash,
+                )
+                if _approved.exists() and _is_appr_hash(_strat_py, _approved):
+                    _first_exec_ts = None  # hash-confirmed unchanged → skip check
+                else:
+                    _first_exec_ts = _get_directive_first_execution_timestamp(_strategy_name)
                 if _first_exec_ts is not None:
                     _strat_dt = _dt.fromtimestamp(_strat_mtime, tz=_tz.utc)
                     if _strat_dt > _first_exec_ts:

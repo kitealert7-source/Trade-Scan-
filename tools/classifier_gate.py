@@ -230,18 +230,29 @@ def _find_prior_matches_narrowed(
     search_dirs: Iterable[Path],
 ) -> list[tuple[Path, dict, int]]:
     """Wrapper around _find_prior_matches that restricts the candidate set to
-    priors sharing the same structural identity (family, timeframe, sweep)
-    when the current directive is an ENGINE-category rerun.
+    priors sharing the same structural identity (family, timeframe, sweep).
 
-    Rationale: engine-only reruns expect full invariance of the directive.
-    Comparing against a structurally-distant sibling (different timeframe or
-    sweep variant) produces spurious UNCLASSIFIABLE verdicts on legitimate
-    filter/regime differences that were never part of the engine upgrade.
+    Sweep-scoped contract (2026-05-03 — see
+    governance/SOP/CLASSIFIER_GATE_SCOPING_2026_05_03.md):
 
-    Falls back to the wide (model, asset_class) match set when:
-      * the override reason is not an ENGINE rerun, or
-      * the current strategy name is unstructured, or
-      * the narrowed set is empty (nothing comparable exists yet).
+    A directive's lineage is its sweep slot. Patches within a sweep
+    (P00 → P01 → P02) are generations of each other and must respect
+    SIGNAL discipline. Different sweep slots in the same family
+    (S03 vs S04) are parallel explorations, not ancestors — no sv
+    comparison is enforced between them.
+
+    Behavior:
+      * Structured directive name matches the S0X_V0Y_P0Z pattern → narrow
+        to (family, timeframe, sweep). Empty narrowed set → first-of-kind
+        PASS (consistent with the ENGINE-rerun path).
+      * Unstructured directive name → narrowing not attempted; falls back
+        to wide (model, asset_class) for legacy back-compat.
+
+    Rationale (ENGINE rerun specifics): engine-only reruns ALSO expect
+    full invariance of the directive shape, so the narrowing is identical.
+    The only ENGINE-specific behavior remaining is `allow_same_stem=True`
+    so that the same-stem completed/ copy IS the valid baseline. Both
+    paths now return the narrowed set unconditionally (no wide fallback).
     """
     engine_rerun = _is_engine_rerun(current_directive)
     wide = _find_prior_matches(
@@ -250,10 +261,10 @@ def _find_prior_matches_narrowed(
     )
     if not wide:
         return wide
-    if not engine_rerun:
-        return wide
     cur_id = _extract_structural_identity(current_directive)
     if cur_id is None:
+        # Unstructured directive name → narrowing semantics undefined;
+        # fall back to wide matching to preserve legacy gate behavior.
         return wide
     narrowed: list[tuple[Path, dict, int]] = []
     for path, parsed, sv in wide:
@@ -264,15 +275,11 @@ def _find_prior_matches_narrowed(
                 and pid["timeframe"] == cur_id["timeframe"]
                 and pid["sweep"] == cur_id["sweep"]):
             narrowed.append((path, parsed, sv))
-    # For ENGINE reruns: if the same-structure prior set is empty, there is
-    # no structurally comparable baseline → treat as first-of-kind (PASS).
-    # Do NOT fall back to the wide set; comparing an ENGINE rerun against a
-    # structurally different strategy (different family/TF/sweep) always
-    # produces UNCLASSIFIABLE verdicts for differences that predate the
-    # engine upgrade and are irrelevant to the engine-only change.
-    if engine_rerun:
-        return narrowed  # empty list → evaluate() will PASS as first-of-kind
-    return narrowed if narrowed else wide
+    # Empty narrowed set → first-of-kind PASS. Do NOT fall back to the
+    # wide set; that would treat structurally-different sibling sweeps
+    # as ancestors and re-introduce the cross-sweep deadlock the
+    # sweep-scoping change exists to eliminate.
+    return narrowed
 
 
 def evaluate(

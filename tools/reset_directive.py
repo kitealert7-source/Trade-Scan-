@@ -98,14 +98,34 @@ def _detect_strategy_logic_change(directive_id: str) -> tuple[bool, str]:
 
     strat_mtime = datetime.fromtimestamp(strategy_py.stat().st_mtime, tz=timezone.utc)
 
-    # Fast path: approval marker present and stale
+    # Fast path: approval marker present and stale.
+    # Stabilization 2026-05-03: use is_approval_current (hash-aware). When the
+    # marker is hash-bound and matches the current strategy.py sha256, content
+    # is unchanged regardless of mtime, so reset is safe.
     approved = strategy_py.with_name("strategy.py.approved")
     if approved.exists():
-        approved_mtime = datetime.fromtimestamp(approved.stat().st_mtime, tz=timezone.utc)
-        if strat_mtime > approved_mtime:
-            return (True, "strategy.py was modified after its approval marker.")
+        try:
+            from tools.approval_marker import is_approval_current
+            if not is_approval_current(strategy_py, approved):
+                return (True, "strategy.py was modified after its approval marker.")
+        except Exception:
+            # Helper unavailable → fall back to legacy mtime comparison
+            approved_mtime = datetime.fromtimestamp(approved.stat().st_mtime, tz=timezone.utc)
+            if strat_mtime > approved_mtime:
+                return (True, "strategy.py was modified after its approval marker.")
 
-    # Primary + fallback: shared helper (registry → RUNS_DIR scan)
+    # Primary + fallback: shared helper (registry → RUNS_DIR scan).
+    # Stabilization 2026-05-03: short-circuit when the approval marker is
+    # hash-bound and confirms current strategy.py is unchanged content-wise —
+    # a content-stable strategy can be safely reset regardless of mtime drift
+    # vs first_execution_ts (which is common from idempotent provisioner rewrites).
+    try:
+        from tools.approval_marker import is_approval_current as _is_appr_hash
+        if approved.exists() and _is_appr_hash(strategy_py, approved):
+            return (False, "")
+    except Exception:
+        pass  # helper unavailable → fall through to legacy check
+
     first_exec_ts = _get_directive_first_execution_timestamp(directive_id)
     if first_exec_ts is None:
         return (False, "")
@@ -175,6 +195,47 @@ def _clear_directive_run_folder(directive_id: str):
         print(f"[RESET] No run state found for {directive_id} (already clean)")
 
 
+def _is_stranded_admission_ghost(directive_id: str) -> tuple[bool, str]:
+    """
+    Detect a stranded admission ghost: state==INITIALIZED with .txt present,
+    but the latest run_state.json shows IDLE with no history (admission tripped
+    after directive_state.transition_to('INITIALIZED') but before Stage 0
+    advanced). These deadlock the orchestrator with PIPELINE_BUSY.
+
+    Returns (is_stranded, run_id_or_empty).
+    """
+    directive_run_dir = RUNS_DIR / directive_id
+    state_path = directive_run_dir / "directive_state.json"
+    if not state_path.exists():
+        return (False, "")
+    try:
+        ds = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return (False, "")
+    latest_attempt = ds.get("latest_attempt")
+    if not latest_attempt:
+        return (False, "")
+    attempt = ds.get("attempts", {}).get(latest_attempt, {})
+    if attempt.get("status") != "INITIALIZED":
+        return (False, "")
+    history = attempt.get("history") or []
+    if history != ["INITIALIZED"]:
+        return (False, "")
+    run_id = attempt.get("run_id") or ""
+    if not run_id:
+        return (True, "")
+    run_state_path = RUNS_DIR / run_id / "run_state.json"
+    if not run_state_path.exists():
+        return (True, run_id)
+    try:
+        rs = json.loads(run_state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return (True, run_id)
+    if rs.get("current_state") == "IDLE" and not (rs.get("history") or []):
+        return (True, run_id)
+    return (False, run_id)
+
+
 def reset_directive(directive_id: str, reason: str, to_stage4: bool = False):
     """Reset a directive state with mandatory audit logging."""
     mgr = DirectiveStateManager(directive_id)
@@ -217,6 +278,35 @@ def reset_directive(directive_id: str, reason: str, to_stage4: bool = False):
                 print(f"[DONE] Ghost INITIALIZED state for {directive_id} quarantined.")
             else:
                 print(f"[INFO] Directive {directive_id} is INITIALIZED and already clean. No-op.")
+            return
+
+        # Stranded admission ghost: state==INITIALIZED with .txt present, but
+        # the run never advanced past Stage 0 (admission tripped post-init).
+        # PIPELINE_BUSY blocks any new run until this is cleared. Idempotent
+        # re-initialization: archive run states, clear directive folder, then
+        # transition INITIALIZED → INITIALIZED via FAILED.
+        stranded, run_id = _is_stranded_admission_ghost(directive_id)
+        if stranded:
+            print(f"[RESET][STRANDED] Detected stranded admission ghost for {directive_id} (run_id={run_id or 'n/a'})")
+            now = datetime.now(timezone.utc)
+            ts_suffix = now.strftime("%Y%m%dT%H%M%S")
+            _archive_run_states(directive_id, ts_suffix)
+            _clear_directive_run_folder(directive_id)
+
+            AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+            write_header = not AUDIT_LOG.exists()
+            with open(AUDIT_LOG, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                if write_header:
+                    writer.writerow(["timestamp", "directive_id", "previous_state", "new_state", "reason"])
+                writer.writerow([
+                    now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    directive_id,
+                    "INITIALIZED_STRANDED",
+                    "INITIALIZED",
+                    reason,
+                ])
+            print(f"[DONE] Stranded admission ghost cleared for {directive_id}. Re-init on next pipeline run.")
             return
 
         print(f"[INFO] Directive {directive_id} is already INITIALIZED. No reset needed.")

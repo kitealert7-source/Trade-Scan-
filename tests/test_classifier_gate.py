@@ -371,18 +371,23 @@ def test_engine_rerun_falls_back_to_wide_when_no_same_identity_prior(sandbox):
     assert v.classification == "COSMETIC"
 
 
-def test_engine_rerun_narrowing_disabled_without_override_reason(sandbox):
-    """Sanity check: the narrowing path must NOT activate for directives
-    that carry no ENGINE override reason. A structurally-distant prior
-    with a SIGNAL-level indicator diff must still be selected (and block)
-    as before. Ensures the new code path is opt-in via override reason.
+def test_structural_narrowing_active_without_override_reason(sandbox):
+    """Sweep-scoping contract (2026-05-03): structural narrowing is ALWAYS
+    active for structured directive names — not opt-in via ENGINE override
+    reason. A structurally-distant prior (different timeframe, different
+    sweep) is excluded from the candidate set, so the current directive
+    is treated as first-of-kind in its own sweep slot.
+
+    Replaces the legacy test_engine_rerun_narrowing_disabled_without_override_reason
+    which encoded the old opt-in contract — see
+    governance/SOP/CLASSIFIER_GATE_SCOPING_2026_05_03.md.
     """
     _write_directive(
         sandbox["prior_dir"], "22_CONT_FX_15M_CHOCH_S01_V1_P05",
         sv=1, atr=1.5,
         indicators=["indicators.volatility.atr", "indicators.structure.choch_v2"],
     )
-    # No override reason on current directive.
+    # No override reason on current directive — narrowing still applies.
     cur = _write_directive(
         sandbox["inbox"], "22_CONT_FX_30M_CHOCH_S02_V1_P03",
         sv=1, atr=1.5,
@@ -393,10 +398,10 @@ def test_engine_rerun_narrowing_disabled_without_override_reason(sandbox):
         project_root=sandbox["root"],
         search_dirs=[sandbox["prior_dir"]],
     )
-    # No narrowing → wide 15M/S01 prior picked → SIGNAL diff → BLOCK on SV.
-    assert v.verdict == "BLOCK"
-    assert v.classification == "SIGNAL"
-    assert v.prior_directive == "22_CONT_FX_15M_CHOCH_S01_V1_P05"
+    # Structurally-distant prior (15M/S01 vs 30M/S02) excluded → first-of-kind.
+    assert v.verdict == "PASS"
+    assert v.classification == "N/A"
+    assert v.prior_directive is None
 
 
 def test_engine_rerun_still_matches_same_identity_prior(sandbox):
@@ -466,6 +471,161 @@ def test_pass_when_indicator_hash_matches_and_no_signal_change(sandbox):
     )
     assert v.verdict == "PASS"
     assert v.classification == "PARAMETER"
+
+
+# ---------------------------------------------------------------------------
+# Sweep-scoping contract (2026-05-03)
+# ---------------------------------------------------------------------------
+# Five new cases proving prior-matching is scoped by sweep slot for
+# structured directive names. See:
+#   governance/SOP/CLASSIFIER_GATE_SCOPING_2026_05_03.md
+#   governance/SOP/CLASSIFIER_GATE_SCOPING_PLAN_2026_05_03.md
+
+
+def test_cross_sweep_parallel_exploration_passes(sandbox):
+    """S03 vs S04 with different indicator sets at the same sv should PASS:
+    parallel exploration, not lineage. Core unblocker for multi-architecture
+    batch sweeps (NEWSBRK A1+A2, ZREV multi-arch, etc.)."""
+    _write_indicator(sandbox["root"], "indicators.structure.pre_event_range", "compression_box")
+    _write_indicator(sandbox["root"], "indicators.structure.highest_high", "rolling_max")
+    _write_indicator(sandbox["root"], "indicators.structure.lowest_low", "rolling_min")
+    _write_directive(
+        sandbox["prior_dir"], "64_BRK_IDX_5M_NEWSBRK_S04_V1_P00",
+        sv=1,
+        indicators=["indicators.volatility.atr", "indicators.structure.highest_high", "indicators.structure.lowest_low"],
+        symbol="NAS100",
+    )
+    cur = _write_directive(
+        sandbox["inbox"], "64_BRK_IDX_15M_NEWSBRK_S03_V1_P00",
+        sv=1,
+        indicators=["indicators.volatility.atr", "indicators.structure.pre_event_range"],
+        symbol="NAS100",
+    )
+    v = evaluate(
+        cur,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    assert v.verdict == "PASS", f"cross-sweep should PASS, got: {v.reason}"
+    assert v.prior_directive is None
+    assert v.classification == "N/A"
+
+
+def test_within_sweep_signal_change_still_blocks_without_sv_bump(sandbox):
+    """Within the SAME sweep slot, SIGNAL indicator change without sv bump
+    must still BLOCK. Within-sweep discipline preserved."""
+    _write_directive(
+        sandbox["prior_dir"], "11_STR_FX_1H_CHOCH_S01_V1_P00",
+        sv=1, indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    cur_block = _write_directive(
+        sandbox["inbox"], "11_STR_FX_1H_CHOCH_S01_V1_P01",
+        sv=1, indicators=["indicators.volatility.atr", "indicators.structure.choch_v2"],
+    )
+    v = evaluate(
+        cur_block,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    assert v.verdict == "BLOCK", f"within-sweep SIGNAL @ same sv must BLOCK, got: {v.reason}"
+    assert v.classification == "SIGNAL"
+    cur_block.unlink()
+    cur_pass = _write_directive(
+        sandbox["inbox"], "11_STR_FX_1H_CHOCH_S01_V1_P01",
+        sv=2, indicators=["indicators.volatility.atr", "indicators.structure.choch_v2"],
+    )
+    v2 = evaluate(
+        cur_pass,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    assert v2.verdict == "PASS", f"within-sweep SIGNAL with sv bump should PASS, got: {v2.reason}"
+
+
+def test_engine_rerun_narrowing_unchanged(sandbox):
+    """ENGINE rerun semantics must not regress. Distant-sweep sibling must
+    NOT be picked as the prior; same-stem completed copy IS the baseline."""
+    _write_directive(
+        sandbox["prior_dir"], "11_STR_FX_1H_CHOCH_S02_V1_P00",
+        sv=5,
+        indicators=["indicators.volatility.atr", "indicators.structure.choch_v2"],
+    )
+    completed = sandbox["root"] / "completed"
+    _write_directive(
+        completed, "11_STR_FX_1H_CHOCH_S01_V1_P00",
+        sv=1,
+        indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    sandbox["inbox"].mkdir(parents=True, exist_ok=True)
+    rerun_path = sandbox["inbox"] / "11_STR_FX_1H_CHOCH_S01_V1_P00.txt"
+    rerun_path.write_text(
+        _DIRECTIVE_TEMPLATE.format(
+            name="11_STR_FX_1H_CHOCH_S01_V1_P00",
+            sv=1,
+            indicators_block="\n".join(
+                f"  - {i}" for i in ["indicators.volatility.atr", "indicators.structure.choch"]
+            ),
+            atr=1.5, desc="engine rerun", symbol="USDJPY",
+        ).replace(
+            "research_mode: true",
+            "research_mode: true\n  repeat_override_reason: \"[RERUN:ENGINE@2026-05-03 origin=test strategy=11_STR_FX_1H_CHOCH_S01_V1_P00] engine v1.5.8a parity\"",
+        ),
+        encoding="utf-8",
+    )
+    v = evaluate(
+        rerun_path,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"], completed],
+    )
+    assert v.verdict == "PASS", f"ENGINE rerun against same-stem baseline should PASS, got: {v.reason}"
+    assert v.prior_directive == "11_STR_FX_1H_CHOCH_S01_V1_P00"
+
+
+def test_unstructured_legacy_name_first_of_kind_pass(sandbox):
+    """Defensive: directives whose strategy.name doesn't match the structured
+    sweep pattern produce empty MODEL_TOKEN, so they never match any prior
+    bucket and always return first-of-kind PASS. The new narrowing logic
+    must not break this path — it's reached BEFORE narrowing applies."""
+    _write_directive(
+        sandbox["prior_dir"], "11_STR_FX_1H_CHOCH_S01_V1_P00",
+        sv=1, indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    cur = _write_directive(
+        sandbox["inbox"], "MY_HAND_ROLLED_TEST",
+        sv=1, indicators=["indicators.volatility.atr", "indicators.structure.choch_v2"],
+    )
+    v = evaluate(
+        cur,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+    )
+    assert v.verdict == "PASS", f"unstructured legacy name → first-of-kind PASS, got: {v.reason}"
+    assert v.classification == "N/A"
+    assert v.prior_directive is None
+
+
+def test_same_sweep_silent_hash_drift_blocks(sandbox):
+    """Highest-risk failure mode: silent internal logic drift in an
+    indicator module that doesn't change its import path. Same sweep slot,
+    identical imports, identical sv, but prior's recorded aggregate hash
+    differs from current — Rule 3 must still BLOCK."""
+    _write_directive(
+        sandbox["prior_dir"], "11_STR_FX_1H_CHOCH_S01_V1_P00",
+        sv=1, indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    cur = _write_directive(
+        sandbox["inbox"], "11_STR_FX_1H_CHOCH_S01_V1_P01",
+        sv=1, indicators=["indicators.volatility.atr", "indicators.structure.choch"],
+    )
+    v = evaluate(
+        cur,
+        project_root=sandbox["root"],
+        search_dirs=[sandbox["prior_dir"]],
+        prior_indicators_hash_lookup=lambda _stem: "deadbeef" * 8,
+    )
+    assert v.verdict == "BLOCK", f"silent indicator-hash drift within same sweep must BLOCK, got: {v.reason}"
+    assert v.details.get("indicator_hash_delta_detected") is True, \
+        "Rule 3 must fire (indicator_hash_delta_detected=True) on silent drift"
 
 
 if __name__ == "__main__":
