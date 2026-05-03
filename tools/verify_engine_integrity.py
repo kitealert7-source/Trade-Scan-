@@ -30,12 +30,18 @@ def canonical_sha256(filepath: Path) -> str:
     data = filepath.read_bytes().replace(b'\r\n', b'\n')
     return hashlib.sha256(data).hexdigest()
 
-# --- Single Source of Truth: import ENGINE_VERSION from runtime engine ---
-_engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "v1_5_6" / "main.py"
-_spec = importlib.util.spec_from_file_location("_engine_main", _engine_main_path)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-ENGINE_VERSION = _mod.ENGINE_VERSION
+# --- Single Source of Truth: ENGINE_VERSION via the same resolver path ---
+# the pipeline orchestrator uses (config/engine_registry.json.active_engine
+# resolved via tools.pipeline_utils.get_engine_version). Replaces the prior
+# hardcoded v1_5_6/main.py lookup, which left the integrity check verifying
+# v1.5.6 even when the orchestrator was running v1.5.8 / v1.5.8a — the root
+# cause of the post-Phase-2 NEWSBRK resumption block (governance bugfix
+# 2026-05-03). After this change all four governance layers
+# (engine_lineage, engine_registry, resolver, integrity tool) agree on the
+# same engine version.
+from tools.pipeline_utils import get_engine_version  # noqa: E402
+
+ENGINE_VERSION = get_engine_version()
 
 py_version = f"v{ENGINE_VERSION.replace('.', '_')}"
 ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / py_version
@@ -208,7 +214,9 @@ class SessionLimitStrategy2:
     def check_exit(self, ctx) -> bool:
         if ctx.direction == 1 and ctx.index in (3, 7, 11):
             return True
-        return None
+        # Engine v1.5.8a check_exit contract v1.3 (introduced f3ae767)
+        # requires bool | str return. Bare `return None` is rejected.
+        return False
 
 
 class UnlimitedSessionStrategy:
@@ -231,7 +239,7 @@ class UnlimitedSessionStrategy:
     def check_exit(self, ctx) -> bool:
         if ctx.direction == 1 and ctx.index in (3, 7, 11):
             return True
-        return None
+        return False  # contract v1.3: bool | str only
 
 
 class DiagnosticsStrategy:
@@ -268,7 +276,7 @@ class DiagnosticsStrategy:
     def check_exit(self, ctx) -> bool:
         if ctx.direction == 1 and ctx.index == 3:
             return True
-        return None
+        return False  # contract v1.3: bool | str only
 
 
 def run_diagnostics_check(engine_module):
