@@ -171,6 +171,8 @@ ALLOWED_SUB_KEYS = {
         "structure_lookback", "min_body_ratio",
         # HMA trend-follow entry (idea 55 family)
         "hma_period", "slope_lookback",
+        # FVG (Fair Value Gap — idea 64 family)
+        "min_gap_atr_mult",
     },
     "exit_logic": {
         "type", "price_exit", "time_exit_bars", "time_exit", "time_exit_utc",

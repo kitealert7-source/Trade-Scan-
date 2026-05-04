@@ -166,6 +166,25 @@ class FilterStack:
 
         # Session exclusion gate: blocks trades during excluded UTC hours.
         # Requires bar_hour to be computed in prepare_indicators().
+        #
+        # CLOCK SEMANTICS — important to avoid off-by-one research errors:
+        #   - exclude_hours_utc is matched against the SIGNAL bar's hour
+        #     (the bar where check_entry returns a signal dict).
+        #   - Under the engine's signal_bar_idx == fill_bar_idx - 1 contract
+        #     ("next_bar_open" execution_timing), the FILL lands one bar
+        #     LATER, at the OPEN of bar T+1.
+        #   - If the goal is "no FILLS in session window [start..end]" with
+        #     a 1H exec TF, exclude_hours_utc must be SHIFTED LEFT by one
+        #     hour: exclude [start-1 .. end-1] (signals at hour H fill at
+        #     H+1).
+        #   - If the goal is "no SIGNALS in session window", exclude that
+        #     window directly.
+        #   - Reports/STRATEGY_CARD categorize trades by entry_timestamp
+        #     (= fill bar open). This is the user-visible session column.
+        #     A signal-time filter will produce fill-time leak in adjacent
+        #     hours unless the window is shifted to compensate.
+        # See FVG idea-64 S04→S05 audit (2026-05-04) for a worked example
+        # of the leak class this comment exists to prevent.
         sf = self.signature.get("session_filter", {})
         if sf.get("enabled", False):
             exclude_hours = sf.get("exclude_hours_utc", [])

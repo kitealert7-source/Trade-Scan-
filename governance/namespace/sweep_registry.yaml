@@ -2429,7 +2429,7 @@ ideas:
             reserved_at_utc: '2026-04-29T09:22:57.748244+00:00'
         attempt: 2
   '64':
-    next_sweep: 2
+    next_sweep: 8
     sweeps:
       S01:
         directive_name: 64_REV_XAUUSD_1H_FVG_S01_V1_P00
@@ -2438,3 +2438,41 @@ ideas:
         reserved_at_utc: '2026-05-04T07:25:00.000000+00:00'
         patches: {}
         attempt: 2
+      S02:
+        directive_name: 64_REV_XAUUSD_1H_FVG_S02_V1_P00
+        signature_hash: 8f2ee436155d32cb
+        signature_hash_full: 8f2ee436155d32cb41968287131a2fce3990b218bb84589b6d9099ca7bb04900
+        reserved_at_utc: '2026-05-04T08:30:00.000000+00:00'
+        patches: {}
+        attempt: 5
+      S03:
+        directive_name: 64_REV_XAUUSD_1H_FVG_S03_V1_P00
+        signature_hash: d801995c6ac8dee5
+        signature_hash_full: d801995c6ac8dee59006756fead725642c1d06c607a7038d186ba548c6bc168e
+        reserved_at_utc: '2026-05-04T09:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S04:
+        directive_name: 64_REV_XAUUSD_1H_FVG_S04_V1_P00
+        signature_hash: d90931e26a4cd7ae
+        signature_hash_full: d90931e26a4cd7ae9c4aea26dcd7e233d38968a72a14b425c2db4607a08c49a1
+        reserved_at_utc: '2026-05-04T09:30:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S05:
+        directive_name: 64_REV_XAUUSD_1H_FVG_S05_V1_P00
+        signature_hash: 79832318eabbd17e
+        signature_hash_full: 79832318eabbd17e906b76f07ec56b06cb937a1fafdf82e3817d09fb5d23b2e9
+        reserved_at_utc: '2026-05-04T10:00:00.000000+00:00'
+        patches: {}
+        attempt: 2
+      S06:
+        directive_name: 64_REV_XAUUSD_30M_FVG_S06_V1_P00
+        signature_hash: 1e337b2b1103ff77
+        reserved_at_utc: '2026-05-04T09:39:54.517469+00:00'
+        signature_hash_full: 1e337b2b1103ff771281659ab65e4580f1d4d6e52f85c938a744db05320865de
+      S07:
+        directive_name: 64_REV_XAUUSD_4H_FVG_S07_V1_P00
+        signature_hash: 1e337b2b1103ff77
+        reserved_at_utc: '2026-05-04T09:42:22.490194+00:00'
+        signature_hash_full: 1e337b2b1103ff771281659ab65e4580f1d4d6e52f85c938a744db05320865de
