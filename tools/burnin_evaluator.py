@@ -30,7 +30,28 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
+
+
+def _resolve_ts_exec_root() -> Path:
+    """Find the TS_Execution sibling repo, walking up parents to support
+    git worktrees. In the main repo (Trade_Scan/tools/...) the sibling
+    is at PROJECT_ROOT.parent. In a worktree (Trade_Scan/.claude/
+    worktrees/<n>/tools/...) PROJECT_ROOT is the worktree dir, so the
+    real sibling is several parents up — walk until we find one whose
+    parent contains TS_Execution/src.
+    """
+    cur = PROJECT_ROOT
+    for _ in range(5):
+        candidate = cur.parent / "TS_Execution"
+        if (candidate / "src").exists():
+            return candidate
+        cur = cur.parent
+    # Fallback — keep historical behavior so downstream failures surface
+    # at the original site rather than silently masking the misconfig.
+    return PROJECT_ROOT.parent / "TS_Execution"
+
+
+TS_EXEC_ROOT = _resolve_ts_exec_root()
 
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
 SHADOW_TRADES  = TS_EXEC_ROOT / "outputs" / "shadow_trades.jsonl"

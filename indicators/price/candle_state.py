@@ -11,9 +11,10 @@ def apply(df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         - red_streak (int)
 
     Output Scale: N/A (boolean and integer counts)
-    """
 
-    df = df.copy()
+    In-place mutator: adds columns to the caller's df, returns the same
+    object. See tests/indicator/test_inplace_contract.py.
+    """
 
     df["is_green"] = df["close"] > df["open"]
     df["is_red"] = df["close"] < df["open"]

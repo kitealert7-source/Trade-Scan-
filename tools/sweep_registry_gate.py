@@ -379,7 +379,24 @@ def reserve_sweep_identity(
             existing_name = str(payload.get("directive_name", "")).strip()
             existing_hash = _get_stored_hash(payload)
             if _is_same_lineage(existing_name, directive_name) and _hashes_match(existing_hash, signature_hash):
+                # TD-004 ordering invariant — validate the slot-key match
+                # BEFORE the auto-heal mutation below. The heal writes the
+                # incoming directive_name + hashes onto the existing slot's
+                # payload. If the requested_key is different from the
+                # existing slot key, that write corrupts the existing slot
+                # (its directive_name is now silently rewritten to a
+                # different sweep's name) — caught mid-FVG-session 2026-05-04
+                # when running S02 against a registry where S01 had a
+                # transiently-matching hash.
+                if requested_key and key != requested_key:
+                    raise SweepRegistryError(
+                        "SWEEP_IDEMPOTENCY_MISMATCH: "
+                        f"identity already allocated at '{key}', requested '{requested_key}'."
+                    )
                 # Auto-heal legacy entry name format to current directive_name.
+                # Safe because the requested_key matches the existing slot's
+                # key (verified above) — this slot is the one being
+                # (re-)reserved, mutating it is correct.
                 if existing_name != directive_name or not payload.get("signature_hash_full"):
                     payload["directive_name"] = directive_name
                     payload["signature_hash"] = stored_short
@@ -390,11 +407,6 @@ def reserve_sweep_identity(
                     ideas[idea_id] = idea_block
                     registry["ideas"] = ideas
                     _write_yaml_atomic(SWEEP_REGISTRY_PATH, registry)
-                if requested_key and key != requested_key:
-                    raise SweepRegistryError(
-                        "SWEEP_IDEMPOTENCY_MISMATCH: "
-                        f"identity already allocated at '{key}', requested '{requested_key}'."
-                    )
                 return {
                     "status": "idempotent",
                     "idea_id": idea_id,
