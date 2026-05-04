@@ -236,41 +236,58 @@ identifies the prior session's true end state.
 
 ### 10b. Known Issues Truthfulness Gate (NON-NEGOTIABLE)
 
-Before staging `SYSTEM_STATE.md` for the closing commit, verify the
-"Known Issues" section is HONEST:
+The S2 fix (2026-05-04) made `system_introspection.collect_known_issues()`
+auto-populate the section under `### Auto-detected` from the same
+signals this gate checks (gate-suite pytest, burnin_evaluator,
+intent-index audit, sweep_registry hash drift). The file is honest
+by construction post-regen.
+
+This gate is now a *defensive backup* that catches three failure modes
+the auto-populator alone can't cover:
+
+1. **Auto-populator failed to run** — Step 10 regen errored, snapshot
+   is stale, no auto section exists.
+2. **Operator deferred items the automation can't see** — e.g., a
+   data quality issue, an in-flight refactor, a TD that won't surface
+   until the next pipeline run. These belong in `### Manual`.
+3. **Bash-side double-check** — even if introspection worked, run the
+   underlying signals once more and confirm they agree with what's in
+   the file. Catches stale snapshot + auto-populator parser drift.
 
 ```bash
-# True if any of these signals indicate unresolved blockers:
+# Re-derive the same blocker signals the auto-populator uses:
 TEST_FAILS=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ failed" | head -1 | grep -oE "[0-9]+" || echo 0)
 SKIPPED=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ skipped" | head -1 | grep -oE "[0-9]+" || echo 0)
 BURNIN_ABORT=$(python tools/burnin_evaluator.py 2>&1 | grep -c "ABORT" || echo 0)
-KNOWN_ISSUES_EMPTY=$(grep -c "^- (none)$" SYSTEM_STATE.md || echo 0)
+
+# Auto-populator surfaces these under "### Auto-detected" — verify
+# the section exists (or that there's nothing for it to surface).
+HAS_AUTO_SECTION=$(grep -c "^### Auto-detected" SYSTEM_STATE.md || echo 0)
+HAS_BLOCKERS=$([ "$TEST_FAILS" -gt 0 ] || [ "$BURNIN_ABORT" -gt 0 ] && echo 1 || echo 0)
 
 echo "test failures      : $TEST_FAILS"
 echo "skipped tests      : $SKIPPED"
 echo "burn-in ABORT count: $BURNIN_ABORT"
-echo "Known Issues empty : $KNOWN_ISSUES_EMPTY"
+echo "Auto section exists: $HAS_AUTO_SECTION  (expected 1 when blockers > 0)"
 ```
 
-**Block session close if** ANY of (`TEST_FAILS > 0`, `SKIPPED > 0`,
-`BURNIN_ABORT > 0`, deferred caveats exist, open infra TODOs exist) is
-true AND `KNOWN_ISSUES_EMPTY == 1`.
+**Block session close if** `HAS_BLOCKERS == 1` AND `HAS_AUTO_SECTION == 0`
+— meaning the auto-populator should have surfaced something but didn't
+(silent failure / stale snapshot).
 
 ```
-ERROR: SYSTEM_STATE.md says "Known Issues: (none)" but unresolved
-blockers/deferred items exist:
+ERROR: blockers detected but SYSTEM_STATE.md has no Auto-detected
+section. The auto-populator either failed silently or the snapshot
+is stale. Re-run system_introspection.py and confirm the blockers
+appear under "### Auto-detected" before closing.
   - test failures: <N>
-  - skipped tests: <N>
   - burn-in ABORT: <N>
-  - <list any caveats from session>
-Update Known Issues before session close.
 ```
 
-The placeholder `<!-- Update manually at session end: ... -->` line
-exists for exactly this responsibility. Leaving "(none)" while the
-suite has fails/skips/aborts is a truthfulness bug — the next session
-inherits a misleading source of truth and rediscovers issues that
-should have been carried forward explicitly.
+For deferred items the automation can't see (in-flight TDs, data
+quality notes, operational caveats), edit `### Manual` directly.
+The auto-detected section regenerates each run; the manual section
+persists across regen.
 
 ### 11. Session Summary (Optional but Recommended)
 

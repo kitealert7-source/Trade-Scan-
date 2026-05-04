@@ -88,16 +88,17 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 
 ## Path & Encoding Rules (ENFORCED BY PRE-COMMIT HOOK)
 
-`config/state_paths.py` — defines every output path to TradeScan_State. Never hardcode.
+`config/path_authority.py` — single source of truth for repo + sibling resolution. **Always import siblings from here**, never compute inline. `config/state_paths.py` is a compatibility wrapper that delegates to path_authority.
 
 - **NEVER hardcode** absolute user paths (`C:\Users\faraw\...`). Hook: `tools/lint_no_hardcoded_paths.py`
+- **NEVER write** `PROJECT_ROOT.parent / "TradeScan_State"` (or TS_Execution / DRY_RUN_VAULT / Anti_Gravity_DATA_ROOT). Lint blocks the pattern; from a worktree it resolves to a stale `.claude/worktrees/<sibling>` leftover instead of the real one.
 - **ALWAYS** `encoding="utf-8"` on every `.read_text()` and `open()`. Hook: `tools/lint_encoding.py`
-- **Exempt:** `vault/`, `tmp/`, `archive/`
+- **Exempt dirs (lint):** `vault/`, `engine_dev/` (frozen engine versions), `tmp/`, `archive/`
 
 **Path derivation** using `Path(__file__).resolve()`:
 - `tools/*.py` → `.parent.parent`; `tools/subdir/*.py` → `.parents[2]`
 - `tests/*.py` / `config/*.py` → `.parent.parent`
-- Sibling repos: `PROJECT_ROOT.parent / "RepoName"`
+- Sibling repos: `from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT` (or TRADE_SCAN_STATE / DRY_RUN_VAULT / ANTI_GRAVITY_DATA_ROOT / DATA_ROOT). Marker is `.git.is_dir()` — worktrees have `.git` as a *file*, only the real repo has it as a *directory*.
 
 ---
 
