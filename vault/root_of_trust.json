@@ -1,6 +1,6 @@
 {
     "description": "Root-of-trust binding for verify_engine_integrity.py",
     "authority": "Human-signed. Agent MUST NOT modify this file.",
-    "verify_engine_integrity.py": "07E80FD361456BD5D4D4518353FBCA221F6386ED7A4CFABE958B1EA26F521EFE"
+    "verify_engine_integrity.py": "57D887FED8D7DFC6B52C82FB175401CEB9A65538CE8754254F5E7C77949E12E2"
 
 }
