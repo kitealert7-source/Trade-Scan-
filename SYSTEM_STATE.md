@@ -53,3 +53,18 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
+
+**Burn-in ABORT context (operator note 2026-05-04):**
+- The auto-detected `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P02` ABORT (Fill Rate 71.4%) is suspected to be a code-error artifact, not a strategy failure — no signals were firing during the burn-in window. Triage in next session.
+
+**TD-007 — Migrate `tools/burnin_evaluator.py` local resolver to `config.path_authority`** (Risk: LOW)
+- File has its own `_resolve_ts_exec_root()` walk-up helper from earlier this session that predates `path_authority`. ~5-line replacement; drops the lint exemption.
+- **Action: cleanup follow-up, not blocking.**
+
+**Quarantined tests (deferred to Batch 3 — test architecture modernization)**
+- `test_step6_state_machine_invariants.py` — 4 tests skipped, need rewrite for BootstrapController + StageRunner architecture.
+- `test_provision_only_integration.py::test_run_pipeline_provision_only` — 1 test skipped, blocked by namespace-gate canonical pattern on `TEST_PROVISION_<random>` ids.
+
+**Pre-existing TDs from prior sessions (still on the docket)**
+- **TD-002** — Engine integrity drift caveat (HIGH, waived for NEWSBRK Phase 2 / v1.5.8a fork).
+- **TD-003** — Indicator semantic-contract debt (LOW, ~18 indicators missing `SIGNAL_PRIMITIVE` metadata; governance cleanup).
