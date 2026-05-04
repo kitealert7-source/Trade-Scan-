@@ -1,36 +1,12 @@
 {
     "engine_name": "Universal_Research_Engine",
     "engine_version": "v1_5_8",
-    "engine_status": "FROZEN",
-    "vaulted": true,
-    "freeze_date": "2026-04-20",
-    "predecessor": "v1_5_7 (FROZEN 2026-04-20)",
-    "timestamp_utc": "2026-04-20T06:20:00.000000+00:00",
-    "adds": [
-        "ctx.unrealized_r_intrabar (bar_high for longs, bar_low for shorts, initial-stop denominator) exposed in per-bar context",
-        "Use unrealized_r_intrabar in check_stop_mutation for BE triggers to align with SL/TP resolver which also uses OHLC"
-    ],
-    "invariants": [
-        "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
-        "Partial guard: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001",
-        "Stop mutation is monotone: long tightens up only, short tightens down only; silent reject otherwise",
-        "Entry market state initial_stop_price is FROZEN; stop_price_active is live-mutable",
-        "No-hook strategies produce byte-equivalent trade dicts to v1.5.7 (and v1.5.6)",
-        "unrealized_r (close-based) is UNCHANGED from v1.5.7 — additive only"
-    ],
+    "timestamp_utc": "2026-05-04T07:16:00.212732+00:00",
     "file_hashes": {
         "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
-        "execution_emitter_stage1.py": "515B5908E872A1D63C97DF348A104BE37478F7B3A626001675CE08219EE0A390",
-        "execution_loop.py": "3004095B83D11D09CA5F2B6FB64D7E67D811C3F0C5DFD2538F653D2F3C72A1F8",
+        "execution_emitter_stage1.py": "AF137FFDE29D1E68EB97AC459BC6C93B7AE642A0A9E1F20625E97A6D33DD620F",
+        "execution_loop.py": "1A0077CD7A3A43BCE679F58C0C4417A473746A97B9E7E0B97A9B96411FB48A09",
         "main.py": "47825FA2F0526B26179A3B147789454C1DA5F7A4325D56241DCDA46558E4E74C",
-        "stage2_compiler.py": "ED60087EB8DC93E44B9497BEDF746D49BA9BB9EF36692FA432FA625B395D1FBE",
-        "contract.json": "680E8C0014B58E76550DA0326601402C498FB376DBF17FC69C027E7E95465DF8"
-    },
-    "capabilities": [
-        "execution.entry.v1",
-        "execution.exit.v1",
-        "execution.partial_exit.v1",
-        "execution.intrabar_ur.v1"
-    ],
-    "contract_id": "sha256:680e8c0014b58e76550da0326601402c498fb376dbf17fc69c027e7e95465df8"
+        "stage2_compiler.py": "77B590A4CFA29243348128DBEA263053BEF679953EC2F4CA30C4CD4FFCB0B3B6"
+    }
 }

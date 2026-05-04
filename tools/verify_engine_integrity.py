@@ -30,12 +30,14 @@ def canonical_sha256(filepath: Path) -> str:
     data = filepath.read_bytes().replace(b'\r\n', b'\n')
     return hashlib.sha256(data).hexdigest()
 
-# --- Single Source of Truth: import ENGINE_VERSION from runtime engine ---
-_engine_main_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / "v1_5_6" / "main.py"
-_spec = importlib.util.spec_from_file_location("_engine_main", _engine_main_path)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-ENGINE_VERSION = _mod.ENGINE_VERSION
+# --- Single Source of Truth: resolve ENGINE_VERSION via the registry-aware
+# resolver (config/engine_registry.json -> active_engine). Same code path the
+# pipeline orchestrator uses, so the integrity check verifies whichever engine
+# the pipeline actually runs. Replaces the prior v1_5_6 hardcode that quietly
+# verified the wrong engine after each FROZEN promotion.
+from tools.pipeline_utils import get_engine_version  # noqa: E402
+
+ENGINE_VERSION = get_engine_version()
 
 py_version = f"v{ENGINE_VERSION.replace('.', '_')}"
 ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / py_version
@@ -208,7 +210,7 @@ class SessionLimitStrategy2:
     def check_exit(self, ctx) -> bool:
         if ctx.direction == 1 and ctx.index in (3, 7, 11):
             return True
-        return None
+        return False
 
 
 class UnlimitedSessionStrategy:
@@ -231,7 +233,7 @@ class UnlimitedSessionStrategy:
     def check_exit(self, ctx) -> bool:
         if ctx.direction == 1 and ctx.index in (3, 7, 11):
             return True
-        return None
+        return False
 
 
 class DiagnosticsStrategy:
@@ -268,7 +270,7 @@ class DiagnosticsStrategy:
     def check_exit(self, ctx) -> bool:
         if ctx.direction == 1 and ctx.index == 3:
             return True
-        return None
+        return False
 
 
 def run_diagnostics_check(engine_module):
