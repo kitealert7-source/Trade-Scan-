@@ -326,11 +326,22 @@ def test_engine_rerun_narrows_to_same_timeframe_and_sweep(sandbox):
     assert v.classification == "PARAMETER"
 
 
-def test_engine_rerun_falls_back_to_wide_when_no_same_identity_prior(sandbox):
-    """Fallback path: per the user directive, if no same-identity prior
-    exists the wide (MODEL, ASSET_CLASS) match set is used. This preserves
-    the classifier's ability to catch drift when the rerun is the first
-    of its (family, TF, sweep) — a conservative default.
+def test_engine_rerun_returns_first_of_kind_when_no_same_identity_prior(sandbox):
+    """ENGINE rerun contract (per classifier_gate.py:265-274 comment block):
+    when narrowing to same-identity (family/TF/sweep) priors yields an empty
+    set, the gate intentionally does NOT fall back to the wide (MODEL,
+    ASSET_CLASS) match. Comparing an ENGINE rerun against a structurally
+    different prior would surface diffs that predate and are irrelevant to
+    the engine-only change, producing UNCLASSIFIABLE noise that gates a
+    legitimate rerun.
+
+    Conservative correct response: treat as first-of-kind PASS. The engine
+    integrity tool already protects byte-equivalence at the engine level;
+    cross-structure classifier comparison is not the right tool for that.
+
+    Contract was changed deliberately during admission stabilization
+    (commit 153c027) — the prior wide-fallback behavior surfaced false
+    positives on engine reruns. This test now asserts the new contract.
     """
     _write_directive(
         sandbox["prior_dir"], "22_CONT_FX_15M_CHOCH_S01_V1_P05",
@@ -364,11 +375,18 @@ def test_engine_rerun_falls_back_to_wide_when_no_same_identity_prior(sandbox):
         project_root=sandbox["root"],
         search_dirs=[sandbox["prior_dir"]],
     )
-    # No same-identity prior → fall back to wide → pick the 15M/S01 prior.
-    # Only cosmetic diffs → PASS.
+    # No same-identity (30M/S02) prior exists in search_dirs (only 15M/S01
+    # is seeded). Per the new contract, the gate does NOT fall back to wide;
+    # it returns first-of-kind PASS with no prior baseline.
     assert v.verdict == "PASS"
-    assert v.prior_directive == "22_CONT_FX_15M_CHOCH_S01_V1_P05"
-    assert v.classification == "COSMETIC"
+    assert v.prior_directive is None, (
+        f"Expected first-of-kind PASS (prior=None) per the new ENGINE-rerun "
+        f"contract, got prior_directive={v.prior_directive!r}. If the "
+        f"contract was reverted to wide-fallback, see classifier_gate.py "
+        f"lines 265-274 — the comment block there explains why fallback "
+        f"was disabled and must be revisited together with this test."
+    )
+    assert "first-of-kind" in v.reason.lower()
 
 
 def test_engine_rerun_narrowing_disabled_without_override_reason(sandbox):
