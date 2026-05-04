@@ -207,11 +207,8 @@ def run_preflight(
                 "Root-of-trust manifest missing hash for verify_engine_integrity.py",
                 None
             )
-        _sha = hashlib.sha256()
-        with open(integrity_check, "rb") as _f:
-            for _chunk in iter(lambda: _f.read(8192), b""):
-                _sha.update(_chunk)
-        actual_hash = _sha.hexdigest().upper()
+        from tools.verify_engine_integrity import canonical_sha256
+        actual_hash = canonical_sha256(integrity_check).upper()
         if actual_hash != expected_hash.upper():
             return (
                 "HARD_STOP",
