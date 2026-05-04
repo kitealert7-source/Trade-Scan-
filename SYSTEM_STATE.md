@@ -4,7 +4,7 @@
 - WARNING: 26 symbol(s) stale (>3 days behind) — non-XAU instruments only (ESP35, EUSTX50, FRA40, GER40); not in this session's scope
 - WARNING: Working tree 7 uncommitted — UNTRACKED ARTIFACTS ONLY (FVG idea-64 completed-directive .txt files in backtest_directives/completed/; INBOX is empty; no tracked files modified)
 
-> Generated: 2026-05-04T10:54:27Z
+> Generated: 2026-05-04T10:59:49Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -30,7 +30,7 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260504T011609Z_29588 | bars=286
+- **Process:** RUNNING | run_id=20260504T011609Z_29588 | bars=287
 - **Shadow trades:** 2 active | **Signals (7d):** 43 entry, 40 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -46,7 +46,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 7 uncommitted
-- Last commit: `7021811 session: closing SYSTEM_STATE snapshot`
+- Last commit: `00d7d77 skill(session-close): add HEAD consistency + Known Issues truthfulness gates`
 
 ## Known Issues
 <!-- Update manually at session end: note anything broken, deferred, or pending -->
