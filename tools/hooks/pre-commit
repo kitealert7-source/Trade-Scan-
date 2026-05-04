@@ -50,12 +50,17 @@ echo "[pre-commit] Running gate test suite..."
 #   - test_fvg_session_infra_regressions.py -- R1 hash unification,
 #       R2 engine resolver, R3 dummy-strategy contract, R4 session-filter
 #       clock semantics. From FVG idea-64 session 2026-05-04.
+#   - test_sweep_registry_td004_regression.py -- TD-004 registry
+#       auto-heal corruption guard. Sweep lineage / strategy identity /
+#       experiment trust depend on this; a regression silently rewrites
+#       a sibling sweep slot's directive_name + signature_hash.
 python -m pytest \
     tests/test_idea_evaluation_gate.py \
     tests/test_namespace_gate_regex.py \
     tests/test_sweep_registry_gate_regex.py \
     tests/test_burnin_evaluator.py \
     tests/test_fvg_session_infra_regressions.py \
+    tests/test_sweep_registry_td004_regression.py \
     -q --maxfail=1 2>&1
 if [ $? -ne 0 ]; then
     echo ""
