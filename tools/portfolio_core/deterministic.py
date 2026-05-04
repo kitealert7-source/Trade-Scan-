@@ -23,12 +23,18 @@ def load_trades_for_portfolio_analysis(run_ids, project_root: Path):
     """
     Legacy-compatible loader used by run_portfolio_analysis.py.
     Returns (trades_df, timeframes_set).
+
+    Path resolution: prefers ``project_root / "runs" / <run_id> / "data"``
+    (matches the legacy loader and lets test fixtures supply a temp root);
+    falls back to ``resolve_run_dir(run_id)`` for production lookups
+    spanning runs/, sandbox/, and candidates/.
     """
     all_trades = []
     timeframes = set()
 
     for run_id in run_ids:
-        data_dir = resolve_run_dir(run_id)
+        local = Path(project_root) / "runs" / run_id / "data"
+        data_dir = local if local.exists() else resolve_run_dir(run_id)
         trade_path = data_dir / "results_tradelevel.csv"
         if not trade_path.exists():
             raise FileNotFoundError(f"Trade file missing for run {run_id}")
@@ -71,6 +77,11 @@ def load_trades_for_portfolio_evaluator(run_ids, project_root: Path):
     """
     Legacy-compatible loader used by portfolio_evaluator.py.
     Returns (portfolio_df, symbol_trades, meta_records).
+
+    Path resolution: prefers ``project_root / "runs" / <run_id> / "data"``
+    (matches the legacy loader and lets test fixtures supply a temp root);
+    falls back to ``resolve_run_dir(run_id)`` for production lookups
+    spanning runs/, sandbox/, and candidates/.
     """
     all_trades = []
     symbol_trades = {}
@@ -78,10 +89,14 @@ def load_trades_for_portfolio_evaluator(run_ids, project_root: Path):
     loaded_symbols = []
 
     for rid in run_ids:
-        try:
-            run_folder = resolve_run_dir(rid)
-        except FileNotFoundError as e:
-            raise ValueError(str(e)) from e
+        local = Path(project_root) / "runs" / rid / "data"
+        if local.exists():
+            run_folder = local
+        else:
+            try:
+                run_folder = resolve_run_dir(rid)
+            except FileNotFoundError as e:
+                raise ValueError(str(e)) from e
 
         csv_path = run_folder / "results_tradelevel.csv"
         if not csv_path.exists():
