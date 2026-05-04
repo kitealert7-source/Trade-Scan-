@@ -476,3 +476,11 @@ ideas:
     role: trend_carrier
     instruments: NAS100
     status: active
+  '64':
+    family: REV
+    title: "Fair Value Gap reversal-into-zone (FVGREV_CLOSE) -- 3-bar price imbalance detector (low[i]>high[i-2] bull / high[i]<low[i-2] bear), entry on first close-rule touch of an active FVG zone (close penetrates zone), 1.0xATR wick-buffer stop, 1.5xATR TP, 12-bar time exit, direction-symmetric, no session filter. First probe of FVG architecture in Trade_Scan; tests whether 3-bar imbalance zones produce mean-reversion edge distinct from ZREV/ZPULL family. Pine port from horizon_trading_indicators SMC stack -- XAUUSD 1H genesis."
+    class: indicator_logic
+    regime: mean_reversion
+    role: entry_edge
+    instruments: XAUUSD
+    status: active

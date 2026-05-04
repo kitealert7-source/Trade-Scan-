@@ -2376,21 +2376,6 @@ ideas:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
             signature_hash: 9a3825ab1135faa0
             signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
-            reserved_at_utc: '2026-04-29T07:52:19.646161+00:00'
-          P06:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
-            signature_hash: 5885751ec1142fbd
-            signature_hash_full: 5885751ec1142fbdc93cc3b5e70a8d3ea2bd9f9798b251c0aef5f5338facd6a6
-            reserved_at_utc: '2026-04-29T07:52:42.997576+00:00'
-          P06:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
-            signature_hash: 5885751ec1142fbd
-            signature_hash_full: 5885751ec1142fbdc93cc3b5e70a8d3ea2bd9f9798b251c0aef5f5338facd6a6
-            reserved_at_utc: '2026-04-29T07:53:13.085807+00:00'
-          P06:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P06
-            signature_hash: 9a3825ab1135faa0
-            signature_hash_full: 9a3825ab1135faa0e83ade8d2726ae5d5f316d53d89be8905ecefb0b84bc5a65
             reserved_at_utc: '2026-04-29T07:53:51.459884+00:00'
           P07:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P07
@@ -2406,37 +2391,12 @@ ideas:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
             signature_hash: 02e38d1fe2a436fc
             signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
-            reserved_at_utc: '2026-04-29T08:26:53.204059+00:00'
-          P10:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P10
-            signature_hash: 75f8984c329c5dc8
-            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
-            reserved_at_utc: '2026-04-29T08:26:54.637226+00:00'
+            reserved_at_utc: '2026-04-29T08:34:12.671295+00:00'
           P10:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P10
             signature_hash: 75f8984c329c5dc8
             signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
             reserved_at_utc: '2026-04-29T08:27:19.355056+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 75f8984c329c5dc8
-            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
-            reserved_at_utc: '2026-04-29T08:31:16.124680+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 75f8984c329c5dc8
-            signature_hash_full: 75f8984c329c5dc8c185bbc6fe69b533866bd2d5c926bc0e594f357a7685dd06
-            reserved_at_utc: '2026-04-29T08:33:41.086203+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 02e38d1fe2a436fc
-            signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
-            reserved_at_utc: '2026-04-29T08:34:00.658245+00:00'
-          P09:
-            directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P09
-            signature_hash: 02e38d1fe2a436fc
-            signature_hash_full: 02e38d1fe2a436fcb48244ffefc02bd67fd76f50779f1a9ca9cc5aaec1fa83e7
-            reserved_at_utc: '2026-04-29T08:34:12.671295+00:00'
           P11:
             directive_name: 62_TREND_IDX_5M_KALFLIP_S01_V2_P11
             signature_hash: 940fb6b4ac9bab08
@@ -2467,4 +2427,14 @@ ideas:
             signature_hash: 10c01b04e411d5da
             signature_hash_full: 10c01b04e411d5dab1c175f14ec7e8348b7c7f8211b2aca08fa091f82f4cee44
             reserved_at_utc: '2026-04-29T09:22:57.748244+00:00'
+        attempt: 2
+  '64':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 64_REV_XAUUSD_1H_FVG_S01_V1_P00
+        signature_hash: cb9a31588c211789
+        signature_hash_full: cb9a31588c21178901c3f895f2280510f83b8636348148d4bcc9f92a94e8c186
+        reserved_at_utc: '2026-05-04T07:25:00.000000+00:00'
+        patches: {}
         attempt: 2

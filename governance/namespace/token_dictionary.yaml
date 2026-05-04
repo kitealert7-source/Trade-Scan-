@@ -68,6 +68,7 @@ model:
   - SYMSEQ
   - GMAFLIP
   - KALFLIP
+  - FVG
 filter:
   - ATRFILT
   - VOLFILT
