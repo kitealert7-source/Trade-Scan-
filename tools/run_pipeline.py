@@ -380,11 +380,14 @@ def verify_manifest_integrity(project_root: Path):
 
 
 def _compute_manifest_file_hash(filepath: Path) -> str:
-    """Compute sha256 of a file in the same canonical form as
-    tools/generate_guard_manifest.py — uppercase hex digest of the raw
-    bytes. Module-level so regression tests can compare deterministically."""
-    import hashlib
-    return hashlib.sha256(filepath.read_bytes()).hexdigest().upper()
+    """Compute sha256 of a file in the same canonical (LF-normalized) form
+    as tools/generate_guard_manifest.py via verify_engine_integrity.canonical_sha256.
+    Single source of truth for both manifest generation and runtime integrity
+    check; eliminates Windows CRLF false-failures (autocrlf=true on Windows
+    checks out files with CRLF, but the manifest stores LF-normalized hashes).
+    Module-level so regression tests can compare deterministically."""
+    from tools.verify_engine_integrity import canonical_sha256
+    return canonical_sha256(filepath).upper()
 
 
 def verify_tools_timestamp_guard(project_root: Path):

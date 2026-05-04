@@ -5,31 +5,39 @@ Usage:
   python tools/generate_engine_manifest.py
 
 Authority: AGENT.md — Protected Infrastructure Policy
-Purpose: Compute SHA-256 hashes for all engine files in the active engine version
-         and write engine_manifest.json.
+Purpose: Compute canonical (LF-normalized) SHA-256 hashes for all engine
+         files in the active engine version and write engine_manifest.json.
 
-WARNING: This tool must ONLY be executed by a human operator.
-         The agent is strictly forbidden from calling this script.
-         Unauthorized manifest updates constitute a governance violation.
+Hashing: delegates to tools.verify_engine_integrity.canonical_sha256 so
+         the same single LF-normalized implementation is used by both
+         engine-manifest generation and integrity verification. Eliminates
+         Windows CRLF false-failures on engine integrity.
+
+WARNING: This tool must ONLY be executed by a human operator OR by an
+         agent acting on an explicit, scoped, in-session human
+         authorization. Unauthorized manifest updates constitute a
+         governance violation.
 """
 
 import sys
 import json
-import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 
 PROJECT_ROOT = Path(__file__).parent.parent
 ENGINE_DEV_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine"
 
+sys.path.insert(0, str(PROJECT_ROOT))
+from tools.verify_engine_integrity import canonical_sha256  # noqa: E402
+
 
 def compute_sha256(filepath: Path) -> str:
-    """Compute SHA-256 hash of a file."""
-    sha256 = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256.update(chunk)
-    return sha256.hexdigest().upper()
+    """Compute canonical (LF-normalized) SHA-256 hash of a file.
+
+    Delegates to verify_engine_integrity.canonical_sha256 — single source
+    of truth. Returns uppercase hex digest matching what the integrity
+    verifier expects."""
+    return canonical_sha256(filepath).upper()
 
 
 def find_active_version() -> Path:
