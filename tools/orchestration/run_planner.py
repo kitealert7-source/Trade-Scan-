@@ -43,7 +43,12 @@ def plan_runs_for_directive(
             }
         )
 
-    registry_path = RUNS_DIR / directive_id / "run_registry.json"
+    # Honor project_root for registry path so test fixtures can isolate to
+    # a temp dir (matches Batch 1 portfolio_core fix pattern). When
+    # project_root is None or the canonical PROJECT_ROOT, falls through to
+    # the global RUNS_DIR so production behavior is unchanged.
+    runs_root = Path(project_root) / "runs" if project_root else RUNS_DIR
+    registry_path = runs_root / directive_id / "run_registry.json"
     merged = ensure_registry(registry_path, directive_id, planned_runs)
     
     # Track assigned Run IDs under the Attempt's FSM payload
