@@ -42,7 +42,21 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "[pre-commit] Running gate test suite..."
-python -m pytest tests/test_idea_evaluation_gate.py tests/test_namespace_gate_regex.py tests/test_sweep_registry_gate_regex.py tests/test_burnin_evaluator.py -q --maxfail=1 2>&1
+# Gate roster (each on its own line so diffs are easy to review):
+#   - test_idea_evaluation_gate.py     -- Stage -0.20 idea-gate logic
+#   - test_namespace_gate_regex.py     -- directive name parsing
+#   - test_sweep_registry_gate_regex.py -- sweep slot parsing
+#   - test_burnin_evaluator.py         -- burn-in metric/gate logic
+#   - test_fvg_session_infra_regressions.py -- R1 hash unification,
+#       R2 engine resolver, R3 dummy-strategy contract, R4 session-filter
+#       clock semantics. From FVG idea-64 session 2026-05-04.
+python -m pytest \
+    tests/test_idea_evaluation_gate.py \
+    tests/test_namespace_gate_regex.py \
+    tests/test_sweep_registry_gate_regex.py \
+    tests/test_burnin_evaluator.py \
+    tests/test_fvg_session_infra_regressions.py \
+    -q --maxfail=1 2>&1
 if [ $? -ne 0 ]; then
     echo ""
     echo "[pre-commit] COMMIT BLOCKED. Gate tests failed — fix before committing."
