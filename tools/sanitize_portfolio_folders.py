@@ -41,7 +41,8 @@ from tools.portfolio_core.deterministic import (
     parse_portfolio_name,
 )
 
-DEFAULT_BACKTESTS_ROOT = PROJECT_ROOT.parent / "TradeScan_State" / "backtests"
+from config.path_authority import TRADE_SCAN_STATE as _TRADE_SCAN_STATE
+DEFAULT_BACKTESTS_ROOT = _TRADE_SCAN_STATE / "backtests"
 LOG_DIR = PROJECT_ROOT / "outputs" / "logs"
 MIGRATION_MANIFEST_NAME = "_migration_manifest.json"
 

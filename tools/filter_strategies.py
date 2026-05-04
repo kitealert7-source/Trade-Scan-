@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.state_paths import MASTER_FILTER_PATH, POOL_DIR, RUNS_DIR, CANDIDATE_FILTER_PATH
+from config.path_authority import TS_EXECUTION as _TS_EXEC
 from tools.system_registry import _load_registry, _save_registry_atomic
 
 MASTER_SHEET = MASTER_FILTER_PATH
@@ -19,12 +20,12 @@ MASTER_SHEET = MASTER_FILTER_PATH
 # Only entries with promotion_source="promote_to_burnin" AND valid vault_id
 # are treated as BURN_IN. This prevents the circular loop where FSP marks
 # strategies as BURN_IN just because they appear in portfolio.yaml.
-_TS_EXEC_PORTFOLIO = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+_TS_EXEC_PORTFOLIO = _TS_EXEC / "portfolio.yaml"
 
 # TS_Execution burn_in_registry.yaml — source of truth for burn_in_layer column.
 # Populated by TS_Execution/tools/sync_burn_in_registry.py from FSP BURN_IN rows;
 # we read it back here to surface the layer on each BURN_IN row in FSP.
-_TS_EXEC_BURNIN_REGISTRY = PROJECT_ROOT.parent / "TS_Execution" / "burn_in_registry.yaml"
+_TS_EXEC_BURNIN_REGISTRY = _TS_EXEC / "burn_in_registry.yaml"
 
 
 def _load_burnin_layers() -> dict[str, str]:

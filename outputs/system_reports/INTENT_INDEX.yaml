@@ -40,6 +40,15 @@ intents:
     # v1.5* / v1.6*, each scoring 6) or "engine" co-occurring with a
     # second engine-scope tag (vault, canonical, frozen, manifest).
     threshold: 6
+    # S1 fix (2026-05-04): regex/fuzzy matches alone are no longer
+    # sufficient — the change set must actually touch a frozen-scope
+    # path (engine_dev/<version>/..., vault/engines/..., engine_manifest
+    # .json, contract.json). Conversational mentions of "engine" in
+    # session-close discussions, infra audits, or path-resolution work
+    # produced 12+ violations in 24h before this gate was added.
+    # Untracked files are excluded from the change set (see
+    # intent_injector._get_changed_files); active edits still trigger.
+    frozen_path_only: true
     reason: "Engine build/modify requires vault push + manifest refresh. Engine v1.5.6 shipped unvaulted for days -- root cause: no enforced workflow."
     regex_patterns:
       - "(?i)\\b(new|build|bump|promote|release|freeze|finalize|ship)\\s+(the\\s+)?engine\\b"

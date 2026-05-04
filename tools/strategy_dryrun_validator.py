@@ -59,7 +59,8 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
         broker_folder = "OctaFx"
     
     # 2. Load small data sample (first 1000 bars)
-    data_root = PROJECT_ROOT.parent / "Anti_Gravity_DATA_ROOT" / "MASTER_DATA" / f"{first_symbol}_{broker_folder}_MASTER" / "RESEARCH"
+    from config.path_authority import ANTI_GRAVITY_DATA_ROOT as _ANTI_GRAVITY
+    data_root = _ANTI_GRAVITY / "MASTER_DATA" / f"{first_symbol}_{broker_folder}_MASTER" / "RESEARCH"
     
     pattern = f"{first_symbol}_{broker_folder}_{timeframe}_*_RESEARCH.csv"
     files = sorted(data_root.glob(pattern))

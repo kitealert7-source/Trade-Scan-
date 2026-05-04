@@ -54,8 +54,7 @@ import sys as _sys
 _sys.path.insert(0, str(PROJECT_ROOT))
 from tools.pipeline_utils import find_run_id_for_directive
 
-STATE_ROOT   = PROJECT_ROOT.parent / "TradeScan_State"
-VAULT_ROOT   = PROJECT_ROOT.parent / "DRY_RUN_VAULT"
+from config.path_authority import TRADE_SCAN_STATE as STATE_ROOT, DRY_RUN_VAULT as VAULT_ROOT
 BROKER_SPECS = PROJECT_ROOT / "data_access" / "broker_specs"
 
 RAW_SUMMARY_FILES = [

@@ -12,7 +12,10 @@ from pathlib import Path
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
+import sys as _sys
+if str(PROJECT_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(PROJECT_ROOT))
+from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
 
 

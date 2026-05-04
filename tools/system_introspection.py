@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -495,6 +496,139 @@ def collect_git() -> dict[str, Any]:
     return result
 
 
+# Gate test suite — same files the pre-commit hook runs. Matches
+# tools/hooks/pre-commit. Update both together.
+_GATE_TEST_SUITE = (
+    "tests/test_idea_evaluation_gate.py",
+    "tests/test_namespace_gate_regex.py",
+    "tests/test_sweep_registry_gate_regex.py",
+    "tests/test_burnin_evaluator.py",
+    "tests/test_fvg_session_infra_regressions.py",
+    "tests/test_sweep_registry_td004_regression.py",
+)
+
+
+def collect_known_issues() -> dict[str, Any]:
+    """Auto-populate Known Issues from runtime signals.
+
+    S2 fix (2026-05-04): pre-fix, the Known Issues section defaulted to
+    `- (none)` and required manual edit at session-close. The session-
+    close skill's truthfulness gate caught the empty-while-broken case
+    but couldn't catch the inverse: a real failure that the operator
+    forgot to write down. This auto-populator surfaces the same signals
+    the gate checks (gate-suite pytest, burnin_evaluator, intent-index
+    audit, sweep_registry caveats) so the file is honest by default.
+    Manual entries (deferred TDs, operational context) still live in
+    a separate subsection that's preserved across regeneration.
+
+    Returns a dict the renderer formats. Best-effort: any subprocess
+    or import error surfaces as an `*_error` key, never raises.
+    """
+    auto: dict[str, Any] = {
+        "pytest_failed": 0,
+        "pytest_skipped": 0,
+        "pytest_passed": 0,
+        "pytest_error": None,
+        "burnin_aborts": [],
+        "burnin_error": None,
+        "intent_index_errors": [],
+        "sweep_registry_errors": [],
+    }
+
+    # 1. Gate test suite — fast, fixed roster, the same one the
+    # pre-commit hook gates on. Anything failing here is a real
+    # blocker the next session inherits.
+    try:
+        gate_paths = [str(_TRADE_SCAN_ROOT / p) for p in _GATE_TEST_SUITE]
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", *gate_paths,
+             "-q", "--tb=no", "--no-header"],
+            cwd=str(_TRADE_SCAN_ROOT),
+            capture_output=True, text=True, timeout=120,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        m_pass = re.search(r"(\d+)\s+passed", out)
+        m_fail = re.search(r"(\d+)\s+failed", out)
+        m_skip = re.search(r"(\d+)\s+skipped", out)
+        if m_pass:
+            auto["pytest_passed"] = int(m_pass.group(1))
+        if m_fail:
+            auto["pytest_failed"] = int(m_fail.group(1))
+        if m_skip:
+            auto["pytest_skipped"] = int(m_skip.group(1))
+        if not m_pass and not m_fail:
+            auto["pytest_error"] = "could not parse pytest output"
+    except Exception as e:
+        auto["pytest_error"] = str(e)
+
+    # 2. Burn-in ABORT verdicts.
+    try:
+        if str(_TRADE_SCAN_ROOT) not in sys.path:
+            sys.path.insert(0, str(_TRADE_SCAN_ROOT))
+        from tools.burnin_evaluator import evaluate_all
+        results = evaluate_all()
+        for r in results:
+            ev = r.get("evaluation", {})
+            if ev.get("verdict") == "ABORT":
+                reasons = ev.get("abort_reasons", []) or ev.get("reasons", [])
+                auto["burnin_aborts"].append({
+                    "strategy": r.get("strategy", "?"),
+                    "reasons": [str(x) for x in reasons],
+                })
+    except Exception as e:
+        auto["burnin_error"] = str(e)
+
+    # 3. Intent-index audit — read the most recent validation_errors
+    # record from the hook's log instead of re-running the audit (the
+    # hook itself logs validation issues every UserPromptSubmit).
+    try:
+        log_path = _TRADE_SCAN_ROOT / ".claude" / "logs" / "intent_matches.jsonl"
+        if log_path.exists():
+            with log_path.open("r", encoding="utf-8") as f:
+                tail = f.readlines()[-100:]
+            for line in reversed(tail):
+                try:
+                    rec = json.loads(line.strip())
+                except Exception:
+                    continue
+                if rec.get("msg") == "intent_index_validation":
+                    errs = rec.get("errors", []) or []
+                    hard_errs = [e for e in errs if e.get("severity") == "hard"]
+                    auto["intent_index_errors"] = [
+                        f"{e.get('intent', '?')}: {e.get('error', '?')}"
+                        for e in hard_errs
+                    ]
+                    break
+    except Exception:
+        pass
+
+    # 4. Sweep registry caveats — short/full hash mismatch is a known
+    # signal of registry corruption (TD-004 class).
+    try:
+        import yaml as _yaml
+        registry_path = _TRADE_SCAN_ROOT / "governance" / "namespace" / "sweep_registry.yaml"
+        if registry_path.exists():
+            data = _yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+            ideas = data.get("ideas", {}) or {}
+            for idea_id, idea_block in ideas.items():
+                sweeps = (idea_block or {}).get("sweeps", {}) or {}
+                if not isinstance(sweeps, dict):
+                    continue
+                for sweep_key, payload in sweeps.items():
+                    if not isinstance(payload, dict):
+                        continue
+                    short = str(payload.get("signature_hash") or "").lower()
+                    full = str(payload.get("signature_hash_full") or "").lower()
+                    if full and short and len(short) == 16 and not full.startswith(short):
+                        auto["sweep_registry_errors"].append(
+                            f"idea {idea_id} / {sweep_key}: short/full hash mismatch"
+                        )
+    except Exception:
+        pass
+
+    return auto
+
+
 # ── Session Status ────────────────────────────────────────────────────────
 
 
@@ -566,6 +700,7 @@ def render_markdown(
     runs: dict,
     git: dict,
     session_status: tuple[str, list[str]],
+    known_issues: dict | None = None,
 ) -> str:
     lines: list[str] = []
     status, status_reasons = session_status
@@ -709,8 +844,43 @@ def render_markdown(
 
     # ── Known Issues / Pending
     lines.append("## Known Issues")
-    lines.append("<!-- Update manually at session end: note anything broken, deferred, or pending -->")
-    lines.append("- (none)")
+
+    auto = known_issues or {}
+    auto_lines: list[str] = []
+
+    pf = int(auto.get("pytest_failed", 0) or 0)
+    ps = int(auto.get("pytest_skipped", 0) or 0)
+    pp = int(auto.get("pytest_passed", 0) or 0)
+    if auto.get("pytest_error"):
+        auto_lines.append(f"- **Gate suite: error running pytest** — {auto['pytest_error']}")
+    elif pf > 0:
+        auto_lines.append(f"- **Gate suite: {pf} failing test(s)** ({pp} pass, {ps} skip) — `python -m pytest tests/` for detail")
+    elif ps > 0:
+        auto_lines.append(f"- Gate suite: {ps} skipped test(s) ({pp} pass) — review whether quarantines should be resolved")
+
+    if auto.get("burnin_error"):
+        auto_lines.append(f"- Burn-in evaluator: error — {auto['burnin_error']}")
+    else:
+        for ab in auto.get("burnin_aborts", []) or []:
+            reasons = ", ".join(ab.get("reasons", [])) or "unspecified"
+            auto_lines.append(f"- **Burn-in ABORT:** `{ab['strategy']}` — {reasons}")
+
+    for err in auto.get("intent_index_errors", []) or []:
+        auto_lines.append(f"- **Intent-index hard error:** {err}")
+
+    for err in auto.get("sweep_registry_errors", []) or []:
+        auto_lines.append(f"- **Sweep registry caveat:** {err}")
+
+    if auto_lines:
+        lines.append("### Auto-detected (regenerated each run)")
+        lines.extend(auto_lines)
+        lines.append("")
+
+    lines.append("### Manual (deferred TDs, operational context)")
+    lines.append("<!-- Add tech-debt items, deferred work, and operational caveats here. "
+                 "Auto-detected entries above regenerate on each run; entries here persist. -->")
+    if not auto_lines:
+        lines.append("- (none)")
     lines.append("")
 
     return "\n".join(lines)
@@ -745,9 +915,10 @@ def main() -> None:
     freshness = collect_data_freshness()
     runs = collect_runs()
     git = collect_git()
+    known_issues = collect_known_issues()
 
     session_status = compute_session_status(engine, freshness, git)
-    markdown = render_markdown(engine, directives, ledgers, portfolio, burnin, vault, freshness, runs, git, session_status)
+    markdown = render_markdown(engine, directives, ledgers, portfolio, burnin, vault, freshness, runs, git, session_status, known_issues)
 
     output_path.write_text(markdown, encoding="utf-8")
 

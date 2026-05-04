@@ -30,7 +30,7 @@ from execution_engine.strategy_guard import (
     _compute_signal_hash,
 )
 
-VAULT_ROOT = PROJECT_ROOT.parent / "DRY_RUN_VAULT"
+from config.path_authority import DRY_RUN_VAULT as VAULT_ROOT, TS_EXECUTION as _TS_EXECUTION
 
 SEP  = "=" * 70
 PASS = "[PASS]"
@@ -315,7 +315,7 @@ def test_two_tier_validation(vault_dir: pathlib.Path, profile: str) -> None:
 
     # Import MismatchTracker from TS_Execution if available, else build inline
     try:
-        ts_exec_src = PROJECT_ROOT.parent / "TS_Execution" / "src"
+        ts_exec_src = _TS_EXECUTION / "src"
         sys.path.insert(0, str(ts_exec_src))
         from guard_bridge import MismatchTracker
     except ImportError:

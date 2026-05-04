@@ -31,7 +31,10 @@ import pandas as pd
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-STATE_ROOT = PROJECT_ROOT.parent / "TradeScan_State"
+import sys as _sys
+if str(PROJECT_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(PROJECT_ROOT))
+from config.path_authority import TRADE_SCAN_STATE as STATE_ROOT
 BROKER_SPECS_DIR = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
 
 MPS_PATH = STATE_ROOT / "strategies" / "Master_Portfolio_Sheet.xlsx"

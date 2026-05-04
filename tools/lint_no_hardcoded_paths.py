@@ -22,6 +22,7 @@ from pathlib import Path
 # Directories that are exempt (frozen archives, throwaway scripts)
 EXEMPT_DIRS = {
     "vault",        # frozen DR snapshots
+    "engine_dev",   # frozen engine versions (engine_status: FROZEN, immutable)
     "tmp",          # throwaway one-off scripts
     "archive",      # retired legacy code
     ".git",

@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
 sys.path.insert(0, str(PROJECT_ROOT))
+from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT, TRADE_SCAN_STATE as _TRADE_SCAN_STATE
 
 from tools.ledger_db import (
     _connect, create_tables,
@@ -317,7 +317,7 @@ def sync_derived_state() -> None:
     # 2. Format FSP
     print("  [2/4] Formatting FSP...")
     _format_excel(
-        PROJECT_ROOT.parent / "TradeScan_State" / "candidates" / "Filtered_Strategies_Passed.xlsx",
+        _TRADE_SCAN_STATE / "candidates" / "Filtered_Strategies_Passed.xlsx",
         "strategy"
     )
 
@@ -331,7 +331,7 @@ def sync_derived_state() -> None:
     except Exception as e:
         print(f"    [WARN] Export failed: {e}")
     _format_excel(
-        PROJECT_ROOT.parent / "TradeScan_State" / "strategies" / "Master_Portfolio_Sheet.xlsx",
+        _TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx",
         "portfolio"
     )
 

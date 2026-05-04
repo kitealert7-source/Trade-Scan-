@@ -20,10 +20,10 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-BROKER_SPECS_DIR = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
-DEFAULT_MT5_JSON = PROJECT_ROOT.parent / "TS_Execution" / "outputs" / "symbol_specs_mt5.json"
-
 sys.path.insert(0, str(PROJECT_ROOT))
+from config.path_authority import TS_EXECUTION as _TS_EXECUTION
+BROKER_SPECS_DIR = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
+DEFAULT_MT5_JSON = _TS_EXECUTION / "outputs" / "symbol_specs_mt5.json"
 import yaml
 
 

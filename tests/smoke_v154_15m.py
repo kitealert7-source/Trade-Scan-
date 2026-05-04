@@ -14,8 +14,8 @@ import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_TRADESCAN_STATE = PROJECT_ROOT.parent / "TradeScan_State"
 sys.path.insert(0, str(PROJECT_ROOT))
+from config.path_authority import TRADE_SCAN_STATE as _TRADESCAN_STATE
 os.chdir(PROJECT_ROOT)
 
 import pandas as pd

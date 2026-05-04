@@ -49,7 +49,7 @@ _SCHEMA_REQUIRED_FIELDS = {"signal", "stop_price", "entry_reference_price", "ent
 
 _REGIME_TF_MAP_PATH = PROJECT_ROOT / "config" / "regime_timeframe_map.yaml"
 
-TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
+from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
 
 # Replay settings

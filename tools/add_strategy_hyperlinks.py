@@ -35,8 +35,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.state_paths import CANDIDATE_FILTER_PATH
+from config.path_authority import TRADE_SCAN_STATE as _TRADE_SCAN_STATE
 
-PORTFOLIO_SHEET_PATH = PROJECT_ROOT.parent / "TradeScan_State" / "strategies" / "Master_Portfolio_Sheet.xlsx"
+PORTFOLIO_SHEET_PATH = _TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
 
 # Hyperlink font — blue underline, preserves size from formatter
 _LINK_FONT = Font(color="0563C1", underline="single")
