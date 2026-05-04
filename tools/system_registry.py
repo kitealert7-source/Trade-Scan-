@@ -22,6 +22,7 @@ from config.state_paths import (
     QUARANTINE_DIR,
     RUN_DIRS_IN_LOOKUP_ORDER,
 )
+from config.path_authority import TS_EXECUTION
 from tools.event_log import log_event
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -262,7 +263,7 @@ def get_active_portfolio_runs() -> set:
         for fname in ["portfolio_composition.json", "portfolio_metadata.json"]:
             for comp_file in strategies_dir.rglob(fname):
                 try:
-                    with open(comp_file, "r") as f:
+                    with open(comp_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     run_ids = data.get("constituent_run_ids", [])
                     if isinstance(run_ids, list):
@@ -271,7 +272,7 @@ def get_active_portfolio_runs() -> set:
                     continue
 
     # 2. portfolio.yaml — authoritative deployment ledger.
-    ts_exec_portfolio = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+    ts_exec_portfolio = TS_EXECUTION / "portfolio.yaml"
     if ts_exec_portfolio.exists():
         try:
             import yaml

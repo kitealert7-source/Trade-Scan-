@@ -46,11 +46,12 @@ from tools.ledger_db import (
     LEDGER_DB_PATH,
 )
 
-TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
+from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT, TRADE_SCAN_STATE, DATA_ROOT
+
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
-CANDIDATES_PATH = PROJECT_ROOT.parent / "TradeScan_State" / "candidates" / "Filtered_Strategies_Passed.xlsx"
+CANDIDATES_PATH = TRADE_SCAN_STATE / "candidates" / "Filtered_Strategies_Passed.xlsx"
 REGISTRY_PATH = TS_EXEC_ROOT / "burn_in_registry.yaml"
-USD_SYNTH_CSV = PROJECT_ROOT / "data_root" / "SYSTEM_FACTORS" / "USD_SYNTH" / "usd_synth_close_d1.csv"
+USD_SYNTH_CSV = DATA_ROOT / "SYSTEM_FACTORS" / "USD_SYNTH" / "usd_synth_close_d1.csv"
 
 
 # ---------------------------------------------------------------------------

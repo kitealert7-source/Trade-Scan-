@@ -10,7 +10,10 @@ from pathlib import Path
 
 # Paths to core state repositories
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-STATE_ROOT   = PROJECT_ROOT.parent / "TradeScan_State"
+import sys as _sys
+if str(PROJECT_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(PROJECT_ROOT))
+from config.path_authority import TRADE_SCAN_STATE as STATE_ROOT, TS_EXECUTION as _TS_EXECUTION
 
 MASTER_SHEET_PATH = STATE_ROOT / "strategies" / "Master_Portfolio_Sheet.xlsx"
 FILTERED_SHEET_PATH = STATE_ROOT / "candidates" / "Filtered_Strategies_Passed.xlsx"
@@ -34,7 +37,7 @@ def execution_pid_exists() -> bool:
          new PID without updating the old file).
     """
     import time
-    ts_exec_logs = PROJECT_ROOT.parent / "TS_Execution" / "outputs" / "logs"
+    ts_exec_logs = _TS_EXECUTION / "outputs" / "logs"
 
     # Layer 1: PID file
     pid_path = ts_exec_logs / "execution.pid"
@@ -111,7 +114,7 @@ def build_execution_shield() -> set:
     """
     Returns set of strategy IDs currently deployed in TS_Execution/portfolio.yaml
     """
-    portfolio_path = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+    portfolio_path = _TS_EXECUTION / "portfolio.yaml"
     if not portfolio_path.exists():
         print("[BLOCK] portfolio.yaml not found or invalid")
         sys.exit(1)

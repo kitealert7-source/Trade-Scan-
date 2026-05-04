@@ -25,8 +25,48 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+
+def _find_trade_scan_root() -> Path:
+    """Walk up from PROJECT_ROOT to find the real Trade_Scan repo root.
+
+    The deterministic marker is `.git` being a *directory* — in the main
+    repo `.git/` is the actual gitdir, but in a worktree `.git` is a
+    *file* containing a `gitdir:` pointer to `<repo>/.git/worktrees/<n>`.
+    Walking up from the worktree dir until `.git.is_dir()` lands us on
+    the real Trade_Scan root regardless of how deep the worktree nests.
+
+    Falls back to PROJECT_ROOT so a non-git checkout (rare) still has
+    a usable anchor.
+    """
+    cur = PROJECT_ROOT
+    for _ in range(6):
+        git = cur / ".git"
+        if git.is_dir():
+            return cur
+        cur = cur.parent
+    return PROJECT_ROOT
+
+
+_TRADE_SCAN_ROOT = _find_trade_scan_root()
+
+
+def _resolve_sibling(name: str) -> Path:
+    """Sibling repo adjacent to the real Trade_Scan root.
+
+    Worktree-safe via `_TRADE_SCAN_ROOT` — its `.parent` is the user's
+    container folder regardless of whether we're invoked from main or
+    from `Trade_Scan/.claude/worktrees/<n>/`. Avoids the trap where a
+    stale `TradeScan_State/` left inside `.claude/worktrees/` would
+    shadow the real one if we naively walked parents.
+
+    The path is returned whether or not it exists on disk so downstream
+    callers can surface 'MISSING' meaningfully.
+    """
+    return _TRADE_SCAN_ROOT.parent / name
+
+
 # ── Paths (derived from state_paths.py pattern, no hardcoded user paths) ──
-STATE_ROOT = PROJECT_ROOT.parent / "TradeScan_State"
+STATE_ROOT = _resolve_sibling("TradeScan_State")
 RUNS_DIR = STATE_ROOT / "runs"
 BACKTESTS_DIR = STATE_ROOT / "backtests"
 STRATEGIES_DIR = STATE_ROOT / "strategies"
@@ -43,16 +83,20 @@ COMPLETED_DIR = PROJECT_ROOT / "backtest_directives" / "completed"
 
 ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine"
 ENGINE_REGISTRY = PROJECT_ROOT / "config" / "engine_registry.json"
-FRESHNESS_INDEX = PROJECT_ROOT / "data_root" / "freshness_index.json"
+# data_root is a local-only symlink (not tracked) at the Trade_Scan
+# root pointing at Anti_Gravity_DATA_ROOT. Worktrees don't inherit it,
+# so anchor on the real repo root rather than PROJECT_ROOT to keep
+# freshness reads consistent across worktree and main invocations.
+FRESHNESS_INDEX = _TRADE_SCAN_ROOT / "data_root" / "freshness_index.json"
 
-TS_EXECUTION = PROJECT_ROOT.parent / "TS_Execution"
+TS_EXECUTION = _resolve_sibling("TS_Execution")
 PORTFOLIO_YAML = TS_EXECUTION / "portfolio.yaml"
 TS_EXEC_STATE = TS_EXECUTION / "outputs" / "logs" / "execution_state.json"
 TS_EXEC_HEARTBEAT = TS_EXECUTION / "outputs" / "logs" / "heartbeat.log"
 TS_EXEC_PENDING = TS_EXECUTION / "outputs" / "logs" / "pending_signals.json"
 TS_EXEC_SHADOW = TS_EXECUTION / "outputs" / "shadow_trades.jsonl"
 TS_EXEC_JOURNAL = TS_EXECUTION / "journal" / "SignalJournal.jsonl"
-DRY_RUN_VAULT = PROJECT_ROOT.parent / "DRY_RUN_VAULT"
+DRY_RUN_VAULT = _resolve_sibling("DRY_RUN_VAULT")
 
 DEFAULT_OUTPUT = PROJECT_ROOT / "SYSTEM_STATE.md"
 
@@ -84,7 +128,15 @@ def _count_dirs(directory: Path) -> int:
 
 
 def collect_engine() -> dict[str, str]:
-    """Engine version, manifest status, frozen/active."""
+    """Engine version, manifest status, frozen/active.
+
+    Status is read from the manifest's `engine_status` field (set at
+    vault-promotion time). Hardcoding a canonical version here would
+    silently mark every successor engine as LEGACY despite its
+    manifest reading FROZEN — the bug that flagged v1.5.8 as LEGACY
+    when v1.5.6 was the only version the introspection knew about.
+    Trust the manifest.
+    """
     version = "UNKNOWN"
     status = "UNKNOWN"
 
@@ -97,17 +149,18 @@ def collect_engine() -> dict[str, str]:
     engine_dir = ENGINE_ROOT / version
     manifest_path = engine_dir / "engine_manifest.json" if engine_dir.exists() else None
     manifest_status = "MISSING"
+    manifest_data: dict | None = None
     if manifest_path and manifest_path.exists():
         manifest_data = _safe_json(manifest_path)
         manifest_status = "VALID" if manifest_data else "INVALID"
 
-    # v1.5.6 is the canonical frozen engine (2026-04-16). All prior versions
-    # are legacy — retained for history, not for execution.
-    if version == "v1_5_6":
-        status = "FROZEN"
+    if manifest_data and manifest_data.get("engine_status"):
+        status = manifest_data["engine_status"]
     elif version == "UNKNOWN":
         status = "UNKNOWN"
     else:
+        # Manifest exists but lacks engine_status field (pre-v1_5_7
+        # manifests). Mark as LEGACY to surface the missing metadata.
         status = "LEGACY"
 
     return {

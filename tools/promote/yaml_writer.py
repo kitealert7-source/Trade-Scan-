@@ -21,12 +21,12 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT, DRY_RUN_VAULT as VAULT_ROOT
+
 # Module-level constants (shared across the promote package).
 PROJECT_ROOT = _PROJECT_ROOT
-TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
 BURN_IN_REGISTRY = TS_EXEC_ROOT / "burn_in_registry.yaml"
-VAULT_ROOT = PROJECT_ROOT.parent / "DRY_RUN_VAULT"
 
 # ── Lifecycle values ─────────────────────────────────────────────────────────
 LIFECYCLE_LEGACY   = "LEGACY"

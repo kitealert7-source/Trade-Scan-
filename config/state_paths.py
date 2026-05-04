@@ -29,73 +29,66 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Repo + state root resolution (worktree-safe)
 # ---------------------------------------------------------------------------
-# INFRA-AUDIT C1 closure 2026-05-03.
+# Anchored on config.path_authority — single source of truth for repo and
+# sibling resolution (uses `.git.is_dir()` marker to distinguish the real
+# repo root from a worktree mirror).
 #
-# The naive parents[1] / parent pattern silently mis-resolves under a git
-# worktree at .claude/worktrees/<NAME>/, sending state writes to
-# "worktrees/TradeScan_State" (which doesn't exist) instead of the real
-# sibling Trade_Scan/../TradeScan_State.
-#
-# Resolution priority (first match wins):
-#   1. TRADE_SCAN_ROOT env var (explicit override; useful for CI / Docker /
-#      cross-checkout shells). Validated to contain a `strategies/` dir.
-#   2. Walk up from this file until we find a directory that looks like the
-#      real repo root: a `strategies/` AND `engines/` AND `governance/`
-#      directory present. This works in main checkout AND in a worktree.
-#   3. Fallback to legacy parents[1] (maintains backward compat for any
-#      caller that mocks Path resolution; emits no warning to avoid noise).
-#
-# State root resolution (first match wins):
-#   1. TRADE_SCAN_STATE env var (explicit override).
-#   2. <real_repo_root>.parent / "TradeScan_State"  — the canonical sibling.
+# Public-API compatibility: the legacy resolvers (_looks_like_repo_root,
+# _resolve_repo_root, _resolve_state_root) are preserved as thin wrappers
+# so existing callers (governance, tests, mocked unit tests) keep working.
+# New code should import from config.path_authority directly.
+
+from config.path_authority import (
+    REAL_REPO_ROOT as _REAL_REPO_ROOT,
+    WORKTREE_ROOT as _WORKTREE_ROOT,
+    TRADE_SCAN_STATE as _TRADE_SCAN_STATE,
+    find_real_repo_root as _path_authority_find,
+)
 
 _REPO_MARKER_DIRS = ("strategies", "engines", "governance")
 
 
 def _looks_like_repo_root(p: Path) -> bool:
-    """A directory is the repo root iff it has all three marker subdirs."""
+    """A directory is the repo root iff it has all three marker subdirs.
+
+    Retained for backward compatibility — callers that historically used
+    this predicate continue to work. New code should rely on
+    `config.path_authority` which uses `.git.is_dir()` (strictly correct
+    even when worktrees mirror the marker subdirs).
+    """
     return all((p / m).is_dir() for m in _REPO_MARKER_DIRS)
 
 
 def _resolve_repo_root() -> Path:
-    """Resolve the real Trade_Scan repo root.
+    """Resolve the repo root for this checkout.
 
-    Works from:
-      * main checkout: <repo>/config/state_paths.py
-      * worktree:      <repo>/.claude/worktrees/<NAME>/config/state_paths.py
-      * any nested location with strategies/+engines/+governance siblings
+    Returns WORKTREE_ROOT (the dir containing this config/), preserving
+    the historical semantic that `state_paths.PROJECT_ROOT` is "where
+    this code is running from" — the worktree dir in a worktree, the
+    real repo dir in main. Sibling-repo paths (TradeScan_State, etc.)
+    use REAL_REPO_ROOT internally regardless.
     """
-    # 1. Env var override
-    env = os.environ.get("TRADE_SCAN_ROOT")
-    if env:
-        candidate = Path(env).resolve()
-        if _looks_like_repo_root(candidate):
-            return candidate
-        # If env var is set but invalid, fall through (don't silently misroute).
-
-    # 2. Walk up from this file
-    here = Path(__file__).resolve()
-    # Try up to 6 ancestors (covers main + worktree + double-nested cases)
-    for ancestor in (here.parent, *here.parents):
-        if _looks_like_repo_root(ancestor):
-            return ancestor
-    # 3. Last-resort fallback: legacy behavior
-    return Path(__file__).resolve().parents[1]
+    return _WORKTREE_ROOT
 
 
 def _resolve_state_root(repo_root: Path) -> Path:
     """Resolve the TradeScan_State directory.
 
-    1. TRADE_SCAN_STATE env var (explicit override).
-    2. <repo_root>.parent / "TradeScan_State" (canonical sibling layout).
+    Honors TRADE_SCAN_STATE env var, else returns the canonical sibling
+    of the real repo root. The `repo_root` argument is accepted for
+    backward compatibility but ignored when path_authority has already
+    pinned the real root — passing a worktree dir here used to silently
+    misroute to `worktrees/TradeScan_State` (a stale leftover); we now
+    return the authoritative sibling regardless of what the caller
+    happened to pass in.
     """
     env = os.environ.get("TRADE_SCAN_STATE")
     if env:
         return Path(env).resolve()
-    return repo_root.parent / "TradeScan_State"
+    return _TRADE_SCAN_STATE
 
 
-# Repository Root (worktree-safe via _resolve_repo_root)
+# Repository Root (worktree-safe via path_authority)
 PROJECT_ROOT = _resolve_repo_root()
 
 # Research State Root (Sibling to Repository)

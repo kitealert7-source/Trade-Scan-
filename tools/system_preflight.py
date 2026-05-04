@@ -8,6 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, ARCHIVE_DIR, QUARANTINE_DIR, BACKTESTS_DIR, SELECTED_DIR, POOL_DIR, resolve_base_strategy_dir
+from config.path_authority import TS_EXECUTION, TRADE_SCAN_STATE
 from config.status_enums import PORTFOLIO_BLOCKED_STATUSES, PORTFOLIO_FAIL, RUN_ABORTED
 STRICT_MODE = True # Any error makes overall status RED
 
@@ -394,7 +395,7 @@ class PreflightCheck:
         import yaml
         import importlib.util
 
-        portfolio_path = PROJECT_ROOT.parent / "TS_Execution" / "portfolio.yaml"
+        portfolio_path = TS_EXECUTION / "portfolio.yaml"
         if not portfolio_path.exists():
             self.report("EXEC_CONTRACT", "YELLOW", "TS_Execution/portfolio.yaml not found — skipping.")
             return
@@ -413,7 +414,7 @@ class PreflightCheck:
             return
 
         # Load signal_schema from TS_Execution
-        schema_path = PROJECT_ROOT.parent / "TS_Execution" / "src" / "signal_schema.py"
+        schema_path = TS_EXECUTION / "src" / "signal_schema.py"
         signal_schema = None
         if schema_path.exists():
             spec = importlib.util.spec_from_file_location("signal_schema", str(schema_path))
@@ -423,7 +424,7 @@ class PreflightCheck:
             except Exception:
                 signal_schema = None
 
-        state_root = PROJECT_ROOT.parent / "TradeScan_State"
+        state_root = TRADE_SCAN_STATE
         strategy_root = PROJECT_ROOT / "strategies"
         errors = []
 

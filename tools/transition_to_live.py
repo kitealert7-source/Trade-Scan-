@@ -26,9 +26,9 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-TS_EXEC_ROOT = PROJECT_ROOT.parent / "TS_Execution"
+from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT, DRY_RUN_VAULT as VAULT_ROOT
+
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
-VAULT_ROOT = PROJECT_ROOT.parent / "DRY_RUN_VAULT"
 WAITING_ROOT = VAULT_ROOT / "WAITING"
 
 
