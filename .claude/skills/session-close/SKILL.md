@@ -210,6 +210,68 @@ git push origin main
   — `git checkout --` the SYSTEM_STATE you just wrote, note the in-flight
   activity in the session summary, and let the next session close it.
 
+### 10a. HEAD Consistency Check
+
+Right after the snapshot regen and BEFORE committing it:
+
+```bash
+echo "Snapshot HEAD ref:"
+grep -E "^- Last commit:" SYSTEM_STATE.md | head -1
+echo "Actual HEAD     :"
+git rev-parse --short HEAD
+```
+
+These two values MUST match. If they differ, `system_introspection.py`
+captured `git log -1` BEFORE you ran it (e.g., a pipeline tool snuck a
+commit in between Step 9 push and Step 10 regen, OR you regenerated
+before Step 9's push completed). Re-run the regen to converge.
+
+After the closing commit lands, the file's `Last commit:` line will
+necessarily reference the commit BEFORE itself (the file cannot
+self-reference its own commit hash without amend-loop gymnastics). This
+permanent off-by-one is acceptable AS LONG AS the file documents the
+prior session-close commit, not an even-earlier one. The next session's
+first read will see "Last commit: <closing snapshot hash>" — which
+identifies the prior session's true end state.
+
+### 10b. Known Issues Truthfulness Gate (NON-NEGOTIABLE)
+
+Before staging `SYSTEM_STATE.md` for the closing commit, verify the
+"Known Issues" section is HONEST:
+
+```bash
+# True if any of these signals indicate unresolved blockers:
+TEST_FAILS=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ failed" | head -1 | grep -oE "[0-9]+" || echo 0)
+SKIPPED=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ skipped" | head -1 | grep -oE "[0-9]+" || echo 0)
+BURNIN_ABORT=$(python tools/burnin_evaluator.py 2>&1 | grep -c "ABORT" || echo 0)
+KNOWN_ISSUES_EMPTY=$(grep -c "^- (none)$" SYSTEM_STATE.md || echo 0)
+
+echo "test failures      : $TEST_FAILS"
+echo "skipped tests      : $SKIPPED"
+echo "burn-in ABORT count: $BURNIN_ABORT"
+echo "Known Issues empty : $KNOWN_ISSUES_EMPTY"
+```
+
+**Block session close if** ANY of (`TEST_FAILS > 0`, `SKIPPED > 0`,
+`BURNIN_ABORT > 0`, deferred caveats exist, open infra TODOs exist) is
+true AND `KNOWN_ISSUES_EMPTY == 1`.
+
+```
+ERROR: SYSTEM_STATE.md says "Known Issues: (none)" but unresolved
+blockers/deferred items exist:
+  - test failures: <N>
+  - skipped tests: <N>
+  - burn-in ABORT: <N>
+  - <list any caveats from session>
+Update Known Issues before session close.
+```
+
+The placeholder `<!-- Update manually at session end: ... -->` line
+exists for exactly this responsibility. Leaving "(none)" while the
+suite has fails/skips/aborts is a truthfulness bug — the next session
+inherits a misleading source of truth and rediscovers issues that
+should have been carried forward explicitly.
+
 ### 11. Session Summary (Optional but Recommended)
 
 If significant work was done, briefly note:
