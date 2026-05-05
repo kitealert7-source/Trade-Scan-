@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from config.path_authority import DATA_ROOT
 from tools.pipeline_utils import get_engine_version
 
 # --- Back-compat re-exports (used by tests/test_news_policy.py,
@@ -162,8 +163,11 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
     md.extend(_build_edge_decomposition_section(pl.all_trades_dfs))
     md.extend(_build_risk_characteristics_section(pl.all_trades_dfs))
 
-    # News policy (delegates to sections.news orchestrator)
-    _data_root = Path(__file__).resolve().parent.parent / "data_root"
+    # News policy (delegates to sections.news orchestrator).
+    # Use canonical DATA_ROOT (resolves via REAL_REPO_ROOT) — Path(__file__)
+    # parents resolve to the worktree's partial data_root in worktree runs,
+    # which lacks EXTERNAL_DATA/ and breaks news section.
+    _data_root = DATA_ROOT
     _calendar_dir = _data_root / "EXTERNAL_DATA" / "NEWS_CALENDAR" / "RESEARCH"
     md.extend(_build_news_policy_section(pl.all_trades_dfs, pl.timeframe, _data_root, _calendar_dir))
 
