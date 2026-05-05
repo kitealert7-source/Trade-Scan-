@@ -60,9 +60,6 @@ SIBLING_BAN_EXEMPT_FILES = {
     "state_paths.py",           # legacy resolver kept as compatibility wrapper
     "lint_no_hardcoded_paths.py",  # this file (regex literals)
     "test_path_authority_worktree_compat.py",  # docstring quotes bug pattern
-    # Files with their own worktree-safe resolver (TD: migrate to
-    # path_authority in a follow-up session, then drop these exemptions).
-    "burnin_evaluator.py",      # has _resolve_ts_exec_root walk-up helper
 }
 
 # Lines that are comments or docstrings mentioning paths as documentation are still flagged
