@@ -53,3 +53,20 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
+
+**SESSION STATUS = BROKEN — operator note 2026-05-05:**
+- Triggered by empty `data_root/freshness_index.json` (regenerated mid-session at 04:23Z by a parallel thread; produced 0 entries). Not caused by this session's work. The compute_session_status check fires "BROKEN: Latest data bar unknown" when entries={}. Investigate next session: was DATA_INGRESS run with no symbols, or did `build_freshness_index` short-circuit?
+
+**Burn-in ABORT context (carries from 2026-05-04):**
+- The auto-detected `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06_AUDJPY` ABORT (DD 25.57% > 12% threshold) is a real strategy-quality signal but **not actionable now** — a live burn-in is running for parity validation against backtest, cannot pause or modify any strategy until parity check completes. Triage after parity-check window closes.
+
+**TD-003 partially advanced 2026-05-05** (parallel thread):
+- `governance(indicators): enforce SIGNAL_PRIMITIVE contract across legacy indicators` (commit 720e481) added contract metadata + tests for several legacy indicators. Some may still be pending — verify with `python -m pytest tests/test_indicator_semantic_contracts.py`.
+
+**Open infra items (deferred to next session):**
+- **Batch 3.5** — `test_provision_only_integration.py` still skipped. Significant advance work landed today (canonical id format, idea_registry+sweep_registry injection, snapshot/restore, strategy.py.approved baseline). Remaining blocker: post-04c05c9 `EXPERIMENT_DISCIPLINE` + `SCHEMA_SAMPLE_MISSING` gates require either a strategy.py with `_schema_sample()` + pre-PROVISION-matching signature, OR a refactor away from subprocess to direct BootstrapController + PreflightStage Python-level testing. Detailed plan in the test's skip docstring.
+- **Pipeline-error follow-ups (parallel thread):** stale `pending_signals.json` (yesterday's run_id, save_pending_state not firing on EXIT events); 7 of 9 active strategies producing 0 events in the fresh burn-in despite being loaded; `HALT_EQUITY_DD` guard alert at 2026-05-04T07:01Z (clearance state unverified). All being handled in the parallel TS_Execution thread per operator direction.
+
+**Pre-existing TDs from prior sessions (still on the docket)**
+- **TD-002** — Engine integrity drift caveat (HIGH, waived for NEWSBRK Phase 2 / v1.5.8a fork).
+- **TD-003** — Indicator semantic-contract debt (LOW, partial fix landed in 720e481; verify residual count next session).
