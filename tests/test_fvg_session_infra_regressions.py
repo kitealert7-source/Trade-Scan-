@@ -115,6 +115,63 @@ class R1_HashUnification(unittest.TestCase):
             "from the pre-fix root-of-trust check. Restore canonical_sha256.",
         )
 
+    def test_engine_resolver_sha256_file_uses_canonical(self):
+        """tools/engine_resolver.py:_sha256_file must delegate to
+        canonical_sha256. This was the FIFTH hashing site missed in the
+        original R1 unification — its raw-bytes hashing was the root cause
+        of TD-002 (engine v1_5_6/v1_5_7/v1_5_8 contract_id mismatch on
+        Windows CRLF contract.json files, blocking all backtests)."""
+        from tools.engine_resolver import _sha256_file
+        actual = _sha256_file(self.target)
+        expected = "sha256:" + canonical_sha256(self.target)
+        self.assertEqual(actual, expected,
+            "engine_resolver._sha256_file diverged from canonical_sha256. "
+            "Did someone re-introduce raw hashlib.sha256(read_bytes())? "
+            "This is the TD-002 regression vector.")
+
+    def test_engine_resolver_matches_canonical_on_crlf_and_lf_variants(self):
+        """For both CRLF and LF variants of the same logical content, the
+        resolver hash and the canonical hash must agree, AND the resolver
+        hashes for LF vs CRLF must be equal (canonical strips CR, so the
+        same logical content always produces the same hash regardless of
+        line-ending convention). This is the property that lets
+        contract.json travel across platforms without contract_id drift."""
+        import tempfile
+        from tools.engine_resolver import _sha256_file
+
+        payload_lf = b"line1\nline2\nline3\n"
+        payload_crlf = b"line1\r\nline2\r\nline3\r\n"
+
+        paths_to_clean = []
+        try:
+            # Per-variant: resolver hash matches canonical hash.
+            for variant_name, payload in [("LF", payload_lf), ("CRLF", payload_crlf)]:
+                with tempfile.NamedTemporaryFile(
+                    "wb", delete=False, suffix=".json"
+                ) as fh:
+                    fh.write(payload)
+                    tmp = Path(fh.name)
+                paths_to_clean.append(tmp)
+                resolver_h = _sha256_file(tmp)
+                canonical_h = "sha256:" + canonical_sha256(tmp)
+                self.assertEqual(resolver_h, canonical_h,
+                    f"variant={variant_name}: resolver hash != canonical hash. "
+                    f"resolver={resolver_h}, canonical={canonical_h}")
+
+            # Cross-variant: resolver hashes for LF and CRLF must be equal
+            # because canonical_sha256 normalizes CRLF -> LF before hashing.
+            lf_path, crlf_path = paths_to_clean[0], paths_to_clean[1]
+            self.assertEqual(_sha256_file(lf_path), _sha256_file(crlf_path),
+                "Resolver hashes differ for LF vs CRLF variants of identical "
+                "logical content. Either canonical_sha256 stopped normalizing "
+                "CR or _sha256_file is no longer delegating to it.")
+        finally:
+            for p in paths_to_clean:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
     def test_raw_vs_canonical_differ_on_crlf_file(self):
         """Sanity: on a file with CRLF endings, raw and canonical hashes
         differ. This is the property that made the bug invisible-on-Linux

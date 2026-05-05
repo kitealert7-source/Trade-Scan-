@@ -36,7 +36,6 @@ Selection policy
 Failure codes mirror the hardening plan's F-series and are never
 swallowed.
 """
-import hashlib
 import json
 import logging
 import sys
@@ -47,6 +46,14 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# R1 hashing-site unification: contract_id integrity must use the same
+# LF-normalized canonical hash as the manifest writers (run_pipeline,
+# generate_guard_manifest, generate_engine_manifest, governance.preflight).
+# Raw hashlib.sha256(read_bytes()) here caused TD-002 contract_id
+# false-failures on Windows CRLF contract.json files.
+# See tests/test_fvg_session_infra_regressions.py::R1.
+from tools.verify_engine_integrity import canonical_sha256  # noqa: E402
 
 ENGINE_DEV_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine"
 VAULT_ENGINE_ROOT = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine"
@@ -63,11 +70,7 @@ class EngineResolverError(RuntimeError):
 
 
 def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return "sha256:" + h.hexdigest()
+    return "sha256:" + canonical_sha256(path)
 
 
 def _load_compat_map() -> dict:
