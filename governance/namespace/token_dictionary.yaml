@@ -69,6 +69,7 @@ model:
   - GMAFLIP
   - KALFLIP
   - FVG
+  - PSBRK
 filter:
   - ATRFILT
   - VOLFILT
@@ -91,6 +92,7 @@ aliases:
   model:
     VOL_EXP: VOLEXP
     ATR_BRK: ATRBRK
+    PRIOR_SESSION_BRK: PSBRK
   filter:
     ATR_FILTER: ATRFILT
   timeframe: {}

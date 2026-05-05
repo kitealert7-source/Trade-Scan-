@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P04
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P04
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — Same-Session Exit + Per-Day Cap (5M). Same as V4_P03 except adds an explicit _entries_today counter in check_entry that hard-caps entries to 1 per UTC day. Pure isolation of the same-session-exit variable vs V4_P01: P01 = utc_day_close exit + implicit 1/day; P04 = session_close exit + explicit 1/day."
+  notes: "P03 inadvertently allowed multi-trade days (mean 3.18/day, max 7) because same-session exit released the strategy mid-day and armed_long/armed_short re-armed against each new prior-session reference (Asia arms vs prev NY high/low; London arms vs Asia; NY arms vs London). P04 fixes via strategy-level state: _entries_today increments on accepted signal, blocks all further entries until UTC-date rollover. STRATEGY_SIGNATURE remains identical to P01/P02/P03 (timing: utc_day_close) — actual semantics live in strategy.check_entry / check_exit. All other behavior (sessions, structural stop, gap-open arming, ATR passthrough, no-pyramiding) identical to P03."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

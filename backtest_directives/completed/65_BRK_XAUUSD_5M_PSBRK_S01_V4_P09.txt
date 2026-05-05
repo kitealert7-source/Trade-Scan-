@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P09
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P09
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — Lock +1R after +2R MFE (5M). Identical to V4_P01 entries/structural-stop/midnight-exit, plus a one-shot stop mutation: when the trade's intrabar R reaches +2.0R, stop moves to entry +1R (longs) / entry -1R (shorts). Locks +1R minimum on any trade that touches +2R. Direct successor to V4_P08 (BE-at-+2R); raises the locked level from 0R to +1R."
+  notes: "Mutation via check_stop_mutation hook (engine v1.5.8 ctx.unrealized_r_intrabar). Trigger: r_intrabar >= 2.0. Action: new_stop = 2*entry - initial_stop_price (symmetric +1R lock, valid for both directions). Initial stop captured in check_entry via instance state (_strategy_stop_price), used in mutation. Guard: _lock_applied once-per-trade; resets on flat. Engine enforces monotone tightening — long lock (entry+R) > initial (entry-R), short lock (entry-R) < initial (entry+R). NO other deltas vs V4_P01: same entry logic, same initial structural stop, same utc_day_close exit, same 5m timeframe, same sessions, same gap-open re-arming, same multi-trade-day behavior. STRATEGY_SIGNATURE remains identical to P01-P08 — single one-shot mutation, not a continuous trail."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

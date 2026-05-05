@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P01
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P01
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout on XAUUSD 15M. Long when bar closes above the immediately-prior session's high; short when below the prior session's low. Structural stop frozen at entry to the current session's running low (long) / high (short). Day-close exit at 00:00 UTC. Max 1 trade per UTC day, no re-entry. Liquidity-driven 3-session clock (Asia 00-07, London 07-13, NY 13-21 UTC); 21-00 dead zone."
+  notes: "V4 fixes V3's broken daily-exit. V3 used bars_held==0 to capture entry_date in check_exit, but the engine continues past the fill bar before reaching check_exit — bars_held==0 never appears in check_exit calls, so _entry_date stayed None and DAY_CLOSE never fired. V4 detects new trades via ctx.entry_index transitions (engine increments entry_index per new fill) and captures entry_date on the first check_exit call where entry_index differs from the last tracked. Strategy semantics otherwise unchanged."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

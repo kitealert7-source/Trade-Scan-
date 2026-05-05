@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P06
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P06
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — Long-Only (5M). Identical to V4_P01 except the short-entry branch in check_entry is removed; the strategy never returns a short signal. Tests whether the long edge (P01 long: PF 1.44, $1715 over 543T) stands cleanly without the short drag (P01 short: PF 1.00, $1.86 over 441T). Midnight exit, structural stop, gap-open arming logic, ATR passthrough — all unchanged."
+  notes: "Single behavioral delta vs V4_P01: short entries removed. STRATEGY_SIGNATURE retains direction_restriction: long_and_short and state_machine.entry.direction: long_and_short — actual long-only filter lives in strategy.check_entry (the short branch is simply absent in code). Same signature-stable approach as prior patches in this sweep (P02/P03/P04/P05). Per-day cap behavior unchanged: V4_P01 allows multi-trade days post-stop; P06 inherits this. Indicators (session_clock, prev_session_extremes, atr), sessions, structural stop, gap-open re-arming, no-pyramiding — all identical to V4_P01."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

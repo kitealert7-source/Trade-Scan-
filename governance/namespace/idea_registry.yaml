@@ -484,3 +484,11 @@ ideas:
     role: entry_edge
     instruments: XAUUSD
     status: active
+  '65':
+    family: BRK
+    title: "Prior Session Liquidity Breakout (PSBRK) -- close-break of the immediately-prior real session's high (long) or low (short) on the XAU liquidity-driven 3-session clock (Asia 00-07, London 07-13, NY 13-21 UTC; 21-00 dead zone). Structural stop = current session's running low/high frozen at entry (no ATR). Fresh in-session cross required (gap-open above prev-extreme is skipped until price first closes inside the reference, then breaks out). Fills next-bar-open. Day-close exit at 00:00 UTC. 1 trade per UTC day enforced in strategy.py. Direction-symmetric. Tests whether prior-session liquidity marks generate continuation edge on XAU 15M with structural-stop / time-stop framework -- XAUUSD 15M genesis."
+    class: structure_logic
+    regime: multi
+    role: entry_edge
+    instruments: XAUUSD
+    status: active

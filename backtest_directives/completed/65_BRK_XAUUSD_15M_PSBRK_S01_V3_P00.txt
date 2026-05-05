@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_15M_PSBRK_S01_V3_P00
+  family: BRK
+  strategy: 65_BRK_XAUUSD_15M_PSBRK_S01_V3_P00
+  version: 3
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-01"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout on XAUUSD 15M. Long when bar closes above the immediately-prior session's high; short when below the prior session's low. Structural stop frozen at entry to the current session's running low (long) / high (short). Day-close exit at 00:00 UTC. Max 1 trade per UTC day, no re-entry. Liquidity-driven 3-session clock (Asia 00-07, London 07-13, NY 13-21 UTC); 21-00 dead zone."
+  notes: "V3 supersedes V2. V2 ran but daily exit never fired — engine session_reset=utc_day is entry-side only (resets session_trade_count and clears pending_entry; does NOT close open positions). Result: trade #5 held 791 days through ENGINE_DATA_END, distorting metrics. V3 implements the day-close exit in strategy.py:check_exit — captures entry bar UTC date on bars_held==0 and returns 'DAY_CLOSE' when subsequent bars cross into a new UTC date. All other locked design unchanged (close-break + fresh in-session cross, structural session-extreme stop, 1 trade/UTC day, direction-symmetric)."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

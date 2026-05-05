@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P11
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P11
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — P09 + Full TP @ +3R (5M). Stacks two stop-side mechanisms onto V4_P09's lock: intrabar full take-profit at +3R (returned via tp_price in signal dict, resolved by engine SL/TP intrabar), plus the existing P09 lock-+1R-after-+2R stop mutation. Long+short branches both retained (P10 showed shorts act as a filter on bad early-NY longs). Tests whether capping the upside at +3R captures the P01 DAY_CLOSE giveback (mean MFE +2.60R, mean final +1.66R) without choking the rare >+3R big winners."
+  notes: "Single behavioral delta vs V4_P09: tp_price added to check_entry signal dict. tp_price = signal_close + 3*risk_distance (long) / signal_close - 3*risk_distance (short). Engine resolves intrabar via resolve_exit. Per-bar engine ordering: SL/TP -> partial -> stop_mutation -> check_exit. TP at +3R fires before lock can arm if both levels reached on the same bar. Lock at +1R fires only on bars where +2R hit but +3R not hit. Gap-bar caveat: tp_price computed at signal close; on 5m XAU continuous trading the distortion is small. STRATEGY_SIGNATURE remains identical to P01-P10 — take_profit.enabled stays False (the strategy provides tp_price directly in signal dict, engine accepts it regardless of directive's tp_atr_mult fallback)."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

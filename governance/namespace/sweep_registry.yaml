@@ -2476,3 +2476,72 @@ ideas:
         signature_hash: 1e337b2b1103ff77
         reserved_at_utc: '2026-05-04T09:42:22.490194+00:00'
         signature_hash_full: 1e337b2b1103ff771281659ab65e4580f1d4d6e52f85c938a744db05320865de
+  '65':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 65_BRK_XAUUSD_15M_PSBRK_S01_V4_P00
+        signature_hash: 6ee99532c5506205
+        signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+        reserved_at_utc: '2026-05-05T20:00:00.000000+00:00'
+        patches:
+          P01:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P01
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-05T21:00:00.000000+00:00'
+          P02:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P02
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-05T22:00:00.000000+00:00'
+          P03:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P03
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-05T23:00:00.000000+00:00'
+          P04:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P04
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T00:00:00.000000+00:00'
+          P05:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P05
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T01:00:00.000000+00:00'
+          P06:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P06
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T02:00:00.000000+00:00'
+          P07:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P07
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T03:00:00.000000+00:00'
+          P08:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P08
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T04:00:00.000000+00:00'
+          P09:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P09
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T05:00:00.000000+00:00'
+          P10:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P10
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T06:00:00.000000+00:00'
+          P11:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P11
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T07:00:00.000000+00:00'
+          P12:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P12
+            signature_hash: 6ee99532c5506205
+            signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
+            reserved_at_utc: '2026-05-06T08:00:00.000000+00:00'

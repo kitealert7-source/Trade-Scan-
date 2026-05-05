@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P02
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P02
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — Stop-and-Reverse variant — XAUUSD 5M. Long when bar closes above the immediately-prior session's high; short when below. Structural stop frozen at entry to the current session's running low (long) / high (short). Day-close exit at 00:00 UTC. SAR rule: when a trade hits its stop, allow ONE opposite-direction entry on the same UTC day (must satisfy normal opposite-direction entry conditions: armed_short + close < prev_session_low for short after a long stop, mirrored for the other direction). Max 2 entries per UTC day total: 1 normal + 1 SAR. After a clean DAY_CLOSE exit, no re-entry that day. Liquidity-driven 3-session clock (Asia 00-07, London 07-13, NY 13-21 UTC); 21-00 dead zone."
+  notes: "P02 derived from V4_P01 (5M). Only behavioral delta: stop-and-reverse rule, implemented entirely in strategy.py:check_entry via _sar_armed state machine. Engine v1.5.8 does not honor reentry.allowed or no_reentry_after_stop directives, so they remain at V4_P01 values; strategy alone enforces 'max 2 entries per UTC day, 2nd only after engine-side stop, 2nd must be opposite direction'. Sessions, gap-open arming logic, structural stop, day-close exit, ATR passthrough — all identical to V4_P01."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

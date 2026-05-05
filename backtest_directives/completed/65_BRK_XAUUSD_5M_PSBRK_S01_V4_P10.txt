@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P10
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P10
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — P09 Lock-+1R + Long-Only (5M). Stacks the two best findings of the BRK S01 V4 sweep: V4_P09's lock-+1R-after-+2R-MFE stop mutation, and the long-direction filter (P06 showed long bucket carries the entire edge; short side has been near-zero across P01/P07/P08/P09). Tests whether the combination strictly improves over P09 by removing the zero-contribution short trade-count without sacrificing the long-side edge."
+  notes: "Single behavioral delta vs V4_P09: short-entry branch in check_entry removed (no {signal: -1, ...} returned). Lock mutation logic, initial structural stop, utc_day_close exit, sessions, gap-open re-arming, ATR passthrough, no-pyramiding, 5m timeframe — all identical to V4_P09. STRATEGY_SIGNATURE retains direction_restriction: long_and_short and state_machine.entry.direction: long_and_short — actual long-only filter lives in strategy.check_entry. Same signature-stable approach as P06 (V4_P01 long-only) and the broader P02-P09 sweep. Per-day cap behavior unchanged: V4_P01 allows multi-trade days post-stop; P10 inherits this. Indicators (session_clock, prev_session_extremes, atr) identical to V4_P09."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

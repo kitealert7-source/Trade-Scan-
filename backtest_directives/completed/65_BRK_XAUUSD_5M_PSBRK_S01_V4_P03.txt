@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P03
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P03
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — Same-Session Exit (5M). Entry rules identical to V4_P01 (close-break of immediately-prior real session's high/low; structural stop = current live session running low/high frozen at entry). Exit at the end of the session in which the trade was filled (NY → 21:00 UTC, London → 13:00 UTC, Asia → 07:00 UTC) instead of holding to UTC day close. Tests whether the breakout edge concentrates in the entry session and the dead-zone hold dilutes returns."
+  notes: "Single behavioral delta vs V4_P01: same-session exit replaces utc_day_close. STRATEGY_SIGNATURE remains identical (timing: utc_day_close) to mirror P02's signature-stable approach — the actual exit semantics live in strategy.check_exit, gated on session_id transition rather than UTC date rollover. Per-day cap unchanged (1 trade/day, no re-entry). All indicators, sessions, gap-open arming, structural stop, ATR passthrough identical to V4_P01."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day
