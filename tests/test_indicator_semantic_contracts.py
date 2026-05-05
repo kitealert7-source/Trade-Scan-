@@ -76,6 +76,7 @@ _ALLOWED_PRIMITIVES = {
     "consecutive_close_streak",       # strict-inequality consecutive close streak
     "prev_bar_breakout",              # close vs previous bar high/low
     "rolling_zscore",                 # rolling z-score (generic, distinct from synthetic)
+    "three_bar_imbalance_zone",       # FVG: 3-bar price-imbalance zone + touch / invalidation events
 }
 _ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}

@@ -61,6 +61,10 @@ Bar-alignment / fill contract:
 import numpy as np
 import pandas as pd
 
+# TD-003: semantic-contract metadata. FVG is a 3-bar window structure
+# detector that publishes zone bounds + touch / invalidation events.
+SIGNAL_PRIMITIVE = "three_bar_imbalance_zone"
+
 _DEFAULT_MAX_ACTIVE = 10
 
 
