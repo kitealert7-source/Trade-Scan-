@@ -11,6 +11,10 @@ Features:
 import pandas as pd
 import numpy as np
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "momentum_roc"
+PIVOT_SOURCE = "none"
+
 
 def roc(series: pd.Series, period: int = 5) -> pd.Series:
     """

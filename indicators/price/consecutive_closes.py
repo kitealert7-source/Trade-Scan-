@@ -1,5 +1,9 @@
 import pandas as pd
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "consecutive_close_streak"
+PIVOT_SOURCE = "none"
+
 
 def consecutive_closes(df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
     """

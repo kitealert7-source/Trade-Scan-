@@ -1,5 +1,10 @@
 import pandas as pd
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "prev_bar_breakout"
+PIVOT_SOURCE = "none"
+
+
 def apply(df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
     """In-place mutator: adds prev_high / prev_low / breakout_up_close /
     breakout_down_close to the caller's df, returns the same object.

@@ -22,6 +22,10 @@ import numpy as np
 
 __all__ = ["hurst_regime"]
 
+# --- Semantic Contract (Phase 3) ---
+SIGNAL_PRIMITIVE = "hurst_rs_persistence"
+PIVOT_SOURCE = "none"
+
 
 def hurst_regime(series: pd.Series,
                  window: int = 200,

@@ -58,6 +58,24 @@ _ALLOWED_PRIMITIVES = {
     "linear_regression_slope", "linear_regression_slope_htf",
     "trend_persistence_count",
     "session_range_breakout",
+    # --- TD-003 (2026-05-05): legacy indicators brought under contract ---
+    # Already declared by indicator authors; allowlist was the gap.
+    "macd_multidim",                  # MACD line + signal + histogram
+    "rsi_smoothed_threshold",         # smoothed RSI with threshold gate
+    "adx_wilder_trend_strength",      # Wilder's ADX trend-strength scalar
+    "ema_cross",                      # EMA fast/slow cross
+    "gma_slope_flip",                 # Gaussian MA slope sign-flip
+    "hurst_rs_persistence",           # Hurst R/S persistence regime
+    "wilder_rma_tr_floored",          # ATR with absolute floor (dollar / pip)
+    "bar_hl_range",                   # high − low per-bar range
+    # --- Newly added to legacy indicators in TD-003 ---
+    "momentum_roc",                   # rate-of-change percent
+    "adx_trend_strength",             # non-Wilder ADX (sibling of adx_wilder)
+    "hull_moving_average",            # HMA value
+    "close_sign_run",                 # bar_sign + signed run-length
+    "consecutive_close_streak",       # strict-inequality consecutive close streak
+    "prev_bar_breakout",              # close vs previous bar high/low
+    "rolling_zscore",                 # rolling z-score (generic, distinct from synthetic)
 }
 _ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}
