@@ -3,7 +3,7 @@
 ## SESSION STATUS: BROKEN
 - BROKEN: Latest data bar unknown
 
-> Generated: 2026-05-05T05:38:31Z
+> Generated: 2026-05-05T06:42:15Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -29,7 +29,7 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=63
+- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=95
 - **Shadow trades:** 0 active | **Signals (7d):** 54 entry, 20 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -45,7 +45,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last commit: `720e481 governance(indicators): enforce SIGNAL_PRIMITIVE contract across legacy indicators`
+- Last commit: `bc53bf2 fix(governance): TD-003 â€” fair_value_gap declares SIGNAL_PRIMITIVE`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -60,8 +60,8 @@
 **Burn-in ABORT context (carries from 2026-05-04):**
 - The auto-detected `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06_AUDJPY` ABORT (DD 25.57% > 12% threshold) is a real strategy-quality signal but **not actionable now** — a live burn-in is running for parity validation against backtest, cannot pause or modify any strategy until parity check completes. Triage after parity-check window closes.
 
-**TD-003 partially advanced 2026-05-05** (parallel thread):
-- `governance(indicators): enforce SIGNAL_PRIMITIVE contract across legacy indicators` (commit 720e481) added contract metadata + tests for several legacy indicators. Some may still be pending — verify with `python -m pytest tests/test_indicator_semantic_contracts.py`.
+**TD-003 — RESOLVED 2026-05-05:**
+- Parallel thread (commit 720e481) brought legacy indicators under contract. This session (commit bc53bf2) closed the FVG residual. `tests/test_indicator_semantic_contracts.py`: 5/5 pass. No further action.
 
 **Open infra items (deferred to next session):**
 - **Batch 3.5** — `test_provision_only_integration.py` still skipped. Significant advance work landed today (canonical id format, idea_registry+sweep_registry injection, snapshot/restore, strategy.py.approved baseline). Remaining blocker: post-04c05c9 `EXPERIMENT_DISCIPLINE` + `SCHEMA_SAMPLE_MISSING` gates require either a strategy.py with `_schema_sample()` + pre-PROVISION-matching signature, OR a refactor away from subprocess to direct BootstrapController + PreflightStage Python-level testing. Detailed plan in the test's skip docstring.
@@ -69,4 +69,3 @@
 
 **Pre-existing TDs from prior sessions (still on the docket)**
 - **TD-002** — Engine integrity drift caveat (HIGH, waived for NEWSBRK Phase 2 / v1.5.8a fork).
-- **TD-003** — Indicator semantic-contract debt (LOW, partial fix landed in 720e481; verify residual count next session).
