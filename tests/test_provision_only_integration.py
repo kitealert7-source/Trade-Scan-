@@ -2,7 +2,7 @@
 
 import sys
 import json
-import uuid
+import random
 import unittest
 import shutil
 import re
@@ -15,7 +15,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class TestProvisionOnlyIntegration(unittest.TestCase):
     def setUp(self):
-        self.d_id = f"TEST_PROVISION_{uuid.uuid4().hex[:8].upper()}"
+        # Canonical namespace pattern enforced by namespace_gate:
+        #   <ID>_<FAMILY>_<SYMBOL>_<TF>_<MODEL>[_<FILTER>]_S<NN>_V<N>_P<NN>
+        # Use idea-id 99 (test scaffolding, no collision with real
+        # ideas 01-65). Tokens REV/EURUSD/1D/PINBAR are all in
+        # governance/namespace/token_dictionary.yaml. Sweep number
+        # randomized per run so concurrent re-runs don't collide on
+        # the same registry slot before teardown's snapshot restore.
+        sweep_num = random.randint(10, 99)
+        self.d_id = f"99_REV_EURUSD_1D_PINBAR_S{sweep_num:02d}_V1_P00"
         self.d_path = PROJECT_ROOT / "backtest_directives" / "INBOX" / f"{self.d_id}.txt"
         self.strat_dir = PROJECT_ROOT / "strategies" / self.d_id
         self.effective_id = None
@@ -26,10 +34,23 @@ class TestProvisionOnlyIntegration(unittest.TestCase):
             else None
         )
 
-        # Build canonical directive
+        # Idea 99 must be registered before the namespace gate accepts
+        # the directive id. Snapshot + restore so this test doesn't
+        # leak a synthetic idea entry into governance state.
+        self._idea_registry_path = PROJECT_ROOT / "governance" / "namespace" / "idea_registry.yaml"
+        self._idea_registry_snapshot = (
+            self._idea_registry_path.read_bytes()
+            if self._idea_registry_path.exists()
+            else None
+        )
+        self._inject_test_idea_if_missing()
+        self._inject_test_sweep_block_if_missing()
+
+        # Build canonical directive (family token must match the
+        # FAMILY in the namespace pattern above — REV).
         content = '''test:
   name: __DID__
-  family: Index
+  family: REV
   strategy: __DID__
   broker: OctaFx
   timeframe: 1d
@@ -126,25 +147,76 @@ class Strategy:
         shutil.rmtree(PROJECT_ROOT / "strategies" / directive_id, ignore_errors=True)
         self._cleanup_run_artifacts(directive_id)
 
+    def _inject_test_idea_if_missing(self):
+        """Idea 99 is reserved for test scaffolding. Add a synthetic
+        entry to idea_registry.yaml so namespace_gate's
+        IDEA_ID_UNREGISTERED check passes. tearDown restores from
+        snapshot."""
+        import yaml
+        if not self._idea_registry_path.exists():
+            return
+        data = yaml.safe_load(self._idea_registry_path.read_text(encoding="utf-8")) or {}
+        ideas = data.setdefault("ideas", {})
+        if "99" not in ideas:
+            ideas["99"] = {
+                "family": "REV",
+                "title": "Test Scaffold (provision-only integration test)",
+                "class": "indicator_logic",
+                "regime": "range",
+                "role": "entry_edge",
+                "status": "active",
+            }
+            self._idea_registry_path.write_text(
+                yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+            )
+
+    def _inject_test_sweep_block_if_missing(self):
+        """Sweep registry needs idea 99 to exist as a top-level entry
+        before SWEEP_IDEA_UNREGISTERED check passes. The sweep slot
+        itself is auto-reserved by the pipeline; we just need the
+        idea_id key to exist with an empty sweeps map."""
+        import yaml
+        if not self._sweep_registry_path.exists():
+            return
+        data = yaml.safe_load(self._sweep_registry_path.read_text(encoding="utf-8")) or {}
+        ideas = data.setdefault("ideas", {})
+        if "99" not in ideas:
+            ideas["99"] = {"next_sweep": 1, "sweeps": {}}
+            self._sweep_registry_path.write_text(
+                yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+            )
+
     def tearDown(self):
         self._cleanup_artifacts_for_id(self.d_id)
         self._cleanup_artifacts_for_id(self.effective_id)
         if self._sweep_registry_snapshot is not None:
             self._sweep_registry_path.write_bytes(self._sweep_registry_snapshot)
+        if self._idea_registry_snapshot is not None:
+            self._idea_registry_path.write_bytes(self._idea_registry_snapshot)
 
     @unittest.skip(
-        "Two-layer staleness — only the OUTER layer was fixed in Batch 2.5 "
-        "(active/ -> INBOX/ directory rename). The INNER layer remains: this "
-        "test uses TEST_PROVISION_<random_uuid> as the directive id, which "
-        "does NOT match the canonical namespace pattern enforced post-refactor: "
-        "<ID>_<FAMILY>_<SYMBOL>_<TF>_<MODEL>[_<FILTER>]_S<NN>_V<N>_P<NN>. "
-        "After the INBOX fix, the test now reaches the orchestrator (was "
-        "failing at file-not-found) but fails at NAMESPACE_GATE: "
-        "NAMESPACE_PATTERN_INVALID. "
-        "Proper fix: rewrite the test to use a canonical-conformant directive "
-        "id (e.g., 99_REV_EURUSD_1D_FVG_S{random_2digit}_V1_P00) plus matching "
-        "namespace tokens that exist in governance/namespace/token_dictionary.yaml. "
-        "Tracked as Batch 3 — test architecture modernization."
+        "Multi-layer staleness — partially advanced 2026-05-05 (Batch 3 "
+        "rewrite). FIXED: directive id now matches canonical namespace "
+        "pattern (99_REV_EURUSD_1D_PINBAR_S<NN>_V1_P00); idea_registry + "
+        "sweep_registry get idea-99 injected with snapshot/restore around "
+        "the test; tools_manifest stays current; data layer accessible "
+        "from main repo. With those fixes the test gets through every "
+        "admission gate and into PreflightStage's exec_preflight subprocess. "
+        "REMAINING BLOCKER: post-04c05c9 provision-only flow added "
+        "EXPERIMENT_DISCIPLINE + SCHEMA_SAMPLE_MISSING gates. The pipeline's "
+        "[PROVISION] phase patches the strategy.py STRATEGY_SIGNATURE in "
+        "place, then a downstream check pauses with AWAITING_HUMAN_APPROVAL "
+        "(strategy.py modified after last approval) and SCHEMA_SAMPLE_MISSING "
+        "(strategy needs a _schema_sample() method). The test's expected "
+        "output messages ([PROVISION-ONLY] Strategy provisioned at: ...) no "
+        "longer match the new flow which now prints [ADMISSION GATE] HUMAN "
+        "ACTION REQUIRED instead. Proper full fix needs: (a) test strategy.py "
+        "must include _schema_sample() and a STRATEGY_SIGNATURE pre-populated "
+        "with whatever the [PROVISION] patcher would produce so no drift is "
+        "detected; (b) updated assertion strings matching the post-04c05c9 "
+        "provision-only output; (c) ideally refactor away from subprocess — "
+        "test BootstrapController + PreflightStage at the Python level the "
+        "way Batch 3's test_step6 rewrite does. Tracked as Batch 3.5."
     )
     def test_run_pipeline_provision_only(self):
         res = subprocess.run(
