@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-06T13:51:23Z
+> Generated: 2026-05-06T14:07:50Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -10,7 +10,7 @@
 - **Version:** 1.5.8 | **Status:** FROZEN | **Manifest:** VALID
 
 ## Pipeline Queue
-- Queue empty. No directives in INBOX or active.
+- **INBOX (19):** 65_BRK_XAUUSD_15M_PSBRK_S01_V1_P00.txt, 65_BRK_XAUUSD_15M_PSBRK_S01_V2_P00.txt, 65_BRK_XAUUSD_15M_PSBRK_S01_V3_P00.txt, 65_BRK_XAUUSD_15M_PSBRK_S01_V4_P00.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P01.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P02.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P03.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P04.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P05.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P06.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P07.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P08.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P09.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P10.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P11.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P12.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P13.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P15.txt
 - Completed: 221 directives
 
 ## Ledgers
@@ -28,8 +28,8 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=1036
-- **Shadow trades:** 2 active | **Signals (7d):** 54 entry, 20 exit
+- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=1047
+- **Shadow trades:** 2 active | **Signals (7d):** 53 entry, 20 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
@@ -44,7 +44,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last commit: `3a4499f session: refresh tools_manifest.json post idea-gate refresh`
+- Last commit: `1014ca4 session: refresh tools_manifest.json post sweep-gate fix`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -82,19 +82,6 @@
   P15 retained as a clean-baseline reference for future no-TP variant
   experiments. 901 trades, PF 1.30, Sharpe 1.25.
 
-#### Family-wide infrastructure debt
-
-- **`_is_patch_sibling` does not handle cross-TF families.** The
-  PSBRK V4 sweep is a 15M parent (P00) with 5M children (P01-P15)
-  by intentional design, but `tools/sweep_registry_gate.py::_is_patch_sibling`
-  strips only the `_PNN` suffix, not the TF segment. Any new
-  same-family child registration (P16+) will fail at Stage -0.35
-  SWEEP GATE and require manual `sweep_registry.yaml` insert (precedent:
-  commits `807e217`, `ebf2da4`, `0b1c0f0`). Proper fix is a small
-  refactor to make `_is_patch_sibling` TF-aware while preserving
-  the timeframe-in-hash discrimination that prevents cross-family
-  collisions.
-
 #### Operational context for the auto-detected ABORT
 
 - **22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06 ABORT** (auto-detected
@@ -102,4 +89,3 @@
   prior session. Real cause: bulk-export sequencing + nominal $10K
   notional denominator + AUDJPY whipsaw. Do not investigate further
   unless live execution shows fresh degradation.
-
