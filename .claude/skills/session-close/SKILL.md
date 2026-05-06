@@ -216,7 +216,7 @@ Right after the snapshot regen and BEFORE committing it:
 
 ```bash
 echo "Snapshot HEAD ref:"
-grep -E "^- Last commit:" SYSTEM_STATE.md | head -1
+grep -E "^- Last substantive commit:" SYSTEM_STATE.md | head -1
 echo "Actual HEAD     :"
 git rev-parse --short HEAD
 ```
@@ -226,13 +226,15 @@ captured `git log -1` BEFORE you ran it (e.g., a pipeline tool snuck a
 commit in between Step 9 push and Step 10 regen, OR you regenerated
 before Step 9's push completed). Re-run the regen to converge.
 
-After the closing commit lands, the file's `Last commit:` line will
-necessarily reference the commit BEFORE itself (the file cannot
-self-reference its own commit hash without amend-loop gymnastics). This
-permanent off-by-one is acceptable AS LONG AS the file documents the
-prior session-close commit, not an even-earlier one. The next session's
-first read will see "Last commit: <closing snapshot hash>" — which
-identifies the prior session's true end state.
+After the closing commit lands, the file's `Last substantive commit:`
+line will necessarily reference the commit BEFORE itself (the file
+cannot self-reference its own commit hash without amend-loop
+gymnastics). This permanent off-by-one is acceptable AS LONG AS the
+file documents the prior session-close commit, not an even-earlier one.
+The label "substantive" makes the semantic explicit: it is the last
+commit other than the snapshot itself, not HEAD. The next session's
+first read will see "Last substantive commit: <closing snapshot hash>"
+— which identifies the prior session's true end state.
 
 ### 10b. Known Issues Truthfulness Gate (NON-NEGOTIABLE)
 

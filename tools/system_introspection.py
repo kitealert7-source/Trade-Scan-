@@ -952,7 +952,7 @@ def render_markdown(
         lines.append(f"- Remote: {sync}")
         lines.append(f"- Working tree: {tree}")
         if git.get("last_commit"):
-            lines.append(f"- Last commit: `{git['last_commit']}`")
+            lines.append(f"- Last substantive commit: `{git['last_commit']}`")
     lines.append("")
 
     # ── Known Issues / Pending
