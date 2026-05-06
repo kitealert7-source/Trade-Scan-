@@ -148,4 +148,6 @@ ANTI_GRAVITY_DATA_ROOT: Path = _resolve_sibling(
 # stale local copy. Always anchor on REAL_REPO_ROOT for shared data.
 
 DATA_ROOT: Path = REAL_REPO_ROOT / "data_root"
-FRESHNESS_INDEX: Path = DATA_ROOT / "freshness_index.json"
+# DATA_INGRESS writes freshness_index.json into the MASTER_DATA subdirectory;
+# Trade_Scan reads from there directly to avoid the manual copy step.
+FRESHNESS_INDEX: Path = ANTI_GRAVITY_DATA_ROOT / "MASTER_DATA" / "freshness_index.json"

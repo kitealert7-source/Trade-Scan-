@@ -35,7 +35,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.state_paths import BACKTESTS_DIR  # noqa: E402
 
-FRESHNESS_INDEX_PATH = PROJECT_ROOT / "data_root" / "freshness_index.json"
+from config.path_authority import FRESHNESS_INDEX as FRESHNESS_INDEX_PATH  # noqa: E402
 
 Status = Literal["OK", "BLOCKED", "FAIL"]
 
