@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-05T16:51:31Z
+> Generated: 2026-05-06T02:49:17Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -28,15 +28,15 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=420
-- **Shadow trades:** 2 active | **Signals (7d):** 53 entry, 21 exit
+- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=695
+- **Shadow trades:** 1 active | **Signals (7d):** 54 entry, 19 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
 - Snapshots: 17 | WAITING: 0 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-05** | Symbols: 243
+- Latest bar: **2026-05-06** | Symbols: 243
 
 ## Artifacts
 - Run directories: 1275
@@ -44,11 +44,11 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last commit: `38aa3e9 session: closing SYSTEM_STATE snapshot â€” PSBRK V4 sweep`
+- Last commit: `ada0f45 fix(tests): extend indicator allowlists + resolve engine drift test`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Burn-in ABORT:** `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06` — DD 27.98% >= abort threshold 12.0%
+- **Burn-in ABORT:** `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06` — DD 28.48% >= abort threshold 12.0%
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
