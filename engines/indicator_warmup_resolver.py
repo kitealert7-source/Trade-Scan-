@@ -32,10 +32,32 @@ UNARY_OPERATORS = {
 # Global cache to avoid repeated file reads
 _REGISTRY_CACHE = None
 
-def resolve_strategy_warmup(strategy_indicators: List[Dict[str, Union[str, dict]]]) -> int:
+def resolve_strategy_warmup(
+    strategy_indicators: List[Dict[str, Union[str, dict]]],
+    base_tf_minutes: Union[int, float, None] = None,
+) -> int:
     """
     Resolve the maximum required warm-up bars for a set of strategy indicators.
+
+    Parameters
+    ----------
+    strategy_indicators
+        Per-indicator dicts of the form {"name": str, "params": dict}.
+    base_tf_minutes
+        Strategy base timeframe in minutes. Currently **accepted but not
+        used** — the resolver returns indicator-native warmup counts. True
+        time-aware conversion (`ceil(max_warmup_minutes / base_tf_minutes)`)
+        is deferred. Accepting the kwarg here prevents the silent
+        TypeError → 250-bar fallback regression at
+        `tools/run_stage1.py` (incident 2026-04-19 → 2026-05-06; bug
+        shipped via commit 31f0b38, fix here).
+
+    Returns
+    -------
+    int
+        Max indicator-native warmup bar count across the stack.
     """
+    _ = base_tf_minutes  # reserved for future time-aware conversion (Option 2)
     global _REGISTRY_CACHE
     debug_mode = os.environ.get("ENGINE_DEBUG_WARMUP") == "1"
     

@@ -454,6 +454,99 @@ def collect_runs() -> dict[str, int]:
     return {"total": _count_dirs(RUNS_DIR)}
 
 
+def _check_directive_queue_health() -> dict[str, Any]:
+    """Detect stale or stranded directives sitting in INBOX.
+
+    Surfaces two failure modes the V1_P00 / 18-stale-PSBRK incident
+    (2026-05-06) made visible:
+
+    1. Stale INBOX entry — directive file in INBOX whose
+       directive_state.json shows latest_attempt.status ==
+       PORTFOLIO_COMPLETE. BootstrapController would gracefully abort
+       these on --all (exit 0), but the operator has no early signal
+       and burns ~15s of cooldown per file before noticing.
+
+    2. Stranded directive — directive file in INBOX with either:
+         - 2+ FAILED attempts in the recent attempt history, OR
+         - latest attempt INITIALIZED/IDLE and last_updated > 24h ago.
+       Either signals the operator forgot to re-trigger after a fix,
+       or that successive runs are dying at the same stage.
+
+    Read-only; cannot affect pipeline correctness. Best-effort: any
+    per-directive I/O or parse error is silently skipped — a malformed
+    state file should not blank out the whole snapshot.
+    """
+    from datetime import datetime, timezone, timedelta
+
+    result: dict[str, Any] = {
+        "stale_inbox": [],   # list of directive_id strings
+        "stranded": [],      # list of {directive_id, fail_count, latest_status, last_updated}
+    }
+
+    if not INBOX_DIR.exists():
+        return result
+
+    now = datetime.now(timezone.utc)
+    idle_threshold = timedelta(hours=24)
+
+    for txt_path in sorted(INBOX_DIR.glob("*.txt")):
+        directive_id = txt_path.stem
+        state_path = RUNS_DIR / directive_id / "directive_state.json"
+        if not state_path.exists():
+            continue
+
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        attempts = state.get("attempts") or {}
+        if not isinstance(attempts, dict) or not attempts:
+            continue
+
+        sorted_keys = sorted(attempts.keys())
+        latest_key = state.get("latest_attempt") or sorted_keys[-1]
+        latest = attempts.get(latest_key) or {}
+        latest_status = str(latest.get("status", "?"))
+
+        # 1. Stale: PORTFOLIO_COMPLETE in INBOX
+        if latest_status == "PORTFOLIO_COMPLETE":
+            result["stale_inbox"].append(directive_id)
+            continue
+
+        # 2a. Stranded by repeated failure (last 3 attempts)
+        recent = [attempts[k] for k in sorted_keys[-3:] if isinstance(attempts.get(k), dict)]
+        fail_count = sum(1 for a in recent if a.get("status") == "FAILED")
+        repeat_fails = fail_count >= 2
+
+        # 2b. Stranded by stale idle attempt
+        last_updated_raw = state.get("last_updated") or ""
+        last_updated_dt = None
+        if isinstance(last_updated_raw, str) and last_updated_raw:
+            try:
+                last_updated_dt = datetime.fromisoformat(
+                    last_updated_raw.replace("Z", "+00:00")
+                )
+            except (ValueError, TypeError):
+                last_updated_dt = None
+
+        is_idle_stale = (
+            latest_status in {"INITIALIZED", "IDLE"}
+            and last_updated_dt is not None
+            and (now - last_updated_dt) > idle_threshold
+        )
+
+        if repeat_fails or is_idle_stale:
+            result["stranded"].append({
+                "directive_id": directive_id,
+                "fail_count": fail_count,
+                "latest_status": latest_status,
+                "last_updated": last_updated_raw,
+            })
+
+    return result
+
+
 def collect_git() -> dict[str, Any]:
     """Git sync status: commits ahead, clean working tree."""
     result: dict[str, Any] = {}
@@ -533,6 +626,8 @@ def collect_known_issues() -> dict[str, Any]:
         "burnin_error": None,
         "intent_index_errors": [],
         "sweep_registry_errors": [],
+        "directive_queue": {"stale_inbox": [], "stranded": []},
+        "directive_queue_error": None,
     }
 
     # 1. Gate test suite — fast, fixed roster, the same one the
@@ -625,6 +720,13 @@ def collect_known_issues() -> dict[str, Any]:
                         )
     except Exception:
         pass
+
+    # 5. Directive queue health: stale INBOX + stranded directives.
+    # See _check_directive_queue_health docstring for failure modes.
+    try:
+        auto["directive_queue"] = _check_directive_queue_health()
+    except Exception as e:
+        auto["directive_queue_error"] = f"{type(e).__name__}: {e}"
 
     return auto
 
@@ -870,6 +972,30 @@ def render_markdown(
 
     for err in auto.get("sweep_registry_errors", []) or []:
         auto_lines.append(f"- **Sweep registry caveat:** {err}")
+
+    if auto.get("directive_queue_error"):
+        auto_lines.append(
+            f"- Directive queue health: error — {auto['directive_queue_error']}"
+        )
+    queue = auto.get("directive_queue") or {}
+    for did in queue.get("stale_inbox", []) or []:
+        auto_lines.append(
+            f"- **Stale INBOX entry:** `{did}` — already PORTFOLIO_COMPLETE; "
+            f"remove from INBOX or use `tools/reset_directive.py` for a re-run."
+        )
+    for s in queue.get("stranded", []) or []:
+        did = s.get("directive_id", "?")
+        fail_n = int(s.get("fail_count", 0) or 0)
+        status = s.get("latest_status", "?")
+        last = (s.get("last_updated") or "?")[:10]
+        if fail_n >= 2:
+            detail = f"{fail_n} consecutive FAILED attempt(s); latest {status} since {last}"
+        else:
+            detail = f"latest attempt {status} idle since {last}"
+        auto_lines.append(
+            f"- **Stranded directive:** `{did}` — {detail}. "
+            f"Inspect `runs/{did}/directive_audit.log`."
+        )
 
     if auto_lines:
         lines.append("### Auto-detected (regenerated each run)")

@@ -948,20 +948,31 @@ def main():
     if "End Date" in parsed_config: END_DATE = parsed_config["End Date"]
     elif "end_date" in parsed_config: END_DATE = parsed_config["end_date"]
     
-    # --- WARM-UP EXTENSION PROVISION (time-aware, invariant #8) ---
+    # --- WARM-UP EXTENSION PROVISION (invariant #8) ---
     # Resolve per-strategy warmup bars from the indicator registry BEFORE data loading.
-    # Warmup is computed as a TIME DURATION across the full indicator stack
-    # (including HTF indicators which are declared in their own TF). The resolver
-    # returns a base-TF bar count = ceil(max_warmup_minutes / base_tf_minutes).
+    # Currently returns indicator-native warmup counts. base_tf_minutes is
+    # passed for forward-compat: the resolver accepts but ignores it until
+    # true time-aware conversion (ceil(max_warmup_minutes / base_tf_minutes))
+    # is enabled. See engines/indicator_warmup_resolver.py docstring.
     #
-    # base_tf_minutes is extracted from the directive config (Timeframe field) ONLY.
-    # If missing or unparseable, the run aborts — silent under-sizing of HTF warmup
-    # would be a correctness bug.
+    # Failure policy (post-incident 2026-05-06): NO catch-all fallback.
+    # Every exception that can come out of this block (ImportError,
+    # AttributeError, KeyError, RegistryFormulaError, yaml.YAMLError, etc.)
+    # is an infra defect — broken strategy.py, malformed registry,
+    # contract violation. None are recoverable runtime conditions. They
+    # propagate as run failures so the orchestrator marks the directive
+    # FAILED and the queue-health auto-detector surfaces it. The two
+    # explicit FATAL paths below exist only to give clearer operator-
+    # facing messages for the most common drift modes (signature drift,
+    # known invariant violations).
     global RESOLVED_WARMUP_BARS
     from engines.utils.timeframe import parse_freq_to_minutes
     try:
         _base_tf_min = parse_freq_to_minutes(str(TIMEFRAME))
-    except Exception as _tf_err:
+    except (ValueError, TypeError) as _tf_err:
+        # Timeframe parse contract: must be a recognized freq string.
+        # Anything else (AttributeError, etc.) is a programmer bug and
+        # should propagate.
         print(f"[FATAL] WARMUP: cannot parse directive Timeframe {TIMEFRAME!r}: {_tf_err}. "
               "Refusing to execute.")
         return
@@ -975,13 +986,21 @@ def main():
             RESOLVED_WARMUP_BARS = max(_resolved, 50)  # Safety floor of 50 bars
             print(f"[WARMUP] Per-strategy warmup resolved: {RESOLVED_WARMUP_BARS} bars "
                   f"(base_tf={_base_tf_min}m; will be prepended before {START_DATE})")
+    except TypeError as _wu_err:
+        # Resolver signature drift (incident 2026-04-19 → 2026-05-06).
+        # Was silently swallowed by a bare except for 17 days. Loud forever.
+        print(f"[FATAL] WARMUP: resolver signature mismatch: {_wu_err}. "
+              "Refusing to execute. Check engines/indicator_warmup_resolver.py "
+              "signature against tools/run_stage1.py call site.")
+        return
     except ValueError as _wu_err:
-        # Fail-fast on resolver-side invariant violations (HTF without base_tf, etc.)
+        # Resolver-declared invariant violation (e.g. HTF declared without base_tf).
         print(f"[FATAL] WARMUP: resolver invariant violation: {_wu_err}. Refusing to execute.")
         return
-    except Exception as _wu_err:
-        print(f"[WARMUP] Could not resolve per-strategy warmup, using default 250: {_wu_err}")
-        RESOLVED_WARMUP_BARS = 250
+    # NO catch-all. Any other exception (ImportError on broken strategy,
+    # AttributeError on bad signature shape, KeyError on bad registry,
+    # RegistryFormulaError, yaml.YAMLError, etc.) propagates as a run
+    # failure — these are infra defects, not runtime degradations.
     # -----------------------------------------------------------
 
     # --- INVARIANT: WARMUP RESOLUTION MUST NOT SILENTLY FAIL ---
