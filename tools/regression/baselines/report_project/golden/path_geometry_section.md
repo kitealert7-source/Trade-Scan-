@@ -22,6 +22,15 @@
 | Wasted-Edge (SL with mfe >= 0.5R) | 28.6% (2 trades) |
 | Immediate-Adverse (SL, mfe < 0.1R) | 28.6% (2 trades) |
 
+### Recovery Boundary
+
+| MAE Threshold | Recovery % | Avg Final R |
+|---|---|---|
+| <= 0.25R | 100% | +1.00R |
+| <= 0.50R | 50% | +0.95R |
+| <= 0.75R | 100% | +1.50R |
+| <= 0.90R | --- | --- |
+
 **Stall-Decay:** 3 trades (25.0%) | avg 16 bars held | avg MFE 0.38R | avg exit -1.00R — primary DD driver; investigate time-in-trade trail.
 
 **Profit Giveback:** 2 trades (28.6% of SL) | avg peak MFE 1.50R | avg final R -1.00R — investigate partial/lock trigger level.

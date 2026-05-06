@@ -117,6 +117,42 @@ def _build_path_geometry_section(all_trades_dfs) -> list[str]:
 
     md.append("")
 
+    # ── Recovery Boundary ────────────────────────────────────────────────────
+    # Exclusive bands defined by cumulative thresholds: (prev, thr]. Each row
+    # shows trades whose MAE landed in that band; recovery rate degrades as
+    # the band deepens, exposing where recovery probability collapses.
+    md.append("### Recovery Boundary\n")
+    md.append("| MAE Threshold | Recovery % | Avg Final R |")
+    md.append("|---|---|---|")
+    _thresholds = [0.25, 0.50, 0.75, 0.90]
+    _rates: list[float | None] = []
+    _prev = 0.0
+    for thr in _thresholds:
+        if _prev == 0.0:
+            sub = df[df["mae_r"] <= thr]
+        else:
+            sub = df[(df["mae_r"] > _prev) & (df["mae_r"] <= thr)]
+        if len(sub) == 0:
+            md.append(f"| <= {thr:.2f}R | --- | --- |")
+            _rates.append(None)
+        else:
+            rec_pct = (sub["r_multiple"] > 0).mean() * 100
+            avg_r   = sub["r_multiple"].mean()
+            _rates.append(rec_pct)
+            md.append(f"| <= {thr:.2f}R | {rec_pct:.0f}% | {avg_r:+.2f}R |")
+        _prev = thr
+    md.append("")
+
+    below_50 = next((t for t, r in zip(_thresholds, _rates) if r is not None and r < 50), None)
+    below_25 = next((t for t, r in zip(_thresholds, _rates) if r is not None and r < 25), None)
+    if below_50 is not None or below_25 is not None:
+        parts = []
+        if below_50 is not None:
+            parts.append(f"recovery falls below 50% beyond {below_50:.2f}R MAE")
+        if below_25 is not None:
+            parts.append(f"below 25% beyond {below_25:.2f}R")
+        md.append(f"**Recovery Collapse:** " + " and ".join(parts) + ".\n")
+
     # ── Spotlight lines ────────────────────────────────────────────────────────
     stall = df[df["_path"] == "STALL_DECAY"]
     if len(stall):
