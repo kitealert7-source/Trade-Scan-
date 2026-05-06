@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-06T02:49:17Z
+> Generated: 2026-05-06T03:01:15Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -28,8 +28,8 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=695
-- **Shadow trades:** 1 active | **Signals (7d):** 54 entry, 19 exit
+- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=705
+- **Shadow trades:** 1 active | **Signals (7d):** 53 entry, 20 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
@@ -44,7 +44,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last commit: `ada0f45 fix(tests): extend indicator allowlists + resolve engine drift test`
+- Last commit: `2fb041f fix(sweep): include timeframe in _hash_signature to prevent cross-TF collision`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
