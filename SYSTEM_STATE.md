@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-06T15:52:30Z
+> Generated: 2026-05-06T16:09:20Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -28,8 +29,8 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=1100
-- **Shadow trades:** 2 active | **Signals (7d):** 53 entry, 20 exit
+- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=1111
+- **Shadow trades:** 2 active | **Signals (7d):** 53 entry, 21 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
@@ -43,8 +44,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last commit: `acf8096 session: refresh tools_manifest.json post hardening + observability`
+- Working tree: 1 uncommitted
+- Last substantive commit: `824e029 session: refresh tools_manifest.json post Last-substantive-commit rename`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
