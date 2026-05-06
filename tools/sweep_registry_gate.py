@@ -315,6 +315,21 @@ def _is_same_lineage(existing_name: str, incoming_name: str) -> bool:
     return _strip_sweep_segment(existing_name) == _strip_sweep_segment(incoming_name)
 
 
+def _strip_timeframe_segment(name: str) -> str:
+    """Remove the timeframe token (e.g. ``_5M``, ``_15M``, ``_1H``, ``_1D``) from
+    a directive name.
+
+    Anchored to the canonical S/V/P tail — ``_<TF>_<MODEL>[_<FILTER>...]_S\\d{2}_V\\d+``
+    optionally followed by ``_P\\d{2}[__SUFFIX]`` — so a TF-shaped substring
+    elsewhere in the name (symbols like ``SPX500`` etc.) is never touched.
+    """
+    return re.sub(
+        r"_\d+[MHDW](?=(?:_[A-Z][A-Z0-9]*)+_S\d{2}_V\d+(?:_P\d{2}(?:__[A-Z0-9]+)?)?$)",
+        "",
+        str(name).strip(),
+    )
+
+
 def _is_patch_sibling(existing_name: str, incoming_name: str) -> bool:
     """True if incoming is a patch of the same sweep (same SXX base, different _PNN).
 
@@ -322,9 +337,18 @@ def _is_patch_sibling(existing_name: str, incoming_name: str) -> bool:
     would make S07_V1_P00 and S08_V1_P00 appear identical, producing false positives.
     Patch siblings must share the same sweep number — only PNN (and optional run suffix)
     is stripped before comparison.
+
+    TF segment IS stripped: cross-timeframe families (e.g. the PSBRK V4 sweep with
+    a 15M parent and 5M children under the same idea/sweep) are intentionally
+    treated as patch siblings of one sweep slot. Hash-level discrimination still
+    holds — _hash_signature folds timeframe in, so distinct TFs produce distinct
+    hashes, and PATCH_COLLISION fires if two children with the same _PNN but
+    different hashes are ever registered.
     """
     base_existing = re.sub(r"_P\d{2}(?:__[A-Z0-9]+)?$", "", existing_name)
     base_incoming = re.sub(r"_P\d{2}(?:__[A-Z0-9]+)?$", "", incoming_name)
+    base_existing = _strip_timeframe_segment(base_existing)
+    base_incoming = _strip_timeframe_segment(base_incoming)
     return base_existing == base_incoming and existing_name != incoming_name
 
 
