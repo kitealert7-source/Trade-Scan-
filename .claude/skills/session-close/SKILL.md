@@ -291,6 +291,33 @@ quality notes, operational caveats), edit `### Manual` directly.
 The auto-detected section regenerates each run; the manual section
 persists across regen.
 
+### 10c. Sync Main Checkout
+
+After the closing snapshot lands on origin/main, fast-forward the main
+checkout's working tree so its `SYSTEM_STATE.md` reflects the new
+closing snapshot. Files are typically reviewed from the main checkout
+rather than the worktree, so this keeps both views consistent without
+a manual `git pull`.
+
+```bash
+case "$(git rev-parse --absolute-git-dir 2>/dev/null)" in
+  */worktrees/*)
+    MAIN_REPO=$(git worktree list --porcelain | awk '$1=="worktree"{print $2; exit}')
+    git -C "$MAIN_REPO" pull --ff-only \
+      || echo "[warn] main checkout FF failed (dirty, non-main branch, or diverged) — sync manually"
+    ;;
+esac
+```
+
+The `*/worktrees/*` guard fires only from a git worktree — from the
+main checkout itself, `--absolute-git-dir` ends in `.git`, the case
+falls through, and the close finishes silently. This avoids the
+Windows path-format mismatch where `git worktree list` returns
+`C:/...` while `pwd` returns `/c/...`. Best-effort beyond that: the
+close has already succeeded by this point; if the main checkout is
+dirty or on a non-main branch, the warning surfaces the issue without
+blocking.
+
 ### 11. Session Summary (Optional but Recommended)
 
 If significant work was done, briefly note:
@@ -340,6 +367,14 @@ git add SYSTEM_STATE.md
 git commit -m "session: closing SYSTEM_STATE snapshot"
 git push origin main
 git status --porcelain | grep -v "^??"   # must be empty
+
+# 9. Sync main checkout so SYSTEM_STATE renders fresh outside the worktree (worktree-only)
+case "$(git rev-parse --absolute-git-dir 2>/dev/null)" in
+  */worktrees/*)
+    MAIN_REPO=$(git worktree list --porcelain | awk '$1=="worktree"{print $2; exit}')
+    git -C "$MAIN_REPO" pull --ff-only || true
+    ;;
+esac
 ```
 
 ---
