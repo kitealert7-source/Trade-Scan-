@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-06T14:07:50Z
+> Generated: 2026-05-06T15:52:30Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -10,7 +10,7 @@
 - **Version:** 1.5.8 | **Status:** FROZEN | **Manifest:** VALID
 
 ## Pipeline Queue
-- **INBOX (19):** 65_BRK_XAUUSD_15M_PSBRK_S01_V1_P00.txt, 65_BRK_XAUUSD_15M_PSBRK_S01_V2_P00.txt, 65_BRK_XAUUSD_15M_PSBRK_S01_V3_P00.txt, 65_BRK_XAUUSD_15M_PSBRK_S01_V4_P00.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P01.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P02.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P03.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P04.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P05.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P06.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P07.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P08.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P09.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P10.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P11.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P12.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P13.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14.txt, 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P15.txt
+- Queue empty. No directives in INBOX or active.
 - Completed: 221 directives
 
 ## Ledgers
@@ -28,7 +28,7 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=1047
+- **Process:** RUNNING | run_id=20260505T032727Z_55340 | bars=1100
 - **Shadow trades:** 2 active | **Signals (7d):** 53 entry, 20 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -39,53 +39,17 @@
 - Latest bar: **2026-05-06** | Symbols: 243
 
 ## Artifacts
-- Run directories: 1278
+- Run directories: 1281
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last commit: `1014ca4 session: refresh tools_manifest.json post sweep-gate fix`
+- Last commit: `acf8096 session: refresh tools_manifest.json post hardening + observability`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
 - **Burn-in ABORT:** `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06` — DD 28.48% >= abort threshold 12.0%
+- **Post-merge watch:** 0/5 observed; status=ACTIVE; commit=1b6cc7b.
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
-
-#### PSBRK V4 5M family — pending work (carried 2026-05-06)
-
-**Ready for action:**
-- **Promote P14 as the new V4 5M deployable winner** (replacing P09).
-  P14 = P11 + armed-once-per-session-per-direction guard. Beats P09 on
-  every primary risk-adjusted metric: PF 1.34 vs 1.24, Sharpe 1.39 vs
-  1.01 (+38%), Expectancy $2.73 vs $1.77 (+54%), Max DD slightly
-  better. Backtest report:
-  `TradeScan_State/backtests/65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14_XAUUSD/`.
-
-**Experiment queue (all build on P14 baseline):**
-- **P16 = P14 + pyramid add at MAE -0.50R.** Probe-positive design
-  from path-geometry analysis. Single add at -0.50R gives +0.16 R
-  per R0 risk (vs base +0.136), max per-trade loss capped at 1.50× R0.
-  Avoid stacked ladder (no efficiency gain, 2.6× max loss).
-- **P17 = P14 + bar-12 / 6-bar / 0.15R stall trail to BE.** Now safe
-  to test — the armed-once guard in P14 prevents the reentry storm
-  that invalidated P13 (P13 went 1221 → 2250 trades on P11 base).
-- **P18 = P14 + tighter initial stop.** Recovery Boundary subsection
-  shows recovery rate stays 64-94% across all 0-0.90R MAE bands —
-  there's no graceful collapse curve before the structural stop. The
-  ~1R structural session-extreme stop IS the boundary; tightening
-  stop distance is a separate axis worth probing.
-
-**Documented runner-up:**
-- P15 (= P09 + armed-once, no TP) was tested but P14 wins head-to-head.
-  P15 retained as a clean-baseline reference for future no-TP variant
-  experiments. 901 trades, PF 1.30, Sharpe 1.25.
-
-#### Operational context for the auto-detected ABORT
-
-- **22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P06 ABORT** (auto-detected
-  above) is a known measurement artifact verdicted **KEEP_ABORT** in
-  prior session. Real cause: bulk-export sequencing + nominal $10K
-  notional denominator + AUDJPY whipsaw. Do not investigate further
-  unless live execution shows fresh degradation.
