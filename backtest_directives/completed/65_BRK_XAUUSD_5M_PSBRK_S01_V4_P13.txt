@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P13
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P13
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — P11 + Stalled-Continuation Trail (5M). Single behavioral delta vs V4_P11 (P09 + Full TP @ +3R): a stall-trail mutation fires when continuation persistence fails after a valid breakout. Trigger: bars_held >= 12 AND peak MFE has not advanced by >= 0.15R for 6 consecutive bars AND lock not applied. Action: one-shot move stop to entry_price (BE). Targets the Stall-Decay archetype (32.2% of P11 trades, avg 35 bars / avg MFE 0.45R / avg exit -1.00R) without touching Fast Expand or runner trades (which either hit TP @ +3R early or keep updating MFE)."
+  notes: "Single behavioral delta vs V4_P11: stall-trail in check_stop_mutation. Per-bar engine ordering preserved: SL/TP -> partial -> stop_mutation -> check_exit. TP @ +3R fires before stall trail can reach it. Lock at +2R fires before stall trail and BLOCKS it (lock_applied gate). Stall trail can ONLY tighten the stop (BE > initial structural stop on longs, < on shorts). The 0.15R expansion delta isolates 'meaningful' continuation events from micro-noise — without it a trade creeping +0.02R/bar would falsely appear to be continuing. State is per-trade and reset on entry change. STRATEGY_SIGNATURE remains identical to V4_P09–P12 (same hash 6ee99532c5506205) — the stall logic is internal code, not declared in the directive (consistent with how P11/P12 hardcode their TP levels)."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

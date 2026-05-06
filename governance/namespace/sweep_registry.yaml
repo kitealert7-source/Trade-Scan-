@@ -2545,3 +2545,13 @@ ideas:
             signature_hash: 6ee99532c5506205
             signature_hash_full: 6ee99532c5506205c5fe7c938ec2d2ab9aa483ac57bd5b2595b23117e3a12605
             reserved_at_utc: '2026-05-06T08:00:00.000000+00:00'
+          P13:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P13
+            signature_hash: 63958ded4047bb42
+            signature_hash_full: 63958ded4047bb42f0c724c63b8c172e9468aa4d09bd395049112a67dd13cf12
+            reserved_at_utc: '2026-05-06T10:00:00.000000+00:00'
+          P14:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14
+            signature_hash: 63958ded4047bb42
+            signature_hash_full: 63958ded4047bb42f0c724c63b8c172e9468aa4d09bd395049112a67dd13cf12
+            reserved_at_utc: '2026-05-06T11:00:00.000000+00:00'

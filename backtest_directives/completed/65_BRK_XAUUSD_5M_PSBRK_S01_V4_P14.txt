@@ -1,0 +1,61 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14
+  version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-07-19"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — P11 + First-Breakout-Only-Per-Session-Per-Direction (5M). Single behavioral delta vs V4_P11: armed-once-per-session-per-direction guard added in check_entry. The strategy records (date, session_id) on each successful entry and refuses further same-direction entries until the session boundary changes. Establishes the clean baseline by removing the level-oscillation reentry tail (~26% of P11 trades). Future trail/exit experiments build on this baseline so per-trade improvements aren't confounded by reentry-population shifts."
+  notes: "Single behavioral delta vs V4_P11: per-direction session-key consumption guard at the top of each entry branch in check_entry. State (_consumed_long_session_key, _consumed_short_session_key) holds the (date, session_id) tuple of the most recent entry per side; when the current bar's tuple matches, that direction's entry is refused. State persists across bars within a session and naturally resets when session_id or date changes. UNCHANGED: structural session-extreme stop, lock+1R after +2R MFE intrabar, tp_price = entry +/- 3*risk in signal dict (TP at +3R), utc_day_close fallback exit, both directions retained, filter_stack composition. STRATEGY_SIGNATURE remains identical to P09–P13 (same hash 6ee99532c5506205) — the consumption guard is internal code, not declared in the directive."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day
