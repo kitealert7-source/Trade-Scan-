@@ -628,6 +628,8 @@ def collect_known_issues() -> dict[str, Any]:
         "sweep_registry_errors": [],
         "directive_queue": {"stale_inbox": [], "stranded": []},
         "directive_queue_error": None,
+        "post_merge_watch": None,
+        "post_merge_watch_error": None,
     }
 
     # 1. Gate test suite — fast, fixed roster, the same one the
@@ -727,6 +729,15 @@ def collect_known_issues() -> dict[str, Any]:
         auto["directive_queue"] = _check_directive_queue_health()
     except Exception as e:
         auto["directive_queue_error"] = f"{type(e).__name__}: {e}"
+
+    # 6. Post-merge watch (observer reconcile + status).
+    # Reconciling here is the enforcement leg: every SYSTEM_STATE.md
+    # regeneration scans new Stage1 runs and updates the watch.
+    try:
+        from tools.post_merge_watch import reconcile_watch
+        auto["post_merge_watch"] = reconcile_watch()
+    except Exception as e:
+        auto["post_merge_watch_error"] = f"{type(e).__name__}: {e}"
 
     return auto
 
@@ -996,6 +1007,41 @@ def render_markdown(
             f"- **Stranded directive:** `{did}` — {detail}. "
             f"Inspect `runs/{did}/directive_audit.log`."
         )
+
+    # Post-merge watch surface
+    if auto.get("post_merge_watch_error"):
+        auto_lines.append(
+            f"- Post-merge watch: error — {auto['post_merge_watch_error']}"
+        )
+    pmw = auto.get("post_merge_watch")
+    if pmw:
+        status = pmw.get("status", "?")
+        target = pmw.get("target_runs", "?")
+        observed = len(pmw.get("runs_observed", []) or [])
+        commit = (pmw.get("commit_hash") or "?")[:8]
+        if status == "ACTIVE":
+            auto_lines.append(
+                f"- **Post-merge watch:** {observed}/{target} observed; "
+                f"status=ACTIVE; commit={commit}."
+            )
+        elif status == "CLOSED_OK":
+            auto_lines.append(
+                f"- **Post-merge watch CLOSED_OK:** {observed}/{target} runs clean "
+                f"(commit {commit}). Run `python tools/post_merge_watch.py --archive` "
+                f"to clear."
+            )
+        elif status == "CLOSED_FAIL":
+            dirty_ids = [
+                o.get("run_id", "?") for o in (pmw.get("runs_observed") or [])
+                if o.get("status") == "dirty"
+            ]
+            preview = ", ".join(dirty_ids[:3])
+            more = f" (+{len(dirty_ids) - 3} more)" if len(dirty_ids) > 3 else ""
+            auto_lines.append(
+                f"- **Post-merge watch CLOSED_FAIL:** {len(dirty_ids)}/{target} runs "
+                f"showed warmup fallback or crash (commit {commit}). "
+                f"Inspect: {preview}{more}. Run `--archive` after investigation."
+            )
 
     if auto_lines:
         lines.append("### Auto-detected (regenerated each run)")
