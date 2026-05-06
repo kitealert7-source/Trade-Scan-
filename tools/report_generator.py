@@ -68,6 +68,9 @@ from tools.report.report_sections.news import (  # noqa: F401
     _news_build_per_symbol_sensitivity,
     _news_build_portfolio_impact,
 )
+from tools.report.report_sections.path_geometry import (  # noqa: F401
+    _build_path_geometry_section,
+)
 from tools.report.report_sections.risk import (  # noqa: F401
     _build_edge_decomposition_section,
     _build_exit_analysis_section,
@@ -160,6 +163,7 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
     md.extend(_build_session_section(pl.all_trades_dfs, pl.session_data, show_overlap, show_late_ny))
     md.extend(_build_weekday_section(pl.all_trades_dfs, show_weekday))
     md.extend(_build_exit_analysis_section(pl.all_trades_dfs))
+    md.extend(_build_path_geometry_section(pl.all_trades_dfs))
     md.extend(_build_edge_decomposition_section(pl.all_trades_dfs))
     md.extend(_build_risk_characteristics_section(pl.all_trades_dfs))
 
