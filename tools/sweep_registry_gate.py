@@ -220,6 +220,12 @@ def _release_lock(fd: int, lock_path: Path) -> None:
 def _hash_signature(directive_path: Path) -> str:
     parsed = parse_directive(directive_path)
     signature = normalize_signature(parsed)
+    # normalize_signature() intentionally excludes `timeframe` (non-behavioral
+    # for strategy logic). Include it here so same-logic patches on different
+    # timeframes produce distinct sweep hashes and don't collide in new_pass.py.
+    tf = str(parsed.get("timeframe") or parsed.get("Timeframe") or "").lower().strip()
+    if tf:
+        signature["__sweep_tf__"] = tf
     canonical = json.dumps(signature, sort_keys=True, ensure_ascii=True)
     return __import__("hashlib").sha256(canonical.encode("utf-8")).hexdigest()
 
