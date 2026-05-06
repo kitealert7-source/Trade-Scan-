@@ -132,12 +132,17 @@ def test_trade_scan_state_env_var_override(tmp_path, monkeypatch):
 
 
 def test_no_env_vars_uses_canonical_sibling(tmp_path, monkeypatch):
-    """No env overrides → state root = repo_root.parent / TradeScan_State."""
+    """No env overrides → state root = REAL_REPO_ROOT.parent / TradeScan_State.
+    The repo_root argument is accepted for backward compatibility but ignored:
+    path_authority pins the real root at import time to prevent worktree
+    misrouting (a worktree's .parent resolves to .claude/worktrees/, not the
+    real sibling). State root is always the canonical sibling of REAL_REPO_ROOT."""
     monkeypatch.delenv("TRADE_SCAN_STATE", raising=False)
     fake_repo = tmp_path / "Trade_Scan"
     fake_repo.mkdir()
     resolved = _resolve_state_root(fake_repo)
-    assert resolved == (fake_repo.parent / "TradeScan_State")
+    from config.path_authority import TRADE_SCAN_STATE
+    assert resolved == TRADE_SCAN_STATE
 
 
 def test_looks_like_repo_root_detects_complete_layout(tmp_path):
@@ -156,22 +161,16 @@ def test_looks_like_repo_root_rejects_partial_layout(tmp_path):
 
 
 def test_worktree_and_main_checkout_share_same_state_root(tmp_path):
-    """Critical correctness property: a strategy run from a worktree and the
-    same strategy run from main both compute the SAME STATE_ROOT (because
-    state_root is derived from <repo_root>.parent / 'TradeScan_State', and
-    both checkouts share the same parent dir)."""
-    parent = tmp_path / "Documents"
-    parent.mkdir()
-    (parent / "TradeScan_State").mkdir()
-    main_repo = _make_repo_root(parent / "Trade_Scan")
-    # The shared-state property: regardless of which checkout we resolve
-    # the repo root from, state_root is `parent / TradeScan_State`.
-    main_state = _resolve_state_root(main_repo)
-    # Worktree on the SAME machine: by convention, the worktree IS a sibling
-    # checkout, so its repo_root.parent should be the same as main_repo.parent.
-    # In practice, worktree is a subdir; resolution uses the shared state via
-    # TRADE_SCAN_STATE env var or by setting repo_root to the main checkout.
-    assert main_state == parent / "TradeScan_State"
+    """Critical correctness property: any call to _resolve_state_root() returns
+    the SAME path_authority-pinned state root regardless of the repo_root arg.
+    This guarantees that main-checkout code and worktree code share TradeScan_State.
+    The worktree-safe path_authority migration dropped the 'use repo_root.parent'
+    heuristic (which silently misrouted from worktrees) in favour of a single
+    authoritative sibling of REAL_REPO_ROOT."""
+    from config.path_authority import TRADE_SCAN_STATE, REAL_REPO_ROOT, WORKTREE_ROOT
+    main_state = _resolve_state_root(REAL_REPO_ROOT)
+    worktree_state = _resolve_state_root(WORKTREE_ROOT)
+    assert main_state == worktree_state == TRADE_SCAN_STATE
 
 
 if __name__ == "__main__":

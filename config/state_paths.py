@@ -62,12 +62,17 @@ def _looks_like_repo_root(p: Path) -> bool:
 def _resolve_repo_root() -> Path:
     """Resolve the repo root for this checkout.
 
-    Returns WORKTREE_ROOT (the dir containing this config/), preserving
-    the historical semantic that `state_paths.PROJECT_ROOT` is "where
-    this code is running from" — the worktree dir in a worktree, the
-    real repo dir in main. Sibling-repo paths (TradeScan_State, etc.)
+    Honors TRADE_SCAN_ROOT env var at call time so tests can override.
+    When not set, returns WORKTREE_ROOT (the dir containing this config/),
+    preserving the historical semantic that PROJECT_ROOT is "where this
+    code is running from". Sibling-repo paths (TradeScan_State, etc.)
     use REAL_REPO_ROOT internally regardless.
     """
+    env = os.environ.get("TRADE_SCAN_ROOT")
+    if env:
+        candidate = Path(env).resolve()
+        if _looks_like_repo_root(candidate):
+            return candidate
     return _WORKTREE_ROOT
 
 
