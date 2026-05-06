@@ -13,79 +13,153 @@ def _build_exit_analysis_section(all_trades_dfs):
         md.append("> No trade-level data available for Exit Analysis.\n")
         return md
     _exit_df = pd.concat(all_trades_dfs, ignore_index=True).copy()
-    _has_r = 'r_multiple' in _exit_df.columns
-    _has_bars = 'bars_held' in _exit_df.columns
-    _has_mfe = 'mfe_r' in _exit_df.columns
+    _has_r    = 'r_multiple'  in _exit_df.columns
+    _has_bars = 'bars_held'   in _exit_df.columns
+    _has_mfe  = 'mfe_r'       in _exit_df.columns
+    _has_src  = 'exit_source' in _exit_df.columns
 
-    if _has_r and _has_bars:
-        import numpy as _np  # preserve original side-effect/import order
-        _exit_df['_exit_type'] = 'OTHER'
-        _max_bars_val = int(_exit_df['bars_held'].max())
-        _exit_df.loc[_exit_df['bars_held'] >= _max_bars_val, '_exit_type'] = 'TIME'
-        _exit_df.loc[(_exit_df['bars_held'] < _max_bars_val) & (_exit_df['r_multiple'] <= -0.9), '_exit_type'] = 'SL'
-        _exit_df.loc[(_exit_df['bars_held'] < _max_bars_val) & (_exit_df['r_multiple'] >= 1.2), '_exit_type'] = 'TP'
+    if _has_src:
+        # ── Primary path: engine-attributed exit_source ──────────────────────
+        # exit_source values emitted by Stage-1: ENGINE_STOP, ENGINE_TP,
+        # ENGINE_TRAIL, STRATEGY_DAY_CLOSE, ENGINE_SESSION_RESET,
+        # ENGINE_DATA_END, STRATEGY_<LABEL>.
+        _src_counts = _exit_df['exit_source'].value_counts()
 
         md.append("### Exit Type Summary\n")
-        md.append("| Type | Trades | % | PnL | Avg R |")
-        md.append("|------|--------|---|-----|-------|")
-        for _et in ['SL', 'TP', 'TIME']:
-            _s = _exit_df[_exit_df['_exit_type'] == _et]
-            if len(_s) == 0:
-                continue
+        md.append("| Exit Source | Trades | % | PnL | Avg R |")
+        md.append("|-------------|--------|---|-----|-------|")
+        for _src in _src_counts.index:
+            _s   = _exit_df[_exit_df['exit_source'] == _src]
             _pct = len(_s) / len(_exit_df) * 100
-            _pnl = _s['pnl_usd'].sum()
-            _avg_r = _s['r_multiple'].mean()
-            md.append(f"| {_et} | {len(_s)} | {_pct:.1f}% | ${_pnl:.2f} | {_avg_r:+.2f}R |")
+            _pnl = _s['pnl_usd'].sum() if 'pnl_usd' in _s else 0.0
+            _r   = f"{_s['r_multiple'].mean():+.2f}R" if _has_r else "n/a"
+            md.append(f"| {_src} | {len(_s)} | {_pct:.1f}% | ${_pnl:.2f} | {_r} |")
         md.append("")
 
         md.append("### Exit Type by Direction\n")
-        md.append("| Direction | SL % | TP % | Time % | Trades |")
-        md.append("|-----------|------|------|--------|--------|")
+        md.append("| Direction | Exit Source | Trades | % of Dir | PnL | Avg R |")
+        md.append("|-----------|-------------|--------|----------|-----|-------|")
         for _dv, _dl in [(1, 'Long'), (-1, 'Short')]:
             _ds = _exit_df[_exit_df['direction'] == _dv]
             if len(_ds) == 0:
                 continue
-            _sl_pct = (_ds['_exit_type'] == 'SL').mean() * 100
-            _tp_pct = (_ds['_exit_type'] == 'TP').mean() * 100
-            _tm_pct = (_ds['_exit_type'] == 'TIME').mean() * 100
-            md.append(f"| {_dl} | {_sl_pct:.1f}% | {_tp_pct:.1f}% | {_tm_pct:.1f}% | {len(_ds)} |")
+            for _src in _src_counts.index:
+                _s   = _ds[_ds['exit_source'] == _src]
+                if len(_s) == 0:
+                    continue
+                _pct = len(_s) / len(_ds) * 100
+                _pnl = _s['pnl_usd'].sum() if 'pnl_usd' in _s else 0.0
+                _r   = f"{_s['r_multiple'].mean():+.2f}R" if _has_r else "n/a"
+                md.append(f"| {_dl} | {_src} | {len(_s)} | {_pct:.1f}% | ${_pnl:.2f} | {_r} |")
         md.append("")
 
-    if _has_r:
-        _rmean = _exit_df['r_multiple'].mean()
-        _rmedian = _exit_df['r_multiple'].median()
-        md.append(f"**R-Multiple:** Mean {_rmean:+.3f} | Median {_rmedian:+.3f}\n")
+        # Masks for downstream MFE analytics — map exit_source to role.
+        _stop_mask = _exit_df['exit_source'] == 'ENGINE_STOP'
+        _time_mask = _exit_df['exit_source'].isin(
+            ['STRATEGY_DAY_CLOSE', 'ENGINE_SESSION_RESET', 'ENGINE_DATA_END'])
 
-    if _has_mfe and '_exit_type' in _exit_df.columns:
-        _time_exits = _exit_df[_exit_df['_exit_type'] == 'TIME']
-        if len(_time_exits) > 0:
-            _gave_back = _time_exits[_time_exits['mfe_r'] >= 0.5]
-            _gb_pct = len(_gave_back) / len(_time_exits) * 100
-            if len(_gave_back) > 0:
-                _avg_left = (_gave_back['mfe_r'] - _gave_back['r_multiple']).mean()
-                md.append(f"**MFE Giveback:** {_gb_pct:.0f}% of time exits had MFE >= 0.5R, gave back {_avg_left:+.2f}R avg\n")
+        if _has_r:
+            _rmean, _rmedian = _exit_df['r_multiple'].mean(), _exit_df['r_multiple'].median()
+            md.append(f"**R-Multiple:** Mean {_rmean:+.3f} | Median {_rmedian:+.3f}\n")
 
-    if _has_mfe and '_exit_type' in _exit_df.columns:
-        _sl_trades = _exit_df[_exit_df['_exit_type'] == 'SL']
-        if len(_sl_trades) > 0:
-            _imm_adv = _sl_trades[_sl_trades['mfe_r'] < 0.1]
-            _ia_pct = len(_imm_adv) / len(_sl_trades) * 100
-            md.append(f"**Immediate Adverse:** {len(_imm_adv)}/{len(_sl_trades)} SL trades ({_ia_pct:.0f}%) never reached 0.1R MFE\n")
+        if _has_mfe:
+            _time_exits = _exit_df[_time_mask]
+            if len(_time_exits) > 0:
+                _gave_back = _time_exits[_time_exits['mfe_r'] >= 0.5]
+                _gb_pct = len(_gave_back) / len(_time_exits) * 100
+                if len(_gave_back) > 0:
+                    _avg_left = (_gave_back['mfe_r'] - _gave_back['r_multiple']).mean()
+                    md.append(f"**MFE Giveback:** {_gb_pct:.0f}% of day-close exits had MFE >= 0.5R,"
+                              f" gave back {_avg_left:+.2f}R avg\n")
+            _sl_trades = _exit_df[_stop_mask]
+            if len(_sl_trades) > 0:
+                _imm_adv = _sl_trades[_sl_trades['mfe_r'] < 0.1]
+                _ia_pct  = len(_imm_adv) / len(_sl_trades) * 100
+                md.append(f"**Immediate Adverse:** {len(_imm_adv)}/{len(_sl_trades)}"
+                          f" ENGINE_STOP trades ({_ia_pct:.0f}%) never reached 0.1R MFE\n")
 
-    if _has_bars:
-        md.append("### Avg Bars to Exit\n")
-        md.append("| Type | Avg Bars | Median Bars |")
-        md.append("|------|----------|-------------|")
-        if '_exit_type' in _exit_df.columns:
+        if _has_bars:
+            md.append("### Avg Bars to Exit\n")
+            md.append("| Exit Source | Avg Bars | Median Bars |")
+            md.append("|-------------|----------|-------------|")
+            for _src in _src_counts.index:
+                _s = _exit_df[_exit_df['exit_source'] == _src]
+                md.append(f"| {_src} | {_s['bars_held'].mean():.1f} | {_s['bars_held'].median():.0f} |")
+            _all_avg = _exit_df['bars_held'].mean()
+            _all_med = _exit_df['bars_held'].median()
+            md.append(f"| ALL | {_all_avg:.1f} | {_all_med:.0f} |")
+            md.append("")
+
+    else:
+        # ── Fallback: R-bucket proxy (legacy runs, no exit_source column) ────
+        if _has_r and _has_bars:
+            _exit_df['_exit_type'] = 'OTHER'
+            _max_bars_val = int(_exit_df['bars_held'].max())
+            _exit_df.loc[_exit_df['bars_held'] >= _max_bars_val, '_exit_type'] = 'TIME'
+            _exit_df.loc[(_exit_df['bars_held'] < _max_bars_val) & (_exit_df['r_multiple'] <= -0.9), '_exit_type'] = 'SL'
+            _exit_df.loc[(_exit_df['bars_held'] < _max_bars_val) & (_exit_df['r_multiple'] >= 1.2), '_exit_type'] = 'TP'
+
+            md.append("### Exit Type Summary _(R-bucket proxy — no exit\\_source column)_\n")
+            md.append("| Type | Trades | % | PnL | Avg R |")
+            md.append("|------|--------|---|-----|-------|")
             for _et in ['SL', 'TP', 'TIME']:
                 _s = _exit_df[_exit_df['_exit_type'] == _et]
                 if len(_s) == 0:
                     continue
-                md.append(f"| {_et} | {_s['bars_held'].mean():.1f} | {_s['bars_held'].median():.0f} |")
-        _all_avg = _exit_df['bars_held'].mean()
-        _all_med = _exit_df['bars_held'].median()
-        md.append(f"| ALL | {_all_avg:.1f} | {_all_med:.0f} |")
-        md.append("")
+                _pct = len(_s) / len(_exit_df) * 100
+                _pnl = _s['pnl_usd'].sum()
+                _avg_r = _s['r_multiple'].mean()
+                md.append(f"| {_et} | {len(_s)} | {_pct:.1f}% | ${_pnl:.2f} | {_avg_r:+.2f}R |")
+            md.append("")
+
+            md.append("### Exit Type by Direction\n")
+            md.append("| Direction | SL % | TP % | Time % | Trades |")
+            md.append("|-----------|------|------|--------|--------|")
+            for _dv, _dl in [(1, 'Long'), (-1, 'Short')]:
+                _ds = _exit_df[_exit_df['direction'] == _dv]
+                if len(_ds) == 0:
+                    continue
+                _sl_pct = (_ds['_exit_type'] == 'SL').mean() * 100
+                _tp_pct = (_ds['_exit_type'] == 'TP').mean() * 100
+                _tm_pct = (_ds['_exit_type'] == 'TIME').mean() * 100
+                md.append(f"| {_dl} | {_sl_pct:.1f}% | {_tp_pct:.1f}% | {_tm_pct:.1f}% | {len(_ds)} |")
+            md.append("")
+
+        if _has_r:
+            _rmean, _rmedian = _exit_df['r_multiple'].mean(), _exit_df['r_multiple'].median()
+            md.append(f"**R-Multiple:** Mean {_rmean:+.3f} | Median {_rmedian:+.3f}\n")
+
+        if _has_mfe and '_exit_type' in _exit_df.columns:
+            _time_exits = _exit_df[_exit_df['_exit_type'] == 'TIME']
+            if len(_time_exits) > 0:
+                _gave_back = _time_exits[_time_exits['mfe_r'] >= 0.5]
+                _gb_pct = len(_gave_back) / len(_time_exits) * 100
+                if len(_gave_back) > 0:
+                    _avg_left = (_gave_back['mfe_r'] - _gave_back['r_multiple']).mean()
+                    md.append(f"**MFE Giveback:** {_gb_pct:.0f}% of time exits had MFE >= 0.5R,"
+                              f" gave back {_avg_left:+.2f}R avg\n")
+            _sl_trades = _exit_df[_exit_df['_exit_type'] == 'SL']
+            if len(_sl_trades) > 0:
+                _imm_adv = _sl_trades[_sl_trades['mfe_r'] < 0.1]
+                _ia_pct  = len(_imm_adv) / len(_sl_trades) * 100
+                md.append(f"**Immediate Adverse:** {len(_imm_adv)}/{len(_sl_trades)}"
+                          f" SL trades ({_ia_pct:.0f}%) never reached 0.1R MFE\n")
+
+        if _has_bars:
+            md.append("### Avg Bars to Exit\n")
+            md.append("| Type | Avg Bars | Median Bars |")
+            md.append("|------|----------|-------------|")
+            if '_exit_type' in _exit_df.columns:
+                for _et in ['SL', 'TP', 'TIME']:
+                    _s = _exit_df[_exit_df['_exit_type'] == _et]
+                    if len(_s) == 0:
+                        continue
+                    md.append(f"| {_et} | {_s['bars_held'].mean():.1f} | {_s['bars_held'].median():.0f} |")
+            _all_avg = _exit_df['bars_held'].mean()
+            _all_med = _exit_df['bars_held'].median()
+            md.append(f"| ALL | {_all_avg:.1f} | {_all_med:.0f} |")
+            md.append("")
+
     return md
 
 
