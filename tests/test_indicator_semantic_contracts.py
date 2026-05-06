@@ -77,8 +77,11 @@ _ALLOWED_PRIMITIVES = {
     "prev_bar_breakout",              # close vs previous bar high/low
     "rolling_zscore",                 # rolling z-score (generic, distinct from synthetic)
     "three_bar_imbalance_zone",       # FVG: 3-bar price-imbalance zone + touch / invalidation events
+    # --- Idea 65 / PSBRK family (2026-05-05) ---
+    "prev_session_extremes",           # prior-session high/low + arming state
+    "session_clock",                   # XAU 3-session UTC clock (Asia/London/NY labels)
 }
-_ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3"}
+_ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3", "session_high_low"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}
 
 

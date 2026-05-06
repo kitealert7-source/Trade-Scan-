@@ -162,23 +162,23 @@ class TestCanonicalHashAgainstLiveManifests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Real drift must remain detected (Phase 2 will resolve it via new lineage)
+# Engine files must match their manifest (post TD-002 R1)
 # ---------------------------------------------------------------------------
 
-class TestRealDriftStillDetected(unittest.TestCase):
-    """The fix must NOT mask actual source drift. Files modified post-freeze
-    by f3ae767 in engine_dev/v1_5_8/ have genuinely different content from
-    the vaulted manifest and MUST continue to fail integrity even after the
-    canonical hash patch. Phase 2 will resolve via new engine version, NOT
-    by relaxing this assertion."""
+class TestEngineFilesMatchManifest(unittest.TestCase):
+    """After TD-002 R1 unified all hash sites to canonical_sha256 and the
+    engine manifest was regenerated, all engine files must match the manifest.
+    The prior f3ae767 "drift" was CRLF-only (false drift on Windows checkouts
+    with core.autocrlf=true) — it disappears once canonical_sha256 normalises
+    both sides to LF. This test replaces TestRealDriftStillDetected."""
 
-    DRIFTED_V1_5_8_FILES = [
+    V1_5_8_FILES = [
         "execution_emitter_stage1.py",
         "execution_loop.py",
         "stage2_compiler.py",
     ]
 
-    def test_f3ae767_drifted_files_still_fail(self):
+    def test_v1_5_8_files_match_manifest(self):
         version_path = (PROJECT_ROOT / "engine_dev"
                         / "universal_research_engine" / "v1_5_8")
         manifest_path = version_path / "engine_manifest.json"
@@ -186,20 +186,18 @@ class TestRealDriftStillDetected(unittest.TestCase):
             self.skipTest(f"Manifest not present: {manifest_path}")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         file_hashes = manifest.get("file_hashes", {})
-        for fname in self.DRIFTED_V1_5_8_FILES:
+        for fname in self.V1_5_8_FILES:
             with self.subTest(file=fname):
                 fpath = version_path / fname
                 if not fpath.exists():
                     self.skipTest(f"File missing: {fpath}")
                 expected = file_hashes.get(fname, "").upper()
                 actual = canonical_sha256(fpath).upper()
-                self.assertNotEqual(
+                self.assertEqual(
                     actual, expected,
-                    f"{fname}: canonical hash {actual[:16]} == manifest "
-                    f"{expected[:16]} but this file was modified by "
-                    f"f3ae767 post-freeze. Either the drift was "
-                    f"resolved (in which case update this test) or the "
-                    f"patch is incorrectly masking real drift."
+                    f"{fname}: canonical hash {actual[:16]} != manifest "
+                    f"{expected[:16]} — genuine post-freeze drift detected. "
+                    f"If intentional, regenerate the engine manifest."
                 )
 
 
