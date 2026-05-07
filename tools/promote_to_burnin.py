@@ -446,8 +446,11 @@ def main() -> None:
     parser.add_argument("strategy_id", nargs="?", default=None,
                         help="Strategy ID or PF_* composite portfolio ID "
                              "(not required for --batch)")
-    parser.add_argument("--profile", default=None,
-                        help="Capital profile name (required for promote, not for preflight)")
+    parser.add_argument("--profile", default="RAW_MIN_LOT_V1",
+                        help="Capital profile name (default: RAW_MIN_LOT_V1, the active "
+                             "deployment policy). Multi-profile research comparison stays "
+                             "in capital_wrapper / Step 7 selector — production sizing is "
+                             "always 0.01 fixed lot via TS_Execution fixed_lot config.")
     parser.add_argument("--description", default="",
                         help="One-line strategy description for the comment block")
     parser.add_argument("--dry-run", action="store_true",
@@ -478,6 +481,14 @@ def main() -> None:
                              "Layers 1, 3, 4 always run and cannot be bypassed.")
 
     args = parser.parse_args()
+
+    # Deployment policy: RAW_MIN_LOT_V1 is the only production profile.
+    # Allow override for research/diagnostic promotions but make the deviation
+    # visible in the promotion log.
+    if args.profile != "RAW_MIN_LOT_V1":
+        print(f"  [WARN] --profile={args.profile} differs from deployment policy "
+              f"RAW_MIN_LOT_V1. Production sizing in TS_Execution is fixed-lot 0.01 "
+              f"regardless of this label; the slot's profile field is metadata only.")
 
     # -- Batch mode -------------------------------------------------------
     if args.batch or args.batch_all:

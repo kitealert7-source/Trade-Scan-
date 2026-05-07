@@ -65,6 +65,13 @@ GATES = {
     # Completion targets
     "target_trades":     90,
     "target_days":       60,
+
+    # Lot normalization basis. RAW_MIN_LOT_V1 deployment policy: every shadow
+    # trade is rescaled to a synthetic 0.01-lot equivalent before metrics are
+    # computed. PnL = net_pnl_usd * (target_lot / lot_size). PF/WR/equity-curve
+    # are then comparable across the historical mixed-lot window and the
+    # post-fixed-lot future.
+    "target_lot":        0.01,
 }
 
 
@@ -145,7 +152,18 @@ def _compute_metrics(
             "fill_rate": None, "signals": signal_count, "fills": fill_count,
         }
 
-    pnls = [float(t.get("net_pnl_usd", 0) or 0) for t in trades]
+    # Rescale each trade's net_pnl_usd to the target-lot basis (RAW_MIN_LOT_V1).
+    # Lot-size is linear in net_pnl_usd, so pnl_norm = pnl_orig * (target / lot).
+    # Trades missing lot_size or with lot_size <= 0 fall through unrescaled.
+    _target = GATES["target_lot"]
+    def _norm_pnl(t: dict[str, Any]) -> float:
+        raw = float(t.get("net_pnl_usd", 0) or 0)
+        lot = t.get("lot_size")
+        if lot is None or lot <= 0:
+            return raw
+        return raw * (_target / lot)
+
+    pnls = [_norm_pnl(t) for t in trades]
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p <= 0]
 
@@ -177,14 +195,16 @@ def _compute_metrics(
         else:
             cur_consec = 0
 
-    # Weekly PnL for consecutive losing weeks
+    # Weekly PnL on the rescaled basis. Sign-based gate (consec losing weeks)
+    # is unaffected by lot rescaling, but storing the rescaled magnitudes keeps
+    # weekly_pnl comparable to the rescaled equity curve emitted above.
     weekly_pnl: dict[str, float] = defaultdict(float)
-    for t in trades:
+    for t, p_norm in zip(trades, pnls):
         event_utc = t.get("event_utc", "")
         try:
             dt = datetime.fromisoformat(event_utc)
             week_key = dt.strftime("%G-W%V")
-            weekly_pnl[week_key] += float(t.get("net_pnl_usd", 0) or 0)
+            weekly_pnl[week_key] += p_norm
         except (ValueError, TypeError):
             pass
 
@@ -233,8 +253,9 @@ def _evaluate_gates(metrics: dict[str, Any]) -> dict[str, Any]:
         gates.append({"gate": "Profit Factor", "value": "inf", "status": "PASS"})
     else:
         if n >= GATES["abort_pf_min_trades"] and pf < GATES["abort_pf_after_n"]:
-            gates.append({"gate": "Profit Factor", "value": f"{pf:.2f}", "status": "ABORT"})
-            abort_reasons.append(f"PF {pf:.2f} < {GATES['abort_pf_after_n']} after {n} trades")
+            # Observational: PF below floor surfaced for review, no auto-abort.
+            # Strategy quality was already gated upstream at promote-to-burnin.
+            gates.append({"gate": "Profit Factor", "value": f"{pf:.2f}", "status": "OBS"})
         elif pf >= GATES["pass_pf"]:
             gates.append({"gate": "Profit Factor", "value": f"{pf:.2f}", "status": "PASS"})
         elif pf >= GATES["soft_pf"]:
@@ -254,8 +275,11 @@ def _evaluate_gates(metrics: dict[str, Any]) -> dict[str, Any]:
     # --- Max Drawdown ---
     dd = metrics["max_dd_pct"]
     if dd >= GATES["abort_max_dd_pct"]:
-        gates.append({"gate": "Max Drawdown", "value": f"{dd:.2f}%", "status": "ABORT"})
-        abort_reasons.append(f"DD {dd:.2f}% >= abort threshold {GATES['abort_max_dd_pct']}%")
+        # Observational under RAW_MIN_LOT_V1 deployment: at 0.01 fixed lot the
+        # 12% threshold is unreachable in normal operation. Tripping it here
+        # indicates either a sizing-regime mismatch or a data anomaly worth
+        # investigating, not a strategy-quality failure.
+        gates.append({"gate": "Max Drawdown", "value": f"{dd:.2f}%", "status": "OBS"})
     elif dd <= GATES["pass_max_dd_pct"]:
         gates.append({"gate": "Max Drawdown", "value": f"{dd:.2f}%", "status": "PASS"})
     else:
@@ -276,17 +300,25 @@ def _evaluate_gates(metrics: dict[str, Any]) -> dict[str, Any]:
     # --- Consecutive Losing Weeks ---
     clw = metrics["consec_losing_weeks"]
     if clw >= GATES["abort_consec_loss_weeks"]:
-        gates.append({"gate": "Consec Losing Weeks", "value": str(clw), "status": "ABORT"})
-        abort_reasons.append(f"{clw} consecutive losing weeks >= {GATES['abort_consec_loss_weeks']}")
+        # Observational: consecutive losing weeks is a regime/temporal signal
+        # for human review, not an automated abort gate.
+        gates.append({"gate": "Consec Losing Weeks", "value": str(clw), "status": "OBS"})
     else:
         gates.append({"gate": "Consec Losing Weeks", "value": str(clw), "status": "PASS"})
 
     # --- Verdict ---
+    # ABORT is reserved for execution-safety gates (fill rate). Performance
+    # gates (PF / DD / consec losing weeks) surface as OBS — the OBSERVE
+    # verdict signals "review me" without escalating to SYSTEM_STATE auto-abort.
+    # Precedence: ABORT > OBSERVE > WARN — OBS indicates a gate that was
+    # previously an ABORT and outranks a WARN-level metric.
     statuses = [g["status"] for g in gates]
     if abort_reasons:
         verdict = "ABORT"
     elif n == 0:
         verdict = "CONTINUE"
+    elif any(s == "OBS" for s in statuses):
+        verdict = "OBSERVE"
     elif any(s == "WARN" for s in statuses):
         verdict = "WARN"
     elif any(s == "PEND" for s in statuses):
@@ -410,14 +442,16 @@ def print_report(results: list[dict[str, Any]]) -> None:
         "ON_TRACK": "OK",
         "CONTINUE": "..",
         "WARN":     "~~",
+        "OBSERVE":  "??",
         "ABORT":    "!!",
     }
     gate_icons = {
-        "PASS": "OK",
-        "SOFT": ">>",
-        "WARN": "~~",
+        "PASS":  "OK",
+        "SOFT":  ">>",
+        "WARN":  "~~",
+        "OBS":   "??",
         "ABORT": "!!",
-        "PEND": "??",
+        "PEND":  "??",
     }
 
     print()

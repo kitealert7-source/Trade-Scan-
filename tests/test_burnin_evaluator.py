@@ -92,6 +92,54 @@ class TestComputeMetrics:
         m = _compute_metrics(trades, signal_count=2, fill_count=2)
         assert m["consec_losing_weeks"] == 2
 
+    def test_lot_rescaling_to_target(self):
+        """Trades with explicit lot_size are rescaled to GATES['target_lot'].
+
+        Formula: pnl_norm = pnl_orig * (target_lot / lot_size).
+        At target_lot=0.01 and lot_size=1.0, the rescaled PnL is 1% of original.
+        Verifies that PF and DD scale by the same factor — uniform across trades.
+        """
+        target = GATES["target_lot"]  # 0.01
+        # Two trades, both at lot_size=1.0. Original PnL: +200, -100.
+        # Rescaled to 0.01 lot: +2.00, -1.00.
+        trades = [
+            {"event_type": "EXIT", "net_pnl_usd": 200.0, "lot_size": 1.0,
+             "event_utc": "2026-04-10T12:00:00"},
+            {"event_type": "EXIT", "net_pnl_usd": -100.0, "lot_size": 1.0,
+             "event_utc": "2026-04-10T13:00:00"},
+        ]
+        m = _compute_metrics(trades, signal_count=2, fill_count=2)
+        # Net PnL collapses: (200 - 100) * 0.01 = 1.00
+        assert abs(m["net_pnl"] - 1.0) < 0.001
+        # PF unchanged by uniform rescaling: 200 / 100 == 2.00 == 2.00 / 1.00
+        assert abs(m["pf"] - 2.0) < 0.001
+        assert m["wr_pct"] == 50.0
+
+    def test_lot_rescaling_variable_lots(self):
+        """Different lot sizes per trade rescale independently — PF and DD
+        differ from the lot-uniform case because trades carry different weight
+        in the rescaled equity curve."""
+        # Trade A: +200 USD at lot=2.0 → rescaled +1.00 USD (200 * 0.01/2.0)
+        # Trade B: -100 USD at lot=0.5 → rescaled -2.00 USD (-100 * 0.01/0.5)
+        trades = [
+            {"event_type": "EXIT", "net_pnl_usd": 200.0, "lot_size": 2.0,
+             "event_utc": "2026-04-10T12:00:00"},
+            {"event_type": "EXIT", "net_pnl_usd": -100.0, "lot_size": 0.5,
+             "event_utc": "2026-04-10T13:00:00"},
+        ]
+        m = _compute_metrics(trades, signal_count=2, fill_count=2)
+        assert abs(m["net_pnl"] - (-1.0)) < 0.001  # 1.0 + (-2.0) = -1.0
+        assert abs(m["pf"] - 0.5) < 0.001          # 1.0 / 2.0 = 0.5
+
+    def test_lot_rescaling_missing_lot_unchanged(self):
+        """Records without lot_size fall through unrescaled — preserves
+        backward compatibility for tests + edge-case records."""
+        trades = [_make_exit(500), _make_exit(-300)]  # no lot_size set
+        m = _compute_metrics(trades, signal_count=2, fill_count=2)
+        # Falls through: pnls treated at face value
+        assert m["net_pnl"] == 200.0
+        assert abs(m["pf"] - (500.0 / 300.0)) < 0.001
+
 
 # ===================================================================
 # _evaluate_gates()
@@ -117,18 +165,22 @@ class TestEvaluateGates:
         assert ev["verdict"] == "ON_TRACK"
         assert len(ev["abort_reasons"]) == 0
 
-    def test_abort_pf_after_50_trades(self):
-        """PF < 1.10 after 50+ trades → ABORT."""
+    def test_observe_pf_after_50_trades(self):
+        """PF < 1.10 after 50+ trades → OBSERVE (formerly ABORT, demoted under
+        observational burn-in policy). Fill rate is OK so no execution-safety
+        ABORT fires; the PF gate surfaces as OBS for human review."""
         m = {
-            "trades": 55, "pf": 1.05, "wr_pct": 45.0, "net_pnl": 50.0,
+            "trades": 55, "pf": 1.05, "wr_pct": 55.0, "net_pnl": 50.0,
             "max_dd_pct": 5.0, "max_dd_usd": 500.0,
             "consec_losing_weeks": 1, "max_consec_losses": 4,
             "fill_rate": 90.0, "signals": 55, "fills": 50,
             "weekly_pnl": {},
         }
         ev = _evaluate_gates(m)
-        assert ev["verdict"] == "ABORT"
-        assert any("PF" in r for r in ev["abort_reasons"])
+        assert ev["verdict"] == "OBSERVE"
+        assert ev["abort_reasons"] == []
+        pf_gate = [g for g in ev["gates"] if g["gate"] == "Profit Factor"][0]
+        assert pf_gate["status"] == "OBS"
 
     def test_tiny_sample_no_abort(self):
         """CRITICAL: 3 trades with PF < 1.10 must NOT trigger abort.
@@ -148,8 +200,11 @@ class TestEvaluateGates:
             f"Tiny sample (3 trades) should not trigger abort, got: {ev['verdict']}"
         )
 
-    def test_abort_drawdown(self):
-        """DD > 12% → ABORT regardless of other metrics."""
+    def test_observe_drawdown(self):
+        """DD > 12% → OBSERVE (formerly ABORT, demoted under observational
+        burn-in policy). Under RAW_MIN_LOT_V1 deployment a 13% DD is unreachable
+        in normal operation — surfacing it indicates a sizing-regime mismatch
+        or data anomaly, not a strategy-quality failure."""
         m = {
             "trades": 30, "pf": 1.30, "wr_pct": 55.0, "net_pnl": 200.0,
             "max_dd_pct": 13.0, "max_dd_usd": 1300.0,
@@ -158,8 +213,10 @@ class TestEvaluateGates:
             "weekly_pnl": {},
         }
         ev = _evaluate_gates(m)
-        assert ev["verdict"] == "ABORT"
-        assert any("DD" in r for r in ev["abort_reasons"])
+        assert ev["verdict"] == "OBSERVE"
+        assert ev["abort_reasons"] == []
+        dd_gate = [g for g in ev["gates"] if g["gate"] == "Max Drawdown"][0]
+        assert dd_gate["status"] == "OBS"
 
     def test_abort_fill_rate(self):
         """Fill rate < 80% → ABORT."""
@@ -174,17 +231,22 @@ class TestEvaluateGates:
         assert ev["verdict"] == "ABORT"
         assert any("Fill rate" in r or "fill" in r.lower() for r in ev["abort_reasons"])
 
-    def test_abort_consec_losing_weeks(self):
-        """3+ consecutive losing weeks → ABORT."""
+    def test_observe_consec_losing_weeks(self):
+        """3+ consecutive losing weeks → OBSERVE (formerly ABORT, demoted under
+        observational burn-in policy). Regime/temporal signal for human review,
+        not an automated abort gate."""
         m = {
-            "trades": 20, "pf": 1.15, "wr_pct": 50.0, "net_pnl": 30.0,
+            "trades": 20, "pf": 1.15, "wr_pct": 55.0, "net_pnl": 30.0,
             "max_dd_pct": 4.0, "max_dd_usd": 400.0,
             "consec_losing_weeks": 3, "max_consec_losses": 5,
             "fill_rate": 90.0, "signals": 20, "fills": 18,
             "weekly_pnl": {},
         }
         ev = _evaluate_gates(m)
-        assert ev["verdict"] == "ABORT"
+        assert ev["verdict"] == "OBSERVE"
+        assert ev["abort_reasons"] == []
+        clw_gate = [g for g in ev["gates"] if g["gate"] == "Consec Losing Weeks"][0]
+        assert clw_gate["status"] == "OBS"
 
     def test_warn_low_wr(self):
         """WR below pass threshold but no abort trigger → WARN."""
