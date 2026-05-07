@@ -102,6 +102,23 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 
 ---
 
+## Worktree & Junction Safety (HARD PROHIBITION)
+
+**NEVER create an NTFS directory junction (`mklink /J`) inside a Claude worktree** — and especially never one that targets `Anti_Gravity_DATA_ROOT`, `TradeScan_State`, `TS_Execution`, `DATA_INGRESS`, or `DRY_RUN_VAULT`.
+
+**Why:** worktree teardown (or any `rm -rf` of the worktree directory) follows junctions and recursively deletes the *target's contents*. On 2026-05-07 a junction `worktree/data_root → Anti_Gravity_DATA_ROOT` caused silent loss of 21,043 research files (4.04 GB across 34 `_MASTER` dirs). Recovery required a full NAS robocopy + sha256 reverify; the next mirror-backup would have made the loss permanent had it been allowed to run.
+
+**Allowed alternatives:**
+- Read sibling repos through `config.path_authority` (resolves the real repo via `.git.is_dir()`, immune to worktree leftovers).
+- If a tool absolutely needs `data_root` inside the worktree, use a *symbolic file link* via Python (`Path.symlink_to`) for individual files only — never `mklink /J` on a directory.
+- For temporary cross-repo work, `cd` into the sibling repo directly; do not bridge it into the worktree's tree.
+
+**If you find yourself typing `mklink /J` — stop and re-read this section.** No exceptions in scratch scripts, in `/tmp/`, or "just for this session". The cost of the failure mode (silent multi-GB data loss) is asymmetric to any convenience the junction provides.
+
+**Reference:** `outputs/system_reports/09_incident_reports/DATA_RECOVERY_REPORT.md`
+
+---
+
 ## Key Operational Commands
 
 ```bash
