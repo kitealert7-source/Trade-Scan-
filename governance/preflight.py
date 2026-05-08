@@ -14,9 +14,7 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 from tools.pipeline_utils import parse_directive, get_canonical_hash
-
-# Project root (relative to this file's location in governance/)
-PROJECT_ROOT = Path(__file__).parent.parent
+from config.path_authority import REAL_REPO_ROOT as PROJECT_ROOT  # worktree-safe (anchors on .git.is_dir(), not __file__)
 
 # Required SOPs
 REQUIRED_SOPS = [
