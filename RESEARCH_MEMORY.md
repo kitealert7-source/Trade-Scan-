@@ -518,3 +518,20 @@ nas100_5m
 loose_threshold_principle
 order_2_rejected
 session_filter_subadditive
+
+---
+
+2026-05-08 | Tags: IBREAK, consecutive_structure, XAUUSD, 5m, pine_port, short_regime_leak, H1_pass, H2_partial | Strategy: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P00 | Run ID: 74e4d550c96d16940f584ee9
+
+Finding:
+Pine consecutive_structure_v2_0 (3-HH/3-LL + ADX(10,Wilder) > 20 rising + structural stop + gap-safeguard) ports to OctaFX 5M with H1 survival (PF 1.24) but fails SQN quality gate (1.91 < 2.0). Short-in-uptrend is the primary structural leak; long-side and short-in-downtrend are sound.
+
+Evidence:
+OctaFX P00 (2025-08-22 to 2026-05-07, 0.01 lots): 803T, PF 1.24, WR 36.6%, net $1,949, max DD $584. Pine baseline: OANDA 1,071T PF 1.319 WR 36.5%. WR near-identical; trade-count 25% lower (broker data differences). Top-5 concentration 57.4%; SQN 1.91; longest flat 83 days. 2025 sub-period PF 0.95 (452T, -$165) vs 2026 PF 1.46 (351T, $2,114).
+Direction x Trend breakdown: Short x StrongUp PF 0.47 (40T, -$238) and Short x WeakUp PF 0.78 (152T, -$366) are the primary loss clusters. Long x StrongUp PF 2.06 (96T, $735) is the strongest cell; Short x StrongDn PF 1.81 (91T, $732). Asia long dominates: PF 1.81 (149T). Short overall positive only in downtrend regimes (WeakDn PF 1.36, StrongDn PF 1.81).
+
+Conclusion:
+H1 PASS (PF 1.24 >= 1.10). H2 PARTIAL: non-StrongUp subset ~$1,453 net positive (74.5% of trades), but WeakUp short is the structural drag; strategy is NOT robust in rising markets for shorts. H3 PASS: architecture fully preserved (indicator separation, gap-safeguard, stage-0.56 warn confirmed). Quality gate FAIL: SQN 1.91 < 2.0 threshold, top-5 concentration too high, 2025 sub-period loss. The edge is real but regime-conditional — long works across regimes; short must be gated to downtrend context.
+
+Implication:
+P01: apply direction_gate to short branch — gate shorts to trend_regime <= 0 (Neutral/WeakDn/StrongDn only). This removes the Short x StrongUp (PF 0.47) and Short x WeakUp (PF 0.78) clusters. Expected: fewer trades but higher SQN and better tail concentration. Do NOT explore long-only variant before testing short-gated P01 — the short branch contributes $673 in valid downtrend contexts and is worth preserving conditionally. Age-2 exclusion (64T, -$27, PF 0.95) is a secondary probe, not a first priority.

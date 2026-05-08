@@ -1,0 +1,62 @@
+test:
+  name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P00
+  family: BRK
+  strategy: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P00
+  version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-08-22"
+  end_date: "2026-05-07"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Consecutive Structure Breakout (IBREAK) -- 3 consecutive higher-highs (long) or 3 consecutive lower-lows (short) with ADX(10,Wilder) > 20 and rising. Structural stop = min of 4 lows (long) or max of 4 highs (short). 2R TP from signal-close approximation. Gap-safeguard pre-filter (close must exceed structural stop). Next-bar-open fills. No session reset, direction-symmetric, reentry allowed. Port of Pine consecutive_structure_v2_0 from OANDA to OctaFX XAUUSD 5m. Tests H1 port survival (PF >= 1.10), H2 regime robustness (non-rally subset), H3 architecture preservation per TS_Pine/reports/consecutive_structure/2026-05-08/HYPOTHESIS.md."
+  notes: "ADX uses Wilder smoothing (adx_wilder module, period=10) matching Pine ta.dmi(10,10). Signal: hh3=True (3 HH) for long; ll3=True (3 LL) for short from indicators.price.consecutive_highs_lows. Structural SL: hh3_sl = min of 4 lows (long), ll3_sl = max of 4 highs (short). Gap-safeguard in check_entry: long filtered when risk<=0 (close<=hh3_sl); short filtered when risk<=0 (close>=ll3_sl). TP = close +/- 2*(close-stop). Pine baseline: OANDA:XAUUSD 5m, PF 1.319, 1071 trades, WR 36.5%, $3102 net, $623 max DD (May 2025-May 2026). OctaFX cross-broker divergence is primary risk. Stage-0.56 stop-contract warn expected (stop_price+tp_price at signal-close vs next-open fill)."
+  repeat_override_reason: "Pine prototype consecutive_structure_v2_0 (post gap-safeguard) produced PF 1.319 on OANDA:XAUUSD 5m over 2025-05-08 to 2026-05-08. Calibration evidence in TS_Pine/reports/consecutive_structure/2026-05-08/. Hypothesis H1 port survival, H2 regime robustness, H3 architecture preservation per HYPOTHESIS.md."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.price.consecutive_highs_lows
+  - indicators.structure.adx_wilder
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_4bar_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: risk_multiple_2r
+    r_multiple: 2.0
+  entry_logic:
+    type: consecutive_structure_breakout
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
