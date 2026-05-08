@@ -1,0 +1,62 @@
+test:
+  name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P01
+  family: BRK
+  strategy: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P01
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-08-22"
+  end_date: "2026-05-07"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Consecutive Structure Breakout (IBREAK) — P01 tests BE@+1R with no_reentry_after_stop=True. P02 (BE@+1R, reentry allowed) showed that BE mutations create synthetic flat windows enabling 253 extra re-entries after BE stops, worsening all metrics. P01 isolates the pure BE effect: after any stop (SL or BE scratch), no new entry fires until a structurally fresh signal. TP exits can still trigger re-entries. Expected: trade count lower than P00 (803), Profit Giveback avg R improves from -1.00R toward 0R on the 131-trade cohort, SQN and PnL direction depends on whether the -1R to 0R conversion outweighs reduced trade frequency."
+  notes: "Two deltas vs P00: (1) check_stop_mutation adds BE at +1R; (2) no_reentry_after_stop: true blocks new entries after stop events. Reentry after TP remains allowed. Session_reset: none unchanged. Date range identical to P00 and P02 for direct three-way comparison."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.price.consecutive_highs_lows
+  - indicators.structure.adx_wilder
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_4bar_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: risk_multiple_2r
+    r_multiple: 2.0
+  entry_logic:
+    type: consecutive_structure_breakout
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: none

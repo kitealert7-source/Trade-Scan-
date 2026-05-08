@@ -1,0 +1,61 @@
+test:
+  name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P02
+  family: BRK
+  strategy: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P02
+  version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-08-22"
+  end_date: "2026-05-07"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Consecutive Structure Breakout (IBREAK) — P02 adds break-even stop at +1R MFE. P00 baseline MFE analysis found 131 trades (16.3%) that reached >=+1R intrabar but exited at exactly -1R (full structural stop, no stop mutation in P00). P02 adds check_stop_mutation: when unrealized_r_intrabar >= 1.0R, stop moves to entry (break-even). Expected outcome: 131-trade cohort exits at 0R instead of -1R, net +131R gain. TP remains at +2R — if price continues past +1R BE to +2R, TP fires unchanged. Only cost: trades that hit +1R, trigger BE, fall briefly to entry (BE stop hit), then would have recovered to +2R TP."
+  notes: "Single delta vs P00: check_stop_mutation implemented (absent in P00). BE fires at-most-once per trade (_be_applied guard + _be_entry_ref reset on new trade). When entry_price is None (flat), state resets cleanly. Reentry behavior unchanged (allowed). Session reset unchanged (none). Date range identical to P00 for direct comparison. No filters added — this is a pure stop-management probe."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.price.consecutive_highs_lows
+  - indicators.structure.adx_wilder
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_4bar_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: risk_multiple_2r
+    r_multiple: 2.0
+  entry_logic:
+    type: consecutive_structure_breakout
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none

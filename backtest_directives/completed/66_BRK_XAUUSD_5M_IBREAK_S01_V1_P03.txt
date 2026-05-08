@@ -1,0 +1,63 @@
+test:
+  name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P03
+  family: BRK
+  strategy: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P03
+  version: 1
+  signal_version: 3
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-08-22"
+  end_date: "2026-05-07"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "IBREAK P03 — BE@+1R + 1-bar post-exit cooldown. P01 proved no_reentry_after_stop is not engine-implemented (P01==P02 exactly). P03 tests the same re-entry churn hypothesis via a strategy-level cooldown: after any trade closes, new entries are suppressed for 1 bar. If the 253 extra trades in P02 are same-bar re-entries after BE exits, cooldown should reduce trade count toward P00 baseline (~803). If count stays near 1056, extra trades are TP re-entries from structurally distinct signal bars and the churn hypothesis is falsified."
+  notes: "Cooldown implemented in check_stop_mutation (exit detection) + check_entry (gate). check_stop_mutation is called before check_entry on flat bars so the cooldown is armed before the entry gate runs on the same bar. N=1: suppress one bar only. All other logic identical to P02."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.price.consecutive_highs_lows
+  - indicators.structure.adx_wilder
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_4bar_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: risk_multiple_2r
+    r_multiple: 2.0
+  entry_logic:
+    type: consecutive_structure_breakout
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+
+state_machine:
+  cooldown_bars: 1
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none

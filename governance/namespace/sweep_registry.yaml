@@ -2591,4 +2591,9 @@ ideas:
             signature_hash: 39f7ade5a103f425
             signature_hash_full: 39f7ade5a103f4258d3d079670889bf9797293b6b51b0803f6652efcccb90712
             reserved_at_utc: '2026-05-08T13:00:00.000000+00:00'
+          P03:
+            directive_name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P03
+            signature_hash: b47efcc4877c466e
+            signature_hash_full: b47efcc4877c466ea2779fca83dfa1b1f99989b04dfcace458f10303b0415b44
+            reserved_at_utc: '2026-05-08T14:00:00.000000+00:00'
         attempt: 2
