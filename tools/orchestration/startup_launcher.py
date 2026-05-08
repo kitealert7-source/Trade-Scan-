@@ -268,6 +268,7 @@ def _pid_is_alive(pid: int) -> bool:
 
 # Cmdline signatures to identify our processes by their command line.
 # Match is substring, case-insensitive. Covers both slash styles.
+_LAUNCHER_SIGS  = ("startup_launcher.py",)
 _WATCHDOG_SIGS  = ("watchdog_daemon.py",)
 _EXECUTION_SIGS = ("src/main.py", "src\\main.py")
 
@@ -311,6 +312,26 @@ def _find_python_pids_by_cmdline(signatures: tuple[str, ...]) -> list[int]:
     except Exception as e:
         _log(f"CMDLINE_SCAN_ERROR | sigs={signatures} | {type(e).__name__}: {e}")
     return pids
+
+
+def _launcher_already_running() -> bool:
+    """Return True if another startup_launcher.py instance is already running.
+
+    Uses WMIC cmdline scan (excludes this process's own PID via os.getpid()).
+    Called as the very first check in main() so that a Task Scheduler firing
+    while the previous launcher is still in its MT5 readiness poll (up to 180s)
+    exits immediately rather than racing to call start_execution().
+
+    The original P0.5 bug: two launcher instances both passed _execution_running()
+    before either spawned process had written execution.pid, then both called
+    start_execution() → two execution processes with different run_ids both
+    writing to shadow_trades.jsonl.
+    """
+    other_pids = _find_python_pids_by_cmdline(_LAUNCHER_SIGS)
+    if other_pids:
+        _log(f"LAUNCHER_ALREADY_RUNNING | pids={other_pids} | aborting to prevent race")
+        return True
+    return False
 
 
 def watchdog_already_running() -> bool:
@@ -543,7 +564,16 @@ def start_execution() -> None:
 def main() -> None:
     _log(f"LAUNCHER_START | ts_exec_root={TS_EXEC_ROOT} | watchdog={WATCHDOG_SCRIPT}")
 
-    # Step 0 — Market hours gate (FX: Mon 00:00 – Fri 22:00 UTC)
+    # Step 0a — Launcher singleton guard: abort if another launcher instance is
+    #            already running.  This prevents the P0.5 race where Task Scheduler
+    #            fires a new launcher while the previous one is still in its MT5
+    #            readiness poll (up to 180s), causing both to call start_execution()
+    #            before either spawn has written execution.pid.
+    if _launcher_already_running():
+        _log("LAUNCHER_DONE | reason=another_launcher_running")
+        return
+
+    # Step 0b — Market hours gate (FX: Mon 00:00 – Fri 22:00 UTC)
     if not _fx_market_open():
         _log("LAUNCHER_DONE | reason=market_closed (weekend/holiday)")
         return
@@ -562,10 +592,9 @@ def main() -> None:
     if watchdog_already_running():
         _log("WATCHDOG_SKIP | already running")
     else:
-        # Step 4 — Start watchdog
         start_watchdog()
 
-    # Step 5 — Execution guard + initial start
+    # Step 4 — Execution guard + initial start
     # Watchdog handles crash-restarts; launcher handles the initial start each session.
     if _execution_running():
         _log("LAUNCHER_DONE | reason=all_running")
