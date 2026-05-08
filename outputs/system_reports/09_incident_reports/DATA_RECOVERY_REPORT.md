@@ -315,3 +315,81 @@ If A fails (any access-denied event in pipeline logs, or `LastTaskResult ≠ 0`)
 > "Do not modify ACLs or service-account design unless production ingestion fails. The current architecture is now the baseline."
 
 This applies until at least one full week of clean daily pipeline runs has passed under the new account + ACL. Any proposed change before then must explain why the current design is insufficient, not merely sub-optimal.
+
+---
+
+## 9. Actual resolution (2026-05-08 morning) — Option Alpha
+
+§8 was written before the first scheduled run under the new architecture. That run **failed**, exposing two issues:
+
+### 9.1 What broke
+
+The 2026-05-08 05:45 IST natural trigger failed 4× in a row (05:45, 05:46, 05:47, 05:48) with `LastTaskResult: 2147942667` (`HRESULT 0x8007010B` = `ERROR_DIRECTORY`). powershell.exe never started — Task Scheduler couldn't even spawn the action. No code ran, no log was written.
+
+Root cause: the Phase 2 migration switched the run-as identity to `svc-data-ingress` but **never granted that identity any filesystem access** to the directories the pipeline needs. ACL inspection showed:
+
+- `DATA_INGRESS\` — only `CodexSandboxUsers` (read), SYSTEM, Administrators, faraw
+- `Anti_Gravity_DATA_ROOT\` — same
+- `governance\` — same
+- `MASTER_DATA\` — same plus our INTERACTIVE deny
+
+`svc-data-ingress` was a member of `Users` only. It had no inherited or explicit access to any of the above. Task Scheduler's `CreateProcess` call failed at the working-directory level (`WorkingDirectory: C:\Users\faraw\Documents\DATA_INGRESS`) because the process token couldn't open that directory.
+
+### 9.2 Why we didn't catch this in §8.1 step 7 (smoke test)
+
+The smoke-test result log (`tmp/svc_smoke_result.log`) shows:
+
+```
+2026-05-07T12:18:16.0537463Z | faraw | START as faraw on host FARAWAYI9
+| faraw | Identity: FARAWAYI9\faraw
+| faraw | GroupCheck: INTERACTIVE=True BATCH=False SERVICE=False
+```
+
+The smoke test ran as `faraw` (interactive logon), **not as svc-data-ingress**. The "verified" claim in §8.1 step 7 was a false positive — the script created/replaced/deleted files under faraw's full-control identity, which proves nothing about svc-data-ingress's capability.
+
+How this happened: the original `__svc_smoke_test` scheduled task (registered to run as svc-data-ingress with `LogonType=Password`) failed silently in the first attempt because svc-data-ingress lacked `SeBatchLogonRight`. After granting that right, instead of re-triggering the scheduled task, the script appears to have been re-run interactively (directly invoked from the elevated PowerShell session), which executed it as faraw. The result log was written but identified the wrong identity.
+
+**Lesson:** smoke tests for service-account scenarios must verify the executing identity inside the script itself (which our script did via `GroupCheck`) AND the harness must reject any result log that doesn't show the expected identity. We had the verification but didn't enforce it.
+
+### 9.3 Resolution: Option Alpha (faraw + LogonType=S4U)
+
+The svc-data-ingress account was over-engineered. The actual protection in this architecture comes from the `Deny INTERACTIVE:(D,DC)` ACL on `MASTER_DATA`, not from the run-as identity. With LogonType=S4U:
+
+- Process runs as `faraw` but in the `BATCH` group, **not `INTERACTIVE`**
+- INTERACTIVE deny on MASTER_DATA does not apply (the SID isn't in the token)
+- faraw's existing FullControl on all other paths just works (no ACL changes needed)
+- No password storage required (S4U is "Service-for-User" — credential-free)
+- Phase B (password rotation) becomes moot
+
+Implementation: mutated the existing task principal in place via `Set-ScheduledTask -InputObject`, changing `UserId: svc-data-ingress / LogonType: Password / RunLevel: Highest` → `UserId: faraw / LogonType: S4U / RunLevel: Limited`.
+
+### 9.4 Validation result
+
+Manual trigger after the fix at 06:29:52 IST. Pipeline ran 15:09 end-to-end:
+
+| Pass criterion | Result |
+|---|---|
+| `LastTaskResult == 0` | ✅ PASS |
+| Access-denied scan (6 log files) | ✅ CLEAN |
+| Governance JSON regenerated for today | ✅ `last_run_date: 2026-05-08`, `status: SUCCESS`, `datasets_validated: 1959` |
+
+No PermissionError / Errno 13 / Access is denied in any pipeline log. faraw under S4U writes to MASTER_DATA without being blocked by the INTERACTIVE deny ACE — exactly as designed.
+
+### 9.5 Final architecture state (locked-in)
+
+| Component | Configuration |
+|---|---|
+| `AntiGravity_Daily_Preflight` | `RunAs: faraw`, `LogonType: S4U`, `RunLevel: Limited` |
+| `TradeScan NAS Backup` | `RunAs: faraw`, `LogonType: Interactive` (read-only on MASTER_DATA → INTERACTIVE deny only blocks deletes; backup writes go to NAS share) — **re-enabled** |
+| `svc-data-ingress` local user | **Disabled**. Kept for forensics; can be deleted in a future cleanup. |
+| `MASTER_DATA` ACL | `Deny INTERACTIVE:(D,DC)` recursive (unchanged from §8.1 step 8) |
+| ACL snapshot | `tmp/acl_snapshot_before.txt` (rollback insurance) — preserved |
+
+### 9.6 Lock-in (revised)
+
+No further ACL changes, no further service-account experiments, no further task-principal modifications until at least one full week of clean daily pipeline runs has passed under the current architecture. The Phase B password-rotation item is closed (no password to rotate). The Phase C NAS-backup re-enable is done.
+
+If a future change is genuinely required, it must:
+1. Cite a specific incident or measurement that justifies the change
+2. Include a smoke test that verifies the *executing identity* (not just that the script ran)
+3. Reject any "verification" output that doesn't show the expected identity in the result log
