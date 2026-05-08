@@ -16,12 +16,18 @@ Six-repo research-to-execution pipeline:
 
 ## Before Acting — Read Protocol
 
+**Step 0 — Skill discovery (mandatory before any non-trivial task):**
+The system-reminder at session start lists every available skill with its name and description. Before starting work that goes beyond a one-line answer or a single-file read, scan that list and ask: *"Is there a skill for this?"*
+- If a skill matches → invoke it (or read its `SKILL.md`) and follow it unless the user explicitly overrides.
+- If nothing matches → proceed normally. If the task surfaces durable process knowledge that isn't in any existing skill, name a candidate skill in your end-of-task summary so it can be created next time.
+
+Skills already cover (non-exhaustive): pipeline runs, strategy ports / Pine→Python, hypothesis testing, re-runs of prior strategies, promote → burn-in → waiting → live lifecycle, portfolio add/remove/research, session close, system maintenance, state-lifecycle cleanup, vault snapshots, capital simulation, Excel ledger formatting. **New skills appear in the system-reminder list automatically** — there is no separate index to keep in sync.
+
 **Always (every session start):**
 - `AGENT.md` — invariants, lifecycle, engine standards, pre-directive gate
 - `SYSTEM_STATE.md` — check SESSION STATUS (OK/WARNING/BROKEN), acknowledge system condition before acting
 
-**Task-conditional:**
-- `.claude/skills/execute-directives/SKILL.md` — before any `run_pipeline.py` call
+**Task-conditional documents (skill-specific reading is implied by Step 0):**
 - `RESEARCH_MEMORY.md` — before strategy design or directive creation
 - `FAILURE_PLAYBOOK.md` — when any failure or anomaly occurs
 
