@@ -2565,7 +2565,12 @@ ideas:
         signature_hash: d615ccc20f53ef8c
         signature_hash_full: d615ccc20f53ef8cb63da51cb7758742fa48784f7efbc4aed3f12b9c84b508ab
         reserved_at_utc: '2026-05-07T08:44:58.000000+00:00'
-        patches: {}
+        patches:
+          P02:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S02_V1_P02
+            signature_hash: d615ccc20f53ef8c
+            signature_hash_full: d615ccc20f53ef8cb63da51cb7758742fa48784f7efbc4aed3f12b9c84b508ab
+            reserved_at_utc: '2026-05-08T12:00:00.000000+00:00'
         attempt: 2
   '66':
     next_sweep: 2
@@ -2575,5 +2580,15 @@ ideas:
         signature_hash: 39f7ade5a103f425
         signature_hash_full: 39f7ade5a103f4258d3d079670889bf9797293b6b51b0803f6652efcccb90712
         reserved_at_utc: '2026-05-08T10:51:50.000000+00:00'
-        patches: {}
+        patches:
+          P01:
+            directive_name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P01
+            signature_hash: 5871c62d2377ba72
+            signature_hash_full: 5871c62d2377ba72fb3bb31d04bdcf3c57855883673c27ea90d2b392941bfa76
+            reserved_at_utc: '2026-05-08T13:30:00.000000+00:00'
+          P02:
+            directive_name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P02
+            signature_hash: 39f7ade5a103f425
+            signature_hash_full: 39f7ade5a103f4258d3d079670889bf9797293b6b51b0803f6652efcccb90712
+            reserved_at_utc: '2026-05-08T13:00:00.000000+00:00'
         attempt: 2

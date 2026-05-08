@@ -45,12 +45,21 @@ _IDENTITY_KEYS = frozenset({
     "timeframe", "session_time_reference", "start_date", "end_date",
     "research_mode", "tuning_allowed", "parameter_mutation",
     "test", "backtest", "symbols",
+    "signal_version",   # version metadata; hoisted to root by parse_directive
 })
 
 # Fields that, when different, definitionally indicate a signal-level change.
 # `indicators` is the canonical one — module import set.
 _SIGNAL_KEYS = frozenset({
     "indicators",
+})
+
+# Specific full leaf paths (dot-separated) that represent execution-state policy
+# rather than entry signal logic.  Changes here are SIGNAL-level (require a
+# signal_version bump) but are NOT structural/UNCLASSIFIABLE.
+# Add paths intentionally — do NOT blanket-list a parent block.
+_BEHAVIORAL_EXECUTION_LEAVES = frozenset({
+    "state_machine.no_reentry_after_stop",
 })
 
 # FilterStack block keys (imported from tools.filter_registry) are
@@ -131,12 +140,14 @@ def _classify_filter_block_diffs(
 def _partition_diffs(
     leaves_a: dict[str, Any],
     leaves_b: dict[str, Any],
-) -> tuple[set[str], set[str], set[str], set[str]]:
+) -> tuple[set[str], set[str], set[str], set[str], set[str]]:
     """Partition the union of leaf keys into change classes.
 
-    Returns (cosmetic, identity, numeric, structural) sets of leaf paths
-    where the two directives differ. Keys present in only one side are
-    counted as structural (they indicate shape change).
+    Returns (cosmetic, identity, numeric, structural, behavioral_execution) sets
+    of leaf paths where the two directives differ. Keys present in only one side
+    are counted as structural (they indicate shape change), unless they are a
+    known execution-state leaf (in _BEHAVIORAL_EXECUTION_LEAVES), in which case
+    they go to behavioral_execution regardless of presence/absence.
 
     Leaves belonging to FilterStack block keys are excluded here and
     handled separately by _classify_filter_block_diffs at the block
@@ -148,6 +159,7 @@ def _partition_diffs(
     identity: set[str] = set()
     numeric: set[str] = set()
     structural: set[str] = set()
+    behavioral_execution: set[str] = set()
 
     for key in all_keys:
         va = leaves_a.get(key, _MISSING)
@@ -163,6 +175,11 @@ def _partition_diffs(
             cosmetic.add(key)
         elif top in _IDENTITY_KEYS:
             identity.add(key)
+        elif key in _BEHAVIORAL_EXECUTION_LEAVES:
+            # Known execution-state policy leaf: SIGNAL-level but not structural.
+            # Checked before the _MISSING guard so absence-vs-present is still
+            # treated as a policy change rather than a shape change.
+            behavioral_execution.add(key)
         elif va is _MISSING or vb is _MISSING:
             structural.add(key)
         elif _is_numeric(va) and _is_numeric(vb):
@@ -172,7 +189,7 @@ def _partition_diffs(
         else:
             structural.add(key)
 
-    return cosmetic, identity, numeric, structural
+    return cosmetic, identity, numeric, structural, behavioral_execution
 
 
 class _Missing:
@@ -228,7 +245,7 @@ def classify_diff(
 
     leaves_a = _flatten(directive_a)
     leaves_b = _flatten(directive_b)
-    cosmetic, identity, numeric, structural = _partition_diffs(leaves_a, leaves_b)
+    cosmetic, identity, numeric, structural, behavioral_execution = _partition_diffs(leaves_a, leaves_b)
 
     # Block-level FilterStack diff handled separately (not via leaves).
     filter_behavioral, filter_cosmetic = _classify_filter_block_diffs(
@@ -253,6 +270,7 @@ def classify_diff(
             "numeric_diffs": sorted(numeric),
             "cosmetic_diffs": sorted(cosmetic),
             "structural_diffs": sorted(structural),
+            "behavioral_execution_diffs": sorted(behavioral_execution),
         }
 
     # Rule 1b: behavioral FilterStack block change -> SIGNAL
@@ -269,6 +287,25 @@ def classify_diff(
             "numeric_diffs": sorted(numeric),
             "cosmetic_diffs": sorted(cosmetic),
             "structural_diffs": sorted(structural),
+            "behavioral_execution_diffs": sorted(behavioral_execution),
+        }
+
+    # Rule 1c: known execution-state behavioral leaf changed -> SIGNAL
+    # Only fires when there are no unknown structural diffs alongside it.
+    # Mixed (behavioral_execution + structural) falls through to UNCLASSIFIABLE.
+    if behavioral_execution and not structural:
+        return {
+            "classification": "SIGNAL",
+            "reason": (
+                f"execution-state behavioral leaf change: {sorted(behavioral_execution)}"
+            ),
+            "indicator_import_delta": {"removed": [], "added": []},
+            "indicator_hash_delta": [],
+            "filter_behavioral_blocks": filter_behavioral,
+            "numeric_diffs": sorted(numeric),
+            "cosmetic_diffs": sorted(cosmetic),
+            "structural_diffs": [],
+            "behavioral_execution_diffs": sorted(behavioral_execution),
         }
 
     # Rule 2: only numeric leaves differ (identity ignored; cosmetic tolerated) -> PARAMETER
@@ -282,6 +319,7 @@ def classify_diff(
             "numeric_diffs": sorted(numeric),
             "cosmetic_diffs": sorted(cosmetic),
             "structural_diffs": [],
+            "behavioral_execution_diffs": [],
         }
 
     # Rule 3: only cosmetic/identity leaves differ -> COSMETIC
@@ -298,6 +336,7 @@ def classify_diff(
             "numeric_diffs": [],
             "cosmetic_diffs": sorted(cosmetic),
             "structural_diffs": [],
+            "behavioral_execution_diffs": [],
         }
 
     # Rule 4: fail-closed
@@ -313,6 +352,7 @@ def classify_diff(
         "numeric_diffs": sorted(numeric),
         "cosmetic_diffs": sorted(cosmetic),
         "structural_diffs": sorted(structural),
+        "behavioral_execution_diffs": sorted(behavioral_execution),
     }
 
 
