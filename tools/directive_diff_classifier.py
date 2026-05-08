@@ -61,6 +61,7 @@ _SIGNAL_KEYS = frozenset({
 _BEHAVIORAL_EXECUTION_LEAVES = frozenset({
     "state_machine.no_reentry_after_stop",
     "state_machine.cooldown_bars",
+    "state_machine.be_trigger_r",
 })
 
 # FilterStack block keys (imported from tools.filter_registry) are

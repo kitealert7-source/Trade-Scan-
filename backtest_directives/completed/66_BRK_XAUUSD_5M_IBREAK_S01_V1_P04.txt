@@ -1,0 +1,64 @@
+test:
+  name: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P04
+  family: BRK
+  strategy: 66_BRK_XAUUSD_5M_IBREAK_S01_V1_P04
+  version: 1
+  signal_version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-08-22"
+  end_date: "2026-05-07"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "IBREAK P04 — BE trigger raised from +1.0R to +1.9R. Tests whether a BE that arms only on near-TP touches (in the [+1.9R, +2R) intrabar window) materially differs from P00 baseline. Cooldown left at 1 bar (proven inert in P03)."
+  notes: "Only logic change vs P03: _BE_TRIGGER_R 1.0 -> 1.9. Also surfaces state_machine.be_trigger_r in directive/signature so the parameter is governance-visible (research-integrity fix; previously a hidden class constant). With TP fixed at +2R, BE@+1.9R only acts when price spikes near TP and reverses within the same bar."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.price.consecutive_highs_lows
+  - indicators.structure.adx_wilder
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_4bar_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: true
+    type: risk_multiple_2r
+    r_multiple: 2.0
+  entry_logic:
+    type: consecutive_structure_breakout
+  exit_logic:
+    type: sl_or_tp
+
+exit_rules:
+  type: sl_tp
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: true
+
+state_machine:
+  be_trigger_r: 1.9
+  cooldown_bars: 1
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: false
+  session_reset: none
