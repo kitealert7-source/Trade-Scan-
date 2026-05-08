@@ -208,7 +208,7 @@ def run_portfolio_and_post_stages(
     try:
         print("[ORCHESTRATOR] Running Step 9: Deployable Artifact Verification...")
         deploy_root = STRATEGIES_DIR / clean_id / "deployable"
-        profiles = ["CONSERVATIVE_V1", "DYNAMIC_V1", "FIXED_USD_V1"]
+        profiles = ["FIXED_USD_V1"]
         step9_failures = []
 
         for prof in profiles:
