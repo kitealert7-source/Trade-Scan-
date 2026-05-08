@@ -119,6 +119,29 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 
 ---
 
+## Service-Account Migration Safety (HARD PROHIBITION)
+
+**Before changing the run-as identity or LogonType of any scheduled task that touches `MASTER_DATA`, `DATA_INGRESS`, or any other path under a sibling repo, you MUST run `tools/scheduled_task_identity_smoke.ps1` in `validate` mode and observe a clean exit 0.**
+
+```powershell
+powershell -File tools\scheduled_task_identity_smoke.ps1 `
+    -Mode validate `
+    -ExpectedUser   '<new-user>' `
+    -RequiredGroup  '<expected-group>'      # e.g., BATCH for Password/S4U logon
+    -ForbiddenGroup '<must-not-be-in-group>' # e.g., INTERACTIVE
+    -TargetDir      '<dir-the-task-writes-to>' `
+    -LogonType      '<Password|S4U|Interactive>' `
+    -Credential     (Get-Credential)        # only for LogonType=Password
+```
+
+The tool is binary pass/fail with specific non-zero exit codes (101 identity mismatch, 102 required group missing, 103 forbidden group present, 104 file-op failed, 105/106/107 validate-mode parse failures). **No human interpretation, no "looks fine" override.** If the tool exits non-zero, the migration is not approved.
+
+**Why this exists:** the 2026-05-07 incident's follow-up service-account migration was approved on a smoke test that printed the right warning (`INTERACTIVE=True, BATCH=False`) but didn't *fail* on it. The script ran as the wrong identity, the result was logged as PASS, and the architecture broke at the first natural production trigger. Hours of wasted work. The harness now refuses to confuse "the script ran" with "the script ran as the expected user".
+
+**Reference:** `outputs/system_reports/09_incident_reports/DATA_RECOVERY_REPORT.md` §9.6
+
+---
+
 ## Key Operational Commands
 
 ```bash

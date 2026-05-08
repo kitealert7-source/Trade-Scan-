@@ -393,3 +393,18 @@ If a future change is genuinely required, it must:
 1. Cite a specific incident or measurement that justifies the change
 2. Include a smoke test that verifies the *executing identity* (not just that the script ran)
 3. Reject any "verification" output that doesn't show the expected identity in the result log
+
+### 9.7 Permanent guard: `tools/scheduled_task_identity_smoke.ps1`
+
+The biggest process miss in this incident was not the junction. It was a smoke test that *printed* an identity warning (`INTERACTIVE=True, BATCH=False`) but didn't *fail* on it. The migration was approved on a false positive.
+
+To close that hole permanently, `tools/scheduled_task_identity_smoke.ps1` enforces binary pass/fail identity assertions:
+
+| Mode | Purpose | Exit codes |
+|---|---|---|
+| `selfcheck` | Run inside the target identity context. Asserts: actual user == ExpectedUser, RequiredGroup is present, ForbiddenGroup is absent, file-op smoke (create/append/replace/delete) succeeds. | `0` PASS, `101` identity mismatch, `102` required group missing, `103` forbidden group present, `104` file-op failed |
+| `validate` | Orchestrator (requires admin). Registers a one-shot scheduled task with the proposed principal, triggers it, polls, and asserts both the in-script PASS marker AND that the result log shows the expected identity. Cleans up the task. | `0` PASS, `105`/`106`/`107` parse failures of the result log |
+
+**Mandatory rule** (also in `CLAUDE.md` § "Service-Account Migration Safety"): no scheduled-task migration that touches `MASTER_DATA`, `DATA_INGRESS`, or any other sibling-repo path is approved unless `validate` mode returns exit 0 with the exact `ExpectedUser`, `RequiredGroup`, and `ForbiddenGroup` for the new configuration.
+
+Tested the tool against the current architecture (faraw + S4U + INTERACTIVE deny on MASTER_DATA): all four scenarios (positive control + each of the three failure modes) returned the expected exit codes. The tool would have rejected the original false-positive smoke test in 1 second with exit 101.
