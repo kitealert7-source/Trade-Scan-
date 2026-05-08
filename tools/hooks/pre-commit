@@ -33,6 +33,19 @@ echo "[pre-commit] Scanning staged strategy.py for bare \`return True\` in check
 python "$REPO_ROOT/tools/lint_check_exit_labels.py" --staged
 # warn-only -- never blocks the commit (exit code is always 0)
 
+echo "[pre-commit] Scanning staged strategy.py for hidden constants (signature completeness)..."
+python "$REPO_ROOT/tools/lint_signature_completeness.py" --staged
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. Class-level constants affect behavior but"
+    echo "  are not surfaced in STRATEGY_SIGNATURE — two strategies with different"
+    echo "  values would share the same hash. Either (a) move the constant value"
+    echo "  into STRATEGY_SIGNATURE, or (b) annotate with a trailing comment:"
+    echo "    _MY_CONST = 10  # signature-exempt: <reason>"
+    echo "  if the value is genuinely not a tunable parameter."
+    exit 1
+fi
+
 echo "[pre-commit] Validating RESEARCH_MEMORY parse integrity..."
 python "$REPO_ROOT/tools/generate_research_memory_index.py" --check
 if [ $? -ne 0 ]; then
