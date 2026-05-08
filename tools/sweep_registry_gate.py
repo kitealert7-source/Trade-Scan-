@@ -272,10 +272,46 @@ def _hash_for_storage(incoming_hash: str) -> tuple[str, str]:
 
 
 def _get_stored_hash(payload: dict[str, Any]) -> str:
-    full = str(payload.get("signature_hash_full", "")).strip().lower()
+    """Read the stored directive content hash from a registry payload.
+
+    Field-name history: this hash was originally stored under the misleading
+    name `signature_hash` (it actually hashes directive content, not the
+    strategy's STRATEGY_SIGNATURE dict — that's a different thing computed
+    by FilterStack). Renamed to `directive_hash` 2026-05-08; reads accept
+    either name so legacy entries continue to work until they are next
+    written through this module.
+    """
+    full = str(
+        payload.get("directive_hash_full")
+        or payload.get("signature_hash_full")
+        or ""
+    ).strip().lower()
     if full:
         return full
-    return str(payload.get("signature_hash", "")).strip().lower()
+    return str(
+        payload.get("directive_hash")
+        or payload.get("signature_hash")
+        or ""
+    ).strip().lower()
+
+
+def _write_hash_fields(payload: dict[str, Any], stored_short: str, stored_hash: str) -> None:
+    """Write directive content hash to a registry payload.
+
+    Phase 1 rename (2026-05-08): writes both the canonical `directive_hash`
+    [_full] keys AND the legacy `signature_hash[_full]` keys. Dual-write
+    keeps existing tooling/tests that read the legacy keys functional while
+    new readers get the canonical name. Phase 2 (planned) drops the legacy
+    write after a one-shot data migration of sweep_registry.yaml.
+    """
+    payload["directive_hash"] = stored_short
+    payload["signature_hash"] = stored_short  # legacy alias — Phase-1 dual-write
+    if len(stored_hash) == 64:
+        payload["directive_hash_full"] = stored_hash
+        payload["signature_hash_full"] = stored_hash  # legacy alias
+    else:
+        payload.pop("directive_hash_full", None)
+        payload.pop("signature_hash_full", None)
 
 
 def _compute_next_sweep(sweeps: dict[str, Any]) -> int:
@@ -439,11 +475,9 @@ def reserve_sweep_identity(
                 # Safe because the requested_key matches the existing slot's
                 # key (verified above) — this slot is the one being
                 # (re-)reserved, mutating it is correct.
-                if existing_name != directive_name or not payload.get("signature_hash_full"):
+                if existing_name != directive_name or not _get_stored_hash(payload):
                     payload["directive_name"] = directive_name
-                    payload["signature_hash"] = stored_short
-                    if len(stored_hash) == 64:
-                        payload["signature_hash_full"] = stored_hash
+                    _write_hash_fields(payload, stored_short, stored_hash)
                     sweeps[key] = payload
                     idea_block["sweeps"] = sweeps
                     ideas[idea_id] = idea_block
@@ -454,7 +488,8 @@ def reserve_sweep_identity(
                     "idea_id": idea_id,
                     "sweep": key,
                     "strategy_name": directive_name,
-                    "signature_hash": signature_hash,
+                    "directive_hash": signature_hash,
+                    "signature_hash": signature_hash,  # legacy alias
                 }
             # Check patches stored under this sweep slot for idempotency.
             for p_data in payload.get("patches", {}).values():
@@ -467,7 +502,8 @@ def reserve_sweep_identity(
                         "idea_id": idea_id,
                         "sweep": key,
                         "strategy_name": directive_name,
-                        "signature_hash": signature_hash,
+                        "directive_hash": signature_hash,
+                        "signature_hash": signature_hash,  # legacy alias
                     }
 
         # Reserve specific requested sweep (used by namespace directives in pipeline)
@@ -478,11 +514,9 @@ def reserve_sweep_identity(
                 existing_hash = _get_stored_hash(existing)
                 if _is_same_lineage(existing_directive, directive_name) and _hashes_match(existing_hash, signature_hash):
                     # Auto-heal legacy entry name format to current directive_name.
-                    if existing_directive != directive_name or not existing.get("signature_hash_full"):
+                    if existing_directive != directive_name or not _get_stored_hash(existing):
                         existing["directive_name"] = directive_name
-                        existing["signature_hash"] = stored_short
-                        if len(stored_hash) == 64:
-                            existing["signature_hash_full"] = stored_hash
+                        _write_hash_fields(existing, stored_short, stored_hash)
                         sweeps[requested_key] = existing
                         idea_block["sweeps"] = sweeps
                         ideas[idea_id] = idea_block
@@ -493,7 +527,8 @@ def reserve_sweep_identity(
                         "idea_id": idea_id,
                         "sweep": requested_key,
                         "strategy_name": directive_name,
-                        "signature_hash": signature_hash,
+                        "directive_hash": signature_hash,
+                        "signature_hash": signature_hash,  # legacy alias
                     }
                 # Check if incoming is a patch sibling of the existing sweep owner.
                 if _is_patch_sibling(existing_directive, directive_name):
@@ -512,11 +547,7 @@ def reserve_sweep_identity(
                         # stub and re-run, paying the round-trip every new pass.
                         if _is_zero_stub(existing_patch_hash):
                             existing_patch["directive_name"] = directive_name
-                            existing_patch["signature_hash"] = stored_short
-                            if len(stored_hash) == 64:
-                                existing_patch["signature_hash_full"] = stored_hash
-                            else:
-                                existing_patch.pop("signature_hash_full", None)
+                            _write_hash_fields(existing_patch, stored_short, stored_hash)
                             existing_patch["reserved_at_utc"] = _now_utc()
                             patches[patch_key] = existing_patch
                             existing["patches"] = patches
@@ -546,11 +577,9 @@ def reserve_sweep_identity(
                         }
                     patch_payload = {
                         "directive_name": directive_name,
-                        "signature_hash": stored_short,
                         "reserved_at_utc": _now_utc(),
                     }
-                    if len(stored_hash) == 64:
-                        patch_payload["signature_hash_full"] = stored_hash
+                    _write_hash_fields(patch_payload, stored_short, stored_hash)
                     patches[patch_key] = patch_payload
                     existing["patches"] = patches
                     sweeps[requested_key] = existing
@@ -563,7 +592,8 @@ def reserve_sweep_identity(
                         "idea_id": idea_id,
                         "sweep": requested_key,
                         "strategy_name": directive_name,
-                        "signature_hash": signature_hash,
+                        "directive_hash": signature_hash,
+                        "signature_hash": signature_hash,  # legacy alias
                     }
                 # Reclaim Logic
                 if existing_directive == directive_name:
@@ -571,12 +601,8 @@ def reserve_sweep_identity(
                         # Attempt tracking
                         attempt = existing.get("attempt", 1) + 1
                         existing["attempt"] = attempt
-                        existing["signature_hash"] = stored_short
-                        if len(stored_hash) == 64:
-                            existing["signature_hash_full"] = stored_hash
-                        else:
-                            existing.pop("signature_hash_full", None)
-                        
+                        _write_hash_fields(existing, stored_short, stored_hash)
+
                         sweeps[requested_key] = existing
                         idea_block["sweeps"] = sweeps
                         ideas[idea_id] = idea_block
@@ -617,13 +643,12 @@ def reserve_sweep_identity(
                 next_num += 1
             sweep_key = f"S{next_num:02d}"
 
-        sweeps[sweep_key] = {
+        new_slot = {
             "directive_name": directive_name,
-            "signature_hash": stored_short,
             "reserved_at_utc": _now_utc(),
         }
-        if len(stored_hash) == 64:
-            sweeps[sweep_key]["signature_hash_full"] = stored_hash
+        _write_hash_fields(new_slot, stored_short, stored_hash)
+        sweeps[sweep_key] = new_slot
         idea_block["sweeps"] = sweeps
         # Keep next_sweep for compatibility/observability (not a gate condition).
         idea_block["next_sweep"] = _compute_next_sweep(sweeps)
@@ -731,9 +756,7 @@ def update_sweep_signature_hash(
                 "signature_hash": signature_hash,
             }
 
-        node["signature_hash"] = stored_short
-        if len(stored_hash) == 64:
-            node["signature_hash_full"] = stored_hash
+        _write_hash_fields(node, stored_short, stored_hash)
         idea_block["sweeps"] = sweeps
         ideas[idea_id] = idea_block
         registry["ideas"] = ideas
