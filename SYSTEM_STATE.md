@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 4 uncommitted
 
-> Generated: 2026-05-08T13:48:45Z
+> Generated: 2026-05-08T14:02:36Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -29,7 +29,7 @@
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260508T021433Z_22408 | bars=353
+- **Process:** RUNNING | run_id=20260508T021433Z_22408 | bars=364
 - **Shadow trades:** 0 active | **Signals (7d):** 50 entry, 27 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -45,7 +45,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 4 uncommitted
-- Last substantive commit: `9d0d6e4 infra: drop deprecated CONSERVATIVE_V1/DYNAMIC_V1 from Step-9 verifier`
+- Last substantive commit: `f48749c infra: lint hidden class constants against STRATEGY_SIGNATURE`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
