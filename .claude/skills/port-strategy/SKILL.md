@@ -13,11 +13,11 @@ This is a complement to `execute-directives`, not a replacement. `execute-direct
 
 ## Where to work (read first)
 
-- **Run pipeline → main repo only** (`C:\Users\faraw\Documents\Trade_Scan`). `governance/preflight.py` resolves the project root with `Path(__file__).parent.parent`, which from a worktree is the worktree root — `data_root/` symlink isn't there → DATA_GATE fails.
-- **Code-only edits → worktree is fine.** The friction is specifically the pipeline execution path.
-- **NEVER `mklink /J`** to bridge `data_root/` into a worktree. Hard prohibition (see CLAUDE.md → 2026-05-07 incident).
+- **Worktrees are first-class for both code edits AND pipeline runs** as of commit `2c316e3` (2026-05-08). `governance/preflight.py` now resolves `PROJECT_ROOT` via `config.path_authority.REAL_REPO_ROOT`, so DATA_GATE finds `data_root/` on the real repo regardless of where the script is invoked from. Run `python tools/run_pipeline.py <ID>` from your worktree directly — no mirror dance needed.
+- **Main repo is also fine** — choose based on whether you want git isolation for the work, not based on what the work is.
+- **NEVER `mklink /J`** to bridge `data_root/` into a worktree. Hard prohibition (see CLAUDE.md → 2026-05-07 incident). The path_authority patch removes any reason you'd want one.
 
-If a session does both code edits *and* a pipeline run, do the run from main and mirror the touched files back. Don't try to make worktree+pipeline work — the underlying pathing isn't compatible until `preflight.py` is patched to use `path_authority`.
+If you discover any other tool deriving root from `Path(__file__).parent.parent` and breaking under a worktree, the fix pattern is one line: `from config.path_authority import REAL_REPO_ROOT as PROJECT_ROOT`. Don't add a junction; patch the offender.
 
 ---
 
@@ -110,7 +110,7 @@ python tools/new_pass.py --rehash <DIRECTIVE_ID>
 # moves directive INBOX → INBOX (or restores from completed/ if needed)
 
 # 4. Run
-python tools/run_pipeline.py <DIRECTIVE_ID>     # MUST be invoked from main repo
+python tools/run_pipeline.py <DIRECTIVE_ID>     # invoke from main repo OR worktree (post-2c316e3)
 ```
 
 ---

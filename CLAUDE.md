@@ -113,6 +113,8 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 - If a tool absolutely needs `data_root` inside the worktree, use a *symbolic file link* via Python (`Path.symlink_to`) for individual files only — never `mklink /J` on a directory.
 - For temporary cross-repo work, `cd` into the sibling repo directly; do not bridge it into the worktree's tree.
 
+**Pipeline runs from worktrees are supported** as of commit `2c316e3` (2026-05-08) — `governance/preflight.py` resolves `PROJECT_ROOT` via `config.path_authority.REAL_REPO_ROOT`, so DATA_GATE finds `data_root/` on the real repo regardless of where you invoke from. No junction needed. If you find any other tool deriving root from `Path(__file__).parent.parent` and breaking under a worktree, patch it the same way.
+
 **If you find yourself typing `mklink /J` — stop and re-read this section.** No exceptions in scratch scripts, in `/tmp/`, or "just for this session". The cost of the failure mode (silent multi-GB data loss) is asymmetric to any convenience the junction provides.
 
 **Reference:** `outputs/system_reports/09_incident_reports/DATA_RECOVERY_REPORT.md`
