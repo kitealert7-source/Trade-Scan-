@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-08T01:29:15Z
+> Generated: 2026-05-08T11:42:01Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,25 +11,25 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 221 directives
+- Completed: 222 directives
 
 ## Ledgers
 
-- **Master Filter:** 1062 rows
+- **Master Filter:** 1063 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 120 rows — CORE: 4, FAIL: 112, PROFILE_UNRESOLVED: 1, WATCH: 3
   - **Single-Asset Composites:** 80 rows — CORE: 11, FAIL: 63, PROFILE_UNRESOLVED: 1, WATCH: 5
 
-- **Candidates (FPS):** 473 rows — BURN_IN: 13, CORE: 14, FAIL: 307, RBIN: 2, RESERVE: 25, WATCH: 112
+- **Candidates (FPS):** 474 rows — BURN_IN: 13, CORE: 14, FAIL: 308, RBIN: 2, RESERVE: 25, WATCH: 112
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
 - BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260507T081405Z_17396 | bars=508
-- **Shadow trades:** 2 active | **Signals (7d):** 52 entry, 23 exit
+- **Process:** RUNNING | run_id=20260508T021433Z_22408 | bars=285
+- **Shadow trades:** 1 active | **Signals (7d):** 50 entry, 26 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
 ## Vault (DRY_RUN_VAULT)
@@ -39,12 +39,12 @@
 - Latest bar: **2026-05-08** | Symbols: 243
 
 ## Artifacts
-- Run directories: 1280
+- Run directories: 1281
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `c50d31e session: refresh tools_manifest.json post-harness`
+- Last substantive commit: `bb82a40 process: enforce skill discovery before task execution`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -52,14 +52,3 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
-
-- **Pre-existing test failures (not gate-suite, auto-populator does not surface):** `pytest tests/` shows 10 failures concentrated in two files:
-  - `tests/test_semantic_validator_engine_owned_fields.py` — 8 failures (semantic validator engine-owned field detection)
-  - `tests/test_state_paths_worktree.py` — 2 failures (state path resolution under worktree env)
-  These predate 2026-05-07 incident work and are non-blocking for the gate suite. Triage in a future session.
-
-- **DATA RECOVERY incident — RESOLVED 2026-05-08:** First scheduled run failed (svc-data-ingress had no filesystem access — Phase 2 migration was incomplete; smoke test was a false positive). Resolved via Option Alpha: AntiGravity_Daily_Preflight reverted to `faraw + LogonType=S4U` (BATCH group bypasses INTERACTIVE deny). Validated 2026-05-08 06:29 IST: pipeline ran end-to-end, 1959 datasets validated, governance JSON SUCCESS. svc-data-ingress account **disabled**, TradeScan NAS Backup **re-enabled**. **Do not modify task principals or ACLs without first running `tools/scheduled_task_identity_smoke.ps1 -Mode validate` AND re-reading [DATA_RECOVERY_REPORT.md](outputs/system_reports/09_incident_reports/DATA_RECOVERY_REPORT.md) §9.** The smoke-test false-positive trap is documented in §9.7.
-
-- **`system_introspection.py` wipes the Manual section on regen** despite the inline comment claiming "entries here persist". Observed 2026-05-08 — the prior session's Manual entries (this same content) were deleted by the regen and had to be restored manually. Bug in the auto-populator: it should preserve everything between `### Manual` and EOF (or until a known sentinel) rather than rewriting the whole file. Triage when the auto-populator is next touched.
-
-- **infra_todo: windows_console_unicode_preflight** — `governance/preflight.py` prints `→` (U+2192) on the capability resolution line (~L747-748). Crashes with `UnicodeEncodeError: 'charmap' codec` when stdout is the Windows console (cp1252). Full pipeline runs aren't affected (subprocess capture forces UTF-8); only direct invocation of `tools/exec_preflight.py` from a PowerShell terminal trips it. Workaround: `$env:PYTHONIOENCODING="utf-8"` before invoking. Fix: replace `→` with `->` (one-line, low risk) or set encoding in the entrypoint. Surfaced 2026-05-08 during the path_authority patch validation.
