@@ -239,6 +239,18 @@ def _normalize_signature_hash(token: str) -> str:
     return h
 
 
+def _is_zero_stub(hash_str: str) -> bool:
+    """True if hash is the canonical placeholder (all zeros, 16 or 64 chars).
+
+    Manual bootstrap of a new idea/patch entry uses '0' * 16 (or 64) as a
+    placeholder until the first --rehash computes the real hash. Treating
+    the placeholder as auto-replaceable avoids the 2-round PATCH_COLLISION
+    dance that would otherwise fire on the first real registration.
+    """
+    h = str(hash_str).strip().lower()
+    return bool(re.fullmatch(r"0{16}|0{64}", h))
+
+
 def _hashes_match(existing_hash: str, incoming_hash: str) -> bool:
     a = _normalize_signature_hash(existing_hash)
     b = _normalize_signature_hash(incoming_hash)
@@ -492,6 +504,34 @@ def reserve_sweep_identity(
                     if patch_key in patches:
                         existing_patch = patches[patch_key]
                         existing_patch_hash = _get_stored_hash(existing_patch)
+                        # Auto-replace zero-stub placeholders on first real
+                        # registration. Bootstrap workflow seeds a new patch
+                        # entry with '0' * 16 before the directive hash exists;
+                        # the first --rehash then provides the real hash. Without
+                        # this branch the user has to manually overwrite the
+                        # stub and re-run, paying the round-trip every new pass.
+                        if _is_zero_stub(existing_patch_hash):
+                            existing_patch["directive_name"] = directive_name
+                            existing_patch["signature_hash"] = stored_short
+                            if len(stored_hash) == 64:
+                                existing_patch["signature_hash_full"] = stored_hash
+                            else:
+                                existing_patch.pop("signature_hash_full", None)
+                            existing_patch["reserved_at_utc"] = _now_utc()
+                            patches[patch_key] = existing_patch
+                            existing["patches"] = patches
+                            sweeps[requested_key] = existing
+                            idea_block["sweeps"] = sweeps
+                            ideas[idea_id] = idea_block
+                            registry["ideas"] = ideas
+                            _write_yaml_atomic(SWEEP_REGISTRY_PATH, registry)
+                            return {
+                                "status": "stub_replaced",
+                                "idea_id": idea_id,
+                                "sweep": requested_key,
+                                "strategy_name": directive_name,
+                                "signature_hash": signature_hash,
+                            }
                         if not _hashes_match(existing_patch_hash, signature_hash):
                             raise SweepRegistryError(
                                 f"PATCH_COLLISION: idea_id='{idea_id}' sweep='{requested_key}' "
