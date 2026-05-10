@@ -1,0 +1,65 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S03_V1_P00__E152
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S03_V1_P00
+  version: 1
+  signal_version: 3
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-09-01"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — Pine v5 port (NEW LINEAGE S03). Adds the Pine v5 ALL_3 momentum gate (DMI ∧ ROC ∧ CMO) on top of the proven PSBRK breakout structure, on XAU-tuned UTC sessions (asia 00-07, london 07-13, ny 13-21) matching Pine's Summer DST 7/13/21 default. ENTRY: armed-once-per-session-per-direction guard + close > prev_session_high (long) / close < prev_session_low (short) + ALL THREE momentum filters confirm direction simultaneously: (plus_di - minus_di) >= 11.0 AND ROC(5) >= +0.15% AND CMO(9) >= +20 (mirrored for short). STOP: structural session-extreme initial stop, lock to entry+/-1R when intrabar R reaches +1.5R, full TP at +3R via tp_price in signal dict, utc_day_close fallback. POSITION: 0.01 lots fixed (RAW_MIN_LOT_V1 deployment policy). Pine source: ../TS_Pine/pine_strategies/PriorSessionBreakout Strategy v5.txt. Handover: ../TS_Pine/PORT_HANDOVER_PriorSessionBreakout_v5.md. Pine 12-mo evidence on OANDA (440 trades): PF 1.483, MaxDD 26.68% peak-relative."
+  notes: "S03 differentiates from S01 (same XAU sessions, no momentum, V1-V4 stop-side refinements) and S02 (universal sessions, no momentum) by adding the Pine v5 ALL_3 momentum filter as the entry-side gate. CROSS-BROKER WARNING: Pine evidence is on OANDA (99.9% bar-agreement with FXCM); production target is OctaFx (1.0% bar-agreement, prices_include_spread). The Python pipeline result here is the only authoritative number — Pine PF does NOT forecast OctaFx PF. Pine pending mechanism (signal stays armed across bars until momentum confirms) is OMITTED per handover finding #3 (zero edge across all four pending-freshness modes). Dead-zone expansion of prev_session_extremes is ENABLED via the new expand_during_dead_zone=True kwarg — Pine v5's reference implementation expands prev_high/low during 21-24 UTC bars and Asia at 00:00 inherits the union; default kwarg behaviour (False) preserved for S01/S02 lineages. Indicator ports: indicators.momentum.cmo (new module), indicators.structure.dmi_wilder (new sibling to adx_wilder exposing DI components, both using Wilder's RMA per Pine ta.dmi convention). Strategy is regime-correlated (handover finding #5) — promote decisions must apply pre-promote quality gate (tail concentration, flat periods, single-year sub-period PF) on top of headline metrics. Date range matches S02_V1_P01/P02 (2025-09-01 → 2026-05-04) for direct apples-to-apples comparison vs no-momentum baseline."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.structure.dmi_wilder
+  - indicators.momentum.cmo
+  - indicators.momentum.roc
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

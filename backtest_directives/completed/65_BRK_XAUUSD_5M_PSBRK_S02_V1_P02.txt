@@ -1,0 +1,62 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S02_V1_P02
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S02_V1_P02
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-09-01"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout (S02 universal sessions) — P02 adds break-even stop mutation at +1R MFE on top of P01's lock+1R@+2R baseline. Evidence: S02_V1_P01 MFE analysis found 131 trades (16.3%) that reached >=+1R intrabar but finished at -1R (full stop-loss). P02 eliminates this structural leak by moving stop to entry when price first reaches +1R intrabar. Stage 2 lock+1R@+2R is retained. If BE fires and price reverses, trade closes at scratch (0R) instead of -1R. If price continues to +2R, lock fires and supersedes BE. Single delta vs P01: check_stop_mutation now has two ordered stages."
+  notes: "Two-stage mutation order within a single check_stop_mutation call: Stage 2 (lock+1R at +2R) is checked before Stage 1 (BE at +1R) — if r_intra jumps past +2R in one bar, lock fires and BE is skipped (lock is the superior outcome). Each stage fires at most once per trade. Trade count expected identical to P01 — BE does not filter entries. DD expected lower. Net PnL direction uncertain: depends on whether the 16.3% cohort would have recovered to TP without the gate. Universal exchange sessions (asia 00-08, london 08-14, ny 14-21 UTC) unchanged from P01."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock_universal
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day
