@@ -92,11 +92,6 @@ FRESHNESS_INDEX = _TRADE_SCAN_ROOT / "data_root" / "freshness_index.json"
 
 TS_EXECUTION = _resolve_sibling("TS_Execution")
 PORTFOLIO_YAML = TS_EXECUTION / "portfolio.yaml"
-TS_EXEC_STATE = TS_EXECUTION / "outputs" / "logs" / "execution_state.json"
-TS_EXEC_HEARTBEAT = TS_EXECUTION / "outputs" / "logs" / "heartbeat.log"
-TS_EXEC_PENDING = TS_EXECUTION / "outputs" / "logs" / "pending_signals.json"
-TS_EXEC_SHADOW = TS_EXECUTION / "outputs" / "shadow_trades.jsonl"
-TS_EXEC_JOURNAL = TS_EXECUTION / "journal" / "SignalJournal.jsonl"
 DRY_RUN_VAULT = _resolve_sibling("DRY_RUN_VAULT")
 
 DEFAULT_OUTPUT = PROJECT_ROOT / "SYSTEM_STATE.md"
@@ -314,86 +309,6 @@ def collect_portfolio() -> dict[str, Any]:
     }
 
 
-def collect_burnin_telemetry() -> dict[str, Any]:
-    """Burn-in runtime telemetry from TS_Execution.
-
-    Read-only aggregate — no logic, no cross-linking, no interpretation.
-    Any file missing or corrupt → returns {"status": "UNAVAILABLE"}.
-    JSONL files: tail only (last 500 lines max).
-    """
-    try:
-        # execution_state.json — single JSON object (required)
-        if not TS_EXEC_STATE.exists():
-            return {"status": "UNAVAILABLE"}
-        state = _safe_json(TS_EXEC_STATE)
-        if not state:
-            return {"status": "UNAVAILABLE"}
-
-        exit_reason = state.get("exit_reason")
-        exit_utc = state.get("exit_utc")
-        running = exit_reason is None
-
-        # pending_signals.json — count active shadow positions
-        active_shadows = 0
-        if TS_EXEC_PENDING.exists():
-            pending = _safe_json(TS_EXEC_PENDING)
-            if pending:
-                active_shadows = sum(
-                    1 for k, v in pending.items()
-                    if k != "_meta" and isinstance(v, dict) and v.get("shadow")
-                )
-
-        # shadow_trades.jsonl — tail 500 lines, count SIGNAL/EXIT within last 7d
-        signals_7d = 0
-        exits_7d = 0
-        cutoff = (datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)).isoformat()
-        if TS_EXEC_SHADOW.exists():
-            try:
-                with open(TS_EXEC_SHADOW, "rb") as f:
-                    f.seek(0, 2)
-                    size = f.tell()
-                    f.seek(max(0, size - 150_000))
-                    chunk = f.read().decode("utf-8", errors="replace")
-                lines = chunk.strip().splitlines()
-                if size > 150_000:
-                    lines = lines[1:]
-                for line in lines:
-                    try:
-                        rec = json.loads(line)
-                        ev_utc = rec.get("event_utc", "")
-                        if ev_utc < cutoff:
-                            continue
-                        et = rec.get("event_type")
-                        if et == "SIGNAL":
-                            signals_7d += 1
-                        elif et == "EXIT":
-                            exits_7d += 1
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        # Derive alert/watchdog state from execution_state (no inference, just mapping)
-        silence = "ON" if exit_reason == "market_halt" else "OFF"
-        watchdog = "IDLE" if exit_reason == "market_halt" else "ACTIVE"
-
-        return {
-            "running": running,
-            "exit_reason": exit_reason,
-            "exit_utc": exit_utc,
-            "run_id": state.get("run_id", "?"),
-            "bar_count": state.get("bar_count", 0),
-            "active_shadows": active_shadows,
-            "signals_7d": signals_7d,
-            "exits_7d": exits_7d,
-            "silence_alerts": silence,
-            "watchdog": watchdog,
-        }
-
-    except Exception:
-        return {"status": "UNAVAILABLE"}
-
-
 def collect_vault() -> dict[str, Any]:
     """DRY_RUN_VAULT: count snapshots and WAITING entries."""
     if not DRY_RUN_VAULT.exists():
@@ -595,7 +510,6 @@ _GATE_TEST_SUITE = (
     "tests/test_idea_evaluation_gate.py",
     "tests/test_namespace_gate_regex.py",
     "tests/test_sweep_registry_gate_regex.py",
-    "tests/test_burnin_evaluator.py",
     "tests/test_fvg_session_infra_regressions.py",
     "tests/test_sweep_registry_td004_regression.py",
 )
@@ -609,8 +523,8 @@ def collect_known_issues() -> dict[str, Any]:
     close skill's truthfulness gate caught the empty-while-broken case
     but couldn't catch the inverse: a real failure that the operator
     forgot to write down. This auto-populator surfaces the same signals
-    the gate checks (gate-suite pytest, burnin_evaluator, intent-index
-    audit, sweep_registry caveats) so the file is honest by default.
+    the gate checks (gate-suite pytest, intent-index audit,
+    sweep_registry caveats) so the file is honest by default.
     Manual entries (deferred TDs, operational context) still live in
     a separate subsection that's preserved across regeneration.
 
@@ -622,8 +536,6 @@ def collect_known_issues() -> dict[str, Any]:
         "pytest_skipped": 0,
         "pytest_passed": 0,
         "pytest_error": None,
-        "burnin_aborts": [],
-        "burnin_error": None,
         "intent_index_errors": [],
         "sweep_registry_errors": [],
         "directive_queue": {"stale_inbox": [], "stranded": []},
@@ -658,24 +570,7 @@ def collect_known_issues() -> dict[str, Any]:
     except Exception as e:
         auto["pytest_error"] = str(e)
 
-    # 2. Burn-in ABORT verdicts.
-    try:
-        if str(_TRADE_SCAN_ROOT) not in sys.path:
-            sys.path.insert(0, str(_TRADE_SCAN_ROOT))
-        from tools.burnin_evaluator import evaluate_all
-        results = evaluate_all()
-        for r in results:
-            ev = r.get("evaluation", {})
-            if ev.get("verdict") == "ABORT":
-                reasons = ev.get("abort_reasons", []) or ev.get("reasons", [])
-                auto["burnin_aborts"].append({
-                    "strategy": r.get("strategy", "?"),
-                    "reasons": [str(x) for x in reasons],
-                })
-    except Exception as e:
-        auto["burnin_error"] = str(e)
-
-    # 3. Intent-index audit — read the most recent validation_errors
+    # 2. Intent-index audit — read the most recent validation_errors
     # record from the hook's log instead of re-running the audit (the
     # hook itself logs validation issues every UserPromptSubmit).
     try:
@@ -699,7 +594,7 @@ def collect_known_issues() -> dict[str, Any]:
     except Exception:
         pass
 
-    # 4. Sweep registry caveats — short/full hash mismatch is a known
+    # 3. Sweep registry caveats — short/full hash mismatch is a known
     # signal of registry corruption (TD-004 class).
     try:
         import yaml as _yaml
@@ -723,14 +618,14 @@ def collect_known_issues() -> dict[str, Any]:
     except Exception:
         pass
 
-    # 5. Directive queue health: stale INBOX + stranded directives.
+    # 4. Directive queue health: stale INBOX + stranded directives.
     # See _check_directive_queue_health docstring for failure modes.
     try:
         auto["directive_queue"] = _check_directive_queue_health()
     except Exception as e:
         auto["directive_queue_error"] = f"{type(e).__name__}: {e}"
 
-    # 6. Post-merge watch (observer reconcile + status).
+    # 5. Post-merge watch (observer reconcile + status).
     # Reconciling here is the enforcement leg: every SYSTEM_STATE.md
     # regeneration scans new Stage1 runs and updates the watch.
     try:
@@ -807,7 +702,6 @@ def render_markdown(
     directives: dict,
     ledgers: dict,
     portfolio: dict,
-    burnin: dict,
     vault: dict,
     freshness: dict,
     runs: dict,
@@ -905,19 +799,6 @@ def render_markdown(
         lines.append(f"- BURN_IN: {portfolio.get('burn_in', 0)} | WAITING: {portfolio.get('waiting', 0)} | LIVE: {portfolio.get('live', 0)} | LEGACY: {portfolio.get('legacy', 0)}")
     lines.append("")
 
-    # ── Burn-In Telemetry
-    lines.append("## Burn-In Status")
-    if burnin.get("status") == "UNAVAILABLE":
-        lines.append("- **Status:** UNAVAILABLE")
-    else:
-        if burnin.get("running"):
-            lines.append(f"- **Process:** RUNNING | run_id={burnin.get('run_id', '?')} | bars={burnin.get('bar_count', 0)}")
-        else:
-            lines.append(f"- **Process:** STOPPED ({burnin.get('exit_reason', '?')}) | Last run: {burnin.get('exit_utc', '?')}Z")
-        lines.append(f"- **Shadow trades:** {burnin.get('active_shadows', 0)} active | **Signals (7d):** {burnin.get('signals_7d', 0)} entry, {burnin.get('exits_7d', 0)} exit")
-        lines.append(f"- **Alerts:** silence_alerts={burnin.get('silence_alerts', '?')} | watchdog={burnin.get('watchdog', '?')}")
-    lines.append("")
-
     # ── Vault
     lines.append("## Vault (DRY_RUN_VAULT)")
     if vault.get("missing"):
@@ -970,13 +851,6 @@ def render_markdown(
         auto_lines.append(f"- **Gate suite: {pf} failing test(s)** ({pp} pass, {ps} skip) — `python -m pytest tests/` for detail")
     elif ps > 0:
         auto_lines.append(f"- Gate suite: {ps} skipped test(s) ({pp} pass) — review whether quarantines should be resolved")
-
-    if auto.get("burnin_error"):
-        auto_lines.append(f"- Burn-in evaluator: error — {auto['burnin_error']}")
-    else:
-        for ab in auto.get("burnin_aborts", []) or []:
-            reasons = ", ".join(ab.get("reasons", [])) or "unspecified"
-            auto_lines.append(f"- **Burn-in ABORT:** `{ab['strategy']}` — {reasons}")
 
     for err in auto.get("intent_index_errors", []) or []:
         auto_lines.append(f"- **Intent-index hard error:** {err}")
@@ -1082,7 +956,6 @@ def main() -> None:
     directives = collect_directives()
     ledgers = collect_ledgers()
     portfolio = collect_portfolio()
-    burnin = collect_burnin_telemetry()
     vault = collect_vault()
     freshness = collect_data_freshness()
     runs = collect_runs()
@@ -1090,7 +963,7 @@ def main() -> None:
     known_issues = collect_known_issues()
 
     session_status = compute_session_status(engine, freshness, git)
-    markdown = render_markdown(engine, directives, ledgers, portfolio, burnin, vault, freshness, runs, git, session_status, known_issues)
+    markdown = render_markdown(engine, directives, ledgers, portfolio, vault, freshness, runs, git, session_status, known_issues)
 
     output_path.write_text(markdown, encoding="utf-8")
 

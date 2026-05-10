@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 7 uncommitted
+- WARNING: Working tree 6 uncommitted
 
-> Generated: 2026-05-10T03:34:43Z
+> Generated: 2026-05-10T04:08:34Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 228 directives
+- Completed: 226 directives
 
 ## Ledgers
 
@@ -28,11 +28,6 @@
 - **Total entries:** 9 | **Enabled:** 9
 - BURN_IN: 0 | WAITING: 0 | LIVE: 9 | LEGACY: 0
 
-## Burn-In Status
-- **Process:** RUNNING | run_id=20260509T092018Z_23948 | bars=0
-- **Shadow trades:** 0 active | **Signals (7d):** 50 entry, 27 exit
-- **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
-
 ## Vault (DRY_RUN_VAULT)
 - Snapshots: 17 | WAITING: 0 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
@@ -44,13 +39,11 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 7 uncommitted
-- Last substantive commit: `88b4f28 session: closing SYSTEM_STATE snapshot`
+- Working tree: 6 uncommitted
+- Last substantive commit: `53408c5 session: closing SYSTEM_STATE snapshot`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Gate suite: error running pytest** — could not parse pytest output
-- Burn-in evaluator: error — No module named 'shadow_trades_reader'
 - **Post-merge watch:** 1/5 observed; status=ACTIVE; commit=1b6cc7b.
 
 ### Manual (deferred TDs, operational context)

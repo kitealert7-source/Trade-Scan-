@@ -29,7 +29,7 @@ git diff --stat
 - Follow repo commit style: summary line + detail body + `Co-Authored-By` trailer
 - Do NOT commit secrets, .env, or credentials
 - **Tracked deletions MUST be committed or restored** — never left unstaged
-- **Do NOT regenerate or commit `SYSTEM_STATE.md` here** — that is Step 10.
+- **Do NOT regenerate or commit `SYSTEM_STATE.md` here** — that is Step 9.
 
 **File handling rules:**
 
@@ -75,23 +75,7 @@ python tools/generate_guard_manifest.py
 - Stage all regenerated files and include in the session-close commit
 - Skip data source refresh if no pipeline runs were done this session
 
-### 3. Burn-In Evaluation
-
-Run the burn-in evaluator to check all BURN_IN strategies against their
-pass/abort gates. Read-only — no MT5 required, uses shadow_trades.jsonl.
-
-```bash
-python tools/burnin_evaluator.py
-```
-
-- Prints CONTINUE / ON_TRACK / WARN / ABORT per strategy group
-- **ABORT**: investigate immediately — do NOT defer to next session
-- **WARN**: note in session summary, monitor next session
-- **CONTINUE**: insufficient data, no action needed
-- Exit code 2 if any ABORT, 0 otherwise
-- For single strategy: `python tools/burnin_evaluator.py --strategy RSIAVG`
-
-### 4. Ledger DB Export
+### 3. Ledger DB Export
 
 If any pipeline runs completed this session, regenerate Excel exports from
 the authoritative SQLite ledger. This ensures Excel files stay in sync.
@@ -105,7 +89,7 @@ python tools/ledger_db.py --export
 - Use `--stats` to verify row counts before export
 - Skip if no pipeline runs or ledger changes this session
 
-### 5. Document Updates
+### 4. Document Updates
 
 Check if any of these need updating based on today's work:
 
@@ -119,13 +103,13 @@ Check if any of these need updating based on today's work:
 | `.claude/skills/` | New or changed operational procedure |
 | `outputs/system_reports/INTENT_INDEX.yaml` | MISS cluster revealed a real coverage gap, or a skill under `.claude/skills/` was renamed/added/removed |
 
-### 6. Artifact Cleanup
+### 5. Artifact Cleanup
 
 - Delete any `/tmp/` scratch scripts created during session
 - Check for orphaned files in repo root (Invariant 25: no transient scripts in root)
 - If pipeline was run: verify `TradeScan_State/` artifacts are consistent
 
-### 7. Enforcement System Health
+### 6. Enforcement System Health
 
 Verify the intent-routing + violation-detection hook system is not in a
 degraded state. This runs the structural, overlap, dead-intent,
@@ -154,14 +138,14 @@ Also review:
   extend `INTENT_INDEX.yaml` before close. Keep the `MAX_INTENTS = 25`
   cap in mind.
 
-### 8. Pre-Push Gate — Strict Clean Working Tree (NON-NEGOTIABLE)
+### 7. Pre-Push Gate — Strict Clean Working Tree (NON-NEGOTIABLE)
 
 ```bash
 git status --porcelain | grep -v "^??"
 ```
 
 **This MUST return empty output** (except for `SYSTEM_STATE.md`, which is
-regenerated in Step 10 and intentionally not touched yet).
+regenerated in Step 9 and intentionally not touched yet).
 
 - Any tracked file that is modified or deleted and not committed = **ERROR**
 - Do NOT label dirty state as "intentional" or "pre-existing"
@@ -172,7 +156,7 @@ If output is non-empty (aside from `SYSTEM_STATE.md`):
 ERROR: Dirty working tree — tracked changes detected. Commit or revert before closing.
 ```
 
-### 9. Push to Remote
+### 8. Push to Remote
 
 ```bash
 git log --oneline origin/main..HEAD   # review what's about to go out
@@ -183,16 +167,16 @@ git push origin main
   so the snapshot's "unpushed count" reflects reality (0).
 - Never end a session with unpushed work commits.
 
-### 10. Regenerate SYSTEM_STATE.md — Final Step
+### 9. Regenerate SYSTEM_STATE.md — Final Step
 
 ```bash
 python tools/system_introspection.py
 ```
 
-- Runs AFTER Step 9's push, so the snapshot reports `0 unpushed` and the
+- Runs AFTER Step 8's push, so the snapshot reports `0 unpushed` and the
   true end-of-session state instead of a mid-close artifact.
 - Review output — `SESSION STATUS` should be `OK` (or `WARNING` with
-  clearly-documented burn-in/runtime reasons).
+  clearly-documented runtime reasons).
 - Commit and push this snapshot as the closing entry:
 
 ```bash
@@ -205,12 +189,12 @@ git push origin main
   state — the next session's first read reflects what was true when the
   previous session closed.
 - If a background pipeline run has altered other tracked files between
-  Step 9 and Step 10 (e.g. sweep_registry reservation, tools_manifest
+  Step 8 and Step 9 (e.g. sweep_registry reservation, tools_manifest
   regen, new directive file), those are NOT part of this session's close
   — `git checkout --` the SYSTEM_STATE you just wrote, note the in-flight
   activity in the session summary, and let the next session close it.
 
-### 10a. HEAD Consistency Check
+### 9a. HEAD Consistency Check
 
 Right after the snapshot regen and BEFORE committing it:
 
@@ -223,8 +207,8 @@ git rev-parse --short HEAD
 
 These two values MUST match. If they differ, `system_introspection.py`
 captured `git log -1` BEFORE you ran it (e.g., a pipeline tool snuck a
-commit in between Step 9 push and Step 10 regen, OR you regenerated
-before Step 9's push completed). Re-run the regen to converge.
+commit in between Step 8 push and Step 9 regen, OR you regenerated
+before Step 8's push completed). Re-run the regen to converge.
 
 After the closing commit lands, the file's `Last substantive commit:`
 line will necessarily reference the commit BEFORE itself (the file
@@ -236,18 +220,18 @@ commit other than the snapshot itself, not HEAD. The next session's
 first read will see "Last substantive commit: <closing snapshot hash>"
 — which identifies the prior session's true end state.
 
-### 10b. Known Issues Truthfulness Gate (NON-NEGOTIABLE)
+### 9b. Known Issues Truthfulness Gate (NON-NEGOTIABLE)
 
 The S2 fix (2026-05-04) made `system_introspection.collect_known_issues()`
 auto-populate the section under `### Auto-detected` from the same
-signals this gate checks (gate-suite pytest, burnin_evaluator,
-intent-index audit, sweep_registry hash drift). The file is honest
-by construction post-regen.
+signals this gate checks (gate-suite pytest, intent-index audit,
+sweep_registry hash drift). The file is honest by construction
+post-regen.
 
 This gate is now a *defensive backup* that catches three failure modes
 the auto-populator alone can't cover:
 
-1. **Auto-populator failed to run** — Step 10 regen errored, snapshot
+1. **Auto-populator failed to run** — Step 9 regen errored, snapshot
    is stale, no auto section exists.
 2. **Operator deferred items the automation can't see** — e.g., a
    data quality issue, an in-flight refactor, a TD that won't surface
@@ -260,16 +244,14 @@ the auto-populator alone can't cover:
 # Re-derive the same blocker signals the auto-populator uses:
 TEST_FAILS=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ failed" | head -1 | grep -oE "[0-9]+" || echo 0)
 SKIPPED=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ skipped" | head -1 | grep -oE "[0-9]+" || echo 0)
-BURNIN_ABORT=$(python tools/burnin_evaluator.py 2>&1 | grep -c "ABORT" || echo 0)
 
 # Auto-populator surfaces these under "### Auto-detected" — verify
 # the section exists (or that there's nothing for it to surface).
 HAS_AUTO_SECTION=$(grep -c "^### Auto-detected" SYSTEM_STATE.md || echo 0)
-HAS_BLOCKERS=$([ "$TEST_FAILS" -gt 0 ] || [ "$BURNIN_ABORT" -gt 0 ] && echo 1 || echo 0)
+HAS_BLOCKERS=$([ "$TEST_FAILS" -gt 0 ] && echo 1 || echo 0)
 
 echo "test failures      : $TEST_FAILS"
 echo "skipped tests      : $SKIPPED"
-echo "burn-in ABORT count: $BURNIN_ABORT"
 echo "Auto section exists: $HAS_AUTO_SECTION  (expected 1 when blockers > 0)"
 ```
 
@@ -283,7 +265,6 @@ section. The auto-populator either failed silently or the snapshot
 is stale. Re-run system_introspection.py and confirm the blockers
 appear under "### Auto-detected" before closing.
   - test failures: <N>
-  - burn-in ABORT: <N>
 ```
 
 For deferred items the automation can't see (in-flight TDs, data
@@ -291,7 +272,7 @@ quality notes, operational caveats), edit `### Manual` directly.
 The auto-detected section regenerates each run; the manual section
 persists across regen.
 
-### 10c. Sync Main Checkout
+### 9c. Sync Main Checkout
 
 After the closing snapshot lands on origin/main, fast-forward the main
 checkout's working tree so its `SYSTEM_STATE.md` reflects the new
@@ -318,7 +299,7 @@ close has already succeeded by this point; if the main checkout is
 dirty or on a non-main branch, the warning surfaces the issue without
 blocking.
 
-### 11. Session Summary (Optional but Recommended)
+### 10. Session Summary (Optional but Recommended)
 
 If significant work was done, briefly note:
 - What changed (1-3 bullet points)
@@ -345,30 +326,27 @@ python tools/generate_guard_manifest.py       # only if tools/*.py changed
 git add ../TradeScan_State/research/run_summary.csv ../TradeScan_State/hypothesis_log.json RESEARCH_MEMORY.md tools/tools_manifest.json
 git commit -m "session: idea gate refresh"
 
-# 3. Burn-in check
-python tools/burnin_evaluator.py
-
-# 4. Ledger DB export (skip if no pipeline runs)
+# 3. Ledger DB export (skip if no pipeline runs)
 python tools/ledger_db.py --export
 
-# 5. Enforcement system health — exit 2 blocks close, exit 1 note warnings
+# 4. Enforcement system health — exit 2 blocks close, exit 1 note warnings
 python tools/audit_intent_index.py --all
 
-# 6. Pre-push gate — MUST be empty (excluding untracked, excluding SYSTEM_STATE.md)
+# 5. Pre-push gate — MUST be empty (excluding untracked, excluding SYSTEM_STATE.md)
 git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$"
 
-# 7. Push all work commits
+# 6. Push all work commits
 git push origin main
 git log --oneline origin/main..HEAD   # should show nothing
 
-# 8. FINAL — regen SYSTEM_STATE post-push, commit + push as closing snapshot
+# 7. FINAL — regen SYSTEM_STATE post-push, commit + push as closing snapshot
 python tools/system_introspection.py
 git add SYSTEM_STATE.md
 git commit -m "session: closing SYSTEM_STATE snapshot"
 git push origin main
 git status --porcelain | grep -v "^??"   # must be empty
 
-# 9. Sync main checkout so SYSTEM_STATE renders fresh outside the worktree (worktree-only)
+# 8. Sync main checkout so SYSTEM_STATE renders fresh outside the worktree (worktree-only)
 case "$(git rev-parse --absolute-git-dir 2>/dev/null)" in
   */worktrees/*)
     MAIN_REPO=$(git worktree list --porcelain | awk '$1=="worktree"{print $2; exit}')

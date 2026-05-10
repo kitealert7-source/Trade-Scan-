@@ -12,7 +12,6 @@ run_pipeline | Primary pipeline execution entrypoint (directive -> Stage-4)
 control_panel | Governance-authoritative CLI for lifecycle intent + composite-portfolio analysis selection
 promote_to_burnin | Strategy promotion from PORTFOLIO_COMPLETE to BURN_IN (vault + portfolio.yaml)
 run_portfolio_analysis | Composite portfolio analysis runner (Analysis_selection flagged rows)
-burnin_evaluator | Read-only PASS / ON_TRACK / WARN / ABORT evaluation of BURN_IN strategies
 system_introspection | Workspace system snapshot generator (SYSTEM_STATE.md)
 
 ---
@@ -73,7 +72,6 @@ pre_promote_validator | Multi-layer validator (schema / replay regression / expe
 promote_to_burnin | Promotion to BURN_IN (expectancy gate + 6-metric quality gate + vault snapshot + portfolio.yaml edit)
 baseline_freshness_gate | Blocks burn-in promotion on stale replay baselines (threshold: 14 days)
 backup_dryrun_strategies | Full deterministic vault snapshot creator (DRY_RUN_VAULT/{vault_id}/{ID}/)
-burnin_evaluator | Burn-in PASS/ON_TRACK/WARN/ABORT evaluator against shadow_trades.jsonl
 transition_to_waiting | BURN_IN -> WAITING lifecycle transition (PASS/FAIL decision gated)
 transition_to_live | WAITING -> LIVE lifecycle transition (vault + portfolio.yaml)
 validate_portfolio_integrity | Audits portfolio.yaml for governance violations (vault_id, lifecycle, profile fields)
@@ -256,5 +254,5 @@ Repository layers are organized as follows:
 ---
 Last Updated: 2026-04-16
 Capital profile set: v3.0 Retail Amateur Model (`RAW_MIN_LOT_V1`, `FIXED_USD_V1`, `REAL_MODEL_V1`)
-Total CLI Tools Indexed: 83 (top-level) + 1 (nested `tools.robustness.cli`)
+Total CLI Tools Indexed: 82 (top-level) + 1 (nested `tools.robustness.cli`)
 Library Modules: 17 (top-level) + internal submodule trees

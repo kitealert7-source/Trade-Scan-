@@ -10,13 +10,13 @@
 
 | Classification | Count |
 |---|---|
-| **ACTIVE_TOOL** (on the pipeline hot path or daily human workflow) | 37 |
+| **ACTIVE_TOOL** (on the pipeline hot path or daily human workflow) | 36 |
 | **OPERATIONAL_TOOL** (periodic maintenance, validation, or analysis) | 33 |
 | **CI / PRE-COMMIT** (internal hooks — not user-facing) | 4 |
 | **TEST HARNESS** (CI-only, not part of operational surface) | 5 |
 | **LEGACY / ARCHIVAL** (retained for reproducibility; no active callers) | 4 |
 | **LIBRARY MODULES** (imported only — no CLI entrypoint) | 17 + subpackages |
-| **Total CLI entrypoints** | 83 (top-level) + 1 (`tools.robustness.cli`) |
+| **Total CLI entrypoints** | 82 (top-level) + 1 (`tools.robustness.cli`) |
 
 Tools layer is currently **100% accounted for** against the active operational surface. All tools appearing in this report either have live callers or are retained by governance for audit reproducibility.
 
@@ -69,7 +69,6 @@ Classification evidence:
 - `promote_to_burnin` — expectancy gate + 6-metric quality gate + vault snapshot + portfolio.yaml edit
 - `baseline_freshness_gate` — blocks burn-in promotion on stale replay baselines (14-day threshold)
 - `backup_dryrun_strategies` — deterministic vault snapshot creator
-- `burnin_evaluator` — PASS / ON_TRACK / WARN / ABORT shadow-trade evaluator
 - `transition_to_waiting` — BURN_IN → WAITING transition (gated)
 - `transition_to_live` — WAITING → LIVE transition
 - `validate_portfolio_integrity` — governance-field auditor for `portfolio.yaml`
@@ -266,4 +265,4 @@ Retired profiles (`DYNAMIC_V1`, `CONSERVATIVE_V1`, `MIN_LOT_FALLBACK_V1`, `MIN_L
 
 ---
 
-**Audit Conclusion:** The tools layer has zero orphaned tools. All 83 CLI entrypoints + 17 top-level library modules map to a documented operational category. The tool surface is drift-free as of 2026-04-16.
+**Audit Conclusion:** The tools layer has zero orphaned tools. All 82 CLI entrypoints + 17 top-level library modules map to a documented operational category. The tool surface is drift-free as of 2026-04-16.
