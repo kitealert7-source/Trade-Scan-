@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 4 uncommitted
+- WARNING: Working tree 7 uncommitted
 
-> Generated: 2026-05-08T14:02:36Z
+> Generated: 2026-05-10T03:34:43Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -26,10 +26,10 @@
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
-- BURN_IN: 9 | WAITING: 0 | LIVE: 0 | LEGACY: 0
+- BURN_IN: 0 | WAITING: 0 | LIVE: 9 | LEGACY: 0
 
 ## Burn-In Status
-- **Process:** RUNNING | run_id=20260508T021433Z_22408 | bars=364
+- **Process:** RUNNING | run_id=20260509T092018Z_23948 | bars=0
 - **Shadow trades:** 0 active | **Signals (7d):** 50 entry, 27 exit
 - **Alerts:** silence_alerts=OFF | watchdog=ACTIVE
 
@@ -37,18 +37,20 @@
 - Snapshots: 17 | WAITING: 0 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-08** | Symbols: 243
+- Latest bar: **2026-05-10** | Symbols: 243
 
 ## Artifacts
 - Run directories: 1286
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 4 uncommitted
-- Last substantive commit: `f48749c infra: lint hidden class constants against STRATEGY_SIGNATURE`
+- Working tree: 7 uncommitted
+- Last substantive commit: `88b4f28 session: closing SYSTEM_STATE snapshot`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
+- **Gate suite: error running pytest** — could not parse pytest output
+- Burn-in evaluator: error — No module named 'shadow_trades_reader'
 - **Post-merge watch:** 1/5 observed; status=ACTIVE; commit=1b6cc7b.
 
 ### Manual (deferred TDs, operational context)
