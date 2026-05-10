@@ -1,15 +1,15 @@
 """
-promote_to_burnin.py -- Promote strategy to TS_Execution/portfolio.yaml with
-vault snapshot, explicit artifact linkage, and burn-in lifecycle metadata.
+promote_to_live.py -- Promote strategy to TS_Execution/portfolio.yaml with
+vault snapshot, explicit artifact linkage, and LIVE lifecycle metadata.
 
 This is the ONLY tool that writes vault_id, profile, and lifecycle fields into
 portfolio.yaml. It chains: run_id lookup -> vault snapshot -> portfolio.yaml edit.
 
 Usage:
-    python tools/promote_to_burnin.py <STRATEGY_ID> --profile PROFILE
-    python tools/promote_to_burnin.py <STRATEGY_ID> --profile PROFILE --dry-run
-    python tools/promote_to_burnin.py PF_XXXX --composite --profile PROFILE --dry-run
-    python tools/promote_to_burnin.py --batch --profile PROFILE --dry-run
+    python tools/promote_to_live.py <STRATEGY_ID> --profile PROFILE
+    python tools/promote_to_live.py <STRATEGY_ID> --profile PROFILE --dry-run
+    python tools/promote_to_live.py PF_XXXX --composite --profile PROFILE --dry-run
+    python tools/promote_to_live.py --batch --profile PROFILE --dry-run
 
 Requires:
     - TradeScan_State/strategies/{ID}/portfolio_evaluation/ exists
@@ -66,13 +66,10 @@ from tools.promote.strategy_files import (  # noqa: F401
     _validate_strategy_files,
 )
 from tools.promote.yaml_writer import (  # noqa: F401
-    BURN_IN_REGISTRY,
-    DEFAULT_GATES,
-    LIFECYCLE_BURN_IN,
     LIFECYCLE_DISABLED,
     LIFECYCLE_LEGACY,
     LIFECYCLE_LIVE,
-    LIFECYCLE_WAITING,
+    LIFECYCLE_RETIRED,
     PORTFOLIO_YAML,
     TS_EXEC_ROOT,
     VAULT_ROOT,
@@ -81,8 +78,6 @@ from tools.promote.yaml_writer import (  # noqa: F401
     _compute_strategy_hash,
     _get_existing_ids,
     _load_portfolio_yaml,
-    _update_burn_in_registry,
-    _update_registry,
     _write_portfolio_yaml,
 )
 
@@ -106,7 +101,7 @@ def promote(strategy_id: str, profile: str, description: str = "",
     Returns dict with vault_id, run_id, entries_added, symbols.
     """
     print(f"\n{'=' * 60}")
-    print(f"PROMOTE TO BURN-IN: {strategy_id}")
+    print(f"PROMOTE TO LIVE: {strategy_id}")
     print(f"Profile: {profile}")
     print(f"{'=' * 60}\n")
 
@@ -149,7 +144,7 @@ def promote(strategy_id: str, profile: str, description: str = "",
             sys.exit(1)
         if legacy_dupes:
             _legacy_ids_to_remove = set(legacy_dupes)
-            print(f"  Will upgrade {len(legacy_dupes)} LEGACY entries to BURN_IN")
+            print(f"  Will upgrade {len(legacy_dupes)} LEGACY entries to LIVE")
 
     # 3. Validate files exist
     _validate_strategy_files(strategy_id, symbols)
@@ -229,20 +224,16 @@ def promote(strategy_id: str, profile: str, description: str = "",
 
     entries_added = len(entry_ids)
 
-    # 9a-11a. Atomic write of portfolio.yaml (with optional LEGACY removal)
-    _original_yaml = _write_portfolio_yaml(
+    # 9a-11. Atomic write of portfolio.yaml (with optional LEGACY removal)
+    _write_portfolio_yaml(
         strategy_id, profile, vault_id, run_id, entry_ids, block, _legacy_ids_to_remove
     )
-
-    # 11b. Update burn_in_registry.yaml (rollback portfolio.yaml on failure)
-    _registry_entry_ids = _update_registry(strategy_id, is_multi, symbols, _original_yaml)
 
     print(f"[OK] Appended {entries_added} entry/entries to {PORTFOLIO_YAML}")
     print(f"     IDs: {entry_ids}")
     print(f"     vault_id: {vault_id}")
     print(f"     profile: {profile}")
-    print(f"     lifecycle: {LIFECYCLE_BURN_IN}")
-    print(f"     registry: {len(_registry_entry_ids)} entries added to burn_in_registry.yaml")
+    print(f"     lifecycle: {LIFECYCLE_LIVE}")
 
     # 10b. Export Excel from DB (Excel = read-only view, never edited directly)
     try:
@@ -263,8 +254,8 @@ def promote(strategy_id: str, profile: str, description: str = "",
             log_action(
                 "promote",
                 entry_ids,
-                reason=description or f"Promoted {strategy_id} to BURN_IN",
-                tool="promote_to_burnin.py",
+                reason=description or f"Promoted {strategy_id} to LIVE",
+                tool="promote_to_live.py",
                 extra=extra,
             )
             print(f"  Audit log entry written.")
@@ -439,7 +430,7 @@ def main() -> None:
     sys.argv = [a for a in sys.argv if a != "--allow-direct"]
 
     parser = argparse.ArgumentParser(
-        description="Promote strategy to burn-in: vault snapshot + portfolio.yaml edit.",
+        description="Promote strategy to LIVE: vault snapshot + portfolio.yaml edit.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -474,7 +465,7 @@ def main() -> None:
                              "Only these symbols are added to portfolio.yaml; all "
                              "symbols still go to vault.")
     parser.add_argument("--upgrade-legacy", action="store_true",
-                        help="Replace existing LEGACY entries with fresh BURN_IN entries. "
+                        help="Replace existing LEGACY entries with fresh LIVE entries. "
                              "Without this flag, duplicate IDs abort the promote.")
     parser.add_argument("--skip-replay", action="store_true",
                         help="Skip Layer 2 (replay regression) of the pre-promote validator. "

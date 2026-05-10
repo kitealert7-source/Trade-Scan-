@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 6 uncommitted
+## SESSION STATUS: BROKEN
+- BROKEN: 1 commits not pushed to origin
 
-> Generated: 2026-05-10T04:08:34Z
+> Generated: 2026-05-10T04:48:17Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -22,14 +22,14 @@
   - **Portfolios:** 120 rows — CORE: 4, FAIL: 112, PROFILE_UNRESOLVED: 1, WATCH: 3
   - **Single-Asset Composites:** 80 rows — CORE: 11, FAIL: 63, PROFILE_UNRESOLVED: 1, WATCH: 5
 
-- **Candidates (FPS):** 479 rows — BURN_IN: 13, CORE: 14, FAIL: 313, RBIN: 2, RESERVE: 25, WATCH: 112
+- **Candidates (FPS):** 479 rows — CORE: 14, FAIL: 314, LIVE: 13, RESERVE: 25, WATCH: 113
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
-- BURN_IN: 0 | WAITING: 0 | LIVE: 9 | LEGACY: 0
+- LIVE: 9 | RETIRED: 0 | LEGACY: 0
 
 ## Vault (DRY_RUN_VAULT)
-- Snapshots: 17 | WAITING: 0 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
+- Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
 - Latest bar: **2026-05-10** | Symbols: 243
@@ -38,9 +38,9 @@
 - Run directories: 1286
 
 ## Git Sync
-- Remote: IN SYNC
-- Working tree: 6 uncommitted
-- Last substantive commit: `53408c5 session: closing SYSTEM_STATE snapshot`
+- Remote: **1 commits ahead of origin**
+- Working tree: 41 uncommitted
+- Last substantive commit: `c1f6d83 infra: delete BURN_IN consumer scaffolding (post TS_Execution rebuild)`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)

@@ -217,7 +217,7 @@ def _load_portfolio_verdicts() -> pd.DataFrame:
 
 
 def _load_candidate_status() -> pd.DataFrame:
-    """Load Filtered_Strategies_Passed.xlsx for candidate_status (CORE/WATCH/FAIL/BURN_IN)."""
+    """Load Filtered_Strategies_Passed.xlsx for candidate_status (CORE/WATCH/FAIL/LIVE)."""
     if not CANDIDATE_PATH.exists():
         return pd.DataFrame()
     try:

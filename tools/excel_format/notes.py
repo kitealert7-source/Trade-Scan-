@@ -228,11 +228,11 @@ def _notes_write_candidate_status_rules(ws, _w, r, fonts, CAND):
          f"Total Trades >= {CAND['CORE_TRADES']}  AND  Return/DD >= {CAND['CORE_RET_DD']}  AND  Sharpe >= {CAND['CORE_SHARPE']}  AND  Max DD <= {CAND['CORE_MAX_DD']:.0f}%  AND  Trade Density >= {CAND['CORE_DENSITY']}  AND  PF >= {CAND['CORE_PF']}  (and not FAIL)"),
         ("WATCH",
          "Does not meet CORE criteria; not FAIL; not present in TS_Execution/portfolio.yaml"),
-        ("BURN_IN",
+        ("LIVE",
          "Present in TS_Execution/portfolio.yaml with enabled=true — overrides computed status. "
-         "BURN_IN promotion thresholds: FX >= $0.25  |  XAU >= $0.80  |  BTC >= $0.80  |  INDEX >= $0.80"),
-        ("RBIN",
-         "Removed from Burn-In. Strategy entered live burn-in but failed the Edge Quality Gate "
+         "LIVE promotion thresholds: FX >= $0.25  |  XAU >= $0.80  |  BTC >= $0.80  |  INDEX >= $0.80"),
+        ("REMOVE",
+         "Removed from LIVE deployment. Strategy entered production but failed the Edge Quality Gate "
          "(Section 18 robustness suite). Reverted to research pool for rework."),
     ]:
         _w(r, 1, cls, bold); _w(r, 2, rule, normal); r += 1
@@ -272,21 +272,8 @@ def _notes_write_filter_glossary(ws, _w, r, fonts):
                                  "(or menu option 10). Auto-cleared after a successful "
                                  "analysis run so the next session starts fresh. "
                                  "NOT a membership flag — deployment membership lives in "
-                                 "TS_Execution/portfolio.yaml (BURN_IN rows)."),
-            ("candidate_status", "CORE / WATCH / FAIL / BURN_IN / RBIN — see Section 4"),
-            ("burn_in_layer",    "PRIMARY / COVERAGE — only set for BURN_IN rows. Sourced from "
-                                  "TS_Execution/burn_in_registry.yaml (written by sync_burn_in_registry.py, "
-                                  "overwritten on every filter_strategies.py run). "
-                                  "An archetype is a behavioural family (e.g. FX_CONT, XAU_MR, BTC_TREND) — "
-                                  "multiple strategies can share one because they encode the same edge on "
-                                  "different symbols or parameter sets. "
-                                  "PRIMARY = the single canonical representative per archetype; its shadow-trade "
-                                  "performance is the archetype's verdict. One per archetype. "
-                                  "COVERAGE = additional variants of the same archetype promoted alongside the "
-                                  "PRIMARY to broaden symbol/parameter coverage. They inherit the archetype's "
-                                  "verdict but don't define it — a COVERAGE break is a symbol-fit issue, a "
-                                  "PRIMARY break is a dead-edge signal. "
-                                  "NaN for all non-BURN_IN rows (CORE / WATCH / FAIL / RBIN / RESERVE)."),
+                                 "TS_Execution/portfolio.yaml (LIVE rows)."),
+            ("candidate_status", "CORE / WATCH / FAIL / LIVE / REMOVE — see Section 4"),
             ("is_current",       "1 = this row represents the live result for its (strategy, run_id) "
                                   "combination; 0 = superseded by a later rerun. Written by "
                                   "tools/rerun_backtest.py finalize via ledger_db.mark_superseded(). "
@@ -370,7 +357,7 @@ def _notes_write_portfolio_glossary(ws, _w, r, fonts):
         ("profile_trade_density_min",   "POST-FILTER MINIMUM per-symbol density. Same derivation as "
                                         "profile_trade_density_total but min() instead of sum(). Computed "
                                         "INDEPENDENTLY from profile_trade_density_total — never derived "
-                                        "from it. This is the truthful burn-in calendar viability metric: "
+                                        "from it. This is the truthful deployment calendar viability metric: "
                                         "it reflects both the selected parameterization per symbol AND the "
                                         "deployed profile's rejection filter."),
         ("avg_concurrent",              "Average number of simultaneously open positions"),

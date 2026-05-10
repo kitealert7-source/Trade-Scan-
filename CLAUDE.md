@@ -21,7 +21,7 @@ The system-reminder at session start lists every available skill with its name a
 - If a skill matches → invoke it (or read its `SKILL.md`) and follow it unless the user explicitly overrides.
 - If nothing matches → proceed normally. If the task surfaces durable process knowledge that isn't in any existing skill, name a candidate skill in your end-of-task summary so it can be created next time.
 
-Skills already cover (non-exhaustive): pipeline runs, strategy ports / Pine→Python, hypothesis testing, re-runs of prior strategies, promote → burn-in → waiting → live lifecycle, portfolio add/remove/research, session close, system maintenance, state-lifecycle cleanup, vault snapshots, capital simulation, Excel ledger formatting. **New skills appear in the system-reminder list automatically** — there is no separate index to keep in sync.
+Skills already cover (non-exhaustive): pipeline runs, strategy ports / Pine→Python, hypothesis testing, re-runs of prior strategies, promote-to-LIVE deployment, portfolio add/remove/research, session close, system maintenance, state-lifecycle cleanup, vault snapshots, capital simulation, Excel ledger formatting. **New skills appear in the system-reminder list automatically** — there is no separate index to keep in sync.
 
 **Always (every session start):**
 - `AGENT.md` — invariants, lifecycle, engine standards, pre-directive gate
@@ -82,10 +82,8 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 | Backtest dates, warm-up, regime | `outputs/system_reports/06_strategy_research/BACKTEST_DATE_POLICY_AND_DATA_FLOW.md` |
 | Artifact provenance or storage | `outputs/system_reports/08_pipeline_audit/ARTIFACT_STORAGE_AUDIT_2026_03_24.md` |
 | Directive state, lifecycle, cleanup | `outputs/system_reports/10_State Lifecycle Management/Workflow_Design.md` |
-| Promoting a strategy to burn-in | `.claude/skills/promote/SKILL.md` |
-| Burn-in → waiting transition | `.claude/skills/to-waiting/SKILL.md` |
-| Waiting → live transition | `tools/transition_to_live.py` |
-| Deployment, burn-in, go-live | `outputs/system_reports/11_deployment_and_burnin/README.md` (index) |
+| Promoting a strategy to LIVE | `.claude/skills/promote/SKILL.md` |
+| Deployment doctrine (historical) | `outputs/system_reports/11_deployment_and_burnin/README.md` (index) |
 | Directory/file authority | `outputs/system_reports/01_system_architecture/REPOSITORY_AUTHORITY_MAP.md` |
 | System audit or review | Browse `outputs/system_reports/` folder READMEs first — each subfolder has an index |
 | Ending a work session | `.claude/skills/session-close/SKILL.md` — commit, push, document, clean up |

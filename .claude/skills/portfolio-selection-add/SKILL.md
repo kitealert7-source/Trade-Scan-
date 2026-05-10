@@ -17,9 +17,9 @@ Before adding ANY strategy to portfolio.yaml, verify it was promoted through the
 python tools/lifecycle_status.py
 ```
 
-**Hard check:** If the strategy does not appear in `lifecycle_status.py` output with state `BURN_IN`, `WAITING`, or `LIVE`, it has NOT been promoted.
+**Hard check:** If the strategy does not appear in `lifecycle_status.py` output with state `LIVE`, it has NOT been promoted.
 
-> **FAIL condition:** Do NOT add a strategy to portfolio.yaml manually. The `/promote` workflow (`tools/promote_to_burnin.py`) is the ONLY path that creates vault snapshots and writes `vault_id`, `profile`, and `lifecycle` fields. Entries without these fields are untracked and break lifecycle invariants.
+> **FAIL condition:** Do NOT add a strategy to portfolio.yaml manually. The `/promote` workflow (`tools/promote_to_live.py`) is the ONLY path that creates vault snapshots and writes `vault_id`, `profile`, and `lifecycle` fields. Entries without these fields are untracked and break lifecycle invariants.
 >
 > If the strategy needs to enter portfolio.yaml → run `/promote` first.
 

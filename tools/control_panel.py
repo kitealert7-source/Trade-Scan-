@@ -3,9 +3,9 @@ control_panel.py — CLI for recording portfolio control decisions.
 
 Two orthogonal workflows live here:
 
-  Burn-in / deployment intent (portfolio_control table):
-    --select / --burn / --drop / --deselect — the interpreter drains these
-    into portfolio.yaml + burn_in_registry.yaml.
+  Deployment intent (portfolio_control table):
+    --select / --deploy / --drop / --deselect — the interpreter drains these
+    into portfolio.yaml.
 
   Composite-portfolio-analysis intent (master_filter.Analysis_selection):
     --select-analysis / --deselect-analysis / --clear-analysis /
@@ -16,7 +16,7 @@ Usage:
   python tools/control_panel.py --list
   python tools/control_panel.py --status
   python tools/control_panel.py --select <portfolio_id> [--profile X]
-  python tools/control_panel.py --burn <portfolio_id>
+  python tools/control_panel.py --deploy <portfolio_id>
   python tools/control_panel.py --drop <portfolio_id> --reason "..."
   python tools/control_panel.py --deselect <portfolio_id>
   python tools/control_panel.py --select-analysis <run_id> [<run_id> ...]
@@ -50,7 +50,6 @@ from config.path_authority import TS_EXECUTION as TS_EXEC_ROOT, TRADE_SCAN_STATE
 
 PORTFOLIO_YAML = TS_EXEC_ROOT / "portfolio.yaml"
 CANDIDATES_PATH = TRADE_SCAN_STATE / "candidates" / "Filtered_Strategies_Passed.xlsx"
-REGISTRY_PATH = TS_EXEC_ROOT / "burn_in_registry.yaml"
 USD_SYNTH_CSV = DATA_ROOT / "SYSTEM_FACTORS" / "USD_SYNTH" / "usd_synth_close_d1.csv"
 
 
@@ -145,24 +144,15 @@ def cmd_list() -> int:
 
 
 def cmd_status() -> int:
-    """Health check — two-authority drift detector.
+    """Health check — portfolio.yaml + control intent snapshot.
 
-    Authority model (2026-04-16):
-      * portfolio.yaml       — every deployed strategy (BURN_IN, WAITING,
-                               LIVE, LEGACY, DISABLED lifecycles).
-      * burn_in_registry.yaml — archetype projection of BURN_IN entries.
+    Authority model:
+      * portfolio.yaml — every deployed strategy (LIVE, RETIRED, LEGACY,
+                         DISABLED lifecycles).
 
     portfolio_control is USER INTENT (pending promote/disable requests), not
-    durable state — the interpreter drains it into the YAMLs. A nonzero row
-    count there is informational, not a drift signal.
-
-    The DB leg (legacy ``IN_PORTFOLIO`` column) and the FSP leg are gone:
-    IN_PORTFOLIO was retired, and FSP is a read-only projection for human
-    consumption — it cannot drift "against" an authority it is derived from.
-
-    Drift rule: every strategy_id in burn_in_registry.yaml must resolve to
-    a corresponding ``lifecycle: BURN_IN`` entry in portfolio.yaml. Any
-    mismatch is actionable drift.
+    durable state — the interpreter drains it into portfolio.yaml. A nonzero
+    row count there is informational, not a drift signal.
     """
     import yaml
 
@@ -170,13 +160,13 @@ def cmd_status() -> int:
 
     # 0. Intent-store snapshot (informational).
     df_ctrl = read_portfolio_control()
-    pending = df_ctrl[df_ctrl["status"].isin(["SELECTED", "BURN_IN", "RBIN"])]
+    pending = df_ctrl[df_ctrl["status"].isin(["SELECTED", "LIVE", "REMOVE"])]
     print(f"  portfolio_control:    {len(df_ctrl)} rows "
           f"({len(pending)} with intent)")
 
-    # 1. portfolio.yaml — authority #1.
+    # 1. portfolio.yaml — single authority.
     yaml_entries: dict[str, dict] = {}
-    yaml_burnin_ids: set[str] = set()
+    yaml_live_ids: set[str] = set()
     if PORTFOLIO_YAML.exists():
         try:
             with open(PORTFOLIO_YAML, encoding="utf-8") as f:
@@ -186,38 +176,16 @@ def cmd_status() -> int:
                 if not isinstance(sid, str) or not sid.strip():
                     continue
                 yaml_entries[sid] = s
-                if s.get("lifecycle") == "BURN_IN":
-                    yaml_burnin_ids.add(sid)
+                if s.get("lifecycle") == "LIVE":
+                    yaml_live_ids.add(sid)
         except Exception as e:
             errors.append(f"portfolio.yaml read error: {e}")
     print(f"  portfolio.yaml:       {len(yaml_entries)} entries "
-          f"({len(yaml_burnin_ids)} BURN_IN)")
+          f"({len(yaml_live_ids)} LIVE)")
 
-    # 2. burn_in_registry.yaml — authority #2 (BURN_IN projection).
-    reg_ids: set[str] = set()
-    reg_count = 0
-    if REGISTRY_PATH.exists():
-        try:
-            with open(REGISTRY_PATH, encoding="utf-8") as f:
-                reg = yaml.safe_load(f) or {}
-            for layer in ("primary", "coverage"):
-                for entry in (reg.get(layer) or []):
-                    eid = entry.get("id") if isinstance(entry, dict) else None
-                    if isinstance(eid, str) and eid.strip():
-                        reg_ids.add(eid.strip())
-                        reg_count += 1
-        except Exception as e:
-            errors.append(f"burn_in_registry.yaml read error: {e}")
-    print(f"  burn_in_registry:     {reg_count} entries "
-          f"({len(reg_ids)} unique)")
-
-    # 3. USD_SYNTH macro-gate status (observational — FX strategy diagnostic).
+    # 2. USD_SYNTH macro-gate status (observational — FX strategy diagnostic).
     print(_usd_synth_zscore_line())
 
-    # Drift check — registry ids must embed a BURN_IN portfolio.yaml id.
-    # Registry ids are of the form "<strategy_id>_<symbol>", where
-    # <strategy_id> is the portfolio.yaml id. Exact match OR
-    # registry_id.startswith(yaml_id + "_") counts as matched.
     print()
     if errors:
         for e in errors:
@@ -225,44 +193,12 @@ def cmd_status() -> int:
         print("  VERDICT: ERRORS DETECTED")
         return 1
 
-    unmatched_registry: set[str] = set()
-    for rid in reg_ids:
-        if rid in yaml_burnin_ids:
-            continue
-        if any(rid == yid or rid.startswith(yid + "_") for yid in yaml_burnin_ids):
-            continue
-        unmatched_registry.add(rid)
-
-    # Every BURN_IN yaml id should have at least one registry entry under it.
-    yaml_burnin_without_registry: set[str] = set()
-    for yid in yaml_burnin_ids:
-        if any(rid == yid or rid.startswith(yid + "_") for rid in reg_ids):
-            continue
-        yaml_burnin_without_registry.add(yid)
-
-    if not unmatched_registry and not yaml_burnin_without_registry:
-        print(f"  VERDICT: ALIGNED -- portfolio.yaml BURN_IN ({len(yaml_burnin_ids)}) "
-              f"and burn_in_registry ({len(reg_ids)}) consistent")
-        return 0
-
-    print("  VERDICT: DRIFT DETECTED")
-    if unmatched_registry:
-        print(f"    burn_in_registry has {len(unmatched_registry)} id(s) "
-              f"without a BURN_IN entry in portfolio.yaml:")
-        for r in sorted(unmatched_registry):
-            print(f"      - {r}")
-    if yaml_burnin_without_registry:
-        print(f"    portfolio.yaml has {len(yaml_burnin_without_registry)} "
-              f"BURN_IN entrie(s) missing from burn_in_registry:")
-        for y in sorted(yaml_burnin_without_registry):
-            print(f"      - {y}")
-    print("  (Fix: re-run TS_Execution/tools/sync_burn_in_registry.py or "
-          "verify promote/disable workflow wrote both stores.)")
-    return 1
+    print(f"  VERDICT: OK -- portfolio.yaml has {len(yaml_live_ids)} LIVE entries")
+    return 0
 
 
 def cmd_select(portfolio_id: str, profile: str) -> int:
-    """Mark a portfolio for burn-in consideration."""
+    """Mark a portfolio for deployment consideration."""
     # Validate: must exist in MPS or master_filter
     if not _portfolio_exists_in_mps(portfolio_id) and not _strategy_exists_in_master_filter(portfolio_id):
         print(f"  [ERROR] {portfolio_id} not found in MPS or master_filter.")
@@ -278,8 +214,8 @@ def cmd_select(portfolio_id: str, profile: str) -> int:
     ).fetchone()
     if existing:
         status = existing[0]
-        if status == "BURN_IN":
-            print(f"  [SKIP] {portfolio_id} is already BURN_IN.")
+        if status == "LIVE":
+            print(f"  [SKIP] {portfolio_id} is already LIVE.")
             conn.close()
             return 0
         if status == "SELECTED":
@@ -302,8 +238,8 @@ def cmd_select(portfolio_id: str, profile: str) -> int:
     return 0
 
 
-def cmd_burn(portfolio_id: str) -> int:
-    """Mark a SELECTED portfolio for burn-in promotion."""
+def cmd_deploy(portfolio_id: str) -> int:
+    """Mark a SELECTED portfolio for LIVE promotion."""
     conn = _connect()
     existing = conn.execute(
         "SELECT status, burn FROM portfolio_control WHERE portfolio_id = ?",
@@ -316,22 +252,22 @@ def cmd_burn(portfolio_id: str) -> int:
         return 1
 
     status = existing[0]
-    if status == "BURN_IN":
-        print(f"  [SKIP] {portfolio_id} is already BURN_IN.")
+    if status == "LIVE":
+        print(f"  [SKIP] {portfolio_id} is already LIVE.")
         conn.close()
         return 0
-    if status not in ("SELECTED", "RBIN"):
-        print(f"  [ERROR] {portfolio_id} has status={status}. Must be SELECTED or RBIN.")
+    if status not in ("SELECTED", "REMOVE"):
+        print(f"  [ERROR] {portfolio_id} has status={status}. Must be SELECTED or REMOVE.")
         conn.close()
         return 1
 
     upsert_portfolio_control(
         conn, portfolio_id,
         burn=1, selected=1,
-        status=status,  # interpreter will transition to BURN_IN
+        status=status,  # interpreter will transition to LIVE
         updated_by="user",
     )
-    log_control_action(conn, portfolio_id, "burn",
+    log_control_action(conn, portfolio_id, "deploy",
                        status_before=status, status_after=status,
                        detail="burn=1, awaiting interpreter")
     conn.close()
@@ -340,7 +276,7 @@ def cmd_burn(portfolio_id: str) -> int:
 
 
 def cmd_drop(portfolio_id: str, reason: str) -> int:
-    """Mark a BURN_IN portfolio for removal."""
+    """Mark a LIVE portfolio for removal from deployment."""
     if not reason:
         print("  [ERROR] --reason is required for --drop.")
         return 1
@@ -357,12 +293,12 @@ def cmd_drop(portfolio_id: str, reason: str) -> int:
         return 1
 
     status = existing[0]
-    if status == "RBIN":
-        print(f"  [SKIP] {portfolio_id} is already RBIN.")
+    if status == "REMOVE":
+        print(f"  [SKIP] {portfolio_id} is already REMOVE.")
         conn.close()
         return 0
-    if status != "BURN_IN":
-        print(f"  [ERROR] {portfolio_id} has status={status}. Can only drop BURN_IN entries.")
+    if status != "LIVE":
+        print(f"  [ERROR] {portfolio_id} has status={status}. Can only drop LIVE entries.")
         conn.close()
         return 1
 
@@ -373,7 +309,7 @@ def cmd_drop(portfolio_id: str, reason: str) -> int:
         updated_by="user",
     )
     log_control_action(conn, portfolio_id, "drop",
-                       status_before="BURN_IN", status_after="BURN_IN",
+                       status_before="LIVE", status_after="LIVE",
                        detail=f"burn=0, reason={reason}")
     conn.close()
     print(f"  [OK] {portfolio_id} -> burn=0 (awaiting interpreter)")
@@ -411,7 +347,7 @@ def cmd_deselect(portfolio_id: str) -> int:
 
 # ---------------------------------------------------------------------------
 # Analysis_selection commands — per-run_id intent flag driving the next
-# composite_portfolio_analysis invocation. Orthogonal to burn-in promotion.
+# composite_portfolio_analysis invocation. Orthogonal to deployment promotion.
 # ---------------------------------------------------------------------------
 
 def _validate_run_ids_in_mf(run_ids: set[str]) -> tuple[set[str], set[str]]:
@@ -653,8 +589,8 @@ def interactive_menu() -> int:
         print("  1. Show portfolio")
         print("  2. System health")
         print("  3. Select strategy")
-        print("  4. Promote to burn-in")
-        print("  5. Drop from burn-in")
+        print("  4. Promote to LIVE")
+        print("  5. Drop from LIVE")
         print("  6. Remove selection")
         print("  7. Apply pending changes")
         print("  8. Dry-run changes")
@@ -712,7 +648,7 @@ def interactive_menu() -> int:
             df_ctrl = read_portfolio_control()
             candidates = []
             if not df_ctrl.empty:
-                mask = df_ctrl["status"].isin(["SELECTED", "RBIN"])
+                mask = df_ctrl["status"].isin(["SELECTED", "REMOVE"])
                 candidates = sorted(df_ctrl.loc[mask, "portfolio_id"].tolist())
             if not candidates:
                 print("  No SELECTED entries to promote. Use option 3 first.")
@@ -725,24 +661,24 @@ def interactive_menu() -> int:
             if not _confirm(f"promote {pid}"):
                 print("  Cancelled.")
                 continue
-            cmd_burn(pid)
+            cmd_deploy(pid)
             _run_interpreter()
             # Auto-refresh: show updated portfolio
             print()
             cmd_list()
 
         elif choice == "5":
-            # Drop — show BURN_IN entries, confirm, set burn=0, auto-run interpreter
+            # Drop — show LIVE entries, confirm, set burn=0, auto-run interpreter
             df_ctrl = read_portfolio_control()
             candidates = []
             if not df_ctrl.empty:
-                mask = df_ctrl["status"] == "BURN_IN"
+                mask = df_ctrl["status"] == "LIVE"
                 candidates = sorted(df_ctrl.loc[mask, "portfolio_id"].tolist())
             if not candidates:
-                print("  No BURN_IN entries to drop.")
+                print("  No LIVE entries to drop.")
                 continue
 
-            print(f"\n  BURN_IN strategies:")
+            print(f"\n  LIVE strategies:")
             pid = _pick_from_list(candidates, "Drop number")
             if not pid:
                 continue
@@ -856,9 +792,9 @@ def main() -> int:
     group.add_argument("--status", action="store_true", help="Health check across all stores")
     group.add_argument("--log", nargs="?", const="__all__", metavar="ID",
                         help="Show audit log (optionally for a specific portfolio_id)")
-    group.add_argument("--select", metavar="ID", help="Select portfolio for burn-in consideration")
-    group.add_argument("--burn", metavar="ID", help="Mark for burn-in promotion")
-    group.add_argument("--drop", metavar="ID", help="Mark for removal from burn-in")
+    group.add_argument("--select", metavar="ID", help="Select portfolio for deployment consideration")
+    group.add_argument("--deploy", metavar="ID", help="Mark for LIVE promotion")
+    group.add_argument("--drop", metavar="ID", help="Mark for removal from LIVE")
     group.add_argument("--deselect", metavar="ID", help="Remove from control table (SELECTED only)")
     # Analysis_selection — per-run_id intent for composite_portfolio_analysis.
     group.add_argument("--select-analysis", nargs="+", metavar="RUN_ID",
@@ -894,8 +830,8 @@ def main() -> int:
         return 0
     elif args.select:
         return cmd_select(args.select, args.profile)
-    elif args.burn:
-        return cmd_burn(args.burn)
+    elif args.deploy:
+        return cmd_deploy(args.deploy)
     elif args.drop:
         return cmd_drop(args.drop, args.reason)
     elif args.deselect:

@@ -351,13 +351,13 @@ def _style_portfolio_sheet(ws, path, col_map, max_col, max_row):
 
 def _style_strategy_sheet(ws, path, max_col, max_row):
     """Strategy-profile per-sheet actions: freeze at A2, auto-filter, and
-    file-stem-conditional filters (filtered_strategies CORE/BURN_IN, shadow_trade EXIT)."""
+    file-stem-conditional filters (filtered_strategies CORE/LIVE, shadow_trade EXIT)."""
     ws.freeze_panes = "A2"
     if max_col < 1 or max_row < 1:
         return
     ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
 
-    # Pre-select candidate_status=CORE/BURN_IN for Filtered_Strategies_Passed
+    # Pre-select candidate_status=CORE/LIVE for Filtered_Strategies_Passed
     _fname_check = Path(path).stem.lower()
     if "filtered_strategies" in _fname_check:
         _headers_lower = [str(c.value).lower() if c.value else "" for c in ws[1]]
@@ -365,16 +365,16 @@ def _style_strategy_sheet(ws, path, max_col, max_row):
             from openpyxl.worksheet.filters import FilterColumn, Filters
             _cs_idx = _headers_lower.index("candidate_status")
             _fc = FilterColumn(colId=_cs_idx)
-            _fc.filters = Filters(filter=["CORE", "BURN_IN"])
+            _fc.filters = Filters(filter=["CORE", "LIVE"])
             ws.auto_filter.filterColumn.append(_fc)
             _cs_col = _cs_idx + 1  # 1-based
             _hidden_count = 0
             for _r in range(2, max_row + 1):
                 _val = str(ws.cell(row=_r, column=_cs_col).value or "")
-                if _val not in ("CORE", "BURN_IN"):
+                if _val not in ("CORE", "LIVE"):
                     ws.row_dimensions[_r].hidden = True
                     _hidden_count += 1
-            print(f"    [FILTER] Pre-selected candidate_status=CORE/BURN_IN (hidden {_hidden_count} rows)")
+            print(f"    [FILTER] Pre-selected candidate_status=CORE/LIVE (hidden {_hidden_count} rows)")
 
     # Pre-select event_type=EXIT filter for shadow_trades files
     _fname = Path(path).stem.lower()

@@ -1,7 +1,7 @@
 """
 pre_promote_validator.py — 4-Layer pre-promotion validation gate.
 
-Validates strategy files before burn-in promotion. Any FAIL blocks promotion.
+Validates strategy files before LIVE promotion. Any FAIL blocks promotion.
 
 Layers:
   1. Static Validation   — schema, naming, imports, signature structure

@@ -60,7 +60,7 @@ def main():
 
     # Load protected run_ids from the append-only ledgers.
     #
-    # Previously this guard only protected candidate_status == "BURN_IN", which
+    # Previously this guard only protected the deployed candidate_status, which
     # silently stepped past canonical is_current=1 WATCH/CORE/RESERVE/
     # PROFILE_UNRESOLVED runs that had not yet been promoted into
     # portfolio.yaml. During the 2026-04-21 parallel __E158 re-run window the
@@ -77,7 +77,7 @@ def main():
     # silent unguarded cleanup would orphan ledger pointers.
     _PROTECTED_STATUSES = {
         "CORE",
-        "BURN_IN",
+        "LIVE",
         "WATCH",
         "RESERVE",
         "PROFILE_UNRESOLVED",
@@ -195,7 +195,7 @@ def main():
         p_abs = p.resolve()
 
         # 1. Must NOT be a system-critical folder
-        forbidden = ["strategies", "candidates", "registry", "tools", "data_access", "waiting"]
+        forbidden = ["strategies", "candidates", "registry", "tools", "data_access"]
         for part in p_abs.parts:
             if part.lower() in forbidden:
                 return False

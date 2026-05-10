@@ -241,7 +241,7 @@ def collect_ledgers() -> dict[str, Any]:
 
 
 def collect_portfolio() -> dict[str, Any]:
-    """Portfolio.yaml: BURN_IN/WAITING/LIVE/LEGACY counts."""
+    """Portfolio.yaml: LIVE/RETIRED/LEGACY counts."""
     if not PORTFOLIO_YAML.exists():
         return {"missing": True}
 
@@ -253,17 +253,15 @@ def collect_portfolio() -> dict[str, Any]:
         try:
             text = PORTFOLIO_YAML.read_text(encoding="utf-8")
             lines = text.splitlines()
-            burn_in = sum(1 for l in lines if "lifecycle: BURN_IN" in l)
-            waiting = sum(1 for l in lines if "lifecycle: WAITING" in l)
             live = sum(1 for l in lines if "lifecycle: LIVE" in l)
+            retired = sum(1 for l in lines if "lifecycle: RETIRED" in l)
             enabled_count = sum(1 for l in lines if "enabled: true" in l)
             total = sum(1 for l in lines if l.strip().startswith("- id:"))
-            legacy = total - burn_in - waiting - live
+            legacy = total - live - retired
             return {
                 "total": total,
-                "burn_in": burn_in,
-                "waiting": waiting,
                 "live": live,
+                "retired": retired,
                 "legacy": legacy,
                 "enabled": enabled_count,
             }
@@ -286,7 +284,7 @@ def collect_portfolio() -> dict[str, Any]:
     if not isinstance(data, list):
         return {"error": "Unexpected portfolio.yaml structure"}
 
-    counts = {"BURN_IN": 0, "WAITING": 0, "LIVE": 0, "LEGACY": 0}
+    counts = {"LIVE": 0, "RETIRED": 0, "LEGACY": 0}
     enabled = 0
     for entry in data:
         if not isinstance(entry, dict):
@@ -301,27 +299,23 @@ def collect_portfolio() -> dict[str, Any]:
 
     return {
         "total": len(data),
-        "burn_in": counts["BURN_IN"],
-        "waiting": counts["WAITING"],
         "live": counts["LIVE"],
+        "retired": counts["RETIRED"],
         "legacy": counts["LEGACY"],
         "enabled": enabled,
     }
 
 
 def collect_vault() -> dict[str, Any]:
-    """DRY_RUN_VAULT: count snapshots and WAITING entries."""
+    """DRY_RUN_VAULT: count snapshots."""
     if not DRY_RUN_VAULT.exists():
         return {"missing": True}
 
     snapshots = [d.name for d in DRY_RUN_VAULT.iterdir()
                  if d.is_dir() and d.name.startswith("DRY_RUN_")]
-    waiting_dir = DRY_RUN_VAULT / "WAITING"
-    waiting_count = _count_dirs(waiting_dir) if waiting_dir.exists() else 0
 
     return {
         "snapshot_count": len(snapshots),
-        "waiting_count": waiting_count,
         "latest": max(snapshots) if snapshots else "none",
     }
 
@@ -796,7 +790,7 @@ def render_markdown(
         lines.append(f"- portfolio.yaml: ERROR — {portfolio['error']}")
     else:
         lines.append(f"- **Total entries:** {portfolio.get('total', '?')} | **Enabled:** {portfolio.get('enabled', '?')}")
-        lines.append(f"- BURN_IN: {portfolio.get('burn_in', 0)} | WAITING: {portfolio.get('waiting', 0)} | LIVE: {portfolio.get('live', 0)} | LEGACY: {portfolio.get('legacy', 0)}")
+        lines.append(f"- LIVE: {portfolio.get('live', 0)} | RETIRED: {portfolio.get('retired', 0)} | LEGACY: {portfolio.get('legacy', 0)}")
     lines.append("")
 
     # ── Vault
@@ -804,7 +798,7 @@ def render_markdown(
     if vault.get("missing"):
         lines.append("- DRY_RUN_VAULT: NOT FOUND")
     else:
-        lines.append(f"- Snapshots: {vault.get('snapshot_count', 0)} | WAITING: {vault.get('waiting_count', 0)} | Latest: `{vault.get('latest', 'none')}`")
+        lines.append(f"- Snapshots: {vault.get('snapshot_count', 0)} | Latest: `{vault.get('latest', 'none')}`")
     lines.append("")
 
     # ── Data Freshness

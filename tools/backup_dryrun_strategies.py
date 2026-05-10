@@ -455,7 +455,7 @@ def main():
         "git_commit":   git_commit,
         "strategies":   index_strategies,
         "total_files":  prev_files + total_copied,
-        "note":         "Full strategy snapshot at promotion to burn-in.",
+        "note":         "Full strategy snapshot at promotion to LIVE.",
     }
     with open(index_path, "w", encoding="utf-8") as f:
         json.dump(index, f, indent=2)
@@ -469,7 +469,7 @@ def main():
     print(f"Git commit:       {git_commit}")
     print("=" * 60)
 
-    # Return vault_id for caller (promote_to_burnin.py)
+    # Return vault_id for caller (promote_to_live.py)
     return vault_id
 
 

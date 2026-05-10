@@ -15,7 +15,7 @@ from config.asset_classification import classify_asset, EXP_FAIL_GATES
 from config.state_paths import BACKTESTS_DIR
 
 
-# ── Archetype inference (mirrors sync_burn_in_registry.py) ──────────────────
+# ── Archetype inference ─────────────────────────────────────────────────────
 ARCHETYPE_RULES = [
     ("02_VOL_IDX",       "VOLATILITY"),
     ("03_TREND_XAUUSD",  "XAU_TREND"),

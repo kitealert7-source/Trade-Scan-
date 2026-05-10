@@ -86,9 +86,12 @@ DIRECTIVE_TERMINAL = frozenset({DIRECTIVE_PORTFOLIO_COMPLETE, DIRECTIVE_FAILED})
 
 # ---------------------------------------------------------------------------
 # portfolio.yaml lifecycle field
+#
+# Aligned with TS_Execution ALLOWED_LIFECYCLES = {LIVE, RETIRED}. LEGACY and
+# DISABLED are read-side classifications for stale entries that predate the
+# doctrine; new entries are always written as LIVE.
 # ---------------------------------------------------------------------------
 LIFECYCLE_LEGACY = "LEGACY"
-LIFECYCLE_BURN_IN = "BURN_IN"
-LIFECYCLE_WAITING = "WAITING"
 LIFECYCLE_LIVE = "LIVE"
+LIFECYCLE_RETIRED = "RETIRED"
 LIFECYCLE_DISABLED = "DISABLED"

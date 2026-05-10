@@ -33,7 +33,7 @@ What this applies:
 - Sort by `return_dd_ratio` descending + auto-rank column
 - Column reorder per `STRATEGY_COLUMN_ORDER`
 - Number formats (currency, %, float, int) per `FORMAT_MAP`
-- Pre-filter: `candidate_status = CORE / BURN_IN` (FAIL rows hidden)
+- Pre-filter: `candidate_status = CORE / LIVE` (FAIL rows hidden)
 - Hyperlinks on `strategy` column → `../backtests/<strategy>/`
 - Freeze pane at A2, auto-filter on all columns
 
