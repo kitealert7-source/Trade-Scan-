@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 10 uncommitted
+- WARNING: Working tree 4 uncommitted
 
-> Generated: 2026-05-10T03:47:19Z
+> Generated: 2026-05-10T03:50:20Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,8 +39,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 10 uncommitted
-- Last substantive commit: `53408c5 session: closing SYSTEM_STATE snapshot`
+- Working tree: 4 uncommitted
+- Last substantive commit: `f1b613a infra: remove BURN_IN/shadow lifecycle dead code`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
