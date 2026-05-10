@@ -73,18 +73,28 @@ intents:
     must_skill: promote
     expected_file_category: strategy
     threshold: 8
+    requires_subject: true
     reason: "Promotion touches append-only ledgers, vault, FSM state. Ad-hoc promotion has left orphan strategies and stale PORTFOLIO_COMPLETE markers."
-    # Hard-fire requires BOTH a strategy identifier (FOO_V<n>_P<n>) AND an
-    # explicit promote/deploy keyword in the same prompt. Bare mentions
-    # of "promote" in code, commit messages, or discussion no longer trigger
-    # routing on their own -- fuzzy threshold (8) is above any single tag's
-    # exact-match weight (6 max).
+    # Hard-fire requires BOTH a promotion verb AND strategy/subject evidence:
+    #   - Strong evidence: an explicit identifier (FOO_V<n>_P<n>, PF_<hex>,
+    #     DRY_RUN_<date>) anywhere in the prompt.
+    #   - Idiomatic evidence: a phrasal pattern like "add X to portfolio" or
+    #     "deploy X strategy" — gated post-score by infra-action suppression
+    #     (delete/refactor/migrate/etc. words elsewhere in the prompt block
+    #     the injection unless strong evidence is also present).
+    # Pure fuzzy matches without strong subject evidence are suppressed by
+    # the `requires_subject: true` post-filter in intent_injector.py.
     regex_patterns:
-      # Co-occurrence: strategy-ID token anywhere + deploy keyword anywhere.
+      # Strong evidence: explicit strategy ID + promotion verb co-occurrence.
       - "(?is)(?=.*\\b[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b)(?=.*\\b(promote|promoting|promotion|deployable|portfolio[_ ]complete|go[- ]?live)\\b)"
-      # Direct phrasings with inline identifier.
+      # Strong evidence: explicit ID right next to a verb.
       - "(?i)\\bpromote\\s+[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b"
       - "(?i)\\b(move|send|advance)\\s+[A-Z0-9][A-Z0-9_]*\\s+to\\s+live\\b"
+      # Idiomatic evidence: action + portfolio/live target (subject to
+      # infra-action suppression — e.g., "delete X to portfolio" suppresses).
+      - "(?i)\\b(promote|deploy|push)\\s+\\S+(\\s+\\S+){0,5}\\s+to\\s+(live|portfolio)\\b"
+      - "(?i)\\b(add|put)\\s+\\S+(\\s+\\S+){0,3}\\s+to\\s+portfolio\\b"
+      - "(?i)\\b(promote|deploy)\\s+\\S+(\\s+\\S+){0,2}\\s+strategy\\b"
     semantic_tags:
       - {tag: "promote", weight: 3}
       - {tag: "deployable", weight: 2}
