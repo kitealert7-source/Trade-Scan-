@@ -7,9 +7,17 @@ For each bar, emit:
     The high and low of the most recently COMPLETED real session (asia, london,
     or ny — never the dead zone). Marks become available at the FIRST BAR AFTER
     the real session ends and forward-fill until the next real session ends.
-    Critical: dead-zone bars never set new prev_session marks — Asia at 00:00
-    UTC continues to reference the prior-day NY's high/low, not anything
-    accumulated during 21-00 UTC.
+
+    Default behaviour (`expand_during_dead_zone=False`): dead-zone bars never
+    set new prev_session marks — Asia at 00:00 UTC continues to reference the
+    prior-day NY's high/low, not anything accumulated during 21-00 UTC.
+
+    Optional Pine-parity behaviour (`expand_during_dead_zone=True`): during
+    dead-zone bars, prev_session_high is expanded UPWARD by the dead-zone
+    bar's high if higher, and prev_session_low expanded DOWNWARD by the
+    dead-zone bar's low if lower. Asia at 00:00 inherits the union of the
+    prior NY session's extremes and any dead-zone breach. Matches Pine v5
+    PriorSessionBreakout strategy semantics.
 
   armed_long / armed_short
     Per-bar boolean breakout-eligibility flag implementing the "gap-open vs
@@ -56,12 +64,24 @@ PIVOT_SOURCE = "session_high_low"
 REAL_SESSIONS = ("asia", "london", "ny")
 
 
-def prev_session_extremes(sc: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
+def prev_session_extremes(
+    sc: pd.DataFrame,
+    df: pd.DataFrame,
+    expand_during_dead_zone: bool = False,
+) -> pd.DataFrame:
     """
     Args:
         sc: session_clock output DataFrame with 'session_id', 'session_seq',
             'session_high_running', 'session_low_running' columns.
-        df: original OHLC DataFrame (must contain 'open' and 'close' columns).
+        df: original OHLC DataFrame (must contain 'open', 'close', 'high',
+            'low' columns when expand_during_dead_zone=True; otherwise only
+            'open' and 'close').
+        expand_during_dead_zone: if True, dead-zone bars expand the frozen
+            prev_session_high upward and prev_session_low downward when their
+            high/low breaches the reference. The expanded value persists into
+            the next real session. Default False (preserves the original
+            no-expansion semantics for backward compatibility with S01/S02
+            PSBRK lineages).
 
     Returns:
         DataFrame indexed identically with prev_session_high, prev_session_low,
@@ -79,6 +99,8 @@ def prev_session_extremes(sc: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
             f"prev_session_extremes requires columns {missing_sc} from session_clock"
         )
     required_df = {"open", "close"}
+    if expand_during_dead_zone:
+        required_df = required_df | {"high", "low"}
     missing_df = required_df - set(df.columns)
     if missing_df:
         raise ValueError(
@@ -108,6 +130,37 @@ def prev_session_extremes(sc: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
     prev_high = prev_high.ffill()
     prev_low = prev_low.ffill()
     prev_id = prev_id.ffill()
+
+    # --- Optional dead-zone expansion (Pine-parity) ---
+    # Within each ffill segment (one segment = bars sharing the same forward-
+    # filled prev_high/low value), accumulate the cummax/cummin of dead-zone
+    # bars' high/low. The cummax must then be forward-filled within the same
+    # segment to propagate the bumped value across subsequent real-session
+    # bars (Pine's `var prev_sess_hi` persists across all bars until the next
+    # real session ends). Element-wise combine with the base ffilled value:
+    # the bar's prev_high becomes max(base, dead_zone_running_max).
+    #
+    # Note: pandas groupby().cummax() preserves NaN at NaN positions instead
+    # of skipping them, so an explicit per-group ffill is required after the
+    # cummax to carry the running max into Asia/london bars.
+    if expand_during_dead_zone:
+        seg_id = eors.cumsum()
+        is_dead = sess_id == "none"
+        dead_high_only = df["high"].astype(float).where(is_dead)
+        dead_low_only = df["low"].astype(float).where(is_dead)
+        expanded_high_in_seg = (
+            dead_high_only.groupby(seg_id).cummax().groupby(seg_id).ffill()
+        )
+        expanded_low_in_seg = (
+            dead_low_only.groupby(seg_id).cummin().groupby(seg_id).ffill()
+        )
+        # element-wise combine — skipna=True so NaN values are ignored
+        prev_high = pd.concat([prev_high, expanded_high_in_seg], axis=1).max(
+            axis=1, skipna=True
+        )
+        prev_low = pd.concat([prev_low, expanded_low_in_seg], axis=1).min(
+            axis=1, skipna=True
+        )
 
     # --- Rule 1: Did the session OPEN inside the reference? ---
     # transform('first') broadcasts the first-bar value of each session_seq
