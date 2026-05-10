@@ -19,6 +19,20 @@
 #                    proximity bonus (+3) if two distinct exact hits
 #                    lie within <=3 tokens of each other
 #
+# DOCTRINE — NO NAKED FUZZY INTENTS:
+#   Every intent (hard or soft) MUST declare at least one of:
+#     requires_subject: true   — gate fuzzy on strong subject evidence
+#                                (strategy_id / PF_id / vault_id) and
+#                                suppress on infra-action verbs.
+#     suppress_on_infra: true  — suppress on infra-action verbs only
+#                                (for intents without a natural subject).
+#     frozen_path_only: true   — gate on actual changed-file scope.
+#   Without one of these, fuzzy + tag substring matches will leak
+#   false positives onto meta-tooling prompts that share vocabulary
+#   with the workflow (e.g. "delete the /promote tool" firing
+#   /promote). The schema test in tests/test_intent_injector_promote_
+#   subject.py::TestNakedFuzzyForbidden enforces this at CI time.
+#
 # Cap: MAX_INTENTS = 25. Adding a 26th requires merging or deleting
 # an existing entry. Index growth past that point kills maintainability.
 # ------------------------------------------------------------------

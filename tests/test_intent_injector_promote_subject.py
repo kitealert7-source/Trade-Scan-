@@ -319,6 +319,33 @@ class TestSchemaAssertions:
         )
 
 
+class TestNakedFuzzyForbidden:
+    """Doctrine rule: every intent must declare at least one of
+    requires_subject / suppress_on_infra / frozen_path_only.
+
+    Without one of these gates, fuzzy + tag substring matches leak
+    false positives onto meta-tooling prompts that share vocabulary
+    with the workflow. This test fails CI if a new intent is added
+    naked (or if the gate flag is removed from an existing one)."""
+
+    _GATE_FLAGS = ("requires_subject", "suppress_on_infra", "frozen_path_only")
+
+    def test_every_intent_has_a_gate(self):
+        index_path = PROJECT_ROOT / "outputs" / "system_reports" / "INTENT_INDEX.yaml"
+        data = yaml.safe_load(index_path.read_text(encoding="utf-8"))
+        naked = []
+        for intent in data["intents"]:
+            if not any(intent.get(f) is True for f in self._GATE_FLAGS):
+                naked.append(intent.get("id", "<unknown>"))
+        assert not naked, (
+            "Naked fuzzy intent(s) detected — no false-positive gate declared:\n"
+            + "\n".join(f"  - {iid}" for iid in naked)
+            + "\n\nEvery intent must declare at least one of:\n"
+            + "\n".join(f"  - {f}: true" for f in self._GATE_FLAGS)
+            + "\n\nSee INTENT_INDEX.yaml header doctrine block."
+        )
+
+
 class TestRerunBacktestFalsePositives:
     """Soft hint /rerun-backtest must not fire on meta-tooling prompts
     that just mention the intent or skill name."""
