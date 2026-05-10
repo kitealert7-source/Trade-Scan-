@@ -24,7 +24,7 @@ from config.state_paths import (
     STATE_ROOT, BACKTESTS_DIR, STRATEGIES_DIR,
     CANDIDATE_FILTER_PATH,
 )
-from tools.promote_to_burnin import (
+from tools.promote_to_live import (
     _compute_quality_gate, _load_portfolio_yaml, _get_existing_ids,
     decompose_portfolio,
 )
@@ -360,8 +360,8 @@ def print_report(report: list[dict]) -> None:
     print(f"    Already in portfolio: {in_portfolio_count}")
     print(f"    Blocked:             {blocked_count}")
     print(f"\n  >>> = ready for promotion")
-    print(f"  Use: python tools/promote_to_burnin.py <ID> --profile <PROFILE> --dry-run")
-    print(f"  Use: python tools/promote_to_burnin.py <PF_ID> --composite --profile <PROFILE> --dry-run")
+    print(f"  Use: python tools/promote_to_live.py <ID> --profile <PROFILE> --dry-run")
+    print(f"  Use: python tools/promote_to_live.py <PF_ID> --composite --profile <PROFILE> --dry-run")
     print()
 
 

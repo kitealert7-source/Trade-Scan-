@@ -236,19 +236,17 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
         _save_registry_atomic(reg)
 
 def get_active_portfolio_runs() -> set:
-    """Collect the set of run_ids that back deployed/burn-in strategies.
+    """Collect the set of run_ids that back deployed strategies.
 
-    Authority (2026-04-16 refactor): portfolio.yaml is the sole deployment
-    authority. burn_in_registry.yaml is a derived archetype projection and
-    carries strategy_ids, not run_ids — so it adds nothing for this check.
-    The legacy DB ``IN_PORTFOLIO`` column has been retired along with this
-    call site's dependency on it.
+    Authority: portfolio.yaml is the sole deployment authority. The legacy
+    DB ``IN_PORTFOLIO`` column has been retired along with this call site's
+    dependency on it.
 
     Sources merged here:
       1. ``strategies/**/portfolio_composition.json`` (``constituent_run_ids``)
          — composite portfolios' constituent runs.
       2. ``portfolio.yaml`` ``portfolio.strategies[].run_id`` — every
-         single-strategy deployment (BURN_IN, WAITING, LIVE, LEGACY, DISABLED).
+         single-strategy deployment (LIVE, RETIRED, LEGACY, DISABLED).
 
     Failure policy: if portfolio.yaml exists but cannot be parsed, raise.
     A silent empty read would cause downstream reconcilers to treat every

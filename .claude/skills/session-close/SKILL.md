@@ -145,7 +145,7 @@ git status --porcelain | grep -v "^??"
 ```
 
 **This MUST return empty output** (except for `SYSTEM_STATE.md`, which is
-regenerated in Step 10 and intentionally not touched yet).
+regenerated in Step 9 and intentionally not touched yet).
 
 - Any tracked file that is modified or deleted and not committed = **ERROR**
 - Do NOT label dirty state as "intentional" or "pre-existing"
@@ -176,7 +176,7 @@ python tools/system_introspection.py
 - Runs AFTER Step 8's push, so the snapshot reports `0 unpushed` and the
   true end-of-session state instead of a mid-close artifact.
 - Review output — `SESSION STATUS` should be `OK` (or `WARNING` with
-  clearly-documented burn-in/runtime reasons).
+  clearly-documented runtime reasons).
 - Commit and push this snapshot as the closing entry:
 
 ```bash

@@ -16,49 +16,22 @@ from tools.system_registry import _load_registry, _save_registry_atomic
 
 MASTER_SHEET = MASTER_FILTER_PATH
 
-# TS_Execution portfolio.yaml — source of truth for BURN_IN status.
-# Only entries with promotion_source="promote_to_burnin" AND valid vault_id
-# are treated as BURN_IN. This prevents the circular loop where FSP marks
-# strategies as BURN_IN just because they appear in portfolio.yaml.
+# TS_Execution portfolio.yaml — source of truth for LIVE status.
+# Only entries with promotion_source="promote_to_live" AND valid vault_id
+# are treated as LIVE. This prevents the circular loop where FSP marks
+# strategies as LIVE just because they appear in portfolio.yaml.
 _TS_EXEC_PORTFOLIO = _TS_EXEC / "portfolio.yaml"
 
-# TS_Execution burn_in_registry.yaml — source of truth for burn_in_layer column.
-# Populated by TS_Execution/tools/sync_burn_in_registry.py from FSP BURN_IN rows;
-# we read it back here to surface the layer on each BURN_IN row in FSP.
-_TS_EXEC_BURNIN_REGISTRY = _TS_EXEC / "burn_in_registry.yaml"
 
-
-def _load_burnin_layers() -> dict[str, str]:
-    """Return {strategy_id → layer} from burn_in_registry.yaml ('PRIMARY' | 'COVERAGE')."""
-    if not _TS_EXEC_BURNIN_REGISTRY.exists():
-        return {}
-    try:
-        import yaml
-        data = yaml.safe_load(_TS_EXEC_BURNIN_REGISTRY.read_text(encoding="utf-8")) or {}
-        layers: dict[str, str] = {}
-        for entry in (data.get("primary") or []):
-            sid = entry.get("id") if isinstance(entry, dict) else None
-            if sid:
-                layers[str(sid)] = "PRIMARY"
-        for entry in (data.get("coverage") or []):
-            sid = entry.get("id") if isinstance(entry, dict) else None
-            if sid:
-                layers[str(sid)] = "COVERAGE"
-        return layers
-    except Exception as e:
-        print(f"[WARN] Could not load burn-in layers from registry: {e}")
-        return {}
-
-
-def _load_burnin_ids() -> set[str]:
-    """Read validated BURN_IN strategy IDs from TS_Execution/portfolio.yaml.
+def _load_live_ids() -> set[str]:
+    """Read validated LIVE strategy IDs from TS_Execution/portfolio.yaml.
 
     Only includes entries that have ALL of:
       - enabled: true
       - vault_id: non-empty and not "none"
-      - promotion_source: "promote_to_burnin"
+      - promotion_source: "promote_to_live"
 
-    This prevents the circular loop where FSP marks strategies as BURN_IN
+    This prevents the circular loop where FSP marks strategies as LIVE
     just because they appear in portfolio.yaml (even if they were auto-added
     without going through the promotion gate).
 
@@ -79,23 +52,23 @@ def _load_burnin_ids() -> set[str]:
             vault = s.get("vault_id", "")
             src = s.get("promotion_source", "")
             if not vault or vault == "none":
-                print(f"[WARN] Skipping {s['id']} for BURN_IN: missing vault_id")
+                print(f"[WARN] Skipping {s['id']} for LIVE: missing vault_id")
                 continue
-            if src != "promote_to_burnin":
-                print(f"[WARN] Skipping {s['id']} for BURN_IN: promotion_source={src!r} (expected 'promote_to_burnin')")
+            if src != "promote_to_live":
+                print(f"[WARN] Skipping {s['id']} for LIVE: promotion_source={src!r} (expected 'promote_to_live')")
                 continue
             ids.add(s["id"])
         return ids
     except Exception as e:
-        print(f"[WARN] Could not load BURN_IN IDs from portfolio.yaml: {e}")
+        print(f"[WARN] Could not load LIVE IDs from portfolio.yaml: {e}")
         return set()
 
 
 def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     """
     Deterministic classification for candidate ledger rows:
-      BURN_IN : strategy is in TS_Execution/portfolio.yaml with valid vault_id
-                AND promotion_source="promote_to_burnin"
+      LIVE : strategy is in TS_Execution/portfolio.yaml with valid vault_id
+                AND promotion_source="promote_to_live"
       FAIL    : total_trades < 50 OR max_dd_pct > 40 OR sqn < 1.5
                 OR expectancy below asset-class FAIL gate
       CORE    : return_dd_ratio >= 2.0 AND sharpe_ratio >= 1.5
@@ -111,17 +84,17 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
       per lot (derived from OctaFX broker specs: tick_value, contract_size).
 
       Asset class detection via symbol keywords. FAIL thresholds:
-        FX    : < $0.15  (empirically calibrated from burn-in evidence)
+        FX    : < $0.15  (empirically calibrated from deployment evidence)
         XAU   : < $0.50  (3.3x FX: spread $0.20/oz vs FX $0.06/pip at 0.01 lot)
         BTC   : < $0.50  (3.3x FX: spread $20 vs FX, same cost at 0.01 lot)
         INDEX : < $0.50  (3.0-3.8x FX: GER40/NAS100/US30 spread vs FX)
 
-      WATCH : above FAIL but below BURN_IN threshold
-      BURN_IN candidates must have expectancy >= class threshold (enforced at promotion):
+      WATCH : above FAIL but below LIVE threshold
+      LIVE candidates must have expectancy >= class threshold (enforced at promotion):
         FX $0.25 | XAU $0.80 | BTC $0.80 | INDEX $0.80
 
-    BURN_IN requires: portfolio.yaml entry with promotion_source="promote_to_burnin"
-    AND valid vault_id. Only promote_to_burnin.py can create these entries.
+    LIVE requires: portfolio.yaml entry with promotion_source="promote_to_live"
+    AND valid vault_id. Only promote_to_live.py can create these entries.
     Removing a strategy from portfolio.yaml reverts it to computed status.
     """
     total_trades = pd.to_numeric(df.get("total_trades"), errors="coerce").fillna(0.0)
@@ -169,20 +142,20 @@ def _compute_candidate_status(df: pd.DataFrame) -> pd.Series:
     status.loc[fail_mask] = "FAIL"
     status.loc[core_mask] = "CORE"
 
-    # Auto-set BURN_IN from portfolio.yaml — overrides computed status.
+    # Auto-set LIVE from portfolio.yaml — overrides computed status.
     # Matches by exact ID or prefix (portfolio ID + "_SYMBOL" pattern in xlsx).
-    burnin_ids = _load_burnin_ids()
-    if burnin_ids and "strategy" in df.columns:
-        def _is_burnin(strat_name: str) -> bool:
+    live_ids = _load_live_ids()
+    if live_ids and "strategy" in df.columns:
+        def _is_live(strat_name: str) -> bool:
             s = str(strat_name)
-            if s in burnin_ids:
+            if s in live_ids:
                 return True
-            return any(s.startswith(bid + "_") for bid in burnin_ids)
+            return any(s.startswith(bid + "_") for bid in live_ids)
 
-        burnin_mask = df["strategy"].apply(_is_burnin)
-        if burnin_mask.any():
-            status.loc[burnin_mask] = "BURN_IN"
-            print(f"[CANDIDATES] BURN_IN auto-set for {burnin_mask.sum()} row(s) from portfolio.yaml")
+        live_mask = df["strategy"].apply(_is_live)
+        if live_mask.any():
+            status.loc[live_mask] = "LIVE"
+            print(f"[CANDIDATES] LIVE auto-set for {live_mask.sum()} row(s) from portfolio.yaml")
 
     return status
 
@@ -365,8 +338,6 @@ def filter_strategies():
                     # Refresh metrics for existing rows that are also in passed_df.
                     # Preserve Analysis_selection (owned by master_filter DB —
                     # control_panel writes; this tool republishes).
-                    # burn_in_layer is NOT preserved — it's overwritten deterministically
-                    # below from burn_in_registry.yaml after the merge.
                     _preserve_cols = {"Analysis_selection"}
                     # Refresh ALL rows present in master_filter (not just currently passing).
                     # Rows that pass today get refreshed; rows that previously passed but
@@ -406,33 +377,22 @@ def filter_strategies():
             else:
                 df_merged = passed_df
 
-            # Preserve manually-set RBIN (Removed from Burn-In) status — these rows
-            # were flagged by human review and should not revert to computed status.
+            # Preserve manually-set REMOVE status — these rows were flagged by
+            # human review and should not revert to computed status.
             _rbin_ids = set()
             if "candidate_status" in df_merged.columns:
-                _rbin_mask = df_merged["candidate_status"] == "RBIN"
+                _rbin_mask = df_merged["candidate_status"] == "REMOVE"
                 if _rbin_mask.any() and "run_id" in df_merged.columns:
                     _rbin_ids = set(df_merged.loc[_rbin_mask, "run_id"].astype(str))
 
             # Deterministic classification-only field; no filtering side effects.
             df_merged = _apply_candidate_status(df_merged)
 
-            # Restore RBIN where it was set before recomputation.
+            # Restore REMOVE where it was set before recomputation.
             if _rbin_ids and "run_id" in df_merged.columns:
                 restore_mask = df_merged["run_id"].astype(str).isin(_rbin_ids)
-                df_merged.loc[restore_mask, "candidate_status"] = "RBIN"
-                print(f"[CANDIDATES] Preserved RBIN status for {restore_mask.sum()} row(s)")
-
-            # Overwrite burn_in_layer deterministically from burn_in_registry.yaml.
-            # Registry is the sole source of truth; stale/demoted values get cleared.
-            if "strategy" in df_merged.columns:
-                _layers = _load_burnin_layers()
-                if _layers or "burn_in_layer" in df_merged.columns:
-                    df_merged["burn_in_layer"] = (
-                        df_merged["strategy"].astype(str).map(_layers)
-                    )
-                    _n_layered = df_merged["burn_in_layer"].notna().sum()
-                    print(f"[CANDIDATES] burn_in_layer populated for {_n_layered} row(s) from registry")
+                df_merged.loc[restore_mask, "candidate_status"] = "REMOVE"
+                print(f"[CANDIDATES] Preserved REMOVE status for {restore_mask.sum()} row(s)")
 
             # ── CORE dedup: one winner per (family × symbol) ──────────────
             # Within each strategy family on the same symbol, only the best
@@ -534,7 +494,6 @@ def filter_strategies():
                 "candidate_status",   # _apply_candidate_status
                 "asset_class",        # classify_asset() above
                 "base_strategy_id",   # _derive_base_id() above
-                "burn_in_layer",      # from burn_in_registry.yaml above
             }
             _allowed = set(df.columns) | _FSP_DERIVED_COLS
             _zombies = [c for c in df_merged.columns if c not in _allowed]

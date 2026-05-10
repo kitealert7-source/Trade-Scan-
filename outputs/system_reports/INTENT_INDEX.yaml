@@ -19,6 +19,20 @@
 #                    proximity bonus (+3) if two distinct exact hits
 #                    lie within <=3 tokens of each other
 #
+# DOCTRINE — NO NAKED FUZZY INTENTS:
+#   Every intent (hard or soft) MUST declare at least one of:
+#     requires_subject: true   — gate fuzzy on strong subject evidence
+#                                (strategy_id / PF_id / vault_id) and
+#                                suppress on infra-action verbs.
+#     suppress_on_infra: true  — suppress on infra-action verbs only
+#                                (for intents without a natural subject).
+#     frozen_path_only: true   — gate on actual changed-file scope.
+#   Without one of these, fuzzy + tag substring matches will leak
+#   false positives onto meta-tooling prompts that share vocabulary
+#   with the workflow (e.g. "delete the /promote tool" firing
+#   /promote). The schema test in tests/test_intent_injector_promote_
+#   subject.py::TestNakedFuzzyForbidden enforces this at CI time.
+#
 # Cap: MAX_INTENTS = 25. Adding a 26th requires merging or deleting
 # an existing entry. Index growth past that point kills maintainability.
 # ------------------------------------------------------------------
@@ -73,36 +87,51 @@ intents:
     must_skill: promote
     expected_file_category: strategy
     threshold: 8
+    requires_subject: true
     reason: "Promotion touches append-only ledgers, vault, FSM state. Ad-hoc promotion has left orphan strategies and stale PORTFOLIO_COMPLETE markers."
-    # Hard-fire requires BOTH a strategy identifier (FOO_V<n>_P<n>) AND an
-    # explicit promote/lifecycle keyword in the same prompt. Bare mentions
-    # of "promote" or "burn_in" in code, commit messages, or discussion no
-    # longer trigger routing on their own -- fuzzy threshold (8) is above
-    # any single tag's exact-match weight (6 max).
+    # Hard-fire requires BOTH a promotion verb AND strategy/subject evidence:
+    #   - Strong evidence: an explicit identifier (FOO_V<n>_P<n>, PF_<hex>,
+    #     DRY_RUN_<date>) anywhere in the prompt.
+    #   - Idiomatic evidence: a phrasal pattern like "add X to portfolio" or
+    #     "deploy X strategy" — gated post-score by infra-action suppression
+    #     (delete/refactor/migrate/etc. words elsewhere in the prompt block
+    #     the injection unless strong evidence is also present).
+    # Pure fuzzy matches without strong subject evidence are suppressed by
+    # the `requires_subject: true` post-filter in intent_injector.py.
     regex_patterns:
-      # Co-occurrence: strategy-ID token anywhere + lifecycle keyword anywhere.
-      - "(?is)(?=.*\\b[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b)(?=.*\\b(promote|promoting|promotion|burn[- ]?in|BURN_IN|deployable|portfolio[_ ]complete|go[- ]?live|to[ _-]?waiting)\\b)"
-      # Direct phrasings with inline identifier.
+      # Strong evidence: explicit strategy ID + promotion verb co-occurrence.
+      - "(?is)(?=.*\\b[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b)(?=.*\\b(promote|promoting|promotion|deployable|portfolio[_ ]complete|go[- ]?live)\\b)"
+      # Strong evidence: explicit ID right next to a verb.
       - "(?i)\\bpromote\\s+[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b"
-      - "(?i)\\b(move|send|advance)\\s+[A-Z0-9][A-Z0-9_]*\\s+to\\s+(live|waiting|burn[- ]?in)\\b"
+      - "(?i)\\b(move|send|advance)\\s+[A-Z0-9][A-Z0-9_]*\\s+to\\s+live\\b"
+      # Idiomatic evidence: action + portfolio/live target (subject to
+      # infra-action suppression — e.g., "delete X to portfolio" suppresses).
+      - "(?i)\\b(promote|deploy|push)\\s+\\S+(\\s+\\S+){0,5}\\s+to\\s+(live|portfolio)\\b"
+      - "(?i)\\b(add|put)\\s+\\S+(\\s+\\S+){0,3}\\s+to\\s+portfolio\\b"
+      - "(?i)\\b(promote|deploy)\\s+\\S+(\\s+\\S+){0,2}\\s+strategy\\b"
     semantic_tags:
       - {tag: "promote", weight: 3}
-      - {tag: "burn_in", weight: 3}
-      - {tag: "burnin", weight: 3}
-      - {tag: "waiting", weight: 2}
       - {tag: "deployable", weight: 2}
       - {tag: "portfolio_complete", weight: 3}
+      - {tag: "go_live", weight: 3}
 
   # ---------- SOFT REMINDERS ----------
   - id: run_directive
     priority: 50
     enforcement: soft
     must_skill: execute-directives
+    requires_subject: true
     reason: "Pipeline execution has a mandatory pre-directive gate and sequential-only rule."
+    # Pre-fix, fuzzy fired on any prompt mentioning "directive" or "stage1"
+    # at word boundary, including meta-tooling prompts about the directive
+    # parser. requires_subject gates the fuzzy path on a strategy/directive
+    # ID; explicit regex patterns (run_pipeline.py / "run the directive" /
+    # "execute directive") still fire without subject evidence.
     regex_patterns:
       - "(?i)\\brun_pipeline\\.py\\b"
       - "(?i)\\brun\\s+(the\\s+)?directive\\b"
       - "(?i)\\b(execute|kick\\s*off|start)\\s+(directive|backtest)\\b"
+      - "(?i)\\b(run|execute)\\s+[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b"
     semantic_tags:
       - {tag: "directive", weight: 2}
       - {tag: "pipeline", weight: 1}
@@ -114,11 +143,18 @@ intents:
     priority: 55
     enforcement: soft
     must_skill: rerun-backtest
+    requires_subject: true
     reason: "Re-run requires ledger cleanup + reset_directive before pipeline re-entry; skipping causes stale rows."
+    # Pre-fix, the tag `rerun` (weight 3) substring-matched on any prompt
+    # mentioning the intent name itself ("rerun_backtest") or unrelated
+    # contexts ("rerun a query"), firing the soft hint as noise. The
+    # explicit regex patterns require co-occurrence of rerun + directive/
+    # backtest/stage; requires_subject gates the fuzzy fallback.
     regex_patterns:
       - "(?i)\\b(re[- ]?run|rerun)\\b.*\\b(directive|backtest|stage)\\b"
       - "(?i)\\breset_directive\\.py\\b"
       - "(?i)\\b__E15[0-9]\\b"
+      - "(?i)\\b(re[- ]?run|rerun)\\s+[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b"
     semantic_tags:
       - {tag: "rerun", weight: 3}
       - {tag: "re-run", weight: 3}
@@ -129,7 +165,12 @@ intents:
     priority: 30
     enforcement: soft
     must_skill: session-close
+    suppress_on_infra: true
     reason: "Closing a session has a fixed commit/push/cleanup checklist."
+    # session_close has no natural subject — it's a workflow action, not
+    # entity-based. suppress_on_infra catches meta-tooling prompts about
+    # the session-close skill itself ("delete the session_close hook",
+    # "refactor session-close steps") so they don't fire the hint.
     regex_patterns:
       - "(?i)\\b(end|close|wrap\\s*up|finish)\\s+(the\\s+)?session\\b"
       - "(?i)\\bsession[- ]?close\\b"
@@ -141,11 +182,26 @@ intents:
     priority: 40
     enforcement: soft
     must_skill: portfolio-selection-add
+    requires_subject: true
     reason: "Portfolio add/remove writes to append-only MPS; must use the dedicated workflow."
+    # Scope: IN_PORTFOLIO flag changes + control_panel selection CLI usage.
+    # Generic "add X to portfolio" phrasing is owned by promote_strategy
+    # (higher priority) — promote_strategy's regex covers that case so the
+    # right routing fires regardless. Pre-fix, this intent's loose
+    # "\\badd\\b.*\\bportfolio\\b" regex fired on prompts like "add
+    # comments to portfolio loader file"; tightened to require an
+    # explicit selection signal.
     regex_patterns:
-      - "(?i)\\badd\\b.*\\bportfolio\\b"
-      - "(?i)\\bportfolio\\b.*\\b(add|include|admit)\\b"
+      # Strong: strategy ID + IN_PORTFOLIO mention
+      - "(?is)(?=.*\\b[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b)(?=.*\\bIN_PORTFOLIO\\b)"
+      # IN_PORTFOLIO flag direct mention
+      - "(?i)\\bIN_PORTFOLIO\\s*=\\s*[01]\\b"
+      # control_panel CLI selection commands
+      - "(?i)\\bcontrol_panel(\\.py|\\.bat)?\\s+--(select|deselect|deploy|drop|burn)\\b"
+      # Explicit "flag X for portfolio analysis" idiom
+      - "(?i)\\b(flag|select|deselect)\\s+\\S+(\\s+\\S+){0,3}\\s+for\\s+portfolio\\s+analysis\\b"
     semantic_tags:
+      - {tag: "in_portfolio", weight: 3}
       - {tag: "portfolio_add", weight: 3}
       - {tag: "mps", weight: 1}
       - {tag: "master_portfolio_sheet", weight: 3}

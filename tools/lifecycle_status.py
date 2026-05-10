@@ -37,7 +37,7 @@ def main() -> None:
         entries_by_state.setdefault(lc, []).append(s.get("id", "?"))
 
     # Fixed display order
-    order = ["LEGACY", "BURN_IN", "WAITING", "LIVE", "DISABLED", "UNTAGGED"]
+    order = ["LEGACY", "LIVE", "RETIRED", "DISABLED", "UNTAGGED"]
     # Add any states not in the fixed order
     for state in sorted(counts.keys()):
         if state not in order:

@@ -74,7 +74,7 @@ Before any deletion decision, `cleanup_reconciler` loads both ledgers and compil
 | Ledger | Signal | Why |
 |---|---|---|
 | `Filtered_Strategies_Passed.xlsx` (FSP) | `is_current == 1` | Canonical flag — this is the live variant of its lineage |
-| `Filtered_Strategies_Passed.xlsx` (FSP) | `candidate_status in {CORE, BURN_IN, WATCH, RESERVE, PROFILE_UNRESOLVED}` | Non-terminal lifecycle state — pending promotion or under review |
+| `Filtered_Strategies_Passed.xlsx` (FSP) | `candidate_status in {CORE, LIVE, WATCH, RESERVE, PROFILE_UNRESOLVED}` | Non-terminal lifecycle state — pending promotion or under review |
 | `Strategy_Master_Filter.xlsx` (SMF) | Same two checks as above | Defense in depth against FSP write-lag during promotion windows |
 
 **Fail-closed invariant.** If either ledger cannot be loaded (missing file, corrupt XLSX, unreadable columns), the reconciler **refuses to proceed** and raises `RuntimeError`. Silent unguarded cleanup would orphan ledger pointers and repeat the 2026-04-21 incident where five canonical runs were flagged for deletion.
@@ -115,7 +115,7 @@ A folder physically present but missing from the registry is **not** deleted on 
 
 Every deletion is double-checked:
 
-- Path must not contain any forbidden segment: `strategies`, `candidates` (in Trade_Scan scope — not TradeScan_State SELECTED_DIR contents), `registry`, `tools`, `data_access`, `waiting`.
+- Path must not contain any forbidden segment: `strategies`, `candidates` (in Trade_Scan scope — not TradeScan_State SELECTED_DIR contents), `registry`, `tools`, `data_access`.
 - Path must be a child of an allowed scope: any directory in `RUN_DIRS_IN_LOOKUP_ORDER`, or `BACKTESTS_DIR`.
 - Any boundary violation raises `RuntimeError` — cleanup halts immediately.
 
@@ -130,7 +130,7 @@ Every deletion is double-checked:
 - **No hardcoded run paths.** Readers must go through `resolve_run_dir`. Writers targeting fresh Stage-1 output may still reference `RUNS_DIR` directly.
 - **No Excel authority for authorization.** Deletion decisions originate from the registry; ledger reads grant *veto* only, never affirmative authority.
 - **No manual `shutil.rmtree`.** All run-folder removals must go through `cleanup_reconciler` so the registry stays synchronized.
-- **No deletion during active burn-in without explicit human sign-off.** Burn-in-active state defers structural cleanup (see preflight note).
+- **No deletion during active execution without explicit human sign-off.** Execution-active state defers structural cleanup (see preflight note).
 - **No retention of `invalid` runs.** Runs flagged `invalid` during reconciliation are purged on the next maintenance cycle — after passing all gates in §4.
 
 ---

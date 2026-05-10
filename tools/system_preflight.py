@@ -80,7 +80,7 @@ def resolve_run_location(run_id: str):
 def get_hash(p: Path):
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
-def _burn_in_active() -> bool:
+def _execution_active() -> bool:
     """Detect TS_Execution running without depending on lineage_pruner's
     sys.exit behaviour on corrupt PID. Isolates the check so a missing or
     malformed PID file never crashes preflight.
@@ -98,7 +98,7 @@ class PreflightCheck:
     def __init__(self):
         self.stats = {"GREEN": 0, "YELLOW": 0, "RED": 0}
         self.results = {}
-        self.burn_in_active = _burn_in_active()
+        self.execution_active = _execution_active()
 
     def report(self, category, status, message):
         self.stats[status] += 1
@@ -527,7 +527,7 @@ class PreflightCheck:
 
         Preserves first-seen order. Excludes:
           - 'Investigate' verbs (not runnable commands)
-          - lineage_pruner when burn-in is active (the tool will [BLOCK])
+          - lineage_pruner when execution is active (the tool will [BLOCK])
         """
         ordered = []
         seen = set()
@@ -541,8 +541,8 @@ class PreflightCheck:
                 verb, cmd = hint
                 if verb not in ("Run", "Then"):
                     continue
-                if cmd == CMD_LINEAGE_PRUNER and self.burn_in_active:
-                    continue  # deferred until burn-in stops
+                if cmd == CMD_LINEAGE_PRUNER and self.execution_active:
+                    continue  # deferred until execution stops
                 if cmd in seen:
                     continue
                 seen.add(cmd)
@@ -569,8 +569,8 @@ class PreflightCheck:
                             print(f"    [action] Read: {cmd}")
                         else:
                             suffix = ""
-                            if cmd == CMD_LINEAGE_PRUNER and self.burn_in_active:
-                                suffix = "  [DEFERRED: burn-in active]"
+                            if cmd == CMD_LINEAGE_PRUNER and self.execution_active:
+                                suffix = "  [DEFERRED: execution active]"
                             print(f"    → {verb}: {cmd}{suffix}")
 
         print_category("RUNS")
@@ -594,9 +594,9 @@ class PreflightCheck:
             print(">> Recommended action:")
             print(">>   /system-maintenance")
             print(">> or run targeted tools below based on issue type")
-            if self.burn_in_active:
-                print(">> Note: burn-in is active. Structural cleanup (lineage_pruner) is "
-                      "deferred until burn-in stops — related RED is expected, not failure.")
+            if self.execution_active:
+                print(">> Note: execution is active. Structural cleanup (lineage_pruner) is "
+                      "deferred until execution stops — related RED is expected, not failure.")
             suggested = self._collect_suggested_commands()
             if suggested:
                 print("\nSuggested next step:")

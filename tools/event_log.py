@@ -4,7 +4,6 @@ event_log.py — Append-only governance event log for durable state changes.
 One log for every write that mutates authoritative state:
     - run_registry.json mutations (status / directive_hash / tier changes)
     - portfolio.yaml writes (promote, disable, lifecycle transitions)
-    - burn_in_registry.yaml writes
     - directive_state.json transitions (FSM state changes)
     - destructive reconciler actions (purge, quarantine, invalidate)
 
@@ -63,7 +62,6 @@ def log_event(
             Canonical values:
               REGISTRY_UPSERT, REGISTRY_STATUS_CHANGE, REGISTRY_DIRECTIVE_HEAL
               PORTFOLIO_YAML_ADD, PORTFOLIO_YAML_REMOVE
-              BURN_IN_REGISTRY_ADD, BURN_IN_REGISTRY_REMOVE
               DIRECTIVE_STATE_TRANSITION
               DIRECTIVE_PURGE, RUN_QUARANTINE, RUN_INVALIDATE
               INVARIANT_VIOLATION, INVARIANT_HEAL

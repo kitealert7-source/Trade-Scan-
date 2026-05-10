@@ -75,7 +75,7 @@ _MISS_SYNONYMS = {
 # MISS prompts containing ANY of these words surface even at count=1.
 _MISS_HIGH_RISK = {
     "engine", "registry", "vault", "portfolio", "capital", "promote",
-    "burn_in", "burnin", "ledger", "governance", "manifest",
+    "ledger", "governance", "manifest",
     "frozen", "canonical", "execution_loop", "mps",
 }
 _CLUSTER_MERGE_OVERLAP = 0.5

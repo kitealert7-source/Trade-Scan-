@@ -6,13 +6,9 @@ available market data (data_root/freshness_index.json). If the gap exceeds
 the configured threshold, the gate blocks promotion.
 
 Called from:
-    - tools/promote_to_burnin.py (threshold = 14 days) — BEFORE Layer 2 replay.
+    - tools/promote_to_live.py (threshold = 14 days) — BEFORE Layer 2 replay.
     - tools/promote_readiness.py (advisory, no threshold enforcement).
-
-Not called from transition_to_live.py: once a strategy is in BURN_IN with a
-fresh baseline, transitions onward (WAITING, LIVE) do not re-check freshness —
-burn-in produces its own live-dry-run data which supersedes the backtest
-baseline as the reference for subsequent validation.
+    - governance/preflight.py (DATA_FRESH re-run gate).
 
 Fail-fast (invariant #1) on missing freshness_index.json or unknown symbol.
 

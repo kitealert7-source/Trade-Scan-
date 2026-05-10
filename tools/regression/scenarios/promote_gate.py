@@ -1,8 +1,7 @@
 """promote_gate — governance classification + gate threshold stability.
 
 Choke-point 1: `_infer_archetype` classifies every strategy into an
-archetype bucket that determines burn_in_registry layering (PRIMARY vs
-COVERAGE). Any drift silently reshapes the live portfolio composition.
+archetype bucket. Any drift silently reshapes the live portfolio composition.
 
 Choke-point 2: `_QG_THRESHOLDS` is the 6-metric quality gate's cutoff
 table. Any silent edit to these values changes which strategies pass

@@ -1,11 +1,11 @@
 ---
 name: promote
-description: Promote a strategy from PIPELINE_COMPLETE to BURN_IN -- vault snapshot, portfolio.yaml edit, execution-ready
+description: Promote a strategy from PIPELINE_COMPLETE to LIVE -- vault snapshot, portfolio.yaml edit, execution-ready
 ---
 
-# /promote -- Strategy Promotion to Burn-In
+# /promote -- Strategy Promotion to LIVE
 
-Single workflow that takes a strategy from PIPELINE_COMPLETE to live BURN_IN execution.
+Single workflow that takes a strategy from PIPELINE_COMPLETE to LIVE execution.
 One command chains: run_id lookup -> quality gate -> full vault snapshot -> portfolio.yaml edit
 with vault_id + profile + lifecycle fields.
 
@@ -21,15 +21,15 @@ python tools/promote_readiness.py              # full dashboard
 python tools/promote_readiness.py --core-only  # CORE only
 
 # 2. Single strategy
-python tools/promote_to_burnin.py <ID> --profile <PROFILE> --dry-run
-python tools/promote_to_burnin.py <ID> --profile <PROFILE>
+python tools/promote_to_live.py <ID> --profile <PROFILE> --dry-run
+python tools/promote_to_live.py <ID> --profile <PROFILE>
 
 # 3. Composite portfolio (PF_*)
-python tools/promote_to_burnin.py <PF_ID> --composite --profile <PROFILE> --dry-run
+python tools/promote_to_live.py <PF_ID> --composite --profile <PROFILE> --dry-run
 
 # 4. Batch promote all ready CORE strategies
-python tools/promote_to_burnin.py --batch --profile <PROFILE> --dry-run
-python tools/promote_to_burnin.py --batch-all --profile <PROFILE> --dry-run  # includes WATCH
+python tools/promote_to_live.py --batch --profile <PROFILE> --dry-run
+python tools/promote_to_live.py --batch-all --profile <PROFILE> --dry-run  # includes WATCH
 ```
 
 ---
@@ -39,7 +39,7 @@ python tools/promote_to_burnin.py --batch-all --profile <PROFILE> --dry-run  # i
 The human provides:
 - **Strategy ID** (required for single/composite) -- e.g., `27_MR_XAUUSD_1H_PINBAR_S01_V1_P05` or `PF_04C5F80CB1E3`
 - **Capital profile** (required) -- one of `RAW_MIN_LOT_V1`, `FIXED_USD_V1`, `REAL_MODEL_V1` (legacy institutional profiles retired 2026-04-16)
-- **Description** (optional) -- one-line strategy summary for the burn-in comment block
+- **Description** (optional) -- one-line strategy summary for the comment block
 - **Mode flag** (optional) -- `--composite`, `--batch`, `--batch-all`, `--skip-quality-gate`
 
 ---
@@ -100,7 +100,8 @@ Computed automatically from trade-level CSV. No manual computation needed.
 > strong only because the third strategy carried all the weight.
 
 See also: `outputs/system_reports/11_deployment_and_burnin/CLASSIFICATION_REFERENCE.md` for full
-CORE/WATCH/FAIL gate reference across all pipeline stages.
+CORE/WATCH/FAIL gate reference across all pipeline stages (historical doctrine; current
+runtime uses PIPELINE_COMPLETE -> LIVE direct).
 
 ---
 
@@ -111,13 +112,13 @@ CORE/WATCH/FAIL gate reference across all pipeline stages.
 ### Single Strategy
 
 ```bash
-python tools/promote_to_burnin.py <STRATEGY_ID> --profile <PROFILE> --dry-run
-python tools/promote_to_burnin.py <STRATEGY_ID> --profile <PROFILE>
+python tools/promote_to_live.py <STRATEGY_ID> --profile <PROFILE> --dry-run
+python tools/promote_to_live.py <STRATEGY_ID> --profile <PROFILE>
 ```
 
 With description:
 ```bash
-python tools/promote_to_burnin.py <STRATEGY_ID> --profile <PROFILE> --description "one-line summary"
+python tools/promote_to_live.py <STRATEGY_ID> --profile <PROFILE> --description "one-line summary"
 ```
 
 ### Composite Portfolio (PF_*)
@@ -126,7 +127,7 @@ Composites have no single strategy.py or run_id. The tool decomposes the portfol
 constituent strategies, runs quality gates on each, and promotes passing constituents:
 
 ```bash
-python tools/promote_to_burnin.py <PF_ID> --composite --profile <PROFILE> --dry-run
+python tools/promote_to_live.py <PF_ID> --composite --profile <PROFILE> --dry-run
 ```
 
 Decomposition reads constituent_run_ids from `portfolio_metadata.json` (primary) or
@@ -138,8 +139,8 @@ the tool falls back to reading `run_state.json` + `run_metadata.json` directly f
 Promotes all ready CORE strategies in one session:
 
 ```bash
-python tools/promote_to_burnin.py --batch --profile <PROFILE> --dry-run      # CORE only
-python tools/promote_to_burnin.py --batch-all --profile <PROFILE> --dry-run   # CORE + WATCH
+python tools/promote_to_live.py --batch --profile <PROFILE> --dry-run      # CORE only
+python tools/promote_to_live.py --batch-all --profile <PROFILE> --dry-run   # CORE + WATCH
 ```
 
 Uses `promote_readiness.py` internally to find candidates, then promotes each passing strategy
@@ -154,8 +155,8 @@ sequentially. Outputs a summary table with promoted/failed/skipped counts.
 5. Generates deterministic vault_id: `DRY_RUN_YYYY_MM_DD__{run_id[:8]}`
 6. Creates full vault snapshot via `backup_dryrun_strategies.py`
 7. Verifies vault was created (meta.json + run_id present)
-8. Appends YAML entries to `TS_Execution/portfolio.yaml`
-9. Auto-chains: `sync_portfolio_flags.py --save` + `validate_portfolio_integrity.py`
+8. Appends YAML entries to `TS_Execution/portfolio.yaml` with `lifecycle: LIVE`
+9. Auto-chains: `validate_portfolio_integrity.py`
 
 **If any `[SKIP]` appears for directive.txt, strategy.py, or portfolio_evaluation**: STOP.
 **If vault snapshot fails**: STOP. No portfolio.yaml edit happens.
@@ -166,12 +167,9 @@ sequentially. Outputs a summary table with promoted/failed/skipped counts.
 ## Step 2: Auto-Chained (no manual action)
 
 The promote tool automatically runs:
-1. `sync_portfolio_flags.py --save` -- syncs IN_PORTFOLIO flags to candidates ledger + Master Filter
-2. `validate_portfolio_integrity.py` -- audits portfolio.yaml for governance violations
+1. `validate_portfolio_integrity.py` -- audits portfolio.yaml for governance violations
 
-Both are chained after successful portfolio.yaml edit. If either warns, review the output.
-
-To verify flags manually: `python tools/sync_portfolio_flags.py --list`
+If it warns, review the output.
 
 ---
 
@@ -185,19 +183,16 @@ Report to the human:
 | Run ID | `<run_id>` |
 | Vault ID | `DRY_RUN_YYYY_MM_DD__{run_id[:8]}` |
 | Profile | `<PROFILE>` |
-| Lifecycle | BURN_IN |
+| Lifecycle | LIVE |
 | Symbols added | `<list>` |
 | portfolio.yaml entries | N |
 | Quality gate | PASS / WARN (N warnings) |
-| IN_PORTFOLIO synced | Auto (check output) |
 | Integrity check | Auto (check output) |
 
 **Next steps for the human:**
 1. Run Phase 0 smoke test: `cd ../TS_Execution && python src/main.py --phase 0`
 2. Restart TS_Execution to pick up new strategies
 3. Verify the strategy appears in execution logs after restart
-4. Monitor via `python tools/burnin_monitor.py` (in TS_Execution, outputs to `TS_Execution/outputs/burnin/`)
-5. When burn-in completes, use `/to-waiting` to transition
 
 ---
 
@@ -294,7 +289,6 @@ Key files:
 | Workflow | Purpose |
 |----------|---------|
 | `/execute-directives` | Pipeline run that produces PORTFOLIO_COMPLETE (upstream) |
-| `/to-waiting` | Downstream: BURN_IN -> WAITING after burn-in completes |
 | `/portfolio-selection-add` | Manual IN_PORTFOLIO flag management |
 | `/portfolio-selection-remove` | Remove strategy from portfolio |
 | `/update-vault` | Workspace snapshot into `vault/snapshots/` (different scope) |
@@ -303,12 +297,9 @@ Key files:
 
 | File | Location |
 |------|----------|
-| Promote tool | `tools/promote_to_burnin.py` |
+| Promote tool | `tools/promote_to_live.py` |
 | Readiness dashboard | `tools/promote_readiness.py` |
 | Portfolio integrity | `tools/validate_portfolio_integrity.py` |
 | Vault backup | `tools/backup_dryrun_strategies.py` |
-| Waiting transition | `tools/transition_to_waiting.py` |
-| Portfolio flag sync | `tools/sync_portfolio_flags.py` (auto-chained by promote tool) |
 | Portfolio YAML | `TS_Execution/portfolio.yaml` |
-| Burn-in monitor | `TS_Execution/tools/burnin_monitor.py` (outputs to `TS_Execution/outputs/burnin/`) |
 | Classification reference | `outputs/system_reports/11_deployment_and_burnin/CLASSIFICATION_REFERENCE.md` |

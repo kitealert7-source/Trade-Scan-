@@ -10,7 +10,7 @@ Tool | Purpose
 --- | ---
 run_pipeline | Primary pipeline execution entrypoint (directive -> Stage-4)
 control_panel | Governance-authoritative CLI for lifecycle intent + composite-portfolio analysis selection
-promote_to_burnin | Strategy promotion from PORTFOLIO_COMPLETE to BURN_IN (vault + portfolio.yaml)
+promote_to_live | Strategy promotion from PORTFOLIO_COMPLETE to LIVE (vault + portfolio.yaml)
 run_portfolio_analysis | Composite portfolio analysis runner (Analysis_selection flagged rows)
 system_introspection | Workspace system snapshot generator (SYSTEM_STATE.md)
 
@@ -58,22 +58,20 @@ Governance-authoritative human interface for portfolio and analysis intent.
 
 Tool | Purpose
 --- | ---
-control_panel | Unified CLI: `--select / --burn / --drop / --deselect` for burn-in intent, `--select-analysis / --deselect-analysis / --clear-analysis / --list-analysis / --run-analysis` for composite-portfolio analysis intent
-portfolio_interpreter | Drains portfolio_control intents into portfolio.yaml + burn_in_registry.yaml; regenerates Excel views
-lifecycle_status | Read-only snapshot of each strategy's lifecycle (BURN_IN / WAITING / LIVE / DISABLED)
+control_panel | Unified CLI: `--select / --deploy / --drop / --deselect` for deployment intent, `--select-analysis / --deselect-analysis / --clear-analysis / --list-analysis / --run-analysis` for composite-portfolio analysis intent
+portfolio_interpreter | Drains portfolio_control intents into portfolio.yaml; regenerates Excel views
+lifecycle_status | Read-only snapshot of each strategy's lifecycle (LIVE / RETIRED / DISABLED / LEGACY)
 
-## Promotion / Burn-In / Go-Live
+## Promotion / Go-Live
 Pre-deployment and deployment-lifecycle tooling.
 
 Tool | Purpose
 --- | ---
 promote_readiness | Readiness dashboard for promotion (CORE + WATCH gates, artifact checks)
 pre_promote_validator | Multi-layer validator (schema / replay regression / expectancy / sanity exec)
-promote_to_burnin | Promotion to BURN_IN (expectancy gate + 6-metric quality gate + vault snapshot + portfolio.yaml edit)
-baseline_freshness_gate | Blocks burn-in promotion on stale replay baselines (threshold: 14 days)
+promote_to_live | Promotion to LIVE (expectancy gate + 6-metric quality gate + vault snapshot + portfolio.yaml edit)
+baseline_freshness_gate | Blocks promotion on stale replay baselines (threshold: 14 days)
 backup_dryrun_strategies | Full deterministic vault snapshot creator (DRY_RUN_VAULT/{vault_id}/{ID}/)
-transition_to_waiting | BURN_IN -> WAITING lifecycle transition (PASS/FAIL decision gated)
-transition_to_live | WAITING -> LIVE lifecycle transition (vault + portfolio.yaml)
 validate_portfolio_integrity | Audits portfolio.yaml for governance violations (vault_id, lifecycle, profile fields)
 sync_multisymbol_strategy | Syncs base strategy.py into per-symbol ID folders (for multi-symbol portfolios)
 
@@ -254,5 +252,5 @@ Repository layers are organized as follows:
 ---
 Last Updated: 2026-04-16
 Capital profile set: v3.0 Retail Amateur Model (`RAW_MIN_LOT_V1`, `FIXED_USD_V1`, `REAL_MODEL_V1`)
-Total CLI Tools Indexed: 83 (top-level) + 1 (nested `tools.robustness.cli`)
+Total CLI Tools Indexed: 80 (top-level) + 1 (nested `tools.robustness.cli`)
 Library Modules: 17 (top-level) + internal submodule trees

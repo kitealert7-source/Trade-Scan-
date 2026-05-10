@@ -2,14 +2,14 @@
 validate_portfolio_integrity.py — Audit TS_Execution/portfolio.yaml for governance violations.
 
 Detects:
-  1. BURN_IN entries missing vault_id (manual additions that bypassed promote_to_burnin.py)
+  1. LIVE entries missing vault_id (manual additions that bypassed promote_to_live.py)
   2. vault_id references pointing to non-existent vault directories
   3. Vault directories missing required files (meta.json, strategy.py)
-  4. BURN_IN entries missing lifecycle field (ambiguous state)
-  5. BURN_IN entries missing profile field
+  4. LIVE entries missing lifecycle field (ambiguous state)
+  5. LIVE entries missing profile field
   6. Entries with enabled=true but no lifecycle (LEGACY without explicit marking)
   7. strategy.py missing for any enabled entry
-  8. Enabled entries missing promotion_source='promote_to_burnin' (ungated addition)
+  8. Enabled entries missing promotion_source='promote_to_live' (ungated addition)
   9. Enabled entries missing promotion_timestamp (no audit trail)
  10. promotion_run_id ↔ vault_id lineage mismatch (mismatched snapshots)
  11. strategy_hash drift — strategy.py modified after promotion
@@ -64,23 +64,23 @@ def validate() -> list[str]:
         if enabled and not lifecycle:
             violations.append(
                 f"[NO_LIFECYCLE] {sid}: enabled=true but no lifecycle field. "
-                f"Was this manually added? Set lifecycle explicitly (LEGACY/BURN_IN)."
+                f"Was this manually added? Set lifecycle explicitly (LEGACY/LIVE)."
             )
 
-        # --- Check 2: BURN_IN without vault_id ---
-        if lifecycle == "BURN_IN" and not vault_id:
+        # --- Check 2: LIVE without vault_id ---
+        if lifecycle == "LIVE" and not vault_id:
             violations.append(
-                f"[NO_VAULT_ID] {sid}: lifecycle=BURN_IN but missing vault_id. "
-                f"This entry bypassed promote_to_burnin.py. "
-                f"Re-promote via: python tools/promote_to_burnin.py {sid} --profile <PROFILE>"
+                f"[NO_VAULT_ID] {sid}: lifecycle=LIVE but missing vault_id. "
+                f"This entry bypassed promote_to_live.py. "
+                f"Re-promote via: python tools/promote_to_live.py {sid} --profile <PROFILE>"
             )
 
         # --- Check 2b: Enabled entry without promotion_source ---
         promo_src = entry.get("promotion_source", "")
-        if enabled and promo_src != "promote_to_burnin":
+        if enabled and promo_src != "promote_to_live":
             violations.append(
                 f"[NO_PROMOTION_SOURCE] {sid}: promotion_source={promo_src!r} "
-                f"(expected 'promote_to_burnin'). "
+                f"(expected 'promote_to_live'). "
                 f"This entry was not created by the promotion gate."
             )
 
@@ -119,10 +119,10 @@ def validate() -> list[str]:
                         f"Strategy logic no longer matches the validated version."
                     )
 
-        # --- Check 3: BURN_IN without profile ---
-        if lifecycle == "BURN_IN" and not profile:
+        # --- Check 3: LIVE without profile ---
+        if lifecycle == "LIVE" and not profile:
             violations.append(
-                f"[NO_PROFILE] {sid}: lifecycle=BURN_IN but missing profile field. "
+                f"[NO_PROFILE] {sid}: lifecycle=LIVE but missing profile field. "
                 f"Cannot track capital allocation without profile."
             )
 
@@ -178,14 +178,13 @@ def main() -> None:
     # Summary counts
     total = len(strategies)
     enabled = sum(1 for s in strategies if s.get("enabled", False))
-    burn_in = sum(1 for s in strategies if s.get("lifecycle") == "BURN_IN")
-    legacy = sum(1 for s in strategies if s.get("lifecycle") == "LEGACY")
-    waiting = sum(1 for s in strategies if s.get("lifecycle") == "WAITING")
     live = sum(1 for s in strategies if s.get("lifecycle") == "LIVE")
+    retired = sum(1 for s in strategies if s.get("lifecycle") == "RETIRED")
+    legacy = sum(1 for s in strategies if s.get("lifecycle") == "LEGACY")
     no_lc = sum(1 for s in strategies if s.get("enabled") and not s.get("lifecycle"))
 
     print(f"  Total entries: {total} ({enabled} enabled)")
-    print(f"  BURN_IN: {burn_in}  LEGACY: {legacy}  WAITING: {waiting}  LIVE: {live}")
+    print(f"  LIVE: {live}  RETIRED: {retired}  LEGACY: {legacy}")
     if no_lc:
         print(f"  No lifecycle: {no_lc} (governance gap)")
 

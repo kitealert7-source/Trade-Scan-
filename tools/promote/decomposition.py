@@ -135,7 +135,7 @@ def promote_composite(portfolio_id: str, profile: str, description: str = "",
     """
     # Lazy import to break the cycle: promote() lives in the CLI shim and
     # imports THIS module via re-export; we import back only at call time.
-    from tools.promote_to_burnin import promote
+    from tools.promote_to_live import promote
 
     print(f"\n{'=' * 60}")
     print(f"COMPOSITE PROMOTION: {portfolio_id}")

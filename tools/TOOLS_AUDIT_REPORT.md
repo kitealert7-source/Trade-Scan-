@@ -10,13 +10,13 @@
 
 | Classification | Count |
 |---|---|
-| **ACTIVE_TOOL** (on the pipeline hot path or daily human workflow) | 37 |
+| **ACTIVE_TOOL** (on the pipeline hot path or daily human workflow) | 34 |
 | **OPERATIONAL_TOOL** (periodic maintenance, validation, or analysis) | 33 |
 | **CI / PRE-COMMIT** (internal hooks — not user-facing) | 4 |
 | **TEST HARNESS** (CI-only, not part of operational surface) | 5 |
 | **LEGACY / ARCHIVAL** (retained for reproducibility; no active callers) | 4 |
 | **LIBRARY MODULES** (imported only — no CLI entrypoint) | 17 + subpackages |
-| **Total CLI entrypoints** | 83 (top-level) + 1 (`tools.robustness.cli`) |
+| **Total CLI entrypoints** | 80 (top-level) + 1 (`tools.robustness.cli`) |
 
 Tools layer is currently **100% accounted for** against the active operational surface. All tools appearing in this report either have live callers or are retained by governance for audit reproducibility.
 
@@ -59,18 +59,16 @@ Classification evidence:
 - `rehash_directive` — atomic signature-hash recomputation
 
 ### Control Panel & Lifecycle
-- `control_panel` — unified CLI for burn-in intent + composite-portfolio analysis selection
-- `portfolio_interpreter` — drains portfolio_control intents into `portfolio.yaml` + `burn_in_registry.yaml`; regenerates Excel views
+- `control_panel` — unified CLI for deployment intent + composite-portfolio analysis selection
+- `portfolio_interpreter` — drains portfolio_control intents into `portfolio.yaml`; regenerates Excel views
 - `lifecycle_status` — read-only lifecycle snapshot
 
-### Promotion / Burn-In / Go-Live
+### Promotion / Go-Live
 - `promote_readiness` — CORE + WATCH gate readiness dashboard
 - `pre_promote_validator` — schema / replay / expectancy / sanity validator
-- `promote_to_burnin` — expectancy gate + 6-metric quality gate + vault snapshot + portfolio.yaml edit
-- `baseline_freshness_gate` — blocks burn-in promotion on stale replay baselines (14-day threshold)
+- `promote_to_live` — expectancy gate + 6-metric quality gate + vault snapshot + portfolio.yaml edit
+- `baseline_freshness_gate` — blocks promotion on stale replay baselines (14-day threshold)
 - `backup_dryrun_strategies` — deterministic vault snapshot creator
-- `transition_to_waiting` — BURN_IN → WAITING transition (gated)
-- `transition_to_live` — WAITING → LIVE transition
 - `validate_portfolio_integrity` — governance-field auditor for `portfolio.yaml`
 - `sync_multisymbol_strategy` — per-symbol strategy.py sync for multi-symbol portfolios
 
@@ -265,4 +263,4 @@ Retired profiles (`DYNAMIC_V1`, `CONSERVATIVE_V1`, `MIN_LOT_FALLBACK_V1`, `MIN_L
 
 ---
 
-**Audit Conclusion:** The tools layer has zero orphaned tools. All 83 CLI entrypoints + 17 top-level library modules map to a documented operational category. The tool surface is drift-free as of 2026-04-16.
+**Audit Conclusion:** The tools layer has zero orphaned tools. All 80 CLI entrypoints + 17 top-level library modules map to a documented operational category. The tool surface is drift-free as of 2026-04-16.

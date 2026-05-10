@@ -20,7 +20,7 @@ python tools/system_preflight.py
 - **YELLOW**: Inspect `strategies/` for untracked drift files.
 - **GREEN**: System is healthy for execution.
 
-> **Burn-in constraint:** Structural cleanup (`lineage_pruner`) requires burn-in to be stopped — the tool's safety gate will `[BLOCK]` while `TS_Execution` is running. During burn-in, REGISTRY RED from `DISK_NOT_IN_REGISTRY` and RUN_INCOMPLETE entries are **expected and deferred**, not an operator failure. Preflight will annotate these hints with `[DEFERRED: burn-in active]` and omit the blocked commands from "Suggested next step".
+> **Execution constraint:** Structural cleanup (`lineage_pruner`) requires execution to be stopped — the tool's safety gate will `[BLOCK]` while `TS_Execution` is running. During execution, REGISTRY RED from `DISK_NOT_IN_REGISTRY` and RUN_INCOMPLETE entries are **expected and deferred**, not an operator failure. Preflight will annotate these hints with `[DEFERRED: execution active]` and omit the blocked commands from "Suggested next step".
 
 ---
 

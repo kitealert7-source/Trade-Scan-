@@ -66,6 +66,7 @@ class TestCollectKnownIssuesStructure:
 def _render_with(known: dict) -> str:
     """Run render_markdown with stub upstream sections + the given
     known_issues dict, return the rendered markdown."""
+    stub = {}
     return si.render_markdown(
         engine={"version": "1.5.8", "version_raw": "v1_5_8", "status": "FROZEN", "manifest": "VALID"},
         directives={"inbox": [], "active": [], "completed_count": 0},
@@ -168,8 +169,7 @@ class TestRenderer:
 class TestBackwardCompat:
 
     def test_render_without_known_issues_kwarg(self):
-        """Old callers passing only the original positional args (now
-        9 after burnin removal) must still work."""
+        """Old callers passing only the original positional args must still work."""
         out = si.render_markdown(
             engine={"version": "1.5.8", "version_raw": "v1_5_8", "status": "FROZEN", "manifest": "VALID"},
             directives={"inbox": [], "active": [], "completed_count": 0},

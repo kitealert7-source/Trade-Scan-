@@ -193,7 +193,7 @@ COLUMN_WIDTH_OVERRIDES = {
 # integer the DB writes back after control_panel --select-analysis.
 DROPDOWN_COLS = {
     "Analysis_selection": ["0", "1"],
-    "candidate_status": ["CORE", "WATCH", "FAIL", "BURN_IN", "RBIN"],
+    "candidate_status": ["CORE", "WATCH", "FAIL", "LIVE", "REMOVE"],
 }
 
 # Strategy Master Filter — Preferred Column Order

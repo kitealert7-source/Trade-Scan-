@@ -52,7 +52,7 @@ MASTER_FILTER_COLUMNS = [
     # Analysis_selection — per-row user-intent flag (0/1) picked in FSP to
     # drive the next composite_portfolio_analysis run. Auto-cleared after
     # that analysis completes. NOT a portfolio-membership signal: actual
-    # deployment authority is portfolio.yaml + burn_in_registry.yaml.
+    # deployment authority is portfolio.yaml.
     "Analysis_selection",
     "worst_5_loss_pct", "longest_loss_streak",
     "pct_time_in_market", "avg_bars_in_trade",
@@ -197,8 +197,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             conn.execute(f'ALTER TABLE portfolio_sheet ADD COLUMN {_col_def(col)}')
 
     # Schema migration — master_filter.
-    # 2026-04-16: retire IN_PORTFOLIO (misnomer — authority is portfolio.yaml
-    # and burn_in_registry.yaml, not this column) in favour of
+    # 2026-04-16: retire IN_PORTFOLIO (misnomer — authority is portfolio.yaml,
+    # not this column) in favour of
     # Analysis_selection, a transient per-row user-intent flag that drives
     # composite_portfolio_analysis. No backfill — the previous column carried
     # no semantic signal that downstream still depends on (start-fresh per
@@ -792,7 +792,7 @@ def print_stats(conn: sqlite3.Connection | None = None) -> None:
 # Portfolio Control — CRUD
 # ---------------------------------------------------------------------------
 
-PORTFOLIO_CONTROL_VALID_STATUSES = {"SELECTED", "BURN_IN", "RBIN"}
+PORTFOLIO_CONTROL_VALID_STATUSES = {"SELECTED", "LIVE", "REMOVE"}
 
 
 def log_control_action(

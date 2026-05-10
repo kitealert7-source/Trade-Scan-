@@ -2,14 +2,14 @@
 portfolio_interpreter.py — Reads portfolio_control transitions, executes workflows.
 
 Detects pending state changes in portfolio_control table and invokes
-promote_to_burnin.py or disable_burnin.py as needed.
+promote_to_live.py or the TS_Execution disable script as needed.
 
 Usage:
   python tools/portfolio_interpreter.py              # process all pending
   python tools/portfolio_interpreter.py --dry-run    # show what would happen
   python tools/portfolio_interpreter.py --sync-only  # regenerate Excel views only
 
-Post-action: automatically regenerates FSP, MPS, and burn_in_registry.
+Post-action: automatically regenerates FSP and MPS.
 """
 
 from __future__ import annotations
@@ -53,9 +53,6 @@ def authority_self_check() -> None:
       2. Every strategy entry has a non-empty `id` and a recognised
          `lifecycle` value.
       3. No duplicate IDs within portfolio.yaml.
-      4. burn_in_registry.yaml parses as valid YAML (if present).
-      5. Every burn-in entry has a non-empty `id`.
-      6. No duplicate IDs within a single burn-in layer.
 
     Violations raise RuntimeError — the interpreter refuses to act on
     pending intent while the authorities are inconsistent. The violating
@@ -64,7 +61,7 @@ def authority_self_check() -> None:
     """
     import yaml
 
-    VALID_LIFECYCLES = {"LEGACY", "BURN_IN", "WAITING", "LIVE", "DISABLED"}
+    VALID_LIFECYCLES = {"LEGACY", "LIVE", "RETIRED", "DISABLED"}
     violations: list[str] = []
 
     # ---- portfolio.yaml ----
@@ -100,43 +97,10 @@ def authority_self_check() -> None:
                 )
     # portfolio.yaml missing is OK — a fresh install has no portfolio yet.
 
-    # ---- burn_in_registry.yaml ----
-    reg_path = TS_EXEC_ROOT / "burn_in_registry.yaml"
-    if reg_path.exists():
-        try:
-            rdata = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
-        except yaml.YAMLError as e:
-            violations.append(f"burn_in_registry.yaml is not valid YAML: {e}")
-            rdata = {}
-
-        for layer in ("primary", "coverage"):
-            entries = rdata.get(layer) or []
-            if not isinstance(entries, list):
-                violations.append(
-                    f"burn_in_registry.yaml layer {layer!r} is not a list"
-                )
-                continue
-            seen_layer_ids: dict[str, int] = {}
-            for idx, e in enumerate(entries):
-                eid = e.get("id") if isinstance(e, dict) else None
-                if not isinstance(eid, str) or not eid.strip():
-                    violations.append(
-                        f"burn_in_registry.yaml:{layer} entry #{idx} "
-                        f"has empty or non-string id: {e!r}"
-                    )
-                    continue
-                if eid in seen_layer_ids:
-                    violations.append(
-                        f"burn_in_registry.yaml:{layer} duplicate id {eid!r} "
-                        f"(entries #{seen_layer_ids[eid]} and #{idx})"
-                    )
-                else:
-                    seen_layer_ids[eid] = idx
-
     if violations:
         log_event(
             action="INVARIANT_VIOLATION",
-            target="authorities:portfolio_yaml+burn_in_registry",
+            target="authorities:portfolio_yaml",
             actor="portfolio_interpreter.authority_self_check",
             reason="startup self-check failed",
             violations=violations,
@@ -197,11 +161,11 @@ def _expand_portfolio_to_yaml_ids(portfolio_id: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _execute_promote(portfolio_id: str, profile: str, dry_run: bool = False) -> bool:
-    """Call promote_to_burnin.promote() for a portfolio_id.
+    """Call promote_to_live.promote() for a portfolio_id.
 
     Returns True on success, False on failure.
     """
-    promote_script = PROJECT_ROOT / "tools" / "promote_to_burnin.py"
+    promote_script = PROJECT_ROOT / "tools" / "promote_to_live.py"
     cmd = [
         sys.executable, str(promote_script),
         "--allow-direct",
@@ -294,12 +258,12 @@ def _execute_disable(portfolio_id: str, reason: str, dry_run: bool = False) -> b
 # ---------------------------------------------------------------------------
 
 def sync_derived_state() -> None:
-    """Regenerate all derived stores: FSP, MPS Excel, burn_in_registry."""
+    """Regenerate all derived stores: FSP, MPS Excel."""
     print(f"\n{'─' * 40}")
     print("  Syncing derived state...")
 
     # 1. filter_strategies → FSP
-    print("  [1/4] Regenerating FSP (filter_strategies)...")
+    print("  [1/3] Regenerating FSP (filter_strategies)...")
     try:
         r = subprocess.run(
             [sys.executable, str(PROJECT_ROOT / "tools" / "filter_strategies.py")],
@@ -307,7 +271,7 @@ def sync_derived_state() -> None:
         )
         # Print key lines only
         for line in (r.stdout or "").split("\n"):
-            if any(k in line for k in ["SUCCESS", "BURN_IN", "ERROR", "FAIL"]):
+            if any(k in line for k in ["SUCCESS", "LIVE", "ERROR", "FAIL", "DEPLOYED"]):
                 print(f"    {line.strip()}")
         if r.returncode != 0:
             print(f"    [WARN] filter_strategies exited {r.returncode}")
@@ -315,14 +279,14 @@ def sync_derived_state() -> None:
         print(f"    [WARN] filter_strategies failed: {e}")
 
     # 2. Format FSP
-    print("  [2/4] Formatting FSP...")
+    print("  [2/3] Formatting FSP...")
     _format_excel(
         _TRADE_SCAN_STATE / "candidates" / "Filtered_Strategies_Passed.xlsx",
         "strategy"
     )
 
     # 3. Export + format MPS
-    print("  [3/4] Exporting + formatting MPS...")
+    print("  [3/3] Exporting + formatting MPS...")
     try:
         conn = _connect()
         export_mps(conn)
@@ -334,18 +298,6 @@ def sync_derived_state() -> None:
         _TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx",
         "portfolio"
     )
-
-    # 4. sync_burn_in_registry
-    print("  [4/4] Syncing burn_in_registry...")
-    try:
-        r = subprocess.run(
-            [sys.executable, str(TS_EXEC_ROOT / "tools" / "sync_burn_in_registry.py"), "--quiet"],
-            cwd=str(TS_EXEC_ROOT), capture_output=True, text=True, timeout=30,
-        )
-        if r.stdout.strip():
-            print(f"    {r.stdout.strip()}")
-    except Exception as e:
-        print(f"    [WARN] sync_burn_in_registry failed: {e}")
 
     print("  Sync complete.")
     print(f"{'─' * 40}")
@@ -403,9 +355,9 @@ def interpret(dry_run: bool = False) -> dict:
                 lu = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
                 age = (now - lu).total_seconds()
                 # Only apply lock during transitional states
-                if age < LOCK_THRESHOLD_SECONDS and status in ("SELECTED", "BURN_IN"):
+                if age < LOCK_THRESHOLD_SECONDS and status in ("SELECTED", "LIVE"):
                     # Check if this is actually a pending transition
-                    if (status == "SELECTED" and burn == 1) or (status == "BURN_IN" and burn == 0):
+                    if (status == "SELECTED" and burn == 1) or (status == "LIVE" and burn == 0):
                         # Recently updated and pending — could be double execution
                         # Allow if age > threshold, skip if too recent
                         pass  # proceed — the timestamp check is just for safety
@@ -413,25 +365,25 @@ def interpret(dry_run: bool = False) -> dict:
                 pass
 
         # --- No-op protection ---
-        if status == "BURN_IN" and burn == 1:
+        if status == "LIVE" and burn == 1:
             continue  # already promoted, nothing to do
-        if status == "RBIN" and burn == 0 and selected == 0:
+        if status == "REMOVE" and burn == 0 and selected == 0:
             continue  # already removed, nothing to do
 
         # --- PROMOTE: selected=1, burn=1, status=SELECTED ---
-        if selected == 1 and burn == 1 and status in ("SELECTED", "RBIN"):
+        if selected == 1 and burn == 1 and status in ("SELECTED", "REMOVE"):
             print(f"\n  [TRANSITION] {pid}: {status} -> PROMOTE")
             if dry_run:
-                print(f"    [DRY RUN] Would call promote_to_burnin({pid}, profile={profile})")
+                print(f"    [DRY RUN] Would call promote_to_live({pid}, profile={profile})")
                 result["skipped"].append(pid)
                 continue
 
             success = _execute_promote(pid, profile, dry_run=False)
             conn = _connect()
             if success:
-                update_control_status(conn, pid, "BURN_IN", updated_by="interpreter")
+                update_control_status(conn, pid, "LIVE", updated_by="interpreter")
                 log_control_action(conn, pid, "promote_ok",
-                                   status_before=status, status_after="BURN_IN",
+                                   status_before=status, status_after="LIVE",
                                    detail=f"profile={profile}")
                 result["promoted"].append(pid)
                 actions_taken = True
@@ -446,10 +398,10 @@ def interpret(dry_run: bool = False) -> dict:
             conn.close()
             continue
 
-        # --- REMOVE: status=BURN_IN, burn=0 ---
-        if status == "BURN_IN" and burn == 0:
+        # --- REMOVE: status=LIVE, burn=0 ---
+        if status == "LIVE" and burn == 0:
             r = reason or "Removed via control_panel"
-            print(f"\n  [TRANSITION] {pid}: BURN_IN -> REMOVE")
+            print(f"\n  [TRANSITION] {pid}: LIVE -> REMOVE")
             if dry_run:
                 yaml_ids = _expand_portfolio_to_yaml_ids(pid)
                 print(f"    [DRY RUN] Would disable {len(yaml_ids)} entries: {yaml_ids}")
@@ -461,24 +413,24 @@ def interpret(dry_run: bool = False) -> dict:
             conn = _connect()
             if success:
                 update_control_status(
-                    conn, pid, "RBIN", updated_by="interpreter",
+                    conn, pid, "REMOVE", updated_by="interpreter",
                     selected=0, burn=0,
                 )
                 log_control_action(conn, pid, "disable_ok",
-                                   status_before="BURN_IN", status_after="RBIN",
+                                   status_before="LIVE", status_after="REMOVE",
                                    detail=f"reason={r}")
                 result["removed"].append(pid)
                 actions_taken = True
             else:
-                # Preserve state: keep status=BURN_IN, revert burn=1
+                # Preserve state: keep status=LIVE, revert burn=1
                 upsert_portfolio_control(
                     conn, pid, burn=1, updated_by="interpreter",
                 )
                 log_control_action(conn, pid, "disable_fail",
-                                   status_before="BURN_IN", status_after="BURN_IN",
+                                   status_before="LIVE", status_after="LIVE",
                                    detail=f"disable failed, state preserved. reason={r}")
                 result["errors"].append(f"{pid}: disable failed")
-                print(f"  [ERROR] {pid}: disable failed. State preserved (status=BURN_IN, burn=1).")
+                print(f"  [ERROR] {pid}: disable failed. State preserved (status=LIVE, burn=1).")
             conn.close()
             continue
 
@@ -515,8 +467,8 @@ def main() -> int:
     print(f"{'=' * 60}")
 
     # Fail-hard authority self-check before acting on any pending intent.
-    # If portfolio.yaml or burn_in_registry.yaml is structurally inconsistent,
-    # executing transitions would compound the damage — refuse to run.
+    # If portfolio.yaml is structurally inconsistent, executing transitions
+    # would compound the damage — refuse to run.
     try:
         authority_self_check()
     except RuntimeError as exc:
