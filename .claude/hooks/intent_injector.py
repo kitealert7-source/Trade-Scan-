@@ -528,14 +528,25 @@ def main() -> int:
                 result["suppressed_by"] = "frozen_path_only"
                 continue
 
-        # Strategy-workflow post-filter (requires_subject).
-        # Two layers, both apply:
-        #   - Infra-action verbs (delete/refactor/migrate/...) suppress
-        #     unless a strong subject identifier is present. This catches
-        #     prompts that talk ABOUT the workflow tool rather than
-        #     requesting a workflow execution.
-        #   - Fuzzy-only matches require a strong subject. Regex hits
-        #     bypass this — the pattern itself is the evidence.
+        # Workflow post-filters.
+        # Two flags, applied in order:
+        #
+        #   `requires_subject: true`
+        #     For intents with a natural subject (strategy/portfolio/vault).
+        #     Two layers, both apply:
+        #       - Infra-action verbs (delete/refactor/migrate/...) suppress
+        #         unless a strong subject identifier is present. Catches
+        #         prompts that talk ABOUT the tool rather than requesting it.
+        #       - Fuzzy-only matches require a strong subject. Regex hits
+        #         bypass — the pattern itself is the evidence.
+        #
+        #   `suppress_on_infra: true`
+        #     For intents without a natural subject (e.g. session_close).
+        #     Infra verbs alone suppress; no subject check.
+        #
+        # `requires_subject` implies `suppress_on_infra` (the subject-aware
+        # variant is strictly stricter), so the two flags are exclusive in
+        # practice but layered defensively here.
         if intent.get("requires_subject"):
             is_infra = _is_infra_action(prompt)
             has_subject = _has_strong_subject_evidence(prompt)
@@ -546,6 +557,11 @@ def main() -> int:
             if result["method"] == "fuzzy" and not has_subject:
                 result["below_threshold"] = True
                 result["suppressed_by"] = "fuzzy_no_subject"
+                continue
+        elif intent.get("suppress_on_infra"):
+            if _is_infra_action(prompt):
+                result["below_threshold"] = True
+                result["suppressed_by"] = "infra_action"
                 continue
 
         pr = result["priority"]
