@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: BROKEN
-- BROKEN: 1 commits not pushed to origin
+- BROKEN: 5 commits not pushed to origin
 
-> Generated: 2026-05-10T04:48:17Z
+> Generated: 2026-05-10T05:33:09Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,9 +38,9 @@
 - Run directories: 1286
 
 ## Git Sync
-- Remote: **1 commits ahead of origin**
-- Working tree: 41 uncommitted
-- Last substantive commit: `c1f6d83 infra: delete BURN_IN consumer scaffolding (post TS_Execution rebuild)`
+- Remote: **5 commits ahead of origin**
+- Working tree: clean
+- Last substantive commit: `be1b260 meta: add no-naked-fuzzy doctrine rule + enforcement test`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -48,3 +48,10 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
+- **3 pre-existing test failures (outside gate suite, not session-caused):**
+  - `tests/test_indicator_semantic_contracts.py::test_referenced_indicators_declare_signal_primitive`
+  - `tests/test_state_paths_worktree.py::test_real_state_paths_module_resolves_to_existing_dirs`
+  - `tests/test_state_paths_worktree.py::test_trade_scan_root_invalid_env_falls_through`
+
+  Last touched 2026-05-08 (`ada0f45`, `1e306d2`) — predate this session. Gate suite (idea_evaluation, namespace, sweep_registry, fvg, td004, known_issues, intent_injector) is 175/175 green.
+- **Branch state:** closing on feature branch `claude/sharp-benz-68250e`; HEAD pushed to origin. The introspection's `commits_ahead` counter compares to `origin/main` and shows 5 unmerged feature commits — that is the intended PR-pending state, not a push gap.
