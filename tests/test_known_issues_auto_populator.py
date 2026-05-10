@@ -7,14 +7,14 @@ Bug class:
   empty-while-broken state but couldn't catch the inverse: real
   failures the operator forgot to write down. By 2026-05-04 the gate
   was a chronic friction point because every session-close required
-  re-deriving what was already in pytest/burnin/audit signals.
+  re-deriving what was already in pytest/audit signals.
 
 Fix:
   collect_known_issues() runs the same checks the gate runs (gate-
-  suite pytest, burnin_evaluator, intent-index audit, sweep_registry
-  drift) and the renderer surfaces them in an auto-detected
-  subsection. Manual subsection persists for deferred TDs and
-  operational notes that automated signals don't see.
+  suite pytest, intent-index audit, sweep_registry drift) and the
+  renderer surfaces them in an auto-detected subsection. Manual
+  subsection persists for deferred TDs and operational notes that
+  automated signals don't see.
 """
 
 from __future__ import annotations
@@ -45,8 +45,6 @@ class TestCollectKnownIssuesStructure:
             "pytest_skipped",
             "pytest_passed",
             "pytest_error",
-            "burnin_aborts",
-            "burnin_error",
             "intent_index_errors",
             "sweep_registry_errors",
         ):
@@ -58,14 +56,6 @@ class TestCollectKnownIssuesStructure:
         assert isinstance(result["pytest_skipped"], int)
         assert isinstance(result["pytest_passed"], int)
 
-    def test_burnin_aborts_is_list(self):
-        result = si.collect_known_issues()
-        assert isinstance(result["burnin_aborts"], list)
-        for ab in result["burnin_aborts"]:
-            assert "strategy" in ab
-            assert "reasons" in ab
-            assert isinstance(ab["reasons"], list)
-
 
 # ---------------------------------------------------------------------------
 # Renderer behavior — auto-detected entries surface, manual section
@@ -76,13 +66,11 @@ class TestCollectKnownIssuesStructure:
 def _render_with(known: dict) -> str:
     """Run render_markdown with stub upstream sections + the given
     known_issues dict, return the rendered markdown."""
-    stub = {}
     return si.render_markdown(
         engine={"version": "1.5.8", "version_raw": "v1_5_8", "status": "FROZEN", "manifest": "VALID"},
         directives={"inbox": [], "active": [], "completed_count": 0},
         ledgers={"master_filter": {"missing": True}, "mps": {"missing": True}, "candidates": {"missing": True}},
         portfolio={"missing": True},
-        burnin={"status": "UNAVAILABLE"},
         vault={"missing": True},
         freshness={"latest_bar": "?", "symbols_tracked": 0, "stale_symbols": 0},
         runs={"total": 0},
@@ -100,8 +88,6 @@ class TestRenderer:
             "pytest_skipped": 0,
             "pytest_passed": 0,
             "pytest_error": None,
-            "burnin_aborts": [],
-            "burnin_error": None,
             "intent_index_errors": [],
             "sweep_registry_errors": [],
         }
@@ -126,18 +112,6 @@ class TestRenderer:
         assert "### Manual" in out
         manual_section = out.split("### Manual", 1)[1]
         assert "- (none)" not in manual_section
-
-    def test_burnin_abort_surfaces_with_strategy_and_reasons(self):
-        k = self._empty_known()
-        k["burnin_aborts"] = [{
-            "strategy": "22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P02",
-            "reasons": ["Fill rate 71.4% < abort threshold 80.0%"],
-        }]
-        out = _render_with(k)
-        assert "### Auto-detected" in out
-        assert "Burn-in ABORT" in out
-        assert "22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P02" in out
-        assert "Fill rate 71.4%" in out
 
     def test_intent_index_hard_error_surfaces(self):
         k = self._empty_known()
@@ -179,7 +153,7 @@ class TestRenderer:
         """Even with auto-populated entries, the manual subsection
         must remain so deferred TDs / operational context have a home."""
         k = self._empty_known()
-        k["burnin_aborts"] = [{"strategy": "X", "reasons": ["y"]}]
+        k["intent_index_errors"] = ["engine_change: bad_regex:invalid pattern"]
         out = _render_with(k)
         assert "### Manual" in out
         assert "<!-- Add tech-debt items" in out
@@ -194,13 +168,13 @@ class TestRenderer:
 class TestBackwardCompat:
 
     def test_render_without_known_issues_kwarg(self):
-        """Old callers passing only the original 10 args must still work."""
+        """Old callers passing only the original positional args (now
+        9 after burnin removal) must still work."""
         out = si.render_markdown(
             engine={"version": "1.5.8", "version_raw": "v1_5_8", "status": "FROZEN", "manifest": "VALID"},
             directives={"inbox": [], "active": [], "completed_count": 0},
             ledgers={"master_filter": {"missing": True}, "mps": {"missing": True}, "candidates": {"missing": True}},
             portfolio={"missing": True},
-            burnin={"status": "UNAVAILABLE"},
             vault={"missing": True},
             freshness={"latest_bar": "?", "symbols_tracked": 0, "stale_symbols": 0},
             runs={"total": 0},

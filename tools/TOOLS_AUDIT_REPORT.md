@@ -69,7 +69,6 @@ Classification evidence:
 - `promote_to_burnin` — expectancy gate + 6-metric quality gate + vault snapshot + portfolio.yaml edit
 - `baseline_freshness_gate` — blocks burn-in promotion on stale replay baselines (14-day threshold)
 - `backup_dryrun_strategies` — deterministic vault snapshot creator
-- `burnin_evaluator` — PASS / ON_TRACK / WARN / ABORT shadow-trade evaluator
 - `transition_to_waiting` — BURN_IN → WAITING transition (gated)
 - `transition_to_live` — WAITING → LIVE transition
 - `validate_portfolio_integrity` — governance-field auditor for `portfolio.yaml`
