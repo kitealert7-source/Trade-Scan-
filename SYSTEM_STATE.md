@@ -2,9 +2,9 @@
 
 ## SESSION STATUS: WARNING
 - WARNING: 8 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 11 uncommitted
+- WARNING: Working tree 3 uncommitted
 
-> Generated: 2026-05-11T11:45:24Z
+> Generated: 2026-05-11T11:49:16Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -40,8 +40,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 11 uncommitted
-- Last substantive commit: `1474284 infra: reset_directive clears dual run registries`
+- Working tree: 3 uncommitted
+- Last substantive commit: `d15a9b1 session: PSBRK rerun artifacts + SYSTEM_STATE close`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
