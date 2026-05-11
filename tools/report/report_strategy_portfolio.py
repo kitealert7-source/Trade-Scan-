@@ -15,6 +15,12 @@ def generate_strategy_portfolio_report(strategy_name: str, root_dir: Path):
     """
     Generates a deterministic markdown report at the strategy level (Stage-5B).
     Reads ONLY from portfolio evaluation json artifacts.
+
+    Phase A §4.10: For single-asset strategies the per-strategy
+    PORTFOLIO_<id>.md duplicates the per-strategy REPORT_<id>.md with no
+    added information. Skipped here for single-asset; still generated for
+    multi-asset/composite portfolios where it surfaces the constituent
+    aggregation.
     """
     # Source data stays in the strategy's portfolio_evaluation directory (read-only)
     source_dir = root_dir / "strategies" / strategy_name / "portfolio_evaluation"
@@ -33,6 +39,19 @@ def generate_strategy_portfolio_report(strategy_name: str, root_dir: Path):
     if not summary_json.exists():
         print(f"[REPORT-WARN] portfolio_summary.json missing for {strategy_name}.")
         return
+
+    # Phase A §4.10: skip for single-asset strategies (duplicates REPORT_*.md)
+    if metadata_json.exists():
+        try:
+            with open(metadata_json, "r", encoding="utf-8") as f:
+                _meta_probe = json.load(f)
+            _assets = _meta_probe.get("evaluated_assets", [])
+            if isinstance(_assets, list) and len(_assets) <= 1:
+                print(f"[REPORT-SKIP] PORTFOLIO_{strategy_name}.md not generated (single-asset; see REPORT_*.md).")
+                return
+        except Exception as _e:
+            # Fail-soft: if we can't determine asset count, generate the report.
+            print(f"[REPORT-WARN] Could not determine asset count ({type(_e).__name__}); generating PORTFOLIO report anyway.")
 
     with open(summary_json, "r", encoding="utf-8") as f:
         summary = json.load(f)

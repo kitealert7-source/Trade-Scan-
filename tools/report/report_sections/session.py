@@ -32,9 +32,21 @@ def _build_age_section(age_data):
     return md
 
 
-def _build_fill_age_section(fill_age_data):
+def _build_fill_age_section(fill_age_data, age_data=None):
     if not fill_age_data:
         return []
+    # Phase A \u00a74.1: auto-suppress when fill-age bucket distribution is byte-equal
+    # to regime-age. In that case the table is a duplicate of `Regime Lifecycle
+    # (Age)` above and adds no information. Compared on trade counts only \u2014
+    # PnL/PF/WR drift can happen even with identical bucket assignment due to
+    # NaN_Missing trades being handled differently.
+    if age_data and _bucket_distribution_matches(fill_age_data, age_data):
+        return [
+            "## Regime Lifecycle (Fill Age \u2014 HTF Granularity)\n",
+            "> _Suppressed: fill-age bucket distribution is identical to regime-age above. "
+            "HTF granularity adds no information for this configuration._\n",
+            "\n---\n",
+        ]
     md = ["## Regime Lifecycle (Fill Age \u2014 HTF Granularity)\n",
           "*Regime age is computed on the HTF grid (e.g. 4H for 1H exec) and broadcast to exec bars; "
           "this table shows the HTF-bucket age at the fill bar. Multiple exec bars within the same HTF "
@@ -91,9 +103,57 @@ def _build_htf_delta_section(delta_age_data, dual_meta_data):
     return md
 
 
+def _exec_delta_single_bucket_dominates(rows: list, threshold: float = 0.95) -> bool:
+    """True iff any row has one Δ bucket with ≥ threshold share of trades.
+    Used to suppress the exec-delta probe when its variance is below noise.
+    """
+    try:
+        bucket_keys = ["Exec_Delta_leneg1_T", "Exec_Delta_0_T", "Exec_Delta_1_T", "Exec_Delta_ge2_T"]
+        for row in rows:
+            counts = [int(row.get(k, 0)) for k in bucket_keys]
+            total = sum(counts)
+            if total <= 0:
+                continue
+            if max(counts) / total >= threshold:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _bucket_distribution_matches(a_rows: list, b_rows: list) -> bool:
+    """True iff every symbol in `a_rows` has the same trade-count bucket
+    distribution as the corresponding row in `b_rows`. Used to suppress
+    redundant regime/age tables (Phase A \u00a74.1).
+    """
+    try:
+        idx_b = {row.get("Symbol"): row for row in b_rows}
+        for ra in a_rows:
+            rb = idx_b.get(ra.get("Symbol"))
+            if rb is None:
+                return False
+            # Compare any *_T (trade-count) bucket keys present in both rows.
+            t_keys = [k for k in ra.keys() if k.endswith("_T")]
+            for k in t_keys:
+                if int(ra.get(k, 0)) != int(rb.get(k, 0)):
+                    return False
+        return True
+    except Exception:
+        return False
+
+
 def _build_exec_delta_section(exec_delta_data, exec_meta_data):
     if not exec_delta_data:
         return []
+    # Phase A \u00a74.1: auto-suppress when \u226595% of trades sit in a single bucket.
+    # In that case the probe's variance is below the noise floor \u2014 it confirms
+    # next_bar_open mechanics rather than surfacing anything actionable.
+    if _exec_delta_single_bucket_dominates(exec_delta_data, threshold=0.95):
+        return [
+            "## Exec-TF Age Delta (Signal vs Fill) \u2014 v1.5.6 Probe\n",
+            "> _Suppressed: \u226595% of trades land in a single \u0394 bucket \u2014 probe confirms expected next_bar_open mechanics and adds no signal._\n",
+            "\n---\n",
+        ]
     md = ["## Exec-TF Age Delta (Signal vs Fill) \u2014 v1.5.6 Probe\n",
           "*Delta on the EXEC-TF regime_age clock (separate from the HTF table above). "
           "Under next_bar_open, **Delta 1** should dominate (exec clock ticks one bar between "

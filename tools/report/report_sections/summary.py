@@ -47,7 +47,8 @@ def _build_key_metrics_section(portfolio_pnl, portfolio_trades, port_pf_str,
         md.append(f"| Profit Factor | {port_pf_str} |")
         md.append(f"| Sharpe | {totals['sharpe']:.2f} |")
         md.append(f"| Sortino | {totals['sortino']:.2f} |")
-        md.append(f"| K-Ratio | {totals['k_ratio']:.2f} |")
+        # Phase A §4.8: K-Ratio demoted from markdown — unread per audit, still
+        # present in Excel Performance Summary for back-compat (engine frozen).
         md.append(f"| Max DD | ${totals['max_dd_usd']:.2f} ({totals['max_dd_pct']:.2f}%) |")
         md.append(f"| Return/DD | {totals['ret_dd']:.2f} |")
         md.append(f"| Win Rate | {totals['win_rate'] * 100:.1f}% |")
@@ -126,12 +127,19 @@ def _build_yearwise_section(all_trades_dfs):
         _yr_df = _yr_df[_yr_df['_year'].notna()]
         _yr_df['_year'] = _yr_df['_year'].astype(int)
         _years = sorted(_yr_df['_year'].unique())
-        md.append("| Year | Trades | Net PnL | PF | Win % | Max DD |")
-        md.append("|------|--------|---------|-----|-------|--------|")
+        _net_total = float(_yr_df['pnl_usd'].sum())
+        # Phase A §4.2: per-year flags — dominance / partial / negative
+        # Partial-year detection: a calendar year covering fewer than 11 months of
+        # entry timestamps is treated as partial (catches both 2024-May start and
+        # 2026-current end without hardcoding the standardized window).
+        _ts = pd.to_datetime(_yr_df['entry_timestamp'], errors='coerce')
+        _months_present = _yr_df.assign(_month=_ts.dt.month).groupby('_year')['_month'].nunique()
+        md.append("| Year | Trades | Net PnL | PF | Win % | Max DD | Flags |")
+        md.append("|------|--------|---------|-----|-------|--------|-------|")
         for _y in _years:
             _ys = _yr_df[_yr_df['_year'] == _y]
             _yt = len(_ys)
-            _ypnl = _ys['pnl_usd'].sum()
+            _ypnl = float(_ys['pnl_usd'].sum())
             _ygp = float(_ys[_ys['pnl_usd'] > 0]['pnl_usd'].sum())
             _ygl = abs(float(_ys[_ys['pnl_usd'] < 0]['pnl_usd'].sum()))
             _ypf = (_ygp / _ygl) if _ygl > 0 else (_ygp if _ygp > 0 else 0.0)
@@ -141,7 +149,17 @@ def _build_yearwise_section(all_trades_dfs):
             _peak = _cum.cummax()
             _dd = _cum - _peak
             _max_dd = abs(float(_dd.min())) if len(_dd) > 0 else 0.0
-            md.append(f"| {_y} | {_yt} | ${_ypnl:.2f} | {_ypf_s} | {_ywr:.1f}% | ${_max_dd:.2f} |")
+            # Flag composition
+            _flags = []
+            _share = (_ypnl / _net_total) if _net_total != 0 else 0.0
+            if _ypnl < 0:
+                _flags.append("⚠ negative")
+            if _share > 0.60:
+                _flags.append(f"⚠ {_share * 100:.0f}% of net (dominant)")
+            if int(_months_present.get(_y, 0)) < 11:
+                _flags.append(f"partial ({int(_months_present.get(_y, 0))}mo)")
+            _flag_s = ", ".join(_flags) if _flags else "—"
+            md.append(f"| {_y} | {_yt} | ${_ypnl:.2f} | {_ypf_s} | {_ywr:.1f}% | ${_max_dd:.2f} | {_flag_s} |")
         md.append("")
     else:
         md.append("> No timestamp data available for Yearwise Performance.\n")

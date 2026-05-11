@@ -95,6 +95,7 @@ from tools.report.report_sections.summary import (  # noqa: F401
     _build_volatility_edge_section,
     _build_yearwise_section,
 )
+from tools.report.report_sections.verdict_risk import _build_verdict_risk_section
 from tools.report.report_strategy_portfolio import (  # noqa: F401
     generate_strategy_portfolio_report,
 )
@@ -148,16 +149,21 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
         total_symbols, len(symbol_dirs), now_utc, stage3_counts, totals["port_pf"],
     )
     md.extend(header_md)
+    # Phase A: Verdict + Risk + Parent Δ surfaced ahead of raw metrics so the
+    # deployability signal is the first thing the reader sees, not row ~270 of
+    # the Excel Notes sheet.
+    md.extend(_build_verdict_risk_section(directive_name, pl, totals))
     md.extend(_build_key_metrics_section(
         pl.portfolio_pnl, pl.portfolio_trades, port_pf_str, totals, pl.risk_data_list,
     ))
     md.extend(_build_direction_split_section(pl.all_trades_dfs))
     md.extend(_build_symbol_summary_section(pl.symbols_data))
     md.extend(_build_yearwise_section(pl.all_trades_dfs))
-    md.extend(_build_volatility_edge_section(pl.vol_data))
-    md.extend(_build_trend_edge_section(pl.trend_data))
+    # Phase A §4.3: standalone Volatility / Trend Edge tables removed — they
+    # sum across direction and mislead when direction asymmetry exists. The
+    # Edge Decomposition section below covers Dir×Vol and Dir×Trend cells.
     md.extend(_build_age_section(pl.age_data))
-    md.extend(_build_fill_age_section(pl.fill_age_data))
+    md.extend(_build_fill_age_section(pl.fill_age_data, pl.age_data))
     md.extend(_build_htf_delta_section(pl.delta_age_data, pl.dual_meta_data))
     md.extend(_build_exec_delta_section(pl.exec_delta_data, pl.exec_meta_data))
     md.extend(_build_session_section(pl.all_trades_dfs, pl.session_data, show_overlap, show_late_ny))

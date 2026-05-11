@@ -8,7 +8,6 @@
 | Profit Factor | 1.82 |
 | Sharpe | 1.83 |
 | Sortino | 2.25 |
-| K-Ratio | 0.18 |
 | Max DD | $412.50 (8.45%) |
 | Return/DD | 3.42 |
 | Win Rate | 54.8% |
