@@ -346,19 +346,25 @@ def run_stage3_aggregation(context: PipelineContext) -> None:
         )
 
     # --- IDEMPOTENCY PRE-CHECK ---
-    # If Master Filter already contains the expected number of rows for this
-    # directive, skip the stage3_compiler write entirely. Prevents duplicate row
-    # appends when resuming after a downstream failure (e.g. Portfolio failed after
-    # Aggregation already succeeded). The cardinality gate below still verifies.
+    # Skip the stage3_compiler write only when the CURRENT run_ids are already
+    # present in Master Filter. Prevents duplicate writes on resume-after-Stage-4
+    # failure, while letting re-runs (which create FRESH run_ids for the same
+    # directive) reach stage3_compiler so their metrics land in MF.
+    #
+    # Bug fix (2026-05-11): the previous check matched MF rows by
+    # `strategy.startswith(clean_id)`. An older row from a prior run of the
+    # same directive trivially satisfied this, so every re-run silently
+    # skipped the write and Master Filter stayed pinned to the first run's
+    # numbers. Run_id-keyed comparison eliminates that conflation.
     master_filter_path = MASTER_FILTER_PATH
     _skip_write = False
     if master_filter_path.exists():
-        # Expected symbol set: all symbols except those with a NO_TRADES marker.
-        _expected_symbols = {
-            sym for rid, sym in zip(run_ids, symbols)
+        # Expected run_id set: all current run_ids except those with NO_TRADES.
+        _expected_run_ids = {
+            rid for rid in run_ids
             if not (RUNS_DIR / rid / "status_no_trades.json").exists()
         }
-        if _expected_symbols:
+        if _expected_run_ids:
             import openpyxl as _oxl
             _wb = None
             try:
@@ -369,51 +375,25 @@ def run_stage3_aggregation(context: PipelineContext) -> None:
                 _ws = _wb.active
                 try:
                     _headers = list(next(_ws.iter_rows(min_row=1, max_row=1, values_only=True)))
-                    _strat_idx = _headers.index("strategy")
-                    _sym_idx = _headers.index("symbol")
-                    # Extract symbol strings only — list preserves duplicates for count check.
-                    # _present_syms: List[str], one entry per matching row, NOT full row objects.
-                    _min_col = max(_strat_idx, _sym_idx)
-                    _present_syms = [
-                        str(row[_sym_idx])
+                    _run_id_idx = _headers.index("run_id")
+                    _present_run_ids = {
+                        str(row[_run_id_idx])
                         for row in _ws.iter_rows(min_row=2, values_only=True)
-                        if row
-                        and len(row) > _min_col
-                        and row[_strat_idx]
-                        and str(row[_strat_idx]).startswith(clean_id)
-                        and row[_sym_idx]
-                    ]
-                    _present_set = set(_present_syms)
-                    _dup_count = len(_present_syms) - len(_present_set)
-
-                    # Guard: row count must equal expected symbol count.
-                    # Checked BEFORE set comparison — a set collapses duplicates and
-                    # would incorrectly approve a skip when duplicates are present.
-                    if len(_present_syms) != len(_expected_symbols):
-                        _missing = _expected_symbols - _present_set
-                        _extra = _present_set - _expected_symbols
-                        if _missing:
-                            print(f"[AGGREGATION] Missing symbols: {sorted(_missing)} — will write.")
-                        if _extra:
-                            print(f"[AGGREGATION] Unexpected symbols: {sorted(_extra)} — will write.")
-                        if _dup_count > 0:
-                            from collections import Counter as _Counter
-                            _dupes = {s: c for s, c in _Counter(_present_syms).items() if c > 1}
-                            print(f"[AGGREGATION] Duplicate rows ({_dup_count} extra): {_dupes} — will write.")
-                    elif _present_set == _expected_symbols:
+                        if row and len(row) > _run_id_idx and row[_run_id_idx]
+                    }
+                    _missing_run_ids = _expected_run_ids - _present_run_ids
+                    if not _missing_run_ids:
                         _skip_write = True
                         print(
-                            f"[AGGREGATION] Symbol set already complete for {clean_id} "
-                            f"({sorted(_present_set)}) — skipping stage3_compiler write."
+                            f"[AGGREGATION] All current run_ids already in MF for {clean_id} "
+                            f"({len(_expected_run_ids)} run_id(s)) — skipping stage3_compiler write."
                         )
                     else:
-                        # Count matches but symbols differ (wrong symbols in filter).
-                        _missing = _expected_symbols - _present_set
-                        _extra = _present_set - _expected_symbols
-                        if _missing:
-                            print(f"[AGGREGATION] Missing symbols: {sorted(_missing)} — will write.")
-                        if _extra:
-                            print(f"[AGGREGATION] Unexpected symbols: {sorted(_extra)} — will write.")
+                        _short = sorted(rid[:8] for rid in _missing_run_ids)
+                        print(
+                            f"[AGGREGATION] {len(_missing_run_ids)} run_id(s) missing from MF "
+                            f"({_short}) — will write."
+                        )
                 except (StopIteration, ValueError):
                     pass  # Malformed or empty file — fall through to full write
                 finally:
@@ -434,19 +414,24 @@ def run_stage3_aggregation(context: PipelineContext) -> None:
     ws = wb.active
     try:
         headers = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
-        strategy_idx = headers.index("strategy")
+        run_id_idx = headers.index("run_id")
     except Exception as err:
         wb.close()
         raise PipelineExecutionError(
-            f"Failed to resolve 'strategy' column in Master Filter: {err}",
+            f"Failed to resolve 'run_id' column in Master Filter: {err}",
             directive_id=clean_id,
             run_ids=run_ids,
         ) from err
 
+    # Cardinality check — count MF rows for the CURRENT run_ids only.
+    # Same bug fix as the idempotency pre-check: matching by strategy prefix
+    # over-counts rows from prior runs of the same directive.
+    _current_run_id_set = set(run_ids)
     actual_count = sum(
         1
         for row in ws.iter_rows(min_row=2, values_only=True)
-        if row and len(row) > strategy_idx and row[strategy_idx] and str(row[strategy_idx]).startswith(clean_id)
+        if row and len(row) > run_id_idx and row[run_id_idx]
+        and str(row[run_id_idx]) in _current_run_id_set
     )
     wb.close()
     no_trades_count = sum(
