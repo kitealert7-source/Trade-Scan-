@@ -166,12 +166,27 @@ def _archive_run_states(directive_id: str, timestamp_suffix: str):
 
 
 def _clear_directive_run_folder(directive_id: str):
-    """Delete the directive-level run folder, including run_registry.json and any latent state."""
-    directive_run_dir = RUNS_DIR / directive_id
-    if directive_run_dir.exists():
-        shutil.rmtree(directive_run_dir)
-        print(f"[RESET] Cleared directive run state: {directive_id} (including run_registry.json)")
-    else:
+    """Delete every directive-level run folder this directive may have written to.
+
+    Two locations are cleared:
+      * ``RUNS_DIR / <id>`` — canonical state under TradeScan_State.
+      * ``PROJECT_ROOT / "runs" / <id>`` — local registry written by
+        ``tools/orchestration/run_planner.py`` when ``context.project_root``
+        is set. ``ensure_registry`` preserves existing state by run_id, so a
+        stale ``COMPLETE`` entry here causes Stage-1 to silently skip on the
+        next attempt while the global state machine still believes the run
+        is fresh.
+    """
+    cleared_any = False
+    for label, run_dir in (
+        ("TradeScan_State", RUNS_DIR / directive_id),
+        ("Trade_Scan local", PROJECT_ROOT / "runs" / directive_id),
+    ):
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+            print(f"[RESET] Cleared {label} run folder: {run_dir}")
+            cleared_any = True
+    if not cleared_any:
         print(f"[RESET] No run state found for {directive_id} (already clean)")
 
 
