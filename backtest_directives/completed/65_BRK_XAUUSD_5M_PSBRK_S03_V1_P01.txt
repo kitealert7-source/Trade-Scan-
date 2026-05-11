@@ -1,0 +1,65 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S03_V1_P01
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S03_V1_P01
+  version: 1
+  signal_version: 4
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2025-09-01"
+  end_date: "2026-05-04"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — P01 multi-entry variant of S03 P00 (Octa-tuning research, NOT Pine parity). SOLE DELTA vs P00: removed the per-session-per-direction consumed-key guard. P00 gate-block inspector showed G4 (consumed) blocked 86.5% of long close-break candidates and 92.4% of shorts — the dominant entry suppression. P01 lifts that suppression while keeping the ALL_3 momentum filter (DMI ∧ ROC ∧ CMO) as the per-entry quality gate. Engine entry_when_flat_only=True still prevents pyramiding (re-entries can only fire after the prior trade exits). Hypothesis: with momentum still gating each entry, multi-entry trades will not collapse to the noise-quality of P09 (no momentum, no guard → 1116T at $1.77/trade); instead per-trade quality should stay closer to P00's $3.57/trade while volume rises 5–8x. Net PnL direction is the open question. All other parameters byte-identical to P00 — XAU sessions 0/7/13/21, lock+1R @ +1.5R MFE, TP@3R via tp_price, utc_day_close, dead-zone-expanded prev_session_extremes, 0.01 lots."
+  notes: "DIVERGES FROM PINE V5 INTENTIONALLY: Pine v5 has the consumed guard (`consumed_long_date == cur_date and consumed_long_sid == session_id`); P00 mirrors it; P01 deliberately drops it for OctaFx-tuning research. Reference baseline is P00 ($1097 / 307T / PF 1.24 / SQN 1.41 — FAIL on OctaFx). Reference frontier is P09 ($1979 / 1116T / PF 1.238 — WATCH, but no momentum and no guard). P01 occupies the in-between architectural cell: multi-entry WITH momentum. signal_version bumped 3 → 4 to reflect entry-behaviour change. Same indicators/sessions/stop/exit as P00 (no STRATEGY_SIGNATURE.indicators changes; sweep_registry hash unchanged). Date range matches P00 (2025-09-01 → 2026-05-04) for direct apples-to-apples comparison."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.structure.dmi_wilder
+  - indicators.momentum.cmo
+  - indicators.momentum.roc
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

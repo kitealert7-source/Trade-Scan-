@@ -1,0 +1,64 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S02_V1_P03__E152
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S02_V1_P03
+  version: 1
+  signal_version: 6
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-05-11"
+  end_date: "2026-05-11"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout (S02 universal sessions) — P03 single delta vs P01: skip short entries when ctx.trend_label == 'strong_up'. Targets the only family-level bleed cell with HIGH cross-lineage persistence (verified 2026-05-11 in cross-lineage persistence matrix): StrongUp x Short bleeds across S01 V4 (PF 0.62, n=29) and S02 V1 (PF 0.34, n=8 in P01). Long entries unaffected; short entries in all other regimes (strong_down/weak_down/neutral/weak_up) unaffected. Filter fires BEFORE the consumed-key check, so the session-direction is not marked consumed when a short is regime-skipped (allowing a later short in the same session if regime changes). All other parameters byte-identical to S02 V1 P01 (V4 P14 architecture: lock+1R@+2R + consumed-guard + TP@3R, on universal sessions 00-08/08-14/14-21 UTC, structural session-extreme stop, utc_day_close, 0.01 lots, long_and_short)."
+  notes: "S02 V1 P01 baseline: SQN 2.32, $1870 PnL, dd_pct 28.16, WATCH (PSBRK family's best DD-adj at $66.4/DD%). Gap to CORE is SQN +0.18. P01 had 8 StrongUp x Short trades worth -$60. Removing them pushes Long PnL unchanged, Short PnL +$60, n=729. SQN forecast: 2.40-2.55 (border of CORE). DD forecast: similar or slightly improved. If P03 reaches CORE, it becomes PSBRK family's first deployable CORE. signal_version bumped 2 -> 3 per behavior-change classifier policy. STRATEGY_SIGNATURE.indicators list unchanged (no new indicators required — trend_label already exposed by engine via existing regime model). Sweep registry idempotent on directive hash."
+
+  repeat_override_reason: "[RERUN:ENGINE@2026-05-11 origin=directive-clone strategy=65_BRK_XAUUSD_5M_PSBRK_S02_V1_P03] data-window refresh to standardized 2024-05-11..2026-05-11 (24mo policy) after DATA_INGRESS deep-history recovery extended XAU 5m to 2016-01-04. Strategy logic, indicators, parameters, engine version all byte-identical to prior runs; this is a window-refresh only. ENGINE category used to trigger classifier narrowing (no DATA_FRESH narrowing path exists)."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock_universal
+  - indicators.structure.prev_session_extremes
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

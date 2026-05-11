@@ -1,0 +1,67 @@
+test:
+  name: 65_BRK_XAUUSD_5M_PSBRK_S03_V1_P02__E152
+  family: BRK
+  strategy: 65_BRK_XAUUSD_5M_PSBRK_S03_V1_P02
+  version: 1
+  signal_version: 5
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-05-11"
+  end_date: "2026-05-11"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Prior Session Liquidity Breakout — P02 lock@2R variant of S03 P00 (Octa-tuning). SOLE DELTA vs P00: lock-stop trigger raised from +1.5R MFE to +2.0R MFE; lock destination unchanged (entry +/- 1R). All other parameters byte-identical to P00 — XAU sessions (asia 00-07, london 07-13, ny 13-21), ALL_3 momentum gate (DMI ∧ ROC ∧ CMO with the same thresholds 11/0.15/20), per-session-per-direction consumed-key guard, pending-entry persistence, structural session-extreme initial stop, TP@3R via tp_price, utc_day_close fallback, dead-zone-expanded prev_session_extremes, 0.01 lots, long_and_short. POSITION: 0.01 lots fixed (RAW_MIN_LOT_V1 deployment policy)."
+  notes: "P02 hypothesis: Pine v5's lock@1.5R is OANDA-tuned; the prior Python V4 sweep (no momentum, P00-P12) found lock@2R was the Python-broker optimum (P09 was the only PSBRK to pass the 40% dd_pct gate, R/DD 5.19, WATCH-tier). P02 tests whether that broker-specific optimum carries over to the momentum-filtered architecture. Expected: at lock@1.5R many trades that touch +1.5R intrabar then pull back to +1R lock get clipped early; at lock@2R those same trades have more room to either continue to TP@3R or pull back to +1R lock — wider winners captured, with the trade-off of accepting +0R-+1R outcomes more often (trades that touched +1.5R but never touched +2R now ride to TP or DAY_CLOSE without lock). DIVERGES FROM PINE V5 INTENTIONALLY: Pine v5 has lock@1.5R; P00 mirrors that for parity. P02 is the OctaFx-tuned variant. Reference baselines: P00 ($1097 / 307T / PF 1.24 / SQN 1.41 — FAIL), P09 ($1979 / 1116T / PF 1.238 / lock@2R but no momentum — WATCH). signal_version bumped 3 → 5 (P00=3, P01=4, P02=5) per behavior-change classifier policy. Date range matches P00 for direct apples-to-apples comparison."
+
+  repeat_override_reason: "[RERUN:ENGINE@2026-05-11 origin=directive-clone strategy=65_BRK_XAUUSD_5M_PSBRK_S03_V1_P02] data-window refresh to standardized 2024-05-11..2026-05-11 (24mo policy) after DATA_INGRESS deep-history recovery extended XAU 5m to 2016-01-04. Strategy logic, indicators, parameters, engine version all byte-identical to prior runs; this is a window-refresh only. ENGINE category used to trigger classifier narrowing (no DATA_FRESH narrowing path exists)."
+
+symbols:
+  - XAUUSD
+
+indicators:
+  - indicators.structure.session_clock
+  - indicators.structure.prev_session_extremes
+  - indicators.structure.dmi_wilder
+  - indicators.momentum.cmo
+  - indicators.momentum.roc
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  stop_loss:
+    type: structural_session_extreme
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+  entry_logic:
+    type: prior_session_extreme_breakout
+  exit_logic:
+    type: stop_or_time
+
+exit_rules:
+  type: time_based
+  timing: utc_day_close
+  target: none
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+position_management:
+  lots: 0.01
+
+trade_management:
+  direction_restriction: long_and_short
+  reentry:
+    allowed: false
+
+state_machine:
+  entry:
+    trigger: signal_bar
+    direction: long_and_short
+  no_reentry_after_stop: true
+  session_reset: utc_day

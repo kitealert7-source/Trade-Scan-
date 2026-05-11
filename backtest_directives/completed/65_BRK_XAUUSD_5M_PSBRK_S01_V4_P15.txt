@@ -1,17 +1,19 @@
 test:
-  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P15
+  name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P15__E152
   family: BRK
   strategy: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P15
   version: 4
   broker: OctaFx
   timeframe: 5m
-  start_date: "2024-07-19"
-  end_date: "2026-05-04"
+  start_date: "2024-05-11"
+  end_date: "2026-05-11"
   research_mode: true
   tuning_allowed: false
   parameter_mutation: false
   description: "Prior Session Liquidity Breakout — P09 + First-Breakout-Only-Per-Session-Per-Direction (5M). Single behavioral delta vs V4_P09 (Lock +1R after +2R MFE — current deployable winner): armed-once-per-session-per-direction guard added in check_entry. Backports the framework fix that produced +51% Sharpe / +54% expectancy / -21% trade count on P11→P14, but applied to the deployable strategy specifically. Tests whether P09's measured edge is partly inflated by reentry recursion, and whether a clean-baseline P15 should replace P09 as the deployable winner."
   notes: "Single behavioral delta vs V4_P09: per-direction session-key consumption guard at the top of each entry branch in check_entry. State (_consumed_long_session_key, _consumed_short_session_key) holds the (date, session_id) tuple of the most recent entry per side; when the current bar's tuple matches, that direction's entry is refused. State persists across bars within a session and naturally resets when session_id or date changes. UNCHANGED: structural session-extreme stop, lock+1R after +2R MFE intrabar (P09 mechanism), utc_day_close fallback exit, both directions retained, filter_stack composition. NO fixed take-profit (P09 has no tp_price; P15 inherits this — distinct from P11/P14 which have +3R TP). STRATEGY_SIGNATURE remains identical to P09–P14 (same hash 6ee99532c5506205) — the consumption guard is internal code, not declared in the directive."
+
+  repeat_override_reason: "[RERUN:ENGINE@2026-05-11 origin=directive-clone strategy=65_BRK_XAUUSD_5M_PSBRK_S01_V4_P15] data-window refresh to standardized 2024-05-11..2026-05-11 (24mo policy) after DATA_INGRESS deep-history recovery extended XAU 5m to 2016-01-04. Strategy logic, indicators, parameters, engine version all byte-identical to prior runs; this is a window-refresh only. ENGINE category used to trigger classifier narrowing (no DATA_FRESH narrowing path exists)."
 
 symbols:
   - XAUUSD
