@@ -80,7 +80,10 @@ from tools.report.family_renderer import render
 
 
 _BACKTESTS_DIR = TRADE_SCAN_STATE / "backtests"
-_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "family_reports"
+# Family reports are generated artifacts (rebuildable per invocation) and
+# belong on the State side of the Trade_Scan/TradeScan_State boundary.
+# See outputs/REPORT_OWNERSHIP_AUDIT.md (2026-05-11).
+_OUTPUT_DIR = TRADE_SCAN_STATE / "reports" / "families"
 
 
 # ---------------------------------------------------------------------------
