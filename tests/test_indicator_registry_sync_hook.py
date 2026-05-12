@@ -348,6 +348,162 @@ def test_sync_helper_add_stub_appends_minimal_entry(tmp_path, monkeypatch):
     assert rc2 == 0
 
 
+# ---------------------------------------------------------------------------
+# 10. Session-close drift check (Patch 1 from GOVERNANCE_DRIFT_PREVENTION_PLAN)
+# ---------------------------------------------------------------------------
+#
+# `python tools/indicator_registry_sync.py --check` is wired into the
+# session-close skill as Step 6b (NON-NEGOTIABLE) — non-zero exit blocks
+# close. These tests pin:
+#   - clean state returns 0 (the positive — also tested by the real-registry
+#     case above, but we add the synthetic version here for completeness)
+#   - drifted state returns 1 (the negative — the case Step 6b exists for)
+#
+# The drift check has two failure modes (`on_disk - registered` and
+# `registered - on_disk`); both must return 1. Both are pinned below.
+
+
+def _run_sync_check(repo: Path) -> subprocess.CompletedProcess:
+    """Invoke the operator helper's --check mode against the fixture tree."""
+    return subprocess.run(
+        [sys.executable, "tools/indicator_registry_sync.py", "--check"],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _seed_sync_helper_in(repo: Path) -> None:
+    """Copy the sync helper into the fixture tree so its
+    `Path(__file__).resolve().parent.parent` resolves to the fixture repo
+    rather than the real Trade_Scan checkout.
+    """
+    (repo / "tools").mkdir(exist_ok=True)
+    shutil.copy(SYNC_SCRIPT, repo / "tools" / "indicator_registry_sync.py")
+
+
+def test_session_close_drift_check_passes_on_clean_state(fake_repo):
+    """Step 6b PASS path — disk and registry in sync → exit 0, session-close
+    proceeds. Establishes the positive baseline for the negative tests below.
+    """
+    _seed_sync_helper_in(fake_repo)
+    cat_dir = fake_repo / "indicators" / "structure"
+    cat_dir.mkdir()
+    (cat_dir / "__init__.py").write_text("", encoding="utf-8")
+    (cat_dir / "clean_ind.py").write_text(
+        "def apply(df): return df\n", encoding="utf-8",
+    )
+    (fake_repo / "indicators" / "INDICATOR_REGISTRY.yaml").write_text(
+        _make_registry(["indicators.structure.clean_ind"]),
+        encoding="utf-8",
+    )
+    result = _run_sync_check(fake_repo)
+    assert result.returncode == 0, (
+        f"Step 6b must PASS when disk and registry are in sync. "
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+
+def test_session_close_drift_check_blocks_on_disk_only(fake_repo):
+    """Step 6b BLOCK path #1 — indicator on disk, no registry entry.
+    This is the hook-bypass scenario: author committed a `.py` with
+    `--no-verify` so the pre-commit gate did not fire. Session-close
+    must catch it.
+    """
+    _seed_sync_helper_in(fake_repo)
+    cat_dir = fake_repo / "indicators" / "momentum"
+    cat_dir.mkdir()
+    (cat_dir / "__init__.py").write_text("", encoding="utf-8")
+    (cat_dir / "bypassed.py").write_text(
+        "def apply(df): return df\n", encoding="utf-8",
+    )
+    # Registry deliberately empty — bypass scenario.
+    (fake_repo / "indicators" / "INDICATOR_REGISTRY.yaml").write_text(
+        _make_registry([]), encoding="utf-8",
+    )
+    result = _run_sync_check(fake_repo)
+    assert result.returncode == 1, (
+        f"Step 6b must BLOCK when an indicator on disk is missing from "
+        f"the registry. stdout:\n{result.stdout}"
+    )
+    assert "indicators.momentum.bypassed" in result.stdout
+    assert "DRIFT DETECTED" in result.stdout
+
+
+def test_session_close_drift_check_blocks_on_phantom_registry_entry(fake_repo):
+    """Step 6b BLOCK path #2 — registry entry without a corresponding
+    `.py` file. This is the manual-YAML-edit scenario the original
+    NEWSBRK precedent fell into (14 directives importing modules whose
+    `.py` files were never created). Session-close must catch it even
+    though no `.py` diff exists for the pre-commit hook to inspect.
+    """
+    _seed_sync_helper_in(fake_repo)
+    fake_repo_indicators = fake_repo / "indicators"
+    # Registry asserts a module that does NOT exist on disk.
+    (fake_repo_indicators / "INDICATOR_REGISTRY.yaml").write_text(
+        _make_registry(["indicators.macro.phantom_event_window"]),
+        encoding="utf-8",
+    )
+    result = _run_sync_check(fake_repo)
+    assert result.returncode == 1, (
+        f"Step 6b must BLOCK on phantom registry entries — the NEWSBRK "
+        f"precedent. stdout:\n{result.stdout}"
+    )
+    assert "indicators.macro.phantom_event_window" in result.stdout
+    assert "DRIFT DETECTED" in result.stdout
+
+
+def test_session_close_drift_check_message_names_remediation_command(fake_repo):
+    """The BLOCK output must tell the operator how to fix it. Pin the
+    explicit `--add-stubs` reference so a future refactor that changes
+    the message doesn't strip the actionable remediation.
+    """
+    _seed_sync_helper_in(fake_repo)
+    cat_dir = fake_repo / "indicators" / "trend"
+    cat_dir.mkdir()
+    (cat_dir / "__init__.py").write_text("", encoding="utf-8")
+    (cat_dir / "ghost.py").write_text(
+        "def apply(df): return df\n", encoding="utf-8",
+    )
+    (fake_repo / "indicators" / "INDICATOR_REGISTRY.yaml").write_text(
+        _make_registry([]), encoding="utf-8",
+    )
+    result = _run_sync_check(fake_repo)
+    assert result.returncode == 1
+    # Both pieces of the remediation must appear: the command name and
+    # the flag.
+    assert "indicator_registry_sync.py" in result.stdout
+    assert "--add-stubs" in result.stdout
+
+
+def test_session_close_skill_documents_step_6b():
+    """The skill must actually contain the Step 6b instruction the
+    runtime tests above pin. Document-level regression — guards against
+    the skill being silently rewritten in a way that drops the gate.
+    """
+    skill_path = (
+        PROJECT_ROOT / ".claude" / "skills" / "session-close" / "SKILL.md"
+    )
+    assert skill_path.exists(), (
+        f"session-close skill missing at {skill_path} — this test cannot "
+        "run without it."
+    )
+    text = skill_path.read_text(encoding="utf-8")
+    assert "### 6b. Indicator Registry Drift Check" in text, (
+        "Step 6b heading missing from session-close skill. Patch 1 of "
+        "GOVERNANCE_DRIFT_PREVENTION_PLAN was either reverted or never "
+        "applied."
+    )
+    assert "python tools/indicator_registry_sync.py --check" in text, (
+        "Step 6b body must reference the actual check command."
+    )
+    # Quick Version copy-paste section must include the same gate.
+    assert "# 4b. Indicator registry drift" in text, (
+        "Quick Version section is missing the registry drift gate."
+    )
+
+
 def test_sync_helper_add_stub_refuses_phantom_paths(tmp_path, monkeypatch):
     """Cannot register a module that does not exist on disk — guards
     against typos and against accidentally re-creating the

@@ -138,6 +138,36 @@ Also review:
   extend `INTENT_INDEX.yaml` before close. Keep the `MAX_INTENTS = 25`
   cap in mind.
 
+### 6b. Indicator Registry Drift Check (NON-NEGOTIABLE)
+
+Verify `indicators/INDICATOR_REGISTRY.yaml` has not drifted from the
+`indicators/` directory tree. The pre-commit hook catches NEW indicator
+files added without a registry entry, but bypassable scenarios remain:
+
+- `git commit --no-verify` (skips the pre-commit hook)
+- Manual YAML edits introducing phantom entries (no `.py` diff to
+  trigger the hook)
+- Indicator file deletion without removing the registry entry
+
+The drift check below catches all three.
+
+```bash
+python tools/indicator_registry_sync.py --check
+```
+
+Exit-code handling:
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| `0`  | Disk ↔ registry in sync | Proceed |
+| `1`  | Drift detected | **Block session close.** Either: (a) `python tools/indicator_registry_sync.py --add-stubs` then `git add indicators/INDICATOR_REGISTRY.yaml` and commit, or (b) restore the missing `.py` files / remove the orphan registry entries. Re-run `--check` until it exits 0. |
+
+This is the defence layer against the same class of bug that produced
+the 22-module registry gap closed by the 2026-05-12 governance sync.
+Stage-0.5 admission still enforces the invariant at directive entry —
+this step makes sure drift never leaves the local clone in the first
+place.
+
 ### 7. Pre-Push Gate — Strict Clean Working Tree (NON-NEGOTIABLE)
 
 ```bash
@@ -331,6 +361,9 @@ python tools/ledger_db.py --export
 
 # 4. Enforcement system health — exit 2 blocks close, exit 1 note warnings
 python tools/audit_intent_index.py --all
+
+# 4b. Indicator registry drift — exit 1 blocks close
+python tools/indicator_registry_sync.py --check
 
 # 5. Pre-push gate — MUST be empty (excluding untracked, excluding SYSTEM_STATE.md)
 git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$"

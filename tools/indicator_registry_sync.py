@@ -137,8 +137,13 @@ def cmd_check() -> int:
         return 0
     cmd_list()
     print("")
-    print("[indicator-registry-sync] DRIFT DETECTED. Run --add-stubs to "
-          "register missing modules.")
+    print("[indicator-registry-sync] DRIFT DETECTED. To fix:")
+    print("  python tools/indicator_registry_sync.py --add-stubs")
+    print("  (register every disk module missing from the registry)")
+    print("")
+    print("  Then resolve any phantom registry entries (in registry, not on")
+    print("  disk) by restoring the missing .py files or removing the")
+    print("  orphan registry entries.")
     return 1
 
 
