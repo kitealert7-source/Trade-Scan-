@@ -1,10 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: 8 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 3 uncommitted
+- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-05-11T11:49:16Z
+> Generated: 2026-05-12T12:24:47Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -33,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-11** | Symbols: 243 | **Stale (>3d): 8**
+- Latest bar: **2026-05-11** | Symbols: 1
 
 ## Artifacts
 - Run directories: 1289
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 3 uncommitted
-- Last substantive commit: `d15a9b1 session: PSBRK rerun artifacts + SYSTEM_STATE close`
+- Working tree: 2 uncommitted
+- Last substantive commit: `6592c50 infra(D3): enriched diagnostic when family has no usable MF rows`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -49,3 +48,10 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
+
+- **Broader-pytest failures outside gate suite (5, not auto-detected):**
+  - `tests/test_registry_integrity.py::test_required_fields` — 22 governance-sync stubs (commit `5a354db`) carry only `module_path`/`category`/`registered_at`/`notes`; integrity test requires `lookback`/`warmup`/`input_columns`. Rich-metadata backfill is the deferred follow-up flagged in `outputs/INDICATOR_GOVERNANCE_SYNC_2026_05_12.md`.
+  - `tests/test_registry_integrity.py::test_summary_sync` — `registry_summary.total_indicators` still 45 (pre-sync); should be 66. Same backfill task.
+  - `tests/test_state_paths_worktree.py` ×2 — pre-existing from 2026-05-11; yesterday's close noted these.
+  - `tests/test_indicator_semantic_contracts.py` — pre-existing; 4 new indicator primitives missing from the Classifier Gate `_ALLOWED_PRIMITIVES` allowlist (separate from the Stage-0.5 allowlist landed today).
+  All five are non-blocking; the two new ones are by-design tradeoffs of "stabilize first, prune later" stub policy.
