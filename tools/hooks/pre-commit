@@ -46,6 +46,22 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+echo "[pre-commit] Verifying new indicator modules have a registry entry..."
+python "$REPO_ROOT/tools/lint_indicator_registry_sync.py" --staged
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. Every new indicator module must have a"
+    echo "  matching entry in indicators/INDICATOR_REGISTRY.yaml in the same"
+    echo "  commit. Stage-0.5 (semantic_validator.py) treats the registry as"
+    echo "  the allowlist authority — drift would re-introduce the silent-"
+    echo "  ImportError class of bug (see outputs/INDICATOR_GOVERNANCE_SYNC"
+    echo "  _2026_05_12.md for the NEWSBRK precedent)."
+    echo ""
+    echo "  Fix: python tools/indicator_registry_sync.py --add-stubs"
+    echo "       git add indicators/INDICATOR_REGISTRY.yaml"
+    exit 1
+fi
+
 echo "[pre-commit] Validating RESEARCH_MEMORY parse integrity..."
 python "$REPO_ROOT/tools/generate_research_memory_index.py" --check
 if [ $? -ne 0 ]; then
