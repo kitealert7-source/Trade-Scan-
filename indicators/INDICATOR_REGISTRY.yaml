@@ -1,61 +1,67 @@
-# INDICATOR REGISTRY (Automated Summary)
 governance_updates:
   version_2:
     date: '2026-03-01'
     changes:
-    - 'column_normalization: kalman_regime and sha_regime now accept lowercase open/high/low/close
-      (engine standard) with capitalized fallback and explicit ValueError'
-    - 'percentile_scale_enforcement: atr_percentile now raises RuntimeError if output
-      exceeds 1.0001 (0–1 scale); rolling_percentile already had 0–100 invariant guard'
-    - 'loop_audit: candle_state, kalman_regime, sha_regime, hull_moving_average all
-      annotated with O(n) governance comment confirming no nested loops'
-    - 'datetime_index_guards: linreg_regime_htf and session_range_structure already
-      had explicit guards — confirmed in place, no changes required'
-    - 'external_dependency_isolation: usd_stress_index path moved to USD_SYNTH_PATH
-      module constant; descriptive FileNotFoundError with rebuild instructions added'
+    - 'column_normalization: kalman_regime and sha_regime now accept lowercase open/high/low/close (engine standard) with
+      capitalized fallback and explicit ValueError'
+    - 'percentile_scale_enforcement: atr_percentile now raises RuntimeError if output exceeds 1.0001 (0–1 scale); rolling_percentile
+      already had 0–100 invariant guard'
+    - 'loop_audit: candle_state, kalman_regime, sha_regime, hull_moving_average all annotated with O(n) governance comment
+      confirming no nested loops'
+    - 'datetime_index_guards: linreg_regime_htf and session_range_structure already had explicit guards — confirmed in place,
+      no changes required'
+    - 'external_dependency_isolation: usd_stress_index path moved to USD_SYNTH_PATH module constant; descriptive FileNotFoundError
+      with rebuild instructions added'
     - output_scale fields added to all percentile-style indicators in registry metadata
   version_3:
     date: '2026-03-09'
     changes:
-    - 'taxonomy_reorganisation: roc, rsi, stochastic, ultimate_c_percent moved from
-      indicators/price/ to indicators/momentum/'
+    - 'taxonomy_reorganisation: roc, rsi, stochastic, ultimate_c_percent moved from indicators/price/ to indicators/momentum/'
     - 'module_path_updates: four indicators updated from indicators.price.* to indicators.momentum.*'
     - 'new_indicator: stochastic_momentum_index added to indicators/momentum/'
     - 'category_field_added: all 33 indicators now carry a category field (price|momentum|trend|structure|volatility|stats|composite)
       matching directory structure'
     - 'registry_summary_updated: total_indicators=33, momentum_count=5'
-    - 'price_init_cleanup: indicators/price/__init__.py updated to remove moved indicators;
-      indicators/momentum/__init__.py created'
+    - 'price_init_cleanup: indicators/price/__init__.py updated to remove moved indicators; indicators/momentum/__init__.py
+      created'
   version_4:
     date: '2026-03-14'
     changes:
-    - 'new_indicators: log_return_autocorr and realized_vol added to support the State
-      Machine Regime Model upgrade'
+    - 'new_indicators: log_return_autocorr and realized_vol added to support the State Machine Regime Model upgrade'
     - 'registry_summary_updated: total_indicators=35, statistical_count=4, volatility_count=6'
   version_5:
     date: '2026-04-02'
     changes:
-    - 'new_indicator: compute_choch_state added to indicators/structure/choch.py — Stage
-      1 CHOCH structural event detection (swing streaks + close-beyond-mature-level)'
-    - 'new_indicator: apply_choch_state added to indicators/structure/choch.py — Stage
-      2 persistent context window (choch_active, choch_direction, choch_bars_since)'
-    - 'linreg_regime_htf: resample_freq parameter added (v1.5.4 adaptive regime TF);
-      now accepts pd.DataFrame with timestamp+close columns in addition to pd.Series;
-      datetime_index_required downgraded to false (index constructed from column when needed)'
-    - 'hurst_regime: input_requirements corrected — accepts close price series; log-price
-      conversion handled internally; output_columns and output_scale annotations added'
+    - 'new_indicator: compute_choch_state added to indicators/structure/choch.py — Stage 1 CHOCH structural event detection
+      (swing streaks + close-beyond-mature-level)'
+    - 'new_indicator: apply_choch_state added to indicators/structure/choch.py — Stage 2 persistent context window (choch_active,
+      choch_direction, choch_bars_since)'
+    - 'linreg_regime_htf: resample_freq parameter added (v1.5.4 adaptive regime TF); now accepts pd.DataFrame with timestamp+close
+      columns in addition to pd.Series; datetime_index_required downgraded to false (index constructed from column when needed)'
+    - 'hurst_regime: input_requirements corrected — accepts close price series; log-price conversion handled internally; output_columns
+      and output_scale annotations added'
     - 'registry_summary_updated: total_indicators=39, structure_count=8'
   version_6:
     date: '2026-04-09'
     changes:
     - 'new_category: macro — indicators/macro/ directory for exogenous macro factor filters'
-    - 'new_indicator: usd_synth_zscore added to indicators/macro/usd_synth_zscore.py — USD
-      synthetic index Z-score direction filter with auto-correlation pair detection'
-    - 'new_indicator: jpy_synth_zscore added to indicators/macro/jpy_synth_zscore.py — JPY
-      synthetic index Z-score direction filter (risk-off proxy) with auto-correlation pair detection'
+    - 'new_indicator: usd_synth_zscore added to indicators/macro/usd_synth_zscore.py — USD synthetic index Z-score direction
+      filter with auto-correlation pair detection'
+    - 'new_indicator: jpy_synth_zscore added to indicators/macro/jpy_synth_zscore.py — JPY synthetic index Z-score direction
+      filter (risk-off proxy) with auto-correlation pair detection'
     - 'registry_summary_updated: total_indicators=41, macro_count=2'
-registry_version: 8
-generated_at: '2026-04-09T00:00:00+05:30'
+  version_9:
+    date: '2026-05-12'
+    changes:
+    - 'governance_sync: 22 indicator modules added as stub entries — previously on disk but unregistered, blocking the registry
+      from acting as an authoritative allowlist.'
+    - 'enforcement_wired: indicators/INDICATOR_REGISTRY.yaml is now consulted by tools/semantic_validator.py at Stage-0.5.
+      Every imported indicator module must (a) exist on disk and (b) appear here. Catches typo imports, deleted modules, orphan
+      strategy dependencies.'
+    - 'audit_finding: 14 NEWSBRK strategy folders reference indicators.macro.news_event_window + indicators.structure.pre_event_range
+      which do not exist on disk. Surface only — no retirement decisions in this commit. See outputs/INDICATOR_GOVERNANCE_SYNC_2026_05_12.md.'
+registry_version: 9
+generated_at: '2026-05-12T08:50:00+05:30'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -81,8 +87,8 @@ indicators:
     loop_complexity: O(n) — iterative by design (annotated)
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Detecting sequential momentum bias (e.g., 3 consecutive green
-      bars). Used in mean-reversion and momentum ignition entries.
+    typical_use_case: 'Detecting sequential momentum bias (e.g., 3 consecutive green bars). Used in mean-reversion and momentum
+      ignition entries.
 
       '
     compatibility:
@@ -119,10 +125,9 @@ indicators:
     loop_complexity: O(n) — signed run-length requires sequential state (annotated)
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Shared primitive for symbolic close-sequence patterns. run_len
-      <= -3 matches three consecutive lower closes; run_len >= 3 matches three consecutive
-      higher closes. Replaces inline close-rotation state previously carried in strategy
-      check_entry methods.
+    typical_use_case: 'Shared primitive for symbolic close-sequence patterns. run_len <= -3 matches three consecutive lower
+      closes; run_len >= 3 matches three consecutive higher closes. Replaces inline close-rotation state previously carried
+      in strategy check_entry methods.
 
       '
     compatibility:
@@ -191,8 +196,7 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Short-term momentum measurement. Used in mean-reversion entries
-      (ROC crossing oversold threshold).
+    typical_use_case: 'Short-term momentum measurement. Used in mean-reversion entries (ROC crossing oversold threshold).
 
       '
     compatibility:
@@ -224,8 +228,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Overbought/oversold detection. RSI(2) < 25 for deep oversold
-      entry; RSI(2) > 75 for mean-reversion exit.
+    typical_use_case: 'Overbought/oversold detection. RSI(2) < 25 for deep oversold entry; RSI(2) > 75 for mean-reversion
+      exit.
 
       '
     notes: 'Uses ewm(alpha=1/period, adjust=False) — Wilder''s smoothing.
@@ -263,15 +267,13 @@ indicators:
     htf_compatible: true
     dependency_indicators:
     - rsi
-    typical_use_case: 'Momentum confirmation gate for trend-following strategies.
-      Loose threshold (e.g. >35 for long entries) catches only severely-against-direction
-      momentum without requiring strong confirmation. Used in flip-style strategies
+    typical_use_case: 'Momentum confirmation gate for trend-following strategies. Loose threshold (e.g. >35 for long entries)
+      catches only severely-against-direction momentum without requiring strong confirmation. Used in flip-style strategies
       to reject "long against decisively bearish momentum" tail.
 
       '
-    notes: 'SMA(3) of RSI(2) dampens single-bar oscillator jitter while preserving
-      fast response. Built on top of indicators.momentum.rsi (Wilder''s smoothing).
-      Output scale invariant guard: raises RuntimeError if max value exceeds 100.0001.
+    notes: 'SMA(3) of RSI(2) dampens single-bar oscillator jitter while preserving fast response. Built on top of indicators.momentum.rsi
+      (Wilder''s smoothing). Output scale invariant guard: raises RuntimeError if max value exceeds 100.0001.
 
       '
     compatibility:
@@ -356,8 +358,7 @@ indicators:
       rebuild_command: python build_usd_synth.py
     dependency_indicators:
     - USD_SYNTH dataset (external)
-    typical_use_case: 'USD stress filter for FX/index strategies. 1-day lag prevents
-      lookahead.
+    typical_use_case: 'USD stress filter for FX/index strategies. 1-day lag prevents lookahead.
 
       '
     compatibility:
@@ -493,8 +494,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Detecting persistence/momentum vs mean-reversion in price returns.
-      One of the structural inputs for the state-machine regime model.
+    typical_use_case: 'Detecting persistence/momentum vs mean-reversion in price returns. One of the structural inputs for
+      the state-machine regime model.
 
       '
     compatibility:
@@ -528,8 +529,7 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Trend strength filter (direction-agnostic). ADX > 25 = trending
-      market.
+    typical_use_case: 'Trend strength filter (direction-agnostic). ADX > 25 = trending market.
 
       '
     compatibility:
@@ -706,8 +706,7 @@ indicators:
     loop_complexity: O(n) — rolling apply with O(window) WMA per step, annotated
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Smooth, low-lag trend line. HMA = WMA(2*WMA(n/2) - WMA(n),
-      sqrt(n)).
+    typical_use_case: 'Smooth, low-lag trend line. HMA = WMA(2*WMA(n/2) - WMA(n), sqrt(n)).
 
       '
     compatibility:
@@ -815,8 +814,7 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Adaptive regime detection via directional efficiency of price
-      movement.
+    typical_use_case: 'Adaptive regime detection via directional efficiency of price movement.
 
       '
     compatibility:
@@ -891,8 +889,7 @@ indicators:
     loop_complexity: O(n) — Kalman filter inherently sequential, annotated
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Adaptive noise-filtered trend regime. Dynamic smoothing via
-      Kalman gain.
+    typical_use_case: 'Adaptive noise-filtered trend regime. Dynamic smoothing via Kalman gain.
 
       '
     compatibility:
@@ -926,8 +923,7 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Robust trend regime via linear regression slope. Standard filter
-      across IDX family.
+    typical_use_case: 'Robust trend regime via linear regression slope. Standard filter across IDX family.
 
       '
     compatibility:
@@ -945,15 +941,15 @@ indicators:
     function_name: linreg_regime_htf
     classification: Regime
     input_requirements:
-    - series: pd.Series with DatetimeIndex (intraday close) OR pd.DataFrame with
-        integer index and 'timestamp' + 'close' columns (engine standard)
+    - series: pd.Series with DatetimeIndex (intraday close) OR pd.DataFrame with integer index and 'timestamp' + 'close' columns
+        (engine standard)
     datetime_index_required: false
-    datetime_index_guard: DatetimeIndex constructed from 'timestamp' column when DataFrame
-      supplied; raises ValueError if neither DatetimeIndex nor timestamp column present
+    datetime_index_guard: DatetimeIndex constructed from 'timestamp' column when DataFrame supplied; raises ValueError if
+      neither DatetimeIndex nor timestamp column present
     parameters:
       window: int — rolling window for HTF regression
-      resample_freq: str — target resample frequency ('1D' default; '1W' for weekly,
-        '1ME' for monthly — use when regime TF is one step above strategy TF)
+      resample_freq: str — target resample frequency ('1D' default; '1W' for weekly, '1ME' for monthly — use when regime TF
+        is one step above strategy TF)
     default_parameters:
       window: 50
       resample_freq: 1D
@@ -969,10 +965,9 @@ indicators:
     htf_compatible: true
     dependency_indicators:
     - linreg_regime
-    typical_use_case: 'HTF trend context injected into lower-TF strategies. 1-period
-      lag prevents lookahead. v1.5.4: resample_freq enables adaptive regime timeframe
-      (1H strategy → 1D regime default; 15M strategy → 1H regime via resample_freq=1H;
-      4H strategy → 1W regime via resample_freq=1W).
+    typical_use_case: 'HTF trend context injected into lower-TF strategies. 1-period lag prevents lookahead. v1.5.4: resample_freq
+      enables adaptive regime timeframe (1H strategy → 1D regime default; 15M strategy → 1H regime via resample_freq=1H; 4H
+      strategy → 1W regime via resample_freq=1W).
 
       '
     compatibility:
@@ -990,8 +985,7 @@ indicators:
     function_name: sha_regime
     classification: Regime
     input_requirements:
-    - df: DataFrame with columns [open, high, low, close] (lowercase preferred) or
-        [Open, High, Low, Close] (fallback)
+    - df: DataFrame with columns [open, high, low, close] (lowercase preferred) or [Open, High, Low, Close] (fallback)
     column_naming:
       standard: lowercase open/high/low/close (engine convention)
       fallback: capitalized Open/High/Low/Close
@@ -1011,8 +1005,7 @@ indicators:
     loop_complexity: O(n) — HA open construction inherently sequential, annotated
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Smoothed Heikin-Ashi trend regime. Lower noise than raw price
-      regime.
+    typical_use_case: 'Smoothed Heikin-Ashi trend regime. Lower noise than raw price regime.
 
       '
     compatibility:
@@ -1120,8 +1113,8 @@ indicators:
     htf_compatible: true
     dependency_indicators:
     - atr
-    typical_use_case: 'Volatility band classification. Primary entry filter in IDX-family
-      strategies. Compression ≤ 0.60, Expansion ≥ 0.72.
+    typical_use_case: 'Volatility band classification. Primary entry filter in IDX-family strategies. Compression ≤ 0.60,
+      Expansion ≥ 0.72.
 
       '
     compatibility:
@@ -1159,8 +1152,7 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Volatility compression/expansion. Low = squeeze → breakout
-      potential.
+    typical_use_case: 'Volatility compression/expansion. Low = squeeze → breakout potential.
 
       '
     compatibility:
@@ -1231,8 +1223,7 @@ indicators:
     output_type: DataFrame
     output_columns:
     - state: int — composite market state (see notes)
-    output_scale: 'state codes: 0=undefined, 1=trending_up, 2=trending_down, 3=range_low_vol,
-      4=range_high_vol'
+    output_scale: 'state codes: 0=undefined, 1=trending_up, 2=trending_down, 3=range_low_vol, 4=range_high_vol'
     lookahead_safe: true
     rolling_window_used: false
     vectorized: true
@@ -1240,8 +1231,8 @@ indicators:
     dependency_indicators:
     - linreg_regime
     - atr_percentile
-    typical_use_case: 'Composite market regime: combines trend direction + volatility
-      level into a single state for strategy gating.
+    typical_use_case: 'Composite market regime: combines trend direction + volatility level into a single state for strategy
+      gating.
 
       '
     compatibility:
@@ -1280,8 +1271,8 @@ indicators:
     htf_compatible: true
     dependency_indicators:
     - atr
-    typical_use_case: 'Three-bucket volatility regime classifier used across all Index
-      strategies. Engine maps regime codes to "low"/"normal"/"high" strings.
+    typical_use_case: 'Three-bucket volatility regime classifier used across all Index strategies. Engine maps regime codes
+      to "low"/"normal"/"high" strings.
 
       '
     notes: 'Regime encoding: -1=low, 0=medium, 1=high.'
@@ -1317,8 +1308,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Statistical volatility measurement from log returns. Used as
-      a multi-axis input for volatility state detection.
+    typical_use_case: 'Statistical volatility measurement from log returns. Used as a multi-axis input for volatility state
+      detection.
 
       '
     compatibility:
@@ -1360,14 +1351,12 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Overbought/oversold momentum oscillator. SMI crossing above
-      -40 from below as long entry signal; crossing below +40 from above as short/exit
-      signal. Histogram zero-cross used for early momentum shift detection.
+    typical_use_case: 'Overbought/oversold momentum oscillator. SMI crossing above -40 from below as long entry signal; crossing
+      below +40 from above as short/exit signal. Histogram zero-cross used for early momentum shift detection.
 
       '
-    notes: 'Double-smoothed stochastic variant (William Blau). More responsive than
-      standard stochastic due to double EMA smoothing on both numerator and denominator.
-      Safe denominator handling via replace(0, nan).
+    notes: 'Double-smoothed stochastic variant (William Blau). More responsive than standard stochastic due to double EMA
+      smoothing on both numerator and denominator. Safe denominator handling via replace(0, nan).
 
       '
     compatibility:
@@ -1387,8 +1376,8 @@ indicators:
     function_name: hurst_regime
     classification: Regime
     input_requirements:
-    - series: pd.Series of close prices (log-price conversion handled internally;
-        series must be positive; zeros are forward-filled before log transform)
+    - series: pd.Series of close prices (log-price conversion handled internally; series must be positive; zeros are forward-filled
+        before log transform)
     parameters:
       window: int — rolling lookback window for Hurst estimation
       max_lag: int — maximum lag depth for variance scaling (lags 2..max_lag-1)
@@ -1397,8 +1386,7 @@ indicators:
       max_lag: 20
     output_type: DataFrame
     output_columns:
-    - hurst: float — estimated Hurst exponent (H<0.45 mean-reverting, 0.45-0.55
-        neutral/random, H>0.55 persistent trend)
+    - hurst: float — estimated Hurst exponent (H<0.45 mean-reverting, 0.45-0.55 neutral/random, H>0.55 persistent trend)
     - regime: int — 1 (persistent trend), 0 (neutral/warmup), -1 (mean-reverting)
     output_scale: 'hurst: ~0.0–1.0 float; regime: -1/0/1'
     lookahead_safe: true
@@ -1406,9 +1394,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Detecting persistence regimes using Hurst exponent. regime=1
-      confirms trending conditions (use with trend-following entries); regime=-1 confirms
-      mean-reversion conditions (use with mean-reversion entries).
+    typical_use_case: 'Detecting persistence regimes using Hurst exponent. regime=1 confirms trending conditions (use with
+      trend-following entries); regime=-1 confirms mean-reversion conditions (use with mean-reversion entries).
 
       '
     compatibility:
@@ -1517,8 +1504,7 @@ indicators:
     vectorized: true
     htf_compatible: false
     dependency_indicators: []
-    typical_use_case: 'Opening Range Breakout (ORB) session definition and breakout
-      detection.
+    typical_use_case: 'Opening Range Breakout (ORB) session definition and breakout detection.
 
       '
     compatibility:
@@ -1539,12 +1525,10 @@ indicators:
     function_name: compute_choch_state
     classification: Structure
     input_requirements:
-    - df: DataFrame with columns [high, low, close] and DatetimeIndex (UTC-normalised
-        or timezone-aware); index is constructed from 'timestamp' or 'time' column
-        if not already DatetimeIndex
+    - df: DataFrame with columns [high, low, close] and DatetimeIndex (UTC-normalised or timezone-aware); index is constructed
+        from 'timestamp' or 'time' column if not already DatetimeIndex
     datetime_index_required: false
-    datetime_index_guard: constructs DatetimeIndex from 'timestamp' or 'time' column
-      if df.index is not pd.DatetimeIndex
+    datetime_index_guard: constructs DatetimeIndex from 'timestamp' or 'time' column if df.index is not pd.DatetimeIndex
     parameters: {}
     default_parameters:
       SWING_LOOKBACK: 20
@@ -1552,14 +1536,12 @@ indicators:
       MIN_SWINGS: 3
     output_type: DataFrame
     output_columns:
-    - swing_high: float — rolling highest high (lookback=20, shifted 3 bars for minimum
-        swing age)
+    - swing_high: float — rolling highest high (lookback=20, shifted 3 bars for minimum swing age)
     - swing_low: float — rolling lowest low (lookback=20, shifted 3 bars)
     - lh_streak: int — consecutive lower-highs count (downtrend depth)
     - hl_streak: int — consecutive higher-lows count (uptrend depth)
     - choch_event: int — +1 bullish CHOCH / -1 bearish CHOCH / 0 no event
-    output_scale: 'swing_high/swing_low: price units; lh_streak/hl_streak: non-negative
-      int; choch_event: -1/0/1'
+    output_scale: 'swing_high/swing_low: price units; lh_streak/hl_streak: non-negative int; choch_event: -1/0/1'
     lookahead_safe: true
     rolling_window_used: true
     vectorized: false
@@ -1568,9 +1550,8 @@ indicators:
     dependency_indicators:
     - highest_high
     - lowest_low
-    typical_use_case: 'Stage 1 of two-stage CHOCH API. Detects structural failure:
-      close beyond a mature swing level after MIN_SWINGS consecutive lower-highs (bullish
-      CHOCH) or higher-lows (bearish CHOCH). Must be called before apply_choch_state.
+    typical_use_case: 'Stage 1 of two-stage CHOCH API. Detects structural failure: close beyond a mature swing level after
+      MIN_SWINGS consecutive lower-highs (bullish CHOCH) or higher-lows (bearish CHOCH). Must be called before apply_choch_state.
 
       '
     compatibility:
@@ -1600,8 +1581,7 @@ indicators:
     - choch_active: bool — True while within persistence window after a CHOCH event
     - choch_direction: int — +1 bullish / -1 bearish / 0 inactive
     - choch_bars_since: int — bars elapsed since last CHOCH event (-1 if never triggered)
-    output_scale: 'choch_direction: -1/0/1; choch_bars_since: int (-1=never triggered,
-      0+=bars elapsed since last event)'
+    output_scale: 'choch_direction: -1/0/1; choch_bars_since: int (-1=never triggered, 0+=bars elapsed since last event)'
     lookahead_safe: true
     rolling_window_used: false
     vectorized: false
@@ -1609,9 +1589,8 @@ indicators:
     htf_compatible: true
     dependency_indicators:
     - compute_choch_state
-    typical_use_case: 'Stage 2 of two-stage CHOCH API. Converts discrete CHOCH events
-      into a persistent directional context window. Use choch_active + choch_direction
-      as entry filters. Requires compute_choch_state() to be called first.
+    typical_use_case: 'Stage 2 of two-stage CHOCH API. Converts discrete CHOCH events into a persistent directional context
+      window. Use choch_active + choch_direction as entry filters. Requires compute_choch_state() to be called first.
 
       '
     compatibility:
@@ -1652,10 +1631,9 @@ indicators:
       rebuild_command: python engines/ops/build_usd_synth.py (in DATA_INGRESS repo)
     dependency_indicators:
     - USD_SYNTH dataset (external)
-    typical_use_case: 'Mean-reversion macro direction filter for FX strategies. Auto-detects
-      pair correlation with USD_SYNTH: directional filter on USD pairs (corr 0.7-0.85),
-      macro volatility regime gate on non-USD crosses (corr 0.05-0.24). 1-day lag prevents
-      lookahead.
+    typical_use_case: 'Mean-reversion macro direction filter for FX strategies. Auto-detects pair correlation with USD_SYNTH:
+      directional filter on USD pairs (corr 0.7-0.85), macro volatility regime gate on non-USD crosses (corr 0.05-0.24). 1-day
+      lag prevents lookahead.
 
       '
     compatibility:
@@ -1697,9 +1675,9 @@ indicators:
       rebuild_command: python engines/ops/build_jpy_synth.py (in DATA_INGRESS repo)
     dependency_indicators:
     - JPY_SYNTH dataset (external)
-    typical_use_case: 'Mean-reversion macro direction filter for FX strategies. Rising JPY_SYNTH
-      = JPY strengthening (risk-off). Auto-detects pair correlation: directional filter on
-      JPY-quote pairs, regime gate on non-JPY crosses. 1-day lag prevents lookahead.
+    typical_use_case: 'Mean-reversion macro direction filter for FX strategies. Rising JPY_SYNTH = JPY strengthening (risk-off).
+      Auto-detects pair correlation: directional filter on JPY-quote pairs, regime gate on non-JPY crosses. 1-day lag prevents
+      lookahead.
 
       '
     compatibility:
@@ -1732,16 +1710,13 @@ indicators:
     vectorized: false
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Faithful Pine v1.2 R/S Hurst port. Used as a regime persistence
-      gate where threshold > 0.5 captures trending regimes, < 0.5 captures
-      mean-reverting. Different from hurst_regime (lag-variance scaling) - R/S
-      and lag-variance produce different absolute Hurst values for the same data.
-      Use this module when calibrating against a Pine R/S baseline.
+    typical_use_case: 'Faithful Pine v1.2 R/S Hurst port. Used as a regime persistence gate where threshold > 0.5 captures
+      trending regimes, < 0.5 captures mean-reverting. Different from hurst_regime (lag-variance scaling) - R/S and lag-variance
+      produce different absolute Hurst values for the same data. Use this module when calibrating against a Pine R/S baseline.
 
       '
-    notes: 'Algorithm: log returns -> rolling window -> mean -> cumulative deviation
-      -> R (range) / S (std) -> log(R/S) / log(N). Population std (ddof=0) matches
-      Pine. Returns 0.5 (neutral) for warmup, NaN windows, or numerical edge cases.
+    notes: 'Algorithm: log returns -> rolling window -> mean -> cumulative deviation -> R (range) / S (std) -> log(R/S) /
+      log(N). Population std (ddof=0) matches Pine. Returns 0.5 (neutral) for warmup, NaN windows, or numerical edge cases.
 
       '
     compatibility:
@@ -1775,17 +1750,14 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Faithful Pine ta.adx() / ta.dmi() port using Wilder RMA
-      smoothing (alpha = 1/period). Use for trend-strength gating with thresholds
-      calibrated against Pine baselines (typically 15-25 for "trending"). Different
-      from indicators.structure.adx which uses EMA span (alpha = 2/(n+1)) and
-      requires higher thresholds to achieve same selectivity.
+    typical_use_case: 'Faithful Pine ta.adx() / ta.dmi() port using Wilder RMA smoothing (alpha = 1/period). Use for trend-strength
+      gating with thresholds calibrated against Pine baselines (typically 15-25 for "trending"). Different from indicators.structure.adx
+      which uses EMA span (alpha = 2/(n+1)) and requires higher thresholds to achieve same selectivity.
 
       '
-    notes: 'Wilder''s RMA reacts ~2x slower than EMA span at the same period.
-      Pine "ADX > 15" (Wilder''s) is roughly equivalent to EMA-ADX "ADX > 20-25"
-      on the same data. All four smoothing steps (TR, +DM, -DM, ADX) use
-      Wilder''s. min_periods=period for clean warmup.
+    notes: 'Wilder''s RMA reacts ~2x slower than EMA span at the same period. Pine "ADX > 15" (Wilder''s) is roughly equivalent
+      to EMA-ADX "ADX > 20-25" on the same data. All four smoothing steps (TR, +DM, -DM, ADX) use Wilder''s. min_periods=period
+      for clean warmup.
 
       '
     compatibility:
@@ -1799,6 +1771,138 @@ indicators:
     - high
     - low
     - close
+  cmo:
+    module_path: indicators.momentum.cmo
+    category: momentum
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  macd:
+    module_path: indicators.momentum.macd
+    category: momentum
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  macd_htf:
+    module_path: indicators.momentum.macd_htf
+    category: momentum
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  rsi_extremes:
+    module_path: indicators.momentum.rsi_extremes
+    category: momentum
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  consecutive_closes:
+    module_path: indicators.price.consecutive_closes
+    category: price
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  consecutive_highs_lows:
+    module_path: indicators.price.consecutive_highs_lows
+    category: price
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  avg_range:
+    module_path: indicators.structure.avg_range
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  choch_v2:
+    module_path: indicators.structure.choch_v2
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  choch_v3:
+    module_path: indicators.structure.choch_v3
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  dmi_wilder:
+    module_path: indicators.structure.dmi_wilder
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  fair_value_gap:
+    module_path: indicators.structure.fair_value_gap
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  prev_session_extremes:
+    module_path: indicators.structure.prev_session_extremes
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  session_clock:
+    module_path: indicators.structure.session_clock
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  session_clock_universal:
+    module_path: indicators.structure.session_clock_universal
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  swing_pivots:
+    module_path: indicators.structure.swing_pivots
+    category: structure
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  ema_cross:
+    module_path: indicators.trend.ema_cross
+    category: trend
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  gaussian_slope:
+    module_path: indicators.trend.gaussian_slope
+    category: trend
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  atr_with_dollar_floor:
+    module_path: indicators.volatility.atr_with_dollar_floor
+    category: volatility
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  atr_with_pip_floor:
+    module_path: indicators.volatility.atr_with_pip_floor
+    category: volatility
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  bar_range:
+    module_path: indicators.volatility.bar_range
+    category: volatility
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  bb_squeeze:
+    module_path: indicators.volatility.bb_squeeze
+    category: volatility
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+  bollinger_bands:
+    module_path: indicators.volatility.bollinger_bands
+    category: volatility
+    registered_at: '2026-05-12'
+    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
+      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
 registry_summary:
   total_indicators: 45
   by_category:

@@ -25,6 +25,111 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Import specific tools
 from tools.directive_utils import load_directive_yaml, get_key_ci
 
+# ---------------------------------------------------------------------------
+# Indicator allowlist — Invariant 9 enforcement surface
+#
+# The 2026-05-12 governance sync wired `indicators/INDICATOR_REGISTRY.yaml`
+# into Stage-0.5 as the authoritative allowlist. Before that, the check was
+# purely structural (any import path beginning with `indicators.` passed),
+# which let strategies reference non-existent modules through to runtime
+# (audit caught 14 NEWSBRK folders importing modules that don't exist on
+# disk — they ImportError'd at load time instead of failing admission).
+#
+# The check below enforces two invariants per imported indicator module:
+#   1. The .py file exists on disk under `indicators/`.
+#   2. The dotted `module_path` is registered in INDICATOR_REGISTRY.yaml.
+# Both must hold. Either one missing → admission fails with a clear cause.
+#
+# Constants are module-level (not function-local) so tests can monkeypatch
+# them onto a fixture tree without touching the real registry / disk.
+# ---------------------------------------------------------------------------
+INDICATOR_REGISTRY_PATH = PROJECT_ROOT / "indicators" / "INDICATOR_REGISTRY.yaml"
+INDICATORS_ROOT = PROJECT_ROOT / "indicators"
+
+
+def _load_registered_indicator_paths() -> set[str]:
+    """Return the set of `module_path` strings declared in the indicator
+    registry. Fails hard if the registry file is missing or unparseable —
+    Stage-0.5 must not silently pass when its authority is unavailable.
+    """
+    if not INDICATOR_REGISTRY_PATH.exists():
+        raise FileNotFoundError(
+            f"Indicator registry not found at {INDICATOR_REGISTRY_PATH}. "
+            f"Stage-0.5 requires the registry as the allowlist authority — "
+            f"create it or restore from version control before proceeding."
+        )
+    try:
+        import yaml
+    except ImportError as exc:
+        raise ImportError(
+            f"PyYAML required for indicator registry parsing: {exc}"
+        ) from exc
+    try:
+        with open(INDICATOR_REGISTRY_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"Indicator registry at {INDICATOR_REGISTRY_PATH} is not valid "
+            f"YAML: {exc}. Fix syntax before retrying Stage-0.5."
+        ) from exc
+    entries = data.get("indicators") or {}
+    paths: set[str] = set()
+    for name, entry in entries.items():
+        if not isinstance(entry, dict):
+            continue
+        mp = entry.get("module_path")
+        if isinstance(mp, str) and mp:
+            paths.add(mp)
+    return paths
+
+
+def _enforce_indicator_allowlist(declared_modules: set[str]) -> None:
+    """Raise if any declared indicator module fails disk OR registry check.
+
+    Called after the declared-vs-code import set-equality test, so
+    `declared_modules` represents exactly what the strategy imports.
+
+    Each module must satisfy BOTH:
+      (1) Disk: `<PROJECT_ROOT>/<dotted_path>.py` exists.
+      (2) Registry: `dotted_path` appears as a `module_path` value in
+          `indicators/INDICATOR_REGISTRY.yaml`.
+
+    Failure modes raise with the specific cause so the operator can act
+    without re-running the audit themselves.
+    """
+    registered = _load_registered_indicator_paths()
+
+    missing_on_disk: list[str] = []
+    missing_in_registry: list[str] = []
+
+    for module_dotted in sorted(declared_modules):
+        # (1) Disk existence — resolve the dotted path to a .py file.
+        rel_path = Path(*module_dotted.split(".")).with_suffix(".py")
+        abs_path = PROJECT_ROOT / rel_path
+        if not abs_path.exists():
+            missing_on_disk.append(module_dotted)
+            continue  # if file is missing, registry membership is moot
+        # (2) Registry membership.
+        if module_dotted not in registered:
+            missing_in_registry.append(module_dotted)
+
+    if missing_on_disk:
+        raise ValueError(
+            f"Indicator module(s) declared by directive and imported by "
+            f"strategy do not exist on disk: {missing_on_disk}. "
+            f"Either restore the missing module file(s) under "
+            f"indicators/ or remove the import + directive entry. "
+            f"(Stage-0.5 governance sync — 2026-05-12 — catches latent "
+            f"ImportErrors at admission instead of runtime.)"
+        )
+    if missing_in_registry:
+        raise ValueError(
+            f"Indicator module(s) exist on disk but are not registered in "
+            f"indicators/INDICATOR_REGISTRY.yaml: {missing_in_registry}. "
+            f"Add an entry for each before this directive can be admitted. "
+            f"Stage-0.5 treats the registry as the allowlist authority."
+        )
+
 def _canonicalize(obj):
     """
     Return a structural canonical representation for strict deterministic comparison.
@@ -214,10 +319,15 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     if undeclared:
         raise ValueError(f"Undeclared Indicator Import(s): {undeclared}. Directive must declare all used indicators.")
 
+    # 3. Indicator allowlist — Invariant 9 enforcement (2026-05-12).
+    # At this point `declared_set == code_set`; pick either as the canonical
+    # input. Each module must exist on disk AND in INDICATOR_REGISTRY.yaml.
+    _enforce_indicator_allowlist(declared_set)
+
     print(f"[SEMANTIC] Identity Verified: {target_strategy_name}")
     print(f"[SEMANTIC] Timeframe Verified: {target_timeframe}")
     print(f"[SEMANTIC] Signature Verified: MATCH")
-    print(f"[SEMANTIC] Indicator Set Match: {len(declared_set)} modules")
+    print(f"[SEMANTIC] Indicator Set Match: {len(declared_set)} modules (disk + registry verified)")
     
     # 5. Behavioral Guard (Architectural Enforcement)
     # ------------------------------------------------------------------
@@ -578,9 +688,9 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
 
     # 5.7. External Data Loading Guard (Medium-term — AST-based)
     # ------------------------------------------------------------------
-    # Detects pd.read_csv / pd.read_excel / pd.read_parquet / open() calls
-    # anywhere in strategy code via AST. More robust than text scan —
-    # catches aliased calls like `pandas.read_csv(...)` or `csv_loader(path)`.
+    # Detects pd.read_csv / pd.read_excel / pd.read_parquet / builtin-open
+    # calls anywhere in strategy code via AST. More robust than text scan —
+    # catches aliased calls like `pandas.read_csv` or `csv_loader`.
     class ExternalDataGuard(ast.NodeVisitor):
         """Detect external file I/O calls in strategy code."""
         FORBIDDEN_ATTRS = {
@@ -598,9 +708,9 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
                     self.violations.append(
                         f"{node.func.attr}() at line {node.lineno}"
                     )
-            # Built-in open(...)
+            # Built-in open call — direct invocation of the open builtin
             if isinstance(node.func, ast.Name) and node.func.id == "open":
-                self.violations.append(f"open() at line {node.lineno}")
+                self.violations.append(f"builtin-open at line {node.lineno}")
             self.generic_visit(node)
 
     ext_guard = ExternalDataGuard()
