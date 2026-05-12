@@ -96,6 +96,94 @@ DRY_RUN_VAULT = _resolve_sibling("DRY_RUN_VAULT")
 
 DEFAULT_OUTPUT = PROJECT_ROOT / "SYSTEM_STATE.md"
 
+# Canonical anchor for the operator-editable Manual section under
+# `## Known Issues`. Stable across regen — operator notes added here
+# survive a fresh `python tools/system_introspection.py` run.
+# Fix landed 2026-05-12; predecessor behavior overwrote on every regen
+# despite the SKILL.md contract claiming "entries here persist".
+# See outputs/SYSTEM_STATE_MANUAL_PERSIST_AUDIT.md.
+_MANUAL_SECTION_HEADER = "### Manual (deferred TDs, operational context)"
+
+
+def _preserve_manual_section(target_path: Path, regenerated_markdown: str) -> str:
+    """Inject the prior file's Manual section into the regenerated markdown.
+
+    Rules (per the 2026-05-12 audit doc):
+      1. If `target_path` doesn't exist (first regen, e.g. fresh clone) →
+         return `regenerated_markdown` unchanged.
+      2. If the prior file has exactly ONE `### Manual (...)` block →
+         extract it verbatim (from the header through the next `##`-level
+         heading or EOF) and substitute it into the regenerated markdown
+         at the same anchor, replacing the default template.
+      3. If the prior file has ZERO `### Manual (...)` blocks → return
+         `regenerated_markdown` unchanged (no preservation needed).
+      4. If the prior file has TWO OR MORE `### Manual (...)` blocks →
+         raise `RuntimeError`. Fail closed; never silently pick one.
+
+    The regenerated markdown is also expected to contain a `### Manual`
+    section (the renderer's default template). If it doesn't, the
+    function returns unchanged — no anchor to substitute at.
+    """
+    if not target_path.exists():
+        return regenerated_markdown
+
+    prior = target_path.read_text(encoding="utf-8")
+    prior_manuals = _find_manual_blocks(prior)
+    if len(prior_manuals) == 0:
+        return regenerated_markdown
+    if len(prior_manuals) > 1:
+        raise RuntimeError(
+            f"SYSTEM_STATE.md has {len(prior_manuals)} `### Manual` sections "
+            f"(expected 0 or 1). Resolve manually before regenerating — "
+            f"the script will not silently pick one. Path: {target_path}"
+        )
+
+    prior_block = prior_manuals[0]
+    regen_manuals = _find_manual_blocks(regenerated_markdown)
+    if len(regen_manuals) != 1:
+        # Renderer didn't emit a Manual anchor in this regen — nothing to
+        # substitute at. Return unchanged to avoid silently dropping the
+        # operator's notes.
+        return regenerated_markdown
+    return regenerated_markdown.replace(regen_manuals[0], prior_block, 1)
+
+
+def _find_manual_blocks(markdown: str) -> list[str]:
+    """Return list of Manual-section blocks found in `markdown`. Each block
+    runs from the `### Manual` header through (but not including) the next
+    same-or-higher-level heading (`## ` or `### `), or to EOF.
+
+    Manual is `###`-level. The extractor must stop at:
+      - the next `## ` heading (peer section like `## Engine`), AND
+      - the next `### ` heading (sibling subsection, e.g. a DUPLICATE
+        `### Manual` block — needed so Case 3 / fail-closed detects
+        multiple Manual blocks).
+
+    It does NOT stop at `#### ` or deeper — operator notes can use
+    those internally.
+    """
+    lines = markdown.splitlines(keepends=True)
+    blocks: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith(_MANUAL_SECTION_HEADER):
+            block_start = i
+            j = i + 1
+            while j < len(lines):
+                # `## ` is level-2; `### ` is level-3; `#### ` and deeper
+                # share neither prefix because the 4th char is `#`, not
+                # ' '. So these two checks together capture exactly the
+                # boundaries we want.
+                if lines[j].startswith("## ") or lines[j].startswith("### "):
+                    break
+                j += 1
+            blocks.append("".join(lines[block_start:j]).rstrip("\n"))
+            i = j
+        else:
+            i += 1
+    return blocks
+
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -958,6 +1046,13 @@ def main() -> None:
 
     session_status = compute_session_status(engine, freshness, git)
     markdown = render_markdown(engine, directives, ledgers, portfolio, vault, freshness, runs, git, session_status, known_issues)
+
+    # Preserve operator-edited Manual section across regen. Doc/code
+    # contract: SKILL.md says "entries here persist" and the
+    # collect_known_issues docstring says the same. Before this fix
+    # (2026-05-12), the file was unconditionally overwritten. See
+    # outputs/SYSTEM_STATE_MANUAL_PERSIST_AUDIT.md.
+    markdown = _preserve_manual_section(output_path, markdown)
 
     output_path.write_text(markdown, encoding="utf-8")
 
