@@ -500,3 +500,11 @@ ideas:
     role: entry_edge
     instruments: XAUUSD
     status: active
+  '67':
+    family: PORT
+    title: "USD Basket Weekly Hold Hypothesis -- Phase-1 architecture sanity test. Long EUR/USD 0.02 lot, long USD/JPY 0.01 lot, long USD/CHF 0.01 lot. Enter first Monday 5m bar of each ISO week (UTC), close on first Friday 5m bar at-or-after 23:45 UTC (next_bar_open fills at Friday 23:55). No indicators, no filters, no regime gates, no SL/TP active (50x ATR catastrophic backstop only). Three per-symbol legs composed via run-composite-portfolio. Tests whether a structurally USD-neutral weekly hold basket shows positive net PnL, PF > 1.0, and non-catastrophic DD clustering on OctaFx 5m 2025-05-12 to 2026-05-09."
+    class: portfolio_logic
+    regime: multi
+    role: hypothesis_test
+    instruments: FX
+    status: active

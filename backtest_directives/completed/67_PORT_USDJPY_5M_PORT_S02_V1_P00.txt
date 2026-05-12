@@ -1,0 +1,52 @@
+test:
+  name: 67_PORT_USDJPY_5M_PORT_S02_V1_P00
+  family: PORT
+  strategy: 67_PORT_USDJPY_5M_PORT_S02_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-09-02'
+  end_date: '2026-05-09'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: USD Basket Weekly Hold Hypothesis -- USDJPY leg. Long 0.01 lot, entered on first Monday 5m bar UTC of each
+    ISO week, exited on first Friday 5m bar at-or-after 23:45 UTC. No indicators, no filters, no regime gates. 50x ATR catastrophic
+    stop only; TP disabled.
+  notes: Phase-1 architecture sanity test of weekly USD basket hypothesis. One of three legs (EUR/USD 0.02, USD/JPY 0.01,
+    USD/CHF 0.01) composed via run-composite-portfolio. Per-leg quality gates may FAIL (low trade count for a pure time strategy);
+    verdict comes from the composite. Exit signal at Friday 23:45/50 -- next_bar_open fills at the last available Friday bar's
+    open (typically 23:55). OctaFx 5m research data prices include spread; commission_cash column populated.
+  repeat_override_reason: '[RERUN:DATA_FRESH@2026-05-12 origin=directive-clone strategy=67_PORT_USDJPY_5M_PORT_S02_V1_P00]
+    Phase-2 2-year confirmation run: extends start_date 2025-05-12 -> 2024-09-02 (max common-window for EUR/JPY/CAD 5m on
+    OctaFx). End-date unchanged. Logic unchanged.'
+symbols:
+- USDJPY
+indicators:
+- indicators.volatility.atr
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: weekly_monday_open
+  exit_logic:
+    type: weekly_friday_close
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.01

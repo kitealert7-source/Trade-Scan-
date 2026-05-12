@@ -2640,3 +2640,42 @@ ideas:
             signature_hash_full: f390b9c72ea6ccff0f2ea755eca77f5263abc13c7680e878218f2d3fe0c2ca3b
             reserved_at_utc: '2026-05-08T15:00:00.000000+00:00'
         attempt: 2
+  '67':
+    next_sweep: 5
+    sweeps:
+      S01:
+        directive_name: 67_PORT_EURUSD_5M_PORT_S01_V1_P00
+        signature_hash: 48c2c74c565f2b7b
+        signature_hash_full: 48c2c74c565f2b7b99ea4adf2947d6e833019c48e0a2ec68bfbfcdbec7b5c383
+        reserved_at_utc: '2026-05-12T13:30:00.000000+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 48c2c74c565f2b7b
+        directive_hash_full: 48c2c74c565f2b7b99ea4adf2947d6e833019c48e0a2ec68bfbfcdbec7b5c383
+      S02:
+        directive_name: 67_PORT_USDJPY_5M_PORT_S02_V1_P00
+        signature_hash: 762b86ebda8a359d
+        signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+        reserved_at_utc: '2026-05-12T13:30:00.000000+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 762b86ebda8a359d
+        directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+      S03:
+        directive_name: 67_PORT_USDCHF_5M_PORT_S03_V1_P00
+        signature_hash: 762b86ebda8a359d
+        signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+        reserved_at_utc: '2026-05-12T13:30:00.000000+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 762b86ebda8a359d
+        directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+      S04:
+        directive_name: 67_PORT_USDCAD_5M_PORT_S04_V1_P00
+        signature_hash: 762b86ebda8a359d
+        signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+        reserved_at_utc: '2026-05-12T15:30:00.000000+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 762b86ebda8a359d
+        directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
