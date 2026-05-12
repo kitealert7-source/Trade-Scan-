@@ -2,7 +2,11 @@
 backtests/
 runs/
 results/
-research/
+# Anchored: `/research/` matches only `tools/research/` (does not exist),
+# NOT `tools/utils/research/` (production code). The unanchored form
+# silently excluded 6 imported modules from version control for an
+# unknown duration — see outputs/TOOLS_GITIGNORE_AUDIT.md (2026-05-12).
+/research/
 
 # Market & raw data
 MASTER_DATA/

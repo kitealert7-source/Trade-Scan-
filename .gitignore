@@ -9,7 +9,12 @@
 backtests/
 runs/
 results/
-research/
+# Anchored: `/research/` matches only the top-level `research/`
+# directory (idea-scratch text files). The unanchored form silently
+# excluded `tools/utils/research/` (6 production modules imported by
+# tracked code) for an unknown duration. See
+# outputs/TOOLS_GITIGNORE_AUDIT.md (2026-05-12).
+/research/
 
 # Market & raw data
 MASTER_DATA/
