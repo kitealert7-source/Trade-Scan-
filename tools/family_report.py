@@ -96,6 +96,10 @@ _BACKTESTS_DIR = TRADE_SCAN_STATE / "backtests"
 # belong on the State side of the Trade_Scan/TradeScan_State boundary.
 # See outputs/REPORT_OWNERSHIP_AUDIT.md (2026-05-11).
 _OUTPUT_DIR = TRADE_SCAN_STATE / "reports" / "families"
+# Consulted by the missing-MF-rows diagnostic (Patch D3) so the error can
+# point at the canonical successor family when the prefix has been
+# superseded by a rename (e.g. 53_MR_EURUSD_* -> 53_MR_FX_*).
+_SUPERSESSION_MAP_PATH = PROJECT_ROOT / "governance" / "supersession_map.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -213,11 +217,139 @@ def generate_family_report(
 # Data loading
 # ---------------------------------------------------------------------------
 
+def _count_backtest_folders(prefix: str) -> int:
+    """Count `TradeScan_State/backtests/<prefix>_*<SYMBOL>/` directories.
+
+    Used by the missing-MF-rows diagnostic to distinguish "artifacts
+    exist but ledger doesn't have them" from "nothing exists at all".
+    """
+    if not _BACKTESTS_DIR.exists():
+        return 0
+    needle = prefix + "_"
+    return sum(
+        1 for p in _BACKTESTS_DIR.iterdir()
+        if p.is_dir() and p.name.startswith(needle)
+    )
+
+
+def _supersession_successors(prefix: str) -> list[str]:
+    """Return sorted successor family prefixes for any directive id whose
+    full id starts with ``prefix + '_'`` in
+    ``governance/supersession_map.yaml``. Empty list when the map is
+    missing/empty or no keys match.
+
+    Used by the missing-MF-rows diagnostic to point the operator at the
+    canonical successor when the prefix has been renamed (e.g.
+    ``53_MR_EURUSD_*`` -> ``53_MR_FX_*``).
+    """
+    if not _SUPERSESSION_MAP_PATH.exists():
+        return []
+    try:
+        import yaml
+        data = yaml.safe_load(
+            _SUPERSESSION_MAP_PATH.read_text(encoding="utf-8")
+        ) or {}
+    except Exception:
+        return []
+    entries = data.get("supersessions") or {}
+    if not isinstance(entries, dict):
+        return []
+
+    successors: set[str] = set()
+    needle = prefix + "_"
+    for old_id, entry in entries.items():
+        if not isinstance(old_id, str) or not old_id.startswith(needle):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        new_id = entry.get("superseded_by")
+        if not isinstance(new_id, str) or not new_id:
+            continue
+        # Strip trailing _S<n>_V<n>_P<n> to recover the family prefix.
+        m = re.match(r"^(.+?)_S\d+_V\d+_P\d+$", new_id)
+        successors.add(m.group(1) if m else new_id)
+    return sorted(successors)
+
+
+def _raise_mf_missing(prefix: str, variants: list[str] | None) -> None:
+    """Build the enriched FAMILY_REPORT_MF_MISSING diagnostic and raise
+    ``SystemExit``. Fail-closed.
+
+    Single-line parseable header at the top for greppable automation
+    (session-close audits, batch runs):
+
+        FAMILY_REPORT_MF_MISSING: prefix=<P> backtests=<N> superseded_by=<S|none>
+
+    Human-readable body below explains disk evidence + likely causes.
+    Never returns.
+    """
+    n_backtests = _count_backtest_folders(prefix)
+    successors = _supersession_successors(prefix)
+    successor_tok = ",".join(successors) if successors else "none"
+
+    header = (
+        f"FAMILY_REPORT_MF_MISSING: "
+        f"prefix={prefix} backtests={n_backtests} "
+        f"superseded_by={successor_tok}"
+    )
+
+    lines: list[str] = [header, ""]
+    variants_clause = (
+        f" (filter variants={variants})." if variants else "."
+    )
+    lines.append(
+        f"No usable Master Filter rows for prefix {prefix!r}{variants_clause}"
+    )
+    lines.append("")
+    lines.append("Disk evidence:")
+    if n_backtests > 0:
+        lines.append(
+            f"  - {n_backtests} backtest folder(s) found at "
+            f"TradeScan_State/backtests/{prefix}_*"
+        )
+        lines.append(
+            "  - 0 usable MF rows for this family "
+            "(ledger row either absent or marked is_current=0)"
+        )
+    else:
+        lines.append(
+            f"  - 0 backtest folders under "
+            f"TradeScan_State/backtests/{prefix}_*"
+        )
+        lines.append("  - 0 usable MF rows for this family prefix")
+    lines.append("")
+    lines.append("Likely causes:")
+    if successors:
+        suffix = (
+            f" (and {len(successors) - 1} more)"
+            if len(successors) > 1 else ""
+        )
+        lines.append(
+            f"  - Family superseded / renamed -> see successor "
+            f"`{successors[0]}`{suffix} in "
+            f"governance/supersession_map.yaml"
+        )
+    if n_backtests > 0:
+        lines.append("  - Stage-3 aggregation never ran for these backtests")
+        lines.append("  - Runs FAILED before ledger write")
+        if not successors:
+            lines.append(
+                "  - Family superseded / renamed "
+                "(no entry in supersession_map.yaml)"
+            )
+    elif not successors:
+        lines.append(
+            "  - Prefix typo (no artifacts or ledger rows match this prefix)"
+        )
+        lines.append("  - Pipeline never ran for this family")
+    raise SystemExit("\n".join(lines))
+
+
 def _load_master_filter_rows(
     prefix: str,
     variants: list[str] | None,
     latest_only: bool = False,
-) -> tuple[pd.DataFrame | None, dict | None]:
+) -> tuple[pd.DataFrame, dict | None]:
     """Read Master Filter and filter rows by prefix + (optional) variant tags.
 
     Variant tags match the trailing `_S0n_Vm_Pkk` portion of the directive id.
@@ -236,6 +368,11 @@ def _load_master_filter_rows(
     Group key is the MF ``strategy`` column (= ``clean_id + _<SYMBOL>``).
     This collapses re-runs of the same clean_id within a single asset, and
     preserves per-symbol resolution for multi-asset families.
+
+    Raises ``SystemExit`` via ``_raise_mf_missing`` when no MF rows
+    match the prefix (with disk evidence, supersession hint, and likely
+    causes; single-line parseable header for automation). Patch D3,
+    2026-05-12.
     """
     # Direct SQL for both paths so we always have rowid available. Bypassing
     # `read_master_filter()` is safe — it just does `SELECT * FROM
@@ -253,7 +390,7 @@ def _load_master_filter_rows(
         conn.close()
 
     if rows is None or len(rows) == 0:
-        return rows, None
+        _raise_mf_missing(prefix, variants)
 
     if variants:
         # Match if any of the requested variant tags appears as a substring.
@@ -274,6 +411,17 @@ def _load_master_filter_rows(
         # convention (see tools/ledger_db.py ~ line 226).
         current_mask = rows["is_current"].isna() | (rows["is_current"] == 1)
         rows = rows[current_mask].copy()
+
+    # Post-filter empty: rows existed for the prefix but ALL were
+    # explicitly superseded (is_current=0). Same operator-visible class
+    # as the pre-filter empty case (no usable rows for the family) —
+    # surface the same parseable diagnostic so stress-test grep
+    # automation catches both cases uniformly. The supersession-map hint
+    # is especially likely to be relevant here (every row was marked
+    # superseded; the successor family is probably what the operator
+    # actually wants). Patch D3, 2026-05-12.
+    if len(rows) == 0:
+        _raise_mf_missing(prefix, variants)
 
     # Ambiguity detection BEFORE the drop_duplicates collapse — these are
     # strategies with >1 current row, a pre-existing supersession gap that

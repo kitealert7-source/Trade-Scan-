@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from tools.report.family_streaks import compute_streaks, _max_streak, _avg_streak
 from tools.report.family_calendar import yearwise_pnl, monthly_heatmap
@@ -1000,6 +1001,202 @@ def test_promotion_summary_renders_in_full_report(isolated_ledger, tmp_path):
     assert "### Block A — Canonical Promotion Status" in text
     assert "### Block B — Soft Risk Overlays (annotation only)" in text
     assert "## 3. Core Metrics" in text
+
+
+# ---------------------------------------------------------------------------
+# 13. Patch D3 — enriched diagnostic for missing MF rows (2026-05-12)
+# ---------------------------------------------------------------------------
+#
+# When a family prefix has no usable MF rows, _load_master_filter_rows must
+# raise SystemExit with:
+#   - A single-line parseable header for grep-friendly automation:
+#       FAMILY_REPORT_MF_MISSING: prefix=... backtests=... superseded_by=...
+#   - Disk evidence (backtest folder count for the prefix)
+#   - Likely causes (Stage-3, supersession, FAILED, typo)
+#   - Supersession hint pointing at the successor family when applicable
+#
+# Four cases pinned:
+#   A — no MF rows + backtest folders exist (Stage-3 not run / FAILED)
+#   B — no MF rows + no backtest folders (typo / never ran)
+#   C — no MF rows + supersession_map entry exists for this prefix
+#   D — MF rows exist → no behavior change
+
+
+@pytest.fixture()
+def isolated_paths(tmp_path, monkeypatch):
+    """Layer on the existing `isolated_ledger`-style monkeypatching but
+    also redirect `_BACKTESTS_DIR` and `_SUPERSESSION_MAP_PATH` so the
+    D3 diagnostic resolves against fixture-controlled data.
+
+    Returns a dict with {db, backtests, supersession_map} paths so
+    tests can write controlled state into each one.
+    """
+    import sqlite3
+    from tools.ledger_db import create_tables
+    import tools.family_report as fr_mod
+    import tools.ledger_db as ledger_mod
+
+    db_path = tmp_path / "ledger.db"
+    conn = sqlite3.connect(str(db_path))
+    create_tables(conn)
+    conn.close()
+
+    backtests = tmp_path / "backtests"
+    backtests.mkdir()
+    sm_path = tmp_path / "supersession_map.yaml"
+    # Default: no supersession map (file does not exist) — overridden per test.
+
+    monkeypatch.setattr(fr_mod, "LEDGER_DB_PATH", db_path, raising=True)
+    monkeypatch.setattr(ledger_mod, "LEDGER_DB_PATH", db_path, raising=True)
+    monkeypatch.setattr(fr_mod, "_BACKTESTS_DIR", backtests, raising=True)
+    monkeypatch.setattr(fr_mod, "_SUPERSESSION_MAP_PATH", sm_path, raising=True)
+    return {"db": db_path, "backtests": backtests, "supersession_map": sm_path}
+
+
+def test_mf_missing_case_a_backtests_exist_no_mf_rows(isolated_paths):
+    """A — backtest folders on disk but zero MF rows for prefix. Most common
+    cause: Stage-3 never ran. Diagnostic must show nonzero backtest count.
+    """
+    bdir = isolated_paths["backtests"]
+    for variant in ("S01_V1_P01", "S01_V1_P02", "S01_V1_P03"):
+        (bdir / f"DIAGFAM_A_{variant}_XAUUSD").mkdir()
+
+    from tools.family_report import _load_master_filter_rows
+    with pytest.raises(SystemExit) as exc:
+        _load_master_filter_rows("DIAGFAM_A", None)
+
+    msg = str(exc.value)
+    # Parseable header
+    assert msg.startswith("FAMILY_REPORT_MF_MISSING: ")
+    assert "prefix=DIAGFAM_A" in msg
+    assert "backtests=3" in msg
+    assert "superseded_by=none" in msg
+    # Body
+    assert "3 backtest folder(s)" in msg
+    assert "Stage-3" in msg
+    assert "FAILED" in msg
+
+
+def test_mf_missing_case_b_no_backtests_no_mf_rows(isolated_paths):
+    """B — neither backtests nor MF rows. Operator-visible: prefix typo or
+    pipeline never ran. Diagnostic must show backtests=0 and the typo hint.
+    """
+    from tools.family_report import _load_master_filter_rows
+    with pytest.raises(SystemExit) as exc:
+        _load_master_filter_rows("NOTHING_AT_ALL_PREFIX", None)
+
+    msg = str(exc.value)
+    assert msg.startswith("FAMILY_REPORT_MF_MISSING: ")
+    assert "prefix=NOTHING_AT_ALL_PREFIX" in msg
+    assert "backtests=0" in msg
+    assert "superseded_by=none" in msg
+    assert "Prefix typo" in msg or "Pipeline never ran" in msg
+
+
+def test_mf_missing_case_c_supersession_hint(isolated_paths):
+    """C — supersession_map.yaml has an entry whose key starts with the
+    queried prefix. Diagnostic must surface the successor family in BOTH
+    the parseable header and the body.
+    """
+    bdir = isolated_paths["backtests"]
+    (bdir / "53_MR_EURUSD_1D_CMR_S02_V1_P01_EURUSD").mkdir()
+    (bdir / "53_MR_EURUSD_1D_CMR_S02_V1_P02_EURUSD").mkdir()
+
+    sm = isolated_paths["supersession_map"]
+    sm.write_text(yaml.safe_dump({
+        "supersessions": {
+            "53_MR_EURUSD_1D_CMR_S02_V1_P01": {
+                "superseded_by": "53_MR_FX_1D_CMR_S02_V1_P01",
+                "reason": "slot3_layer_correction_EURUSD_to_FX",
+                "superseded_at_utc": "2026-04-18T00:00:00+00:00",
+            },
+            "53_MR_EURUSD_1D_CMR_S02_V1_P02": {
+                "superseded_by": "53_MR_FX_1D_CMR_S02_V1_P02",
+                "reason": "slot3_layer_correction_EURUSD_to_FX",
+                "superseded_at_utc": "2026-04-18T00:00:00+00:00",
+            },
+        },
+    }), encoding="utf-8")
+
+    from tools.family_report import _load_master_filter_rows
+    with pytest.raises(SystemExit) as exc:
+        _load_master_filter_rows("53_MR_EURUSD_1D_CMR", None)
+
+    msg = str(exc.value)
+    # Parseable header surfaces the successor (and only the family-level
+    # prefix, not the variant tags — operator wants the family, not the
+    # specific old directive ids).
+    assert msg.startswith("FAMILY_REPORT_MF_MISSING: ")
+    assert "prefix=53_MR_EURUSD_1D_CMR" in msg
+    assert "backtests=2" in msg
+    assert "superseded_by=53_MR_FX_1D_CMR" in msg
+    # Body cites the successor as a likely cause.
+    assert "53_MR_FX_1D_CMR" in msg
+    assert "Family superseded" in msg
+    assert "supersession_map.yaml" in msg
+
+
+def test_mf_load_case_d_unchanged_behavior_when_rows_exist(isolated_paths):
+    """D — when MF rows actually exist for the prefix, _load_master_filter_rows
+    must return them normally. No SystemExit, no diagnostic emitted.
+    """
+    _insert_mf_row(isolated_paths["db"],
+        run_id="run_d", strategy="DIAGFAM_D_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+    )
+
+    from tools.family_report import _load_master_filter_rows
+    rows, dedup = _load_master_filter_rows("DIAGFAM_D", None)
+    assert rows is not None
+    assert len(rows) == 1
+    assert dedup is None  # latest_only=False path
+
+
+def test_mf_missing_diagnostic_fires_after_latest_only_filter(isolated_paths):
+    """Patch D3 follow-up: when MF rows exist for the prefix but ALL are
+    is_current=0, --latest-only filters them all out. Same operator-
+    visible failure class as case A/C — diagnostic must fire from inside
+    the latest-only path too, not fall through to the caller's older
+    SystemExit. The stress test invokes --latest-only, so this is the
+    path that matters for automation.
+    """
+    bdir = isolated_paths["backtests"]
+    (bdir / "OLDFAM_S01_V1_P01_XAUUSD").mkdir()
+
+    # Insert a row but mark it as superseded.
+    _insert_mf_row(isolated_paths["db"],
+        run_id="superseded_run", strategy="OLDFAM_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", is_current=0,
+    )
+
+    from tools.family_report import _load_master_filter_rows
+    with pytest.raises(SystemExit) as exc:
+        _load_master_filter_rows("OLDFAM", None, latest_only=True)
+    msg = str(exc.value)
+    assert msg.startswith("FAMILY_REPORT_MF_MISSING: ")
+    assert "prefix=OLDFAM" in msg
+    assert "backtests=1" in msg
+
+
+def test_mf_missing_header_is_single_line_grep_friendly(isolated_paths):
+    """The parseable header must be a single line (no embedded newlines)
+    so `grep FAMILY_REPORT_MF_MISSING: logfile` returns one match per
+    failure. The explanatory body comes AFTER a blank line.
+    """
+    from tools.family_report import _load_master_filter_rows
+    with pytest.raises(SystemExit) as exc:
+        _load_master_filter_rows("EMPTY_GREP_TEST", None)
+
+    msg = str(exc.value)
+    first_line, _, rest = msg.partition("\n")
+    assert first_line.startswith("FAMILY_REPORT_MF_MISSING: ")
+    # No newlines inside the header itself.
+    assert "\n" not in first_line
+    # Body follows after a blank separator line.
+    assert rest.startswith("\n")
+    # Every grep-target field is present in the header.
+    assert "prefix=" in first_line
+    assert "backtests=" in first_line
+    assert "superseded_by=" in first_line
 
 
 def test_prior_run_delta_section_renders_in_family_report(isolated_ledger, tmp_path):
