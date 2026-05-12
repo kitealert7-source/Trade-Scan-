@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 2 uncommitted
+- WARNING: Working tree 3 uncommitted
 
-> Generated: 2026-05-12T12:47:43Z
+> Generated: 2026-05-12T13:00:59Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,8 +39,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 2 uncommitted
-- Last substantive commit: `7388453 infra: backfill 22 indicator-registry stubs to structural completeness`
+- Working tree: 3 uncommitted
+- Last substantive commit: `670bf02 infra: preserve SYSTEM_STATE manual notes across regeneration`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -53,4 +53,4 @@
   - `tests/test_state_paths_worktree.py` ×2 — pre-existing from 2026-05-11.
   - `tests/test_indicator_semantic_contracts.py::test_referenced_indicators_declare_signal_primitive` — pre-existing; 4 new indicator primitives missing from the Classifier Gate `_ALLOWED_PRIMITIVES` allowlist. Separate concern from the Stage-0.5 allowlist landed today.
   Note: the 2 `test_registry_integrity` failures from earlier today's close were closed by commit `7388453` (22-stub metadata backfill).
-- **Manual-section persistence caveat:** `tools/system_introspection.py` currently regenerates the entire SYSTEM_STATE.md file including the Manual section, despite the SKILL doc claiming "entries here persist". Operator must re-add Manual entries each session-close until the introspection script is fixed to merge rather than overwrite.
+- ~~Manual-section persistence caveat~~ — **closed by commit `670bf02`** (`tools/system_introspection.py` now preserves the Manual section across regen verbatim; tests pinned in `tests/test_system_state_manual_persist.py`). This entry's own survival across the next regen is the validation proof.
