@@ -1,0 +1,40 @@
+#!/bin/sh
+# Pre-push hook -- tracked canonical source.
+# Install into this clone with `./tools/hooks/install.sh`.
+#
+# Network-boundary defence against governance drift that the pre-commit
+# hook can't catch:
+#   - `git commit --no-verify` bypasses pre-commit; pre-push catches it
+#     before the broken state leaves the local clone.
+#   - Manual YAML edits introducing phantom registry entries (no .py diff
+#     for the pre-commit hook to inspect) are caught here.
+#   - Indicator deletions without corresponding registry removal are
+#     caught here (pre-commit scoped to ADDED only, by design).
+#
+# Steps run in order; the first non-zero exit blocks the push.
+#   1. Indicator registry drift check
+#
+# Per `outputs/GOVERNANCE_DRIFT_PREVENTION_PLAN.md` Patch 2.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+echo "[pre-push] Verifying indicator registry sync (disk <-> registry)..."
+python "$REPO_ROOT/tools/indicator_registry_sync.py" --check
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-push] PUSH BLOCKED. Indicator registry drift detected."
+    echo ""
+    echo "  Fix:    python tools/indicator_registry_sync.py --add-stubs"
+    echo "          (then resolve any phantom registry entries listed above)"
+    echo "          git add indicators/INDICATOR_REGISTRY.yaml"
+    echo "          git commit -m 'governance: sync indicator registry'"
+    echo ""
+    echo "  Bypass: not supported. Drift must not leave this clone."
+    echo "          Stage-0.5 admission will reject directives that depend"
+    echo "          on missing/unregistered modules at the pipeline gate;"
+    echo "          letting drift through here means a future operator hits"
+    echo "          that gate without the context to fix it cleanly."
+    exit 1
+fi
+
+exit 0

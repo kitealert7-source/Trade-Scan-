@@ -504,6 +504,140 @@ def test_session_close_skill_documents_step_6b():
     )
 
 
+# ---------------------------------------------------------------------------
+# 11. Pre-push hook (Patch 2 from GOVERNANCE_DRIFT_PREVENTION_PLAN)
+# ---------------------------------------------------------------------------
+#
+# Pre-commit is bypassable via `git commit --no-verify`. Pre-push catches
+# that bypass at the network boundary before drift leaves the local clone.
+#
+# These tests pin two things:
+#   - tools/hooks/install.sh actually installs the pre-push hook
+#   - the installed hook blocks a `git push` when the registry has drift
+
+
+PRE_PUSH_SCRIPT = PROJECT_ROOT / "tools" / "hooks" / "pre-push"
+INSTALL_SCRIPT = PROJECT_ROOT / "tools" / "hooks" / "install.sh"
+
+
+def _seed_hook_install_tree(repo: Path) -> None:
+    """Copy the tools/hooks/ tree + sync helper + lint into the fixture
+    repo so `install.sh` and the installed hook resolve correctly.
+    """
+    (repo / "tools" / "hooks").mkdir(parents=True, exist_ok=True)
+    shutil.copy(PRE_PUSH_SCRIPT, repo / "tools" / "hooks" / "pre-push")
+    shutil.copy(
+        PROJECT_ROOT / "tools" / "hooks" / "pre-commit",
+        repo / "tools" / "hooks" / "pre-commit",
+    )
+    shutil.copy(INSTALL_SCRIPT, repo / "tools" / "hooks" / "install.sh")
+    os.chmod(repo / "tools" / "hooks" / "install.sh", 0o755)
+    # The pre-push hook calls tools/indicator_registry_sync.py — copy it.
+    shutil.copy(SYNC_SCRIPT, repo / "tools" / "indicator_registry_sync.py")
+
+
+def test_install_sh_installs_pre_push_hook(fake_repo):
+    """`tools/hooks/install.sh` extended in Patch 2 must install both
+    pre-commit and pre-push. Document-level guard against the loop
+    over `HOOK_NAMES` getting dropped by a future refactor.
+    """
+    _seed_hook_install_tree(fake_repo)
+
+    install_path = fake_repo / "tools" / "hooks" / "install.sh"
+    result = subprocess.run(
+        ["sh", str(install_path)],
+        cwd=str(fake_repo),
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert result.returncode == 0, (
+        f"install.sh failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+
+    # The git common dir is `<fake_repo>/.git` for a non-worktree clone.
+    pre_push = fake_repo / ".git" / "hooks" / "pre-push"
+    pre_commit = fake_repo / ".git" / "hooks" / "pre-commit"
+    assert pre_push.exists(), "install.sh failed to install pre-push hook"
+    assert pre_commit.exists(), "install.sh regressed on pre-commit hook"
+    # On Windows the chmod is a no-op but should not fail; the hook still
+    # works because git invokes via sh.
+    assert pre_push.read_text(encoding="utf-8").startswith("#!/bin/sh")
+
+
+def test_pre_push_hook_blocks_when_registry_drifts(fake_repo):
+    """The installed pre-push hook exits 1 when indicator registry drift
+    exists. We invoke the hook script directly (rather than running an
+    actual `git push`) so the test is robust to Windows shell quirks and
+    doesn't need a remote.
+    """
+    _seed_hook_install_tree(fake_repo)
+    # Run install.sh first so the hook is in place.
+    subprocess.run(
+        ["sh", str(fake_repo / "tools" / "hooks" / "install.sh")],
+        cwd=str(fake_repo), check=True,
+        capture_output=True, text=True, encoding="utf-8",
+    )
+
+    # Introduce drift — an indicator file with no registry entry.
+    cat_dir = fake_repo / "indicators" / "structure"
+    cat_dir.mkdir()
+    (cat_dir / "__init__.py").write_text("", encoding="utf-8")
+    (cat_dir / "drifted.py").write_text(
+        "def apply(df): return df\n", encoding="utf-8",
+    )
+    (fake_repo / "indicators" / "INDICATOR_REGISTRY.yaml").write_text(
+        _make_registry([]), encoding="utf-8",
+    )
+
+    # Run the installed pre-push hook directly via sh.
+    hook_path = fake_repo / ".git" / "hooks" / "pre-push"
+    result = subprocess.run(
+        ["sh", str(hook_path)],
+        cwd=str(fake_repo),
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert result.returncode == 1, (
+        f"pre-push hook must BLOCK on drift. stdout:\n{result.stdout}"
+    )
+    # Operator guidance must be present in the failure message.
+    assert "PUSH BLOCKED" in result.stdout
+    assert "indicator_registry_sync.py" in result.stdout
+
+
+def test_pre_push_hook_passes_when_registry_clean(fake_repo):
+    """The installed pre-push hook exits 0 when disk and registry are in
+    sync. Sanity check — without this the hook would block every push,
+    not just drifted ones.
+    """
+    _seed_hook_install_tree(fake_repo)
+    subprocess.run(
+        ["sh", str(fake_repo / "tools" / "hooks" / "install.sh")],
+        cwd=str(fake_repo), check=True,
+        capture_output=True, text=True, encoding="utf-8",
+    )
+
+    cat_dir = fake_repo / "indicators" / "momentum"
+    cat_dir.mkdir()
+    (cat_dir / "__init__.py").write_text("", encoding="utf-8")
+    (cat_dir / "clean.py").write_text(
+        "def apply(df): return df\n", encoding="utf-8",
+    )
+    (fake_repo / "indicators" / "INDICATOR_REGISTRY.yaml").write_text(
+        _make_registry(["indicators.momentum.clean"]),
+        encoding="utf-8",
+    )
+
+    hook_path = fake_repo / ".git" / "hooks" / "pre-push"
+    result = subprocess.run(
+        ["sh", str(hook_path)],
+        cwd=str(fake_repo),
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert result.returncode == 0, (
+        f"pre-push hook must PASS when registry is clean. "
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+
 def test_sync_helper_add_stub_refuses_phantom_paths(tmp_path, monkeypatch):
     """Cannot register a module that does not exist on disk — guards
     against typos and against accidentally re-creating the
