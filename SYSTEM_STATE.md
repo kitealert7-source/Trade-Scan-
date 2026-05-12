@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-05-12T12:24:47Z
+> Generated: 2026-05-12T12:47:43Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -40,7 +40,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 2 uncommitted
-- Last substantive commit: `6592c50 infra(D3): enriched diagnostic when family has no usable MF rows`
+- Last substantive commit: `7388453 infra: backfill 22 indicator-registry stubs to structural completeness`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -49,9 +49,8 @@
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
-- **Broader-pytest failures outside gate suite (5, not auto-detected):**
-  - `tests/test_registry_integrity.py::test_required_fields` — 22 governance-sync stubs (commit `5a354db`) carry only `module_path`/`category`/`registered_at`/`notes`; integrity test requires `lookback`/`warmup`/`input_columns`. Rich-metadata backfill is the deferred follow-up flagged in `outputs/INDICATOR_GOVERNANCE_SYNC_2026_05_12.md`.
-  - `tests/test_registry_integrity.py::test_summary_sync` — `registry_summary.total_indicators` still 45 (pre-sync); should be 66. Same backfill task.
-  - `tests/test_state_paths_worktree.py` ×2 — pre-existing from 2026-05-11; yesterday's close noted these.
-  - `tests/test_indicator_semantic_contracts.py` — pre-existing; 4 new indicator primitives missing from the Classifier Gate `_ALLOWED_PRIMITIVES` allowlist (separate from the Stage-0.5 allowlist landed today).
-  All five are non-blocking; the two new ones are by-design tradeoffs of "stabilize first, prune later" stub policy.
+- **Broader-pytest failures outside gate suite (3 pre-existing):**
+  - `tests/test_state_paths_worktree.py` ×2 — pre-existing from 2026-05-11.
+  - `tests/test_indicator_semantic_contracts.py::test_referenced_indicators_declare_signal_primitive` — pre-existing; 4 new indicator primitives missing from the Classifier Gate `_ALLOWED_PRIMITIVES` allowlist. Separate concern from the Stage-0.5 allowlist landed today.
+  Note: the 2 `test_registry_integrity` failures from earlier today's close were closed by commit `7388453` (22-stub metadata backfill).
+- **Manual-section persistence caveat:** `tools/system_introspection.py` currently regenerates the entire SYSTEM_STATE.md file including the Manual section, despite the SKILL doc claiming "entries here persist". Operator must re-add Manual entries each session-close until the introspection script is fixed to merge rather than overwrite.
