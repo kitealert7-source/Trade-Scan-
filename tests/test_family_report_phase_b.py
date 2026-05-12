@@ -455,8 +455,581 @@ def test_family_report_cli_runs_and_writes_file(tmp_path):
     # Section markers
     assert "# Family Analysis — 65_BRK_XAUUSD_5M_PSBRK" in text
     assert "## 1. Executive Ranking" in text
-    assert "## 2. Core Metrics" in text
-    assert "## 14. Deployment Verdict" in text
+    assert "## 2. Promotion Summary" in text
+    assert "## 3. Core Metrics" in text
+    assert "## 16. Deployment Verdict" in text
     # Window-mismatch guard fires because MF rows from pre-recovery runs
     # have non-standardized windows.
     assert "Cross-Window Comparability Warnings" in text
+
+
+# ---------------------------------------------------------------------------
+# 10. --latest-only filter (Phase B follow-up, 2026-05-12)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def isolated_ledger(tmp_path, monkeypatch):
+    """Build a tmp SQLite ledger seeded via ledger_db's own create_tables so
+    the schema stays in sync with the real DB. Patches LEDGER_DB_PATH in
+    BOTH `tools.family_report` (latest-only direct query) and
+    `tools.ledger_db` (read_master_filter default path) so every code path
+    targets the fixture.
+    """
+    import sqlite3
+    from tools.ledger_db import create_tables
+
+    db_path = tmp_path / "ledger.db"
+    conn = sqlite3.connect(str(db_path))
+    create_tables(conn)
+    conn.close()
+
+    import tools.family_report as fr_mod
+    import tools.ledger_db as ledger_mod
+    monkeypatch.setattr(fr_mod, "LEDGER_DB_PATH", db_path, raising=True)
+    monkeypatch.setattr(ledger_mod, "LEDGER_DB_PATH", db_path, raising=True)
+    return db_path
+
+
+def _insert_mf_row(db_path, **fields):
+    """Insert one row into master_filter. Missing columns are left NULL."""
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    cols = ",".join(f'"{c}"' for c in fields)
+    placeholders = ",".join("?" * len(fields))
+    conn.execute(
+        f"INSERT INTO master_filter ({cols}) VALUES ({placeholders})",
+        tuple(fields.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_latest_only_collapses_duplicates_by_max_rowid(isolated_ledger):
+    """Two rows for the same strategy, different rowids — keep the higher.
+
+    This is the post-2026-05-11 PSBRK shape: old run + new ENGINE-rerun
+    both is_current=NULL (effectively 1), distinguishable only by rowid.
+    """
+    from tools.family_report import _load_master_filter_rows
+
+    _insert_mf_row(isolated_ledger,
+        run_id="old_rid", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", test_start="2024-07-19", test_end="2026-05-04",
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="new_rid", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", test_start="2024-05-11", test_end="2026-05-11",
+    )
+
+    rows, dedup = _load_master_filter_rows("FAM_PFX", None, latest_only=True)
+
+    assert len(rows) == 1
+    assert rows.iloc[0]["run_id"] == "new_rid"
+    assert rows.iloc[0]["test_end"] == "2026-05-11"
+    assert dedup is not None
+    assert dedup["enabled"] is True
+    assert dedup["input_rows"] == 2
+    assert dedup["kept_rows"] == 1
+    # Both rows had is_current=NULL (treated as current) so this is ambiguous
+    assert len(dedup["ambiguities"]) == 1
+    assert dedup["ambiguities"][0]["strategy"] == "FAM_PFX_S01_V1_P01_XAUUSD"
+    assert dedup["ambiguities"][0]["n_current"] == 2
+
+
+def test_latest_only_excludes_is_current_zero(isolated_ledger):
+    """Rows explicitly superseded (is_current=0) must be dropped before
+    the max-rowid pick. The retained row is the one still marked current,
+    even when the superseded row has the higher rowid.
+    """
+    from tools.family_report import _load_master_filter_rows
+
+    # Live row inserted first (lower rowid)…
+    _insert_mf_row(isolated_ledger,
+        run_id="keep_rid", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", is_current=1,
+    )
+    # …then a superseded row with a higher rowid that should NOT win.
+    _insert_mf_row(isolated_ledger,
+        run_id="drop_rid", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", is_current=0,
+    )
+
+    rows, dedup = _load_master_filter_rows("FAM_PFX", None, latest_only=True)
+    assert len(rows) == 1
+    assert rows.iloc[0]["run_id"] == "keep_rid"
+    assert dedup["ambiguities"] == []  # only one current row → no ambiguity
+
+
+def test_latest_only_treats_null_is_current_as_current(isolated_ledger):
+    """Per the 2026-04-16 supersession backfill convention, NULL means
+    current. Legacy pre-migration rows must not be silently dropped.
+    """
+    from tools.family_report import _load_master_filter_rows
+
+    _insert_mf_row(isolated_ledger,
+        run_id="legacy_rid", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD",  # is_current unset → NULL
+    )
+    rows, dedup = _load_master_filter_rows("FAM_PFX", None, latest_only=True)
+    assert len(rows) == 1
+    assert rows.iloc[0]["run_id"] == "legacy_rid"
+
+
+def test_latest_only_preserves_per_symbol_resolution(isolated_ledger):
+    """For multi-asset families the group key is the full `strategy`
+    column (=`clean_id_<SYMBOL>`), so two symbols of the same clean_id
+    must BOTH survive --latest-only (one row per symbol).
+    """
+    from tools.family_report import _load_master_filter_rows
+
+    _insert_mf_row(isolated_ledger,
+        run_id="aud_rid", strategy="FAM_PFX_S01_V1_P01_AUDJPY",
+        symbol="AUDJPY",
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="eur_rid", strategy="FAM_PFX_S01_V1_P01_EURUSD",
+        symbol="EURUSD",
+    )
+    rows, dedup = _load_master_filter_rows("FAM_PFX", None, latest_only=True)
+    assert len(rows) == 2
+    assert set(rows["symbol"]) == {"AUDJPY", "EURUSD"}
+    assert dedup["ambiguities"] == []
+
+
+def test_default_path_returns_all_rows_with_rowid_for_prior_lookup(isolated_ledger):
+    """When latest_only=False, every matching MF row is returned (no dedup).
+    The `_rowid` column is preserved on BOTH paths so the prior-run-delta
+    section can identify "the run immediately before this one" without a
+    second DB round trip per variant.
+    """
+    from tools.family_report import _load_master_filter_rows
+
+    _insert_mf_row(isolated_ledger,
+        run_id="old_rid", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", test_end="2026-05-04",
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="new_rid", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", test_end="2026-05-11",
+    )
+    rows, dedup = _load_master_filter_rows("FAM_PFX", None, latest_only=False)
+    assert len(rows) == 2
+    assert dedup is None
+    # `_rowid` MUST be present — downstream prior-run-delta lookup relies
+    # on it. Removing it again silently breaks the same-strategy Δ section.
+    assert "_rowid" in rows.columns
+    assert set(rows["_rowid"]) == {1, 2}
+
+
+def test_latest_only_renders_filter_line_and_ambiguity_section(isolated_ledger, tmp_path, monkeypatch):
+    """End-to-end: --latest-only output includes the header filter line
+    and the ambiguity table when one fires.
+    """
+    from tools.family_report import generate_family_report
+
+    # Seed only a SHELL row — the report will warn about missing trade
+    # logs but still render header/filter/ambiguity sections, which is
+    # all we're verifying here.
+    _insert_mf_row(isolated_ledger,
+        run_id="r1", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD",
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="r2", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD",
+    )
+
+    out = tmp_path / "ambig.md"
+    written = generate_family_report(
+        prefix="FAM_PFX", variants=None, out_path=out, latest_only=True,
+    )
+    text = written.read_text(encoding="utf-8")
+    assert "**Filter:** `--latest-only`" in text
+    assert "kept 1 / 2 MF rows" in text
+    assert "## ⚠ Latest-Only Ambiguities" in text
+    assert "FAM_PFX_S01_V1_P01_XAUUSD" in text
+
+
+def test_cli_latest_only_flag_wires_through(isolated_ledger, tmp_path):
+    """CLI parser passes --latest-only into generate_family_report."""
+    from tools.family_report import main
+
+    _insert_mf_row(isolated_ledger,
+        run_id="r1", strategy="CLIFAM_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+    )
+    out = tmp_path / "cli.md"
+    rc = main(["CLIFAM", "--out", str(out), "--latest-only"])
+    assert rc == 0
+    text = out.read_text(encoding="utf-8")
+    assert "**Filter:** `--latest-only`" in text
+
+
+# ---------------------------------------------------------------------------
+# 11. Prior-run delta (Phase B follow-up, 2026-05-12)
+#
+# Two comparison contexts in the report with DIFFERENT window-mismatch
+# policies — these tests pin the same-strategy policy: window mismatch is
+# SHOWN with a warning, not suppressed. (See verdict_risk.py Phase A tests
+# for the cross-strategy suppress-on-mismatch policy.)
+# ---------------------------------------------------------------------------
+
+def test_prior_run_delta_picks_immediate_predecessor_by_rowid(isolated_ledger):
+    """Three runs (low/mid/high rowid). The prior of the high-rowid row is
+    the mid-rowid row (rowid < current, max), NOT the absolute oldest.
+    """
+    from tools.report.prior_run_delta import compute_prior_run_delta
+
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_old", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=1.50, profit_factor=1.10, max_dd_pct=50.0, total_trades=200,
+        test_start="2024-01-01", test_end="2025-01-01",
+    )  # rowid 1
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_mid", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.00, profit_factor=1.20, max_dd_pct=40.0, total_trades=400,
+        test_start="2024-05-11", test_end="2026-05-11",
+    )  # rowid 2 — this should be the "prior" of rowid 3
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_new", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.30, profit_factor=1.25, max_dd_pct=38.0, total_trades=500,
+        test_start="2024-05-11", test_end="2026-05-11",
+    )  # rowid 3 — current
+
+    current_row = {
+        "strategy": "STR_S01_V1_P01_XAUUSD",
+        "test_start": "2024-05-11", "test_end": "2026-05-11",
+        "sqn": 2.30, "profit_factor": 1.25, "max_dd_pct": 38.0,
+        "total_trades": 500, "total_net_profit": 1000.0, "expectancy": 2.0,
+    }
+    delta = compute_prior_run_delta(
+        db_path=isolated_ledger,
+        strategy="STR_S01_V1_P01_XAUUSD",
+        current_rowid=3,
+        current_row=current_row,
+    )
+    assert delta["found"] is True
+    assert delta["prior_run_id"] == "rid_mid"
+    # SQN went from 2.00 → 2.30 = +0.30
+    sqn_metric = next(m for m in delta["metrics"] if m["label"] == "SQN")
+    assert sqn_metric["delta"] == pytest.approx(0.30)
+    assert sqn_metric["pct_change"] == pytest.approx(15.0)
+
+
+def test_prior_run_delta_shows_delta_when_windows_mismatch(isolated_ledger):
+    """Same-strategy policy: window mismatch DOES NOT suppress the delta;
+    it surfaces a window_mismatch=True flag plus drift-days so the
+    renderer can annotate. (Contrast verdict_risk._windows_compatible
+    which suppresses parent-Δ on mismatch.)
+    """
+    from tools.report.prior_run_delta import compute_prior_run_delta
+
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_old", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.10, test_start="2024-07-19", test_end="2026-05-04",
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_new", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.34, test_start="2024-05-11", test_end="2026-05-11",
+    )
+    current_row = {
+        "strategy": "STR_S01_V1_P01_XAUUSD",
+        "test_start": "2024-05-11", "test_end": "2026-05-11",
+        "sqn": 2.34, "profit_factor": 1.25, "max_dd_pct": 38.0,
+        "total_trades": 500,
+    }
+    delta = compute_prior_run_delta(
+        db_path=isolated_ledger,
+        strategy="STR_S01_V1_P01_XAUUSD",
+        current_rowid=2,
+        current_row=current_row,
+        tolerance_days=5,
+    )
+    # Window deltas: start 2024-05-11 vs 2024-07-19 = -69 days; end +7
+    assert delta["found"] is True
+    assert delta["window_mismatch"] is True
+    assert delta["window_drift"]["start_days"] == -69
+    assert delta["window_drift"]["end_days"] == 7
+    # The delta IS computed and returned despite the mismatch.
+    sqn_metric = next(m for m in delta["metrics"] if m["label"] == "SQN")
+    assert sqn_metric["delta"] == pytest.approx(0.24)
+
+
+def test_prior_run_delta_clean_when_windows_match(isolated_ledger):
+    """Within tolerance → window_mismatch=False, no warning needed."""
+    from tools.report.prior_run_delta import compute_prior_run_delta
+
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_old", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.10, test_start="2024-05-13", test_end="2026-05-09",
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_new", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.34, test_start="2024-05-11", test_end="2026-05-11",
+    )
+    current_row = {
+        "test_start": "2024-05-11", "test_end": "2026-05-11", "sqn": 2.34,
+    }
+    delta = compute_prior_run_delta(
+        db_path=isolated_ledger,
+        strategy="STR_S01_V1_P01_XAUUSD",
+        current_rowid=2,
+        current_row=current_row,
+        tolerance_days=5,
+    )
+    assert delta["window_mismatch"] is False
+
+
+def test_prior_run_delta_absent_for_first_run(isolated_ledger):
+    """Strategy with only one MF row → no prior run, returns found=False.
+    The renderer skips strategies in this state.
+    """
+    from tools.report.prior_run_delta import compute_prior_run_delta
+
+    _insert_mf_row(isolated_ledger,
+        run_id="only_rid", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+    )
+    delta = compute_prior_run_delta(
+        db_path=isolated_ledger,
+        strategy="STR_S01_V1_P01_XAUUSD",
+        current_rowid=1,
+        current_row={"sqn": 2.0},
+    )
+    assert delta == {"found": False}
+
+
+def test_prior_run_delta_includes_superseded_with_annotation(isolated_ledger):
+    """A superseded (is_current=0) prior run is still surfaced — the
+    historical metric is a fact, and "this was superseded" is informative
+    context. The renderer adds a visual marker for this case.
+    """
+    from tools.report.prior_run_delta import compute_prior_run_delta
+
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_old", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.10, is_current=0,  # explicitly superseded
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_new", strategy="STR_S01_V1_P01_XAUUSD", symbol="XAUUSD",
+        sqn=2.34, is_current=1,
+    )
+    current_row = {"sqn": 2.34}
+    delta = compute_prior_run_delta(
+        db_path=isolated_ledger,
+        strategy="STR_S01_V1_P01_XAUUSD",
+        current_rowid=2,
+        current_row=current_row,
+    )
+    assert delta["found"] is True
+    assert delta["prior_is_current"] == 0
+    assert delta["prior_run_id"] == "rid_old"
+
+
+# ---------------------------------------------------------------------------
+# 12. Promotion Summary (Phase B follow-up, 2026-05-12)
+# ---------------------------------------------------------------------------
+
+def test_promotion_summary_uses_canonical_status_undemoted_by_soft_flags():
+    """Block A authority: the `verdict.status` field (canonical) NEVER
+    gets demoted by soft flags — only `effective_status` does. The
+    Promotion Summary renderer must read `status`, not `effective_status`.
+    Otherwise the section would silently merge with Block B's annotations.
+    """
+    from tools.report.family_renderer import _render_promotion_summary
+
+    family_data = {
+        "variants": [
+            {
+                "directive_id": "FAM_S01_V1_P01",
+                "row": {"sqn": 2.6, "max_dd_pct": 25.0, "profit_factor": 1.30},
+                "verdict": {
+                    # Canonical = CORE; effective demoted by a soft flag.
+                    "status": "CORE",
+                    "effective_status": "FAIL (effective)",
+                    "soft_gate_trips": ["Top-5 concentration 80.0% > 70% (soft FAIL)"],
+                },
+                "additional_soft_flags": [],
+            },
+        ],
+    }
+    md = "\n".join(_render_promotion_summary(family_data))
+    # The variant appears in CORE (its canonical label), NOT in FAIL.
+    core_section = md.split("**WATCH**")[0]
+    assert "FAM_S01_V1_P01" in core_section
+    assert "**FAIL** (0)" in md
+    # Block B surfaces the soft flag as annotation.
+    assert "Top-5 concentration 80.0%" in md
+
+
+def test_promotion_summary_renders_none_for_empty_groups():
+    """No hidden empties: every status group renders its count, and an
+    empty group renders the literal "None" so the reader is never left
+    wondering whether anything was filtered.
+    """
+    from tools.report.family_renderer import _render_promotion_summary
+
+    family_data = {
+        "variants": [
+            {
+                "directive_id": "FAM_S01_V1_P01",
+                "row": {"sqn": 2.0, "max_dd_pct": 50.0, "profit_factor": 1.10},
+                "verdict": {"status": "FAIL", "soft_gate_trips": []},
+                "additional_soft_flags": [],
+            },
+        ],
+    }
+    md = "\n".join(_render_promotion_summary(family_data))
+    assert "**CORE** (0):" in md
+    assert "**WATCH** (0):" in md
+    assert "**FAIL** (1):" in md
+    # Each empty group has an explicit "None" bullet.
+    assert md.count("- None") == 2  # CORE empty + WATCH empty
+
+
+def test_promotion_summary_block_b_merges_verdict_trips_and_additional():
+    """Block B sources from both `verdict.soft_gate_trips` (computed in
+    family_verdicts: tail/body/flat) and `payload.additional_soft_flags`
+    (Phase A helpers: loss_streak/stall_decay). The merge must
+    dedupe identical strings (the two sources can both surface tail).
+    """
+    from tools.report.family_renderer import _render_promotion_summary
+
+    family_data = {
+        "variants": [
+            {
+                "directive_id": "FAM_S01_V1_P01",
+                "row": {"sqn": 1.5, "max_dd_pct": 60.0, "profit_factor": 1.05},
+                "verdict": {
+                    "status": "FAIL",
+                    "soft_gate_trips": ["Top-5 concentration 75.0% > 70% (soft FAIL)"],
+                },
+                "additional_soft_flags": [
+                    "⚠ **Loss streak:** longest run = 18 (> 15 threshold).",
+                ],
+            },
+        ],
+    }
+    md = "\n".join(_render_promotion_summary(family_data))
+    assert "Top-5 concentration 75.0%" in md
+    assert "Loss streak:** longest run = 18" in md
+
+
+def test_promotion_summary_clean_set_listed_when_some_variants_have_no_flags():
+    """When at least one soft flag fires across the family, variants
+    with zero flags are surfaced under "Clean (no soft overlays)". This
+    avoids the reader wondering whether a missing variant was filtered.
+    """
+    from tools.report.family_renderer import _render_promotion_summary
+
+    family_data = {
+        "variants": [
+            {
+                "directive_id": "FAM_S01_V1_P09",
+                "row": {"sqn": 2.34, "max_dd_pct": 38.0, "profit_factor": 1.25},
+                "verdict": {"status": "WATCH", "soft_gate_trips": []},
+                "additional_soft_flags": [],
+            },
+            {
+                "directive_id": "FAM_S01_V1_P14",
+                "row": {"sqn": 2.87, "max_dd_pct": 40.03, "profit_factor": 1.35},
+                "verdict": {
+                    "status": "FAIL",
+                    "soft_gate_trips": ["Top-5 concentration 85% > 70% (soft FAIL)"],
+                },
+                "additional_soft_flags": [],
+            },
+        ],
+    }
+    md = "\n".join(_render_promotion_summary(family_data))
+    # P14 has a flag → not in the clean set
+    # P09 has no flag → IS in the clean set
+    assert "Clean (no soft overlays)" in md
+    assert "FAM_S01_V1_P09" in md.split("Clean (no soft overlays)")[1]
+
+
+def test_promotion_summary_all_clean_message_when_no_flags_fire():
+    """When zero soft flags fire across the family, Block B renders a
+    single 'no soft overlays fired' message rather than per-variant
+    'clean' bullets — avoids visual noise.
+    """
+    from tools.report.family_renderer import _render_promotion_summary
+
+    family_data = {
+        "variants": [
+            {
+                "directive_id": "FAM_S01_V1_P01",
+                "row": {"sqn": 2.6, "max_dd_pct": 25.0, "profit_factor": 1.30},
+                "verdict": {"status": "CORE", "soft_gate_trips": []},
+                "additional_soft_flags": [],
+            },
+            {
+                "directive_id": "FAM_S01_V1_P02",
+                "row": {"sqn": 2.5, "max_dd_pct": 26.0, "profit_factor": 1.28},
+                "verdict": {"status": "CORE", "soft_gate_trips": []},
+                "additional_soft_flags": [],
+            },
+        ],
+    }
+    md = "\n".join(_render_promotion_summary(family_data))
+    assert "_No soft overlays fired across the family._" in md
+    # Clean-set section is suppressed in this case.
+    assert "Clean (no soft overlays):" not in md
+
+
+def test_promotion_summary_renders_in_full_report(isolated_ledger, tmp_path):
+    """End-to-end: the rendered report includes the Promotion Summary
+    between Executive Ranking (§1) and Core Metrics (§3) with both
+    blocks present.
+    """
+    from tools.family_report import generate_family_report
+
+    _insert_mf_row(isolated_ledger,
+        run_id="r1", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", sqn=2.34, max_dd_pct=38.0, profit_factor=1.25,
+        test_start="2024-05-11", test_end="2026-05-11",
+    )
+    out = tmp_path / "promo.md"
+    generate_family_report(
+        prefix="FAM_PFX",
+        variants=None,
+        out_path=out,
+        latest_only=True,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "## 1. Executive Ranking" in text
+    assert "## 2. Promotion Summary" in text
+    assert "### Block A — Canonical Promotion Status" in text
+    assert "### Block B — Soft Risk Overlays (annotation only)" in text
+    assert "## 3. Core Metrics" in text
+
+
+def test_prior_run_delta_section_renders_in_family_report(isolated_ledger, tmp_path):
+    """End-to-end: the renderer produces a `## 4. Δ vs Prior Run` section
+    when at least one variant has a prior run, with the mismatch warning
+    block surfaced.
+    """
+    from tools.family_report import generate_family_report
+
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_old", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", sqn=2.10,
+        test_start="2024-07-19", test_end="2026-05-04",
+    )
+    _insert_mf_row(isolated_ledger,
+        run_id="rid_new", strategy="FAM_PFX_S01_V1_P01_XAUUSD",
+        symbol="XAUUSD", sqn=2.34,
+        test_start="2024-05-11", test_end="2026-05-11",
+    )
+
+    out = tmp_path / "prior.md"
+    generate_family_report(
+        prefix="FAM_PFX",
+        variants=None,
+        out_path=out,
+        latest_only=True,
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "## 5. Δ vs Prior Run (same strategy)" in text
+    assert "Window mismatch" in text
+    # The delta is rendered (not suppressed) — both rows visible.
+    assert "**Prior:** 2024-07-19 → 2026-05-04" in text
+    assert "**Current:** 2024-05-11 → 2026-05-11" in text

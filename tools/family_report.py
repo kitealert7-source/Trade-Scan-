@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.path_authority import TRADE_SCAN_STATE
+from config.state_paths import LEDGER_DB_PATH
 
 # Allowed primitives (Rule 1)
 from tools.utils.research.robustness import (
@@ -75,6 +77,16 @@ from tools.report.family_verdicts import compute_family_verdicts
 from tools.report.strategy_signature_utils import (
     flatten_signature, diff_signatures, parse_strategy_name,
 )
+from tools.report.prior_run_delta import compute_prior_run_delta
+# Wrapper-first (Rule 4): reuse the Phase A loss-streak + stall-decay flag
+# helpers verbatim — duplicating their logic into family_report would drift.
+# These two complement the tail/body/flat trips that family_verdicts already
+# computes; together they form the Block B soft-overlay set for the
+# Promotion Summary section.
+from tools.report.report_sections.verdict_risk import (
+    _loss_streak_flag,
+    _stall_decay_flag,
+)
 from tools.window_compat import annotate_window_status, find_family_window
 from tools.report.family_renderer import render
 
@@ -95,9 +107,20 @@ def generate_family_report(
     variants: list[str] | None = None,
     out_path: Path | None = None,
     window_tolerance_days: int = 5,
+    latest_only: bool = False,
 ) -> Path:
-    """Generate the family analysis report. Returns path written."""
-    rows_df = _load_master_filter_rows(prefix, variants)
+    """Generate the family analysis report. Returns path written.
+
+    When ``latest_only`` is True, the per-strategy MF row with the highest
+    SQLite rowid (== insertion order proxy for "most recent run") is kept.
+    Rows flagged ``is_current = 0`` are dropped. If a strategy still has
+    multiple current rows after the explicit-supersession filter, an
+    ambiguity warning is surfaced in the rendered report — this is a
+    pre-existing supersession-bookkeeping gap, not a ``--latest-only`` bug.
+    """
+    rows_df, dedup_info = _load_master_filter_rows(
+        prefix, variants, latest_only=latest_only,
+    )
     if rows_df is None or len(rows_df) == 0:
         raise SystemExit(
             f"No Master Filter rows match prefix {prefix!r} "
@@ -119,12 +142,37 @@ def generate_family_report(
         if trades is not None and len(trades) > 0:
             trades_by_variant[str(row.get("strategy"))] = trades
         payload = _build_variant_payload(directive_id, symbol, row, trades)
+        # Same-strategy prior-run Δ. Window mismatch is informative here
+        # (unlike parent-Δ which suppresses) — see prior_run_delta module
+        # docstring for the comparison-policy rationale.
+        current_rowid = row.get("_rowid")
+        payload["prior_run_delta"] = compute_prior_run_delta(
+            db_path=LEDGER_DB_PATH,
+            strategy=str(row.get("strategy", "")),
+            current_rowid=int(current_rowid) if current_rowid is not None else None,
+            current_row=row,
+            tolerance_days=window_tolerance_days,
+        )
         variant_payloads.append(payload)
 
     # Verdicts via canonical authority
     verdicts = compute_family_verdicts(rows_df, trades_by_variant)
     for vp in variant_payloads:
         vp["verdict"] = verdicts.get(_canonical_strategy_name(vp), {})
+
+    # Promotion Summary Block B — extra soft overlays beyond the tail/body/
+    # flat trips already computed by `compute_family_verdicts`. These are
+    # purely informational (per the 2026-05-12 spec: "Do not change status
+    # labels. Only annotate.") so we keep them on a separate payload key
+    # and the renderer reads both.
+    for vp in variant_payloads:
+        key = _canonical_strategy_name(vp)
+        tdf = trades_by_variant.get(key)
+        extra: list[str] = []
+        if tdf is not None and len(tdf) > 0:
+            extra.extend(_loss_streak_flag(tdf))
+            extra.extend(_stall_decay_flag(tdf))
+        vp["additional_soft_flags"] = extra
 
     # Lineage (parent inference + signature diffs)
     parents = _infer_lineage_parents(variant_payloads)
@@ -147,6 +195,7 @@ def generate_family_report(
         "variants": variant_payloads,
         "lineage_parents": parents,
         "lineage_diffs": diffs,
+        "dedup": dedup_info,
     }
 
     md = render(family_data)
@@ -164,18 +213,48 @@ def generate_family_report(
 # Data loading
 # ---------------------------------------------------------------------------
 
-def _load_master_filter_rows(prefix: str, variants: list[str] | None) -> pd.DataFrame | None:
+def _load_master_filter_rows(
+    prefix: str,
+    variants: list[str] | None,
+    latest_only: bool = False,
+) -> tuple[pd.DataFrame | None, dict | None]:
     """Read Master Filter and filter rows by prefix + (optional) variant tags.
 
     Variant tags match the trailing `_S0n_Vm_Pkk` portion of the directive id.
+
+    Always includes a `_rowid` column in the returned DataFrame — needed by
+    the prior-run-delta section to look up the immediately preceding run of
+    the same strategy. The MF schema has no ingestion timestamp, so rowid
+    (monotonic on INSERT) is the only reliable run-recency signal.
+
+    When ``latest_only`` is True, per-strategy dedup is applied: rows with
+    ``is_current = 0`` are dropped, and within each remaining (strategy)
+    group the row with the highest rowid is kept. Returns a ``dedup_info``
+    dict alongside the rows when ``latest_only`` is engaged, ``None``
+    otherwise.
+
+    Group key is the MF ``strategy`` column (= ``clean_id + _<SYMBOL>``).
+    This collapses re-runs of the same clean_id within a single asset, and
+    preserves per-symbol resolution for multi-asset families.
     """
-    from tools.ledger_db import read_master_filter
-    mf = read_master_filter()
-    if mf is None or len(mf) == 0:
-        return None
-    strat_col = mf["strategy"].astype(str)
-    keep = strat_col.str.startswith(prefix + "_")
-    rows = mf[keep].copy()
+    # Direct SQL for both paths so we always have rowid available. Bypassing
+    # `read_master_filter()` is safe — it just does `SELECT * FROM
+    # master_filter ORDER BY run_id` with no normalization (verified via
+    # tools/ledger_db.py:query_master_filter).
+    conn = sqlite3.connect(str(LEDGER_DB_PATH))
+    try:
+        rows = pd.read_sql_query(
+            "SELECT rowid AS _rowid, * FROM master_filter "
+            "WHERE strategy LIKE ?",
+            conn,
+            params=(prefix + "_%",),
+        )
+    finally:
+        conn.close()
+
+    if rows is None or len(rows) == 0:
+        return rows, None
+
     if variants:
         # Match if any of the requested variant tags appears as a substring.
         # User can pass "P09" or "S01_V4_P09" — both work as substrings.
@@ -183,7 +262,45 @@ def _load_master_filter_rows(prefix: str, variants: list[str] | None) -> pd.Data
         def _match(row_name: str) -> bool:
             return any(v in row_name for v in variant_filters)
         rows = rows[rows["strategy"].astype(str).apply(_match)]
-    return rows.reset_index(drop=True)
+
+    if not latest_only:
+        return rows.reset_index(drop=True), None
+
+    # --- Latest-only path: drop superseded, then collapse on max(rowid). --
+    input_rows = len(rows)
+
+    if "is_current" in rows.columns:
+        # NULL is treated as 1 per the 2026-04-16 supersession backfill
+        # convention (see tools/ledger_db.py ~ line 226).
+        current_mask = rows["is_current"].isna() | (rows["is_current"] == 1)
+        rows = rows[current_mask].copy()
+
+    # Ambiguity detection BEFORE the drop_duplicates collapse — these are
+    # strategies with >1 current row, a pre-existing supersession gap that
+    # --latest-only papers over by picking max(rowid) but surfaces in the
+    # report so the operator can decide whether to formally supersede.
+    if len(rows) > 0:
+        current_counts = rows.groupby("strategy").size()
+        ambiguous = current_counts[current_counts > 1]
+    else:
+        ambiguous = pd.Series(dtype=int)
+
+    rows = rows.sort_values("_rowid", ascending=False).drop_duplicates(
+        subset=["strategy"], keep="first",
+    )
+    # Keep _rowid for downstream prior-run-delta lookup.
+    rows = rows.reset_index(drop=True)
+
+    dedup_info = {
+        "enabled": True,
+        "input_rows": int(input_rows),
+        "kept_rows": int(len(rows)),
+        "ambiguities": [
+            {"strategy": str(s), "n_current": int(n)}
+            for s, n in ambiguous.items()
+        ],
+    }
+    return rows, dedup_info
 
 
 def _load_trade_log(directive_id: str, symbol: str) -> pd.DataFrame | None:
@@ -393,6 +510,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="Override output path (default: outputs/family_reports/<prefix>_<ts>.md)")
     p.add_argument("--window-tolerance-days", type=int, default=5,
                    help="Cross-window comparability tolerance in days (default: 5)")
+    p.add_argument("--latest-only", action="store_true",
+                   help="Per strategy, keep only the most recently inserted MF "
+                        "row (max rowid) and drop superseded (is_current=0) "
+                        "rows. Ambiguities — strategies with >1 current row "
+                        "after the supersession filter — are surfaced in the "
+                        "rendered report rather than silently collapsed.")
     args = p.parse_args(argv)
 
     variants = None
@@ -404,6 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         variants=variants,
         out_path=args.out,
         window_tolerance_days=args.window_tolerance_days,
+        latest_only=args.latest_only,
     )
     print(f"[FAMILY_REPORT] wrote {out}")
     return 0

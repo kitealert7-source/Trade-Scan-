@@ -110,19 +110,75 @@ Bold = best in column. Rank arrow `↑/↓` against parent for SQN, PF, DD%.
 ### Effort: S (~1 hour)
 Read Master Filter via `tools/ledger_db.py` `read_master_filter()` (already a helper for read-only access).
 
-### Cross-window guard
-**Required.** Before rendering, check every row's `test_start` and `test_end`. If a row's window differs from the family median by > 5 days at either end, flag with a warning:
+### Comparison-policy by direction — the **two-context rule**
+
+The report has two distinct metric-comparison surfaces, each with a
+different policy when the comparator's backtest window differs from the
+subject's window. Mixing them is a bug — keep them straight.
+
+| Direction | Question | Window mismatch policy | Module / section |
+|---|---|---|---|
+| **Cross-strategy** (parent → child, e.g. P14 vs P09) | "Is the child better than the parent?" | **Suppress** the delta. Render `unavailable (window mismatch)`. Apples-to-oranges across windows. | `tools/report/family_renderer.py::_render_parent_delta` (Δ vs Parent section); `tools/report/report_sections/verdict_risk.py::_windows_compatible` (per-strategy report) |
+| **Same-strategy** (this run of P09 vs prior run of P09) | "What changed since I last ran this strategy?" | **Show** the delta. Annotate the window drift inline. The window change itself is one of the things that may have changed and is meaningful evidence. | `tools/report/prior_run_delta.py`; `tools/report/family_renderer.py::_render_prior_run_delta` (Δ vs Prior Run section) |
+
+Cross-window mismatch is detected via `tools/window_compat.py` for the
+family report header (cross-strategy population) and via
+`prior_run_delta._drift_days` per-pair (same-strategy comparison).
+Tolerance is 5 days at either boundary; configurable via
+`--window-tolerance-days`.
+
+#### Cross-strategy guard (suppress)
+
+Before rendering Δ vs Parent, check every row's `test_start` and
+`test_end`. If a row's window differs from the family median by > 5
+days at either end, flag with a header warning:
 
 ```
 > WARNING: 2 of 6 variants ran on a different test window. Marked with ⚠ below.
 > Rows ⚠ are not comparable to the rest.
 ```
 
-This is the cross-window comparability fix surfaced from REPORT_AUDIT §2.7. Implementation: ~10 LOC in a new `tools/window_compat.py`.
+The Δ-vs-parent row renders `unavailable (window mismatch)` rather than
+a numeric delta so the reader never sees a misleading apples-to-oranges
+comparison. This is the cross-window comparability fix from REPORT_AUDIT
+§2.7. Implementation: `tools/window_compat.py` (~30 LOC).
+
+#### Same-strategy prior-run delta (show + warn)
+
+For each variant in the report, look up the immediately preceding MF
+row of the SAME strategy (highest rowid strictly less than current) and
+render a per-metric delta. Window-drift days are annotated inline:
+
+```
+### S01_V4_P09
+
+**Current:** 2024-05-11 → 2026-05-11    **Prior:** 2024-07-19 → 2026-05-04
+⚠ **Window mismatch** (start -69d, end +7d) — delta below is
+informational, not a like-for-like comparison.
+
+| Metric | Prior | Current | Δ | Δ% |
+|--------|-------|---------|---|----|
+| SQN | 2.12 | 2.34 | +0.22 | +10.4% |
+| PF  | 1.24 | 1.25 | +0.01 |  +0.8% |
+...
+```
+
+Superseded prior rows (`is_current = 0`) are included with an
+`ℹ Prior row is explicitly superseded` annotation — the historical
+metric is still a fact, and "this was superseded" is informative
+context. The renderer omits the section entirely for any variant with
+no prior run in the ledger.
+
+Implementation: `tools/report/prior_run_delta.py` (~210 LOC). Requires
+that `_load_master_filter_rows` retains the `_rowid` column on each
+returned variant payload (used as the upper bound in the prior lookup);
+this is enforced by the Phase B test
+`test_default_path_returns_all_rows_with_rowid_for_prior_lookup`.
 
 ### Risk
 - Master Filter row staleness — if a row reflects a pre-recovery window, the family report inherits that staleness. Mitigate via the cross-window guard (above) + a `--refresh` flag that triggers `python tools/stage3_compiler.py <prefix>` first.
 - Master Filter cardinality — `_assert_pipeline_idle` may interrupt — read-only path is fine, no append.
+- Latest-only ambiguity — when `--latest-only` is engaged, a family with multiple `is_current = 1` rows per strategy (pre-existing supersession gap) is collapsed to max(rowid) but the ambiguity is surfaced in the report header. The operator should `tools/rerun_backtest.py` or manually flag old rows as `is_current = 0`.
 
 ---
 
@@ -383,7 +439,9 @@ Inputs and where each metric in the family report comes from:
 |---|---|---|
 | Lineage | `Trade_Scan/strategies/<id>/strategy.py` (signature flatten) + `sweep_registry.yaml` | `tools/report/strategy_signature_utils.py` (**new** — extracted from `generate_strategy_card.py`) |
 | Core metrics + Δ vs parent | `Strategy_Master_Filter.xlsx` (read via `tools/ledger_db.py:read_master_filter()`) | none |
-| Cross-window guard | Master Filter `test_start`/`test_end` columns | `tools/window_compat.py` (**new** — ~30 LOC) |
+| Cross-window guard (cross-strategy population suppress) | Master Filter `test_start`/`test_end` columns | `tools/window_compat.py` (**new** — ~30 LOC) |
+| Δ vs prior run (same-strategy, show + warn on drift) | Master Filter `_rowid` + `test_start`/`test_end` per row | `tools/report/prior_run_delta.py` (**new** — ~210 LOC) |
+| Promotion Summary (Block A canonical + Block B soft overlays) | `family_verdicts.verdict.status` for Block A; `verdict.soft_gate_trips` + `payload.additional_soft_flags` for Block B | `tools/report/family_renderer.py::_render_promotion_summary` (~180 LOC; wraps existing `family_verdicts` + Phase A `_loss_streak_flag` / `_stall_decay_flag` per Rule 4) |
 | Concentration / tail | `results_tradelevel.csv` | reuse `tools.utils.research.robustness.tail_contribution` + `tail_removal` — **no new module** |
 | Streaks | `results_tradelevel.csv` | extract inline streak code from `tools/robustness/runner.py:203` → `tools/utils/research/streaks.py` (refactor, ~30 LOC moved not new) |
 | Yearwise / Monthly | `results_tradelevel.csv` | extract inline year/month logic from `tools/robustness/runner.py:159` → `tools/utils/research/calendar.py` (refactor) |
@@ -400,10 +458,11 @@ Inputs and where each metric in the family report comes from:
 - `tools/report/family_verdicts.py` — verdict orchestration over existing gates (~60 LOC NEW)
 - `tools/report/family_renderer.py` — markdown variant comparison renderer (~150 LOC NEW)
 - `tools/window_compat.py` — cross-window guard (~30 LOC NEW)
+- `tools/report/prior_run_delta.py` — same-strategy prior-run Δ (~210 LOC NEW; same-strategy comparison policy — show + warn on window drift, distinct from `window_compat.py` cross-strategy suppress policy)
 - `tools/utils/research/streaks.py` — `compute_streaks()` helper (~30 LOC NEW, duplicates inline logic from `runner.py:203` per Rule 4 — original untouched)
 - `tools/utils/research/calendar.py` — `yearwise_pnl()`/`monthly_heatmap()` helpers (~40 LOC NEW, duplicates inline logic from `runner.py:159` per Rule 4 — original untouched)
 
-**Net new code:** ~580 LOC across 8 new modules. ~150 LOC is intentional duplication (Rule 4) to keep `tools/robustness/runner.py` and `tools/generate_strategy_card.py` untouched in first release.
+**Net new code:** ~790 LOC across 9 new modules. ~150 LOC is intentional duplication (Rule 4) to keep `tools/robustness/runner.py` and `tools/generate_strategy_card.py` untouched in first release.
 
 **Zero new analytics.** Every metric comes from an existing primitive or its inline duplicate.
 
@@ -422,12 +481,14 @@ tools/
 │   ├── strategy_signature_utils.py     (~80 LOC, NEW; duplicates _flatten/_diff from generate_strategy_card.py)
 │   ├── family_session_xtab.py          (~40 LOC, NEW) — session derivation + Dir×{Session,Trend,Vol} cross-tabs
 │   ├── family_verdicts.py              (~60 LOC, NEW) — verdict orchestration over existing gates
-│   └── family_renderer.py              (~150 LOC, NEW) — markdown variant comparison renderer
-├── window_compat.py                    (~30 LOC, NEW) — cross-window comparability guard
-└── utils/research/
-    ├── streaks.py                      (~30 LOC, NEW; duplicates streak logic from robustness/runner.py:203)
-    └── calendar.py                     (~40 LOC, NEW; duplicates yearwise/monthly logic from runner.py:159)
+│   ├── family_renderer.py              (~150 LOC, NEW) — markdown variant comparison renderer
+│   ├── prior_run_delta.py              (~210 LOC, NEW) — same-strategy Δ (show + warn on window drift)
+│   ├── family_streaks.py               (~70 LOC, NEW; duplicates streak logic from robustness/runner.py:203)
+│   └── family_calendar.py              (~75 LOC, NEW; duplicates yearwise/monthly logic from runner.py:159)
+└── window_compat.py                    (~30 LOC, NEW) — cross-window comparability guard (cross-strategy)
 ```
+
+> *Note (2026-05-12):* `streaks.py` and `calendar.py` were originally planned under `tools/utils/research/` but moved to `tools/report/family_streaks.py` and `tools/report/family_calendar.py` because `tools/utils/research/` resolves under the repo-level `research/` gitignore rule. Functionally unchanged.
 
 **Untouched in first release (Rule 4):**
 - `tools/robustness/runner.py` — keeps its inline streak/calendar logic.
@@ -444,10 +505,21 @@ tools/
 def generate_family_report(
     prefix: str,
     variants: list[str] | None = None,
-    window: tuple[str, str] | None = None,
     out_path: Path | None = None,
+    window_tolerance_days: int = 5,
+    latest_only: bool = False,
 ) -> Path:
-    """Generate a family analysis report. Returns path written."""
+    """Generate a family analysis report. Returns path written.
+
+    latest_only — collapse the family to one MF row per strategy (max
+        rowid; is_current != 0). Pre-existing supersession gaps are
+        surfaced in a header `Latest-Only Ambiguities` table rather than
+        silently picked.
+    window_tolerance_days — drift threshold for the two cross-window
+        comparison paths: (a) cross-strategy parent-Δ suppression in
+        `window_compat`, and (b) same-strategy prior-run-Δ warning in
+        `prior_run_delta`.
+    """
 
 # tools/report/strategy_signature_utils.py (extracted from generate_strategy_card.py)
 def flatten_signature(strategy_py_path: Path) -> dict[str, Any]: ...

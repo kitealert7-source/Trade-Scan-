@@ -186,7 +186,7 @@ Effort scale: S = ≤2h, M = 2-6h, L = 6h+. Total: 5-7 hours work distributed ac
 
 - **Family comparisons** — covered by FAMILY_REPORT_DESIGN.md.
 - **Excel-side cleanup (Settings, Benchmark, Avg-Bars-Win/Loss, R-bucket fallback in Stage-1 alternate path)** — deferred to engine v1.5.9.
-- **Cross-window comparability** — needs a new helper consumed by both the Family Report and `filter_strategies`. Cleanest home: a new `tools/window_compat.py` module called from both. Out of scope for this plan; flagged for the Family Report PR (where it is needed first).
+- **Cross-window comparability** — needs a new helper consumed by both the Family Report and `filter_strategies`. Cleanest home: a new `tools/window_compat.py` module called from both. Out of scope for this plan; flagged for the Family Report PR (where it is needed first). **Update 2026-05-12:** delivered. Note the comparability policy has since bifurcated into two contexts with different rules — see `outputs/FAMILY_REPORT_DESIGN.md §2 → "Comparison-policy by direction"`. (a) Cross-strategy population — `window_compat.py` suppresses Δ on mismatch. (b) Same-strategy prior-run — `tools/report/prior_run_delta.py` shows Δ with an inline window-drift annotation.
 - **Robustness preview in per-strategy report** — deferred. Either auto-invoke `robustness/cli --suite quick` (5-15s/run cost) or lift the two highest-value sections (Tail Removal, Block-MC) into the per-strategy report. Decision deferred until the Tier-4 tail block is in place; that block already covers ~50% of what Robustness reports show.
 
 ---

@@ -114,6 +114,12 @@ Cost class legend:
 ### 2.7 Cross-window comparisons cause false conclusions
 **State:** Master Filter has `test_start`/`test_end` columns; no tool flags mismatched windows. The 2024-05-11 standardization incident was caught by hand.
 **Cost:** **NEW_COMPUTE_CHEAP**. 10-line tolerance check.
+**Resolution (2026-05-12):** the comparability policy now has two
+contexts with deliberately different rules: cross-strategy comparisons
+suppress on mismatch (`tools/window_compat.py`) while same-strategy
+comparisons show with an inline drift annotation
+(`tools/report/prior_run_delta.py`). Full table in
+`outputs/FAMILY_REPORT_DESIGN.md §2 → "Comparison-policy by direction"`.
 
 ### 2.8 Report ordering favors raw metrics before structural interpretation
 **State:** Current order (from `report_generator.py:146`):

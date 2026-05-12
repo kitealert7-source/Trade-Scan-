@@ -33,10 +33,13 @@ def render(family_data: dict) -> str:
     """Top-level: return the full markdown report for `family_data`."""
     lines: list[str] = []
     lines.extend(_render_header(family_data))
+    lines.extend(_render_dedup_notice(family_data))
     lines.extend(_render_window_warnings(family_data))
     lines.extend(_render_executive_ranking(family_data))
+    lines.extend(_render_promotion_summary(family_data))
     lines.extend(_render_core_metrics(family_data))
     lines.extend(_render_parent_delta(family_data))
+    lines.extend(_render_prior_run_delta(family_data))
     lines.extend(_render_lineage(family_data))
     lines.extend(_render_concentration(family_data))
     lines.extend(_render_session(family_data))
@@ -59,16 +62,54 @@ def render(family_data: dict) -> str:
 
 def _render_header(d: dict) -> list[str]:
     win = d.get("window", {}) or {}
-    return [
+    dedup = d.get("dedup") or {}
+    out = [
         f"# Family Analysis — {d.get('prefix', '?')}",
         "",
         f"**Variants:** {len(d.get('variants', []))}  ",
         f"**Window (median):** {win.get('start', '?')} → {win.get('end', '?')}  ",
         f"**Generated:** {d.get('generated_at', '')}",
-        "",
-        "---",
-        "",
     ]
+    if dedup.get("enabled"):
+        out.append(
+            f"**Filter:** `--latest-only` — kept "
+            f"{dedup.get('kept_rows', '?')} / "
+            f"{dedup.get('input_rows', '?')} MF rows (max rowid per strategy, "
+            f"is_current ≠ 0)"
+        )
+    out.extend(["", "---", ""])
+    return out
+
+
+def _render_dedup_notice(d: dict) -> list[str]:
+    """Surface latest-only ambiguities (strategies with >1 current row).
+
+    These are pre-existing supersession-bookkeeping gaps that --latest-only
+    papers over by picking max(rowid). Listing them tells the operator
+    where to invoke ``tools/rerun_backtest.py`` or otherwise mark the
+    older rows superseded.
+    """
+    dedup = d.get("dedup") or {}
+    if not dedup.get("enabled"):
+        return []
+    ambig = dedup.get("ambiguities") or []
+    if not ambig:
+        return []
+    out = [
+        "## ⚠ Latest-Only Ambiguities",
+        "",
+        "These strategies have >1 current Master Filter row after the "
+        "`is_current ≠ 0` filter. `--latest-only` kept the highest-rowid "
+        "row per strategy; the others remain in the ledger and should be "
+        "formally superseded.",
+        "",
+        "| Strategy | Current rows |",
+        "|---|---|",
+    ]
+    for a in ambig:
+        out.append(f"| `{a.get('strategy', '?')}` | {a.get('n_current', '?')} |")
+    out.append("")
+    return out
 
 
 def _render_window_warnings(d: dict) -> list[str]:
@@ -125,11 +166,163 @@ def _render_executive_ranking(d: dict) -> list[str]:
     return out
 
 
+def _render_promotion_summary(d: dict) -> list[str]:
+    """Promotion Summary — separates "best raw edge" from "best deployable".
+
+    Two blocks with deliberately different authority:
+
+      - Block A: groups variants by **canonical** status only
+        (`verdict.status` from `tools/filter_strategies.
+        _compute_candidate_status` via `family_verdicts`). Status labels
+        are NEVER altered by soft flags. An empty group renders "None"
+        — no hidden empties.
+
+      - Block B: soft-overlay flags (tail concentration, body deficit,
+        long flat, loss streak, stall decay). These ANNOTATE only — they
+        do not move a variant between Block A groups.
+
+    This split makes the tension explicit: a variant can rank #1 in the
+    Executive Ranking by raw quality (e.g., PSBRK V4 P14 SQN 2.87) and
+    still sit in `FAIL` here because its DD breaches the canonical 40%
+    gate. That gap is one of the main reasons this reporting layer
+    exists.
+    """
+    variants = d.get("variants", []) or []
+    if not variants:
+        return []
+
+    # ----- Block A — canonical status groups -----
+    groups: dict[str, list[dict]] = {"CORE": [], "WATCH": [], "FAIL": []}
+    other: list[tuple[str, dict]] = []  # RESERVE / LIVE / UNKNOWN — surface verbatim
+    for v in variants:
+        verdict = v.get("verdict") or {}
+        status = str(verdict.get("status") or "UNKNOWN").upper()
+        if status in groups:
+            groups[status].append(v)
+        else:
+            other.append((status, v))
+
+    out = [
+        "## 2. Promotion Summary",
+        "",
+        "Answers the question **\"what is actually promotable?\"** — distinct "
+        "from the Executive Ranking above, which answers \"which variant "
+        "has the strongest raw edge?\" A variant can lead the ranking and "
+        "still sit in FAIL here.",
+        "",
+        "### Block A — Canonical Promotion Status",
+        "",
+        "Source: `tools/filter_strategies._compute_candidate_status` "
+        "(canonical authority). Soft flags below in Block B do not move "
+        "variants between groups here.",
+        "",
+    ]
+
+    for status_label in ("CORE", "WATCH", "FAIL"):
+        members = groups[status_label]
+        out.append(f"**{status_label}** ({len(members)}):")
+        if not members:
+            out.append("")
+            out.append("- None")
+            out.append("")
+            continue
+        out.append("")
+        for v in members:
+            row = v.get("row") or {}
+            sqn = _f(row.get("sqn"))
+            dd  = _f(row.get("max_dd_pct"))
+            pf  = _f(row.get("profit_factor"))
+            out.append(
+                f"- `{_short_name(v.get('directive_id', '?'))}` — "
+                f"SQN {sqn:.2f}, DD {dd:.2f}%, PF {pf:.2f}"
+            )
+        out.append("")
+
+    if other:
+        # Don't lose visibility of RESERVE / LIVE / UNKNOWN — they should
+        # appear if they exist, but they are not promotion candidates in
+        # the usual sense.
+        out.append(f"**Other** ({len(other)}):")
+        out.append("")
+        for status_label, v in other:
+            out.append(
+                f"- `{_short_name(v.get('directive_id', '?'))}` "
+                f"(status: {status_label})"
+            )
+        out.append("")
+
+    # ----- Block B — Soft risk overlays -----
+    out.extend([
+        "### Block B — Soft Risk Overlays (annotation only)",
+        "",
+        "Informational flags that do **not** alter the canonical labels "
+        "above. They identify risk that a passing label may hide (tail "
+        "dependence, body deficit, flat periods, loss streaks, second-"
+        "half decay).",
+        "",
+    ])
+
+    rows: list[tuple[str, list[str]]] = []
+    for v in variants:
+        verdict_trips = list((v.get("verdict") or {}).get("soft_gate_trips") or [])
+        extra = list(v.get("additional_soft_flags") or [])
+        merged = _merge_soft_flags(verdict_trips + extra)
+        rows.append((v.get("directive_id", "?"), merged))
+
+    any_fired = any(flags for _, flags in rows)
+    if not any_fired:
+        out.append("_No soft overlays fired across the family._")
+        out.append("")
+    else:
+        for vid, flags in rows:
+            if not flags:
+                continue
+            out.append(f"**`{_short_name(vid)}`**")
+            for f in flags:
+                # The Phase A helpers already prefix with ⚠ in some cases;
+                # bullet-list either way.
+                out.append(f"- {f}")
+            out.append("")
+
+        # Compact list of variants with NO flags so the reader knows the
+        # set is complete (avoids "is this missing?" anxiety).
+        clean = [vid for vid, flags in rows if not flags]
+        if clean:
+            out.append("**Clean (no soft overlays):**")
+            out.append(", ".join(f"`{_short_name(v)}`" for v in clean))
+            out.append("")
+
+    out.append("---")
+    out.append("")
+    return out
+
+
+def _merge_soft_flags(items: list[str]) -> list[str]:
+    """Deduplicate soft-flag trip messages while preserving order.
+
+    `verdict.soft_gate_trips` from `family_verdicts._evaluate_soft_gates`
+    and the Phase A helpers can overlap on tail/body content but with
+    slightly different phrasing. Keep first-seen wording per message
+    string; suppress exact duplicates only.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in items:
+        if not isinstance(s, str):
+            continue
+        key = s.strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
 def _render_core_metrics(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 2. Core Metrics", "",
+    out = ["## 3. Core Metrics", "",
            "| Variant | Trades | Net PnL | PF | SQN | Sharpe | DD% | R/DD | Expectancy | Avg Bars |",
            "|---------|--------|---------|----|-----|--------|-----|------|-----------|----------|"]
     for v in variants:
@@ -158,7 +351,7 @@ def _render_parent_delta(d: dict) -> list[str]:
     parent_map = d.get("lineage_parents", {}) or {}
     if not variants or not parent_map:
         return []
-    out = ["## 3. Δ vs Parent", "",
+    out = ["## 4. Δ vs Parent", "",
            "| Variant | Parent | Δ Trades | Δ PnL | Δ SQN | Δ DD% | Status |",
            "|---------|--------|----------|-------|-------|-------|--------|"]
     rows_by_id = {v["directive_id"]: v for v in variants}
@@ -197,12 +390,91 @@ def _render_parent_delta(d: dict) -> list[str]:
     return out
 
 
+def _render_prior_run_delta(d: dict) -> list[str]:
+    """Same-strategy comparison — current run vs prior run of THIS strategy.
+
+    Comparison policy differs from ``_render_parent_delta``:
+      - Parent-Δ (cross-strategy): window mismatch *suppresses* the row.
+      - Prior-run-Δ (same strategy): window mismatch is *informative* and
+        the delta is rendered with an annotation.
+    """
+    variants = d.get("variants", []) or []
+    if not variants:
+        return []
+    # Filter to variants that actually have a prior run.
+    with_prior = [
+        v for v in variants
+        if (v.get("prior_run_delta") or {}).get("found")
+    ]
+    if not with_prior:
+        return []
+
+    out = [
+        "## 5. Δ vs Prior Run (same strategy)",
+        "",
+        "Compares each variant's current Master Filter row to the "
+        "immediately preceding row for the **same strategy**. Window "
+        "mismatch is **shown with a warning** here — unlike the parent-Δ "
+        "above, which suppresses on mismatch — because the window change "
+        "itself is one of the things that may have changed between runs.",
+        "",
+    ]
+
+    for v in with_prior:
+        vid = v.get("directive_id", "?")
+        prd = v.get("prior_run_delta") or {}
+        cur_w = prd.get("current_window", {}) or {}
+        pri_w = prd.get("prior_window", {}) or {}
+        drift = prd.get("window_drift", {}) or {}
+        is_cur = prd.get("prior_is_current")
+
+        header = f"### {_short_name(vid)}"
+        out.append(header)
+        out.append("")
+
+        # Window line + mismatch annotation
+        win_line = (
+            f"**Current:** {cur_w.get('start', '?')} → {cur_w.get('end', '?')}  "
+            f"  **Prior:** {pri_w.get('start', '?')} → {pri_w.get('end', '?')}"
+        )
+        out.append(win_line)
+        if prd.get("window_mismatch"):
+            sd = drift.get("start_days")
+            ed = drift.get("end_days")
+            parts = []
+            if sd is not None:
+                parts.append(f"start {sd:+d}d")
+            if ed is not None:
+                parts.append(f"end {ed:+d}d")
+            drift_str = ", ".join(parts) if parts else "drift n/a"
+            out.append(f"⚠ **Window mismatch** ({drift_str}) — delta below is "
+                       f"informational, not a like-for-like comparison.")
+        if is_cur == 0:
+            out.append("ℹ Prior row is explicitly **superseded** "
+                       "(`is_current = 0`).")
+        out.append("")
+
+        # Delta table
+        out.append("| Metric | Prior | Current | Δ | Δ% |")
+        out.append("|--------|-------|---------|---|----|")
+        for m in prd.get("metrics", []) or []:
+            out.append(
+                f"| {m['label']} | {m['prior_str']} | {m['current_str']} | "
+                f"{m['delta_str']} | {m.get('pct_str', '')} |"
+            )
+        out.append("")
+
+    out.append("---")
+    out.append("")
+    return out
+
+
 def _render_lineage(d: dict) -> list[str]:
     variants = d.get("variants", [])
     lineage_diffs = d.get("lineage_diffs", {}) or {}
     if not variants:
         return []
-    out = ["## 4. Lineage — Signature Diffs (parent → child)", ""]
+    out = ["## 6. Lineage — Signature Diffs (parent → child)", ""]
     any_diff = False
     for v in variants:
         vid = v["directive_id"]
@@ -229,7 +501,7 @@ def _render_concentration(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 5. Concentration / Tail", "",
+    out = ["## 7. Concentration / Tail", "",
            "| Variant | Top-1% | Top-5 | Top-1pct N | Body after Top-20 | Verdict |",
            "|---------|--------|-------|------------|-------------------|---------|"]
     for v in variants:
@@ -255,7 +527,7 @@ def _render_session(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 6. Session Contribution", "",
+    out = ["## 8. Session Contribution", "",
            "PnL share by entry-session (UTC). Bold = max session.",
            "",
            "| Variant | Asia | London | NY | Max |",
@@ -281,7 +553,7 @@ def _render_direction(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 7. Direction Concentration", "",
+    out = ["## 9. Direction Concentration", "",
            "Share of POSITIVE PnL by direction.",
            "",
            "| Variant | Long share | Short share | Verdict |",
@@ -310,13 +582,13 @@ def _render_regime_cells(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 8. Regime Cell Matrix", ""]
+    out = ["## 10. Regime Cell Matrix", ""]
     out.append("Best and worst Direction×{Session, Trend, Volatility} cells (min 30 trades).")
     out.append("")
     for axis_label, axis_key in [("Session", "session"),
                                   ("Trend",   "trend"),
                                   ("Vol",     "volatility")]:
-        out.append(f"### 8.{axis_label[0]}. Direction × {axis_label}")
+        out.append(f"### 10.{axis_label[0]}. Direction × {axis_label}")
         out.append("")
         out.append("| Variant | Best cell | Best PnL | Worst cell | Worst PnL |")
         out.append("|---------|-----------|----------|------------|-----------|")
@@ -345,7 +617,7 @@ def _render_yearwise(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 9. Yearwise Stability", "",
+    out = ["## 11. Yearwise Stability", "",
            "Per-year PnL % of variant net. Flag: any year > 60% = dominant.",
            ""]
     # Union of years across variants
@@ -386,7 +658,7 @@ def _render_streaks(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 10. Streaks", "",
+    out = ["## 12. Streaks", "",
            "| Variant | Max Win | Max Loss | Avg Win | Avg Loss |",
            "|---------|---------|----------|---------|----------|"]
     for v in variants:
@@ -409,7 +681,7 @@ def _render_rolling(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 11. Rolling Stability (365d window, 30d step)", "",
+    out = ["## 13. Rolling Stability (365d window, 30d step)", "",
            "| Variant | Windows | Neg | DD>20% | Worst Return | Worst DD | Clustering |",
            "|---------|---------|-----|--------|--------------|----------|------------|"]
     for v in variants:
@@ -436,7 +708,7 @@ def _render_early_late(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 12. Early/Late Split", "",
+    out = ["## 14. Early/Late Split", "",
            "| Variant | H1 PnL | H2 PnL | H1 WR | H2 WR | Δ WR |",
            "|---------|--------|--------|-------|-------|------|"]
     for v in variants:
@@ -463,7 +735,7 @@ def _render_drawdown(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 13. Worst Drawdown Episode", "",
+    out = ["## 15. Worst Drawdown Episode", "",
            "| Variant | Start | Trough | Recovery | Max DD% | Duration (days) |",
            "|---------|-------|--------|----------|---------|-----------------|"]
     for v in variants:
@@ -488,7 +760,7 @@ def _render_verdicts(d: dict) -> list[str]:
     variants = d.get("variants", [])
     if not variants:
         return []
-    out = ["## 14. Deployment Verdict", "",
+    out = ["## 16. Deployment Verdict", "",
            "Canonical verdict via `filter_strategies._compute_candidate_status`.",
            "Soft-gate trips (advisory) may demote a CORE/WATCH variant to FAIL (effective).",
            ""]

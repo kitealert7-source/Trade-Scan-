@@ -180,6 +180,83 @@ Rationale: hundreds of iterations per variant, not appropriate for family-iterat
 
 ---
 
+## 2.7 Phase B follow-up — Reporting UX (2026-05-12)
+
+Three additive features layered on top of the original Phase B
+implementation, requested after the PSBRK finalist re-runs surfaced
+duplicate Master Filter rows per strategy and the need for "what changed
+since the last run" comparisons.
+
+| Feature | Module touched | Effort | LOC |
+|---|---|---|---|
+| `--latest-only` CLI flag (collapse to max-rowid per strategy; surface ambiguities) | `tools/family_report.py`, `tools/report/family_renderer.py` | ~30min | +60 |
+| Δ vs Prior Run section (same-strategy comparison; show + warn on window drift) | `tools/report/prior_run_delta.py` (NEW), `tools/family_report.py`, `tools/report/family_renderer.py` | ~90min | +250 |
+| Promotion Summary section (canonical gates only; soft overlays as separate Block B) | `tools/family_report.py`, `tools/report/family_renderer.py` | ~60min | +180 |
+
+**Section number bumps** (one-time, recorded for future readers):
+- 2026-05-12 #1 — sections 4–14 renumbered to 5–15 to insert
+  `## 4. Δ vs Prior Run (same strategy)` between
+  `## 3. Δ vs Parent` and the lineage section.
+- 2026-05-12 #2 — sections 2–15 renumbered to 3–16 to insert
+  `## 2. Promotion Summary` between Executive Ranking and Core Metrics.
+
+Final section order after both bumps:
+1. Executive Ranking · 2. Promotion Summary · 3. Core Metrics ·
+4. Δ vs Parent · 5. Δ vs Prior Run · 6. Lineage · 7. Concentration /
+Tail · 8. Session · 9. Direction · 10. Regime Cell Matrix · 11.
+Yearwise Stability · 12. Streaks · 13. Rolling Stability ·
+14. Early/Late Split · 15. Worst Drawdown · 16. Deployment Verdict.
+
+### Promotion Summary — design rules (2026-05-12)
+
+- **Block A: Canonical Promotion Status.** Reads `verdict.status` from
+  `family_verdicts.compute_family_verdicts` (which wraps
+  `tools/filter_strategies._compute_candidate_status`). Soft flags do
+  NOT move a variant between CORE / WATCH / FAIL — that demotion lives
+  only in `verdict.effective_status`, which the Promotion Summary
+  deliberately does not read.
+- **Block B: Soft Risk Overlays.** Reads
+  `verdict.soft_gate_trips` (tail / body / flat — computed in
+  `family_verdicts`) merged with `payload.additional_soft_flags` (loss
+  streak / stall decay — computed in `family_report.py` via wrapper
+  imports of `tools.report.report_sections.verdict_risk._loss_streak_flag`
+  and `_stall_decay_flag` per Rule 4).
+- **Empty-group policy.** No hidden empties. Every status group renders
+  its count and an empty group has an explicit `- None` line.
+- **Clean-set surfacing.** When at least one variant has soft flags,
+  the variants with zero flags are listed under "Clean (no soft
+  overlays)" so the set's completeness is obvious. When no flags fire
+  family-wide, a single "no soft overlays fired" line.
+
+### Why it exists
+
+The Executive Ranking answers *"which variant has the strongest raw
+edge?"*. The Promotion Summary answers *"what is actually promotable?"*.
+On the PSBRK V4 finalists those are different variants: V4 P14 ranks #1
+by SQN (2.87) but its 40.03% DD breaches the canonical 40% gate, so it
+sits in FAIL. V4 P09 (the Champion) ranks #3 by SQN but is in WATCH and
+is the only finalist clean of all soft overlays. Merging the two
+questions into one section would hide that gap.
+
+### Two-context comparison policy — formalized 2026-05-12
+
+The report now exposes two metric-comparison surfaces with **different**
+window-mismatch policies. See `outputs/FAMILY_REPORT_DESIGN.md §2 →
+"Comparison-policy by direction"` for the full table.
+
+- **Cross-strategy** (parent → child): mismatch **suppresses** the
+  delta. Implemented in `tools/window_compat.py` +
+  `tools/report/report_sections/verdict_risk.py::_windows_compatible`.
+- **Same-strategy** (this run vs prior run of THIS strategy): mismatch
+  is **shown with a warning**. Implemented in
+  `tools/report/prior_run_delta.py`.
+
+Both are guarded by the same `--window-tolerance-days` (default 5),
+which is the right invariant — the policy difference is in what to do
+*when* the threshold is breached, not in where it is set.
+
+---
+
 ## 3. What's NOT in this plan (intentionally deferred)
 
 The user's prompt explicitly carved these out — they are noted here so the deferred status is visible:
