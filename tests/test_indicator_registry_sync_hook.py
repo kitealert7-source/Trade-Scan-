@@ -638,6 +638,142 @@ def test_pre_push_hook_passes_when_registry_clean(fake_repo):
     )
 
 
+# ---------------------------------------------------------------------------
+# 12. Runtime enforcement (Patch 3 from GOVERNANCE_DRIFT_PREVENTION_PLAN)
+# ---------------------------------------------------------------------------
+#
+# Two runtime gates were added in Patch 3:
+#   - `tools/run_pipeline.py::verify_indicator_registry_sync` — raises
+#     PipelineAdmissionPause at pipeline startup. Halts the pipeline
+#     before any directive admission attempt.
+#   - `tools/verify_engine_integrity.py::verify_indicator_registry_sync` —
+#     returns False at engine self-test. Caller (`run_check`) does
+#     sys.exit(1) on False.
+#
+# Both shell out to `tools/indicator_registry_sync.py --check` so the
+# check logic stays single-source. Tests below build a fixture tree
+# containing the sync helper + a controlled indicators/ tree and
+# invoke each gate against it.
+
+
+def _seed_runtime_fixture(repo: Path, on_disk: list[str], registered: list[str]) -> None:
+    """Lay out a synthetic project_root under `repo` containing the
+    sync helper + a controlled indicators/ tree.
+
+    `on_disk` is the list of dotted module paths to create as `.py` files.
+    `registered` is the list of dotted module paths to register in
+    INDICATOR_REGISTRY.yaml. Drift = a mismatch between the two.
+    """
+    (repo / "tools").mkdir(exist_ok=True)
+    shutil.copy(SYNC_SCRIPT, repo / "tools" / "indicator_registry_sync.py")
+    indicators = repo / "indicators"
+    indicators.mkdir(exist_ok=True)
+    (indicators / "__init__.py").write_text("", encoding="utf-8")
+    for dotted in on_disk:
+        parts = dotted.split(".")  # ['indicators', '<cat>', '<name>']
+        cat_dir = repo / Path(*parts[:-1])
+        cat_dir.mkdir(parents=True, exist_ok=True)
+        init = cat_dir / "__init__.py"
+        if not init.exists():
+            init.write_text("", encoding="utf-8")
+        (cat_dir / f"{parts[-1]}.py").write_text(
+            "def apply(df): return df\n", encoding="utf-8",
+        )
+    (indicators / "INDICATOR_REGISTRY.yaml").write_text(
+        _make_registry(registered), encoding="utf-8",
+    )
+
+
+def test_run_pipeline_verify_blocks_on_drift(tmp_path):
+    """`verify_indicator_registry_sync(project_root)` raises
+    PipelineAdmissionPause when the fixture tree has drift. This is the
+    pipeline-start guardrail behavior.
+    """
+    from tools.run_pipeline import verify_indicator_registry_sync
+    from tools.orchestration.pipeline_errors import PipelineAdmissionPause
+
+    # On-disk module without a registry entry.
+    _seed_runtime_fixture(
+        tmp_path,
+        on_disk=["indicators.fakecat.disk_only"],
+        registered=[],
+    )
+    with pytest.raises(PipelineAdmissionPause) as excinfo:
+        verify_indicator_registry_sync(tmp_path)
+    assert "registry drift" in str(excinfo.value).lower()
+    # Operator remediation must be in the message.
+    assert "indicator_registry_sync.py" in str(excinfo.value)
+
+
+def test_run_pipeline_verify_passes_on_clean_state(tmp_path, capsys):
+    """`verify_indicator_registry_sync(project_root)` returns silently
+    when disk and registry are in sync. No raise, "[GUARDRAIL]" log
+    confirms the gate ran.
+    """
+    from tools.run_pipeline import verify_indicator_registry_sync
+
+    _seed_runtime_fixture(
+        tmp_path,
+        on_disk=["indicators.fakecat.synced"],
+        registered=["indicators.fakecat.synced"],
+    )
+    verify_indicator_registry_sync(tmp_path)  # must not raise
+    out = capsys.readouterr().out
+    assert "[GUARDRAIL] Indicator Registry: in sync." in out
+
+
+def test_run_pipeline_verify_skips_when_helper_absent(tmp_path, capsys):
+    """Defensive case: an older checkout that pre-dates 2026-05-12 does
+    not have `tools/indicator_registry_sync.py` on disk. The guardrail
+    must NOT block in that case — the going-forward defence is the
+    pre-commit hook; pipeline runs on legacy clones should not regress.
+    """
+    from tools.run_pipeline import verify_indicator_registry_sync
+
+    # No sync helper, no indicators/ tree.
+    verify_indicator_registry_sync(tmp_path)
+    out = capsys.readouterr().out
+    assert "Sync helper not present" in out
+
+
+def test_engine_integrity_check_returns_false_on_drift(tmp_path, monkeypatch):
+    """`verify_engine_integrity.verify_indicator_registry_sync` returns
+    False (not raise) when drift exists. The caller (`run_check`) is
+    responsible for sys.exit(1). Mirrors `verify_hashes` /
+    `verify_tools_integrity` shape.
+    """
+    import tools.verify_engine_integrity as vei
+
+    _seed_runtime_fixture(
+        tmp_path,
+        on_disk=["indicators.fakecat.engine_drift"],
+        registered=[],
+    )
+    monkeypatch.setattr(vei, "PROJECT_ROOT", tmp_path, raising=True)
+
+    result = vei.verify_indicator_registry_sync()
+    assert result is False, (
+        "verify_indicator_registry_sync must return False on drift so "
+        "the engine self-test can abort via sys.exit(1)."
+    )
+
+
+def test_engine_integrity_check_returns_true_on_clean_state(tmp_path, monkeypatch):
+    """`verify_engine_integrity.verify_indicator_registry_sync` returns
+    True when disk and registry are in sync.
+    """
+    import tools.verify_engine_integrity as vei
+
+    _seed_runtime_fixture(
+        tmp_path,
+        on_disk=["indicators.fakecat.engine_synced"],
+        registered=["indicators.fakecat.engine_synced"],
+    )
+    monkeypatch.setattr(vei, "PROJECT_ROOT", tmp_path, raising=True)
+
+    assert vei.verify_indicator_registry_sync() is True
+
+
 def test_sync_helper_add_stub_refuses_phantom_paths(tmp_path, monkeypatch):
     """Cannot register a module that does not exist on disk — guards
     against typos and against accidentally re-creating the

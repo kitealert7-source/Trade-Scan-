@@ -3,6 +3,7 @@ import sys
 import json
 import hashlib
 import argparse
+import subprocess
 import pandas as pd
 from pathlib import Path
 import importlib.util
@@ -97,6 +98,38 @@ def verify_hashes():
     else:
         print(f"[PASS] Hash Verification: {len([k for k in file_hashes if not k.endswith('.md')])} engine files match manifest")
         return True
+
+def verify_indicator_registry_sync() -> bool:
+    """Verify disk <-> indicators/INDICATOR_REGISTRY.yaml parity.
+
+    Single source of truth: shells out to
+    `tools/indicator_registry_sync.py --check`. Returns False on drift
+    so the engine self-test can abort cleanly via sys.exit(1) — same
+    failure shape as verify_hashes() and verify_tools_integrity().
+
+    Per outputs/GOVERNANCE_DRIFT_PREVENTION_PLAN.md Patch 3 — companion
+    to the same check in tools/run_pipeline.py and the session-close /
+    pre-push / pre-commit hooks.
+    """
+    sync_script = PROJECT_ROOT / "tools" / "indicator_registry_sync.py"
+    if not sync_script.exists():
+        # Defensive — older checkouts without the sync helper should not
+        # fail the engine self-test on absence alone.
+        print("[SKIP] Indicator registry sync helper not present.")
+        return True
+    result = subprocess.run(
+        [sys.executable, str(sync_script), "--check"],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0:
+        print("[FAIL] Indicator registry drift:")
+        for line in (result.stdout or "").splitlines():
+            print(f"  {line}")
+        return False
+    print("[PASS] Indicator Registry Sync: in sync.")
+    return True
+
 
 def verify_tools_integrity():
     """Verify critical tool hashes against tools_manifest.json (mandatory)."""
@@ -428,6 +461,11 @@ def run_check():
     # 1.6 Verify Tools Integrity
     if not verify_tools_integrity():
         print("[FAIL] Critical tools do not match tools_manifest. Aborting.")
+        sys.exit(1)
+
+    # 1.7 Verify Indicator Registry Sync (Patch 3 — 2026-05-12)
+    if not verify_indicator_registry_sync():
+        print("[FAIL] Indicator registry drifted from disk. Aborting.")
         sys.exit(1)
 
     # 2. Create Synthetic Data (20 bars)

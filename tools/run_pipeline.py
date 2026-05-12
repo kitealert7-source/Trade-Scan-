@@ -41,6 +41,7 @@ import os
 import json
 import hashlib
 import re
+import subprocess
 from pathlib import Path
 
 # --- ENCODING BOOTSTRAP ---
@@ -377,6 +378,47 @@ def verify_manifest_integrity(project_root: Path):
         for err in corrupted:
             print(f"  !! {err}")
         raise PipelineAdmissionPause("Manifest integrity violation. Pipeline halted to prevent corrupt data propagation.")
+
+
+def verify_indicator_registry_sync(project_root: Path):
+    """Guardrail: indicators/INDICATOR_REGISTRY.yaml must match indicators/ tree.
+
+    Catches drift that the pre-commit hook missed (--no-verify bypass,
+    manual YAML edits introducing phantom registry entries, indicator
+    deletions without corresponding registry cleanup). Stage-0.5 also
+    rejects drifted directives at admission, but per-directive — this
+    pipeline-start guard is loud once instead of per-run.
+
+    Single source of truth: invokes tools/indicator_registry_sync.py
+    --check via subprocess so the check logic lives in one place.
+
+    Per outputs/GOVERNANCE_DRIFT_PREVENTION_PLAN.md Patch 3.
+    """
+    print("[GUARDRAIL] Verifying Indicator Registry Sync...")
+    sync_script = project_root / "tools" / "indicator_registry_sync.py"
+    if not sync_script.exists():
+        # Defensive: the sync helper was added 2026-05-12; an older
+        # checkout that pre-dates it should not be blocked from running.
+        # The pre-commit hook covers the going-forward case.
+        print("[GUARDRAIL] Sync helper not present; skipping registry check.")
+        return
+
+    result = subprocess.run(
+        [sys.executable, str(sync_script), "--check"],
+        cwd=str(project_root),
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0:
+        print("[FATAL] Indicator registry drift detected:")
+        for line in (result.stdout or "").splitlines():
+            print(f"  {line}")
+        raise PipelineAdmissionPause(
+            "Indicator registry drift. Pipeline halted to prevent "
+            "Stage-0.5 ImportError-class bugs. Run `python "
+            "tools/indicator_registry_sync.py --check` for detail, then "
+            "`--add-stubs` (or restore missing .py files) and commit."
+        )
+    print("[GUARDRAIL] Indicator Registry: in sync.")
 
 
 def _compute_manifest_file_hash(filepath: Path) -> str:
@@ -901,7 +943,8 @@ def main():
         reconcile_active_backup()
 
         verify_manifest_integrity(PROJECT_ROOT)
-        
+        verify_indicator_registry_sync(PROJECT_ROOT)
+
         print("[ORCHESTRATOR] Performing authoritative registry reconciliation sweep...")
         reconcile_registry()
         
