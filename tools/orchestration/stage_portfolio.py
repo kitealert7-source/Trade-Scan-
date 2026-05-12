@@ -14,7 +14,7 @@ from tools.orchestration.transition_service import (
     transition_run_state,
 )
 from tools.pipeline_utils import PipelineStateManager
-from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR
+from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, STATE_ROOT
 
 
 def run_portfolio_and_post_stages(
@@ -170,9 +170,18 @@ def run_portfolio_and_post_stages(
         strategy_id = p_conf.get("Strategy", p_conf.get("strategy"))
         print("[ORCHESTRATOR] Generating Deterministic Markdown Reports...")
         generate_backtest_report(clean_id, backtest_root)
-        generate_strategy_portfolio_report(clean_id, project_root) # project_root here for code? usually reports go to outputs/ or repo
+        # `generate_strategy_portfolio_report` expects `root_dir / "strategies"
+        # / <id> / "portfolio_evaluation"`. That data is created by
+        # `tools/portfolio_evaluator.py:209` under `STRATEGIES_DIR` (=
+        # `STATE_ROOT/strategies`), which lives in `TradeScan_State`. Passing
+        # `project_root` here (= `Trade_Scan/`) made the function early-return
+        # on every multi-asset run — silently no-op'ing the PORTFOLIO_<id>.md
+        # report. The 2026-05-12 stage_portfolio audit (see
+        # outputs/REPORT_OWNERSHIP_AUDIT.md follow-up) caught this; fix is
+        # to pass STATE_ROOT so the path resolves correctly.
+        generate_strategy_portfolio_report(clean_id, STATE_ROOT)
         if strategy_id and strategy_id != clean_id:
-            generate_strategy_portfolio_report(strategy_id, project_root)
+            generate_strategy_portfolio_report(strategy_id, STATE_ROOT)
     except Exception as rep_err:
         import traceback
 
