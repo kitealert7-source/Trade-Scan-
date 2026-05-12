@@ -62,6 +62,17 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+echo "[pre-commit] Verifying supersession_map append-only invariant..."
+python "$REPO_ROOT/tools/lint_supersession_map_append_only.py" --staged
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. governance/supersession_map.yaml is"
+    echo "  append-only by invariant. Existing mappings may not be deleted"
+    echo "  or mutated — new mappings only. See the file header and"
+    echo "  outputs/GOVERNANCE_DRIFT_PREVENTION_PLAN.md Section 2.6."
+    exit 1
+fi
+
 echo "[pre-commit] Validating RESEARCH_MEMORY parse integrity..."
 python "$REPO_ROOT/tools/generate_research_memory_index.py" --check
 if [ $? -ne 0 ]; then
