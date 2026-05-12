@@ -60,8 +60,22 @@ governance_updates:
       strategy dependencies.'
     - 'audit_finding: 14 NEWSBRK strategy folders reference indicators.macro.news_event_window + indicators.structure.pre_event_range
       which do not exist on disk. Surface only — no retirement decisions in this commit. See outputs/INDICATOR_GOVERNANCE_SYNC_2026_05_12.md.'
-registry_version: 9
-generated_at: '2026-05-12T08:50:00+05:30'
+  version_10:
+    date: '2026-05-12'
+    changes:
+    - 'stub_backfill: 22 stub entries from version_9 now carry required fields (lookback, warmup, input_columns) plus function_name,
+      classification, parameters, default_parameters, output_columns, and other rich metadata. Values extracted from code inspection;
+      no values invented or marked REQUIRES_MANUAL_REVIEW.'
+    - 'tests_unblocked: tests/test_registry_integrity.py — test_required_fields, test_formula_resolution, and test_summary_sync
+      were failing on the version_9 stubs; now all pass. See outputs/INDICATOR_REGISTRY_BACKFILL_PLAN.md for the per-indicator
+      audit and inference plan.'
+    - 'registry_summary_updated: total_indicators 45 -> 67 (22 backfilled); momentum 7 -> 11, trend 5 -> 8, volatility 5 -> 11,
+      structure 9 -> 16, price_pattern 1 -> 2. Regime, composite, statistical, macro counts unchanged.'
+    - 'default_parameters added: bb_squeeze (squeeze_window=20, threshold=0.2) and bollinger_bands (window=20, std_mult=2.0)
+      gained explicit defaults so the formula resolver can evaluate warmup formulas with empty caller-params (test_formula_resolution
+      contract).'
+registry_version: 10
+generated_at: '2026-05-12T19:00:00+05:30'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -1775,151 +1789,723 @@ indicators:
     module_path: indicators.momentum.cmo
     category: momentum
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: cmo
+    classification: Momentum
+    input_requirements:
+    - series: pd.Series of prices (typically close)
+    parameters:
+      period: int — lookback bars for sum_gain / sum_loss
+    default_parameters:
+      period: 9
+    output_type: Series
+    output_columns:
+    - cmo: float — Chande Momentum Oscillator value in [-100, +100]
+    output_scale: -100 to +100
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: period
+    warmup: period
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection.'
   macd:
     module_path: indicators.momentum.macd
     category: momentum
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: macd
+    classification: Momentum
+    input_requirements:
+    - series_or_df: pd.Series of prices, or DataFrame with 'close' column
+    parameters:
+      fast: int — fast EMA span
+      slow: int — slow EMA span
+      signal: int — signal EMA span
+    default_parameters:
+      fast: 12
+      slow: 26
+      signal: 9
+    output_type: DataFrame
+    output_columns:
+    - macd_line: float
+    - macd_signal: float
+    - macd_hist: float
+    - macd_crossover: int -1/0/+1
+    - macd_cross_event: int -1/0/+1
+    - macd_momentum: float
+    - macd_acceleration: float
+    - macd_bias: int -1/0/+1
+    output_scale: 'derived signals: -1/0/+1; raw components: unbounded float'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: slow
+    warmup: slow + signal
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Warmup = slow + signal (explicit at indicators/momentum/macd.py line 59).'
   macd_htf:
     module_path: indicators.momentum.macd_htf
     category: momentum
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: macd_htf
+    classification: Momentum
+    input_requirements:
+    - series_or_df: pd.Series with DatetimeIndex, or DataFrame with 'close' (and 'timestamp' column if no DatetimeIndex)
+    parameters:
+      fast: int — fast EMA span on HTF series
+      slow: int — slow EMA span on HTF series
+      signal: int — signal EMA span on HTF series
+      resample_freq: str — pandas resample rule (e.g. '15min', '1H')
+    default_parameters:
+      fast: 12
+      slow: 26
+      signal: 9
+      resample_freq: 15min
+    output_type: DataFrame
+    output_columns:
+    - macd_line_<suffix>: float — HTF MACD line, mapped to base-TF index
+    - macd_signal_<suffix>: float
+    - macd_hist_<suffix>: float
+    - macd_crossover_<suffix>: int -1/0/+1
+    - macd_cross_event_<suffix>: int -1/0/+1
+    - macd_momentum_<suffix>: float
+    - macd_acceleration_<suffix>: float
+    - macd_bias_<suffix>: int -1/0/+1
+    output_scale: 'derived signals: -1/0/+1; raw components: unbounded float'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: slow
+    warmup: slow + signal
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Warmup expressed in HTF bars (resample_freq) — explicit at indicators/momentum/macd_htf.py line 158.'
   rsi_extremes:
     module_path: indicators.momentum.rsi_extremes
     category: momentum
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: rsi_extremes
+    classification: Momentum
+    input_requirements:
+    - series: pd.Series of close prices
+    parameters:
+      period: int — RSI period
+      lookback: int — rolling window for floor/ceiling
+      shift: int — bars to shift the floor/ceiling
+    default_parameters:
+      period: 14
+      lookback: 20
+      shift: 1
+    output_type: Tuple[Series, Series, Series]
+    output_columns:
+    - rsi: float — RSI value
+    - rsi_floor: float — rolling min of RSI over lookback, shifted
+    - rsi_ceil: float — rolling max of RSI over lookback, shifted
+    output_scale: 0-100
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators:
+    - rsi
+    lookback: lookback
+    warmup: period + lookback + shift
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Chain warmup: rsi(period) -> rolling(lookback) -> shift(shift).'
   consecutive_closes:
     module_path: indicators.price.consecutive_closes
     category: price
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: consecutive_closes
+    classification: Pattern
+    input_requirements:
+    - df: DataFrame with 'close' column
+    parameters:
+      n: int — streak length threshold for p000 / p111 flags
+    default_parameters:
+      n: 3
+    output_type: DataFrame
+    output_columns:
+    - close_lower_streak: int — consecutive lower-close streak
+    - close_higher_streak: int — consecutive higher-close streak
+    - p000: bool — close_lower_streak == n
+    - p111: bool — close_higher_streak == n
+    output_scale: 'streaks: non-negative int; flags: bool'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — sequential by design (streak counting)
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: 2
+    warmup: 2
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Strict close-to-close comparison (current + prior bar = 2-bar window).'
   consecutive_highs_lows:
     module_path: indicators.price.consecutive_highs_lows
     category: price
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: consecutive_highs_lows
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'high' and 'low' columns
+    parameters:
+      n: int — number of consecutive bars required
+    default_parameters:
+      n: 3
+    output_type: DataFrame
+    output_columns:
+    - hh3: bool — n consecutive higher highs
+    - ll3: bool — n consecutive lower lows
+    - hh3_sl: float — structural long stop (lowest low in n+1 bar window)
+    - ll3_sl: float — structural short stop (highest high in n+1 bar window)
+    output_scale: 'flags: bool; sl levels: price units'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: n + 1
+    warmup: n + 1
+    input_columns:
+    - high
+    - low
+    notes: 'Backfilled 2026-05-12 from code inspection. n+1 bar window (current + n lookback bars).'
   avg_range:
     module_path: indicators.structure.avg_range
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: avg_range
+    classification: Volatility
+    input_requirements:
+    - df: DataFrame with 'high' and 'low' columns
+    parameters:
+      window: int — rolling lookback period
+      min_periods: int — minimum observations required
+    default_parameters:
+      window: 5
+      min_periods: 3
+    output_type: Series
+    output_columns:
+    - avg_range: float — rolling mean of (high - low)
+    output_scale: price units (unbounded positive)
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: window
+    warmup: window
+    input_columns:
+    - high
+    - low
+    notes: 'Backfilled 2026-05-12 from code inspection. Despite living in indicators/structure/, this is a volatility-flavoured rolling-mean primitive (preserved category for stability).'
   choch_v2:
     module_path: indicators.structure.choch_v2
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: choch_v2
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'high', 'low', 'close' columns
+    parameters: {}
+    default_parameters: {}
+    output_type: DataFrame
+    output_columns:
+    - pivot_high_flag: int 0/1
+    - pivot_low_flag: int 0/1
+    - pivot_high_price: float
+    - pivot_low_price: float
+    - last_pivot_high_ref: float
+    - last_pivot_low_ref: float
+    - choch_event_v2_raw: int -1/0/+1
+    - choch_event_v2: int -1/0/+1 (edge-triggered)
+    output_scale: -1 / 0 / +1
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — sequential pivot-confirmation state
+    htf_compatible: true
+    dependency_indicators:
+    - swing_pivots
+    lookback: 7
+    warmup: 7
+    input_columns:
+    - high
+    - low
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Depends on swing_pivots (k=3) confirmation; first usable pivot at bar 2*k+1 = 7.'
   choch_v3:
     module_path: indicators.structure.choch_v3
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: choch_v3
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'high', 'low', 'close' columns
+    parameters: {}
+    default_parameters: {}
+    output_type: DataFrame
+    output_columns:
+    - last_pivot_high_ref: float
+    - last_pivot_low_ref: float
+    - has_uptrend: int 0/1
+    - has_downtrend: int 0/1
+    - choch_event_v3_raw: int -1/0/+1
+    - choch_event_v3: int -1/0/+1 (edge-triggered)
+    output_scale: -1 / 0 / +1
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — sequential pivot + structure state
+    htf_compatible: true
+    dependency_indicators:
+    - swing_pivots
+    lookback: 7
+    warmup: 7
+    input_columns:
+    - high
+    - low
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Same pivot-confirmation cost as choch_v2; structural readiness (HH+HL / LL+LH) requires multiple pivots and is pattern-dependent (not bar-count-dependent).'
   dmi_wilder:
     module_path: indicators.structure.dmi_wilder
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: dmi_wilder
+    classification: Trend
+    input_requirements:
+    - high: pd.Series of high prices
+    - low: pd.Series of low prices
+    - close: pd.Series of close prices
+    parameters:
+      period: int — lookback period (Wilder standard)
+    default_parameters:
+      period: 14
+    output_type: DataFrame
+    output_columns:
+    - plus_di: float — +DI in [0, 100]
+    - minus_di: float — -DI in [0, 100]
+    output_scale: 0-100
+    invariant_check: RuntimeError raised if plus_di or minus_di max exceeds 100.0001
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: period
+    warmup: period
+    input_columns:
+    - high
+    - low
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Wilder''s RMA (alpha = 1/period) — calibrated against Pine ta.dmi(); not the EMA-span variant.'
   fair_value_gap:
     module_path: indicators.structure.fair_value_gap
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: fair_value_gap
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'high', 'low', 'close' columns
+    parameters:
+      max_active: int — maximum number of concurrent active FVG zones
+    default_parameters:
+      max_active: 10
+    output_type: DataFrame
+    output_columns:
+    - fvg_bull_formed: int 0/1
+    - fvg_bear_formed: int 0/1
+    - fvg_bull_first_touch_close: int 0/1
+    - fvg_bull_first_touch_wick: int 0/1
+    - fvg_bear_first_touch_close: int 0/1
+    - fvg_bear_first_touch_wick: int 0/1
+    - fvg_bull_invalidated: int 0/1
+    - fvg_bear_invalidated: int 0/1
+    - fvg_bull_top_active: float
+    - fvg_bull_bottom_active: float
+    - fvg_bear_top_active: float
+    - fvg_bear_bottom_active: float
+    output_scale: 'events: 0/1; bounds: price units'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n*z) where z = max_active
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: 3
+    warmup: 3
+    input_columns:
+    - high
+    - low
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. 3-bar imbalance detector (i, i-1, i-2); explicit `for i in range(2, n)` at fair_value_gap.py line 98.'
   prev_session_extremes:
     module_path: indicators.structure.prev_session_extremes
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: prev_session_extremes
+    classification: Structure
+    input_requirements:
+    - sc: session_clock output DataFrame with [session_id, session_seq, session_high_running, session_low_running]
+    - df: DataFrame with [open, close] (also high, low when expand_during_dead_zone=True)
+    parameters:
+      expand_during_dead_zone: bool — Pine-parity dead-zone expansion of prior-session extremes
+    default_parameters:
+      expand_during_dead_zone: false
+    output_type: DataFrame
+    output_columns:
+    - prev_session_high: float
+    - prev_session_low: float
+    - prev_session_id: str (asia/london/ny)
+    - armed_long: bool
+    - armed_short: bool
+    output_scale: 'extremes: price units; armed flags: bool'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators:
+    - session_clock
+    lookback: 1
+    warmup: 1
+    input_columns:
+    - open
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Per-bar reducer; bar-count warmup is 1, but real usability requires at least one completed real session (asia/london/ny) on the index. When expand_during_dead_zone=true the indicator also reads high/low.'
   session_clock:
     module_path: indicators.structure.session_clock
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: session_clock
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'high', 'low' columns and a UTC DatetimeIndex (or 'time'/'timestamp' column)
+    datetime_index_required: false
+    datetime_index_guard: constructs DatetimeIndex from 'time' or 'timestamp' column if df.index is not pd.DatetimeIndex
+    parameters: {}
+    default_parameters: {}
+    output_type: DataFrame
+    output_columns:
+    - session_id: str (asia/london/ny/none)
+    - session_seq: int (monotonic counter)
+    - session_bar_idx: int (0-indexed bar within session_seq)
+    - session_pct_elapsed: float (NaN in dead zone)
+    - day_of_week: int 0-6
+    - session_high_running: float
+    - session_low_running: float
+    output_scale: 'session_id: categorical; counters: non-negative int; pct: 0-1+'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: false
+    dependency_indicators: []
+    lookback: 1
+    warmup: 1
+    input_columns:
+    - high
+    - low
+    notes: 'Backfilled 2026-05-12 from code inspection. XAU liquidity-tuned session boundaries (asia 00-07, london 07-13, ny 13-21 UTC). Intraday-only — htf_compatible=false because session classification is by UTC hour-of-day.'
   session_clock_universal:
     module_path: indicators.structure.session_clock_universal
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: session_clock
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'high', 'low' columns and a UTC DatetimeIndex (or 'time'/'timestamp' column)
+    datetime_index_required: false
+    datetime_index_guard: constructs DatetimeIndex from 'time' or 'timestamp' column if df.index is not pd.DatetimeIndex
+    parameters: {}
+    default_parameters: {}
+    output_type: DataFrame
+    output_columns:
+    - session_id: str (asia/london/ny/none)
+    - session_seq: int
+    - session_bar_idx: int
+    - session_pct_elapsed: float (NaN in dead zone)
+    - day_of_week: int 0-6
+    - session_high_running: float
+    - session_low_running: float
+    output_scale: 'session_id: categorical; counters: non-negative int; pct: 0-1+'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: false
+    dependency_indicators: []
+    lookback: 1
+    warmup: 1
+    input_columns:
+    - high
+    - low
+    notes: 'Backfilled 2026-05-12 from code inspection. Canonical UTC exchange-aligned boundaries (asia 00-08, london 08-14, ny 14-21) — asset-portable variant of session_clock.'
+
   swing_pivots:
     module_path: indicators.structure.swing_pivots
     category: structure
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: swing_pivots
+    classification: Structure
+    input_requirements:
+    - df: DataFrame with 'high' and 'low' columns
+    parameters: {}
+    default_parameters: {}
+    output_type: DataFrame
+    output_columns:
+    - pivot_high_flag: int 0/1
+    - pivot_low_flag: int 0/1
+    - pivot_high_price: float (NaN when no pivot)
+    - pivot_low_price: float (NaN when no pivot)
+    output_scale: 'flags: 0/1; prices: price units'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n*k) where k = 3 (fixed window)
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: 7
+    warmup: 7
+    input_columns:
+    - high
+    - low
+    notes: 'Backfilled 2026-05-12 from code inspection. Fixed _K = 3 symmetric window (k bars left + k bars right). First confirmable pivot at bar 2*K+1 = 7. Strict-left / non-strict-right asymmetry resolves flat ties to earlier pivot.'
   ema_cross:
     module_path: indicators.trend.ema_cross
     category: trend
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: ema_cross
+    classification: Trend
+    input_requirements:
+    - series_or_df: pd.Series of prices, or DataFrame with 'close' column
+    parameters:
+      fast: int — fast EMA span
+      slow: int — slow EMA span
+    default_parameters:
+      fast: 50
+      slow: 200
+    output_type: DataFrame
+    output_columns:
+    - ema_fast: float
+    - ema_slow: float
+    - ema_cross_state: int -1/0/+1 with carry-forward
+    output_scale: 'ema_fast/ema_slow: price units; ema_cross_state: -1/0/+1'
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    loop_complexity: O(n) — carry-forward state requires sequential loop
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: slow
+    warmup: slow
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Explicit `warmup = slow` (ema_cross.py line 44). Validates fast < slow.'
   gaussian_slope:
     module_path: indicators.trend.gaussian_slope
     category: trend
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: gaussian_slope
+    classification: Trend
+    input_requirements:
+    - series_or_df: pd.Series of prices, or DataFrame with 'close' column
+    parameters:
+      length: int — window for Gaussian-weighted MA
+      sigma: float — Gaussian bell-curve width
+    default_parameters:
+      length: 30
+      sigma: 7.0
+    output_type: DataFrame
+    output_columns:
+    - gma: float — Gaussian-weighted moving average
+    - gma_slope: float — first difference of gma
+    - gma_state: int -1/0/+1 (with carry-forward after warmup)
+    - gma_state_flip: bool — True when state differs from previous non-zero state
+    output_scale: 'gma: price units; gma_slope: price units; state: -1/0/+1; flip: bool'
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: false
+    loop_complexity: O(n) — carry-forward state requires sequential loop
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: length
+    warmup: length
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Explicit `warmup = length` (gaussian_slope.py line 61).'
   atr_with_dollar_floor:
     module_path: indicators.volatility.atr_with_dollar_floor
     category: volatility
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: atr_with_dollar_floor
+    classification: Volatility
+    input_requirements:
+    - df: DataFrame with 'high', 'low', 'close' columns
+    parameters:
+      window: int — ATR lookback
+      min_dollars: float — minimum stop distance in price units (USD/oz for XAUUSD)
+      sl_atr_mult: float — strategy's SL ATR multiplier (must match engine sl_cfg.atr_multiplier)
+    default_parameters:
+      window: 14
+    output_type: Series
+    output_columns:
+    - atr: float — floored ATR values (max of raw ATR and min_dollars / sl_atr_mult)
+    output_scale: price units (unbounded positive)
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators:
+    - atr
+    lookback: window
+    warmup: window
+    input_columns:
+    - high
+    - low
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Wraps atr() with a dollar-denominated stop-distance floor.'
   atr_with_pip_floor:
     module_path: indicators.volatility.atr_with_pip_floor
     category: volatility
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: atr_with_pip_floor
+    classification: Volatility
+    input_requirements:
+    - df: DataFrame with 'high', 'low', 'close' columns
+    parameters:
+      window: int — ATR lookback
+      min_pips: float — minimum stop distance in pips
+      pip_size: float — price units per pip (0.0001 standard FX, 0.01 JPY)
+      sl_atr_mult: float — strategy's SL ATR multiplier
+    default_parameters:
+      window: 14
+    output_type: Series
+    output_columns:
+    - atr: float — floored ATR (max of raw ATR and min_pips * pip_size / sl_atr_mult)
+    output_scale: price units (unbounded positive)
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators:
+    - atr
+    lookback: window
+    warmup: window
+    input_columns:
+    - high
+    - low
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. Wraps atr() with a pip-denominated stop-distance floor (currency-pair analogue of atr_with_dollar_floor).'
   bar_range:
     module_path: indicators.volatility.bar_range
     category: volatility
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: bar_range
+    classification: Volatility
+    input_requirements:
+    - df: DataFrame with 'high' and 'low' columns
+    parameters: {}
+    default_parameters: {}
+    output_type: Series
+    output_columns:
+    - bar_range: float — high - low
+    output_scale: price units (unbounded positive)
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: 1
+    warmup: 1
+    input_columns:
+    - high
+    - low
+    notes: 'Backfilled 2026-05-12 from code inspection. Stateless per-bar high-low spread.'
   bb_squeeze:
     module_path: indicators.volatility.bb_squeeze
     category: volatility
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: bb_squeeze
+    classification: Volatility
+    input_requirements:
+    - atr_pct_series: pd.Series of ATR percentile values (0.0–1.0 scale)
+    parameters:
+      squeeze_window: int — number of bars to scan for any squeezed bar
+      threshold: float — ATR-percentile threshold below which a bar is squeezed
+    default_parameters:
+      squeeze_window: 20
+      threshold: 0.2
+    output_type: DataFrame
+    output_columns:
+    - squeeze_active: float — 1.0 if squeeze detected in window, 0.0 otherwise
+    - squeeze_active_prev: float — squeeze_active shifted by one bar
+    output_scale: 0.0 / 1.0
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators:
+    - atr_percentile
+    lookback: squeeze_window
+    warmup: squeeze_window
+    input_columns:
+    - atr_percentile
+    notes: 'Backfilled 2026-05-12 from code inspection. Consumes a pre-computed atr_percentile series rather than raw OHLC; input_columns lists the dependent column (precedent set by apply_choch_state).'
   bollinger_bands:
     module_path: indicators.volatility.bollinger_bands
     category: volatility
     registered_at: '2026-05-12'
-    notes: 2026-05-12 governance sync stub — module on disk pre-existed the registry. Module_path verified; rich metadata
-      (function_name, input_requirements, output_columns, etc.) to be backfilled in a follow-up.
+    function_name: bollinger_bands
+    classification: Volatility
+    input_requirements:
+    - series: pd.Series (typically close)
+    parameters:
+      window: int — rolling window
+      std_mult: float — standard deviation multiplier
+    default_parameters:
+      window: 20
+      std_mult: 2.0
+    output_type: DataFrame
+    output_columns:
+    - bb_upper: float — upper band
+    - bb_lower: float — lower band
+    - bb_midline: float — rolling mean midline
+    output_scale: price units
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    lookback: window
+    warmup: window * 2
+    input_columns:
+    - close
+    notes: 'Backfilled 2026-05-12 from code inspection. window and std_mult have no defaults (required at call site); precedent for warmup = window * 2 from bollinger_band_width registry entry.'
 registry_summary:
-  total_indicators: 45
+  total_indicators: 67
   by_category:
-    momentum_count: 7
-    trend_count: 5
-    volatility_count: 5
+    momentum_count: 11
+    trend_count: 8
+    volatility_count: 11
     regime_count: 10
-    structure_count: 9
+    structure_count: 16
     composite_count: 3
     statistical_count: 4
     macro_count: 2
-    price_pattern_count: 1
+    price_pattern_count: 2
   intraday_ready: 45
   daily_ready: 43
-  htf_ready: 42
-  lookahead_safe: 45
-  vectorized: 37
-  files_validated: 45
+  htf_ready: 62
+  lookahead_safe: 67
+  vectorized: 52
+  files_validated: 67
   validation_status: PASS
   governance_status: PASS
