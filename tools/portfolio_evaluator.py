@@ -89,6 +89,84 @@ from tools.portfolio.portfolio_ledger_writer import (  # noqa: F401
 
 
 # ==================================================================
+# Phase 5b — basket row writer (append-only, separate from per-symbol MPS)
+# ==================================================================
+#
+# Per-symbol MPS schema is preserved untouched. Basket runs land in a
+# separate append-only CSV at TradeScan_State/research/basket_runs.csv.
+# Phase 5c may promote this into a basket-aware column extension of
+# Master_Portfolio_Sheet.xlsx with execution_mode='basket' rows interleaved;
+# until then the CSV gives a research-stage record without risking the
+# production ledger's append-only invariant (Invariant #2).
+#
+# Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 5b.
+
+def append_basket_row_to_research_csv(basket_result, *, directive_id: str) -> Path:
+    """Append a one-row CSV record of a basket run.
+
+    Args:
+        basket_result: tools.basket_pipeline.BasketRunResult
+        directive_id:  e.g. "90_PORT_H2_5M_RECYCLE_S01_V1_P00"
+
+    Returns:
+        Path to the CSV that was appended.
+
+    Schema (append-only; new columns added at the right edge in future
+    versions, never reordered):
+
+        timestamp_utc, directive_id, basket_id, execution_mode,
+        rule_name, rule_version, leg_count, trades_total,
+        recycle_event_count, harvested_total_usd,
+        basket_legs_json
+    """
+    import csv
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+
+    from config.path_authority import TRADE_SCAN_STATE
+
+    out_dir = TRADE_SCAN_STATE / "research"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out_dir / "basket_runs.csv"
+
+    row = basket_result.to_mps_row()
+    fields = [
+        "timestamp_utc",
+        "directive_id",
+        "basket_id",
+        "execution_mode",
+        "rule_name",
+        "rule_version",
+        "leg_count",
+        "trades_total",
+        "recycle_event_count",
+        "harvested_total_usd",
+        "basket_legs_json",
+    ]
+    record = {
+        "timestamp_utc": _dt.now(tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "directive_id":  directive_id,
+        "basket_id":     row.get("basket_id"),
+        "execution_mode": row.get("execution_mode"),
+        "rule_name":     row.get("rule_name"),
+        "rule_version":  row.get("rule_version"),
+        "leg_count":     len(row.get("basket_legs", [])),
+        "trades_total":  row.get("trades_total"),
+        "recycle_event_count": row.get("recycle_event_count"),
+        "harvested_total_usd": row.get("harvested_total_usd"),
+        "basket_legs_json":    _json.dumps(row.get("basket_legs", [])),
+    }
+
+    write_header = not csv_path.is_file()
+    with open(csv_path, "a", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        if write_header:
+            w.writeheader()
+        w.writerow(record)
+    return csv_path
+
+
+# ==================================================================
 # MAIN orchestration helpers
 # ==================================================================
 

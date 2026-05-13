@@ -168,28 +168,33 @@ def test_run_basket_pipeline_produces_basket_row_shape():
     assert isinstance(row["basket_legs"], list) and len(row["basket_legs"]) == 2
 
 
-def test_per_symbol_pipeline_untouched():
-    """Phase 4 mitigation: Per-symbol directives unchanged.
+def test_per_symbol_hot_path_untouched_post_phase5b():
+    """Phase 5b update: per-symbol HOT path still unchanged.
 
-    This is a structural check rather than a behavioral one: confirm
-    run_pipeline.py / stage3_compiler.py / portfolio_evaluator.py are not
-    git-modified by Phase 4 — meaning the per-symbol code paths cannot
-    have regressed.
+    Phase 4 originally asserted that NO basket references existed in
+    run_pipeline.py / stage3_compiler.py / portfolio_evaluator.py. Phase 5b
+    deliberately threaded basket dispatch into run_pipeline.py and basket
+    CSV writing into portfolio_evaluator.py — those are now legal additions
+    (Phase 5b feature wiring per the locked plan).
+
+    The structural invariant that remains: stage3_compiler.py — the
+    per-symbol aggregator — must stay basket-free. Per-symbol pipeline
+    stages are not changed by Phase 5b; baskets early-return BEFORE
+    BootstrapController and StageRunner (see _try_basket_dispatch in
+    run_pipeline.py). So stage3_compiler can never see a basket directive.
+
+    If a future change adds basket-aware logic into stage3, that's a
+    separate phase that needs its own audit; this test guards the
+    boundary.
     """
-    untouched_paths = [
-        REPO_ROOT / "tools" / "run_pipeline.py",
-        REPO_ROOT / "tools" / "stage3_compiler.py",
-        REPO_ROOT / "tools" / "portfolio_evaluator.py",
-    ]
-    for p in untouched_paths:
-        assert p.is_file(), f"expected {p} to still exist"
-        # Confirm Phase 4 did NOT introduce 'basket_pipeline' or 'RecycleRule'
-        # into these hot-path files. (Phase 5 may introduce them with the
-        # feature flag; Phase 4 leaves them alone.)
-        text = p.read_text(encoding="utf-8")
-        assert "basket_pipeline" not in text, (
-            f"Phase 4 must not modify {p.name}; route via separate adapter."
-        )
-        assert "RecycleRule" not in text, (
-            f"Phase 4 must not modify {p.name}; route via separate adapter."
-        )
+    p = REPO_ROOT / "tools" / "stage3_compiler.py"
+    assert p.is_file(), f"expected {p} to still exist"
+    text = p.read_text(encoding="utf-8")
+    assert "basket_pipeline" not in text, (
+        "stage3_compiler.py must stay basket-free — baskets early-return "
+        "from run_pipeline.py before any stage runs. If you need basket "
+        "support in stage3, open a new phase."
+    )
+    assert "RecycleRule" not in text, (
+        "stage3_compiler.py must stay basket-free — see comment above."
+    )

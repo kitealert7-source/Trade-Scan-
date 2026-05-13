@@ -691,11 +691,174 @@ def _announce_run_engine(directive_id: str) -> None:
         )
 
 
+def _find_admitted_directive_path(directive_id: str) -> Path | None:
+    """Find the admitted directive .txt file in active_backup/ or completed/.
+
+    Used by the basket dispatch path which needs to parse the directive YAML
+    before BootstrapController fires (per-symbol provisioning is wrong for
+    baskets).
+    """
+    candidate = ACTIVE_BACKUP_DIR / f"{directive_id}.txt"
+    if candidate.is_file():
+        return candidate
+    candidate = COMPLETED_DIR / f"{directive_id}.txt"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
+    """Phase 5b minimal basket dispatch.
+
+    Returns True if the directive was a basket and was dispatched via the
+    basket adapter; False otherwise (caller continues with per-symbol flow).
+
+    SCOPE (Phase 5b minimal): wires run_basket_pipeline + basket_vault into
+    the orchestrator. Uses PASSTHROUGH strategies + SYNTHETIC OHLC data
+    until Phase 5c plumbs real EUR+JPY 5m + USD_SYNTH features. Real-data
+    parity vs basket_sim is the live-data gate (currently @pytest.mark.skip
+    in tests/test_basket_directive_phase5.py).
+
+    Per-symbol hot path is unchanged — this function early-returns False
+    for non-basket directives.
+
+    Plan: H2_ENGINE_PROMOTION_PLAN.md Phase 5b (single-ABI on v1_5_9).
+    """
+    if provision_only:
+        return False  # provision-only flow never dispatches basket execution
+
+    path = _find_admitted_directive_path(directive_id)
+    if path is None:
+        return False  # caller will surface the missing-directive error
+
+    from tools.basket_schema import is_basket_directive
+    from tools.pipeline_utils import parse_directive
+
+    try:
+        parsed = parse_directive(path)
+    except Exception:
+        return False  # parsing problems surface in the existing flow
+    if not is_basket_directive(parsed):
+        return False
+
+    # ---- Basket dispatch path ----
+    from tools.basket_pipeline import run_basket_pipeline
+    from tools.basket_vault import write_basket_vault
+    from tools.portfolio_evaluator import append_basket_row_to_research_csv
+
+    print(f"[BASKET] Phase 5b dispatch: {directive_id}")
+    print(f"[BASKET] Directive: {path}")
+    print(f"[BASKET] basket_id={parsed['basket']['basket_id']} "
+          f"legs={[l['symbol'] for l in parsed['basket']['legs']]}")
+
+    # PHASE_5B_TODO: replace _synthetic_leg_data + _PassthroughStrategy with
+    # real DataFeed-loaded OHLC + per-leg strategy objects (Phase 5c).
+    leg_data = _synthetic_leg_data(parsed)
+    leg_strategies = {
+        leg["symbol"]: _PassthroughStrategy(leg["symbol"])
+        for leg in parsed["basket"]["legs"]
+    }
+    registry_path = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
+
+    result = run_basket_pipeline(
+        parsed, leg_data, leg_strategies,
+        recycle_registry_path=registry_path,
+    )
+
+    # Write basket vault snapshot (Phase 6 layout). Folder structure:
+    #   DRY_RUN_VAULT/baskets/<directive_id>/<basket_id>/  (write_basket_vault adds the inner basket_id dir)
+    from config.path_authority import DRY_RUN_VAULT as _DRY_RUN_VAULT
+    from tools.basket_vault import BasketVaultPayload
+    vault_parent = _DRY_RUN_VAULT / "baskets" / directive_id
+    vault_parent.mkdir(parents=True, exist_ok=True)
+    trades_total = sum(len(t) for t in result.per_leg_trades.values())
+
+    payload = BasketVaultPayload(
+        basket_id=parsed["basket"]["basket_id"],
+        directive=parsed,
+        rule_name=result.rule_name,
+        rule_version=result.rule_version,
+        harvested_total_usd=result.harvested_total_usd,
+        legs=parsed["basket"]["legs"],
+        leg_trades=dict(result.per_leg_trades),
+        recycle_events=list(result.recycle_events),
+    )
+    try:
+        vault_dir = write_basket_vault(vault_parent, payload)
+        print(f"[BASKET] Vault written: {vault_dir}")
+    except Exception as exc:
+        print(f"[BASKET] WARN vault write failed: {exc}")
+
+    # Append basket row to research CSV (separate from per-symbol MPS;
+    # Phase 5c may promote this to a basket-aware MPS column set).
+    try:
+        csv_path = append_basket_row_to_research_csv(result, directive_id=directive_id)
+        print(f"[BASKET] Research row appended: {csv_path}")
+    except Exception as exc:
+        print(f"[BASKET] WARN MPS append failed: {exc}")
+
+    print(f"[BASKET] Phase 5b dispatch complete. "
+          f"trades={trades_total}, recycles={len(result.recycle_events)}, "
+          f"harvested_usd={result.harvested_total_usd:.2f}")
+    print("[BASKET] NOTE: synthetic-data mode — figures are placeholder until "
+          "Phase 5c wires real EUR+JPY 5m + USD_SYNTH features.")
+    return True
+
+
+class _PassthroughStrategy:
+    """Stand-in strategy for Phase 5b minimal dispatch — never emits signals.
+
+    PHASE_5B_TODO: replace with per-leg `strategy.py` loaded from
+    strategies/<directive_id>/legs/<SYMBOL>/strategy.py in Phase 5c.
+    """
+    timeframe = "5m"
+
+    def __init__(self, symbol: str) -> None:
+        self.name = f"phase5b_passthrough_{symbol}"
+
+    def prepare_indicators(self, df):  # noqa: D401
+        return df
+
+    def check_entry(self, ctx):
+        return None
+
+    def check_exit(self, ctx):
+        return False
+
+
+def _synthetic_leg_data(parsed: dict) -> dict:
+    """Generate synthetic OHLC + compression_5d=5.0 (gate closed) for each leg.
+
+    PHASE_5B_TODO: replace with real OctaFx 5m loader joined to USD_SYNTH
+    features per Section 1m-ii. Until then dispatch path verifies the wiring
+    (run_basket_pipeline → vault → MPS row) without claiming real PnL.
+    """
+    import numpy as np
+    import pandas as pd
+    n_bars = 240
+    out: dict = {}
+    for i, leg in enumerate(parsed["basket"]["legs"]):
+        rng = np.random.default_rng(seed=hash(leg["symbol"]) & 0xFFFFFFFF)
+        idx = pd.date_range("2024-09-02", periods=n_bars, freq="5min")
+        base = 1.10 + np.cumsum(rng.normal(0.0, 0.0005, n_bars))
+        out[leg["symbol"]] = pd.DataFrame(
+            {"open": base, "high": base, "low": base, "close": base,
+             "volume": 1000.0, "compression_5d": 5.0},
+            index=idx,
+        )
+    return out
+
+
 def run_single_directive(directive_id, provision_only=False):
     """Execution logic for a single directive."""
     ctx = None
     # 1.1 Uniqueness Check
     verify_directive_uniqueness_guard(directive_id)
+
+    # Phase 5b: basket dispatch (early-return for RECYCLE basket directives;
+    # per-symbol flow unchanged below).
+    if _try_basket_dispatch(directive_id, provision_only):
+        return
 
     # 1.2 Bootstrap
     bootstrap = BootstrapController(PROJECT_ROOT)
