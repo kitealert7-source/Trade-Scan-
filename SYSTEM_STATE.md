@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 3 uncommitted
 
-> Generated: 2026-05-12T16:40:59Z
+> Generated: 2026-05-13T10:17:29Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,17 +12,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 236 directives
+- Completed: 239 directives
 
 ## Ledgers
 
-- **Master Filter:** 1086 rows
+- **Master Filter:** 1126 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
-  - **Portfolios:** 125 rows — CORE: 4, FAIL: 116, WATCH: 5
+  - **Portfolios:** 128 rows — CORE: 4, FAIL: 118, PROFILE_UNRESOLVED: 1, WATCH: 5
   - **Single-Asset Composites:** 81 rows — CORE: 11, FAIL: 65, WATCH: 5
 
-- **Candidates (FPS):** 493 rows — CORE: 14, FAIL: 326, LIVE: 13, RESERVE: 25, WATCH: 115
+- **Candidates (FPS):** 511 rows — CORE: 14, FAIL: 342, LIVE: 13, RESERVE: 25, WATCH: 117
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
@@ -32,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-11** | Symbols: 1
+- Latest bar: **2026-05-13** | Symbols: 1
 
 ## Artifacts
-- Run directories: 1286
+- Run directories: 1311
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 3 uncommitted
-- Last substantive commit: `c75fc9b research: register idea 67 PORT (USD basket weekly hold) + 4 leg runs`
+- Last substantive commit: `790d1b2 session: regenerate tools_manifest.json post-pipeline runs`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
