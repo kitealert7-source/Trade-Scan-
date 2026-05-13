@@ -1,0 +1,56 @@
+test:
+  name: 68_PORT_FX_5M_PORT_S01_V1_P00
+  family: PORT
+  strategy: 68_PORT_FX_5M_PORT_S01_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-09-02"
+  end_date: "2026-05-09"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "USD Basket Multi-Asset Weekly Hold Baseline -- 6 canonical USD pairs at equal 0.01 lot. Long EURUSD, GBPUSD, AUDUSD, USDJPY, USDCAD, USDCHF. Mon entry first 5m bar UTC, Fri exit on first 5m bar at-or-after 23:45 UTC. Pure inventory baseline -- no recycle, no harvest, no regime gate. 50x ATR catastrophic stop only; TP disabled. Equal-weight basket is structurally near-USD-neutral by lot count (3 INVERT pairs short USD, 3 KEEP pairs long USD)."
+  notes: "Single multi-asset directive: pipeline run_planner generates 6 independent per-symbol runs, portfolio_evaluator (Stage-4) aggregates the 6 trade ledgers into the basket-level Master Portfolio Sheet row. This is the FORMAL pipeline validation of the base inventory basket -- prerequisite for treating H2 (recycle + harvest + regime gate via USD_SYNTH compression_5d) as a properly layered overlay alpha rather than research-stage-only. No cross-leg state in this run -- each leg's strategy.py runs independently (the recycle layer cannot be expressed in per-symbol-independent execution model and remains in basket_sim research-stage)."
+  repeat_override_reason: "Idea 68 is the formal pipeline-grade BASELINE for the 6-pair USD basket weekly hold, distinct from idea 67 which was the 3-leg Phase-1 hypothesis sanity test. Composition differs (6 pairs vs 3), purpose differs (formal MPS validation as foundation for layered H2 overlay alpha vs original research-stage proof-of-concept). Prior MODEL=PORT findings cited by Idea Gate (signal-based composite portfolios, capital allocation theory, expectancy gate calibration) do not apply -- this is a pure time-windowed inventory basket with no signal logic, no filters, no regime gates, and no active SL/TP. Architecture-clean separation: pipeline owns the base basket validation; basket_sim owns the H2 overlay alpha validation."
+
+symbols:
+  - EURUSD
+  - GBPUSD
+  - AUDUSD
+  - USDJPY
+  - USDCAD
+  - USDCHF
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: weekly_monday_open
+  exit_logic:
+    type: weekly_friday_close
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

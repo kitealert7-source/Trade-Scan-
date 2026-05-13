@@ -2679,3 +2679,29 @@ ideas:
         attempt: 2
         directive_hash: 762b86ebda8a359d
         directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+  '68':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 68_PORT_FX_5M_PORT_S01_V1_P00
+        signature_hash: 762b86ebda8a359d
+        signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+        reserved_at_utc: '2026-05-13T11:30:00.000000+00:00'
+        patches:
+          P01:
+            directive_name: 68_PORT_FX_5M_PORT_S01_V1_P01
+            reserved_at_utc: '2026-05-13T07:06:26.236188+00:00'
+            directive_hash: 762b86ebda8a359d
+            signature_hash: 762b86ebda8a359d
+            directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+            signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+          P02:
+            directive_name: 68_PORT_FX_5M_PORT_S01_V1_P02
+            reserved_at_utc: '2026-05-13T07:21:28.251122+00:00'
+            directive_hash: 762b86ebda8a359d
+            signature_hash: 762b86ebda8a359d
+            directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+            signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+        attempt: 2
+        directive_hash: 762b86ebda8a359d
+        directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85

@@ -508,3 +508,11 @@ ideas:
     role: hypothesis_test
     instruments: FX
     status: active
+  '68':
+    family: PORT
+    title: "USD Basket Multi-Asset Weekly Hold Baseline -- 6 canonical USD pairs (EURUSD, GBPUSD, AUDUSD, USDJPY, USDCAD, USDCHF) at equal 0.01 lot. Long all six, Mon entry first 5m bar UTC, Fri exit on first 5m bar at-or-after 23:45 UTC. No recycle, no harvest, no regime gate, no signal logic, no filters. 50x ATR catastrophic backstop only; TP disabled. Pure inventory baseline -- single multi-asset directive run through standard pipeline (one per-symbol run per leg, then portfolio_evaluator aggregates). Tests whether the raw 6-pair USD-neutral weekly hold basket deserves permanent portfolio status (formal MPS row + capital wrapper + robustness suite). H2 recycle/harvest/regime-gate is a separate research overlay layer above this base."
+    class: portfolio_logic
+    regime: multi
+    role: baseline
+    instruments: FX
+    status: active

@@ -1,0 +1,69 @@
+test:
+  name: 68_PORT_FX_5M_PORT_S01_V1_P02
+  family: PORT
+  strategy: 68_PORT_FX_5M_PORT_S01_V1_P02
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-09-02"
+  end_date: "2026-05-09"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Full deep-history multi-asset weekly hold baseline -- 19 symbols (18 FX + XAUUSD) at equal 0.01 lot, long-only. All symbols with 5m history extending to 2016 (post-2026-05-13 bulk acquisition). Mon entry first 5m bar UTC, Fri exit on first 5m bar at-or-after 23:45 UTC. Identical engine and signature to P00/P01 (SIGNATURE HASH c2326ca9d3222f11); differs only in symbol set."
+  notes: "Consolidated single multi-asset directive covering the entire deep-history fleet. pipeline run_planner generates 19 independent per-symbol runs, portfolio_evaluator (Stage-4) aggregates the 19 trade ledgers into the basket-level Master Portfolio Sheet row. Purpose: unified base-run trade ledgers for the full deep-history fleet so recycle / harvest / regime-gate overlay (basket_sim research-stage) and pair-selection sweeps can draw from a single baseline rather than the disjoint P00 (6 USD pairs) / P01 (15 cross-rate / new-USD-pair) ledgers. Includes XAUUSD as the only non-FX symbol in the fleet -- its different ATR characteristics are absorbed by the 50x ATR catastrophic stop being non-binding under the weekly hold rule."
+  repeat_override_reason: "P02 supersedes P00 + P01 as the consolidated deep-history baseline. P00 covered 6 USD pairs (EURUSD, GBPUSD, AUDUSD, USDJPY, USDCAD, USDCHF). P01 covered 15 newly-deep-history pairs (cross-rates + AUDUSD/USDCAD/USDCHF/NZDUSD). P02's symbol set is the UNION: 18 FX pairs (all USD-pairs except none, all yen crosses, AUD crosses, EURGBP, GBPNZD) + XAUUSD. Prior PORT findings cited by Idea Gate do not apply -- pure time-windowed inventory basket with no signal logic, no filters, no regime gates, no active SL/TP. Architecture-clean separation: pipeline owns base basket validation; basket_sim owns the H2 overlay alpha validation. Reason for re-running rather than re-using P00+P01: a single aggregated portfolio row (with full-fleet pairwise correlation matrix) is required to evaluate the maximally-diverse basket structure; can't be computed from concatenating disjoint MPS rows."
+
+symbols:
+  - AUDJPY
+  - AUDNZD
+  - AUDUSD
+  - CADJPY
+  - CHFJPY
+  - EURAUD
+  - EURGBP
+  - EURJPY
+  - EURUSD
+  - GBPAUD
+  - GBPJPY
+  - GBPNZD
+  - GBPUSD
+  - NZDJPY
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - USDJPY
+  - XAUUSD
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: weekly_monday_open
+  exit_logic:
+    type: weekly_friday_close
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

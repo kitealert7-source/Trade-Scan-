@@ -1,0 +1,65 @@
+test:
+  name: 68_PORT_FX_5M_PORT_S01_V1_P01
+  family: PORT
+  strategy: 68_PORT_FX_5M_PORT_S01_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-09-02"
+  end_date: "2026-05-09"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "FX cross-basket weekly hold baseline -- 15 pairs at equal 0.01 lot, long-only. Pairs: AUDJPY, AUDNZD, AUDUSD, CADJPY, CHFJPY, EURAUD, EURGBP, EURJPY, GBPAUD, GBPJPY, GBPNZD, NZDJPY, NZDUSD, USDCAD, USDCHF. Mon entry first 5m bar UTC, Fri exit on first 5m bar at-or-after 23:45 UTC. Identical engine and signature to P00 (same SIGNATURE HASH c2326ca9d3222f11); differs only in symbol set."
+  notes: "Single multi-asset directive: pipeline run_planner generates 15 independent per-symbol runs, portfolio_evaluator (Stage-4) aggregates the 15 trade ledgers into the basket-level Master Portfolio Sheet row. Purpose: produce the formal-pipeline trade ledgers for the 15 pairs whose deep 5m history was acquired 2026-05-13 (project_fx_basket_deep_history.md). These ledgers will feed the recycle / harvest / regime-gate overlay layer (basket_sim research-stage) and provide formal-pipeline baselines for the extended pair-selection sweep (anti-correlation candidates now cover all yen crosses, all USD-touching pairs, and select non-USD crosses like EURGBP, EURAUD, AUDNZD, GBPNZD)."
+  repeat_override_reason: "P01 is a sibling baseline of P00 with a disjoint symbol set (no overlap between P00's 6 canonical USD pairs and P01's 15 newly-deep-history pairs except for AUDUSD, USDCAD, USDCHF which P00 already covered). P01 covers the cross-rate space (yen crosses, AUD crosses, EURGBP, GBPNZD, NZDUSD) that P00 cannot address by construction. Prior PORT findings cited by Idea Gate (signal-based composite portfolios, capital allocation, expectancy gates) do not apply -- this is a pure time-windowed inventory basket with no signal logic, no filters, no regime gates, and no active SL/TP. Architecture-clean separation: pipeline owns base basket validation; basket_sim owns the H2 overlay alpha validation."
+
+symbols:
+  - AUDJPY
+  - AUDNZD
+  - AUDUSD
+  - CADJPY
+  - CHFJPY
+  - EURAUD
+  - EURGBP
+  - EURJPY
+  - GBPAUD
+  - GBPJPY
+  - GBPNZD
+  - NZDJPY
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: weekly_monday_open
+  exit_logic:
+    type: weekly_friday_close
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
