@@ -751,13 +751,12 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     print(f"[BASKET] basket_id={parsed['basket']['basket_id']} "
           f"legs={[l['symbol'] for l in parsed['basket']['legs']]}")
 
-    # PHASE_5B_TODO: replace _synthetic_leg_data + _PassthroughStrategy with
-    # real DataFeed-loaded OHLC + per-leg strategy objects (Phase 5c).
-    leg_data = _synthetic_leg_data(parsed)
-    leg_strategies = {
-        leg["symbol"]: _PassthroughStrategy(leg["symbol"])
-        for leg in parsed["basket"]["legs"]
-    }
+    # Phase 5c: load real per-leg OHLC + USD_SYNTH compression_5d factor and
+    # build ContinuousHoldStrategy per leg. Falls back to synthetic-mode
+    # (passthrough strategy + zero-gate compression) if data loading fails
+    # — useful for smoke testing without real RESEARCH layer access.
+    leg_data, leg_strategies, data_mode = _load_basket_leg_inputs(parsed)
+    print(f"[BASKET] Data mode: {data_mode}")
     registry_path = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
 
     result = run_basket_pipeline(
@@ -800,21 +799,26 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     print(f"[BASKET] Phase 5b dispatch complete. "
           f"trades={trades_total}, recycles={len(result.recycle_events)}, "
           f"harvested_usd={result.harvested_total_usd:.2f}")
-    print("[BASKET] NOTE: synthetic-data mode — figures are placeholder until "
-          "Phase 5c wires real EUR+JPY 5m + USD_SYNTH features.")
+    if data_mode == "synthetic":
+        print("[BASKET] NOTE: synthetic-data mode — figures are placeholder. "
+              "Confirm DATA_INGRESS has populated MASTER_DATA + SYSTEM_FACTORS "
+              "for the basket symbols, then re-run.")
+    else:
+        print(f"[BASKET] Real RESEARCH data: {len(result.recycle_events)} recycle event(s); "
+              f"10-window basket_sim parity gate remains skipped pending Phase 5d.")
     return True
 
 
 class _PassthroughStrategy:
-    """Stand-in strategy for Phase 5b minimal dispatch — never emits signals.
+    """Stand-in strategy for synthetic-mode dispatch — never emits signals.
 
-    PHASE_5B_TODO: replace with per-leg `strategy.py` loaded from
-    strategies/<directive_id>/legs/<SYMBOL>/strategy.py in Phase 5c.
+    Used only when the real RESEARCH data layer is unavailable. Production
+    runs use tools.recycle_strategies.ContinuousHoldStrategy.
     """
     timeframe = "5m"
 
     def __init__(self, symbol: str) -> None:
-        self.name = f"phase5b_passthrough_{symbol}"
+        self.name = f"basket_passthrough_{symbol}"
 
     def prepare_indicators(self, df):  # noqa: D401
         return df
@@ -829,9 +833,8 @@ class _PassthroughStrategy:
 def _synthetic_leg_data(parsed: dict) -> dict:
     """Generate synthetic OHLC + compression_5d=5.0 (gate closed) for each leg.
 
-    PHASE_5B_TODO: replace with real OctaFx 5m loader joined to USD_SYNTH
-    features per Section 1m-ii. Until then dispatch path verifies the wiring
-    (run_basket_pipeline → vault → MPS row) without claiming real PnL.
+    Phase 5c fallback used only when real data loading fails. Production
+    path uses tools.basket_data_loader.load_basket_leg_data.
     """
     import numpy as np
     import pandas as pd
@@ -847,6 +850,44 @@ def _synthetic_leg_data(parsed: dict) -> dict:
             index=idx,
         )
     return out
+
+
+def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
+    """Phase 5c: load real OHLC + factor + strategies; fall back to synthetic.
+
+    Returns (leg_data, leg_strategies, mode) where mode is either
+    'real' (RESEARCH layer + ContinuousHoldStrategy) or 'synthetic'
+    (passthrough + closed-gate).
+
+    The fallback is intentional — keeps the dispatcher resilient to
+    missing/temporarily-unavailable data so the orchestrator pipeline
+    test surfaces a clear "synthetic-mode" banner instead of a hard
+    crash. Production runs MUST show 'real' mode to be meaningful.
+    """
+    symbols = [leg["symbol"] for leg in parsed["basket"]["legs"]]
+    test_block = parsed.get("test", {})
+    start_date = str(test_block.get("start_date", "2024-09-02"))
+    end_date = str(test_block.get("end_date", "2026-05-09"))
+    try:
+        from tools.basket_data_loader import load_basket_leg_data
+        from tools.recycle_strategies import ContinuousHoldStrategy
+        leg_data = load_basket_leg_data(symbols, start_date, end_date)
+        leg_strategies = {
+            leg["symbol"]: ContinuousHoldStrategy(
+                symbol=leg["symbol"],
+                direction=+1 if leg["direction"] == "long" else -1,
+            )
+            for leg in parsed["basket"]["legs"]
+        }
+        return leg_data, leg_strategies, "real"
+    except Exception as exc:
+        print(f"[BASKET] WARN real data load failed ({exc}); falling back to synthetic mode.")
+        leg_data = _synthetic_leg_data(parsed)
+        leg_strategies = {
+            leg["symbol"]: _PassthroughStrategy(leg["symbol"])
+            for leg in parsed["basket"]["legs"]
+        }
+        return leg_data, leg_strategies, "synthetic"
 
 
 def run_single_directive(directive_id, provision_only=False):
