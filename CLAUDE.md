@@ -84,6 +84,8 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 | Directive state, lifecycle, cleanup | `outputs/system_reports/10_State Lifecycle Management/Workflow_Design.md` |
 | Promoting a strategy to LIVE | `.claude/skills/promote/SKILL.md` |
 | Deployment doctrine (historical) | `outputs/system_reports/11_deployment_and_burnin/README.md` (index) |
+| Basket directive / RECYCLE family / H2 engine | `outputs/system_reports/01_system_architecture/H2_ENGINE_PROMOTION_PLAN.md` (LOCKED v11) — `tools/basket_runner.py`, `tools/basket_pipeline.py`, `tools/basket_data_loader.py`, `tools/recycle_strategies.py`, `tools/recycle_rules/`, `governance/recycle_rules/registry.yaml`. Dispatched by `tools/run_pipeline.py:_try_basket_dispatch` |
+| ABI manifest / engine_abi versioning | `outputs/system_reports/01_system_architecture/H2_ENGINE_PROMOTION_PLAN.md` §1l + §5.12 — single ABI on `engine_abi.v1_5_9`; `tools/abi_audit.py` triple-gate enforcer (pre-commit + CI + runtime) |
 | Directory/file authority | `outputs/system_reports/01_system_architecture/REPOSITORY_AUTHORITY_MAP.md` |
 | System audit or review | Browse `outputs/system_reports/` folder READMEs first — each subfolder has an index |
 | Ending a work session | `.claude/skills/session-close/SKILL.md` — commit, push, document, clean up |
