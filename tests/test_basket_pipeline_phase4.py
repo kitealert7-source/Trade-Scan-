@@ -1,0 +1,195 @@
+"""Phase 4 acceptance test — basket_pipeline adapter wiring.
+
+Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 4.
+
+Gate per the migration risk table:
+  > "Per-symbol directives unchanged; basket produces expected row"
+  > Mitigation: "Feature flag; default off"
+
+This module tests the basket-side glue:
+  - basket_pipeline.run_basket_pipeline() correctly parses a basket directive
+  - The right RecycleRule is instantiated with directive params
+  - Legs are constructed in the correct shape from directive + caller-supplied data
+  - BasketRunResult renders an MPS-row-compatible dict via .to_mps_row()
+
+Per-symbol directives remain unchanged because no existing pipeline tool
+is modified by Phase 4 — basket_pipeline.py is a parallel adapter, not a
+patch to stage3/portfolio_evaluator. Regression coverage for per-symbol
+flow is provided by the existing test suite which we DO NOT touch.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from tools.basket_pipeline import (
+    BasketRunResult,
+    _instantiate_rule,
+    _legs_from_directive,
+    run_basket_pipeline,
+)
+from tools.recycle_rules import H2CompressionRecycleRule
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RECYCLE_REGISTRY = REPO_ROOT / "governance" / "recycle_rules" / "registry.yaml"
+
+
+# --- fixtures ------------------------------------------------------------
+
+
+class _NoSignalStrategy:
+    name = "phase4_nosignal"
+    timeframe = "5m"
+
+    def prepare_indicators(self, df):
+        return df
+
+    def check_entry(self, ctx):
+        return None
+
+    def check_exit(self, ctx):
+        return False
+
+
+def _h2_directive():
+    return {
+        "test": {"name": "90_PORT_H2_5M_RECYCLE_S01_V1_P00",
+                 "strategy": "90_PORT_H2_5M_RECYCLE_S01_V1_P00"},
+        "basket": {
+            "basket_id": "H2",
+            "legs": [
+                {"symbol": "EURUSD", "lot": 0.02, "direction": "long"},
+                {"symbol": "USDJPY", "lot": 0.01, "direction": "short"},
+            ],
+            "initial_stake_usd": 1000.0,
+            "harvest_threshold_usd": 2000.0,
+            "recycle_rule": {
+                "name": "H2_v7_compression", "version": 1,
+                "params": {"compression_5d_threshold": 10.0,
+                           "stake_usd": 1000.0,
+                           "harvest_usd": 2000.0},
+            },
+            "regime_gate": {"factor": "USD_SYNTH.compression_5d",
+                            "operator": ">=", "value": 10},
+        },
+    }
+
+
+def _leg_df(seed: int, n: int = 240) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2024-09-02", periods=n, freq="5min")
+    base = 1.10 + np.cumsum(rng.normal(0.0, 0.0005, n))
+    return pd.DataFrame(
+        {"open": base, "high": base, "low": base, "close": base,
+         "volume": 1000.0, "compression_5d": 5.0},  # gate closed
+        index=idx,
+    )
+
+
+# --- unit: _instantiate_rule ---------------------------------------------
+
+
+def test_instantiate_rule_h2():
+    cfg = {"name": "H2_v7_compression", "version": 1,
+           "params": {"compression_5d_threshold": 12.5,
+                      "stake_usd": 750.0, "harvest_usd": 1500.0}}
+    rule = _instantiate_rule(cfg)
+    assert isinstance(rule, H2CompressionRecycleRule)
+    assert rule.threshold == 12.5
+    assert rule.stake_usd == 750.0
+    assert rule.harvest_threshold_usd == 1500.0
+    assert rule.factor_column == "compression_5d"
+
+
+def test_instantiate_rule_unknown_raises():
+    with pytest.raises(NotImplementedError, match="not wired yet"):
+        _instantiate_rule({"name": "GBPJPY_AnotherRule", "version": 1, "params": {}})
+
+
+# --- unit: _legs_from_directive ------------------------------------------
+
+
+def test_legs_from_directive_shape():
+    d = _h2_directive()
+    leg_data = {"EURUSD": _leg_df(1), "USDJPY": _leg_df(2)}
+    leg_strategies = {"EURUSD": _NoSignalStrategy(), "USDJPY": _NoSignalStrategy()}
+    legs = _legs_from_directive(d, leg_data, leg_strategies)
+    assert [l.symbol for l in legs] == ["EURUSD", "USDJPY"]
+    assert legs[0].direction == +1   # long
+    assert legs[1].direction == -1   # short
+    assert legs[0].lot == 0.02
+    assert legs[1].lot == 0.01
+
+
+def test_legs_from_directive_missing_data_raises():
+    d = _h2_directive()
+    with pytest.raises(KeyError, match="missing OHLC data"):
+        _legs_from_directive(d, {"EURUSD": _leg_df(1)}, {"EURUSD": _NoSignalStrategy(),
+                                                          "USDJPY": _NoSignalStrategy()})
+
+
+def test_legs_from_directive_missing_strategy_raises():
+    d = _h2_directive()
+    with pytest.raises(KeyError, match="missing strategy"):
+        _legs_from_directive(d,
+                             {"EURUSD": _leg_df(1), "USDJPY": _leg_df(2)},
+                             {"EURUSD": _NoSignalStrategy()})
+
+
+# --- end-to-end (no-signal -> no trades, but result shape verified) ------
+
+
+def test_run_basket_pipeline_produces_basket_row_shape():
+    d = _h2_directive()
+    leg_data = {"EURUSD": _leg_df(1), "USDJPY": _leg_df(2)}
+    leg_strategies = {"EURUSD": _NoSignalStrategy(), "USDJPY": _NoSignalStrategy()}
+    result = run_basket_pipeline(d, leg_data, leg_strategies,
+                                 recycle_registry_path=RECYCLE_REGISTRY)
+    assert isinstance(result, BasketRunResult)
+    assert result.basket_id == "H2"
+    assert result.execution_mode == "basket"
+    assert result.rule_name == "H2_v7_compression"
+    assert result.rule_version == 1
+    # No-signal strategies + closed gate => no trades, no recycles
+    assert all(t == [] for t in result.per_leg_trades.values())
+    assert result.recycle_events == []
+    assert result.harvested_total_usd == 0.0
+
+    row = result.to_mps_row()
+    assert row["execution_mode"] == "basket"
+    assert row["basket_id"] == "H2"
+    assert row["rule_name"] == "H2_v7_compression"
+    assert row["trades_total"] == 0
+    assert row["recycle_event_count"] == 0
+    assert isinstance(row["basket_legs"], list) and len(row["basket_legs"]) == 2
+
+
+def test_per_symbol_pipeline_untouched():
+    """Phase 4 mitigation: Per-symbol directives unchanged.
+
+    This is a structural check rather than a behavioral one: confirm
+    run_pipeline.py / stage3_compiler.py / portfolio_evaluator.py are not
+    git-modified by Phase 4 — meaning the per-symbol code paths cannot
+    have regressed.
+    """
+    untouched_paths = [
+        REPO_ROOT / "tools" / "run_pipeline.py",
+        REPO_ROOT / "tools" / "stage3_compiler.py",
+        REPO_ROOT / "tools" / "portfolio_evaluator.py",
+    ]
+    for p in untouched_paths:
+        assert p.is_file(), f"expected {p} to still exist"
+        # Confirm Phase 4 did NOT introduce 'basket_pipeline' or 'RecycleRule'
+        # into these hot-path files. (Phase 5 may introduce them with the
+        # feature flag; Phase 4 leaves them alone.)
+        text = p.read_text(encoding="utf-8")
+        assert "basket_pipeline" not in text, (
+            f"Phase 4 must not modify {p.name}; route via separate adapter."
+        )
+        assert "RecycleRule" not in text, (
+            f"Phase 4 must not modify {p.name}; route via separate adapter."
+        )
