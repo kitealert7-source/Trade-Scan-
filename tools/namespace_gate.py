@@ -28,10 +28,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.pipeline_utils import parse_directive
+from tools.basket_schema import is_basket_directive, validate_basket_block
 
 NAMESPACE_ROOT = PROJECT_ROOT / "governance" / "namespace"
 IDEA_REGISTRY_PATH = NAMESPACE_ROOT / "idea_registry.yaml"
 TOKEN_DICTIONARY_PATH = NAMESPACE_ROOT / "token_dictionary.yaml"
+RECYCLE_REGISTRY_PATH = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
 
 NAME_PATTERN = re.compile(
     r"^(?P<clone>C_)?"
@@ -228,6 +230,29 @@ def validate_namespace(directive_path: str | Path) -> dict[str, str]:
                 f"IDEA_METADATA_MISSING: idea_id='{idea_id}' missing required field '{field}'."
             )
 
+    # Basket-directive guard (Plan Phase 1):
+    #   * if model == RECYCLE, the directive MUST contain a `basket:` block.
+    #   * if a `basket:` block is present, validate it.
+    #   * the basket.basket_id MUST equal the SYMBOL slot of the filename.
+    has_basket = is_basket_directive(parsed)
+    if model == "RECYCLE" and not has_basket:
+        raise NamespaceValidationError(
+            "NAMESPACE_BASKET_REQUIRED: model='RECYCLE' but directive has no "
+            "top-level `basket:` block. RECYCLE strategies are multi-leg by "
+            "construction and require the basket schema (legs[], recycle_rule, "
+            "optional regime_gate)."
+        )
+    if has_basket:
+        basket_errors = validate_basket_block(
+            parsed,
+            recycle_registry_path=RECYCLE_REGISTRY_PATH,
+            name_symbol_slot=symbol,
+        )
+        if basket_errors:
+            raise NamespaceValidationError(
+                "NAMESPACE_BASKET_INVALID:\n  - " + "\n  - ".join(basket_errors)
+            )
+
     return {
         "strategy_name": strategy_name,
         "idea_id": idea_id,
@@ -240,6 +265,7 @@ def validate_namespace(directive_path: str | Path) -> dict[str, str]:
         "variant": m.group("variant"),
         "parent": m.group("parent"),
         "is_clone": "yes" if m.group("clone") else "no",
+        "is_basket": "yes" if has_basket else "no",
     }
 
 

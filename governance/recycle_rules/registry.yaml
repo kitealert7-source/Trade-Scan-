@@ -1,0 +1,36 @@
+# ════════════════════════════════════════════════════════════════════
+# RECYCLE RULES REGISTRY
+#
+# Plan reference: H2_ENGINE_PROMOTION_PLAN.md Phase 1 (Section 8).
+#
+# Every basket directive's `basket.recycle_rule.name` MUST appear in this
+# registry. namespace_gate / exec_preflight reject otherwise. Version is
+# bumped whenever the rule's *behavior* (not just defaults) changes —
+# bumping forces a new vault_id since the rule version is part of the
+# basket strategy hash.
+#
+# Append-only by convention. Removing a rule version after it has been
+# referenced by any vault is forbidden (would break audit replay).
+# ════════════════════════════════════════════════════════════════════
+version: 1
+rules:
+  - name: H2_v7_compression
+    version: 1
+    description: >
+      H2 (validated 2026-05-13): EUR-long + JPY-short basket with
+      profit recycle when USD_SYNTH.compression_5d >= threshold. On
+      recycle trigger, harvest accumulated profit at fixed stake, then
+      re-enter at original leg sizes. Source spec: research/usd_basket_recycle_research.md.
+    params:
+      compression_5d_threshold:
+        type: float
+        default: 10.0
+      stake_usd:
+        type: float
+        default: 1000.0
+      harvest_usd:
+        type: float
+        default: 2000.0
+    required_factors:
+      - USD_SYNTH.compression_5d
+    initial_consumer: tools/basket_runner.py  # Phase 2 deliverable

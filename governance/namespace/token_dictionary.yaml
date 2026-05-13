@@ -70,6 +70,7 @@ model:
   - KALFLIP
   - FVG
   - PSBRK
+  - RECYCLE
 filter:
   - ATRFILT
   - VOLFILT
