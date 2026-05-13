@@ -1,0 +1,54 @@
+test:
+  name: 68_PORT_FX_5M_PORT_S01_V1_P04
+  family: PORT
+  strategy: 68_PORT_FX_5M_PORT_S01_V1_P04
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: "2024-09-02"
+  end_date: "2026-05-09"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "Hypothesis-test control arm (structural drags only) -- 4 pairs at equal 0.01 lot, long-only. Symbol set restricted to STRUCTURAL_DRAG class from regime fingerprint analysis: USDCAD, EURAUD, USDCHF, GBPAUD. Identical engine and signature to P00/P01/P02/P03 (SIGNATURE HASH c2326ca9d3222f11); differs only in symbol set. Mon entry first 5m bar UTC, Fri exit on first 5m bar at-or-after 23:45 UTC. 50x ATR catastrophic backstop only; TP disabled."
+  notes: "Dual-purpose run: (1) pipeline validation on 4-symbol curated basket, (2) falsifiable hypothesis CONTROL ARM. Pairs with P03 (trend donors). Falsifiable prediction: P04 per-trade PnL < P02 per-trade PnL (19-symbol universe). If both predictions hold (P03 beats P02 AND P04 trails P02), regime classification is real signal. If only one holds, partial validation. If neither holds, classification is noise."
+  repeat_override_reason: "P04 is a sibling baseline of P02 with a strict subset of P02's symbols (4 of P02's 19). Composition was determined by post-hoc regime fingerprint classification on P02's trade data (tmp/regime_classification_18fx.csv, this session). Symbol filter is research output, not strategy logic; the strategy itself is byte-identical to P00/P01/P02/P03. Test purpose is hypothesis falsification of the regime classification methodology, control arm of the P03/P04 paired experiment."
+
+symbols:
+  - USDCAD
+  - EURAUD
+  - USDCHF
+  - GBPAUD
+
+indicators:
+  - indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: true
+  entry_logic:
+    type: weekly_monday_open
+  exit_logic:
+    type: weekly_friday_close
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: long_only
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01

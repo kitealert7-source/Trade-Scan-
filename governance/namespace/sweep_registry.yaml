@@ -2702,6 +2702,20 @@ ideas:
             signature_hash: 762b86ebda8a359d
             directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
             signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+          P03:
+            directive_name: 68_PORT_FX_5M_PORT_S01_V1_P03
+            reserved_at_utc: '2026-05-13T13:56:18.467218+00:00'
+            directive_hash: 762b86ebda8a359d
+            signature_hash: 762b86ebda8a359d
+            directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+            signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+          P04:
+            directive_name: 68_PORT_FX_5M_PORT_S01_V1_P04
+            reserved_at_utc: '2026-05-13T13:58:31.821086+00:00'
+            directive_hash: 762b86ebda8a359d
+            signature_hash: 762b86ebda8a359d
+            directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+            signature_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
         attempt: 2
         directive_hash: 762b86ebda8a359d
         directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
