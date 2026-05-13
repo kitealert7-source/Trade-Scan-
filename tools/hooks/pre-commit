@@ -96,6 +96,17 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+echo "[pre-commit] Verifying VALIDATION_DATASET frozen-corpus immutability (Section 1m-i)..."
+python "$REPO_ROOT/tools/corpus_audit.py" check-immutability
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. Frozen corpus mutation detected."
+    echo "  Section 1m-i: a corpus with manifest.frozen=true is permanently"
+    echo "  immutable. If the data must change, create a new corpus_id"
+    echo "  (e.g. h2_validator_baseline_v2) side-by-side. Never mutate v1."
+    exit 1
+fi
+
 echo "[pre-commit] Running gate test suite..."
 # Gate roster (each on its own line so diffs are easy to review):
 #   - test_idea_evaluation_gate.py     -- Stage -0.20 idea-gate logic
