@@ -81,6 +81,21 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+echo "[pre-commit] Verifying engine_abi manifests (triple-gate, layer 1: pre-commit)..."
+python "$REPO_ROOT/tools/abi_audit.py" --pre-commit
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. engine_abi manifest drift detected."
+    echo "  Fix: after a deliberate manifest edit, run:"
+    echo "    python tools/abi_audit.py --rehash --abi-version v1_5_9"
+    echo "  If a consumer file was edited, re-check the consumed_by paths in"
+    echo "  governance/engine_abi_v1_5_9_manifest.yaml."
+    echo ""
+    echo "  Plan: outputs/system_reports/01_system_architecture/H2_ENGINE_PROMOTION_PLAN.md"
+    echo "        Section 1l, Phase 0a, Section 6.8."
+    exit 1
+fi
+
 echo "[pre-commit] Running gate test suite..."
 # Gate roster (each on its own line so diffs are easy to review):
 #   - test_idea_evaluation_gate.py     -- Stage -0.20 idea-gate logic

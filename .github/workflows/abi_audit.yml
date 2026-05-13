@@ -1,0 +1,102 @@
+name: engine_abi audit
+
+# Triple-gate layer 2 (Plan Section 1l, Phase 0a Step 4): the same
+# `tools/abi_audit.py` runs in CI as in the pre-commit hook, but with
+# `--ci` mode on pushes to main so it can update `last_verified_commit`
+# and `last_verified_utc` for each verified export and commit the result
+# via an `abi-ci-bot` author. Pull requests run `--pre-commit` (read-only
+# verification — never writes back to the PR branch).
+#
+# Sibling-repo precondition:
+#   Consumer-path checks resolve `TS_Execution.*` to a sibling checkout.
+#   The job checks out TS_Execution beside Trade_Scan via a deploy key /
+#   token in `secrets.SIBLING_REPO_TOKEN`. Without that secret the
+#   sibling checkout will fail and the consumer checks will FAIL-CLOSED,
+#   which is the correct behavior — silent skipping on missing sibling
+#   would defeat the audit.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'engine_abi/**'
+      - 'governance/engine_abi_*_manifest.yaml'
+      - 'tools/abi_audit.py'
+      - 'tests/test_engine_abi_*.py'
+      - 'engines/**'
+      - 'engine_dev/universal_research_engine/v1_5_9/**'
+      - '.github/workflows/abi_audit.yml'
+  pull_request:
+    paths:
+      - 'engine_abi/**'
+      - 'governance/engine_abi_*_manifest.yaml'
+      - 'tools/abi_audit.py'
+      - 'tests/test_engine_abi_*.py'
+      - 'engines/**'
+      - 'engine_dev/universal_research_engine/v1_5_9/**'
+      - '.github/workflows/abi_audit.yml'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed only for the --ci auto-commit on main
+    env:
+      PYTHONHASHSEED: "0"
+
+    steps:
+      - name: Checkout Trade_Scan
+        uses: actions/checkout@v4
+        with:
+          path: Trade_Scan
+          fetch-depth: 0
+          token: ${{ secrets.SIBLING_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout TS_Execution (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/TS_Execution
+          path: TS_Execution
+          token: ${{ secrets.SIBLING_REPO_TOKEN }}
+          fetch-depth: 1
+        continue-on-error: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: Trade_Scan
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run identity tests
+        working-directory: Trade_Scan
+        run: python -m pytest tests/test_engine_abi_v1_5_9.py tests/test_engine_abi_ts_execution_boot.py -v
+
+      - name: Audit (PR — read-only)
+        if: github.event_name == 'pull_request'
+        working-directory: Trade_Scan
+        run: python tools/abi_audit.py --pre-commit
+
+      - name: Audit (push — verify + update last_verified)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: Trade_Scan
+        run: python tools/abi_audit.py --ci
+
+      - name: Commit last_verified updates
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: Trade_Scan
+        run: |
+          if git diff --quiet -- governance/engine_abi_v1_5_9_manifest.yaml; then
+            echo "No last_verified updates to commit."
+            exit 0
+          fi
+          git config user.name  "abi-ci-bot"
+          git config user.email "abi-ci-bot@users.noreply.github.com"
+          git add governance/engine_abi_v1_5_9_manifest.yaml
+          git commit -m "abi-ci: refresh last_verified_commit/utc"
+          git push

@@ -1,0 +1,165 @@
+# engine_abi.v1_5_9 — universal ABI manifest (TS_Execution + basket_runner + TS_SignalValidator)
+#
+# DO NOT EDIT MANUALLY without running `python tools/abi_audit.py --rehash --abi-version v1_5_9`.
+# Triple-gate CI enforces consistency:
+#   1. Pre-commit hook (tools/abi_audit.py --pre-commit --abi-version v1_5_9)
+#   2. CI pipeline check (tools/abi_audit.py --ci --abi-version v1_5_9)
+#   3. Runtime assertion (engine_abi/v1_5_9/__init__.py at import)
+# All three FAIL-CLOSED on divergence.
+#
+# Plan reference: outputs/system_reports/01_system_architecture/H2_ENGINE_PROMOTION_PLAN.md
+#                 Section 1l (single ABI on v1_5_9 post-v11) + Section 6.8 (manifest schema) +
+#                 Phase 0a Step 2.
+#
+# History: a parallel v1_5_3 manifest existed during Phase 0a recon. TS_Execution
+# was intentionally migrated to v1_5_9 in 2026-05-13, collapsing the dual-ABI
+# arrangement to a single ABI; v1_5_3 manifest + package were retired (plan v11).
+# Recon record: archive/2026-05-13_phase0a_v1_5_3_retirement/ABI_RECON_v1_5_3.md.
+abi_version: v1_5_9
+recon_source_commit: 790d1b2d8caca89560d394ae147a267726c59369
+recon_date: '2026-05-13'
+recon_doc: tmp/ABI_RECON_v1_5_9.md
+exports:
+- name: evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: function
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: ContextView
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: class
+  consumed_by:
+  - TS_Execution.harness.replay
+  - TS_Execution.src.main
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 4
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: BarState
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: dataclass
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: EngineConfig
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: dataclass
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: resolve_engine_config
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: function
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: resolve_exit
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: function
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: finalize_force_close
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: function
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: ENGINE_ATR_MULTIPLIER
+  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  type: constant
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: run_execution_loop
+  source_module: engine_dev.universal_research_engine.v1_5_9.execution_loop
+  type: function
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: ENGINE_VERSION
+  source_module: engine_dev.universal_research_engine.v1_5_9.execution_loop
+  type: constant
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: ENGINE_STATUS
+  source_module: engine_dev.universal_research_engine.v1_5_9.execution_loop
+  type: constant
+  consumed_by:
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 1
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: apply_regime_model
+  source_module: engines.regime_state_machine
+  type: function
+  consumed_by:
+  - TS_Execution.harness.replay
+  - TS_Execution.src.main
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 4
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: StrategyProtocol
+  source_module: engines.protocols
+  type: protocol
+  consumed_by:
+  - TS_Execution.src.strategy_loader
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 3
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: admit
+  source_module: engines.concurrency_gate
+  type: function
+  consumed_by:
+  - TS_Execution.src.execution_adapter
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 3
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: validate_cap
+  source_module: engines.concurrency_gate
+  type: function
+  consumed_by:
+  - TS_Execution.src.execution_adapter
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 3
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+- name: REGIME_CACHE_DIR
+  source_module: engines.regime_state_machine
+  type: constant
+  consumed_by:
+  - TS_Execution.src.pipeline
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
+  - Trade_Scan.tests.test_engine_abi_v1_5_9
+  consumer_count: 3
+  last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
+  last_verified_utc: '2026-05-13T10:17:41Z'
+manifest_sha256: 6709dee625bd19666be6b1202d381371995cd5b0a8ff725a78fb2d09c69f7400

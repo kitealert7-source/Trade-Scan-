@@ -1,9 +1,13 @@
 # H2 Engine Promotion Plan
 
 **Status:** LOCKED — executable architecture.
-**Revision:** 10 (dual ABI for engine version isolation + link/junction prohibition on VALIDATION_DATASET).
+**Revision:** 11 (single ABI on v1_5_9; v1_5_3 retired after TS_Execution intentionally migrated).
 **Date:** 2026-05-13.
-**Approval status:** human-approved as executable architecture; no further plan revision before Phase 0a execution.
+**Approval status:** human-approved as executable architecture.
+
+**Change log:**
+- v11 (2026-05-13): TS_Execution was intentionally migrated to `engine_abi.v1_5_9` in a parallel session, collapsing the dual-ABI arrangement to a single ABI. `engine_abi/v1_5_3/` package, `governance/engine_abi_v1_5_3_manifest.yaml`, `tests/test_engine_abi_v1_5_3.py`, and v1_5_3 references in `tools/abi_audit.py` + `.github/workflows/abi_audit.yml` + `tools/hooks/pre-commit` retired. Section 1l rewritten, Section 5.12 simplified, Phase 0a steps consolidated. No other architectural changes — corpus, decision protocol, phase map, and validator design are unchanged from v10. Recon record archived to `archive/2026-05-13_phase0a_v1_5_3_retirement/`.
+- v10 (2026-05-13): Dual ABI for engine version isolation + link/junction prohibition on VALIDATION_DATASET.
 
 ---
 
@@ -35,16 +39,15 @@ research + backtest         signal correctness gate         order routing
                             VALIDATION_DATASET/  (NEW frozen corpus, native FS only)
                                     ↑
            ↓                        ↓                              ↓
-           engine_abi/v1_5_9/                              engine_abi/v1_5_3/
-           (basket_runner +                                (TS_Execution legacy)
-            TS_SignalValidator)                                    ↑
-                       ↑                                            │
-                       │                                            │
-           ───── DUAL ABI (each consumer pins its engine version, CI-enforced) ──────
+           ─────────────────  engine_abi/v1_5_9/  ──────────────────
+           (TS_Execution + basket_runner + TS_SignalValidator —
+            single shared ABI, manifest- + triple-gate-CI enforced)
+                       ↑
+                       │
                        Python 3.11 (unchanged)
 ```
 
-Each repo answers exactly one question. Each consumer pins to its own engine ABI. Failure modes are isolated. Every input to the validator is hash-bound or version-pinned.
+Each repo answers exactly one question. All consumers pin to the same engine ABI (`v1_5_9`). The single-ABI shape is what landed in practice after v11; the dual-ABI provision from v10 is preserved by the versioning policy (Section 5.12) for whenever a future consumer needs to pin to a different engine. Failure modes are isolated. Every input to the validator is hash-bound or version-pinned.
 
 ---
 
@@ -54,38 +57,34 @@ Each repo answers exactly one question. Each consumer pins to its own engine ABI
 
 (Live execution contract, Protected Infrastructure, v1_5_9 evaluate_bar, basket_sim outside pipeline, PORT overload, informal cross-repo ABI, Deployment Unification Plan implementation, burn-in entanglement, engine contracts, ABI scope discipline, source/state separation.)
 
-### 1l. Dual ABI export manifests as governance artifacts (NEW — v10)
+### 1l. Single ABI on v1_5_9 as governance artifact (UPDATED — v11)
 
-The engine has two versions in active use:
-- **v1_5_3** — what TS_Execution currently imports. Legacy binding; never to be touched without explicit migration.
-- **v1_5_9** — frozen 2026-05-08 with `evaluate_bar()` callable; the surface basket_runner and TS_SignalValidator will use.
+The engine has one version in active use across all consumers:
+- **v1_5_9** — frozen 2026-05-08 with `evaluate_bar()` callable. Consumed by TS_Execution, basket_runner (Phase 2), and TS_SignalValidator (Phase 7a).
 
-**Decision: two parallel ABIs, not a hidden engine upgrade.**
+**Decision: single shared ABI on v1_5_9.**
 
-- `engine_abi/v1_5_3/` — re-exports the v1_5_3 surface for TS_Execution.
-- `engine_abi/v1_5_9/` — re-exports the v1_5_9 surface for basket_runner + TS_SignalValidator.
+- `engine_abi/v1_5_9/` — re-exports the v1_5_9 surface. Thin wrapper over `engine_dev.universal_research_engine.v1_5_9.*` and `engines.*`.
 
-Each consumer pins its own ABI version. TS_Execution stays on v1_5_3 with zero migration risk. New consumers use v1_5_9 cleanly. Future TS_Execution upgrade to v1_5_9 is a deliberate phase with its own byte-identity testing, NOT bundled into Phase 0a.
+**History (v10 → v11):** the v10 plan called for dual ABIs (`v1_5_3` for TS_Execution, `v1_5_9` for new consumers) on the assumption TS_Execution would stay on v1_5_3 for migration safety. During Phase 0a execution in a parallel session, TS_Execution was intentionally migrated to `engine_abi.v1_5_9` (deliberate decision, certified by `tests/test_engine_abi_ts_execution_boot.py`). With TS_Execution on v1_5_9 the dual-ABI rationale dissolved and the simpler single-ABI shape was adopted. The dual-ABI pattern remains the policy (Section 5.12) for the case where a future consumer needs a different engine version pinned.
 
-**Governance artifacts (two files):**
+**Governance artifact (one file):**
 
-- `governance/engine_abi_v1_5_3_manifest.yaml`
 - `governance/engine_abi_v1_5_9_manifest.yaml`
 
-Both follow the same schema (Section 6.8). Both hash-bound, structured, machine-readable.
+Follows Section 6.8 schema. Hash-bound, structured, machine-readable.
 
-**Triple-layer CI enforcement** applies to BOTH manifests independently:
-1. Pre-commit hook (each manifest checked separately)
-2. CI pipeline check (each manifest validated against its consumer)
-3. Runtime assertion at each `engine_abi` package import
+**Triple-layer CI enforcement** applies to the manifest:
+1. Pre-commit hook (`tools/abi_audit.py --pre-commit` — verifies hash, consumer paths, package `__all__` ordering)
+2. CI pipeline check (`tools/abi_audit.py --ci` — same checks; on push to `main`, updates `last_verified_commit` + `last_verified_utc` via `abi-ci-bot`)
+3. Runtime assertion at `engine_abi.v1_5_9` import (compares package `__all__` to manifest)
 
-Rule: if any layer detects divergence between any manifest and its actual exports, fail closed.
+Rule: any divergence between manifest and its actual exports fails closed.
 
-**Why dual is correct, not redundant:**
-- The export surfaces are tiny (single-digit symbols each).
-- Maintaining two manifests costs near-zero operationally.
-- Avoiding the dual model means Phase 0a includes a v1_5_3 → v1_5_9 engine migration with its own byte-identity certification — much larger scope, much higher risk.
-- Per-consumer ABI pinning is the textbook pattern for cross-repo contracts in multi-version environments.
+**Why single ABI is correct (post-v11):**
+- Only one consumer-set exists (TS_Execution + Trade_Scan internals + future basket_runner + future validator) and they're all happy on v1_5_9.
+- Maintaining a second manifest with no consumers is dead infrastructure that drifts silently.
+- The dual-ABI pattern is preserved as a *policy* (Section 5.12), available the moment a real second consumer needs a different engine version. We don't pay for a contract surface we don't currently use.
 
 ### 1m. Validation corpus as hash-bound frozen dataset (NEW)
 
@@ -236,7 +235,7 @@ POST-PROMOTION STATE ROOTS (target architecture):
 | **3aa** | **Silent-success pattern (Section 1n meta-pattern): "ran clean but produced nothing" hides in N corners of the new architecture** | **Every protocol step has an explicit failure signal. No silent skips. No silent no-ops. Cross-checked against the 10 prior incidents.** |
 | **3ab** | **Frozen corpus mutation ("fix one bad CSV later") silently invalidates ALL historical validator decisions referencing that corpus** | **Section 1m-i — Corpus Immutability invariant. Filesystem read-only after freeze. Runtime hash verification. CI rejects modifications. ONLY legal change is creating a new version.** |
 | **3ac** | **Over-sized corpora become operational baggage; storage scales linearly with strategies × versions** | **Section 1m-ii — Minimal-corpus sizing rule. Freeze only the (symbols × date_range × timeframes) the specific strategy uses. H2 corpus = EURUSD + USDJPY + USD_SYNTH only.** |
-| **3ad** | **Naming the ABI v1_5_9 while TS_Execution imports v1_5_3 creates a hidden engine upgrade in Phase 0a (massive scope creep, byte-identity risk across 6 engine versions)** | **Section 1l — DUAL ABI. `engine_abi/v1_5_3/` for TS_Execution, `engine_abi/v1_5_9/` for new consumers. No hidden migration. Each consumer pins its own version. Future TS_Execution upgrade is a deliberate phase with its own byte-identity test.** |
+| **3ad** | **Naming the ABI v1_5_9 while TS_Execution imports v1_5_3 would create a hidden engine upgrade in Phase 0a (massive scope creep, byte-identity risk across 6 engine versions)** | **Resolved in v11: TS_Execution explicitly migrated to v1_5_9 in Phase 0a with a dedicated boot smoke test (`tests/test_engine_abi_ts_execution_boot.py`); migration was NOT hidden, it was the deliberate work of Phase 0a Step 5. Single ABI on v1_5_9. The dual-ABI provision survives as a policy (Section 5.12) for the moment a future consumer needs a different engine version pinned.** |
 | **3ae** | **Symlink or NTFS junction in VALIDATION_DATASET path = silent multi-GB corpus loss when target gets deleted (precedent: 2026-05-07 incident)** | **Section 1m-iii — Junction/symlink prohibition. Native FS tree only. realpath check at validator startup. CI rejects junction-creation in corpus paths.** |
 
 ---
@@ -251,16 +250,16 @@ Option C remains recommended (parallel basket orchestrator over v1_5_9 via ABI).
 
 (5.1–5.10 unchanged from v6. 5.11 unchanged: DataFeed abstraction with ReplayDataFeed for Phase 7a, BrokerDataFeed for Phase 8.5.)
 
-### 5.12 ABI versioning policy (NEW — v10)
+### 5.12 ABI versioning policy (NEW — v10, refined — v11)
 
-Multiple engine ABI versions coexist side-by-side. Each consumer pins its own version. Inferred from the v10 dual ABI decision.
+Multiple engine ABI versions MAY coexist side-by-side. Each consumer pins its own version. The policy is general; the current instantiation happens to use a single ABI (`v1_5_9`) because all consumers converged on it during Phase 0a.
 
 - New engine version → new ABI namespace (`engine_abi/v1_5_10/`, etc.) created alongside existing.
 - Each ABI has its own manifest, its own CI gates, its own runtime assertion.
 - Promoting a consumer from one ABI version to another = deliberate phase with byte-identity testing.
-- Old ABIs retired ONLY when no consumer pins to them. Retirement is itself a deliberate governance action.
+- Old ABIs retired ONLY when no consumer pins to them. Retirement is itself a deliberate governance action — exactly what plan v11 did to `v1_5_3` (consumer count fell to zero after TS_Execution migration, so the package + manifest + tool plumbing were removed in the same commit).
 
-This pattern absorbs future engine refactors gracefully: each consumer migrates on its own schedule, never forced into a flag day. The dual ABI in this plan (v1_5_3 + v1_5_9) is the first instantiation; the policy is the general rule.
+This pattern absorbs future engine refactors gracefully: each consumer migrates on its own schedule, never forced into a flag day. The single ABI in this plan (`v1_5_9`) is the current state; the policy is the general rule and is enforced by `tools/abi_audit.py --dead-exports` flagging zero-consumer entries.
 
 ---
 
@@ -472,85 +471,78 @@ Phase 9     Matrix extension
 Phase 10    LIVE deployment (DEFERRED)
 ```
 
-### Phase 0a — ABI extraction (recon-first, manifest, triple-gate CI)
+### Phase 0a — ABI extraction (recon-first, manifest, triple-gate CI) — single ABI on v1_5_9 (UPDATED v11)
 
-**Step 1: Recon (READ-ONLY, ~½ day) — TWO recon documents**
+**Outcome (post-v11):** TS_Execution intentionally migrated to `engine_abi.v1_5_9` during Phase 0a, so the original dual-ABI work was collapsed to a single ABI before commit. The historical recon for v1_5_3 is archived but not retained as active governance. Steps below describe the work as actually executed.
 
-Recon must distinguish v1_5_3 imports (TS_Execution today) from v1_5_9 imports (future basket_runner + validator).
+**Step 1: Recon (READ-ONLY)**
 
 ```bash
-# What does TS_Execution import today? → drives engine_abi/v1_5_3/
-grep -rn 'from engines'    TS_Execution/
-grep -rn 'import engines'  TS_Execution/
-grep -rn 'from engine_dev.universal_research_engine.v1_5_3' TS_Execution/
+# What does TS_Execution import? → drives engine_abi/v1_5_9/ consumer list
+grep -rn 'from engine_abi\.v1_5_9'                TS_Execution/
+grep -rn 'from engine_dev.universal_research_engine.v1_5_9' TS_Execution/
 
-# What will basket_runner + validator need? → drives engine_abi/v1_5_9/
-# (Anticipated based on tools/research/basket_sim.py patterns + validator design)
+# What does basket_runner + validator need? → ditto
 grep -rn 'from engine_dev.universal_research_engine.v1_5_9' tools/research/
 ```
 
 Outputs:
-- `tmp/ABI_RECON_v1_5_3.md` (human rationale for TS_Execution's surface)
-- `tmp/ABI_RECON_v1_5_9.md` (human rationale for new-consumer surface)
+- `tmp/ABI_RECON_v1_5_9.md` (human rationale for the unified surface)
+- `archive/2026-05-13_phase0a_v1_5_3_retirement/ABI_RECON_v1_5_3.md` (historical — the dual-ABI alternative that was considered and dropped)
 
-**Step 2: Author TWO manifests**
+**Step 2: Author the manifest**
 
-- `governance/engine_abi_v1_5_3_manifest.yaml` — derived from `ABI_RECON_v1_5_3.md`
-- `governance/engine_abi_v1_5_9_manifest.yaml` — derived from `ABI_RECON_v1_5_9.md`
+- `governance/engine_abi_v1_5_9_manifest.yaml` — derived from `ABI_RECON_v1_5_9.md`. Section 6.8 schema. Every export pinned with `consumed_by` reference.
 
-Both follow Section 6.8 schema. Every export pinned with `consumed_by` reference.
+**Step 3: Create the package**
 
-**Step 3: Create TWO packages**
-
-- `engine_abi/v1_5_3/` — re-exports the v1_5_3 manifest list. Thin wrapper around `engines.*` and `engine_dev.universal_research_engine.v1_5_3.*`.
-- `engine_abi/v1_5_9/` — re-exports the v1_5_9 manifest list. Thin wrapper around `engine_dev.universal_research_engine.v1_5_9.*`.
-
-NO new code, NO logic, NO restructuring in either. Re-exports only.
+- `engine_abi/v1_5_9/` — re-exports the v1_5_9 manifest list. Thin wrapper around `engine_dev.universal_research_engine.v1_5_9.*` and `engines.*`. NO new code, NO logic, NO restructuring. Re-exports only.
 
 **Step 4: Install triple-gate CI**
 
-1. **Pre-commit hook** (`tools/abi_audit.py --pre-commit`):
+1. **Pre-commit hook** (`tools/hooks/pre-commit` → `tools/abi_audit.py --pre-commit`):
    - Block commits that change `engine_abi/v1_5_9/__init__.py` without manifest update.
    - Verify `consumer_count == len(consumed_by)` for every entry.
+   - Verify manifest_sha256 matches recomputed hash.
 
-2. **CI pipeline check** (`tools/abi_audit.py --ci`): run on every PR.
+2. **CI pipeline check** (`.github/workflows/abi_audit.yml` → `tools/abi_audit.py --ci`): run on every PR and push to main.
    - Hard-fail on manifest drift.
-   - For each export, walk each `consumed_by` path and confirm the import exists in the named consumer.
+   - For each export, walk each `consumed_by` path and confirm the import exists in the named consumer (checks both Trade_Scan and TS_Execution sibling checkout).
    - On success: update `last_verified_commit` and `last_verified_utc` via `abi-ci-bot` auto-commit.
    - On any failure: fail-closed.
 
-3. **Runtime assertion** (`engine_abi/v1_5_9/__init__.py`): on import, read manifest, walk own `__all__`, assert equality. Fail at import time.
+3. **Runtime assertion** (`engine_abi/v1_5_9/__init__.py`): on import, read manifest, compare `__all__` to declared exports list, fail at import time on mismatch.
 
 4. **Periodic dead-export audit** (`tools/abi_audit.py --dead-exports`):
-   - Run weekly via scheduled task (or quarterly via human review).
-   - Outputs `tmp/ABI_DEAD_EXPORTS.md` listing: orphans (consumer_count==0) and stale entries (last_verified > 90 days).
-   - Not fail-closed (informational); feeds into governance cleanup decisions.
+   - Outputs `tmp/ABI_DEAD_EXPORTS.md` listing orphans (consumer_count==0) and stale entries (last_verified > 90 days).
+   - Not fail-closed (informational); feeds governance cleanup. This is what would catch a future `v1_5_3`-style retirement candidate.
 
-All three primary layers fail-closed. No warnings. No logs.
+All three primary layers fail-closed.
 
-**Step 5: Migrate TS_Execution imports**
+**Step 5: TS_Execution import migration**
 
-`from engines.X import Y` → `from engine_abi.v1_5_3 import Y`.
-`from engine_dev.universal_research_engine.v1_5_3.execution_loop import Y` → `from engine_abi.v1_5_3 import Y`.
+`from engines.X import Y` → `from engine_abi.v1_5_9 import Y`.
+`from engine_dev.universal_research_engine.v1_5_9.evaluate_bar import Y` → `from engine_abi.v1_5_9 import Y`.
 
-**TS_Execution stays on engine v1_5_3.** No hidden engine migration. Future migration to v1_5_9 is a separate deliberate phase with its own byte-identity test.
+Done in a parallel session; verified by `tests/test_engine_abi_ts_execution_boot.py` (runs in CI via the abi-audit workflow). `harness/replay.py` lost its legacy `v1_5_3 → v1_5_9 ImportError` fallback; the boot test enforces no active `engine_abi.v1_5_3` imports exist in TS_Execution code.
 
-basket_runner and TS_SignalValidator (Phase 2+ and 7a+ respectively) import from `engine_abi.v1_5_9` only.
+basket_runner (Phase 2+) and TS_SignalValidator (Phase 7a+) import from `engine_abi.v1_5_9` only.
 
 **Step 6: Acceptance tests**
 
-- TS_Execution boots via `engine_abi.v1_5_3` (no engine migration; behavioral parity is automatic since the underlying v1_5_3 modules are unchanged).
-- Trade_Scan pipeline byte-identical for 1 known-good per-symbol directive via `engine_abi.v1_5_9` (uses v1_5_9 engine — already Phase-A-certified byte-identical to v1_5_8).
-- **Adversarial test (BOTH manifests):** deliberately add unauthorized export to `engine_abi/v1_5_3/__init__.py` AND separately to `engine_abi/v1_5_9/__init__.py`. Confirm all three CI layers fail-closed for each.
-- **Adversarial test (BOTH manifests):** deliberately remove authorized export from each manifest while keeping the export. Confirm all three CI layers fail-closed.
+- TS_Execution boots via `engine_abi.v1_5_9` — verified by `tests/test_engine_abi_ts_execution_boot.py` (7 tests).
+- Trade_Scan ABI identity verified by `tests/test_engine_abi_v1_5_9.py` (20 tests covering every export's `is`-identity to source module).
+- `python tools/abi_audit.py --pre-commit` exits 0 with the manifest declaring all 8 real consumers (`TS_Execution.src.execution_adapter`, `TS_Execution.src.main`, `TS_Execution.src.pipeline`, `TS_Execution.src.strategy_loader`, `TS_Execution.harness.replay`, `Trade_Scan.tests.test_engine_abi_v1_5_9`, `Trade_Scan.tests.test_engine_abi_ts_execution_boot`).
+- **Adversarial test:** deliberately add unauthorized export to `engine_abi/v1_5_9/__init__.py` → all three CI layers fail-closed.
+- **Adversarial test:** deliberately remove authorized export from manifest while keeping the export in `__all__` → all three CI layers fail-closed.
 
 **Acceptance artifacts published:**
-- `tmp/ABI_RECON_v1_5_3.md` (TS_Execution rationale)
-- `tmp/ABI_RECON_v1_5_9.md` (new-consumer rationale)
-- `governance/engine_abi_v1_5_3_manifest.yaml` (machine contract, legacy)
-- `governance/engine_abi_v1_5_9_manifest.yaml` (machine contract, new)
-- `tools/abi_audit.py` (enforcement tool, handles both manifests via `--abi-version` flag)
-- CI configuration showing all three gates active for both ABIs
+- `tmp/ABI_RECON_v1_5_9.md` (rationale for the unified surface)
+- `governance/engine_abi_v1_5_9_manifest.yaml` (machine contract)
+- `tools/abi_audit.py` (enforcement tool, `--abi-version v1_5_9`)
+- `.github/workflows/abi_audit.yml` (CI gate)
+- `tests/test_engine_abi_v1_5_9.py` + `tests/test_engine_abi_ts_execution_boot.py` (identity + boot)
+- `archive/2026-05-13_phase0a_v1_5_3_retirement/` (historical recon record + retirement rationale)
 
 **Scope discipline rule (binding):** if a reviewer cannot point to a current `consumed_by` reference that justifies an export, it doesn't go in the ABI. Period.
 
@@ -611,19 +603,19 @@ basket_runner and TS_SignalValidator (Phase 2+ and 7a+ respectively) import from
 
 | Repo / Path | Module | Change | Phase |
 |---|---|---|---|
-| Trade_Scan | `tmp/ABI_RECON_v1_5_3.md` (NEW audit artifact) | Recon rationale for TS_Execution legacy surface | 0a |
-| Trade_Scan | `tmp/ABI_RECON_v1_5_9.md` (NEW audit artifact) | Recon rationale for new-consumer surface | 0a |
-| Trade_Scan | `governance/engine_abi_v1_5_3_manifest.yaml` (NEW) | Machine-readable ABI contract for v1_5_3 | 0a |
+| Trade_Scan | `tmp/ABI_RECON_v1_5_9.md` (NEW audit artifact) | Recon rationale for the unified v1_5_9 surface (TS_Execution + basket_runner + validator) | 0a |
+| Trade_Scan | `archive/2026-05-13_phase0a_v1_5_3_retirement/` (NEW historical record) | Retired v1_5_3 recon doc + retirement rationale (v11) | 0a |
 | Trade_Scan | `governance/engine_abi_v1_5_9_manifest.yaml` (NEW) | Machine-readable ABI contract for v1_5_9 | 0a |
-| Trade_Scan | `engine_abi/v1_5_3/` (NEW) | Re-exports legacy engine surface for TS_Execution | 0a |
-| Trade_Scan | `engine_abi/v1_5_9/` (NEW) | Re-exports v1_5_9 surface for basket_runner + TS_SignalValidator | 0a |
-| Trade_Scan | `engine_dev/v1_5_3/`, `engine_dev/v1_5_9/` | UNCHANGED — ABI re-exports from these | 0a |
-| Trade_Scan | `tools/abi_audit.py` (NEW) | Triple-gate enforcement: pre-commit, CI (with last_verified maintenance), runtime; --dead-exports audit subcommand; `--abi-version v1_5_3|v1_5_9` flag handles both manifests | 0a |
-| Trade_Scan | `.pre-commit-config.yaml` | NEW hook entries: abi_audit --pre-commit --abi-version v1_5_3 AND --abi-version v1_5_9 | 0a |
-| Trade_Scan | CI config (e.g. `.github/workflows/*.yml`) | NEW step: abi_audit --ci for BOTH manifests | 0a |
-| TS_Execution | imports across strategy_loader, signal_bridge, guard_bridge | `engines.*` / `engine_dev.universal_research_engine.v1_5_3.*` → `engine_abi.v1_5_3.*` | 0a |
-| TS_Execution | `portfolio.yaml` | NEW field: `abi_version: v1_5_3` | 0a |
-| TS_Execution | `phase0_validation.py` | NEW: ABI assertion at startup (checks v1_5_3) | 0a |
+| Trade_Scan | `engine_abi/v1_5_9/` (NEW) | Re-exports v1_5_9 surface for ALL consumers | 0a |
+| Trade_Scan | `engine_dev/v1_5_9/` | UNCHANGED — ABI re-exports from this | 0a |
+| Trade_Scan | `tools/abi_audit.py` (NEW) | Triple-gate enforcement: pre-commit, CI (with last_verified maintenance), runtime; --dead-exports audit subcommand; `--abi-version v1_5_9` (single ABI post-v11) | 0a |
+| Trade_Scan | `tools/hooks/pre-commit` | NEW hook entry: `abi_audit.py --pre-commit` (loops over `_SUPPORTED_ABIS`) | 0a |
+| Trade_Scan | `.github/workflows/abi_audit.yml` (NEW) | CI step: identity tests + `abi_audit.py --ci`; on-push auto-commit via `abi-ci-bot` | 0a |
+| Trade_Scan | `tests/test_engine_abi_v1_5_9.py` (NEW) | 20 identity tests covering every export | 0a |
+| Trade_Scan | `tests/test_engine_abi_ts_execution_boot.py` (NEW) | 7 boot-smoke tests asserting TS_Execution actually imports from `engine_abi.v1_5_9` | 0a |
+| TS_Execution | imports across `src/main.py`, `src/execution_adapter.py`, `src/pipeline.py`, `src/strategy_loader.py`, `harness/replay.py` | `engines.*` / `engine_dev.universal_research_engine.v1_5_9.*` → `engine_abi.v1_5_9.*` (intentional migration, certified by boot test) | 0a |
+| TS_Execution | `portfolio.yaml` | NEW field: `abi_version: v1_5_9` | 0a |
+| TS_Execution | `phase0_validation.py` | NEW: ABI assertion at startup (checks v1_5_9) | 0a |
 | Trade_Scan | `governance/namespace/token_dictionary.yaml` | Add `RECYCLE` | 1 |
 | Trade_Scan | `governance/recycle_rules/registry.yaml` (NEW) | Rule version registry | 1 |
 | Trade_Scan | `tools/namespace_gate.py`, `tools/exec_preflight.py` | Multi-leg schema guards | 1 |
@@ -754,18 +746,20 @@ After 0a + 7a.0 land, the validator's output is a pure deterministic function of
 7. **Corpus source metadata (v8):** `source.broker`, `source.timezone`, `source.symbol_aliases`, `source.session_definitions` in manifest. Phase 8.5 broker validation reconciles via these fields explicitly.
 8. **Corpus immutability invariant (v9):** Section 1m-i — never overwrite, never patch, never replace in-place, never modify manifest, never re-use corpus_id, never delete. Enforced by filesystem permissions + runtime check + CI hook.
 9. **Minimal-corpus sizing rule (v9):** Section 1m-ii — freeze only the (symbols × date_range × timeframes) needed for the specific validation task. H2 corpus = EURUSD + USDJPY + USD_SYNTH only.
-10. **Dual ABI for engine version isolation (v10):** Section 1l — `engine_abi/v1_5_3/` for TS_Execution (legacy, no migration), `engine_abi/v1_5_9/` for basket_runner + TS_SignalValidator (new). Each consumer pins its own version. No hidden engine upgrade in Phase 0a.
-11. **ABI versioning policy (v10):** Section 5.12 — multiple ABI versions coexist side-by-side; per-consumer migration is deliberate phase with byte-identity testing; old ABIs retired only when no consumer pins to them.
+10. **Single ABI on v1_5_9 (v11; replaces v10 dual ABI):** Section 1l — `engine_abi/v1_5_9/` is shared by TS_Execution + basket_runner + TS_SignalValidator. TS_Execution was intentionally migrated to v1_5_9 during Phase 0a, certified by a dedicated boot smoke test. The dual-ABI option remains the policy for any future second consumer.
+11. **ABI versioning policy (v10, refined v11):** Section 5.12 — multiple ABI versions MAY coexist side-by-side; per-consumer migration is a deliberate phase with byte-identity testing; old ABIs retired only when no consumer pins to them. `dead-exports` audit subcommand flags retirement candidates.
 12. **Junction/symlink prohibition on VALIDATION_DATASET (v10):** Section 1m-iii — native filesystem only, no `mklink /J`, no `ln -s`, no NTFS reparse points. Enforced by creation-time scan + runtime realpath check + CI hook. Precedent: 2026-05-07 incident.
 
 **Invariants preserved:**
 - Invariant #11 (Protected Infrastructure): all modifications plan-+-approval bounded.
 - Invariant #27 (Per-Symbol Deployment Contract): unchanged at LIVE level.
-- v1_5_3 (TS_Execution) and v1_5_9 (Trade_Scan) engine hashes: unchanged.
+- v1_5_9 (all consumers) engine hash: unchanged.
 
-**Human approvals (LOCKED — all granted as of v10):**
+**Human approvals (LOCKED — current state as of v11):**
 
-✅ Phase 0a (recon-first dual ABI, manifests, triple-gate CI)
+✅ Phase 0a (recon-first, manifest, triple-gate CI) — built and verified
+✅ TS_Execution migration to v1_5_9 — deliberate, certified by boot smoke test
+✅ Single ABI on v1_5_9 (v11; replaces v10 dual ABI after migration eliminated the second consumer)
 ✅ TS_SignalValidator carve-out (separate repo)
 ✅ Handoff protocol (Section 6.5) as binding spec
 ✅ 7a → 7b → 8 phasing with ≥14-day observation windows
@@ -774,7 +768,6 @@ After 0a + 7a.0 land, the validator's output is a pure deterministic function of
 ✅ VALIDATION_DATASET/ as new immutable state root, Phase 7a.0 corpus freeze
 ✅ Future-proofing provisions in Section 5
 ✅ `RECYCLE` as new model token
-✅ Dual ABI (v10): engine_abi/v1_5_3/ + engine_abi/v1_5_9/
 ✅ Junction/symlink prohibition on VALIDATION_DATASET (v10)
 ✅ Operational concerns deferred to runbook (v10): validator process lifecycle, alert routing
 
