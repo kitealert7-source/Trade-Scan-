@@ -14,9 +14,17 @@ Each rule MUST:
   - be deterministic: same inputs at bar i -> same mutations.
 
 Available rules:
-  H2CompressionRecycleRule  - EUR-long + JPY-short with USD_SYNTH compression
-                              gate, fixed-stake recycle on profit harvest.
+  H2RecycleRule              - The validated H2 strategy: Variant G (winner-
+                               add-to-loser at $10 trigger) + $2k harvest exit
+                               + USD_SYNTH compression>=10 gate on adds.
+                               Registered as H2_recycle@1.
+  H2CompressionRecycleRule   - DEPRECATED. Misimplemented H2 mechanic
+                               (close+reopen-all on $2k floating threshold).
+                               Preserved for audit-replay of any vault that
+                               referenced H2_v7_compression@1. Do not use
+                               for new vaults.
 """
 from tools.recycle_rules.h2_compression import H2CompressionRecycleRule
+from tools.recycle_rules.h2_recycle import H2RecycleRule
 
-__all__ = ["H2CompressionRecycleRule"]
+__all__ = ["H2RecycleRule", "H2CompressionRecycleRule"]

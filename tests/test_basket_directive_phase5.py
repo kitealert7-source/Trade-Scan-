@@ -139,7 +139,7 @@ def test_directive_runs_through_basket_pipeline_with_synthetic_data():
         recycle_registry_path=RECYCLE_REGISTRY,
     )
     assert result.basket_id == "H2"
-    assert result.rule_name == "H2_v7_compression"
+    assert result.rule_name == "H2_recycle"
     assert result.rule_version == 1
     # Gate closed -> no recycle events
     assert result.recycle_events == []

@@ -1,0 +1,352 @@
+"""H2RecycleRule — faithful port of the research-validated H2 strategy.
+
+Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 3 (corrected v11.x).
+
+This is the CORRECT H2 implementation. The earlier H2CompressionRecycleRule
+(see h2_compression.py; registered as H2_v7_compression@1) misimplemented
+the mechanic — its zero-recycles result was a symptom of that bug, not a
+basket_sim divergence. This rule is the appended replacement.
+
+Reference (research-validated, 10/10 survival, +62.8% mean across 10
+historical 2y windows):
+  tools/research/basket_sim.py::simulate + default_recycle_trigger
+  tmp/eurjpy_recycle_v2_validation.py::CONFIGS H2 row
+
+H2 mechanic (Variant G + harvest exit + compression gate):
+
+  Per bar, in order:
+    1. Compute per-leg floating PnL + total equity = stake + realized + sum(floating)
+    2. HARVEST EXIT: if equity >= harvest_target_usd:
+         close all legs (realize floating into harvested_total), stop trading
+         exit_reason = "TARGET", harvested = True
+    3. FLOOR EXIT (optional): if equity <= equity_floor: stop, "FLOOR"
+    4. BLOWN: if equity <= 0: stop, "BLOWN"
+    5. TIME STOP (optional): if days since entry >= time_stop_days: stop, "TIME"
+    6. SAFETY FREEZE (block recycle this bar, no exit):
+         dd_breach    = floating_total < 0 AND |floating_total| >= dd_frac * equity
+         margin_breach = margin_used >= margin_frac * equity
+         regime_gate  = factor_column value < factor_min
+    7. RECYCLE TRIGGER (Variant G):
+         scan for (winner, loser) leg pair where
+           winner_floating >= trigger_usd AND winner.lot > 0
+           loser_floating < 0 AND loser.lot > 0
+         if found:
+           project margin after winner-reset + loser-add-lot;
+           if projected margin >= margin_frac * proj_equity -> freeze, skip
+           else commit:
+             realized_total += winner_floating
+             winner: leg.state.entry_price = current bar close (lot unchanged)
+             loser:  leg.state.entry_price = weighted-avg with add_lot
+                     leg.lot += add_lot
+
+The rule mutates BasketRunner.BasketLeg.{lot, state.entry_price, state.entry_index}
+and appends synthetic trade records into leg.trades, mirroring engine entry/exit
+trade shapes.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+import pandas as pd
+
+from tools.basket_runner import BasketLeg
+
+
+_RULE_NAME = "H2_recycle"
+_RULE_VERSION = 1
+_LOT_UNITS = 100_000  # FX standard lot
+
+# Per-symbol PnL + margin conventions for the H2 supported pairs.
+_USD_QUOTE = {"EURUSD"}        # PnL_USD = lot * units * (price - entry)
+_USD_BASE  = {"USDJPY"}        # PnL_USD = lot * units * (price - entry) / price
+
+
+def _leg_pnl_usd(leg: BasketLeg, current_price: float) -> float:
+    """Floating PnL for one leg given current bar close. Signed by direction."""
+    if not leg.state.in_pos:
+        return 0.0
+    entry = leg.state.entry_price
+    if leg.symbol in _USD_QUOTE:
+        return leg.direction * leg.lot * _LOT_UNITS * (current_price - entry)
+    if leg.symbol in _USD_BASE:
+        if current_price <= 0:
+            return 0.0
+        return leg.direction * leg.lot * _LOT_UNITS * (current_price - entry) / current_price
+    raise ValueError(
+        f"H2RecycleRule: symbol {leg.symbol!r} convention unknown. "
+        f"H2 supports {_USD_QUOTE | _USD_BASE} only."
+    )
+
+
+def _leg_margin_usd(leg: BasketLeg, current_price: float, leverage: float) -> float:
+    """Margin used for one leg given current bar close."""
+    if not leg.state.in_pos or leg.lot <= 0:
+        return 0.0
+    if leg.symbol in _USD_QUOTE:
+        return leg.lot * _LOT_UNITS * current_price / leverage
+    if leg.symbol in _USD_BASE:
+        return leg.lot * _LOT_UNITS / leverage
+    raise ValueError(f"H2RecycleRule: symbol {leg.symbol!r} convention unknown.")
+
+
+@dataclass
+class H2RecycleRule:
+    """The validated H2 strategy: Variant G + $2k harvest exit + compression gate."""
+
+    # Recycle parameters
+    trigger_usd: float = 10.0
+    add_lot: float = 0.01
+
+    # Account / harvest parameters
+    starting_equity: float = 1000.0
+    harvest_target_usd: float = 2000.0
+    equity_floor_usd: Optional[float] = None      # None = no floor stop
+    time_stop_days: Optional[int] = None          # None = no time stop
+
+    # Safety caps
+    dd_freeze_frac: float = 0.10
+    margin_freeze_frac: float = 0.15
+    leverage: float = 1000.0
+
+    # Regime gate (block recycle this bar when factor < min, NOT a position exit)
+    factor_column: str = "compression_5d"
+    factor_min: float = 10.0
+
+    name: str = _RULE_NAME
+    version: int = _RULE_VERSION
+
+    # ---- Telemetry / state (accessible after run() for tests) -----------
+    realized_total: float = 0.0
+    harvested_total_usd: float = 0.0
+    harvested: bool = False
+    exit_reason: Optional[str] = None
+    exit_ts: Optional[pd.Timestamp] = None
+    recycle_events: list[dict[str, Any]] = field(default_factory=list)
+
+    # Bookkeeping
+    _first_bar_ts: Optional[pd.Timestamp] = None
+    _n_dd_freezes: int = 0
+    _n_margin_freezes: int = 0
+    _n_regime_freezes: int = 0
+
+    def __post_init__(self) -> None:
+        if self.trigger_usd <= 0:
+            raise ValueError("H2RecycleRule.trigger_usd must be > 0.")
+        if self.add_lot <= 0:
+            raise ValueError("H2RecycleRule.add_lot must be > 0.")
+        if self.harvest_target_usd <= self.starting_equity:
+            raise ValueError(
+                f"H2RecycleRule.harvest_target_usd ({self.harvest_target_usd}) must exceed "
+                f"starting_equity ({self.starting_equity})."
+            )
+        if not (0 < self.dd_freeze_frac < 1):
+            raise ValueError("H2RecycleRule.dd_freeze_frac must be in (0, 1).")
+        if not (0 < self.margin_freeze_frac < 1):
+            raise ValueError("H2RecycleRule.margin_freeze_frac must be in (0, 1).")
+        if not self.factor_column:
+            raise ValueError("H2RecycleRule.factor_column must be a non-empty string.")
+
+    # ---- BasketRule.apply --------------------------------------------------
+
+    def apply(self, legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp) -> None:
+        # Once harvested, nothing else fires — basket is closed.
+        if self.harvested:
+            return
+
+        # Establish the entry timestamp for time-stop bookkeeping on first call.
+        if self._first_bar_ts is None:
+            self._first_bar_ts = bar_ts
+
+        # Read bar closes once per leg; abort cleanly on sparse data.
+        bar_closes: dict[str, float] = {}
+        for leg in legs:
+            try:
+                bar_closes[leg.symbol] = float(leg.df.loc[bar_ts, "close"])
+            except (KeyError, ValueError):
+                return
+
+        # Per-leg floating + totals
+        leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol]) for leg in legs}
+        floating_total = sum(leg_float.values())
+        equity = self.starting_equity + self.realized_total + floating_total
+
+        # ---- Exit checks (priority order) ----
+        if equity >= self.harvest_target_usd:
+            self._exit_all(legs, i, bar_ts, bar_closes, leg_float, reason="TARGET")
+            return
+        if self.equity_floor_usd is not None and equity <= self.equity_floor_usd:
+            self._exit_all(legs, i, bar_ts, bar_closes, leg_float, reason="FLOOR")
+            return
+        if equity <= 0:
+            self._exit_all(legs, i, bar_ts, bar_closes, leg_float, reason="BLOWN")
+            return
+        if (
+            self.time_stop_days is not None
+            and self._first_bar_ts is not None
+            and (bar_ts - self._first_bar_ts).days >= self.time_stop_days
+        ):
+            self._exit_all(legs, i, bar_ts, bar_closes, leg_float, reason="TIME")
+            return
+
+        # ---- Safety freezes (no exit; just skip recycle this bar) ----
+        margin_used = sum(_leg_margin_usd(leg, bar_closes[leg.symbol], self.leverage) for leg in legs)
+        dd_breach = (floating_total < 0) and (abs(floating_total) >= self.dd_freeze_frac * equity)
+        margin_breach = margin_used >= self.margin_freeze_frac * equity
+        if dd_breach:
+            self._n_dd_freezes += 1
+        if margin_breach:
+            self._n_margin_freezes += 1
+        if dd_breach or margin_breach:
+            return
+
+        # ---- Regime gate (only blocks recycle adds; existing positions stay) ----
+        primary_df = legs[0].df
+        if self.factor_column not in primary_df.columns:
+            return  # missing factor column -> fail-safe to no recycle
+        try:
+            factor_val = float(primary_df.loc[bar_ts, self.factor_column])
+        except (KeyError, ValueError, TypeError):
+            return
+        if pd.isna(factor_val) or factor_val < self.factor_min:
+            self._n_regime_freezes += 1
+            return
+
+        # ---- Recycle trigger (Variant G: winner-add-to-loser) ----
+        # Pick first eligible (winner, loser) pair; deterministic by leg order.
+        winner: Optional[BasketLeg] = None
+        loser: Optional[BasketLeg] = None
+        for leg in legs:
+            if not leg.state.in_pos or leg.lot <= 0:
+                continue
+            if leg_float[leg.symbol] >= self.trigger_usd:
+                winner = leg
+                break
+        if winner is None:
+            return
+        for leg in legs:
+            if leg is winner:
+                continue
+            if not leg.state.in_pos or leg.lot <= 0:
+                continue
+            if leg_float[leg.symbol] < 0:
+                loser = leg
+                break
+        if loser is None:
+            return
+
+        # ---- Projection check: margin after the commit ----
+        new_loser_lot = loser.lot + self.add_lot
+        # Margin: winner lot unchanged, loser lot grown
+        proj_margin = 0.0
+        for leg in legs:
+            lot = new_loser_lot if leg is loser else leg.lot
+            if leg.symbol in _USD_QUOTE:
+                proj_margin += lot * _LOT_UNITS * bar_closes[leg.symbol] / self.leverage
+            elif leg.symbol in _USD_BASE:
+                proj_margin += lot * _LOT_UNITS / self.leverage
+        # Equity after realize: realized += winner_floating; winner floating -> 0
+        proj_realized = self.realized_total + leg_float[winner.symbol]
+        proj_floating = sum(
+            leg_float[leg.symbol] for leg in legs if leg is not winner
+        )
+        proj_equity = self.starting_equity + proj_realized + proj_floating
+        if proj_margin >= self.margin_freeze_frac * proj_equity:
+            self._n_margin_freezes += 1
+            return
+
+        # ---- Commit the recycle ----
+        winner_realized = leg_float[winner.symbol]
+        self.realized_total = proj_realized
+
+        # Winner: realize floating, reset entry to current bar close (lot unchanged)
+        winner_old_entry = winner.state.entry_price
+        winner.state.entry_price = bar_closes[winner.symbol]
+        winner.state.entry_index = i
+
+        # Loser: weighted-avg new entry, lot grows
+        loser_old_avg = loser.state.entry_price
+        loser_old_lot = loser.lot
+        new_avg = (loser_old_lot * loser_old_avg + self.add_lot * bar_closes[loser.symbol]) / new_loser_lot
+        loser.state.entry_price = new_avg
+        loser.lot = new_loser_lot
+
+        # Record the recycle event
+        event = {
+            "bar_index":         i,
+            "bar_ts":            bar_ts,
+            "factor_value":      factor_val,
+            "winner_symbol":     winner.symbol,
+            "winner_realized":   winner_realized,
+            "winner_old_entry":  winner_old_entry,
+            "winner_new_entry":  bar_closes[winner.symbol],
+            "loser_symbol":      loser.symbol,
+            "loser_old_lot":     loser_old_lot,
+            "loser_new_lot":     new_loser_lot,
+            "loser_old_avg":     loser_old_avg,
+            "loser_new_avg":     new_avg,
+            "realized_total":    self.realized_total,
+            "floating_total":    floating_total,
+            "equity_before":     equity,
+        }
+        self.recycle_events.append(event)
+
+        # Also append a synthetic trade record for the winner's realized leg
+        # (closes the previous winner entry; the position is conceptually
+        # re-opened at the same bar at the new entry price — no exit trade
+        # records the re-open, just the close).
+        winner.trades.append({
+            "entry_index": winner.state.entry_index,  # newly reset == i
+            "exit_index":  i,
+            "direction":   winner.direction,
+            "entry_price": winner_old_entry,
+            "exit_price":  bar_closes[winner.symbol],
+            "exit_source": "BASKET_RECYCLE_WINNER",
+            "exit_reason": _RULE_NAME,
+            "pnl_usd":     winner_realized,
+        })
+
+    # ---- helpers --------------------------------------------------------
+
+    def _exit_all(
+        self,
+        legs: list[BasketLeg],
+        i: int,
+        bar_ts: pd.Timestamp,
+        bar_closes: dict[str, float],
+        leg_float: dict[str, float],
+        *,
+        reason: str,
+    ) -> None:
+        """Close every open leg, banking floating into harvested_total_usd."""
+        floating_total = sum(leg_float.values())
+        self.harvested_total_usd = (
+            self.starting_equity + self.realized_total + floating_total - self.starting_equity
+        )
+        self.harvested = True
+        self.exit_reason = reason
+        self.exit_ts = bar_ts
+        for leg in legs:
+            if leg.state.in_pos:
+                bc = bar_closes[leg.symbol]
+                leg.trades.append({
+                    "entry_index": leg.state.entry_index,
+                    "exit_index":  i,
+                    "direction":   leg.direction,
+                    "entry_price": leg.state.entry_price,
+                    "exit_price":  bc,
+                    "exit_source": f"BASKET_HARVEST_{reason}",
+                    "exit_reason": _RULE_NAME,
+                    "pnl_usd":     leg_float[leg.symbol],
+                })
+                leg.state.in_pos = False
+                leg.state.direction = 0
+                leg.state.entry_index = -1
+                leg.state.entry_price = 0.0
+                leg.state.partial_taken = False
+                leg.state.partial_leg = None
+                leg.state.stop_price_active = None
+                leg.state.entry_market_state = {}
+
+
+__all__ = ["H2RecycleRule"]

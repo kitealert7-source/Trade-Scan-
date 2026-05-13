@@ -31,7 +31,7 @@ from tools.basket_pipeline import (
     _legs_from_directive,
     run_basket_pipeline,
 )
-from tools.recycle_rules import H2CompressionRecycleRule
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -68,10 +68,18 @@ def _h2_directive():
             "initial_stake_usd": 1000.0,
             "harvest_threshold_usd": 2000.0,
             "recycle_rule": {
-                "name": "H2_v7_compression", "version": 1,
-                "params": {"compression_5d_threshold": 10.0,
-                           "stake_usd": 1000.0,
-                           "harvest_usd": 2000.0},
+                "name": "H2_recycle", "version": 1,
+                "params": {
+                    "trigger_usd": 10.0,
+                    "add_lot": 0.01,
+                    "starting_equity": 1000.0,
+                    "harvest_target_usd": 2000.0,
+                    "factor_column": "compression_5d",
+                    "factor_min": 10.0,
+                    "dd_freeze_frac": 0.10,
+                    "margin_freeze_frac": 0.15,
+                    "leverage": 1000.0,
+                },
             },
             "regime_gate": {"factor": "USD_SYNTH.compression_5d",
                             "operator": ">=", "value": 10},
@@ -93,16 +101,32 @@ def _leg_df(seed: int, n: int = 240) -> pd.DataFrame:
 # --- unit: _instantiate_rule ---------------------------------------------
 
 
-def test_instantiate_rule_h2():
-    cfg = {"name": "H2_v7_compression", "version": 1,
-           "params": {"compression_5d_threshold": 12.5,
-                      "stake_usd": 750.0, "harvest_usd": 1500.0}}
+def test_instantiate_rule_h2_recycle():
+    """H2_recycle@1 instantiates with directive params overriding registry defaults."""
+    cfg = {"name": "H2_recycle", "version": 1,
+           "params": {"trigger_usd": 12.5, "add_lot": 0.02,
+                      "starting_equity": 750.0, "harvest_target_usd": 1500.0,
+                      "factor_column": "compression_5d", "factor_min": 8.0,
+                      "dd_freeze_frac": 0.08, "margin_freeze_frac": 0.12,
+                      "leverage": 500.0}}
     rule = _instantiate_rule(cfg)
-    assert isinstance(rule, H2CompressionRecycleRule)
-    assert rule.threshold == 12.5
-    assert rule.stake_usd == 750.0
-    assert rule.harvest_threshold_usd == 1500.0
+    assert isinstance(rule, H2RecycleRule)
+    assert rule.name == "H2_recycle"
+    assert rule.version == 1
+    assert rule.trigger_usd == 12.5
+    assert rule.add_lot == 0.02
+    assert rule.starting_equity == 750.0
+    assert rule.harvest_target_usd == 1500.0
+    assert rule.factor_min == 8.0
     assert rule.factor_column == "compression_5d"
+
+
+def test_instantiate_rule_deprecated_v7_compression_raises():
+    """H2_v7_compression@1 is deprecated; instantiation must FAIL-CLOSED with a
+    clear migration message."""
+    cfg = {"name": "H2_v7_compression", "version": 1, "params": {}}
+    with pytest.raises(NotImplementedError, match="DEPRECATED"):
+        _instantiate_rule(cfg)
 
 
 def test_instantiate_rule_unknown_raises():
@@ -152,9 +176,10 @@ def test_run_basket_pipeline_produces_basket_row_shape():
     assert isinstance(result, BasketRunResult)
     assert result.basket_id == "H2"
     assert result.execution_mode == "basket"
-    assert result.rule_name == "H2_v7_compression"
+    assert result.rule_name == "H2_recycle"
     assert result.rule_version == 1
-    # No-signal strategies + closed gate => no trades, no recycles
+    # No-signal strategies + flat compression_5d=5.0 -> gate closed -> no recycles.
+    # Positions never open via the no-signal strategy, so per-leg trades are empty.
     assert all(t == [] for t in result.per_leg_trades.values())
     assert result.recycle_events == []
     assert result.harvested_total_usd == 0.0
@@ -162,7 +187,7 @@ def test_run_basket_pipeline_produces_basket_row_shape():
     row = result.to_mps_row()
     assert row["execution_mode"] == "basket"
     assert row["basket_id"] == "H2"
-    assert row["rule_name"] == "H2_v7_compression"
+    assert row["rule_name"] == "H2_recycle"
     assert row["trades_total"] == 0
     assert row["recycle_event_count"] == 0
     assert isinstance(row["basket_legs"], list) and len(row["basket_legs"]) == 2

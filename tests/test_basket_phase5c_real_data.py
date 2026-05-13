@@ -196,7 +196,7 @@ def test_dispatch_against_h2_directive_with_real_data(monkeypatch, tmp_path):
             f"trades_total={row['trades_total']}"
         )
         assert row["basket_id"] == "H2"
-        assert row["rule_name"] == "H2_v7_compression"
+        assert row["rule_name"] == "H2_recycle"
     finally:
         if vault_parent.exists():
             shutil.rmtree(vault_parent)

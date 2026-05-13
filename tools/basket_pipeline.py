@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule  # noqa: F401  (kept import for adversarial/legacy tests)
 
 
 # ---------------------------------------------------------------------------
@@ -77,24 +77,53 @@ class BasketRunResult:
 def _instantiate_rule(rule_cfg: dict[str, Any], factor_column: str | None = None):
     """Construct a RecycleRule instance from the directive's recycle_rule block.
 
-    Phase 4 supports H2_v7_compression only. Adding a new rule = adding a
-    new branch here + entry in governance/recycle_rules/registry.yaml.
+    Adding a new rule = adding a new branch here + entry in
+    governance/recycle_rules/registry.yaml.
+
+    Supported rules:
+      H2_recycle@1            — the validated H2 strategy (Variant G +
+                                $2k harvest + compression gate on adds)
+      H2_v7_compression@1     — DEPRECATED misimplementation; refuses to
+                                instantiate. Directives that still
+                                reference this rule must migrate to
+                                H2_recycle@1. Historical vaults that
+                                reference it remain audit-replayable by
+                                manually instantiating H2CompressionRecycleRule.
     """
     name = rule_cfg["name"]
     version = int(rule_cfg.get("version", 1))
     params = rule_cfg.get("params", {}) or {}
 
-    if name == "H2_v7_compression" and version == 1:
+    if name == "H2_recycle" and version == 1:
         # Pull params with sensible defaults matching the registry entry.
-        threshold = float(params.get("compression_5d_threshold", 10.0))
-        stake = float(params.get("stake_usd", 1000.0))
-        harvest = float(params.get("harvest_usd", 2000.0))
-        factor_col = factor_column or params.get("factor_column", "compression_5d")
-        return H2CompressionRecycleRule(
-            threshold=threshold,
-            stake_usd=stake,
-            harvest_threshold_usd=harvest,
-            factor_column=factor_col,
+        return H2RecycleRule(
+            trigger_usd=float(params.get("trigger_usd", 10.0)),
+            add_lot=float(params.get("add_lot", 0.01)),
+            starting_equity=float(params.get("starting_equity", 1000.0)),
+            harvest_target_usd=float(params.get("harvest_target_usd", 2000.0)),
+            equity_floor_usd=(
+                float(params["equity_floor_usd"])
+                if params.get("equity_floor_usd") is not None else None
+            ),
+            time_stop_days=(
+                int(params["time_stop_days"])
+                if params.get("time_stop_days") is not None else None
+            ),
+            dd_freeze_frac=float(params.get("dd_freeze_frac", 0.10)),
+            margin_freeze_frac=float(params.get("margin_freeze_frac", 0.15)),
+            leverage=float(params.get("leverage", 1000.0)),
+            factor_column=factor_column or params.get("factor_column", "compression_5d"),
+            factor_min=float(params.get("factor_min", 10.0)),
+        )
+
+    if name == "H2_v7_compression" and version == 1:
+        raise NotImplementedError(
+            "basket_pipeline: rule H2_v7_compression@1 is DEPRECATED — it "
+            "misimplemented the H2 mechanic and produced zero recycle events "
+            "in our 18-month smoke test. Migrate the directive to "
+            "recycle_rule.name=H2_recycle, version=1 (the validated "
+            "Variant G + $2k harvest + compression gate). The deprecated "
+            "rule class remains importable for replaying historical vaults."
         )
 
     raise NotImplementedError(

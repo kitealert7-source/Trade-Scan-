@@ -142,7 +142,7 @@ def test_basket_dispatch_emits_research_csv_row(monkeypatch, tmp_path):
     assert row["directive_id"] == directive_id
     assert row["basket_id"] == "H2"
     assert row["execution_mode"] == "basket"
-    assert row["rule_name"] == "H2_v7_compression"
+    assert row["rule_name"] == "H2_recycle"
     assert row["rule_version"] == "1"
     assert row["leg_count"] == "2"
     # Trade counts depend on data mode (synthetic vs real). The wiring

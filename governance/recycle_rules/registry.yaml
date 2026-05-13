@@ -17,10 +17,15 @@ rules:
   - name: H2_v7_compression
     version: 1
     description: >
-      H2 (validated 2026-05-13): EUR-long + JPY-short basket with
-      profit recycle when USD_SYNTH.compression_5d >= threshold. On
-      recycle trigger, harvest accumulated profit at fixed stake, then
-      re-enter at original leg sizes. Source spec: research/usd_basket_recycle_research.md.
+      DEPRECATED — misimplementation. This entry was originally intended to
+      be the H2 strategy but the rule code implements a DIFFERENT mechanic
+      (close-and-reopen ALL legs when total floating PnL >= harvest_usd,
+      gated by compression_5d). The real H2 (Variant G + $2k harvest exit
+      + compression>=10 gate on adds, 10/10 survival per
+      tmp/eurjpy_recycle_v2_validation.py) is now registered as
+      H2_recycle@1. This entry is preserved per the append-only invariant
+      so any historical vault referencing it remains audit-replayable.
+      DO NOT use this rule for new vaults.
     params:
       compression_5d_threshold:
         type: float
@@ -34,3 +39,56 @@ rules:
     required_factors:
       - USD_SYNTH.compression_5d
     initial_consumer: tools/basket_runner.py  # Phase 2 deliverable
+    deprecated: true
+    superseded_by: H2_recycle@1
+
+  - name: H2_recycle
+    version: 1
+    description: >
+      H2 strategy (research-validated 10/10 survival, +62.8% mean across 10
+      historical 2-year windows). EUR-long 0.02 + USD/JPY-short 0.01 starter,
+      $1k stake, 1:1000 leverage. Variant G mechanic: when winner-leg floating
+      PnL >= $10 AND loser-leg floating < 0, close winner (realize PnL into
+      cash), ADD 0.01 lot to loser (weighted-avg new entry, lot grows).
+      USD_SYNTH.compression_5d gate (default >=10.0) BLOCKS the add when the
+      regime is non-trending. Safety caps: DD freeze at 10% of equity, margin
+      freeze at 15% of equity. Harvest exit at $2k equity (close all, stop).
+      Optional floor exit and time-stop available.
+      Reference: tmp/eurjpy_recycle_v2_validation.py (CONFIGS H2 row).
+    params:
+      trigger_usd:
+        type: float
+        default: 10.0
+      add_lot:
+        type: float
+        default: 0.01
+      starting_equity:
+        type: float
+        default: 1000.0
+      harvest_target_usd:
+        type: float
+        default: 2000.0
+      equity_floor_usd:
+        type: float
+        default: null      # null disables the floor
+      time_stop_days:
+        type: int
+        default: null      # null disables the time stop
+      dd_freeze_frac:
+        type: float
+        default: 0.10
+      margin_freeze_frac:
+        type: float
+        default: 0.15
+      leverage:
+        type: float
+        default: 1000.0
+      factor_column:
+        type: str
+        default: compression_5d
+      factor_min:
+        type: float
+        default: 10.0
+    required_factors:
+      - USD_SYNTH.compression_5d
+    initial_consumer: tools/basket_runner.py
