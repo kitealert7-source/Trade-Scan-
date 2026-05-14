@@ -826,6 +826,30 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         df_trades.to_csv(backtests_csv, index=False)
         print(f"[BASKET] Tradelevel CSV: {backtests_csv} ({len(df_trades)} rows)")
 
+        # Phase 5b.3a — fill the per-window report stack (results_standard,
+        # results_risk, results_yearwise, results_basket, metrics_glossary,
+        # bar_geometry, metadata/run_metadata, REPORT_<id>.md). Without
+        # these, the basket backtests/ folder has only `raw/results_tradelevel.csv`
+        # while per-symbol folders have ~7 files. This block closes that gap.
+        try:
+            from tools.basket_report import write_per_window_report_artifacts
+            from engine_abi.v1_5_9 import ENGINE_VERSION as _engine_version
+            stake = float(parsed.get("basket", {}).get("initial_stake_usd", 1000.0))
+            written = write_per_window_report_artifacts(
+                out_dir=backtests_dir.parent,  # parent of raw/ is the directive folder
+                run_id=run_id,
+                directive_id=directive_id,
+                basket_result=result,
+                df_trades=df_trades,
+                parsed_directive=parsed,
+                engine_version=str(_engine_version),
+                starting_equity=stake,
+            )
+            print(f"[BASKET] Per-window report: {len(written)} files "
+                  f"(REPORT.md, results_standard/risk/yearwise/basket, glossary, bar_geometry, metadata)")
+        except Exception as exc:
+            print(f"[BASKET] WARN per-window report emit failed: {exc}")
+
         # run_registry.json entry (basket-flavored). Direct write avoids
         # log_run_to_registry's run_state.json dependency, which doesn't
         # apply to the basket short-circuit path.

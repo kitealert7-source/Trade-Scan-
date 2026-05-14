@@ -269,6 +269,15 @@ def test_dispatch_produces_all_four_artifact_paths(monkeypatch, tmp_path):
         # Legacy research CSV still appended (transition support)
         legacy_csv = fake_state / "research" / "basket_runs.csv"
         assert legacy_csv.is_file()
+
+        # Phase 5b.3a — per-window report stack lands in the directive folder
+        directive_dir = fake_state / "backtests" / f"{directive_id}_H2"
+        assert (directive_dir / f"REPORT_{directive_id}.md").is_file()
+        for fname in ("results_standard.csv", "results_risk.csv",
+                      "results_yearwise.csv", "results_basket.csv",
+                      "metrics_glossary.csv", "bar_geometry.json"):
+            assert (directive_dir / "raw" / fname).is_file(), f"missing raw/{fname}"
+        assert (directive_dir / "metadata" / "run_metadata.json").is_file()
     finally:
         if vault_parent.exists():
             shutil.rmtree(vault_parent)
