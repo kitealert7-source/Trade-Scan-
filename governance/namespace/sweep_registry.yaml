@@ -2719,3 +2719,78 @@ ideas:
         attempt: 2
         directive_hash: 762b86ebda8a359d
         directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
+  '90':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P00
+        signature_hash: 796c5b9ab8a0811f
+        signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+        reserved_at_utc: '2026-05-13T13:30:00.000000+00:00'
+        patches:
+          P01:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P01
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P02:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P02
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P03:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P03
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P04:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P04
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P05:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P05
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P06:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P06
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P07:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P07
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P08:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P08
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+          P09:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P09
+            reserved_at_utc: '2026-05-14T03:05:59.567814+00:00'
+            directive_hash: 796c5b9ab8a0811f
+            signature_hash: 796c5b9ab8a0811f
+            directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+            signature_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0
+        attempt: 2
+        directive_hash: 796c5b9ab8a0811f
+        directive_hash_full: 796c5b9ab8a0811f91d770f5445937dddfe65e57ad5e3f30bf5b1dae0c67bff0

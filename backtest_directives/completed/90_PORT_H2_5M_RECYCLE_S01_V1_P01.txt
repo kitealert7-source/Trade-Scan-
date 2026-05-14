@@ -1,0 +1,106 @@
+test:
+  name: 90_PORT_H2_5M_RECYCLE_S01_V1_P01
+  family: PORT
+  strategy: 90_PORT_H2_5M_RECYCLE_S01_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2016-09-05'
+  end_date: '2018-09-07'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: >
+    H2 recycle basket. EUR-long 0.02 + USD/JPY-short 0.01. Variant G mechanic: when
+    winner-leg floating >= $10 AND loser-leg < 0, close winner (realize cash) and ADD
+    0.01 lot to loser at weighted-avg entry. USD_SYNTH.compression_5d >= 10 gates the
+    ADD (blocks in non-trending regimes). Harvest exit when account equity reaches
+    $2,000 (close all, stop). DD freeze at 10% of equity, margin freeze at 15%.
+    Reference: tmp/eurjpy_recycle_v2_validation.py (CONFIGS H2 row); research validation:
+    10/10 survival, +62.8% mean across 10 historical 2-year windows.
+    Rule: governance/recycle_rules/registry.yaml -> H2_recycle@1 (the V7 entry is
+    a deprecated misimplementation; do not reference it from new directives).
+  notes: >
+    Phase 5d.1 parity run — window: A_2016-09_to_2018-09_Brexit_Trump. Phase 5a (architectural acceptance): this directive validates through namespace_gate + basket_schema +
+    run_basket_pipeline (with synthetic data) per tests/test_basket_directive_phase5.py. Phase 5b (live runtime dispatch
+    via run_pipeline.py + write into Master_Portfolio_Sheet.xlsx) is a separate phase that modifies Protected
+    Infrastructure. Until Phase 5b lands, this directive runs programmatically only — `python tools/run_pipeline.py
+    90_PORT_H2_5M_RECYCLE_S01_V1_P01` will not yet dispatch to basket_pipeline. ABI: engine_abi.v1_5_9 (plan v11).
+
+# Multi-leg basket — symbols field lists every leg's symbol for downstream
+# data ingestion. The actual per-leg execution rules live in `basket.legs[*]`.
+symbols:
+- EURUSD
+- USDJPY
+
+indicators:
+- indicators.volatility.atr
+
+execution_rules:
+  # Basket-level orchestration handled by tools/basket_runner.py +
+  # tools/recycle_rules/h2_recycle.py — these execution_rules fields are
+  # the catastrophic-safety net (per-leg ATR stop only), not the primary
+  # exit logic. Primary exits are emitted by H2RecycleRule on the
+  # $2k-equity harvest target (BASKET_HARVEST_TARGET trade); the
+  # recycle event itself only realizes the winner-leg cash and grows the
+  # loser-leg lot (no exit trade on the loser; BASKET_RECYCLE_WINNER on
+  # the winner).
+  pyramiding: false
+  entry_when_flat_only: false   # multi-leg basket — both legs open continuously
+  reset_on_exit: false
+  entry_logic:
+    type: basket_open_at_start
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed   # legs carry their own direction in basket.legs
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  # Per-leg lots live in basket.legs[*].lot — this field is required by the
+  # legacy schema; baskets ignore it at execution time.
+  lots: 0.01
+
+basket:
+  basket_id: H2
+  legs:
+    - symbol: EURUSD
+      lot: 0.02
+      direction: long
+    - symbol: USDJPY
+      lot: 0.01
+      direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 2000.0
+  recycle_rule:
+    name: H2_recycle
+    version: 1
+    params:
+      trigger_usd: 10.0
+      add_lot: 0.01
+      starting_equity: 1000.0
+      harvest_target_usd: 2000.0
+      factor_column: compression_5d
+      factor_min: 10.0
+      dd_freeze_frac: 0.10
+      margin_freeze_frac: 0.15
+      leverage: 1000.0
+  regime_gate:
+    factor: USD_SYNTH.compression_5d
+    operator: '>='
+    value: 10

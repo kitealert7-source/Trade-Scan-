@@ -52,6 +52,7 @@ class BasketRunResult:
     harvested_total_usd:    float = 0.0
     rule_name:              str = ""
     rule_version:           int = 0
+    exit_reason:            str = ""   # TARGET | FLOOR | BLOWN | TIME | "" (still open)
 
     def to_mps_row(self) -> dict[str, Any]:
         """Render a single Master_Portfolio_Sheet-compatible row.
@@ -210,6 +211,7 @@ def run_basket_pipeline(directive: dict[str, Any],
         harvested_total_usd=rule.harvested_total_usd,
         rule_name=rule.name,
         rule_version=rule.version,
+        exit_reason=str(getattr(rule, "exit_reason", "") or ""),
     )
 
 
