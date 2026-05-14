@@ -782,30 +782,113 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         leg_trades=dict(result.per_leg_trades),
         recycle_events=list(result.recycle_events),
     )
+    vault_dir = None  # may stay None if vault write fails — Path B block handles it
     try:
         vault_dir = write_basket_vault(vault_parent, payload)
         print(f"[BASKET] Vault written: {vault_dir}")
     except Exception as exc:
         print(f"[BASKET] WARN vault write failed: {exc}")
 
-    # Append basket row to research CSV (separate from per-symbol MPS;
-    # Phase 5c may promote this to a basket-aware MPS column set).
+    # ---- Path B / Phase 5b.2 — discoverable artifacts in the standard layout ----
+    # Goal: a basket run shows up alongside per-symbol runs in:
+    #   * TradeScan_State/runs/<run_id>/data/results_tradelevel.csv
+    #   * TradeScan_State/backtests/<directive_id>_<basket_id>/raw/results_tradelevel.csv
+    #   * TradeScan_State/registry/run_registry.json
+    #   * Master_Portfolio_Sheet.xlsx (Baskets sheet)
+    # Without this, basket runs hide in DRY_RUN_VAULT/baskets/ and a research-
+    # only CSV — the user's principle: "results must be discoverable later,
+    # not just produced." The legacy basket_runs.csv writer is preserved during
+    # the transition (see header comment on that file).
+    run_id = None
+    try:
+        from tools.basket_ledger import basket_result_to_tradelevel_df
+        from tools.portfolio.basket_ledger_writer import append_basket_row_to_mps
+        from tools.pipeline_utils import generate_run_id
+        from config.path_authority import TRADE_SCAN_STATE
+        from datetime import datetime, timezone
+
+        basket_id = parsed["basket"]["basket_id"]
+        run_id, _content_hash = generate_run_id(path, symbol=basket_id)
+        backtests_dir = TRADE_SCAN_STATE / "backtests" / f"{directive_id}_{basket_id}" / "raw"
+        backtests_dir.mkdir(parents=True, exist_ok=True)
+        runs_dir = TRADE_SCAN_STATE / "runs" / run_id / "data"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build per-symbol-shape tradelevel DataFrame and write to BOTH
+        # locations (runs/ for the per-run snapshot, backtests/ for the
+        # discovery-friendly per-directive folder).
+        df_trades = basket_result_to_tradelevel_df(
+            result, run_id=run_id, directive_id=directive_id, leg_data=leg_data,
+        )
+        runs_csv = runs_dir / "results_tradelevel.csv"
+        backtests_csv = backtests_dir / "results_tradelevel.csv"
+        df_trades.to_csv(runs_csv, index=False)
+        df_trades.to_csv(backtests_csv, index=False)
+        print(f"[BASKET] Tradelevel CSV: {backtests_csv} ({len(df_trades)} rows)")
+
+        # run_registry.json entry (basket-flavored). Direct write avoids
+        # log_run_to_registry's run_state.json dependency, which doesn't
+        # apply to the basket short-circuit path.
+        from tools.system_registry import _load_registry, _save_registry_atomic
+        reg = _load_registry()
+        if run_id not in reg:
+            reg[run_id] = {
+                "run_id": run_id,
+                "tier": "basket",
+                "status": "BASKET_COMPLETE",
+                "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "directive_id": directive_id,
+                "directive_hash": _content_hash,
+                "artifact_hash": "",  # basket vault hash not yet schematized; Phase 5b.3
+                "basket_id": basket_id,
+                "execution_mode": "basket",
+            }
+            _save_registry_atomic(reg)
+            print(f"[BASKET] run_registry entry: {run_id}")
+
+        # Append to MPS Baskets sheet (the actual MPS file users open).
+        try:
+            vault_path_str = ""
+            if vault_dir is not None:
+                try:
+                    vault_path_str = str(vault_dir.relative_to(_DRY_RUN_VAULT.parent))
+                except (ValueError, AttributeError):
+                    vault_path_str = str(vault_dir)
+            mps_path = append_basket_row_to_mps(
+                result, run_id=run_id, directive_id=directive_id,
+                backtests_path=str(backtests_csv.relative_to(TRADE_SCAN_STATE)),
+                vault_path=vault_path_str,
+            )
+            print(f"[BASKET] MPS Baskets row: {mps_path}")
+        except Exception as exc:
+            print(f"[BASKET] WARN MPS Baskets append failed: {exc}")
+
+    except Exception as exc:
+        # Path B failure must NOT swallow the run — log + continue. The
+        # vault + research CSV still landed; future analysis can recover.
+        import traceback
+        print(f"[BASKET] WARN Path B (standard artifacts) failed: {exc}")
+        print(f"[BASKET]   {traceback.format_exc().splitlines()[-1]}")
+
+    # Append basket row to legacy research CSV (Phase 5b.1 — slated for
+    # retirement after the Baskets MPS sheet stabilizes; review 2026-06-14).
     try:
         csv_path = append_basket_row_to_research_csv(result, directive_id=directive_id)
-        print(f"[BASKET] Research row appended: {csv_path}")
+        print(f"[BASKET] Research row appended (LEGACY): {csv_path}")
     except Exception as exc:
-        print(f"[BASKET] WARN MPS append failed: {exc}")
+        print(f"[BASKET] WARN legacy research CSV append failed: {exc}")
 
-    print(f"[BASKET] Phase 5b dispatch complete. "
+    print(f"[BASKET] Phase 5b.2 dispatch complete. "
           f"trades={trades_total}, recycles={len(result.recycle_events)}, "
-          f"harvested_usd={result.harvested_total_usd:.2f}")
+          f"harvested_usd={result.harvested_total_usd:.2f}, "
+          f"run_id={run_id or 'N/A'}")
     if data_mode == "synthetic":
         print("[BASKET] NOTE: synthetic-data mode — figures are placeholder. "
               "Confirm DATA_INGRESS has populated MASTER_DATA + SYSTEM_FACTORS "
               "for the basket symbols, then re-run.")
     else:
         print(f"[BASKET] Real RESEARCH data: {len(result.recycle_events)} recycle event(s); "
-              f"10-window basket_sim parity gate remains skipped pending Phase 5d.")
+              f"10-window basket_sim parity gate remains skipped pending Phase 5d.1.")
     return True
 
 

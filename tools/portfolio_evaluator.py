@@ -89,17 +89,29 @@ from tools.portfolio.portfolio_ledger_writer import (  # noqa: F401
 
 
 # ==================================================================
-# Phase 5b — basket row writer (append-only, separate from per-symbol MPS)
+# Phase 5b.2 — Path B: re-export the basket MPS writer
+# ==================================================================
+# The actual writer lives in tools.portfolio.basket_ledger_writer to
+# parallel the per-symbol writer module layout. Re-exported here for
+# back-compat with consumers that import from tools.portfolio_evaluator.
+from tools.portfolio.basket_ledger_writer import (  # noqa: F401, E402
+    append_basket_row_to_mps,
+    BASKETS_SHEET_COLUMNS,
+    BasketLedgerError,
+)
+
+
+# ==================================================================
+# Phase 5b — basket row writer (LEGACY, append-only research CSV)
 # ==================================================================
 #
-# Per-symbol MPS schema is preserved untouched. Basket runs land in a
-# separate append-only CSV at TradeScan_State/research/basket_runs.csv.
-# Phase 5c may promote this into a basket-aware column extension of
-# Master_Portfolio_Sheet.xlsx with execution_mode='basket' rows interleaved;
-# until then the CSV gives a research-stage record without risking the
-# production ledger's append-only invariant (Invariant #2).
-#
-# Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 5b.
+# DEPRECATED 2026-05-14 by Phase 5b.2 (Path B): basket runs now write
+# their canonical row to the Baskets sheet of Master_Portfolio_Sheet.xlsx
+# via append_basket_row_to_mps (above). This research CSV is kept as a
+# parallel index during the transition. Review for retirement on or
+# after 2026-06-14 — once the MPS Baskets sheet has been the source of
+# truth for >=4 weeks without operator complaint, retire this writer
+# and the CSV file.
 
 def append_basket_row_to_research_csv(basket_result, *, directive_id: str) -> Path:
     """Append a one-row CSV record of a basket run.
