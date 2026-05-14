@@ -57,8 +57,11 @@ from config.path_authority import TRADE_SCAN_STATE  # noqa: E402
 _BASE_DIRECTIVE_PATH = PROJECT_ROOT / "backtest_directives" / "completed" / "90_PORT_H2_5M_RECYCLE_S01_V1_P00.txt"
 
 
-# (pass_num, label, start, end) — P00 is in-sample (already exists), P01..P09 are the additions
+# (pass_num, label, start, end). P00 is the in-sample window (handled
+# by --all but skipped by --only-style invocations historically; kept in
+# the WINDOWS list now so --all sweeps all 10 in one process).
 WINDOWS = [
+    ("P00", "F_2024-09_to_2026-05_in_sample",          "2024-09-02", "2026-05-09"),
     ("P01", "A_2016-09_to_2018-09_Brexit_Trump",       "2016-09-05", "2018-09-07"),
     ("P02", "E_2017-04_to_2019-04_USD_weak",           "2017-04-03", "2019-04-05"),
     ("P03", "G_2018-04_to_2020-04_pre_COVID_shock",    "2018-04-02", "2020-04-03"),
@@ -69,8 +72,6 @@ WINDOWS = [
     ("P08", "D_2022-09_to_2024-09_rate_hike_cycle",    "2022-09-05", "2024-09-06"),
     ("P09", "J_2023-04_to_2025-04_rate_pause_pivot",   "2023-04-03", "2025-04-04"),
 ]
-
-P00_LABEL = "F_2024-09_to_2026-05_in_sample"
 
 
 # ---- Directive generation -------------------------------------------------
@@ -293,20 +294,40 @@ def build_parity_report(h2: pd.DataFrame, out_path: Path) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="Phase 5d.1 multi-window H2 parity runner")
     p.add_argument("--only", help="run a single pass number (e.g. P03)", default=None)
+    p.add_argument("--all", action="store_true",
+                   help="run all WINDOWS in this single Python process (lets the bar-file "
+                        "cache pay off across windows; ~10x faster than the bash-loop pattern)")
     p.add_argument("--skip-run", action="store_true",
                    help="skip the dispatch loop; only build the report from existing Baskets rows")
     p.add_argument("--report-out", default="outputs/h2_10_window_parity_report.md",
                    help="path for the comparison report")
     args = p.parse_args()
 
+    if args.only and args.all:
+        print("ERROR: --only and --all are mutually exclusive.")
+        return 2
+
     results: list[dict] = []
     if not args.skip_run:
-        targets = WINDOWS if args.only is None else [w for w in WINDOWS if w[0] == args.only]
+        if args.all:
+            targets = list(WINDOWS)
+        elif args.only is not None:
+            targets = [w for w in WINDOWS if w[0] == args.only]
+        else:
+            targets = list(WINDOWS)  # default = all (was: error on no --only)
         if not targets:
             print(f"--only={args.only!r} matched no window. Available: {[w[0] for w in WINDOWS]}")
             return 2
+
+        # Phase 5b.4: warm the year-file cache once per process. Cross-window
+        # year-file reuse turns 10×CSV-load into ~10 unique year-file reads.
+        from tools.basket_data_loader import _read_year_csv_cached
         for pass_num, label, start, end in targets:
             results.append(run_one_window(pass_num, label, start, end))
+        # Cache stats for visibility
+        ci = _read_year_csv_cached.cache_info()
+        print(f"\n[H2_PARITY] year-file cache: hits={ci.hits} misses={ci.misses} "
+              f"size={ci.currsize}/{ci.maxsize}")
 
         # Summary line
         n_ok = sum(1 for r in results if r["dispatched"])

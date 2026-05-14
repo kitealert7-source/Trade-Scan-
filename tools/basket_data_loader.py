@@ -24,6 +24,7 @@ with a DatetimeIndex named 'time' and rows filtered to [start_date, end_date].
 from __future__ import annotations
 
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -31,7 +32,51 @@ import pandas as pd
 from config.path_authority import DATA_ROOT
 
 
-__all__ = ["load_basket_leg_data", "load_compression_5d_factor"]
+__all__ = [
+    "load_basket_leg_data",
+    "load_compression_5d_factor",
+    "clear_year_file_cache",
+]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b.4 — process-local year-file cache.
+#
+# Multi-window matrix runs (e.g., h2_parity_run.py --all) often re-load
+# the same year-files across windows (window A 2016-2018 and window E
+# 2017-2019 both need 2017 + 2018). Caching at the year-file granularity
+# means each year-file is parsed once per process. Cleared by
+# clear_year_file_cache() if needed (e.g., between independent matrix
+# runs in the same long-running session).
+#
+# Sized for ~10 years × ~10 symbols = 100 unique frames; an OctaFx 5m
+# year-file is ~5-7 MB CSV → ~50-100 MB pandas memory. 64-entry cap
+# keeps total RAM under 6 GB even in the worst case.
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=64)
+def _read_year_csv_cached(symbol: str, year: int) -> pd.DataFrame:
+    """Parse one year of 5m bars for one symbol. Cached process-locally.
+
+    Returned DataFrame is the FULL year (no window filter applied) with
+    `time` as a DatetimeIndex. Callers slice by date range themselves.
+    Returns an EMPTY DataFrame if the year-file is missing — callers
+    should treat that as a gap year.
+    """
+    research_dir = DATA_ROOT / "MASTER_DATA" / f"{symbol}_OCTAFX_MASTER" / "RESEARCH"
+    f = research_dir / f"{symbol}_OCTAFX_5m_{year}_RESEARCH.csv"
+    if not f.is_file():
+        return pd.DataFrame()  # caller treats as gap year
+    df = pd.read_csv(f, comment="#", parse_dates=["time"])
+    df = df.set_index("time").sort_index()
+    return df
+
+
+def clear_year_file_cache() -> None:
+    """Drop all cached year-files. Call between independent multi-window
+    runs in the same process if memory matters."""
+    _read_year_csv_cached.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +131,12 @@ def load_compression_5d_factor(start_date: str, end_date: str) -> pd.Series:
 
 def _load_symbol_5m(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
     """Read every RESEARCH 5m CSV year-file for symbol covering the window,
-    concat, parse time as DatetimeIndex, filter to [start, end]."""
+    concat (via cache), filter to [start, end].
+
+    Year-files are cached process-locally via _read_year_csv_cached so
+    cross-window matrix runs (e.g., h2_parity_run.py --all) reuse parsed
+    frames instead of re-parsing each window.
+    """
     research_dir = DATA_ROOT / "MASTER_DATA" / f"{symbol}_OCTAFX_MASTER" / "RESEARCH"
     if not research_dir.is_dir():
         raise FileNotFoundError(
@@ -97,18 +147,16 @@ def _load_symbol_5m(symbol: str, start_date: str, end_date: str) -> pd.DataFrame
     end_year = int(end_date[:4])
     pieces: list[pd.DataFrame] = []
     for year in range(start_year, end_year + 1):
-        f = research_dir / f"{symbol}_OCTAFX_5m_{year}_RESEARCH.csv"
-        if not f.is_file():
+        piece = _read_year_csv_cached(symbol, year)
+        if piece.empty:
             continue  # gap year — not necessarily fatal; window filter handles edges
-        piece = pd.read_csv(f, comment="#", parse_dates=["time"])
         pieces.append(piece)
     if not pieces:
         raise FileNotFoundError(
             f"No 5m RESEARCH files found for {symbol} in window "
             f"{start_year}-{end_year} under {research_dir}."
         )
-    df = pd.concat(pieces, ignore_index=True)
-    df = df.set_index("time").sort_index()
+    df = pd.concat(pieces).sort_index()
     start_ts = pd.Timestamp(start_date)
     end_ts = pd.Timestamp(end_date)
     df = df[(df.index >= start_ts) & (df.index <= end_ts)]
