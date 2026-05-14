@@ -80,6 +80,11 @@ _ALLOWED_PRIMITIVES = {
     # --- Idea 65 / PSBRK family (2026-05-05) ---
     "prev_session_extremes",           # prior-session high/low + arming state
     "session_clock",                   # XAU 3-session UTC clock (Asia/London/NY labels)
+    # --- 2026-05-14: pre-existing TD closure (allowlist gap, indicators already declared) ---
+    "momentum_cmo",                    # Chande momentum oscillator (indicators.momentum.cmo)
+    "consecutive_highs_lows_breakout", # consecutive higher-highs / lower-lows breakout (indicators.price.consecutive_highs_lows)
+    "dmi_wilder_directional",          # Wilder DMI directional movement +DI / -DI (indicators.structure.dmi_wilder)
+    "session_clock_universal",         # generic 3-session UTC clock (sibling of session_clock; indicators.structure.session_clock_universal)
 }
 _ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3", "session_high_low"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}
