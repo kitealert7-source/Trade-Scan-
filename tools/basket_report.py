@@ -54,6 +54,7 @@ import pandas as pd
 __all__ = [
     "compute_basket_metrics",
     "write_per_window_report_artifacts",
+    "write_basket_strategy_card",
 ]
 
 
@@ -398,6 +399,157 @@ def _write_basket_md_report(
     lines.append("")
 
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_basket_strategy_card(
+    out_dir: Path,
+    *,
+    directive_id: str,
+    run_id: str,
+    parsed_directive: dict,
+    engine_version: str,
+) -> Path:
+    """Write STRATEGY_CARD.md for a basket — basket-flavored equivalent of
+    tools/generate_strategy_card.py's per-symbol output.
+
+    Matches the per-symbol card's section layout:
+      1. Header line (directive, run_id, engine, generated)
+      2. Configuration table (basket-specific fields)
+      3. Active Logic (one-liner of recycle + gate + harvest)
+      4. Hypothesis (from directive notes/description)
+      5. Testing Logic (from directive description)
+      6. Changes from Previous Run (P-diff scaffolding; basket diff is
+         deferred until a second pass exists)
+
+    This is the basket counterpart to generate_strategy_card.generate_strategy_card,
+    which assumes a strategy.py with STRATEGY_SIGNATURE. Basket directives
+    don't have one — the rule lives in tools/recycle_rules/<name>.py and
+    its parameters live in the directive's basket block.
+    """
+    from datetime import datetime, timezone
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    test_block = parsed_directive.get("test", {}) or {}
+    basket_block = parsed_directive.get("basket", {}) or {}
+    rule = basket_block.get("recycle_rule", {}) or {}
+    legs = basket_block.get("legs", []) or []
+    regime_gate = basket_block.get("regime_gate", {}) or {}
+    rule_params = rule.get("params", {}) or {}
+
+    # Parse sweep/pass from the directive name (mirrors generate_strategy_card._parse_name)
+    import re
+    m = re.search(r"_S(\d+)_V(\d+)_P(\d+)$", directive_id)
+    if m:
+        sweep_str = f"S{int(m.group(1)):02d}"
+        version_str = f"V{int(m.group(2))}"
+        pass_str = f"P{int(m.group(3)):02d}"
+    else:
+        sweep_str = version_str = pass_str = "?"
+
+    timeframe = (test_block.get("timeframe") or "?").upper()
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    basket_id = basket_block.get("basket_id", "?")
+    rule_name = rule.get("name", "?")
+    rule_version = rule.get("version", "?")
+
+    lines: list[str] = []
+    lines.append(f"# STRATEGY CARD — {directive_id}")
+    lines.append("")
+    lines.append(
+        f"**Basket:** {basket_id}  |  **Timeframe:** {timeframe}  |  "
+        f"**Sweep:** {sweep_str}  |  **Pass:** {pass_str}  |  "
+        f"**Run ID:** `{run_id}`  |  **Engine:** {engine_version}  |  "
+        f"**Generated:** {generated}"
+    )
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # ---- Configuration table ----
+    lines.append("## Configuration")
+    lines.append("")
+    lines.append("| Parameter | Value |")
+    lines.append("|-----------|-------|")
+    lines.append(f"| `execution_mode` | basket |")
+    lines.append(f"| `basket.basket_id` | {basket_id} |")
+    lines.append(f"| `basket.leg_count` | {len(legs)} |")
+    leg_specs = ";".join(
+        f"{l.get('symbol')}:{l.get('lot')}:{l.get('direction')}" for l in legs
+    )
+    lines.append(f"| `basket.legs` | {leg_specs} |")
+    if "initial_stake_usd" in basket_block:
+        lines.append(f"| `basket.initial_stake_usd` | {basket_block['initial_stake_usd']} |")
+    if "harvest_threshold_usd" in basket_block:
+        lines.append(f"| `basket.harvest_threshold_usd` | {basket_block['harvest_threshold_usd']} |")
+    lines.append(f"| `basket.recycle_rule.name@version` | {rule_name}@{rule_version} |")
+    for k in sorted(rule_params.keys()):
+        lines.append(f"| `basket.recycle_rule.params.{k}` | {rule_params[k]} |")
+    if regime_gate:
+        gate_factor = regime_gate.get("factor", "?")
+        gate_op = regime_gate.get("operator", "?")
+        gate_val = regime_gate.get("value", "?")
+        lines.append(f"| `basket.regime_gate` | {gate_factor} {gate_op} {gate_val} |")
+    lines.append("")
+
+    # ---- Active Logic ----
+    lines.append("## Active Logic")
+    lines.append("")
+    parts: list[str] = []
+    parts.append(f"Rule: {rule_name}@{rule_version}")
+    if regime_gate:
+        parts.append(
+            f"Gate: {regime_gate.get('factor', '?')} "
+            f"{regime_gate.get('operator', '?')} {regime_gate.get('value', '?')}"
+        )
+    if "harvest_threshold_usd" in basket_block:
+        parts.append(f"Harvest: ${basket_block['harvest_threshold_usd']}")
+    elif "harvest_target_usd" in rule_params:
+        parts.append(f"Harvest: ${rule_params['harvest_target_usd']}")
+    if "trigger_usd" in rule_params:
+        parts.append(f"Trigger: ${rule_params['trigger_usd']}")
+    lines.append(" | ".join(parts) if parts else "(no rule attached)")
+    lines.append("")
+
+    # ---- Hypothesis ----
+    lines.append("## Hypothesis")
+    lines.append("")
+    notes = (test_block.get("notes") or "").strip()
+    if notes:
+        lines.append(notes)
+    else:
+        lines.append("[UNAVAILABLE]")
+    lines.append("")
+
+    # ---- Testing Logic ----
+    lines.append("## Testing Logic")
+    lines.append("")
+    description = (test_block.get("description") or "").strip()
+    if description:
+        lines.append(description)
+    else:
+        lines.append("[UNAVAILABLE]")
+    lines.append("")
+
+    # ---- Changes from Previous Run ----
+    lines.append("## Changes from Previous Run")
+    lines.append("")
+    if pass_str == "P00" and sweep_str == "S00":
+        lines.append("Initial run — no previous pass.")
+    elif pass_str == "P00":
+        lines.append(f"Sweep transition (S(prev) → {sweep_str}) — basket-pass diff "
+                     f"not yet implemented for cross-sweep comparisons.")
+    else:
+        lines.append(f"Basket-pass diff vs P(n-1) not yet implemented — "
+                     f"H2 family currently has only the in-sample pass on disk. "
+                     f"Phase 5d.1 multi-window will populate prior passes.")
+    lines.append("")
+    lines.append("---")
+    lines.append("*Auto-generated — do not edit. Regenerated on every basket dispatch.*")
+
+    card_path = out_dir / "STRATEGY_CARD.md"
+    card_path.write_text("\n".join(lines), encoding="utf-8")
+    return card_path
 
 
 def write_per_window_report_artifacts(

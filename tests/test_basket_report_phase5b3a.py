@@ -273,6 +273,85 @@ def test_report_md_contains_key_fields(tmp_path):
     assert "Recycle Events" in md
 
 
+def test_basket_strategy_card_written(tmp_path):
+    """STRATEGY_CARD.md exists in the directive folder with the right shape."""
+    from tools.basket_report import write_basket_strategy_card
+    directive = _directive()
+    # Add hypothesis + testing-logic source fields the card reads
+    directive["test"]["notes"] = "Phase 5a acceptance hypothesis."
+    directive["test"]["description"] = "H2 basket — Variant G recycle + harvest target."
+    directive["basket"]["harvest_threshold_usd"] = 2000.0
+    directive["basket"]["recycle_rule"]["params"] = {
+        "trigger_usd": 10.0, "factor_min": 10.0,
+        "factor_column": "compression_5d", "harvest_target_usd": 2000.0,
+    }
+    directive["basket"]["regime_gate"] = {
+        "factor": "USD_SYNTH.compression_5d", "operator": ">=", "value": 10,
+    }
+    path = write_basket_strategy_card(
+        out_dir=tmp_path,
+        directive_id="90_PORT_H2_5M_RECYCLE_S01_V1_P00",
+        run_id="RID01ABC1234",
+        parsed_directive=directive,
+        engine_version="1.5.9",
+    )
+    assert path.name == "STRATEGY_CARD.md"
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+
+    # Header line carries the key fields
+    assert "STRATEGY CARD" in text
+    assert "90_PORT_H2_5M_RECYCLE_S01_V1_P00" in text
+    assert "Basket:" in text and "H2" in text
+    assert "Sweep:" in text and "S01" in text
+    assert "Pass:" in text and "P00" in text
+    assert "Run ID:" in text and "RID01ABC1234" in text
+    assert "Engine:" in text and "1.5.9" in text
+
+    # Configuration table
+    assert "## Configuration" in text
+    assert "`execution_mode`" in text and "basket" in text
+    assert "`basket.basket_id`" in text
+    assert "`basket.leg_count`" in text and "| 2 |" in text
+    assert "EURUSD:0.02:long;USDJPY:0.01:short" in text
+    assert "H2_recycle@1" in text
+    assert "`basket.recycle_rule.params.trigger_usd`" in text
+    assert "`basket.regime_gate`" in text
+    assert "USD_SYNTH.compression_5d >= 10" in text
+
+    # Active Logic + Hypothesis + Testing Logic sections present
+    assert "## Active Logic" in text
+    assert "Rule: H2_recycle@1" in text
+    assert "## Hypothesis" in text
+    assert "Phase 5a acceptance hypothesis." in text
+    assert "## Testing Logic" in text
+    assert "Variant G recycle" in text
+    assert "## Changes from Previous Run" in text
+
+
+def test_basket_strategy_card_handles_missing_optional_fields(tmp_path):
+    """Card renders cleanly even when notes/description/regime_gate are absent."""
+    from tools.basket_report import write_basket_strategy_card
+    directive = {
+        "test": {"timeframe": "5m", "broker": "OctaFx"},
+        "basket": {
+            "basket_id": "H2",
+            "legs": [{"symbol": "EURUSD", "lot": 0.02, "direction": "long"},
+                     {"symbol": "USDJPY", "lot": 0.01, "direction": "short"}],
+            "recycle_rule": {"name": "H2_recycle", "version": 1, "params": {}},
+        },
+    }
+    path = write_basket_strategy_card(
+        out_dir=tmp_path,
+        directive_id="90_PORT_H2_5M_RECYCLE_S01_V1_P00",
+        run_id="R",
+        parsed_directive=directive,
+        engine_version="1.5.9",
+    )
+    text = path.read_text(encoding="utf-8")
+    assert "[UNAVAILABLE]" in text  # both hypothesis + testing-logic fall back
+
+
 def test_metrics_glossary_includes_basket_extras(tmp_path):
     from tools.basket_report import write_per_window_report_artifacts
     df = _trades_df([])

@@ -832,7 +832,10 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         # these, the basket backtests/ folder has only `raw/results_tradelevel.csv`
         # while per-symbol folders have ~7 files. This block closes that gap.
         try:
-            from tools.basket_report import write_per_window_report_artifacts
+            from tools.basket_report import (
+                write_per_window_report_artifacts,
+                write_basket_strategy_card,
+            )
             from engine_abi.v1_5_9 import ENGINE_VERSION as _engine_version
             stake = float(parsed.get("basket", {}).get("initial_stake_usd", 1000.0))
             written = write_per_window_report_artifacts(
@@ -847,6 +850,20 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
             )
             print(f"[BASKET] Per-window report: {len(written)} files "
                   f"(REPORT.md, results_standard/risk/yearwise/basket, glossary, bar_geometry, metadata)")
+
+            # Phase 5b.3a — STRATEGY_CARD.md (basket-flavored counterpart to
+            # tools/generate_strategy_card.py). Per-symbol generator assumes a
+            # strategy.py with STRATEGY_SIGNATURE; baskets have no such file
+            # (rule lives in tools/recycle_rules/), so we render the card
+            # directly from the directive's basket block.
+            card_path = write_basket_strategy_card(
+                out_dir=backtests_dir.parent,
+                directive_id=directive_id,
+                run_id=run_id,
+                parsed_directive=parsed,
+                engine_version=str(_engine_version),
+            )
+            print(f"[BASKET] STRATEGY_CARD.md: {card_path.name}")
         except Exception as exc:
             print(f"[BASKET] WARN per-window report emit failed: {exc}")
 

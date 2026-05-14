@@ -278,6 +278,7 @@ def test_dispatch_produces_all_four_artifact_paths(monkeypatch, tmp_path):
                       "metrics_glossary.csv", "bar_geometry.json"):
             assert (directive_dir / "raw" / fname).is_file(), f"missing raw/{fname}"
         assert (directive_dir / "metadata" / "run_metadata.json").is_file()
+        assert (directive_dir / "STRATEGY_CARD.md").is_file()
     finally:
         if vault_parent.exists():
             shutil.rmtree(vault_parent)
