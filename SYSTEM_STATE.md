@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 4 uncommitted
 
-> Generated: 2026-05-14T05:42:10Z
+> Generated: 2026-05-14T17:29:39Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -40,7 +40,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 4 uncommitted
-- Last substantive commit: `1834276 session: regenerate tools_manifest.json post-Phase-5b.4`
+- Last substantive commit: `f5482f1 session: regenerate tools_manifest.json post-Phase-7a session`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -83,9 +83,11 @@
   - **Next sessions:** Stage 2 (1h accelerated stress on H2 P00 basket vault), Stage 3 (adversarial battery — kill-9, disk-full, corpus-corrupt, clock-skew), Stage 4 (already implicitly passed by re-run determinism), Stage 5 (72h+ Task Scheduler field stress with deliberate power-cycle disruption). The validation *logic* is now proven byte-identical to the 33-day production reference; the remaining stages test the operational supervisor, not the classifier.
   - **Subordinate concern (not blocking):** the journal's stored `signal_hash` uses a DIFFERENT hash function than `strategy_guard._compute_signal_hash` (production hash via `TS_Execution/src/signal_journal.py` includes `strategy_id`, returns full SHA-256, encodes direction as string). The reference set captures strategy_guard's classifications TODAY, not the historical production hashes — so the divergence does not affect Stage 1. If a future requirement is "validator must reproduce historical journal hashes byte-for-byte," that's a separate port (upgrade `_compute_signal_hash` to match `signal_journal.signal_hash`). Documented in `tools/replay_shadow_journal_reference.py` module docstring.
 
-- **Broader-pytest failures outside gate suite (2 pre-existing remaining):**
+- **Broader-pytest failures outside gate suite (3 pre-existing remaining):**
   - `tests/test_state_paths_worktree.py` ×2 — pre-existing from 2026-05-11.
+  - `tests/test_basket_directive_phase5.py::test_directive_legs_match_h2_spec` — pre-existing; the test asserts legacy H2 spec (USDJPY-short) but the directive was corrected to USDJPY-long in commit `5528ff1` (Phase 5d.1.1). Test needs to be updated to reflect the corrected spec; the directive is right, the test is stale.
   - ~~`tests/test_indicator_semantic_contracts.py::test_referenced_indicators_declare_signal_primitive`~~ — **closed 2026-05-14** during Stage 2 wait window. Added 4 missing primitives to `_ALLOWED_PRIMITIVES` (`momentum_cmo`, `consecutive_highs_lows_breakout`, `dmi_wilder_directional`, `session_clock_universal`). All 5 tests in `test_indicator_semantic_contracts.py` now pass.
+  - ~~`tests/test_engine_abi_v1_5_9.py::test_import_is_idempotent`~~ — **implicitly closed 2026-05-14** by the adversarial-test `importlib.reload()` fix (commit `fa7f1f8`). When `_force_reload_abi` stopped creating new module identities, this idempotency test stopped failing in full-suite runs.
   Note: the 2 `test_registry_integrity` failures from earlier today's close were closed by commit `7388453` (22-stub metadata backfill).
 - ~~Manual-section persistence caveat~~ — **closed by commit `670bf02`** (`tools/system_introspection.py` now preserves the Manual section across regen verbatim; tests pinned in `tests/test_system_state_manual_persist.py`). This entry's own survival across the next regen is the validation proof.
 
