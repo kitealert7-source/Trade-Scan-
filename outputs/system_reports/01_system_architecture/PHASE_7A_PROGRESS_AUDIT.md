@@ -3,9 +3,9 @@
 **Plan ref:** `outputs/system_reports/01_system_architecture/H2_ENGINE_PROMOTION_PLAN.md`
 v11 (LOCKED, 2026-05-13).
 
-**Status as of 2026-05-14:** Stages 1, 3 complete; Stage 2 1h run in
-progress (~30min remaining as of writing); Stage 4 ready to execute;
-Stage 5 supervisor harness ready for operator launch.
+**Status as of 2026-05-14 (end of session):** **Phase 7a CODE-COMPLETE.**
+Stages 1, 2, 3, 4 PASSED. Stage 5 supervisor harness ready for
+operator-driven 72h field stress.
 
 This document is the operator-facing audit trail. It captures *what
 was done*, *what's pending*, *what evidence was produced*, and *what
@@ -130,7 +130,7 @@ direction as string). Audit trail in
    `decision.json` integrity post-kill + valid checksum + `.tmp`
    cleanup post-RESTART (not pre-restart, which races the kill window).
 
-### Stage 2 — Accelerated stress + resource monitor (PASSED — 60s validation; 1h run in progress)
+### Stage 2 — Accelerated stress + resource monitor (PASSED — 1h run complete)
 
 **Harness:** `TS_SignalValidator/tools/stage2_monitor.py`
 **TS_SignalValidator** commit `3a1a8ee`.
@@ -157,30 +157,39 @@ of the fail-fast staging order — found in seconds, not hours):
 - Validator exit code 0 (clean shutdown on deadline) ✓
 - 28/28 tests still pass post-fixes
 
-**1h validation status (as of writing):** 30 minutes in, RSS plateaued
-at 91,320,320 bytes (4 consecutive 5-min samples identical), handles
-426 stable, emit cadence exactly 10s as configured. Final summary will
-land in a subsequent commit when the 1h run completes.
+**1h validation final state (TSSV commit `39a331e`):**
+- `validator_exit_code: 0` (clean shutdown on 3600s deadline)
+- `n_samples: 361`, `decision_seq_no.delta: 359` (~10s cadence)
+- Handles: 426 → 426 (ratio 1.0 — **zero leak over 1h**)
+- RSS: 91,148,288 → 33,775,616 (ratio 0.3706 — **RSS DECREASED** due to
+  Windows working-set trim; peak only +0.94 MB above baseline)
+- Throughput: 52,877.8 events/sec sustained → ~190 million events
+  processed across the 1h (journal looped ~60×)
+- Known cosmetic false-positive: `process_clean_exit: false` —
+  pre-fix `_summarize` was in monitor's memory before commit
+  `b2e872a` landed; `validator_exit_code: 0` is authoritative.
 
-### Stage 4 — Explicit runtime determinism (READY — execution pending Stage 2 completion)
+### Stage 4 — Explicit runtime determinism (PASSED — 5/5 in 15.64s)
 
-- **TS_SignalValidator** commit `6a021bc` (2026-05-14)
+- **TS_SignalValidator** commit `6a021bc` (test code) + `39a331e` (executed)
 
-`tests/test_stage4_determinism.py` (5 tests, opt-in via `pytest -m stage4`):
-- `test_final_decision_state_identical`
-- `test_final_seq_no_identical`
-- `test_final_per_symbol_byte_identical`
-- `test_final_heartbeat_state_identical`
-- `test_three_consecutive_runs_all_identical`
+`tests/test_stage4_determinism.py` — **5/5 PASSED in 15.64s** via
+`pytest -m stage4 -v`:
+- `test_final_decision_state_identical` ✓
+- `test_final_seq_no_identical` ✓
+- `test_final_per_symbol_byte_identical` ✓
+- `test_final_heartbeat_state_identical` ✓
+- `test_three_consecutive_runs_all_identical` ✓ (triple-run convergence)
 
 `conftest.py` registers the marker and skips it unless explicitly
-requested. Default `pytest tests/` → 28 passed, 5 skipped in 3.64s
-(confirmed). Execution deferred until Stage 2 completes (to avoid
-I/O contention with the in-flight 1h validator).
+requested. Default `pytest tests/` → 33 fast tests pass, 5 stage4
+skipped.
 
-Closes the operator-flagged "Stage 4 partial coverage" concern (Stage
-1 proved logic determinism, Stage 3 proved atomic-write consistency;
-neither proved *full runtime* determinism — Stage 4 does explicitly).
+Closes the operator-flagged "Stage 4 partial coverage" concern: Stage
+1 proved logic determinism, Stage 3 proved atomic-write consistency,
+Stage 4 now proves *full runtime* determinism (two consecutive
+validator processes consuming the same inputs produce byte-identical
+decision state).
 
 ### Stage 5 — Field stress supervisor harness (READY — operator-launchable)
 
