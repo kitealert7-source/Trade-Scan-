@@ -46,6 +46,12 @@ class ContinuousHoldStrategy:
 
     timeframe = "5m"
 
+    # Marker for tools/basket_runner.py fast-path detection. ContinuousHold
+    # only signals once (bar 1) and never asks the engine to evaluate
+    # signals after, so BasketRunner can skip evaluate_bar entirely.
+    # See Phase 5b.4b.
+    _basket_fast_path = True
+
     # --- STRATEGY SIGNATURE START ---
     STRATEGY_SIGNATURE = {
         "execution_rules": {
