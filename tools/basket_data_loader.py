@@ -44,6 +44,17 @@ def load_compression_5d_factor(start_date: str, end_date: str) -> pd.Series:
 
     Returns a Series indexed by daily DatetimeIndex with name 'compression_5d'.
     NaN rows (pre-warm-up) are retained — caller decides how to handle them.
+
+    Lookahead-safe: applies `shift(1)` so the value at date D is the value
+    that was originally for date D-1. This matches the convention in
+    `tools/research/regime_gate.py::load_feature_series` and
+    `indicators/macro/usd_synth_zscore.py`. Without the shift, a 5m bar at
+    D 00:05 would read the compression for day D — a value that is not
+    actually known until end of day D in real-time. Phase 5d.1 parity run
+    discovered this lookahead bias was responsible for pipeline blocking
+    via the regime gate ~50% MORE often than the basket_sim reference (in
+    declining-compression regimes) and contributing to the TARGET-count
+    divergence (pipeline 2/10 vs reference 5/10).
     """
     path = DATA_ROOT / "SYSTEM_FACTORS" / "USD_SYNTH" / "usd_synth_compression_d1.csv"
     if not path.is_file():
@@ -52,12 +63,15 @@ def load_compression_5d_factor(start_date: str, end_date: str) -> pd.Series:
             "Confirm DATA_INGRESS has populated SYSTEM_FACTORS/USD_SYNTH/."
         )
     df = pd.read_csv(path, parse_dates=["Date"])
-    df = df.set_index("Date")
+    df = df.set_index("Date").sort_index()
     if "compression_5d" not in df.columns:
         raise ValueError(
             f"compression_5d column missing in {path}; found {list(df.columns)}"
         )
-    series = df["compression_5d"]
+    # Lookahead-safe shift on the full daily series BEFORE window filter
+    # (shifting after filter would lose the prior-day value at the start
+    # of the window).
+    series = df["compression_5d"].shift(1)
     start_ts = pd.Timestamp(start_date)
     end_ts = pd.Timestamp(end_date)
     series = series[(series.index >= start_ts) & (series.index <= end_ts)]

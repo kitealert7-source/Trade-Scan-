@@ -121,9 +121,12 @@ def test_load_basket_leg_inputs_returns_real_mode_for_h2_directive():
     )
     assert set(leg_data.keys()) == {"EURUSD", "USDJPY"}
     assert set(leg_strategies.keys()) == {"EURUSD", "USDJPY"}
-    # Direction encoding survives: EURUSD long, USDJPY short per directive
+    # Direction encoding survives: EURUSD long, USDJPY long per the corrected
+    # H2 spec (matches research baseline EURJPY_PAIRS in
+    # tmp/eurjpy_recycle_v2_validation.py). Phase 5d.1 found the original
+    # USDJPY-short directive was a spec error.
     assert leg_strategies["EURUSD"].direction == +1
-    assert leg_strategies["USDJPY"].direction == -1
+    assert leg_strategies["USDJPY"].direction == +1
 
 
 def test_load_basket_leg_inputs_falls_back_to_synthetic_for_unknown_symbols(monkeypatch):

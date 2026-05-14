@@ -12,7 +12,7 @@ test:
   tuning_allowed: false
   parameter_mutation: false
   description: >
-    H2 recycle basket. EUR-long 0.02 + USD/JPY-short 0.01. Variant G mechanic: when
+    H2 recycle basket. EUR-long 0.02 + USD/JPY-long 0.01. Variant G mechanic: when
     winner-leg floating >= $10 AND loser-leg < 0, close winner (realize cash) and ADD
     0.01 lot to loser at weighted-avg entry. USD_SYNTH.compression_5d >= 10 gates the
     ADD (blocks in non-trending regimes). Harvest exit when account equity reaches
@@ -84,7 +84,7 @@ basket:
       direction: long
     - symbol: USDJPY
       lot: 0.01
-      direction: short
+      direction: long
   initial_stake_usd: 1000.0
   harvest_threshold_usd: 2000.0
   recycle_rule:

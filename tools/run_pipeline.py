@@ -899,6 +899,9 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
                 result, run_id=run_id, directive_id=directive_id,
                 backtests_path=str(backtests_csv.relative_to(TRADE_SCAN_STATE)),
                 vault_path=vault_path_str,
+                df_trades=df_trades,   # Phase 5d.1 fix: writer uses converter's
+                                       # computed pnl_usd so force_close trades
+                                       # contribute correctly to final_realized_usd
             )
             print(f"[BASKET] MPS Baskets row: {mps_path}")
         except Exception as exc:

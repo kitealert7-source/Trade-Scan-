@@ -93,19 +93,36 @@ def _build_row(
     directive_id: str,
     backtests_path: str,
     vault_path: str,
+    df_trades: Any = None,
 ) -> dict[str, Any]:
-    """Project a BasketRunResult into one Baskets-sheet row."""
+    """Project a BasketRunResult into one Baskets-sheet row.
+
+    If df_trades is supplied (the basket_ledger.basket_result_to_tradelevel_df
+    output), final_realized_usd is computed from its `pnl_usd` column —
+    which the converter fills for engine-emitted force_close trades that
+    don't carry pnl_usd themselves. This closes the bug surfaced by P03
+    in Phase 5d.1 where MPS showed final_realized=0 while the per-window
+    REPORT (built by the converter) showed -$308.34.
+    """
     trades_total = sum(len(t) for t in basket_result.per_leg_trades.values())
-    # final_realized: sum of pnl_usd across all trades (winner-realize + harvest exits)
     final_realized = 0.0
-    for trades in basket_result.per_leg_trades.values():
-        for t in trades:
-            v = t.get("pnl_usd")
-            if v is not None:
-                try:
-                    final_realized += float(v)
-                except (TypeError, ValueError):
-                    pass
+    if df_trades is not None and hasattr(df_trades, "columns") and "pnl_usd" in df_trades.columns:
+        # Use the converter's pnl_usd column (it computes from prices+lot
+        # for trades where the engine didn't fill pnl_usd directly).
+        try:
+            final_realized = float(df_trades["pnl_usd"].astype(float).fillna(0.0).sum())
+        except (TypeError, ValueError):
+            final_realized = 0.0
+    else:
+        # Fallback: sum from raw basket_result.per_leg_trades dicts.
+        for trades in basket_result.per_leg_trades.values():
+            for t in trades:
+                v = t.get("pnl_usd")
+                if v is not None:
+                    try:
+                        final_realized += float(v)
+                    except (TypeError, ValueError):
+                        pass
     return {
         "run_id":              run_id,
         "directive_id":        directive_id,
@@ -139,11 +156,19 @@ def append_basket_row_to_mps(
     directive_id: str,
     backtests_path: str = "",
     vault_path: str = "",
+    df_trades: Any = None,
 ) -> Path:
     """Append a basket-run row to the Baskets sheet of MPS.
 
     Returns the path of the MPS file written. Raises BasketLedgerError if
     the run_id already exists (append-only invariant).
+
+    df_trades is the optional tradelevel DataFrame from
+    `tools.basket_ledger.basket_result_to_tradelevel_df`. When supplied,
+    `final_realized_usd` is computed from its pnl_usd column (which the
+    converter fills for engine-force-close trades). When omitted, falls
+    back to summing pnl_usd from `basket_result.per_leg_trades` directly
+    (lossy for force_close trades — see _build_row docstring).
     """
     ledger_path = _mps_path()
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +179,7 @@ def append_basket_row_to_mps(
         directive_id=directive_id,
         backtests_path=backtests_path,
         vault_path=vault_path,
+        df_trades=df_trades,
     )
 
     # Use the same lock the per-symbol writer uses so basket + per-symbol
