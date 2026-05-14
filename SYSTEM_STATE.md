@@ -49,6 +49,16 @@
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
+- **Phase 7a Stage 1 — PASSED (2026-05-14).** Shadow journal port-regression test for `TS_SignalValidator/validators/guard.py`:
+  - Frozen corpus: `VALIDATION_DATASET/shadow_journal_2026_04_to_05/` — 33 days of real production observations (2026-04-05 → 2026-05-08), 21,871 events (7,722 SIGNAL + 7,689 ENTRY + 6,460 EXIT), 7 symbols, 10 strategy variants. Recovered from NAS `//FARAWAYTOURISM/home/TS_Execution/outputs/` after the 2026-05-09 retirement deletion.
+  - Reference impl: `execution_engine/strategy_guard.py` (proven over the 33-day burn-in window).
+  - Ported impl: `TS_SignalValidator/validators/guard.py` (this session, commit `e16a268`).
+  - Reference output: `outputs/shadow_journal_strategy_guard_reference.jsonl` (commit `e2020cd`).
+  - Port output: `TS_SignalValidator/outputs/shadow_journal_port_output.jsonl` (commit `e16a268`).
+  - Diff: empty (exit 0). SHA-256 of both files: `c1f5dd7d74d329a3c73ebd25d19015cc763e75c5bccddd9d9d2af1785f038975`. Determinism: running port twice produces byte-identical output.
+  - **Next sessions:** Stage 2 (1h accelerated stress on H2 P00 basket vault), Stage 3 (adversarial battery — kill-9, disk-full, corpus-corrupt, clock-skew), Stage 4 (already implicitly passed by re-run determinism), Stage 5 (72h+ Task Scheduler field stress with deliberate power-cycle disruption). The validation *logic* is now proven byte-identical to the 33-day production reference; the remaining stages test the operational supervisor, not the classifier.
+  - **Subordinate concern (not blocking):** the journal's stored `signal_hash` uses a DIFFERENT hash function than `strategy_guard._compute_signal_hash` (production hash via `TS_Execution/src/signal_journal.py` includes `strategy_id`, returns full SHA-256, encodes direction as string). The reference set captures strategy_guard's classifications TODAY, not the historical production hashes — so the divergence does not affect Stage 1. If a future requirement is "validator must reproduce historical journal hashes byte-for-byte," that's a separate port (upgrade `_compute_signal_hash` to match `signal_journal.signal_hash`). Documented in `tools/replay_shadow_journal_reference.py` module docstring.
+
 - **Broader-pytest failures outside gate suite (3 pre-existing):**
   - `tests/test_state_paths_worktree.py` ×2 — pre-existing from 2026-05-11.
   - `tests/test_indicator_semantic_contracts.py::test_referenced_indicators_declare_signal_primitive` — pre-existing; 4 new indicator primitives missing from the Classifier Gate `_ALLOWED_PRIMITIVES` allowlist. Separate concern from the Stage-0.5 allowlist landed today.
