@@ -49,6 +49,17 @@
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
+- **Phase 7a Stage 3 — PASSED (2026-05-14).** Adversarial fail-closed battery — `TS_SignalValidator/tests/test_adversarial_phase7a.py`, commit `a4e3844`.
+  - 18 tests, 3.28s runtime, 5 concern areas:
+    - Hash determinism (5/5) — timestamp normalization, direction/symbol/precision sensitivity, idempotency
+    - Atomic decision-write (5/5) — `os.replace` failure cleanup, prior-decision preservation, repeat-failure leak protection, cross-process seq monotonicity, monotonicity-with-gaps
+    - Corpus integrity (3/3) — missing manifest, frozen=false, mutated content (against TEMP COPY — Section 1m-i preserved on real corpus)
+    - Kill-switch stickiness (4/4) — `record_trade`/`validate_signal`/`verify_signal` after HALT all raise; `status_dict` reports HALTED
+    - Process kill recovery (1/1) — spawn validator, `SIGKILL` mid-run, verify no `.tmp` leftovers, parseable `decision.json`, valid checksum, restart resumes seq
+  - **Unblocks Stage 2** (1h accelerated stress) and **Stage 5** (72h Task Scheduler field stress) — those wall-clock costs are now safe to commit since the cheap fail-closed properties are pinned.
+
+- **Phase 7a Stage 2 (NEXT) + 5 — ready when supervisor is configured.** Stage 2 requires no new code (just `python run_validator.py --config config.shadow_journal.example.yaml` with no `--max-iters`; consumes all 21,871 events). Stage 5 requires the Windows Task Scheduler XML + heartbeat-stale-monitor script per your earlier spec.
+
 - **Phase 7a Stage 1 — PASSED (2026-05-14).** Shadow journal port-regression test for `TS_SignalValidator/validators/guard.py`:
   - Frozen corpus: `VALIDATION_DATASET/shadow_journal_2026_04_to_05/` — 33 days of real production observations (2026-04-05 → 2026-05-08), 21,871 events (7,722 SIGNAL + 7,689 ENTRY + 6,460 EXIT), 7 symbols, 10 strategy variants. Recovered from NAS `//FARAWAYTOURISM/home/TS_Execution/outputs/` after the 2026-05-09 retirement deletion.
   - Reference impl: `execution_engine/strategy_guard.py` (proven over the 33-day burn-in window).
