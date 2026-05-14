@@ -85,18 +85,6 @@
   Note: the 2 `test_registry_integrity` failures from earlier today's close were closed by commit `7388453` (22-stub metadata backfill).
 - ~~Manual-section persistence caveat~~ — **closed by commit `670bf02`** (`tools/system_introspection.py` now preserves the Manual section across regen verbatim; tests pinned in `tests/test_system_state_manual_persist.py`). This entry's own survival across the next regen is the validation proof.
 
-- **Path B (Phase 5b.2) pending — next session priority:** basket pipeline dispatch currently writes to `DRY_RUN_VAULT/baskets/<dir_id>/<basket_id>/` + `TradeScan_State/research/basket_runs.csv`, NOT the standard `backtests/` layout. User pushed back end-of-session 2026-05-13: results must be discoverable later, not just produced — ad-hoc CSVs in basket_runs.csv lose visibility across sessions. Path B extends the dispatcher in `tools/run_pipeline.py` + `tools/portfolio_evaluator.py` to mirror the per-symbol artifact layout: `TradeScan_State/backtests/<directive_id>/raw/results_tradelevel.csv`, `run_registry.json` entry, MPS row with `execution_mode='basket'`. Touches Protected Infrastructure → needs implementation plan + approval before edit. Blocker for Phase 5d.1 (the 10-window basket_sim parity run; we want each window's result discoverable in `backtests/`). See `~/.claude/projects/.../memory/project_h2_engine_promotion_plan.md` for full state.
+- ~~Path B (Phase 5b.2) pending — next session priority~~ — **closed by commit `6aef5a1`** (`arch(phase-5b.2): Path B — basket dispatch writes discoverable artifacts`). Basket dispatcher now writes to `TradeScan_State/backtests/<directive_id>_<basket_id>/raw/results_tradelevel.csv`, registers in `run_registry.json`, appends to the MPS Baskets sheet. Phase 5d.1 followed and produced the 10-window parity matrix matching the research baseline (commit `5528ff1`).
 
-- **Adversarial-test sys.modules ordering bug (introduced 2026-05-13 by Phase 0a):**
-  `tests/test_engine_abi_adversarial.py::_force_reload_abi` deletes every
-  `engine_abi*` entry from `sys.modules` and re-imports. When subsequent
-  test modules then import `engine_abi.v1_5_9`, the runtime manifest
-  assertion in `__init__.py:79` fires because module identity differs
-  from the cached reference. All 5 tests in `test_engine_abi_adversarial.py`
-  and `test_basket_phase5c_real_data.py::test_dispatch_against_h2_directive_with_real_data`
-  fail in full-suite pytest runs while passing individually. Pre-commit
-  gate roster is unaffected (does not include these tests).
-  Fix candidate: `_force_reload_abi` should `importlib.reload()` instead
-  of bare `del + import_module`, OR add a session-scoped pytest fixture
-  that re-imports `engine_abi.v1_5_9` after any adversarial test. Filed
-  as Phase 0a follow-up; not blocking H2 promotion plan execution.
+- ~~Adversarial-test sys.modules ordering bug (introduced 2026-05-13 by Phase 0a)~~ — **closed 2026-05-14** during Stage 2 wait window. `_force_reload_abi` now uses `importlib.reload(mod)` instead of `del sys.modules + import_module`. The reload re-executes the module body in place (firing the runtime manifest assertion as designed) while preserving module identity — downstream importers who hold cached references see consistent state. Verified: `pytest tests/test_engine_abi_adversarial.py tests/test_basket_phase5c_real_data.py` (the previously-failing combo) returns 15/15 in 21s.

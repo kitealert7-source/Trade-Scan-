@@ -68,13 +68,29 @@ def _backup_files(*paths: Path):
 
 
 def _force_reload_abi():
-    """Drop engine_abi.<_ABI> from sys.modules so the next import re-runs
-    the inline runtime assertion. Returns the freshly-imported module or
-    raises whatever the import does."""
-    for k in list(sys.modules.keys()):
-        if k.startswith("engine_abi"):
-            del sys.modules[k]
-    return importlib.import_module(f"engine_abi.{_ABI}")
+    """Re-execute engine_abi.<_ABI> so its inline runtime assertion fires
+    again. Returns the reloaded module or raises whatever the assertion does.
+
+    Why importlib.reload() instead of `del sys.modules[...] + import_module`:
+      The bare del+import pattern creates a NEW module object. Other test
+      modules that already imported `from engine_abi import v1_5_9 as engine`
+      keep their OLD reference, so when those tests subsequently run their
+      own assertions (which check module identity against the manifest),
+      the saved `__all__` reference no longer matches the package-level
+      `__all__` — both `__all__` values are populated correctly, but the
+      identity comparison fails. `importlib.reload()` re-executes the
+      module body in place, preserving the original module identity AND
+      triggering the runtime assertion. Same fail-closed behavior on
+      drift, no full-suite test interference.
+
+    Documented in SYSTEM_STATE Manual as the Phase 0a follow-up fix —
+    closes the full-suite-run interference between
+    `tests/test_engine_abi_adversarial.py` and
+    `tests/test_basket_phase5c_real_data.py::test_dispatch_against_h2_directive_with_real_data`.
+    """
+    # First import (or get the existing module) so reload has a target.
+    mod = importlib.import_module(f"engine_abi.{_ABI}")
+    return importlib.reload(mod)
 
 
 # ---------------------------------------------------------------------------
