@@ -175,12 +175,24 @@ def _bucket_outcome(row: dict) -> str:
 
 
 def aggregate_baskets_sheet() -> pd.DataFrame:
-    """Read MPS::Baskets, filter to H2 rows, return DataFrame."""
+    """Read MPS::Baskets, filter to H2 rows, dedupe to latest per directive.
+
+    The Baskets sheet is append-only (Invariant #2): re-running the matrix
+    against an already-populated sheet leaves the prior rows in place and
+    appends new ones. For the parity report we want one row per pass, so
+    we keep only the latest row per `directive_id` (by `completed_at_utc`).
+    """
     mps = TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
     if not mps.is_file():
         raise FileNotFoundError(f"MPS not found at {mps}")
     df = pd.read_excel(mps, sheet_name="Baskets")
     h2 = df[df["basket_id"] == "H2"].copy()
+    h2["completed_at_utc_dt"] = pd.to_datetime(h2["completed_at_utc"], errors="coerce", utc=True)
+    h2 = (
+        h2.sort_values("completed_at_utc_dt")
+          .drop_duplicates(subset="directive_id", keep="last")
+          .drop(columns="completed_at_utc_dt")
+    )
     h2["pass_num"] = h2["directive_id"].str.extract(r"_P(\d+)$")
     h2["outcome"] = h2.apply(lambda r: _bucket_outcome(r.to_dict()), axis=1)
     return h2.sort_values("pass_num").reset_index(drop=True)

@@ -1,6 +1,6 @@
 # H2 — 10-Window Pipeline ↔ basket_sim Parity Report
 
-Generated: 2026-05-14 04:48:49 UTC
+Generated: 2026-05-14 05:28:04 UTC
 Source: `Master_Portfolio_Sheet.xlsx::Baskets` (10 H2 rows)
 Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 5d.1
 
