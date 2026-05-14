@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 3 uncommitted
+- WARNING: Working tree 4 uncommitted
 
-> Generated: 2026-05-13T16:28:23Z
+> Generated: 2026-05-14T05:42:10Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 242 directives
+- Completed: 251 directives
 
 ## Ledgers
 
@@ -32,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-13** | Symbols: 1
+- Latest bar: **2026-05-14** | Symbols: 235
 
 ## Artifacts
-- Run directories: 1320
+- Run directories: 1350
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 3 uncommitted
-- Last substantive commit: `e06b10b session: regenerate tools_manifest.json post-Phase-5d`
+- Working tree: 4 uncommitted
+- Last substantive commit: `1834276 session: regenerate tools_manifest.json post-Phase-5b.4`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
