@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-15T02:57:41Z
+> Generated: 2026-05-15T03:22:09Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,12 +39,13 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `bdf979c docs(audit): close Â§6.6 items 2/3/4 (operator concurred); defer #5 to Mon`
+- Working tree: 1 uncommitted
+- Last substantive commit: `e5bc406 fix(session-close): close broader-pytest gap in auto-populator + Â§9b gate`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
 - **Post-merge watch CLOSED_OK:** 5/5 runs clean (commit 1b6cc7b). Run `python tools/post_merge_watch.py --archive` to clear.
+- **Broader-pytest baseline:** 3 acknowledged failure(s) (last refreshed 2026-05-15 @ 5719a7e7). Tests: test_directive_legs_match_h2_spec, test_real_state_paths_module_resolves_to, test_trade_scan_root_invalid_env_falls_t. Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
