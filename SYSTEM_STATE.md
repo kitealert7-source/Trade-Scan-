@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 4 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-14T17:29:39Z
+> Generated: 2026-05-15T02:57:41Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -32,15 +31,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-14** | Symbols: 235
+- Latest bar: **2026-05-15** | Symbols: 235
 
 ## Artifacts
 - Run directories: 1350
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 4 uncommitted
-- Last substantive commit: `f5482f1 session: regenerate tools_manifest.json post-Phase-7a session`
+- Working tree: clean
+- Last substantive commit: `bdf979c docs(audit): close Â§6.6 items 2/3/4 (operator concurred); defer #5 to Mon`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
