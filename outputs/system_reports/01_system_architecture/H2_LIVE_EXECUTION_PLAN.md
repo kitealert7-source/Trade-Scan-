@@ -185,7 +185,7 @@ For each multi-leg action (OPEN, RECYCLE, HARVEST):
 | | Coverage requirement | What proves it |
 |---|---|---|
 | C1 | **1 initial basket open** | Both legs OPEN at first 5m bar after launch — correct symbols, lots, directions; orphan-leg policy did NOT trigger |
-| C2 | **2+ recycle events** | Two distinct RECYCLE actions execute end-to-end. Each must satisfy: trigger conditions all met, winner-close + loser-add sequence completes, weighted-avg-entry math correct |
+| C2 | **1 recycle event** | One RECYCLE action executes end-to-end. Must satisfy: trigger conditions all met, winner-close + loser-add sequence completes, weighted-avg-entry math correct. *(Reduced from 2 → 1 on operator decision 2026-05-15: manual monitoring of the live run is the compensating control. One observed recycle proves the mechanic; further events accrue evidence in real money.)* |
 | C3 | **1 restart while basket state exists** | Stop and re-start the live runner + shim while the basket is mid-cycle (i.e., positions open, prior recycle realized PnL on the books). On restart: state recovers correctly from `basket_state.json`; no duplicate actions; next bar resumes evaluation as if no restart happened |
 | C4 | **PnL reconciliation of EVERY event** | For every action in actions.jsonl, the executed PnL (from MT5 trade history or paper-fill price) matches the strategy's expected PnL formula within tolerance (0.5% for paper; documented per-event) |
 
@@ -213,10 +213,14 @@ For each multi-leg action (OPEN, RECYCLE, HARVEST):
 
 ### Coverage realism note
 
-C2 (2+ recycle events) is the long-pole requirement. In RESEARCH-mode matrix data, recycle frequency varied 5–40 events per 2-year window depending on regime. In live 5m, expect roughly 0–5 per day depending on conditions. If after 48h C2 is still unmet:
-- **Do NOT skip C2.** Do not flip to live without observing 2 recycles.
-- Either: extend dry-run until 2 recycles occur naturally
+C2 (1 recycle event) was the long-pole requirement when set to 2 events; now reduced to 1 it should typically arrive within a few hours of normal market conditions. In RESEARCH-mode matrix data, recycle frequency varied 5–40 events per 2-year window depending on regime; in live 5m, expect roughly 0–5 per day. If after 48h C2 is still unmet:
+- **Do NOT skip C2.** Do not flip to live without observing the recycle mechanic execute end-to-end.
+- Either: extend dry-run until a recycle occurs naturally
 - Or: synthesize a controlled trigger by temporarily lowering `trigger_usd` to $1 (artificial; clearly mark as a synthesized-trigger test event in the reconciliation log; restore $10 immediately after for the real test)
+
+### Compensating control: manual monitoring during live phase
+
+C2's reduction to 1 event is justified by the **manual operator monitoring** that runs in parallel with Step 4 (live $1k stake). Once the mechanic is proven once in dry-run, additional recycle observations accrue against real money under continuous operator review. The operator review is the safety layer that the second dry-run recycle would otherwise have provided. This is a deliberate trade-off — slightly less pre-flight evidence, slightly faster path to live + immediate real-world confirmation.
 
 ### What this test does NOT validate (acceptable)
 - Real fill prices vs paper-trade prices (slippage). Observable in Step 4 with real money.
@@ -247,13 +251,20 @@ C2 (2+ recycle events) is the long-pole requirement. In RESEARCH-mode matrix dat
 - TS_Execution shim picks up flag flip on next polling cycle
 - First action triggers real MT5 orders
 
-### Operator monitoring
-- Observe first complete harvest cycle:
-  - Initial open fires correctly
-  - First few recycle events (if any) execute correctly
+### Operator monitoring (compensating control for reduced C2)
+
+This monitoring is **part of the safety contract** — it's the layer that justified reducing C2 from 2 → 1 dry-run recycles. Skipping or de-prioritizing it during Step 4 would invalidate the trade-off the plan makes.
+
+- **Observe first complete harvest cycle:**
+  - Initial open fires correctly (matches the C1 dry-run observation)
+  - Each recycle event in real money — verify the mechanic against expected formula (winner-close PnL, loser weighted-avg-entry math, lot growth), exactly as Step 3's C2/C4 reconciliation does — but now with real fills
   - Equity tracking matches independent calculation from MT5 trade history
-- Heartbeat the operator's eyes daily for the first week
-- After first harvest target hits: harvested_total_usd = ~$1k, basket auto-stops per spec
+- **Cadence:** check the live state at minimum 2x daily during the first harvest cycle (morning + evening). Pause if anything looks wrong; the orphan-leg policy + market-closed gate handle the autonomic cases, but the *interpretation* of recycle correctness is human.
+- **Halt criteria** (independent of the recycle rule's freezes):
+  - Any rollback event in `executions.jsonl::ROLLED_BACK` → review before next cycle
+  - Any `events/orphan_alert.jsonl` entry → HARD halt, manual reconciliation required
+  - Equity diverges from independent MT5 calculation by > 0.5% → investigate before next bar
+- After first harvest target hits: harvested_total_usd ≈ $1k; basket auto-stops per spec; operator decides whether to re-arm or step up to Step 5
 
 ### Pass criteria for Step 4
 - First harvest cycle completes successfully (TARGET hit OR equity stable through a typical recycle pattern)
@@ -325,6 +336,7 @@ This step requires a separate review + approval. Do not jump straight to it.
 | 12 | Shim partial-fill / orphan-leg handling under-specified | §2 "Orphan-leg policy" — explicit Option A immediate-rollback procedure with ESCALATION fallback |
 | 13 | Weekend / market-close handling too loose ("pause live runner") | §1 "Market-closed gate" — deterministic `mt5.symbol_info(symbol).trade_mode` check at every cycle; no operator discretion |
 | — | Step 3 was clock-bounded ("24h pass") | §3 rewritten as event-gated; coverage matters not clock; explicit C1–C4 checklist + per-event PnL reconciliation |
+| — | C2 originally required 2 recycle events (refined 2026-05-15) | Reduced to 1 recycle event; manual operator monitoring during Step 4 is the compensating control for the second observation. §3 "Compensating control" + §4 "Operator monitoring" make the trade-off explicit and binding. |
 
 ---
 
