@@ -200,8 +200,10 @@ def test_results_basket_telemetry_columns(tmp_path):
         engine_version="1.5.8",
     )
     df_b = pd.read_csv(tmp_path / "raw" / "results_basket.csv")
+    # 2026-05-15: days_to_exit added as new telemetry column (Phase 1 ratio sweep).
     assert list(df_b.columns) == ["recycle_event_count", "harvested_total_usd",
-                                   "final_realized_usd", "exit_reason"]
+                                   "final_realized_usd", "exit_reason",
+                                   "days_to_exit"]
     assert int(df_b["recycle_event_count"].iloc[0]) == 3
     assert float(df_b["harvested_total_usd"].iloc[0]) == 2000.0
     assert df_b["exit_reason"].iloc[0] == "TARGET"
