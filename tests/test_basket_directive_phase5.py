@@ -116,6 +116,12 @@ def test_directive_basket_block_parses():
 
 
 def test_directive_legs_match_h2_spec():
+    """The corrected H2 spec (post-2026-05-14 Phase 5d.1.1 / commit 5528ff1)
+    runs both legs LONG. The earlier directive shipped USDJPY-short which
+    inverted the JPY PnL relative to the research-validated baseline; that
+    bug was fixed across all 10 directives by 5528ff1. This test now
+    asserts the corrected spec.
+    """
     parsed = parse_directive(DIRECTIVE_PATH)
     legs = parsed["basket"]["legs"]
     by_sym = {l["symbol"]: l for l in legs}
@@ -123,7 +129,7 @@ def test_directive_legs_match_h2_spec():
     assert by_sym["EURUSD"]["lot"] == 0.02
     assert by_sym["EURUSD"]["direction"] == "long"
     assert by_sym["USDJPY"]["lot"] == 0.01
-    assert by_sym["USDJPY"]["direction"] == "short"
+    assert by_sym["USDJPY"]["direction"] == "long"  # corrected from "short" by 5528ff1
 
 
 def test_directive_runs_through_basket_pipeline_with_synthetic_data():

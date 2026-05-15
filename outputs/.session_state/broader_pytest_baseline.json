@@ -1,12 +1,8 @@
 {
   "schema_version": 1,
-  "failed": [
-    "tests/test_basket_directive_phase5.py::test_directive_legs_match_h2_spec",
-    "tests/test_state_paths_worktree.py::test_real_state_paths_module_resolves_to_existing_dirs",
-    "tests/test_state_paths_worktree.py::test_trade_scan_root_invalid_env_falls_through"
-  ],
-  "count": 3,
-  "sha": "5719a7e77d32529d95d79fff21ca2175b1563e33",
-  "updated_at": "2026-05-15T03:14:33+00:00",
-  "rationale": "Initial baseline 2026-05-15: 3 pre-existing failures documented in SYSTEM_STATE.md Manual section. (1) test_basket_directive_phase5.py::test_directive_legs_match_h2_spec \u2014 stale test asserting legacy USDJPY-short H2 spec; directive corrected to USDJPY-long in 5528ff1. (2,3) test_state_paths_worktree.py x2 \u2014 pre-existing from 2026-05-11 worktree contract change."
+  "failed": [],
+  "count": 0,
+  "sha": "fbccd79d9e1050525f3b5e99418697b383a507e5",
+  "updated_at": "2026-05-15T18:47:52+00:00",
+  "rationale": "Fixed all 3 acknowledged failures: (1) test_directive_legs_match_h2_spec \u2014 stale USDJPY-short assertion updated to long; (2,3) test_state_paths_worktree.py x2 \u2014 cross-test pollution from test_path_authority_worktree_compat._import_path_authority_with_root mutating config.path_authority globals without restoration. Fix: helper now takes monkeypatch and uses setattr so mutations auto-restore."
 }

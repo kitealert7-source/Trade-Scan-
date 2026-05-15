@@ -80,7 +80,7 @@ def _seed_repo_and_worktree(tmp: Path) -> dict:
     }
 
 
-def _import_path_authority_with_root(start: Path):
+def _import_path_authority_with_root(start: Path, monkeypatch):
     """Reload path_authority with WORKTREE_ROOT pinned to `start`.
 
     path_authority resolves WORKTREE_ROOT from `__file__` at import
@@ -88,20 +88,44 @@ def _import_path_authority_with_root(start: Path):
     the module then patch its WORKTREE_ROOT and recompute downstream
     constants — the same effect as if the module had been imported
     from the patched location.
+
+    `monkeypatch.setattr` is used for all mutations so the original
+    module state is automatically restored after the test. Without
+    this, downstream tests that import `config.state_paths` (which
+    proxies to path_authority) see tmp_path-pointing globals after the
+    tmp_path fixture has been torn down — silent cross-test pollution.
     """
     import config.path_authority as pa
 
-    pa.WORKTREE_ROOT = start.resolve()
-    pa.REAL_REPO_ROOT = pa.find_real_repo_root(pa.WORKTREE_ROOT)
-    pa.GIT_COMMON_DIR = pa.REAL_REPO_ROOT / ".git"
-    pa.TRADE_SCAN_STATE = pa._resolve_sibling("TradeScan_State", "TRADE_SCAN_STATE")
-    pa.TS_EXECUTION = pa._resolve_sibling("TS_Execution", "TS_EXECUTION_ROOT")
-    pa.DRY_RUN_VAULT = pa._resolve_sibling("DRY_RUN_VAULT", "DRY_RUN_VAULT_ROOT")
-    pa.ANTI_GRAVITY_DATA_ROOT = pa._resolve_sibling(
-        "Anti_Gravity_DATA_ROOT", "ANTI_GRAVITY_DATA_ROOT"
+    new_worktree = start.resolve()
+    new_real = pa.find_real_repo_root(new_worktree)
+
+    monkeypatch.setattr(pa, "WORKTREE_ROOT", new_worktree)
+    monkeypatch.setattr(pa, "REAL_REPO_ROOT", new_real)
+    monkeypatch.setattr(pa, "GIT_COMMON_DIR", new_real / ".git")
+    # Recompute downstream sibling constants under the patched anchors.
+    # _resolve_sibling reads pa.REAL_REPO_ROOT, so the setattr above must
+    # land first — Python evaluates these args left-to-right.
+    monkeypatch.setattr(
+        pa, "TRADE_SCAN_STATE",
+        pa._resolve_sibling("TradeScan_State", "TRADE_SCAN_STATE"),
     )
-    pa.DATA_ROOT = pa.REAL_REPO_ROOT / "data_root"
-    pa.FRESHNESS_INDEX = pa.DATA_ROOT / "freshness_index.json"
+    monkeypatch.setattr(
+        pa, "TS_EXECUTION",
+        pa._resolve_sibling("TS_Execution", "TS_EXECUTION_ROOT"),
+    )
+    monkeypatch.setattr(
+        pa, "DRY_RUN_VAULT",
+        pa._resolve_sibling("DRY_RUN_VAULT", "DRY_RUN_VAULT_ROOT"),
+    )
+    monkeypatch.setattr(
+        pa, "ANTI_GRAVITY_DATA_ROOT",
+        pa._resolve_sibling("Anti_Gravity_DATA_ROOT", "ANTI_GRAVITY_DATA_ROOT"),
+    )
+    monkeypatch.setattr(pa, "DATA_ROOT", new_real / "data_root")
+    monkeypatch.setattr(
+        pa, "FRESHNESS_INDEX", new_real / "data_root" / "freshness_index.json"
+    )
     return pa
 
 
@@ -184,7 +208,7 @@ class TestSiblingResolution:
         ):
             monkeypatch.delenv(var, raising=False)
 
-        pa = _import_path_authority_with_root(layout["worktree"])
+        pa = _import_path_authority_with_root(layout["worktree"], monkeypatch)
 
         assert pa.REAL_REPO_ROOT == layout["main"]
         assert pa.TRADE_SCAN_STATE == layout["real_state"], (
@@ -210,7 +234,7 @@ class TestSiblingResolution:
         ):
             monkeypatch.delenv(var, raising=False)
 
-        pa = _import_path_authority_with_root(layout["main"])
+        pa = _import_path_authority_with_root(layout["main"], monkeypatch)
         assert pa.TRADE_SCAN_STATE == layout["real_state"]
         assert pa.TS_EXECUTION == layout["real_exec"]
         assert pa.DRY_RUN_VAULT == layout["real_vault"]
@@ -223,7 +247,7 @@ class TestSiblingResolution:
         custom.mkdir()
         monkeypatch.setenv("TRADE_SCAN_STATE", str(custom))
 
-        pa = _import_path_authority_with_root(layout["worktree"])
+        pa = _import_path_authority_with_root(layout["worktree"], monkeypatch)
         assert pa.TRADE_SCAN_STATE == custom.resolve()
 
 
@@ -243,7 +267,7 @@ class TestDataRootAnchoring:
         for var in ("TRADE_SCAN_ROOT",):
             monkeypatch.delenv(var, raising=False)
 
-        pa = _import_path_authority_with_root(layout["worktree"])
+        pa = _import_path_authority_with_root(layout["worktree"], monkeypatch)
 
         assert pa.DATA_ROOT == layout["main"] / "data_root", (
             f"DATA_ROOT must anchor on REAL_REPO_ROOT (got {pa.DATA_ROOT}). "
@@ -264,12 +288,12 @@ class TestIsWorktree:
         layout = _seed_repo_and_worktree(tmp_path)
         for var in ("TRADE_SCAN_ROOT",):
             monkeypatch.delenv(var, raising=False)
-        pa = _import_path_authority_with_root(layout["worktree"])
+        pa = _import_path_authority_with_root(layout["worktree"], monkeypatch)
         assert pa.is_worktree() is True
 
     def test_false_when_in_main(self, tmp_path, monkeypatch):
         layout = _seed_repo_and_worktree(tmp_path)
         for var in ("TRADE_SCAN_ROOT",):
             monkeypatch.delenv(var, raising=False)
-        pa = _import_path_authority_with_root(layout["main"])
+        pa = _import_path_authority_with_root(layout["main"], monkeypatch)
         assert pa.is_worktree() is False
