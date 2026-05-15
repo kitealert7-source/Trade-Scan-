@@ -1,0 +1,496 @@
+//@version=6
+strategy("PriorSessionBreakout", overlay=true,initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0, commission_type=strategy.commission.percent, commission_value=0, backtest_fill_limits_assumption=0, slippage=2, margin_long=1, margin_short=1, calc_on_order_fills=false, calc_on_every_tick=false, process_orders_on_close=false, use_bar_magnifier=false, fill_orders_on_standard_ohlc=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// =====================================================================
+// 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14 - Pine v6 port
+//
+// Source backtest:
+//   TradeScan_State/backtests/65_BRK_XAUUSD_5M_PSBRK_S01_V4_P14_XAUUSD
+//   Engine 1.5.8 | Range: 2024-07-19 -> 2026-05-04
+//   Reported: 961 trades, PF 1.34, Net $2620.43, MaxDD 0.40%, WR 41.5%
+//
+// ACTIVE LOGIC:
+//   Sessions (UTC): asia 00-asia_end, london asia_end-london_end,
+//                   ny london_end-ny_end, dead zone ny_end-24 (no entries)
+//   prev_session_high/low frozen at end of each real session; dead-zone bars
+//   never overwrite, so Asia at 00:00 UTC sees prior NY marks.
+//   Armed flags:
+//     Rule 1 - first bar of session OPENS at-or-inside the prev reference
+//     Rule 2 - any PRIOR in-session close back inside reference (gap-open re-arm)
+//   Long:  armed_long  & close > prev_session_high
+//          stop = session_low_running (signal bar); TP = close + tp_r * risk
+//   Short: armed_short & close < prev_session_low
+//          stop = session_high_running (signal bar); TP = close - tp_r * risk
+//   P14 guard: max one long + one short per (UTC date, session) tuple
+//   Lock stop: when intrabar R >= lock_trigger_r, move stop to entry +/- lock_level_r
+//   Exit: day-close at UTC date rollover
+//   Execution: next_bar_open (process_orders_on_close=false)
+//
+// NOTE: Fidelity is highest on XAUUSD 5M. Lock-stop update applies the bar
+//       AFTER the +2R touch is detected (Pine order model vs intra-bar in Python).
+// =====================================================================
+
+// ── Entry ─────────────────────────────────────────────────────────────
+direction_in   = input.string("Both", "Direction",
+     options = ["Long Only", "Short Only", "Both"], group = "Entry")
+allow_long     = direction_in == "Long Only"  or direction_in == "Both"
+allow_short    = direction_in == "Short Only" or direction_in == "Both"
+
+// ── Risk / Exit ────────────────────────────────────────────────────────
+tp_r_mult      = input.float(3.0, "Take profit (R)",
+     minval = 0.0, step = 0.5, group = "Risk / Exit",
+     tooltip = "TP as multiple of entry risk. 0 = TP disabled (day-close only).")
+lock_enabled   = input.bool(true, "Enable stop lock",
+     group = "Risk / Exit")
+lock_trigger_r = input.float(2.0, "Lock trigger (R)",
+     minval = 0.1, step = 0.5, group = "Risk / Exit",
+     tooltip = "Lock fires when intrabar R reaches this multiple. Python default: 2.0")
+lock_level_r   = input.float(1.0, "Lock to level (R above entry)",
+     minval = 0.0, step = 0.25, group = "Risk / Exit",
+     tooltip = "Stop moves here once lock fires. 0 = break-even. Python default: 1.0")
+
+// ── Sessions (UTC hours) ───────────────────────────────────────────────
+session_preset = input.string("Gold optimized (P14 default)",
+     "Session preset",
+     options = ["Gold optimized (P14 default)", "Actual exchange hours"],
+     group = "Sessions",
+     tooltip = "Gold optimized: 00-07 / 07-13 / 13-21 UTC. Gold-liquidity windows used by the Python P14 backtest — TOCOM/SGE morning, LBMA AM fix → pre-NY, NY open through COMEX pit close. This is the SL/breakout-anchor configuration the recorded 961-trade backtest was tested on.\n\nActual exchange hours: 00-08 / 08-14 / 14-21 UTC. Non-overlapping integer-hour approximation of TSE / LSE / NYSE cash hours. Gives different session boundaries → different breakout timing → different trade set. NOT equivalent to the recorded backtest.")
+
+// Derived session hour cutoffs (preset-driven). Both presets are mutually
+// exclusive non-overlapping windows so the strategy's session_seq state
+// machine remains valid.
+asia_end_h   = session_preset == "Gold optimized (P14 default)" ? 7  : 8
+london_end_h = session_preset == "Gold optimized (P14 default)" ? 13 : 14
+ny_end_h     = session_preset == "Gold optimized (P14 default)" ? 21 : 21
+
+// ── Display ────────────────────────────────────────────────────────────
+show_levels         = input.bool(true,  "Plot prev-session high/low",       group = "Display")
+show_session_boxes  = input.bool(true,  "Draw session boxes (range / avg)", group = "Display",
+     tooltip = "Per-session box with range, average price, open/close lines, and session name. Uses the strategy's UTC boundaries.")
+show_sessions       = input.bool(false, "Shade session backgrounds",        group = "Display",
+     tooltip = "Background color tint per session. Off by default when boxes are shown.")
+show_trades         = input.bool(false, "Show custom entry/exit markers",   group = "Display",
+     tooltip = "Adds extra triangle/cross/circle markers. Off by default — TradingView's built-in trade markers (Long / SL / TP / DAY_CLOSE comments) already display on the chart.")
+show_sl_tp          = input.bool(true,  "Show active stop/TP lines",        group = "Display")
+show_labels         = input.bool(false, "Show entry detail labels",         group = "Display")
+
+// ── Debug ──────────────────────────────────────────────────────────────
+show_running   = input.bool(false, "Plot running session hi/lo (debug)",  group = "Debug",
+     tooltip = "Cyan = sess_hi (current session running max). Magenta = sess_lo (running min). Should match prev-session line value at each transition bar.")
+show_xition    = input.bool(false, "Label session transitions (debug)",   group = "Debug",
+     tooltip = "On every session change shows: leaving-session_id, captured prev_high, captured prev_low.")
+show_fill_bars = input.bool(false, "Paint bars on entry fills (debug)",   group = "Debug",
+     tooltip = "Highlights the bar where a trade actually filled (green=long fill, red=short fill, gray=any exit). Use this to confirm trades are firing in your visible window.")
+
+// =====================================================================
+// SESSION DISPLAY UDT — per-session box (Range / Avg / Name)
+// =====================================================================
+type SessionDisplay
+    box    bx
+    label  lbl
+    line   openLn
+    line   closeLn
+    line   avgLn
+    float  sumClose
+    int    numBars
+    string sessName
+
+var SessionDisplay curSess = na
+
+// =====================================================================
+// SESSION CLASSIFICATION (UTC)
+// =====================================================================
+h = hour(time, "UTC")
+session_id      = h < asia_end_h ? "asia" : h < london_end_h ? "london" : h < ny_end_h ? "ny" : "none"
+is_real         = session_id != "none"
+prev_sid        = session_id[1]
+session_changed = na(prev_sid) or session_id != prev_sid
+prev_was_real   = not na(prev_sid) and (prev_sid == "asia" or prev_sid == "london" or prev_sid == "ny")
+
+// =====================================================================
+// RUNNING SESSION EXTREMES
+// =====================================================================
+var float sess_hi = na
+var float sess_lo = na
+if session_changed
+    sess_hi := high
+    sess_lo := low
+else
+    sess_hi := math.max(sess_hi, high)
+    sess_lo := math.min(sess_lo, low)
+
+// =====================================================================
+// PREV-SESSION EXTREMES
+// =====================================================================
+var float prev_sess_hi = na
+var float prev_sess_lo = na
+if session_changed and prev_was_real
+    prev_sess_hi := sess_hi[1]
+    prev_sess_lo := sess_lo[1]
+
+// =====================================================================
+// ARMED FLAGS
+// =====================================================================
+var bool opened_inside_long   = false
+var bool opened_inside_short  = false
+var bool prior_close_inside_long  = false
+var bool prior_close_inside_short = false
+
+if session_changed
+    opened_inside_long  := is_real and not na(prev_sess_hi) and open <= prev_sess_hi
+    opened_inside_short := is_real and not na(prev_sess_lo) and open >= prev_sess_lo
+    prior_close_inside_long  := false
+    prior_close_inside_short := false
+
+armed_long  = is_real and (opened_inside_long  or prior_close_inside_long)
+armed_short = is_real and (opened_inside_short or prior_close_inside_short)
+
+// =====================================================================
+// FIRST-BREAKOUT-PER-SESSION-PER-DIRECTION GUARD (P14)
+// =====================================================================
+cur_date = year(time, "UTC") * 10000 + month(time, "UTC") * 100 + dayofmonth(time, "UTC")
+
+var int    consumed_long_date  = na
+var string consumed_long_sid   = na
+var int    consumed_short_date = na
+var string consumed_short_sid  = na
+
+long_consumed  = consumed_long_date  == cur_date and consumed_long_sid  == session_id
+short_consumed = consumed_short_date == cur_date and consumed_short_sid == session_id
+
+// =====================================================================
+// TRADE-STATE TRACKING
+// =====================================================================
+var float orig_stop      = na
+var float tp_px          = na
+var int   entry_dir      = 0
+var int   entry_date_var = na
+var bool  lock_applied   = false
+var float plot_stop      = na   // active stop level for display (updates on lock)
+var float plot_tp        = na   // active TP level for display
+
+// =====================================================================
+// ENTRY SIGNALS
+// =====================================================================
+flat = strategy.position_size == 0
+
+long_sig  = allow_long  and flat and armed_long  and not long_consumed
+             and not na(prev_sess_hi) and close > prev_sess_hi
+short_sig = allow_short and flat and armed_short and not short_consumed
+             and not na(prev_sess_lo) and close < prev_sess_lo
+
+if long_sig
+    risk_l = close - sess_lo
+    if not na(sess_lo) and risk_l > 0
+        target_p = tp_r_mult > 0 ? close + tp_r_mult * risk_l : na
+        strategy.entry("L", strategy.long, comment = "Long")
+        if na(target_p)
+            strategy.exit("L_X", from_entry = "L", stop = sess_lo, comment_loss = "SL")
+        else
+            strategy.exit("L_X", from_entry = "L", stop = sess_lo, limit = target_p, comment_profit = "TP", comment_loss = "SL")
+        orig_stop      := sess_lo
+        tp_px          := target_p
+        plot_stop      := sess_lo
+        plot_tp        := target_p
+        entry_dir      := 1
+        entry_date_var := cur_date
+        lock_applied   := false
+        consumed_long_date := cur_date
+        consumed_long_sid  := session_id
+
+if short_sig
+    risk_s = sess_hi - close
+    if not na(sess_hi) and risk_s > 0
+        target_p = tp_r_mult > 0 ? close - tp_r_mult * risk_s : na
+        strategy.entry("S", strategy.short, comment = "Short")
+        if na(target_p)
+            strategy.exit("S_X", from_entry = "S", stop = sess_hi, comment_loss = "SL")
+        else
+            strategy.exit("S_X", from_entry = "S", stop = sess_hi, limit = target_p, comment_profit = "TP", comment_loss = "SL")
+        orig_stop      := sess_hi
+        tp_px          := target_p
+        plot_stop      := sess_hi
+        plot_tp        := target_p
+        entry_dir      := -1
+        entry_date_var := cur_date
+        lock_applied   := false
+        consumed_short_date := cur_date
+        consumed_short_sid  := session_id
+
+// =====================================================================
+// STOP MUTATION
+// =====================================================================
+if lock_enabled and not flat and not lock_applied and entry_dir != 0 and not na(orig_stop)
+    actual_entry = strategy.position_avg_price
+    if not na(actual_entry)
+        risk_per = entry_dir == 1 ? actual_entry - orig_stop : orig_stop - actual_entry
+        if risk_per > 0
+            trigger_px = entry_dir == 1
+                 ? actual_entry + lock_trigger_r * risk_per
+                 : actual_entry - lock_trigger_r * risk_per
+            triggered = entry_dir == 1 ? high >= trigger_px : low <= trigger_px
+            if triggered
+                new_stop = entry_dir == 1
+                     ? actual_entry + lock_level_r * risk_per
+                     : actual_entry - lock_level_r * risk_per
+                if entry_dir == 1
+                    if na(tp_px)
+                        strategy.exit("L_X", from_entry = "L", stop = new_stop, comment_loss = "Lock SL")
+                    else
+                        strategy.exit("L_X", from_entry = "L", stop = new_stop, limit = tp_px, comment_profit = "TP", comment_loss = "Lock SL")
+                else
+                    if na(tp_px)
+                        strategy.exit("S_X", from_entry = "S", stop = new_stop, comment_loss = "Lock SL")
+                    else
+                        strategy.exit("S_X", from_entry = "S", stop = new_stop, limit = tp_px, comment_profit = "TP", comment_loss = "Lock SL")
+                plot_stop    := new_stop   // update display line to locked level
+                lock_applied := true
+
+// =====================================================================
+// UTC DAY-CLOSE EXIT
+// day_close_cond is a series so [1] gives last bar's value for exit detection.
+// =====================================================================
+day_close_cond = not flat and not na(entry_date_var) and cur_date != entry_date_var
+if day_close_cond
+    strategy.close_all(comment = "DAY_CLOSE")
+
+// =====================================================================
+// RESET TRADE STATE — only when a trade ACTUALLY just closed
+// (position transitioned from non-zero to zero on this bar).
+//
+// CRITICAL: previous version reset on `flat` alone, but `flat` is
+// also TRUE on the SIGNAL bar (entry order is queued for next-bar-open
+// and hasn't filled yet). Resetting there wiped orig_stop, tp_px,
+// entry_date_var, plot_stop, plot_tp, entry_dir, lock_applied — all of
+// which are needed on the FILL bar and onward by the lock-stop block,
+// the day-close block, and the active SL/TP plot. Net effect of the
+// bug: lock-stop never fired, day-close never fired, SL/TP lines never
+// rendered. Trades only exited because the broker's persistent
+// strategy.exit(stop=, limit=) orders survived independently.
+// =====================================================================
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    orig_stop      := na
+    tp_px          := na
+    entry_dir      := 0
+    entry_date_var := na
+    lock_applied   := false
+    plot_stop      := na
+    plot_tp        := na
+
+// =====================================================================
+// UPDATE ARMING STATE FOR THE NEXT BAR
+// =====================================================================
+if is_real and not na(prev_sess_hi) and close <= prev_sess_hi
+    prior_close_inside_long := true
+if is_real and not na(prev_sess_lo) and close >= prev_sess_lo
+    prior_close_inside_short := true
+
+// =====================================================================
+// FILL DETECTION (for trade markers)
+// All conditions below are derived from strategy.position_size transitions
+// — i.e. ACTUAL fills observed by the broker simulator — not signal intent.
+// With process_orders_on_close=false, fills register on the bar that opened
+// the trade, so position_size on this bar vs prior bar pins down each event.
+//
+// new_long_entry  : flat (or short) → long this bar    (entry fill)
+// new_short_entry : flat (or long)  → short this bar   (entry fill)
+// just_closed     : non-zero → flat this bar           (any exit fill)
+// day_close_exit  : just_closed AND day-close was queued last bar
+// engine_exit     : just_closed AND no day-close was queued (= SL or TP)
+// exit_win/loss   : engine_exit split by realized profit sign
+// =====================================================================
+new_long_entry  = strategy.position_size > 0 and strategy.position_size[1] <= 0
+new_short_entry = strategy.position_size < 0 and strategy.position_size[1] >= 0
+
+just_closed    = strategy.position_size == 0 and strategy.position_size[1] != 0
+prev_was_long  = strategy.position_size[1] > 0
+prev_was_short = strategy.position_size[1] < 0
+
+day_close_exit = just_closed and day_close_cond[1]
+engine_exit    = just_closed and not day_close_cond[1]
+
+last_profit    = strategy.closedtrades > 0
+                 ? strategy.closedtrades.profit(strategy.closedtrades - 1)
+                 : 0.0
+exit_win  = engine_exit and last_profit > 0   // TP or locked-stop win
+exit_loss = engine_exit and last_profit <= 0  // original SL
+
+// =====================================================================
+// VISUALIZATION
+// =====================================================================
+
+// --- Prev-session levels ---
+plot(show_levels ? prev_sess_hi : na, "Prev Session High",
+     color = color.new(color.green, 0), style = plot.style_linebr, linewidth = 1)
+plot(show_levels ? prev_sess_lo : na, "Prev Session Low",
+     color = color.new(color.red,   0), style = plot.style_linebr, linewidth = 1)
+
+// --- Active stop and TP lines (visible while in a trade) ---
+plot(show_sl_tp ? plot_stop : na, "Active Stop",
+     color = color.new(color.red,   20), style = plot.style_linebr, linewidth = 2)
+plot(show_sl_tp ? plot_tp   : na, "Active TP",
+     color = color.new(color.teal,  20), style = plot.style_linebr, linewidth = 2)
+
+// --- Trade markers (labels, NOT plotshape — labels render above boxes) ---
+// Pine v6 z-order: drawings (box/label/line) render ABOVE plots (plotshape).
+// The session boxes' translucent fill covers any plotshape, so we use labels.
+// All markers fire on the FILL bar via position-size transitions.
+if show_trades
+    if new_long_entry
+        label.new(bar_index, low, "L",
+             style = label.style_label_up,
+             color = color.new(color.green, 0),
+             textcolor = color.white,
+             size = size.small)
+    if new_short_entry
+        label.new(bar_index, high, "S",
+             style = label.style_label_down,
+             color = color.new(color.red, 0),
+             textcolor = color.white,
+             size = size.small)
+    if exit_win and prev_was_long
+        label.new(bar_index, high, "TP",
+             style = label.style_label_down,
+             color = color.new(color.teal, 0),
+             textcolor = color.white,
+             size = size.small)
+    if exit_win and prev_was_short
+        label.new(bar_index, low, "TP",
+             style = label.style_label_up,
+             color = color.new(color.teal, 0),
+             textcolor = color.white,
+             size = size.small)
+    if exit_loss and prev_was_long
+        label.new(bar_index, low, "SL",
+             style = label.style_label_up,
+             color = color.new(color.red, 20),
+             textcolor = color.white,
+             size = size.small)
+    if exit_loss and prev_was_short
+        label.new(bar_index, high, "SL",
+             style = label.style_label_down,
+             color = color.new(color.red, 20),
+             textcolor = color.white,
+             size = size.small)
+    if day_close_exit and prev_was_long
+        label.new(bar_index, high, "Day",
+             style = label.style_label_down,
+             color = color.new(color.orange, 0),
+             textcolor = color.white,
+             size = size.small)
+    if day_close_exit and prev_was_short
+        label.new(bar_index, low, "Day",
+             style = label.style_label_up,
+             color = color.new(color.orange, 0),
+             textcolor = color.white,
+             size = size.small)
+
+// --- Entry detail labels (optional) ---
+if show_labels and long_sig
+    risk_l_lbl = close - sess_lo
+    if not na(sess_lo) and risk_l_lbl > 0
+        label.new(bar_index, low,
+             "L  SL:" + str.tostring(sess_lo, "#.##")
+             + (tp_r_mult > 0 ? "  TP:" + str.tostring(close + tp_r_mult * risk_l_lbl, "#.##") : "  TP:off"),
+             style = label.style_label_up,
+             color = color.new(color.green, 70),
+             textcolor = color.white, size = size.small)
+
+if show_labels and short_sig
+    risk_s_lbl = sess_hi - close
+    if not na(sess_hi) and risk_s_lbl > 0
+        label.new(bar_index, high,
+             "S  SL:" + str.tostring(sess_hi, "#.##")
+             + (tp_r_mult > 0 ? "  TP:" + str.tostring(close - tp_r_mult * risk_s_lbl, "#.##") : "  TP:off"),
+             style = label.style_label_down,
+             color = color.new(color.red, 70),
+             textcolor = color.white, size = size.small)
+
+// --- Session background shading ---
+bgcolor(show_sessions
+     ? (session_id == "asia"   ? color.new(color.blue,   92)
+     :  session_id == "london" ? color.new(color.orange, 92)
+     :  session_id == "ny"     ? color.new(color.teal,   92) : na)
+     : na)
+
+// =====================================================================
+// SESSION BOXES (Trading-Sessions style, driven by strategy's UTC bounds)
+// On every real-session bar, expand the active session's box and refresh
+// the Range / Avg / Name label. On entering the dead zone, drop the
+// reference so the drawings freeze at the session's last bar.
+// =====================================================================
+if show_session_boxes
+    sess_clr = session_id == "asia"   ? color.new(color.blue,   85)
+             : session_id == "london" ? color.new(color.orange, 85)
+             : session_id == "ny"     ? color.new(color.teal,   85) : na
+
+    sess_opq = session_id == "asia"   ? color.new(color.blue,    0)
+             : session_id == "london" ? color.new(color.orange,  0)
+             : session_id == "ny"     ? color.new(color.teal,    0) : na
+
+    sess_name_str = session_id == "asia"   ? "Asia"
+                  : session_id == "london" ? "London"
+                  : session_id == "ny"     ? "New York" : ""
+
+    // Initialise a fresh display on the first bar of a real session.
+    if session_changed and is_real
+        curSess := SessionDisplay.new(
+             bx       = box.new(bar_index, high, bar_index, low, bgcolor = sess_clr, border_color = na),
+             lbl      = label.new(bar_index, low, "", style = label.style_label_upper_left, textalign = text.align_left, textcolor = sess_opq, color = color(na), size = size.small),
+             openLn   = line.new(bar_index, open, bar_index, open,   color = sess_opq, style = line.style_dashed, width = 1),
+             closeLn  = line.new(bar_index, close, bar_index, close, color = sess_opq, style = line.style_dashed, width = 1),
+             avgLn    = line.new(bar_index, close, bar_index, close, color = sess_opq, style = line.style_dotted, width = 2),
+             sumClose = 0.0,
+             numBars  = 0,
+             sessName = sess_name_str)
+
+    // Drop reference on entering the dead zone — drawings remain frozen.
+    if session_changed and not is_real
+        curSess := na
+
+    // Expand box / refresh lines + label on every real-session bar.
+    if not na(curSess) and is_real
+        curSess.sumClose := curSess.sumClose + close
+        curSess.numBars  := curSess.numBars + 1
+        curSess.bx.set_top(math.max(curSess.bx.get_top(), high))
+        curSess.bx.set_bottom(math.min(curSess.bx.get_bottom(), low))
+        curSess.bx.set_right(bar_index)
+        curSess.closeLn.set_x2(bar_index)
+        curSess.closeLn.set_y1(close)
+        curSess.closeLn.set_y2(close)
+        avg = curSess.sumClose / curSess.numBars
+        curSess.avgLn.set_x2(bar_index)
+        curSess.avgLn.set_y1(avg)
+        curSess.avgLn.set_y2(avg)
+        rng = (curSess.bx.get_top() - curSess.bx.get_bottom()) / syminfo.mintick
+        curSess.lbl.set_y(curSess.bx.get_bottom())
+        curSess.lbl.set_text("Range: " + str.tostring(rng, format.mintick) + "\nAvg: " + str.tostring(avg, format.mintick) + "\n" + curSess.sessName)
+
+// =====================================================================
+// DEBUG OVERLAYS
+// =====================================================================
+
+// --- Bar-paint on entry/exit fills (debug) ---
+barcolor(show_fill_bars and new_long_entry  ? color.new(color.green,  20) :
+         show_fill_bars and new_short_entry ? color.new(color.red,    20) :
+         show_fill_bars and just_closed     ? color.new(color.gray,   30) : na)
+
+// --- Running session extremes (verifies the source values being captured) ---
+plot(show_running ? sess_hi : na, "Running Sess Hi (debug)",
+     color = color.new(color.aqua,    0), style = plot.style_linebr, linewidth = 1)
+plot(show_running ? sess_lo : na, "Running Sess Lo (debug)",
+     color = color.new(color.fuchsia, 0), style = plot.style_linebr, linewidth = 1)
+
+// --- Session transition labels ---
+// On the first bar of a new session, prev_sess_hi/lo have just been captured
+// from the previous session's final running high/low. The label shows what
+// was captured and what session ended.
+if show_xition and session_changed and prev_was_real
+    label.new(bar_index, high,
+         "▲ end of " + str.tostring(prev_sid)
+         + "\nhi = " + str.tostring(prev_sess_hi, "#.##")
+         + "\nlo = " + str.tostring(prev_sess_lo, "#.##"),
+         style = label.style_label_down,
+         color = color.new(color.gray, 30),
+         textcolor = color.white,
+         size = size.tiny)
