@@ -197,6 +197,43 @@ git push origin main
   so the snapshot's "unpushed count" reflects reality (0).
 - Never end a session with unpushed work commits.
 
+### 8b. Weekend periodic skills (Sat / Sun only — opt-in)
+
+Soft prompt — does not gate session-close. If today is Saturday or
+Sunday, consider running the periodic skills below BEFORE the SYSTEM_STATE
+regen (Step 9), so any commits they produce are reflected in the closing
+snapshot. If neither group applies, skip this section.
+
+#### 8b.i — Calendar-weekly (run if not done in the last 7 days)
+- `/refactor-and-cleanup` — repo hygiene (worktrees, branches, root
+  untracked, code DRY). Decides what's safe to delete vs archive vs
+  refactor; lands one commit per phase.
+- `/system-maintenance` (Phase 1 health audit only — `python tools/system_preflight.py`)
+  — ~5 min integrity check; surfaces filesystem drift / registry mismatch
+  before they bite the next session.
+
+#### 8b.ii — Drift-triggered (run only if a condition holds)
+- `/state-lifecycle-cleanup` if ANY of:
+    * Large MPS delta since last run (≳ 10 new entries)
+    * Many backtests added (≳ 20 new dirs in `TradeScan_State/backtests/`)
+    * Unusual `TradeScan_State/runs/` growth (≳ 50 new dirs)
+    * Stale strategy folders noticed during normal work
+- `/anthropic-skills:consolidate-memory` if ANY of:
+    * `MEMORY.md` > 40KB or > 200 lines
+    * Stale facts surfaced (commit hashes that no longer exist; refs
+      to retired phases)
+    * Index entries pointing to removed topic files
+
+**Why this section exists:** repo debt + state drift + memory drift
+all accrue silently between sessions. Without a structural reminder
+they never get addressed until something breaks. The weekend slot is
+chosen because (a) most strategy work happens weekdays, (b) FX market
+is closed → no live activity to coordinate around, (c) the operator
+is more likely to have buffer time.
+
+**Document in Step 10 session summary** which (if any) of the above
+ran, so the next operator can read the pattern.
+
 ### 9. Regenerate SYSTEM_STATE.md — Final Step
 
 ```bash
@@ -371,6 +408,15 @@ git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$"
 # 6. Push all work commits
 git push origin main
 git log --oneline origin/main..HEAD   # should show nothing
+
+# 6b. WEEKEND ONLY (Sat/Sun) — opt-in periodic skills before SYSTEM_STATE regen
+#     Calendar-weekly:
+#       /refactor-and-cleanup        # repo hygiene + DRY
+#       /system-maintenance          # Phase 1 health audit only (~5 min)
+#     Drift-triggered (run only if a condition holds — see longhand §8b.ii):
+#       /state-lifecycle-cleanup     # if MPS delta ≳ 10 OR backtests ≳ 20 OR runs ≳ 50 OR stale folders
+#       /anthropic-skills:consolidate-memory   # if MEMORY.md > 40KB / 200 lines OR stale facts
+#     If neither group applies: skip. Document in §10 summary which (if any) ran.
 
 # 7. FINAL — regen SYSTEM_STATE post-push, commit + push as closing snapshot
 python tools/system_introspection.py
