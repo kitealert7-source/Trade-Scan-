@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-15T03:22:09Z
+> Generated: 2026-05-15T18:31:10Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,17 +11,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 251 directives
+- Completed: 271 directives
 
 ## Ledgers
 
-- **Master Filter:** 1133 rows
+- **Master Filter:** 1151 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
-  - **Portfolios:** 130 rows — CORE: 4, FAIL: 120, PROFILE_UNRESOLVED: 1, WATCH: 5
+  - **Portfolios:** 131 rows — CORE: 4, FAIL: 121, PROFILE_UNRESOLVED: 1, WATCH: 5
   - **Single-Asset Composites:** 81 rows — CORE: 11, FAIL: 65, WATCH: 5
 
-- **Candidates (FPS):** 511 rows — CORE: 14, FAIL: 342, LIVE: 13, RESERVE: 25, WATCH: 117
+- **Candidates (FPS):** 521 rows — CORE: 14, FAIL: 351, LIVE: 13, RESERVE: 25, WATCH: 118
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
@@ -35,12 +34,12 @@
 - Latest bar: **2026-05-15** | Symbols: 235
 
 ## Artifacts
-- Run directories: 1350
+- Run directories: 1368
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `e5bc406 fix(session-close): close broader-pytest gap in auto-populator + Â§9b gate`
+- Working tree: clean
+- Last substantive commit: `8235069 tests(basket-report): update telemetry-columns test for days_to_exit addition`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
