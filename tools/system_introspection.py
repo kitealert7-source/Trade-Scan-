@@ -624,6 +624,8 @@ def collect_known_issues() -> dict[str, Any]:
         "directive_queue_error": None,
         "post_merge_watch": None,
         "post_merge_watch_error": None,
+        "broader_pytest_baseline": None,  # populated below from sidecar
+        "broader_pytest_baseline_error": None,
     }
 
     # 1. Gate test suite — fast, fixed roster, the same one the
@@ -715,6 +717,23 @@ def collect_known_issues() -> dict[str, Any]:
         auto["post_merge_watch"] = reconcile_watch()
     except Exception as e:
         auto["post_merge_watch_error"] = f"{type(e).__name__}: {e}"
+
+    # 5. Broader-pytest baseline — read sidecar populated by
+    # `tools/check_broader_pytest_baseline.py` (called from session-close §9b).
+    # The sidecar lists *acknowledged* failing tests in the broader suite.
+    # We only READ it here — never run pytest from inside introspection
+    # (would make every snapshot regen take 2+ minutes).
+    try:
+        baseline_path = (
+            _TRADE_SCAN_ROOT / "outputs" / ".session_state"
+            / "broader_pytest_baseline.json"
+        )
+        if baseline_path.exists():
+            auto["broader_pytest_baseline"] = json.loads(
+                baseline_path.read_text(encoding="utf-8")
+            )
+    except Exception as e:
+        auto["broader_pytest_baseline_error"] = f"{type(e).__name__}: {e}"
 
     return auto
 
@@ -997,6 +1016,35 @@ def render_markdown(
                 f"- **Post-merge watch CLOSED_FAIL:** {len(dirty_ids)}/{target} runs "
                 f"showed warmup fallback or crash (commit {commit}). "
                 f"Inspect: {preview}{more}. Run `--archive` after investigation."
+            )
+
+    # Broader-pytest baseline surface — NOT a re-run, just reads the
+    # sidecar maintained by `tools/check_broader_pytest_baseline.py`.
+    if auto.get("broader_pytest_baseline_error"):
+        auto_lines.append(
+            f"- Broader-pytest baseline: error reading sidecar — "
+            f"{auto['broader_pytest_baseline_error']}"
+        )
+    bp = auto.get("broader_pytest_baseline")
+    if bp:
+        bp_count = int(bp.get("count", 0) or 0)
+        bp_updated = bp.get("updated_at") or "unknown"
+        bp_sha = (bp.get("sha") or "?")[:8]
+        if bp_count == 0:
+            auto_lines.append(
+                f"- **Broader-pytest baseline:** clean (0 acknowledged failures). "
+                f"Last refreshed {bp_updated} @ {bp_sha}."
+            )
+        else:
+            failed_preview = ", ".join(
+                t.split("::")[-1][:40] for t in (bp.get("failed") or [])[:3]
+            )
+            more = f" (+{bp_count - 3} more)" if bp_count > 3 else ""
+            auto_lines.append(
+                f"- **Broader-pytest baseline:** {bp_count} acknowledged failure(s) "
+                f"(last refreshed {bp_updated[:10]} @ {bp_sha}). Tests: "
+                f"{failed_preview}{more}. Verify via "
+                f"`python tools/check_broader_pytest_baseline.py` (run by §9b)."
             )
 
     if auto_lines:

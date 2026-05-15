@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "failed": [
+    "tests/test_basket_directive_phase5.py::test_directive_legs_match_h2_spec",
+    "tests/test_state_paths_worktree.py::test_real_state_paths_module_resolves_to_existing_dirs",
+    "tests/test_state_paths_worktree.py::test_trade_scan_root_invalid_env_falls_through"
+  ],
+  "count": 3,
+  "sha": "5719a7e77d32529d95d79fff21ca2175b1563e33",
+  "updated_at": "2026-05-15T03:14:33+00:00",
+  "rationale": "Initial baseline 2026-05-15: 3 pre-existing failures documented in SYSTEM_STATE.md Manual section. (1) test_basket_directive_phase5.py::test_directive_legs_match_h2_spec \u2014 stale test asserting legacy USDJPY-short H2 spec; directive corrected to USDJPY-long in 5528ff1. (2,3) test_state_paths_worktree.py x2 \u2014 pre-existing from 2026-05-11 worktree contract change."
+}

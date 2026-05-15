@@ -292,8 +292,8 @@ first read will see "Last substantive commit: <closing snapshot hash>"
 The S2 fix (2026-05-04) made `system_introspection.collect_known_issues()`
 auto-populate the section under `### Auto-detected` from the same
 signals this gate checks (gate-suite pytest, intent-index audit,
-sweep_registry hash drift). The file is honest by construction
-post-regen.
+sweep_registry hash drift, broader-pytest baseline). The file is
+honest by construction post-regen.
 
 This gate is now a *defensive backup* that catches three failure modes
 the auto-populator alone can't cover:
@@ -308,7 +308,26 @@ the auto-populator alone can't cover:
    the file. Catches stale snapshot + auto-populator parser drift.
 
 ```bash
-# Re-derive the same blocker signals the auto-populator uses:
+# Step A — broader-pytest baseline gate (catches NEW regressions).
+# Runs pytest tests/ once, compares failed set against the acknowledged
+# baseline at outputs/.session_state/broader_pytest_baseline.json.
+#   Exit 0 -> failure set matches baseline (or is a strict improvement)
+#   Exit 1 -> NEW failure(s) detected -> BLOCK close
+#   Exit 2 -> internal pytest error
+python tools/check_broader_pytest_baseline.py
+BP_EXIT=$?
+if [ "$BP_EXIT" -eq 1 ]; then
+    echo "ERROR: broader-pytest regression detected. Either fix the new"
+    echo "       failure(s) or explicitly accept by updating the baseline:"
+    echo "  python tools/check_broader_pytest_baseline.py --update-baseline \\"
+    echo "       --rationale '<why these are accepted>'"
+    exit 1
+fi
+
+# Step B — Re-derive the gate-suite signals the auto-populator uses.
+# (Gate suite is the 5-file fast roster from system_introspection's
+# _GATE_TEST_SUITE — same as the pre-commit hook. Broader-pytest is
+# handled by Step A above, not here.)
 TEST_FAILS=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ failed" | head -1 | grep -oE "[0-9]+" || echo 0)
 SKIPPED=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ skipped" | head -1 | grep -oE "[0-9]+" || echo 0)
 
@@ -333,6 +352,13 @@ is stale. Re-run system_introspection.py and confirm the blockers
 appear under "### Auto-detected" before closing.
   - test failures: <N>
 ```
+
+> **Why both steps?** Step A (broader-pytest baseline) catches **new**
+> failures the auto-populator can't see (it only checks the gate suite).
+> Step B (existence-check) catches **silent auto-populator failures**
+> (the file is missing the section it should have populated). Together
+> they close the gap that allowed pre-existing failures to slip past
+> session-close on 2026-05-15.
 
 For deferred items the automation can't see (in-flight TDs, data
 quality notes, operational caveats), edit `### Manual` directly.
@@ -417,6 +443,10 @@ git log --oneline origin/main..HEAD   # should show nothing
 #       /pipeline-state-cleanup      # if MPS delta ≳ 10 OR backtests ≳ 20 OR runs ≳ 50 OR stale folders
 #       /anthropic-skills:consolidate-memory   # if MEMORY.md > 40KB / 200 lines OR stale facts
 #     If neither group applies: skip. Document in §10 summary which (if any) ran.
+
+# 6c. Broader-pytest baseline — exit 1 blocks close (NEW failure since baseline)
+#     Auto-populator only checks the gate suite; this catches broader regressions.
+python tools/check_broader_pytest_baseline.py
 
 # 7. FINAL — regen SYSTEM_STATE post-push, commit + push as closing snapshot
 python tools/system_introspection.py
