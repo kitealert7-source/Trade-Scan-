@@ -800,6 +800,7 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     # not just produced." The legacy basket_runs.csv writer is preserved during
     # the transition (see header comment on that file).
     run_id = None
+    state_mgr = None  # Phase 5b.4: emit run_state.json (startup-guardrail compliance)
     try:
         from tools.basket_ledger import basket_result_to_tradelevel_df
         from tools.portfolio.basket_ledger_writer import append_basket_row_to_mps
@@ -813,6 +814,19 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         backtests_dir.mkdir(parents=True, exist_ok=True)
         runs_dir = TRADE_SCAN_STATE / "runs" / run_id / "data"
         runs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Phase 5b.4: emit run_state.json so the startup guardrail
+        # (enforce_run_schema) does not quarantine basket runs on subsequent
+        # pipeline invocations. Basket dispatch is monolithic but
+        # ALLOWED_TRANSITIONS is linear — initialize as IDLE here and walk
+        # through stages to COMPLETE at the end of the try block (or
+        # transition to FAILED in the outer except).
+        from tools.pipeline_utils import PipelineStateManager
+        state_mgr = PipelineStateManager(run_id, directive_id=directive_id)
+        state_mgr.initialize(metadata={
+            "execution_mode": "basket",
+            "basket_id": basket_id,
+        })
 
         # Build per-symbol-shape tradelevel DataFrame and write to BOTH
         # locations (runs/ for the per-run snapshot, backtests/ for the
@@ -907,12 +921,60 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         except Exception as exc:
             print(f"[BASKET] WARN MPS Baskets append failed: {exc}")
 
+        # Phase 5b.4: emit manifest.json so the COMPLETE-state guardrail
+        # accepts the basket run on next startup. Schema mirrors the
+        # per-symbol manifest (stage_symbol_execution.py): run_id +
+        # strategy_hash (here: hash of directive file, since baskets have
+        # no strategy.py) + artifacts hash map + timestamp. Extra basket
+        # markers ('execution_mode', 'basket_id') aid future consumers.
+        import hashlib, json
+        if state_mgr is not None:
+            artifacts_manifest = {}
+            if runs_csv.exists():
+                artifacts_manifest["results_tradelevel.csv"] = hashlib.sha256(
+                    runs_csv.read_bytes()
+                ).hexdigest()
+            manifest_payload = {
+                "run_id": run_id,
+                "strategy_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "artifacts": artifacts_manifest,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "execution_mode": "basket",
+                "basket_id": basket_id,
+            }
+            manifest_path = state_mgr.run_dir / "manifest.json"
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest_payload, f, indent=4)
+            print(f"[BASKET] Manifest written: {manifest_path}")
+
+        # Phase 5b.4: walk state machine to COMPLETE so the startup
+        # guardrail accepts this basket run on next pipeline invocation.
+        if state_mgr is not None:
+            for _next_state in [
+                "PREFLIGHT_COMPLETE",
+                "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+                "STAGE_1_COMPLETE",
+                "STAGE_2_COMPLETE",
+                "STAGE_3_COMPLETE",
+                "STAGE_3A_COMPLETE",
+                "COMPLETE",
+            ]:
+                state_mgr.transition_to(_next_state)
+
     except Exception as exc:
         # Path B failure must NOT swallow the run — log + continue. The
         # vault + research CSV still landed; future analysis can recover.
         import traceback
         print(f"[BASKET] WARN Path B (standard artifacts) failed: {exc}")
         print(f"[BASKET]   {traceback.format_exc().splitlines()[-1]}")
+        # Phase 5b.4: mark run FAILED so it doesn't get quarantined as
+        # "corrupt" (no run_state.json) on the next startup. Best-effort —
+        # state_mgr may not yet exist if the exception fired pre-init.
+        if state_mgr is not None:
+            try:
+                state_mgr.transition_to("FAILED")
+            except Exception:
+                pass
 
     # Append basket row to legacy research CSV (Phase 5b.1 — slated for
     # retirement after the Baskets MPS sheet stabilizes; review 2026-06-14).

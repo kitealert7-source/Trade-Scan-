@@ -40,6 +40,46 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
+# USD-conversion reference pairs (2026-05-15) — for H2_recycle@3 cross-pair
+# PnL support. Each non-USD currency maps to a USD-anchored pair whose close
+# is used to convert that currency to USD at runtime.
+# ---------------------------------------------------------------------------
+
+_CCY_TO_USD_PAIR = {
+    "EUR": "EURUSD",
+    "GBP": "GBPUSD",
+    "AUD": "AUDUSD",
+    "NZD": "NZDUSD",
+    "JPY": "USDJPY",
+    "CHF": "USDCHF",
+    "CAD": "USDCAD",
+}
+
+
+def _split_pair_ccys(symbol: str) -> tuple[str, str]:
+    """Return (base, quote) currency 3-letter codes."""
+    if len(symbol) != 6:
+        return ("", "")
+    return symbol[:3].upper(), symbol[3:].upper()
+
+
+def _required_ref_pairs(trade_symbols: list[str]) -> list[str]:
+    """Return USD-anchored pairs needed as reference for currency conversion.
+
+    Excludes trade symbols themselves (those would self-reference).
+    """
+    needed: set[str] = set()
+    for sym in trade_symbols:
+        base, quote = _split_pair_ccys(sym)
+        for ccy in (base, quote):
+            if ccy and ccy != "USD" and ccy in _CCY_TO_USD_PAIR:
+                ref = _CCY_TO_USD_PAIR[ccy]
+                if ref not in trade_symbols:
+                    needed.add(ref)
+    return sorted(needed)
+
+
+# ---------------------------------------------------------------------------
 # Phase 5b.4 — process-local year-file cache.
 #
 # Multi-window matrix runs (e.g., h2_parity_run.py --all) often re-load
@@ -201,7 +241,19 @@ def load_basket_leg_data(
     Returns:
         dict mapping symbol -> DataFrame indexed by 'time' with columns:
             open, high, low, close, volume, spread, session,
-            commission_cash, slippage, compression_5d
+            commission_cash, slippage, compression_5d, and (for cross-pair
+            H2_recycle@3 support) usd_ref_<PAIR>_close columns for each
+            USD-anchored reference pair needed to convert any non-USD
+            currency in the basket to USD.
+
+    H2_recycle@3 cross-pair support (2026-05-15): when the basket includes
+    pairs whose base or quote currency is NOT USD (e.g. AUDJPY, GBPAUD),
+    additional USD-anchored reference pair closes are auto-loaded and
+    joined as `usd_ref_<PAIR>_close` columns on EVERY leg's DataFrame.
+    For example, an AUDJPY + GBPAUD basket auto-loads USDJPY, AUDUSD,
+    GBPUSD and joins their closes onto both legs' DataFrames so the v3
+    rule can compute USD-denominated PnL via the generalized currency
+    conversion logic.
     """
     if not symbols:
         raise ValueError("load_basket_leg_data: symbols must be non-empty.")
@@ -209,8 +261,27 @@ def load_basket_leg_data(
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
     factor = load_compression_5d_factor(start_date, end_date)
+
+    # Identify USD-anchored reference pairs needed for currency conversion
+    ref_pairs = _required_ref_pairs(list(symbols))
+    ref_closes: dict[str, pd.Series] = {}
+    for ref_pair in ref_pairs:
+        try:
+            ref_df = _load_symbol_5m(ref_pair, start_date, end_date)
+            ref_closes[ref_pair] = ref_df["close"]
+        except (FileNotFoundError, ValueError) as exc:
+            # Non-fatal — the v3 rule's _build_ref_closes will degrade gracefully
+            print(f"[BASKET_DATA] WARN: reference pair {ref_pair!r} unavailable ({exc}); "
+                  f"cross-pair PnL may not work for legs requiring {ref_pair!r}.")
+
     out: dict[str, pd.DataFrame] = {}
     for sym in symbols:
         df_5m = _load_symbol_5m(sym, start_date, end_date)
-        out[sym] = _join_factor_onto_5m(df_5m, factor)
+        df_5m = _join_factor_onto_5m(df_5m, factor)
+        # Join USD reference rates as columns
+        for ref_pair, ref_series in ref_closes.items():
+            df_5m[f"usd_ref_{ref_pair}_close"] = ref_series.reindex(
+                df_5m.index, method="ffill"
+            )
+        out[sym] = df_5m
     return out

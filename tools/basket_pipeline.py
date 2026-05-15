@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule  # noqa: F401  (kept import for adversarial/legacy tests)
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3 dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +115,60 @@ def _instantiate_rule(rule_cfg: dict[str, Any], factor_column: str | None = None
             leverage=float(params.get("leverage", 1000.0)),
             factor_column=factor_column or params.get("factor_column", "compression_5d"),
             factor_min=float(params.get("factor_min", 10.0)),
+        )
+
+    if name == "H2_recycle" and version == 3:
+        # v3 = v2 + generalized cross-pair PnL math. Supports any FX pair
+        # whose currencies are in {USD, EUR, GBP, AUD, NZD, JPY, CHF, CAD}.
+        # Requires basket_data_loader to populate usd_ref_<PAIR>_close columns.
+        return H2RecycleRuleV3(
+            trigger_usd=float(params.get("trigger_usd", 10.0)),
+            add_lot=float(params.get("add_lot", 0.01)),
+            starting_equity=float(params.get("starting_equity", 1000.0)),
+            harvest_target_usd=float(params.get("harvest_target_usd", 2000.0)),
+            equity_floor_usd=(
+                float(params["equity_floor_usd"])
+                if params.get("equity_floor_usd") is not None else None
+            ),
+            time_stop_days=(
+                int(params["time_stop_days"])
+                if params.get("time_stop_days") is not None else None
+            ),
+            dd_freeze_frac=float(params.get("dd_freeze_frac", 0.10)),
+            margin_freeze_frac=float(params.get("margin_freeze_frac", 0.15)),
+            leverage=float(params.get("leverage", 1000.0)),
+            factor_column=factor_column or params.get("factor_column", "compression_5d"),
+            factor_min=float(params.get("factor_min", 10.0)),
+            max_leg_lot=(
+                float(params["max_leg_lot"])
+                if params.get("max_leg_lot") is not None else None
+            ),
+        )
+
+    if name == "H2_recycle" and version == 2:
+        # v2 = v1 + loser-leg lot cap. New param: max_leg_lot (None = disabled).
+        return H2RecycleRuleV2(
+            trigger_usd=float(params.get("trigger_usd", 10.0)),
+            add_lot=float(params.get("add_lot", 0.01)),
+            starting_equity=float(params.get("starting_equity", 1000.0)),
+            harvest_target_usd=float(params.get("harvest_target_usd", 2000.0)),
+            equity_floor_usd=(
+                float(params["equity_floor_usd"])
+                if params.get("equity_floor_usd") is not None else None
+            ),
+            time_stop_days=(
+                int(params["time_stop_days"])
+                if params.get("time_stop_days") is not None else None
+            ),
+            dd_freeze_frac=float(params.get("dd_freeze_frac", 0.10)),
+            margin_freeze_frac=float(params.get("margin_freeze_frac", 0.15)),
+            leverage=float(params.get("leverage", 1000.0)),
+            factor_column=factor_column or params.get("factor_column", "compression_5d"),
+            factor_min=float(params.get("factor_min", 10.0)),
+            max_leg_lot=(
+                float(params["max_leg_lot"])
+                if params.get("max_leg_lot") is not None else None
+            ),
         )
 
     if name == "H2_v7_compression" and version == 1:

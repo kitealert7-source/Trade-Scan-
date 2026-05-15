@@ -26,5 +26,12 @@ Available rules:
 """
 from tools.recycle_rules.h2_compression import H2CompressionRecycleRule
 from tools.recycle_rules.h2_recycle import H2RecycleRule
+from tools.recycle_rules.h2_recycle_v2 import H2RecycleRuleV2
+from tools.recycle_rules.h2_recycle_v3 import H2RecycleRuleV3
 
-__all__ = ["H2RecycleRule", "H2CompressionRecycleRule"]
+__all__ = [
+    "H2RecycleRule",
+    "H2RecycleRuleV2",
+    "H2RecycleRuleV3",
+    "H2CompressionRecycleRule",
+]

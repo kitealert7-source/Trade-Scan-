@@ -92,3 +92,118 @@ rules:
     required_factors:
       - USD_SYNTH.compression_5d
     initial_consumer: tools/basket_runner.py
+
+  - name: H2_recycle
+    version: 3
+    description: >
+      H2 with generalized cross-pair PnL math (Phase 1 Experiment, 2026-05-15).
+      Identical to H2_recycle@2 (Variant G + harvest + freezes + max_leg_lot cap)
+      except the per-leg PnL formula is generalized via a USD-conversion table
+      covering the major-7 currencies (USD, EUR, GBP, AUD, NZD, JPY, CHF, CAD).
+      Supports ANY 6-letter FX pair whose base+quote are in that set —
+      including cross pairs without USD anchor (AUDJPY, GBPAUD, EURGBP, etc.).
+      basket_data_loader.load_basket_leg_data() auto-loads the USD-anchored
+      reference pairs needed for currency conversion and joins their closes
+      as `usd_ref_<PAIR>_close` columns on each leg's DataFrame. The v3 rule
+      reads those at each bar to compute USD-denominated PnL and margin.
+      For USD-anchored pairs (EURUSD, USDJPY, etc.), the generalized math
+      collapses to v1/v2's formulas — byte-identical behavior preserved.
+      Implementation: tools/recycle_rules/h2_recycle_v3.py.
+      Inherits all v2 params (incl. max_leg_lot). No new params.
+    params:
+      max_leg_lot:
+        type: float
+        default: null
+      trigger_usd:
+        type: float
+        default: 10.0
+      add_lot:
+        type: float
+        default: 0.01
+      starting_equity:
+        type: float
+        default: 1000.0
+      harvest_target_usd:
+        type: float
+        default: 2000.0
+      equity_floor_usd:
+        type: float
+        default: null
+      time_stop_days:
+        type: int
+        default: null
+      dd_freeze_frac:
+        type: float
+        default: 0.10
+      margin_freeze_frac:
+        type: float
+        default: 0.15
+      leverage:
+        type: float
+        default: 1000.0
+      factor_column:
+        type: str
+        default: compression_5d
+      factor_min:
+        type: float
+        default: 10.0
+    required_factors:
+      - USD_SYNTH.compression_5d
+    initial_consumer: tools/basket_runner.py
+
+  - name: H2_recycle
+    version: 2
+    description: >
+      H2 with loser-leg lot cap (Phase 1 Experiment A, 2026-05-15).
+      Identical to H2_recycle@1 except at the commit step: when a Variant G
+      recycle event would grow the loser's lot above `max_leg_lot`, the
+      winner is still realized (cash banked) but the loser's lot is NOT
+      grown — it stays at its current lot, entry price unchanged. Targets
+      the intraday loser-leg accumulation pathology identified via the
+      2026-05-15 regime-feature probe (compression IS the right gate, but
+      lot accumulation makes the strategy pip-sensitive regardless).
+      Setting `max_leg_lot = null` makes v2 byte-equivalent to v1.
+      New telemetry: `_n_cap_skipped` counter; per-event `cap_skipped` bool.
+      Implementation: tools/recycle_rules/h2_recycle_v2.py.
+    params:
+      # All v1 params inherited unchanged. Only new param:
+      max_leg_lot:
+        type: float
+        default: null      # null disables the cap (== v1 behavior)
+      # v1 params repeated here for self-contained registry record:
+      trigger_usd:
+        type: float
+        default: 10.0
+      add_lot:
+        type: float
+        default: 0.01
+      starting_equity:
+        type: float
+        default: 1000.0
+      harvest_target_usd:
+        type: float
+        default: 2000.0
+      equity_floor_usd:
+        type: float
+        default: null
+      time_stop_days:
+        type: int
+        default: null
+      dd_freeze_frac:
+        type: float
+        default: 0.10
+      margin_freeze_frac:
+        type: float
+        default: 0.15
+      leverage:
+        type: float
+        default: 1000.0
+      factor_column:
+        type: str
+        default: compression_5d
+      factor_min:
+        type: float
+        default: 10.0
+    required_factors:
+      - USD_SYNTH.compression_5d
+    initial_consumer: tools/basket_runner.py

@@ -71,6 +71,11 @@ _BASKET_METRICS_GLOSSARY_EXTRA = [
     ("exit_reason", "Exit Reason",
      "TARGET | FLOOR | BLOWN | TIME | NONE (basket still open at window end)",
      "enum"),
+    ("days_to_exit", "Days to Exit",
+     "Calendar days from directive start_date to the last realized trade's "
+     "exit_timestamp. For TARGET exits this is time-to-harvest; for NONE/TIME "
+     "it is time-to-window-end. -1 if no trades or no start_date.",
+     "days"),
 ]
 
 
@@ -181,14 +186,36 @@ def _compute_yearwise(df: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
-def _compute_basket_telemetry(basket_result: Any, df: pd.DataFrame) -> dict[str, Any]:
-    """Basket-specific telemetry: recycle counts, harvest, exit reason."""
+def _compute_basket_telemetry(
+    basket_result: Any,
+    df: pd.DataFrame,
+    *,
+    start_date: str | None = None,
+) -> dict[str, Any]:
+    """Basket-specific telemetry: recycle counts, harvest, exit reason, days-to-exit.
+
+    `start_date` is the directive's test.start_date (YYYY-MM-DD). Days-to-exit
+    is (last exit_timestamp - start_date) in calendar days. Used as a Phase 1
+    diagnostic for lot-ratio sweeps where TARGET-exit speed is the key delta.
+    """
     final_realized = float(df["pnl_usd"].astype(float).sum()) if not df.empty else 0.0
+
+    days_to_exit = -1
+    if start_date and not df.empty:
+        try:
+            start_ts = pd.to_datetime(start_date)
+            last_exit = pd.to_datetime(df["exit_timestamp"], errors="coerce").max()
+            if pd.notna(last_exit):
+                days_to_exit = int((last_exit - start_ts).days)
+        except Exception:
+            days_to_exit = -1
+
     return {
         "recycle_event_count": int(len(basket_result.recycle_events)),
         "harvested_total_usd": round(float(basket_result.harvested_total_usd), 2),
         "final_realized_usd":  round(final_realized, 2),
         "exit_reason":         getattr(basket_result, "exit_reason", "") or "NONE",
+        "days_to_exit":        days_to_exit,
     }
 
 
@@ -218,13 +245,18 @@ def compute_basket_metrics(
     basket_result: Any,
     *,
     starting_equity: float = 1000.0,
+    start_date: str | None = None,
 ) -> dict[str, Any]:
-    """Compute every metric block. Used by tests + by the writer."""
+    """Compute every metric block. Used by tests + by the writer.
+
+    `start_date` flows into the basket telemetry block so days_to_exit can be
+    computed (see _compute_basket_telemetry).
+    """
     return {
         "standard": _compute_standard_metrics(df_trades),
         "risk":     _compute_risk_metrics(df_trades, starting_equity),
         "yearwise": _compute_yearwise(df_trades),
-        "basket":   _compute_basket_telemetry(basket_result, df_trades),
+        "basket":   _compute_basket_telemetry(basket_result, df_trades, start_date=start_date),
         "per_leg":  _per_leg_summary(df_trades),
     }
 
@@ -371,6 +403,9 @@ def _write_basket_md_report(
     lines.append(f"| Harvested Total (USD) | ${bsk['harvested_total_usd']:,.2f} |")
     lines.append(f"| Final Realized (USD) | ${bsk['final_realized_usd']:,.2f} |")
     lines.append(f"| Exit Reason | {bsk['exit_reason']} |")
+    _days = bsk.get("days_to_exit", -1)
+    _days_str = f"{_days} days" if _days >= 0 else "n/a (no trades or start_date missing)"
+    lines.append(f"| Days to Exit | {_days_str} |")
     lines.append("")
 
     lines.append("## Per-Leg Breakdown")
@@ -573,10 +608,16 @@ def write_per_window_report_artifacts(
     raw_dir.mkdir(parents=True, exist_ok=True)
     meta_dir.mkdir(parents=True, exist_ok=True)
 
-    metrics = compute_basket_metrics(df_trades, basket_result, starting_equity=starting_equity)
+    test_block = parsed_directive.get("test", {}) or {}
+    start_date = str(test_block.get("start_date", "")) or None
+    metrics = compute_basket_metrics(
+        df_trades, basket_result,
+        starting_equity=starting_equity,
+        start_date=start_date,
+    )
     basket_id = basket_result.basket_id
     leg_symbols = [l.get("symbol") for l in basket_result.legs]
-    timeframe = (parsed_directive.get("test", {}) or {}).get("timeframe", "5m")
+    timeframe = test_block.get("timeframe", "5m")
 
     paths: dict[str, Path] = {}
 
