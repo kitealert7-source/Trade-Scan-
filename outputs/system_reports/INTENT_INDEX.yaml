@@ -205,3 +205,45 @@ intents:
       - {tag: "portfolio_add", weight: 3}
       - {tag: "mps", weight: 1}
       - {tag: "master_portfolio_sheet", weight: 3}
+
+  - id: launch_windows_supervised_task
+    priority: 70
+    enforcement: hard
+    must_skill: launch-windows-supervised-task
+    suppress_on_infra: true
+    reason: "Launching a long-running Python daemon under Windows Task Scheduler has FIVE binding gotchas (pythonw vs python.exe, UTF-16 LE BOM XML, PYTHONPATH self-bootstrap, WinError 5 retry, .tmp cleanup-on-init) — each cost ~30 min of debugging on 2026-05-15 during Stage 5 launch. The skill captures the entire discipline. Hard enforcement chosen because re-discovering each gotcha is a multi-hour cost the skill makes 5 minutes."
+    # No natural subject — workflow action. suppress_on_infra catches
+    # meta-tooling prompts about the skill itself ("delete the
+    # launch-windows-supervised-task skill", "refactor the XML
+    # template") so they don't fire the hint. Strong regex on actual
+    # task-registration verbs + Stage 5 / H2-shim / live-runner
+    # vocabulary keeps false positives low.
+    regex_patterns:
+      # Direct schtasks / Task Scheduler verbs
+      - "(?i)\\b(register|create|set\\s*up|deploy|launch|configure)\\s+(a\\s+)?(scheduled\\s+task|task\\s+scheduler\\s+(entry|task)|windows\\s+service|background\\s+(daemon|service|process))\\b"
+      - "(?i)\\bschtasks(\\.exe)?\\s*/(create|run|change|update|end|delete)\\b"
+      # PowerShell Scheduled-Task cmdlets that need elevation
+      - "(?i)\\b(Register|Set|Get|Start|Stop|Unregister)-ScheduledTask(Action|Trigger|Principal|Settings)?\\b"
+      # Stage 5 / Phase 7a-H2 / live-runner / shim vocabulary — direct mentions
+      - "(?i)\\b(stage\\s*5|72\\s*h(our)?\\s*(field\\s*)?(stress|test|run))\\b"
+      - "(?i)\\b(basket_pipeline\\s*live\\s*(adapter|runner)|h2[_ ]shim|TS_Execution\\s*shim)\\b"
+      # Symptoms that mean the skill should fire
+      - "(?i)\\b(STATUS_CONTROL_C_EXIT|0xC000013A|LastTaskResult)\\b"
+      - "(?i)\\bpythonw\\.exe\\b"
+    semantic_tags:
+      - {tag: "scheduled_task", weight: 3}
+      - {tag: "task_scheduler", weight: 3}
+      - {tag: "schtasks", weight: 3}
+      - {tag: "pythonw", weight: 3}
+      - {tag: "supervised_task", weight: 3}
+      - {tag: "long_running_daemon", weight: 2}
+      - {tag: "background_process", weight: 1}
+      - {tag: "stage_5", weight: 2}
+      - {tag: "field_stress", weight: 2}
+      - {tag: "h2_shim", weight: 3}
+      - {tag: "live_runner", weight: 2}
+      - {tag: "boot_trigger", weight: 2}
+      - {tag: "logon_trigger", weight: 2}
+      - {tag: "logontype", weight: 2}
+      - {tag: "winerror_5", weight: 3}
+      - {tag: "interactive_token", weight: 2}
