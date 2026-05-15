@@ -282,8 +282,8 @@ schtasks /Run /TN "${TASK_NAME}"          # restart (no admin)
 
 ## Related skills + cross-references
 
-- `/refactor-and-cleanup` — when refactoring code that runs as a scheduled task, follow that skill's "don't run during active scheduled task" rules.
-- `/session-close` — periodic skills (`§8b.i`) reference `/system-maintenance` Phase 1 health audit which catches scheduled-task drift.
+- `/repo-cleanup-refactor` — when refactoring code that runs as a scheduled task, follow that skill's "don't run during active scheduled task" rules.
+- `/session-close` — periodic skills (`§8b.i`) reference `/system-health-maintenance` Phase 1 health audit which catches scheduled-task drift.
 - `outputs/system_reports/01_system_architecture/H2_LIVE_EXECUTION_PLAN.md` §1 (basket_pipeline live runner) and §2 (TS_Execution H2 shim) — both will use this skill when they're built.
 - `TS_SignalValidator/tools/stage5_setup/STAGE_5_DISRUPTION_PLAN.md` — the canonical operator runbook that THIS skill underlies.
 

@@ -1,9 +1,9 @@
 ---
-name: system-maintenance
-description: Perform safe system or repository maintenance using governance tools
+name: system-health-maintenance
+description: System health, workspace hygiene, recovery operations, vault management via governance tools — non-authoritative over the pipeline but essential for stability. Distinct from repo-cleanup-refactor (repo + code DRY) and pipeline-state-cleanup (pipeline state lineage).
 ---
 
-# System Maintenance Workflow
+# System Health & Maintenance Workflow
 
 This workflow is the **Unified Operational Hub** for TradeScan. It covers system health, workspace hygiene, recovery operations, and vault management. These tasks are non-authoritative over the execution pipeline but essential for stability.
 
@@ -31,7 +31,7 @@ To deterministically dry-run or physically execute a formal purge of abandoned s
 
 **Trigger Cross-Workflow:**
 ```markdown
-/state-lifecycle-cleanup
+/pipeline-state-cleanup
 ```
 
 ---

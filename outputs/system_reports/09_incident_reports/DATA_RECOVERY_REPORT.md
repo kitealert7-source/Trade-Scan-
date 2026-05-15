@@ -135,7 +135,7 @@ The mtime evidence (dir creation date `2025-12-15` preserved; `LastWriteTime` up
 
 | Hypothesis | Why ruled out |
 |---|---|
-| `lineage_pruner.py` / state-lifecycle-cleanup | Not run in prior session (no matching commands in transcript; no `quarantine/` move tree was created). |
+| `lineage_pruner.py` / pipeline-state-cleanup (renamed 2026-05-15 from `state-lifecycle-cleanup`) | Not run in prior session (no matching commands in transcript; no `quarantine/` move tree was created). |
 | `robocopy /MIR` against an empty source | NAS still has the data — that didn't happen. The /MIR backup ran *before* the wipe (08:11Z log mtime). |
 | DATA_INGRESS pipeline destructive op | No DI commands in transcript. DI's last successful run (00:29Z) recorded `last_successful_daily_run.json` with 1919 datasets validated — DI worked correctly and went idle hours before the wipe. |
 | Manual user-typed `rm -rf` or equivalent | No transcript entry shows the user issuing a delete command. The user's only action at the end was asking *"should i delete this session"* — the deletion was performed by the **session-cleanup process**, not by the user. |

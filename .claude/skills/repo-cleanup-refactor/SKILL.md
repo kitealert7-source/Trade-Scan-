@@ -1,11 +1,11 @@
 ---
-name: refactor-and-cleanup
-description: Periodic repo hygiene + code DRY pass — worktrees, branches, untracked root files, cross-repo state orphans, duplicate-function extraction. Distinct from session-close (per-session) and state-lifecycle-cleanup (TradeScan_State pipeline). Run weekend before close, or Monday before starting work.
+name: repo-cleanup-refactor
+description: Periodic repo hygiene + code DRY pass — worktrees, branches, untracked root files, cross-repo state orphans, duplicate-function extraction. Distinct from session-close (per-session) and pipeline-state-cleanup (TradeScan_State pipeline lineage). Run weekend before close, or Monday before starting work.
 ---
 
-# Refactor & Cleanup Workflow
+# Repo Cleanup & Refactor Workflow
 
-Periodic hygiene pass for organizational debt that accumulates between sessions. **NOT a substitute for `/session-close` (every session) or `/state-lifecycle-cleanup` (pipeline lineage).** This skill focuses on cross-cutting repo hygiene + cross-repo state + code DRY — concerns that don't naturally surface in either of those skills.
+Periodic hygiene pass for organizational debt that accumulates between sessions. **NOT a substitute for `/session-close` (every session) or `/pipeline-state-cleanup` (pipeline lineage).** This skill focuses on cross-cutting repo hygiene + cross-repo state + code DRY — concerns that don't naturally surface in either of those skills.
 
 **When to run:**
 - Weekend before `/session-close` (clears debt before the snapshot)

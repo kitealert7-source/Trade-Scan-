@@ -400,4 +400,4 @@ layer changes.
 | `execute-directives.md` | **Called by** this workflow for every pipeline pass (Step 4) |
 | `promote.md` | **Called after** this workflow for accepted hypotheses (human decision) |
 | `portfolio-research.md` | Independent — can run on hypothesis pass results post-hoc |
-| `system-maintenance.md` | Independent — run if workspace drift detected |
+| `system-health-maintenance.md` | Independent — run if workspace drift detected |

@@ -17,11 +17,11 @@ Six-repo research-to-execution pipeline:
 ## Before Acting — Read Protocol
 
 **Step 0 — Skill discovery (mandatory before any non-trivial task):**
-The system-reminder at session start lists every available skill with its name and description. Before starting work that goes beyond a one-line answer or a single-file read, scan that list and ask: *"Is there a skill for this?"*
+The system-reminder at session start lists every available skill with its name and description (alphabetical, flat). For grouped picking with **when-to-use / when-NOT / related** annotations, read **`.claude/skills/CATALOG.md`** — the hand-curated index. Before starting work that goes beyond a one-line answer or a single-file read, scan one of those two surfaces and ask: *"Is there a skill for this?"*
 - If a skill matches → invoke it (or read its `SKILL.md`) and follow it unless the user explicitly overrides.
 - If nothing matches → proceed normally. If the task surfaces durable process knowledge that isn't in any existing skill, name a candidate skill in your end-of-task summary so it can be created next time.
 
-Skills already cover (non-exhaustive): pipeline runs, strategy ports / Pine→Python, hypothesis testing, re-runs of prior strategies, promote-to-LIVE deployment, portfolio add/remove/research, session close, system maintenance, state-lifecycle cleanup, vault snapshots, capital simulation, Excel ledger formatting. **New skills appear in the system-reminder list automatically** — there is no separate index to keep in sync.
+Skills already cover (non-exhaustive): pipeline runs, strategy ports / Pine→Python, hypothesis testing, re-runs of prior strategies, promote-to-LIVE deployment, portfolio add/remove/research, session close, repo cleanup + refactor, pipeline-state cleanup, system health maintenance, supervised Windows task launch, vault snapshots, capital simulation, Excel ledger formatting. **New skills appear in the system-reminder list automatically** — but `CATALOG.md` must be hand-updated when a skill is added / renamed / removed (the catalog file's "Maintenance" section spells out the protocol).
 
 **Always (every session start):**
 - `AGENT.md` — invariants, lifecycle, engine standards, pre-directive gate

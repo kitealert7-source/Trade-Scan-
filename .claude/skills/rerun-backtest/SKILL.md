@@ -283,7 +283,7 @@ Keys that DO trigger hash change (require registry update):
 | Workflow                         | When to use                                            |
 |----------------------------------|--------------------------------------------------------|
 | `/execute-directives`            | Dispatch the prepared INBOX directive through pipeline |
-| `/state-lifecycle-cleanup`       | Quarterly archival of superseded rows to parquet       |
+| `/pipeline-state-cleanup`        | Quarterly archival of superseded rows to parquet       |
 | `/promote`                       | Promote the new run_id to LIVE after verification      |
 
 ---

@@ -170,7 +170,7 @@ Present the single candidate to the human and ask: "Append this entry? (yes/no o
 **DO NOT use research_memory_append.py without explicit human approval.**
 
 > **File size check:** After appending, if `RESEARCH_MEMORY.md` exceeds 600 lines or 40 KB, flag it:
-> "RESEARCH_MEMORY.md is over the compaction threshold — run system-maintenance workflow, Section 8."
+> "RESEARCH_MEMORY.md is over the compaction threshold — run system-health-maintenance workflow, Section 8."
 
 **STOP — Mission Complete.**
 
@@ -200,5 +200,5 @@ The agent MUST NOT modify the following without an **implementation plan** and *
 ## Appendix C: System Contract
 - Deterministic, Ledger-authoritative, Append-only, Fail-fast.
 - Post-pipeline analysis (Robustness, Portfolios) is conducted via `portfolio-research.md`.
-- System hygiene (Cleanup, Formatting) is conducted via `system-maintenance.md`.
+- System hygiene (Cleanup, Formatting) is conducted via `system-health-maintenance.md`.
 
