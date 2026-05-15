@@ -88,6 +88,12 @@ def _base_strategy_id(strategy_id: str, symbol: str) -> str:
     under the *base* directive id `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P05`.
     Two journal events used the bare base id without the suffix — those are
     handled by the `as-is` branch.
+
+    NOTE: identical to `TS_SignalValidator/vault_lookup.py::base_strategy_id`
+    (TSSV commit 066cae3 extracted that as a shared module within TSSV).
+    Cannot share across repos by H2 plan §1l repo-separation discipline; if
+    you change one, change both. Future option: vendor the helper into a
+    shared `engine_abi`-style module if more cross-repo helpers accrue.
     """
     suffix = f"_{symbol}"
     if strategy_id.endswith(suffix):

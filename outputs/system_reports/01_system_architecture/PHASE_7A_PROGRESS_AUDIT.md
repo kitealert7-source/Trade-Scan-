@@ -261,6 +261,35 @@ When you return to Phase 7a work, the natural sequence is:
 
 ---
 
+## 6.5. Cleanup pass record (2026-05-15 weekend cleanup, in parallel with Stage 5 in flight)
+
+While Stage 5 ran undisturbed, two cleanup passes landed (validator + monitor PIDs 13304, 15456 verified alive throughout).
+
+**Cleanup pass 1 (Trade_Scan `398baeb`)** — root untracked, worktrees, state orphans:
+- Deleted `archive/2026-05-11_tmp_cleanup/` (17 stale research artifacts)
+- Moved `outputs/POST_FREEZE_GIT_AUDIT.md` → `outputs/system_reports/08_pipeline_audit/POST_FREEZE_GIT_AUDIT_2026_05_12.md` + committed
+- Renamed + committed `outputs/system_reports/08_pipeline_audit/Future Pain Points.txt` → `FUTURE_PAIN_POINTS.md`
+- Moved `pine_exports/` → `archive/pine_research_2026_05/`
+- Pruned 3 worktrees + their orphan branches (angry-dirac, gifted-pasteur, xenodochial-spence — all confirmed zero in-flight commits, gifted-pasteur's commit was already cherry-picked as `a3ed557`)
+- Removed `TS_SIGNAL_STATE/decisions/DRY_RUN_H2_PHASE7A_PLACEHOLDER/` + `heartbeats/.../PLACEHOLDER` orphans (May 13 placeholder, superseded by SHADOW_JOURNAL_REPLAY)
+
+**Refactor pass (TSSV `066cae3`)** — DRY shared modules:
+- NEW `TS_SignalValidator/atomic_io.py` — `atomic_replace_with_retry` was duplicated in `decision_emitter.py` + `heartbeat.py`. Single source of truth now.
+- NEW `TS_SignalValidator/vault_lookup.py` — `base_strategy_id` + `find_latest_vault` were triplicated (signal_validator + replay_journal_port + Trade_Scan replay tool). Single source within TSSV; Trade_Scan's copy stays (cross-repo discipline) with a doc-comment pointer to the canonical version.
+- 33/33 fast tests pass post-refactor; 5/5 Stage 4 determinism tests pass; end-to-end Stage 1 replay still SHA-256 `c1f5dd7d…` (byte-identical).
+
+## 6.6. Phase 3 cleanup items requiring operator decision
+
+These are the items that need explicit policy choices, not mechanical execution:
+
+| | Item | Question for operator | Recommendation |
+|---|---|---|---|
+| 1 | **13 stale `claude/*` branches** (busy-curie, eloquent-golick, focused-payne, gifted-lichterman, happy-panini, intelligent-matsumoto, quirky-haibt, romantic-banach, tender-khayyam, upbeat-hofstadter, vigilant-allen, vigilant-pascal, wizardly-shamir) | Per-branch verification — any with unmerged work? | One-time inspection pass: `for br in claude/...; do git log --oneline main..$br; done`. Branches with 0 ahead → delete. Branches with N ahead → review each. |
+| 2 | **Phase 7a evidence JSONL retention** | Keep `outputs/shadow_journal_strategy_guard_reference.jsonl` (~700KB) + `TS_SignalValidator/outputs/shadow_journal_port_output.jsonl` (~700KB) + `outputs/stage2_metrics.jsonl` indefinitely as audit trail, OR archive after N months? | Keep indefinitely. They're the *empirical evidence* for Phase 7a's pass criteria. Future audits reference them directly (sha256 cited in commit messages). Cost is small (~3 MB total). |
+| 3 | **VALIDATION_DATASET corpus retention** | When does `h2_validator_baseline_v1` retire? Same question for `shadow_journal_2026_04_to_05`. | Per Section 1m-i, frozen corpora are *permanently* immutable — they don't retire while any decision file references them. Retire = create new corpus version side-by-side; old one stays for audit. No action; this is governance, not cleanup. |
+| 4 | **Audit doc consolidation** in `outputs/system_reports/` | Multiple audit-style docs accumulate per phase (`PHASE_7A_PROGRESS_AUDIT.md`, `POST_FREEZE_GIT_AUDIT_2026_05_12.md`, `FUTURE_PAIN_POINTS.md`, prior-phase reports). Should we consolidate into a single rolling `SYSTEM_AUDIT_LOG.md`, or keep per-phase? | Keep per-phase. Each doc is a snapshot of a specific moment; consolidation loses the "what did we know when" attribution. The folder structure (subdirs per concern area) already organizes them. |
+| 5 | **`TS_Engine` sibling repo** | Verify still needed (parity-monitor system) or archive? | Outside Trade_Scan's reach — operator decides. Flag only. |
+
 ## 7. Decision log
 
 | Date | Decision | Rationale |
