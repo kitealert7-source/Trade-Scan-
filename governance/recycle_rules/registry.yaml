@@ -152,6 +152,89 @@ rules:
     initial_consumer: tools/basket_runner.py
 
   - name: H2_recycle
+    version: 4
+    description: >
+      H2 with bump-and-liquidate mechanic (Phase-2 multi-window champion,
+      2026-05-16). Identical to H2_recycle@1 (Variant G + harvest + freezes +
+      regime gate) until N=`switch_n` consecutive same-loser recycle adds
+      have fired. At that point the rule executes a ONE-TIME bump of
+      `(switch_n + 1) * add_lot` (default 0.06) lot to the current winner
+      at the current bar's close, with weighted-avg entry-price update.
+      Bump enters Mode 2 (HOLD): no further trades; tracks winner-leg
+      floating PnL peak each bar. When the current winner floating retraces
+      `retrace_pct` (default 0.30) from its Mode-2 peak, the rule:
+        1. realized_total += floating_total (rule-side accounting)
+        2. BasketRunner.soft_reset_basket(at_index, at_ts, at_prices)
+           closes positions + reopens fresh at initial_lot at current prices
+        3. Mode resets to RECYCLE; counters cleared
+        4. LIQUIDATE_RESET event logged in recycle_events
+      Basket continues — a fresh sub-basket starts at the liquidation bar.
+      Multiple cycles per window are expected (empirical 10-window matrix:
+      4-7 typical, max 7).
+
+      Empirical results (research/FX_BASKET_RECYCLE_RESEARCH.md §5.4b,
+      10-window matrix 2016-09 to 2026-05, R1:1 Gate=5):
+        - B1 (EUR+JPY): 10/10 survival, mean +25.85%, max DD 60% (vs
+          current @1's 120%), mean DD 35% (vs 58%).
+        - B2 (AUD+CAD): 10/10 survival (vs current @1's 9/10), median net
+          +1.58% (vs -7.15%), B2 COVID-era blow-up prevented.
+
+      Implementation: tools/recycle_rules/h2_recycle_v4.py (subclasses
+      H2RecycleRule). Consumes basket_runner.soft_reset_basket primitive.
+      Pipeline-routed (preferred over the basket_sim-only scratch
+      implementation per the "prefer pipeline" feedback rule).
+    params:
+      # New v4 params:
+      switch_n:
+        type: int
+        default: 5
+      retrace_pct:
+        type: float
+        default: 0.30
+      # All v1 params inherited unchanged:
+      trigger_usd:
+        type: float
+        default: 10.0
+      add_lot:
+        type: float
+        default: 0.01
+      starting_equity:
+        type: float
+        default: 1000.0
+      harvest_target_usd:
+        type: float
+        default: 2000.0
+      equity_floor_usd:
+        type: float
+        default: null
+      time_stop_days:
+        type: int
+        default: null
+      dd_freeze_frac:
+        type: float
+        default: 0.10
+      margin_freeze_frac:
+        type: float
+        default: 0.15
+      leverage:
+        type: float
+        default: 1000.0
+      factor_column:
+        type: str
+        default: compression_5d
+      factor_min:
+        type: float
+        default: 5.0      # Phase-2 default (Gate=5 is the chop-vs-trend cliff)
+      factor_operator:
+        type: str
+        default: ">="
+    required_factors:
+      - USD_SYNTH.compression_5d
+    initial_consumer: tools/basket_runner.py
+    requires_basket_runner_primitives:
+      - soft_reset_basket    # Phase B; commit 62018ab
+
+  - name: H2_recycle
     version: 2
     description: >
       H2 with loser-leg lot cap (Phase 1 Experiment A, 2026-05-15).

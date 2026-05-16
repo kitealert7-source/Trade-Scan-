@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3 dispatch)
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4 dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +110,17 @@ def _instantiate_rule(
                                 USD-anchored reference rates (Phase B
                                 non-USD universe support); 1.3.0-basket
                                 emitter wired 2026-05-16
+      H2_recycle@4            — @1 + bump-and-liquidate mechanic
+                                (multi-window champion, 2026-05-16).
+                                After N=switch_n consecutive same-loser
+                                adds, fires a one-time (N+1)*add_lot bump
+                                to the winner, enters HOLD mode, and
+                                liquidates on retrace_pct retrace from
+                                winner peak via the soft_reset_basket
+                                primitive. Restarts a fresh sub-basket
+                                in the same window. 10-window matrix:
+                                10/10 survival, max DD halved 120%→60%.
+                                See research §5.4b.
       H2_v7_compression@1     — DEPRECATED misimplementation; refuses to
                                 instantiate. Directives that still
                                 reference this rule must migrate to
@@ -142,6 +153,40 @@ def _instantiate_rule(
             factor_column=factor_column or params.get("factor_column", "compression_5d"),
             factor_min=float(params.get("factor_min", 10.0)),
             factor_operator=str(params.get("factor_operator", ">=")),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "H2_recycle" and version == 4:
+        # v4 = v1 + bump-and-liquidate mechanic. New params: switch_n,
+        # retrace_pct. Consumes BasketRunner.soft_reset_basket (Phase B
+        # primitive). The rule's `basket_runner` attribute is populated
+        # by BasketRunner.__init__'s back-ref injection — we leave it
+        # unset here; basket_pipeline._dispatch wires the rule onto the
+        # runner before the run loop, and the injection fires at that
+        # point.
+        return H2RecycleRuleV4(
+            trigger_usd=float(params.get("trigger_usd", 10.0)),
+            add_lot=float(params.get("add_lot", 0.01)),
+            starting_equity=float(params.get("starting_equity", 1000.0)),
+            harvest_target_usd=float(params.get("harvest_target_usd", 2000.0)),
+            equity_floor_usd=(
+                float(params["equity_floor_usd"])
+                if params.get("equity_floor_usd") is not None else None
+            ),
+            time_stop_days=(
+                int(params["time_stop_days"])
+                if params.get("time_stop_days") is not None else None
+            ),
+            dd_freeze_frac=float(params.get("dd_freeze_frac", 0.10)),
+            margin_freeze_frac=float(params.get("margin_freeze_frac", 0.15)),
+            leverage=float(params.get("leverage", 1000.0)),
+            factor_column=factor_column or params.get("factor_column", "compression_5d"),
+            factor_min=float(params.get("factor_min", 5.0)),
+            factor_operator=str(params.get("factor_operator", ">=")),
+            switch_n=int(params.get("switch_n", 5)),
+            retrace_pct=float(params.get("retrace_pct", 0.30)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,
