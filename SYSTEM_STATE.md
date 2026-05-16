@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-16T11:49:44Z
+> Generated: 2026-05-16T12:21:45Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 299 directives
+- Completed: 305 directives
 
 ## Ledgers
 
@@ -34,12 +34,12 @@
 - Latest bar: **2026-05-15** | Symbols: 235
 
 ## Artifacts
-- Run directories: 1396
+- Run directories: 1402
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `01f5414 research(h2-basket): S11 gate fine-grid sweep â€” Gate=3 + Gate=7 on B1`
+- Last substantive commit: `822ac77 research(h2-basket): S12 â€” alternative USD_SYNTH factors do not beat compression_5d`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
