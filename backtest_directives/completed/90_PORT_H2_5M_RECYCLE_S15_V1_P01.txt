@@ -1,0 +1,103 @@
+test:
+  name: 90_PORT_H2_5M_RECYCLE_S15_V1_P01
+  family: PORT
+  strategy: 90_PORT_H2_5M_RECYCLE_S15_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-09-02'
+  end_date: '2026-05-09'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: >
+    4-leg single basket (EURUSD + USDJPY + AUDUSD + USDCAD, each 0.01 long)
+    with H2_recycle@4 (bump-and-liquidate). $2k stake, $4k harvest target.
+    Architecture comparison against 4-leg @1 baseline (S07_V1_P00: +100.03% /
+    25.16% DD / TARGET at 465d on P00). Tests whether bump-and-liquidate
+    helps or hurts the 4-leg single architecture. Same V4 params as S14
+    (B1 @4): switch_n=5, retrace_pct=0.30, factor_min=5.0.
+  notes: >
+    Architecture comparison sweep (2026-05-16). 2-year P00 window. Pairs
+    with S15_P00 (B2 @4). The 4-leg basket has more legs for the @4
+    mechanic to pick winners/losers from each bar; the consec_same_loser
+    counter may behave differently than 2-leg with 4 legs in rotation.
+    This run will show whether @4's bump+liquidation helps a basket that
+    already hits TARGET cleanly under @1.
+
+symbols:
+- EURUSD
+- USDJPY
+- AUDUSD
+- USDCAD
+
+indicators:
+- indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: false
+  reset_on_exit: false
+  entry_logic:
+    type: basket_open_at_start
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+basket:
+  basket_id: H2
+  legs:
+    - symbol: EURUSD
+      lot: 0.01
+      direction: long
+    - symbol: USDJPY
+      lot: 0.01
+      direction: long
+    - symbol: AUDUSD
+      lot: 0.01
+      direction: long
+    - symbol: USDCAD
+      lot: 0.01
+      direction: long
+  initial_stake_usd: 2000.0
+  harvest_threshold_usd: 4000.0
+  recycle_rule:
+    name: H2_recycle
+    version: 4
+    params:
+      switch_n: 5
+      retrace_pct: 0.30
+      trigger_usd: 10.0
+      add_lot: 0.01
+      starting_equity: 2000.0
+      harvest_target_usd: 4000.0
+      factor_column: compression_5d
+      factor_min: 5.0
+      factor_operator: '>='
+      dd_freeze_frac: 0.10
+      margin_freeze_frac: 0.15
+      leverage: 1000.0
+  regime_gate:
+    factor: USD_SYNTH.compression_5d
+    operator: '>='
+    value: 5

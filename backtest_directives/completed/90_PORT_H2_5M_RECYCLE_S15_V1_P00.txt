@@ -1,0 +1,92 @@
+test:
+  name: 90_PORT_H2_5M_RECYCLE_S15_V1_P00
+  family: PORT
+  strategy: 90_PORT_H2_5M_RECYCLE_S15_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-09-02'
+  end_date: '2026-05-09'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: >
+    B2 (AUDUSD + USDCAD) with H2_recycle@4 (bump-and-liquidate). Architecture
+    comparison against B2 @1 baseline (S05_V1_P04: +59.30% / 33.10% DD / no
+    TARGET on P00). Tests whether the bump-and-liquidate mechanic improves
+    or degrades B2 on the operational 2-year window. Same params as S14
+    (B1 @4): switch_n=5, retrace_pct=0.30, factor_min=5.0.
+  notes: >
+    Architecture comparison sweep (2026-05-16). 2-year P00 window. Pairs
+    with S15_P01 (4-leg single basket @4). Together with S03_P00 (B1 @1),
+    S05_P04 (B2 @1), S07_P00 (4-leg @1), and S14_P00 (B1 @4), gives the
+    full 2-leg vs 4-leg × @1 vs @4 comparison matrix.
+
+symbols:
+- AUDUSD
+- USDCAD
+
+indicators:
+- indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: false
+  reset_on_exit: false
+  entry_logic:
+    type: basket_open_at_start
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+basket:
+  basket_id: H2
+  legs:
+    - symbol: AUDUSD
+      lot: 0.01
+      direction: long
+    - symbol: USDCAD
+      lot: 0.01
+      direction: long
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 2000.0
+  recycle_rule:
+    name: H2_recycle
+    version: 4
+    params:
+      switch_n: 5
+      retrace_pct: 0.30
+      trigger_usd: 10.0
+      add_lot: 0.01
+      starting_equity: 1000.0
+      harvest_target_usd: 2000.0
+      factor_column: compression_5d
+      factor_min: 5.0
+      factor_operator: '>='
+      dd_freeze_frac: 0.10
+      margin_freeze_frac: 0.15
+      leverage: 1000.0
+  regime_gate:
+    factor: USD_SYNTH.compression_5d
+    operator: '>='
+    value: 5
