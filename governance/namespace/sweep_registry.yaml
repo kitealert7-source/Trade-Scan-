@@ -2727,7 +2727,7 @@ ideas:
         directive_hash: 762b86ebda8a359d
         directive_hash_full: 762b86ebda8a359d420590aecd45b99662f76738e7044c7b80877ea0b3fb6c85
   '90':
-    next_sweep: 13
+    next_sweep: 14
     sweeps:
       S01:
         directive_name: 90_PORT_H2_5M_RECYCLE_S01_V1_P00
@@ -3182,3 +3182,32 @@ ideas:
             signature_hash: ae2392e8a0c66506
             directive_hash_full: ae2392e8a0c665065c5171a5c36ca0aa841c65fa84fbd808cf84a9d5032caaa6
             signature_hash_full: ae2392e8a0c665065c5171a5c36ca0aa841c65fa84fbd808cf84a9d5032caaa6
+      S13:
+        directive_name: 90_PORT_H2_5M_RECYCLE_S13_V1_P00
+        reserved_at_utc: '2026-05-16T12:27:02.326749+00:00'
+        directive_hash: 84a55a5a4b446383
+        signature_hash: 84a55a5a4b446383
+        directive_hash_full: 84a55a5a4b4463832241b11fa80147dd28447c162ff7875d433317800555b141
+        signature_hash_full: 84a55a5a4b4463832241b11fa80147dd28447c162ff7875d433317800555b141
+        patches:
+          P01:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S13_V1_P01
+            reserved_at_utc: '2026-05-16T12:27:02.695178+00:00'
+            directive_hash: 5b838d88d6698981
+            signature_hash: 5b838d88d6698981
+            directive_hash_full: 5b838d88d6698981d2e75687900a6b55dc956d96af5074ae784c96f52baac2e9
+            signature_hash_full: 5b838d88d6698981d2e75687900a6b55dc956d96af5074ae784c96f52baac2e9
+          P02:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S13_V1_P02
+            reserved_at_utc: '2026-05-16T12:27:03.057428+00:00'
+            directive_hash: 682486b09a6805ff
+            signature_hash: 682486b09a6805ff
+            directive_hash_full: 682486b09a6805ff6308e840695a1065b3fb01713779067f537e096a17abdbc0
+            signature_hash_full: 682486b09a6805ff6308e840695a1065b3fb01713779067f537e096a17abdbc0
+          P03:
+            directive_name: 90_PORT_H2_5M_RECYCLE_S13_V1_P03
+            reserved_at_utc: '2026-05-16T12:27:03.410346+00:00'
+            directive_hash: 67431755dbb5f149
+            signature_hash: 67431755dbb5f149
+            directive_hash_full: 67431755dbb5f149b6f4f14e30ca07538e9e4aafadbea3ce05af9ba8c994e9f6
+            signature_hash_full: 67431755dbb5f149b6f4f14e30ca07538e9e4aafadbea3ce05af9ba8c994e9f6
