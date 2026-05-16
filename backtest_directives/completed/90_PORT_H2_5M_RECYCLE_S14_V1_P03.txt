@@ -1,0 +1,100 @@
+test:
+  name: 90_PORT_H2_5M_RECYCLE_S14_V1_P03
+  family: PORT
+  strategy: 90_PORT_H2_5M_RECYCLE_S14_V1_P03
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2018-04-02'
+  end_date: '2020-04-03'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: >
+    H2 bump-and-liquidate basket (S14 — 10-window matrix variant (P03 = window G)). EUR-long
+    0.01 + USD/JPY-long 0.01, same spec as S03_P00 (B1 champion) except for
+    the recycle mechanic: H2_recycle@4 instead of @1. The v4 rule executes
+    Variant G recycle until 5 consecutive same-loser adds fire; then one-time
+    bump of 0.06 lot to winner, enter HOLD mode, liquidate on 30% retrace
+    from winner peak via BasketRunner.soft_reset_basket primitive, restart
+    fresh sub-basket. Same compression_5d >= 5 regime gate as B1.
+    Reference: research/FX_BASKET_RECYCLE_RESEARCH.md §5.4b (basket_sim
+    parity target: final $1,599, DD 32.51%, 5 bumps, 5 liquidations).
+    Rule: governance/recycle_rules/registry.yaml -> H2_recycle@4
+    (pipeline-routed version of tmp/h2_bump_liquidate_sim.py).
+  notes: >
+    Phase E 10-window matrix continuation (2026-05-16). Window G (2018-04-02 ->2020-04-03). Confirms pipeline implementation of
+    bump-and-liquidate (H2_recycle@4) matches basket_sim's empirical
+    bump-and-liquidate result on the F (in-sample) window. Acceptance:
+    ≤1% drift on final_equity / peak_DD / n_bumps / n_liquidations vs
+    tmp/h2_bump_liquidate_sim.py. If parity passes, 10-window matrix
+    follows via window-variant directives. ABI: engine_abi.v1_5_9.
+
+symbols:
+- EURUSD
+- USDJPY
+
+indicators:
+- indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: false
+  reset_on_exit: false
+  entry_logic:
+    type: basket_open_at_start
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+basket:
+  basket_id: H2
+  legs:
+    - symbol: EURUSD
+      lot: 0.01
+      direction: long
+    - symbol: USDJPY
+      lot: 0.01
+      direction: long
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 2000.0
+  recycle_rule:
+    name: H2_recycle
+    version: 4
+    params:
+      switch_n: 5
+      retrace_pct: 0.30
+      trigger_usd: 10.0
+      add_lot: 0.01
+      starting_equity: 1000.0
+      harvest_target_usd: 2000.0
+      factor_column: compression_5d
+      factor_min: 5.0
+      factor_operator: '>='
+      dd_freeze_frac: 0.10
+      margin_freeze_frac: 0.15
+      leverage: 1000.0
+  regime_gate:
+    factor: USD_SYNTH.compression_5d
+    operator: '>='
+    value: 5
