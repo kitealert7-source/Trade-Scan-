@@ -108,9 +108,10 @@ class H2RecycleRuleV2:
             raise ValueError("H2RecycleRuleV2.factor_column must be a non-empty string.")
         if self.max_leg_lot is not None and self.max_leg_lot <= 0:
             raise ValueError("H2RecycleRuleV2.max_leg_lot must be > 0 or None.")
-        if self.factor_operator not in (">=", "<="):
+        if self.factor_operator not in (">=", "<=", "abs_<="):
             raise ValueError(
-                f"H2RecycleRuleV2.factor_operator must be '>=' or '<='; got {self.factor_operator!r}."
+                f"H2RecycleRuleV2.factor_operator must be '>=', '<=', or 'abs_<='; "
+                f"got {self.factor_operator!r}."
             )
 
     # ---- BasketRule.apply --------------------------------------------------
@@ -178,8 +179,10 @@ class H2RecycleRuleV2:
             return
         if self.factor_operator == ">=":
             regime_blocked = factor_val < self.factor_min
-        else:  # "<="
+        elif self.factor_operator == "<=":
             regime_blocked = factor_val > self.factor_min
+        else:  # "abs_<="  (S13: stretch_z20 family)
+            regime_blocked = abs(factor_val) > self.factor_min
         if regime_blocked:
             self._n_regime_freezes += 1
             return

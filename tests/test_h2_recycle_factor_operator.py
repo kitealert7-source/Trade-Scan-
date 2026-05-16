@@ -147,6 +147,78 @@ def test_v1_leq_does_not_gate_below_threshold():
 
 
 # ---------------------------------------------------------------------------
+# Tests — operator='abs_<=' (S13) for stretch_z family (asymmetric |Z|)
+# ---------------------------------------------------------------------------
+
+
+def test_v1_abs_leq_gates_extreme_positive():
+    """abs_<= behavior: stretch_z = +3.0 (extreme positive) should fire REGIME_GATE."""
+    n = 20
+    eur = np.full(n, 1.10001)
+    jpy = np.full(n, 150.0)
+    stretch = np.full(n, 3.0)  # |Z|=3 > threshold 1.0
+    eur_leg, jpy_leg, idx = _make_usd_anchored_basket(
+        eur, jpy, stretch, factor_col="stretch_z20"
+    )
+    rule = H2RecycleRule(
+        factor_column="stretch_z20", factor_min=1.0, factor_operator="abs_<=",
+        run_id="t", directive_id="t", basket_id="H2",
+    )
+    for i in range(len(idx)):
+        rule.apply([eur_leg, jpy_leg], i, idx[i])
+    reasons = {rec["skip_reason"] for rec in rule.per_bar_records}
+    assert "REGIME_GATE" in reasons
+
+
+def test_v1_abs_leq_gates_extreme_negative():
+    """abs_<= behavior: stretch_z = -3.0 (extreme negative) should ALSO fire REGIME_GATE."""
+    n = 20
+    eur = np.full(n, 1.10001)
+    jpy = np.full(n, 150.0)
+    stretch = np.full(n, -3.0)  # |Z|=3 > threshold 1.0 (negative direction)
+    eur_leg, jpy_leg, idx = _make_usd_anchored_basket(
+        eur, jpy, stretch, factor_col="stretch_z20"
+    )
+    rule = H2RecycleRule(
+        factor_column="stretch_z20", factor_min=1.0, factor_operator="abs_<=",
+        run_id="t", directive_id="t", basket_id="H2",
+    )
+    for i in range(len(idx)):
+        rule.apply([eur_leg, jpy_leg], i, idx[i])
+    reasons = {rec["skip_reason"] for rec in rule.per_bar_records}
+    assert "REGIME_GATE" in reasons
+
+
+def test_v1_abs_leq_does_not_gate_normal_range():
+    """abs_<= behavior: |stretch_z| < threshold should NOT fire."""
+    n = 20
+    eur = np.full(n, 1.10001)
+    jpy = np.full(n, 150.0)
+    stretch = np.full(n, 0.3)  # |Z|=0.3 < threshold 1.0
+    eur_leg, jpy_leg, idx = _make_usd_anchored_basket(
+        eur, jpy, stretch, factor_col="stretch_z20"
+    )
+    rule = H2RecycleRule(
+        factor_column="stretch_z20", factor_min=1.0, factor_operator="abs_<=",
+        run_id="t", directive_id="t", basket_id="H2",
+    )
+    for i in range(len(idx)):
+        rule.apply([eur_leg, jpy_leg], i, idx[i])
+    reasons = {rec["skip_reason"] for rec in rule.per_bar_records}
+    assert "REGIME_GATE" not in reasons
+
+
+def test_validator_accepts_abs_leq_on_all_three_rules():
+    """abs_<= is accepted by validator on @1, @2, @3."""
+    r1 = H2RecycleRule(factor_operator="abs_<=")
+    assert r1.factor_operator == "abs_<="
+    r2 = H2RecycleRuleV2(factor_operator="abs_<=")
+    assert r2.factor_operator == "abs_<="
+    r3 = H2RecycleRuleV3(factor_operator="abs_<=")
+    assert r3.factor_operator == "abs_<="
+
+
+# ---------------------------------------------------------------------------
 # Tests — basket_data_loader generalized factor loading
 # ---------------------------------------------------------------------------
 

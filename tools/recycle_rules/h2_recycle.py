@@ -119,8 +119,13 @@ class H2RecycleRule:
     #   — i.e., recycle requires factor >= threshold (LOW = trending = blocked)
     # operator='<=' (S12): gate fires when factor_val > factor_min
     #   — i.e., recycle requires factor <= threshold (HIGH = trending = blocked)
+    # operator='abs_<=' (S13): gate fires when abs(factor_val) > factor_min
+    #   — i.e., recycle requires |factor| <= threshold (extreme |Z| = blocked)
+    #   — for signed factors like stretch_z20 where deviation magnitude
+    #     (not sign) classifies the regime.
     # The operator-aware semantics let alternative USD_SYNTH features (vol_5d,
-    # autocorr_5d) which have HIGH = trending plug into the same rule.
+    # autocorr_5d, stretch_z20) which have different "trending" semantics plug
+    # into the same rule.
     factor_column: str = "compression_5d"
     factor_min: float = 10.0
     factor_operator: str = ">="
@@ -179,9 +184,10 @@ class H2RecycleRule:
             raise ValueError("H2RecycleRule.margin_freeze_frac must be in (0, 1).")
         if not self.factor_column:
             raise ValueError("H2RecycleRule.factor_column must be a non-empty string.")
-        if self.factor_operator not in (">=", "<="):
+        if self.factor_operator not in (">=", "<=", "abs_<="):
             raise ValueError(
-                f"H2RecycleRule.factor_operator must be '>=' or '<='; got {self.factor_operator!r}."
+                f"H2RecycleRule.factor_operator must be '>=', '<=', or 'abs_<='; "
+                f"got {self.factor_operator!r}."
             )
 
         # 1.3.0-basket schema: initialize summary_stats accumulator with sentinels.
@@ -284,15 +290,18 @@ class H2RecycleRule:
             except (KeyError, ValueError, TypeError):
                 # Parse failure — treat as missing.
                 column_missing = True
-        # Operator-aware regime block (S12, 2026-05-16):
+        # Operator-aware regime block (S12 + S13, 2026-05-16):
         #   '>=' (default): block when factor < threshold (compression: LOW=trending)
-        #   '<=' (S12 new): block when factor > threshold (vol/autocorr: HIGH=trending)
+        #   '<=' (S12): block when factor > threshold (vol/autocorr: HIGH=trending)
+        #   'abs_<=' (S13): block when abs(factor) > threshold (stretch: extreme |Z|)
         if factor_val is None:
             regime_blocked = False
         elif self.factor_operator == ">=":
             regime_blocked = factor_val < self.factor_min
-        else:  # "<="  (validator restricts to these two)
+        elif self.factor_operator == "<=":
             regime_blocked = factor_val > self.factor_min
+        else:  # "abs_<="  (validator restricts to these three)
+            regime_blocked = abs(factor_val) > self.factor_min
         # Legacy bar-count: preserve pre-1.3.0 semantics — NaN-factor and below-min
         # both increment _n_regime_freezes. (The new summary_stats counter is
         # transition-based and counts only true REGIME_GATE bars.)

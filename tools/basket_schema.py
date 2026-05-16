@@ -42,7 +42,7 @@ from typing import Any
 import yaml
 
 _VALID_DIRECTIONS = {"long", "short"}
-_VALID_OPERATORS = {">", ">=", "<", "<=", "==", "!="}
+_VALID_OPERATORS = {">", ">=", "<", "<=", "==", "!=", "abs_<="}
 _BASKET_ID_RE = re.compile(r"^[A-Z][A-Z0-9]+$")
 
 
