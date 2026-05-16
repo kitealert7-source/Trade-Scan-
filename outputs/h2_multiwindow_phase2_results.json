@@ -1,0 +1,432 @@
+{
+  "windows": [
+    {
+      "window": "A 2016-09 -> 2018-09 (Brexit/Trump)",
+      "start": "2016-09-05",
+      "end": "2018-09-07",
+      "B1": {
+        "final_equity": 2003.6307707149058,
+        "final_realized": 858.5330794572385,
+        "net_pct": 100.36307707149057,
+        "peak_equity": 2003.6307707149058,
+        "peak_dd_dollar": 355.68961318421816,
+        "peak_dd_pct_vs_1k": 35.56896131842181,
+        "exit_reason": "TARGET",
+        "exit_ts": "2017-07-10",
+        "n_triggers": 40,
+        "n_regime_freezes": 26490,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 539.1565727599302,
+        "final_realized": 507.6346904355834,
+        "net_pct": -46.08434272400698,
+        "peak_equity": 1437.6256846977751,
+        "peak_dd_dollar": 912.1945479571,
+        "peak_dd_pct_vs_1k": 91.21945479570999,
+        "exit_reason": "EOD",
+        "exit_ts": "2018-09-07",
+        "n_triggers": 19,
+        "n_regime_freezes": 17926,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 2870.8649903687487,
+        "peak_composite_equity": 2870.8649903687487,
+        "composite_net_pct": 43.543249518437435,
+        "peak_dd_dollar": 478.73842489120716,
+        "peak_dd_pct_vs_2k": 23.93692124456036,
+        "n_bars": 63289
+      }
+    },
+    {
+      "window": "E 2017-04 -> 2019-04 (USD-weak)",
+      "start": "2017-04-03",
+      "end": "2019-04-05",
+      "B1": {
+        "final_equity": 2003.2822385701577,
+        "final_realized": 1108.4641860199167,
+        "net_pct": 100.32822385701576,
+        "peak_equity": 2003.2822385701577,
+        "peak_dd_dollar": 538.4115681941371,
+        "peak_dd_pct_vs_1k": 53.841156819413705,
+        "exit_reason": "TARGET",
+        "exit_ts": "2017-12-20",
+        "n_triggers": 39,
+        "n_regime_freezes": 21223,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 928.5318895595763,
+        "final_realized": 183.8268669537404,
+        "net_pct": -7.146811044042374,
+        "peak_equity": 1066.554443154461,
+        "peak_dd_dollar": 387.8246800275614,
+        "peak_dd_pct_vs_1k": 38.78246800275614,
+        "exit_reason": "EOD",
+        "exit_ts": "2019-04-05",
+        "n_triggers": 8,
+        "n_regime_freezes": 14252,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 2911.439278601569,
+        "peak_composite_equity": 2911.439278601569,
+        "composite_net_pct": 45.57196393007846,
+        "peak_dd_dollar": 598.5634058173559,
+        "peak_dd_pct_vs_2k": 29.928170290867794,
+        "n_bars": 53772
+      }
+    },
+    {
+      "window": "G 2018-04 -> 2020-04 (pre-COVID/shock)",
+      "start": "2018-04-02",
+      "end": "2020-04-03",
+      "B1": {
+        "final_equity": 473.2135496170349,
+        "final_realized": 61.01565331636461,
+        "net_pct": -52.67864503829651,
+        "peak_equity": 1018.0788315268,
+        "peak_dd_dollar": 600.85806909157,
+        "peak_dd_pct_vs_1k": 60.085806909157,
+        "exit_reason": "EOD",
+        "exit_ts": "2020-04-03",
+        "n_triggers": 4,
+        "n_regime_freezes": 15201,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 393.70609809405187,
+        "final_realized": 212.95912450904035,
+        "net_pct": -60.62939019059481,
+        "peak_equity": 1107.3595435698892,
+        "peak_dd_dollar": 894.8548894677451,
+        "peak_dd_pct_vs_1k": 89.48548894677451,
+        "exit_reason": "EOD",
+        "exit_ts": "2020-04-03",
+        "n_triggers": 10,
+        "n_regime_freezes": 14379,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 866.9196477110868,
+        "peak_composite_equity": 2060.6930149744567,
+        "composite_net_pct": -56.654017614445664,
+        "peak_dd_dollar": 1358.1242994923377,
+        "peak_dd_pct_vs_2k": 67.90621497461689,
+        "n_bars": 149112
+      }
+    },
+    {
+      "window": "B 2018-09 -> 2020-09 (COVID era)",
+      "start": "2018-09-03",
+      "end": "2020-09-04",
+      "B1": {
+        "final_equity": 1070.444397615991,
+        "final_realized": 152.75567240912605,
+        "net_pct": 7.0444397615990955,
+        "peak_equity": 1102.2985461177893,
+        "peak_dd_dollar": 295.7798972380642,
+        "peak_dd_pct_vs_1k": 29.577989723806425,
+        "exit_reason": "EOD",
+        "exit_ts": "2020-09-04",
+        "n_triggers": 6,
+        "n_regime_freezes": 40671,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": -5.906561218571596,
+        "final_realized": 241.54604385346946,
+        "net_pct": -100.59065612185717,
+        "peak_equity": 1145.1034865440608,
+        "peak_dd_dollar": 1151.0100477626324,
+        "peak_dd_pct_vs_1k": 115.10100477626324,
+        "exit_reason": "BLOWN",
+        "exit_ts": "2020-03-19",
+        "n_triggers": 16,
+        "n_regime_freezes": 16603,
+        "survived": false
+      },
+      "composite": {
+        "final_composite_equity": 795.8655943507601,
+        "peak_composite_equity": 2132.0913659258536,
+        "composite_net_pct": -60.20672028246199,
+        "peak_dd_dollar": 1336.2257715750934,
+        "peak_dd_pct_vs_2k": 66.81128857875467,
+        "n_bars": 114094
+      }
+    },
+    {
+      "window": "H 2019-04 -> 2021-04 (COVID + recovery)",
+      "start": "2019-04-01",
+      "end": "2021-04-02",
+      "B1": {
+        "final_equity": 1511.9620297100369,
+        "final_realized": 683.6942162923738,
+        "net_pct": 51.19620297100369,
+        "peak_equity": 1528.847011537158,
+        "peak_dd_dollar": 358.8080282567938,
+        "peak_dd_pct_vs_1k": 35.88080282567938,
+        "exit_reason": "EOD",
+        "exit_ts": "2021-04-02",
+        "n_triggers": 18,
+        "n_regime_freezes": 61559,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 688.7642604046193,
+        "final_realized": 303.31880065279256,
+        "net_pct": -31.123573959538064,
+        "peak_equity": 1184.6600232581052,
+        "peak_dd_dollar": 523.4790647734844,
+        "peak_dd_pct_vs_1k": 52.34790647734844,
+        "exit_reason": "EOD",
+        "exit_ts": "2021-04-02",
+        "n_triggers": 16,
+        "n_regime_freezes": 59550,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 2200.726290114656,
+        "peak_composite_equity": 2292.143707991607,
+        "composite_net_pct": 10.036314505732799,
+        "peak_dd_dollar": 552.664275963283,
+        "peak_dd_pct_vs_2k": 27.633213798164146,
+        "n_bars": 149302
+      }
+    },
+    {
+      "window": "C 2020-04 -> 2022-04 (USD-strong-extr)",
+      "start": "2020-04-06",
+      "end": "2022-04-04",
+      "B1": {
+        "final_equity": 2000.683554538287,
+        "final_realized": 853.6614957147574,
+        "net_pct": 100.06835545382869,
+        "peak_equity": 2000.683554538287,
+        "peak_dd_dollar": 578.896437383359,
+        "peak_dd_pct_vs_1k": 57.88964373833589,
+        "exit_reason": "TARGET",
+        "exit_ts": "2021-10-15",
+        "n_triggers": 27,
+        "n_regime_freezes": 40794,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 373.2381085793213,
+        "final_realized": 209.41889412427224,
+        "net_pct": -62.67618914206787,
+        "peak_equity": 1128.5850427123007,
+        "peak_dd_dollar": 1116.2523014359392,
+        "peak_dd_pct_vs_1k": 111.62523014359391,
+        "exit_reason": "EOD",
+        "exit_ts": "2022-04-04",
+        "n_triggers": 15,
+        "n_regime_freezes": 6286,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 2161.747394822506,
+        "peak_composite_equity": 2161.747394822506,
+        "composite_net_pct": 8.087369741125304,
+        "peak_dd_dollar": 656.3870686576417,
+        "peak_dd_pct_vs_2k": 32.81935343288209,
+        "n_bars": 114054
+      }
+    },
+    {
+      "window": "I 2021-04 -> 2023-04 (post-stimulus)",
+      "start": "2021-04-05",
+      "end": "2023-04-07",
+      "B1": {
+        "final_equity": 1341.9821881265466,
+        "final_realized": 523.3457001267882,
+        "net_pct": 34.19821881265466,
+        "peak_equity": 1383.7381457170513,
+        "peak_dd_dollar": 364.7381294819527,
+        "peak_dd_pct_vs_1k": 36.47381294819527,
+        "exit_reason": "EOD",
+        "exit_ts": "2023-04-07",
+        "n_triggers": 7,
+        "n_regime_freezes": 17427,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 1123.6127661445607,
+        "final_realized": 1103.3225071251354,
+        "net_pct": 12.361276614456074,
+        "peak_equity": 1531.1991011387179,
+        "peak_dd_dollar": 474.3767121026276,
+        "peak_dd_pct_vs_1k": 47.437671210262764,
+        "exit_reason": "EOD",
+        "exit_ts": "2023-04-07",
+        "n_triggers": 20,
+        "n_regime_freezes": 20036,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 2465.5949542711073,
+        "peak_composite_equity": 2799.66120822805,
+        "composite_net_pct": 23.279747713555366,
+        "peak_dd_dollar": 509.17539420438675,
+        "peak_dd_pct_vs_2k": 25.458769710219336,
+        "n_bars": 150595
+      }
+    },
+    {
+      "window": "D 2022-09 -> 2024-09 (rate-hike cycle)",
+      "start": "2022-09-05",
+      "end": "2024-09-06",
+      "B1": {
+        "final_equity": 2005.2149474075018,
+        "final_realized": 1149.6141808209172,
+        "net_pct": 100.52149474075019,
+        "peak_equity": 2005.2149474075018,
+        "peak_dd_dollar": 1188.2961108697914,
+        "peak_dd_pct_vs_1k": 118.82961108697914,
+        "exit_reason": "TARGET",
+        "exit_ts": "2023-10-31",
+        "n_triggers": 23,
+        "n_regime_freezes": 14938,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 1098.4229259200845,
+        "final_realized": 527.7457834208423,
+        "net_pct": 9.842292592008448,
+        "peak_equity": 1325.5715902239253,
+        "peak_dd_dollar": 677.4607439126361,
+        "peak_dd_pct_vs_1k": 67.7460743912636,
+        "exit_reason": "EOD",
+        "exit_ts": "2024-09-06",
+        "n_triggers": 21,
+        "n_regime_freezes": 15175,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 3086.354123291304,
+        "peak_composite_equity": 3086.354123291304,
+        "composite_net_pct": 54.317706164565195,
+        "peak_dd_dollar": 975.1601863942476,
+        "peak_dd_pct_vs_2k": 48.75800931971238,
+        "n_bars": 86510
+      }
+    },
+    {
+      "window": "J 2023-04 -> 2025-04 (rate-pause/pivot)",
+      "start": "2023-04-03",
+      "end": "2025-04-04",
+      "B1": {
+        "final_equity": 1510.8837293036859,
+        "final_realized": 1083.876769367389,
+        "net_pct": 51.088372930368585,
+        "peak_equity": 1965.2003756516167,
+        "peak_dd_dollar": 1201.8692459612537,
+        "peak_dd_pct_vs_1k": 120.18692459612537,
+        "exit_reason": "EOD",
+        "exit_ts": "2025-04-04",
+        "n_triggers": 18,
+        "n_regime_freezes": 32789,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 1070.2442441856033,
+        "final_realized": 708.8201429731632,
+        "net_pct": 7.024424418560329,
+        "peak_equity": 1611.926536893855,
+        "peak_dd_dollar": 592.9894427955697,
+        "peak_dd_pct_vs_1k": 59.29894427955698,
+        "exit_reason": "EOD",
+        "exit_ts": "2025-04-04",
+        "n_triggers": 21,
+        "n_regime_freezes": 41535,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 2581.127973489289,
+        "peak_composite_equity": 3226.699128499311,
+        "composite_net_pct": 29.056398674464457,
+        "peak_dd_dollar": 1068.6905097031054,
+        "peak_dd_pct_vs_2k": 53.43452548515527,
+        "n_bars": 149476
+      }
+    },
+    {
+      "window": "F 2024-09 -> 2026-05 (in-sample/P00)",
+      "start": "2024-09-02",
+      "end": "2026-05-09",
+      "B1": {
+        "final_equity": 2006.6041484559496,
+        "final_realized": 1020.6070325830956,
+        "net_pct": 100.66041484559496,
+        "peak_equity": 2006.6041484559496,
+        "peak_dd_dollar": 325.1104788312009,
+        "peak_dd_pct_vs_1k": 32.51104788312009,
+        "exit_reason": "TARGET",
+        "exit_ts": "2025-07-25",
+        "n_triggers": 30,
+        "n_regime_freezes": 18969,
+        "survived": true
+      },
+      "B2": {
+        "final_equity": 1593.0033203742523,
+        "final_realized": 738.6154593139189,
+        "net_pct": 59.30033203742523,
+        "peak_equity": 1634.1880378128171,
+        "peak_dd_dollar": 330.9568182440179,
+        "peak_dd_pct_vs_1k": 33.095681824401794,
+        "exit_reason": "EOD",
+        "exit_ts": "2026-05-08",
+        "n_triggers": 28,
+        "n_regime_freezes": 51730,
+        "survived": true
+      },
+      "composite": {
+        "final_composite_equity": 3018.2632262449833,
+        "peak_composite_equity": 3018.2632262449833,
+        "composite_net_pct": 50.913161312249166,
+        "peak_dd_dollar": 464.1278633006134,
+        "peak_dd_pct_vs_2k": 23.20639316503067,
+        "n_bars": 66446
+      }
+    }
+  ],
+  "aggregate": [
+    {
+      "basket": "B1",
+      "n_windows": 10,
+      "survivors": 10,
+      "survival_rate": "10/10",
+      "mean_net_pct": 59.28,
+      "median_net_pct": 100.07,
+      "min_net_pct": -52.68,
+      "max_net_pct": 100.66,
+      "mean_dd_pct": 58.08,
+      "max_dd_pct": 120.19
+    },
+    {
+      "basket": "B2",
+      "n_windows": 10,
+      "survivors": 9,
+      "survival_rate": "9/10",
+      "mean_net_pct": -21.97,
+      "median_net_pct": -7.15,
+      "min_net_pct": -100.59,
+      "max_net_pct": 59.3,
+      "mean_dd_pct": 70.61,
+      "max_dd_pct": 115.1
+    },
+    {
+      "basket": "composite",
+      "n_windows": 10,
+      "survivors": 9,
+      "survival_rate": "9/10",
+      "mean_net_pct": 14.79,
+      "median_net_pct": 29.06,
+      "min_net_pct": -60.21,
+      "max_net_pct": 54.32,
+      "mean_dd_pct": 39.99,
+      "max_dd_pct": 67.91
+    }
+  ]
+}
