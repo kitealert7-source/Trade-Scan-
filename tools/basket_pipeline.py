@@ -95,14 +95,21 @@ def _instantiate_rule(
     governance/recycle_rules/registry.yaml.
 
     Identity kwargs (`run_id`, `directive_id`, `basket_id`) are threaded into
-    H2_recycle@1 only — that's the rule wired for 1.3.0-basket per-bar
-    ledger telemetry. V2/V3 ignore them (no schema field today; will be added
-    in a follow-up patch when those rules opt into the per_bar_records contract).
+    H2_recycle@1 AND H2_recycle@3 — both opt into the 1.3.0-basket per-bar
+    ledger telemetry contract. H2_recycle@2 still ignores them (no schema
+    field today; would be added if @2 ever needs ledger emission).
 
     Supported rules:
       H2_recycle@1            — the validated H2 strategy (Variant G +
                                 $2k harvest + compression gate on adds)
                                 + 1.3.0-basket per-bar telemetry emitter
+      H2_recycle@2            — @1 + loser-leg lot cap (rejected by S04
+                                research as it disables compounding;
+                                directives may still reference it)
+      H2_recycle@3            — @2 + generalized cross-pair PnL via
+                                USD-anchored reference rates (Phase B
+                                non-USD universe support); 1.3.0-basket
+                                emitter wired 2026-05-16
       H2_v7_compression@1     — DEPRECATED misimplementation; refuses to
                                 instantiate. Directives that still
                                 reference this rule must migrate to
@@ -143,6 +150,9 @@ def _instantiate_rule(
         # v3 = v2 + generalized cross-pair PnL math. Supports any FX pair
         # whose currencies are in {USD, EUR, GBP, AUD, NZD, JPY, CHF, CAD}.
         # Requires basket_data_loader to populate usd_ref_<PAIR>_close columns.
+        # Phase B (2026-05-16): opted into 1.3.0-basket per_bar_records
+        # contract — identity kwargs threaded so the parquet ledger emit at
+        # basket close labels rows correctly.
         return H2RecycleRuleV3(
             trigger_usd=float(params.get("trigger_usd", 10.0)),
             add_lot=float(params.get("add_lot", 0.01)),
@@ -165,6 +175,9 @@ def _instantiate_rule(
                 float(params["max_leg_lot"])
                 if params.get("max_leg_lot") is not None else None
             ),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
         )
 
     if name == "H2_recycle" and version == 2:
