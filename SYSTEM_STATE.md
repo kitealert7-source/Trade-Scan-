@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 6 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-16T08:02:21Z
+> Generated: 2026-05-16T10:03:52Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 281 directives
+- Completed: 297 directives
 
 ## Ledgers
 
@@ -35,12 +34,12 @@
 - Latest bar: **2026-05-15** | Symbols: 235
 
 ## Artifacts
-- Run directories: 1378
+- Run directories: 1394
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 6 uncommitted
-- Last substantive commit: `4d771aa research(h2-basket): sleeve challenge - B1+B2 stays as provisional live champion`
+- Working tree: clean
+- Last substantive commit: `adafb3d research(h2-basket): Phase B' â€” USD_SYNTH Gate=5 transfers to non-USD universe (S10)`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
