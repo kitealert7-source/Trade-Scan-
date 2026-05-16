@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-16T12:21:45Z
+> Generated: 2026-05-16T16:56:06Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 305 directives
+- Completed: 321 directives
 
 ## Ledgers
 
@@ -34,12 +34,12 @@
 - Latest bar: **2026-05-15** | Symbols: 235
 
 ## Artifacts
-- Run directories: 1402
+- Run directories: 1418
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `822ac77 research(h2-basket): S12 â€” alternative USD_SYNTH factors do not beat compression_5d`
+- Last substantive commit: `638338f session: idea gate refresh (tools_manifest regen)`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
