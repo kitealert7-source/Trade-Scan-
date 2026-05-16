@@ -535,3 +535,24 @@ H1 PASS (PF 1.24 >= 1.10). H2 PARTIAL: non-StrongUp subset ~$1,453 net positive 
 
 Implication:
 P01: apply direction_gate to short branch — gate shorts to trend_regime <= 0 (Neutral/WeakDn/StrongDn only). This removes the Short x StrongUp (PF 0.47) and Short x WeakUp (PF 0.78) clusters. Expected: fewer trades but higher SQN and better tail concentration. Do NOT explore long-only variant before testing short-gated P01 — the short branch contributes $673 in valid downtrend contexts and is worth preserving conditionally. Age-2 exclusion (64T, -$27, PF 0.95) is a secondary probe, not a first priority.
+2026-05-16
+Tags:
+H2_telemetry
+intrabar_DD_correction
+methodology_correction
+basket_sim_spec
+legacy_module_deprecation
+
+Run IDs: 515a6b81beb5bf5d00f0012d, d7e3a692c0d22ffc268aae9d, 1f6ee7227cf82c7b05aff660
+
+Finding:
+Legacy h2_intrabar_floating_dd.py overstates basket Max DD by 5-35% due to state-model bugs (winner-lot reset to 0.01 on every realize, bar-0 vs bar-1 entry-price). Spec-correct 1.3.0-basket parquet emitter is now authoritative; legacy module flagged DEPRECATED.
+
+Evidence:
+B1 forensic 2026-05-16: legacy reports Max DD $495 (49.5%); emitter reports $325 (32.5%) at a 113-day-different worst-bar (legacy=2025-06-03, emitter=2025-02-10). recycle_events.jsonl on disk shows top winner_realized $271.50 on EUR Δ0.02715 — implies actual lot 0.10, directly contradicting legacy's hardcoded 0.01 assumption.
+
+Conclusion:
+§3.7 of FX_BASKET_RECYCLE_RESEARCH.md DD numbers (B1 $495, AJ $529, GBP+JPY $947, composites) are overstated. The 1.3.0-basket per-bar parquet at TradeScan_State/backtests/<id>_H2/raw/results_basket_per_bar.parquet is authoritative going forward. Legacy module retained for replay of pre-1.3.0 baskets only.
+
+Implication:
+Re-derive composite DD and capital sizing from per-basket parquet ledgers before any live deployment decision. Phase 7 refactor of harvest_robustness module will rewrite reload+replay path to parquet-read and fix the two state bugs at the same time. Until then, ignore §3.7 absolute DD magnitudes; relative basket comparisons remain qualitatively valid.

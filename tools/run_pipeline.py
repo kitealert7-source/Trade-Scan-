@@ -759,9 +759,18 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     print(f"[BASKET] Data mode: {data_mode}")
     registry_path = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
 
+    # 1.3.0-basket schema: generate run_id BEFORE the rule executes so the rule
+    # can thread it into per-bar ledger rows. Path B (Phase 5b.2) reuses this
+    # same run_id for the run_registry entry + tradelevel CSV pair.
+    from tools.pipeline_utils import generate_run_id as _generate_run_id
+    _basket_id_for_runid = parsed["basket"]["basket_id"]
+    run_id, _content_hash = _generate_run_id(path, symbol=_basket_id_for_runid)
+
     result = run_basket_pipeline(
         parsed, leg_data, leg_strategies,
         recycle_registry_path=registry_path,
+        run_id=run_id,
+        directive_id=directive_id,
     )
 
     # Write basket vault snapshot (Phase 6 layout). Folder structure:
@@ -799,17 +808,16 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     # only CSV — the user's principle: "results must be discoverable later,
     # not just produced." The legacy basket_runs.csv writer is preserved during
     # the transition (see header comment on that file).
-    run_id = None
+    # run_id + _content_hash were already generated above (pre-run, so the rule
+    # can thread run_id into per-bar ledger rows). Reused here verbatim.
     state_mgr = None  # Phase 5b.4: emit run_state.json (startup-guardrail compliance)
     try:
         from tools.basket_ledger import basket_result_to_tradelevel_df
         from tools.portfolio.basket_ledger_writer import append_basket_row_to_mps
-        from tools.pipeline_utils import generate_run_id
         from config.path_authority import TRADE_SCAN_STATE
         from datetime import datetime, timezone
 
         basket_id = parsed["basket"]["basket_id"]
-        run_id, _content_hash = generate_run_id(path, symbol=basket_id)
         backtests_dir = TRADE_SCAN_STATE / "backtests" / f"{directive_id}_{basket_id}" / "raw"
         backtests_dir.mkdir(parents=True, exist_ok=True)
         runs_dir = TRADE_SCAN_STATE / "runs" / run_id / "data"

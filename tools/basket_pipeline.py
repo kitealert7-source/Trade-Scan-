@@ -54,6 +54,12 @@ class BasketRunResult:
     rule_version:           int = 0
     exit_reason:            str = ""   # TARGET | FLOOR | BLOWN | TIME | "" (still open)
 
+    # 1.3.0-basket schema additions (plan §3 / §4 / §6). Empty defaults so
+    # rules that don't emit ledger telemetry (V2, V3 today) flow through
+    # unchanged — downstream consumers treat empty as "no ledger this run".
+    per_bar_records:        list[dict[str, Any]] = field(default_factory=list)
+    summary_stats:          dict[str, Any] = field(default_factory=dict)
+
     def to_mps_row(self) -> dict[str, Any]:
         """Render a single Master_Portfolio_Sheet-compatible row.
 
@@ -75,15 +81,28 @@ class BasketRunResult:
         }
 
 
-def _instantiate_rule(rule_cfg: dict[str, Any], factor_column: str | None = None):
+def _instantiate_rule(
+    rule_cfg: dict[str, Any],
+    factor_column: str | None = None,
+    *,
+    run_id: str = "",
+    directive_id: str = "",
+    basket_id: str = "",
+):
     """Construct a RecycleRule instance from the directive's recycle_rule block.
 
     Adding a new rule = adding a new branch here + entry in
     governance/recycle_rules/registry.yaml.
 
+    Identity kwargs (`run_id`, `directive_id`, `basket_id`) are threaded into
+    H2_recycle@1 only — that's the rule wired for 1.3.0-basket per-bar
+    ledger telemetry. V2/V3 ignore them (no schema field today; will be added
+    in a follow-up patch when those rules opt into the per_bar_records contract).
+
     Supported rules:
       H2_recycle@1            — the validated H2 strategy (Variant G +
                                 $2k harvest + compression gate on adds)
+                                + 1.3.0-basket per-bar telemetry emitter
       H2_v7_compression@1     — DEPRECATED misimplementation; refuses to
                                 instantiate. Directives that still
                                 reference this rule must migrate to
@@ -115,6 +134,9 @@ def _instantiate_rule(rule_cfg: dict[str, Any], factor_column: str | None = None
             leverage=float(params.get("leverage", 1000.0)),
             factor_column=factor_column or params.get("factor_column", "compression_5d"),
             factor_min=float(params.get("factor_min", 10.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
         )
 
     if name == "H2_recycle" and version == 3:
@@ -229,6 +251,8 @@ def run_basket_pipeline(directive: dict[str, Any],
                         leg_strategies: dict[str, Any],
                         *,
                         recycle_registry_path: Path | None = None,
+                        run_id: str = "",
+                        directive_id: str = "",
                         ) -> BasketRunResult:
     """Run a basket directive end-to-end through BasketRunner + rules.
 
@@ -238,9 +262,15 @@ def run_basket_pipeline(directive: dict[str, Any],
       leg_strategies:         {symbol: StrategyProtocol instance} for each leg
       recycle_registry_path:  governance/recycle_rules/registry.yaml; defaults
                               to the canonical location under REAL_REPO_ROOT.
+      run_id:                 12-char hex run identifier (from generate_run_id).
+                              Threaded into the rule for per-bar ledger rows.
+      directive_id:           directive name (e.g., "90_PORT_H2_5M_RECYCLE_S03_V1_P00").
+                              Threaded into the rule for per-bar ledger rows.
 
     Returns:
       BasketRunResult — call .to_mps_row() for the MPS-compatible payload.
+      For H2_recycle@1, also carries `per_bar_records` + `summary_stats`
+      (1.3.0-basket schema). For other rules, those fields are empty.
     """
     # Schema sanity (Phase 1 schema check) — defensive; pipeline already runs it.
     schema_errors = validate_basket_block(
@@ -251,7 +281,12 @@ def run_basket_pipeline(directive: dict[str, Any],
         raise ValueError("basket_pipeline: directive failed schema check:\n  - " + "\n  - ".join(schema_errors))
 
     block = directive["basket"]
-    rule = _instantiate_rule(block["recycle_rule"])
+    rule = _instantiate_rule(
+        block["recycle_rule"],
+        run_id=run_id,
+        directive_id=directive_id,
+        basket_id=block["basket_id"],
+    )
 
     legs = _legs_from_directive(directive, leg_data, leg_strategies)
     runner = BasketRunner(legs=legs, rules=[rule])
@@ -266,6 +301,10 @@ def run_basket_pipeline(directive: dict[str, Any],
         rule_name=rule.name,
         rule_version=rule.version,
         exit_reason=str(getattr(rule, "exit_reason", "") or ""),
+        # 1.3.0-basket additions — getattr fallback covers V2/V3 rules until
+        # they opt into the per_bar_records contract (see _instantiate_rule).
+        per_bar_records=list(getattr(rule, "per_bar_records", [])),
+        summary_stats=dict(getattr(rule, "summary_stats", {})),
     )
 
 

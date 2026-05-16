@@ -135,6 +135,27 @@ class H2RecycleRule:
     _n_margin_freezes: int = 0
     _n_regime_freezes: int = 0
 
+    # ---- 1.3.0-basket schema: per-bar telemetry + summary accumulator ----
+    # Identity threading (populated by basket_pipeline._instantiate_rule when known).
+    run_id: str = ""
+    directive_id: str = ""
+    basket_id: str = ""
+
+    # Per-bar record stream — Block A-G of the locked schema (~35 + 8N cols).
+    per_bar_records: list[dict[str, Any]] = field(default_factory=list)
+
+    # Running summary accumulator — drives MPS Baskets row (plan §4.5 / §6).
+    summary_stats: dict[str, Any] = field(default_factory=dict)
+
+    # Transition-detection state for summary_stats freeze counts.
+    _prev_dd_freeze: bool = False
+    _prev_margin_freeze: bool = False
+    _prev_regime_blocked: bool = False
+
+    # Bookkeeping for bars_since_last_recycle + running peak equity.
+    _last_recycle_bar: Optional[int] = None
+    _peak_equity: float = 0.0
+
     def __post_init__(self) -> None:
         if self.trigger_usd <= 0:
             raise ValueError("H2RecycleRule.trigger_usd must be > 0.")
@@ -152,10 +173,30 @@ class H2RecycleRule:
         if not self.factor_column:
             raise ValueError("H2RecycleRule.factor_column must be a non-empty string.")
 
+        # 1.3.0-basket schema: initialize summary_stats accumulator with sentinels.
+        # Updated each call inside _record_bar(); finalized in _exit_all() at harvest.
+        self.summary_stats = {
+            "peak_floating_dd_usd":         0.0,          # running min of dd_from_peak_usd
+            "peak_floating_dd_pct":         0.0,          # running min of dd_from_peak_pct
+            "dd_freeze_count":              0,            # False->True transitions
+            "margin_freeze_count":          0,            # False->True transitions
+            "regime_freeze_count":          0,            # False->True transitions
+            "peak_margin_used_usd":         0.0,          # running max
+            "min_margin_level_pct":         float("inf"), # running min; finalized to None if never set
+            "worst_floating_at_freeze_usd": 0.0,          # running min over freeze bars
+            "peak_lots":                    {},           # {symbol: max_lot_seen}
+            "final_pnl_usd":                None,         # filled at harvest
+            "return_on_real_capital_pct":   None,         # computed at harvest
+            "harvest_bar_index":            None,
+            "harvest_bar_ts":               None,
+            "harvest_reason":               None,
+        }
+        self._peak_equity = self.starting_equity
+
     # ---- BasketRule.apply --------------------------------------------------
 
     def apply(self, legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp) -> None:
-        # Once harvested, nothing else fires — basket is closed.
+        # Once harvested, nothing else fires — basket is closed (no per-bar record).
         if self.harvested:
             return
 
@@ -169,6 +210,20 @@ class H2RecycleRule:
             try:
                 bar_closes[leg.symbol] = float(leg.df.loc[bar_ts, "close"])
             except (KeyError, ValueError):
+                # Data gap — record RULE_NOT_INVOKED; cannot compute floating/margin.
+                self._record_bar(
+                    legs, i, bar_ts,
+                    bar_closes={l.symbol: float("nan") for l in legs},
+                    leg_float={l.symbol: 0.0 for l in legs},
+                    floating_total=0.0,
+                    equity=self.starting_equity + self.realized_total,
+                    margin_used=0.0,
+                    dd_freeze=False, margin_freeze=False, regime_blocked=False,
+                    factor_val=None,
+                    skip_reason="RULE_NOT_INVOKED",
+                    recycle_attempted=False, recycle_executed=False,
+                    harvest_triggered=False,
+                )
                 return
 
         # Per-leg floating + totals
@@ -176,7 +231,7 @@ class H2RecycleRule:
         floating_total = sum(leg_float.values())
         equity = self.starting_equity + self.realized_total + floating_total
 
-        # ---- Exit checks (priority order) ----
+        # ---- Exit checks (priority order) — _exit_all records the harvest bar ----
         if equity >= self.harvest_target_usd:
             self._exit_all(legs, i, bar_ts, bar_closes, leg_float, reason="TARGET")
             return
@@ -202,19 +257,70 @@ class H2RecycleRule:
             self._n_dd_freezes += 1
         if margin_breach:
             self._n_margin_freezes += 1
+
+        # ---- Regime gate read (factor may be missing/parse-fail/NaN/below-min) ----
+        primary_df = legs[0].df
+        column_missing = self.factor_column not in primary_df.columns
+        factor_val: Optional[float] = None
+        factor_present_but_nan = False
+        if not column_missing:
+            try:
+                raw_val = float(primary_df.loc[bar_ts, self.factor_column])
+                if pd.isna(raw_val):
+                    factor_present_but_nan = True
+                else:
+                    factor_val = raw_val
+            except (KeyError, ValueError, TypeError):
+                # Parse failure — treat as missing.
+                column_missing = True
+        regime_blocked = (factor_val is not None) and (factor_val < self.factor_min)
+        # Legacy bar-count: preserve pre-1.3.0 semantics — NaN-factor and below-min
+        # both increment _n_regime_freezes. (The new summary_stats counter is
+        # transition-based and counts only true REGIME_GATE bars.)
+        if factor_present_but_nan or regime_blocked:
+            self._n_regime_freezes += 1
+
+        # Early-return: freeze fired this bar (DD takes precedence over MARGIN label).
         if dd_breach or margin_breach:
+            skip_reason = "DD_FREEZE" if dd_breach else "MARGIN_FREEZE"
+            self._record_bar(
+                legs, i, bar_ts,
+                bar_closes=bar_closes, leg_float=leg_float,
+                floating_total=floating_total, equity=equity, margin_used=margin_used,
+                dd_freeze=dd_breach, margin_freeze=margin_breach,
+                regime_blocked=regime_blocked, factor_val=factor_val,
+                skip_reason=skip_reason,
+                recycle_attempted=False, recycle_executed=False,
+                harvest_triggered=False,
+            )
             return
 
-        # ---- Regime gate (only blocks recycle adds; existing positions stay) ----
-        primary_df = legs[0].df
-        if self.factor_column not in primary_df.columns:
-            return  # missing factor column -> fail-safe to no recycle
-        try:
-            factor_val = float(primary_df.loc[bar_ts, self.factor_column])
-        except (KeyError, ValueError, TypeError):
+        # Early-return: factor column missing or NaN — fail-safe to no recycle.
+        if column_missing or factor_present_but_nan:
+            self._record_bar(
+                legs, i, bar_ts,
+                bar_closes=bar_closes, leg_float=leg_float,
+                floating_total=floating_total, equity=equity, margin_used=margin_used,
+                dd_freeze=False, margin_freeze=False, regime_blocked=False,
+                factor_val=None,
+                skip_reason="RULE_NOT_INVOKED",
+                recycle_attempted=False, recycle_executed=False,
+                harvest_triggered=False,
+            )
             return
-        if pd.isna(factor_val) or factor_val < self.factor_min:
-            self._n_regime_freezes += 1
+
+        # Early-return: regime gate blocked.
+        if regime_blocked:
+            self._record_bar(
+                legs, i, bar_ts,
+                bar_closes=bar_closes, leg_float=leg_float,
+                floating_total=floating_total, equity=equity, margin_used=margin_used,
+                dd_freeze=False, margin_freeze=False, regime_blocked=True,
+                factor_val=factor_val,
+                skip_reason="REGIME_GATE",
+                recycle_attempted=False, recycle_executed=False,
+                harvest_triggered=False,
+            )
             return
 
         # ---- Recycle trigger (Variant G: winner-add-to-loser) ----
@@ -228,6 +334,16 @@ class H2RecycleRule:
                 winner = leg
                 break
         if winner is None:
+            self._record_bar(
+                legs, i, bar_ts,
+                bar_closes=bar_closes, leg_float=leg_float,
+                floating_total=floating_total, equity=equity, margin_used=margin_used,
+                dd_freeze=False, margin_freeze=False, regime_blocked=False,
+                factor_val=factor_val,
+                skip_reason="NO_WINNER",
+                recycle_attempted=True, recycle_executed=False,
+                harvest_triggered=False,
+            )
             return
         for leg in legs:
             if leg is winner:
@@ -238,6 +354,16 @@ class H2RecycleRule:
                 loser = leg
                 break
         if loser is None:
+            self._record_bar(
+                legs, i, bar_ts,
+                bar_closes=bar_closes, leg_float=leg_float,
+                floating_total=floating_total, equity=equity, margin_used=margin_used,
+                dd_freeze=False, margin_freeze=False, regime_blocked=False,
+                factor_val=factor_val,
+                skip_reason="NO_LOSER",
+                recycle_attempted=True, recycle_executed=False,
+                harvest_triggered=False,
+            )
             return
 
         # ---- Projection check: margin after the commit ----
@@ -258,6 +384,16 @@ class H2RecycleRule:
         proj_equity = self.starting_equity + proj_realized + proj_floating
         if proj_margin >= self.margin_freeze_frac * proj_equity:
             self._n_margin_freezes += 1
+            self._record_bar(
+                legs, i, bar_ts,
+                bar_closes=bar_closes, leg_float=leg_float,
+                floating_total=floating_total, equity=equity, margin_used=margin_used,
+                dd_freeze=False, margin_freeze=True, regime_blocked=False,
+                factor_val=factor_val,
+                skip_reason="PROJECTED_MARGIN_BREACH",
+                recycle_attempted=True, recycle_executed=False,
+                harvest_triggered=False,
+            )
             return
 
         # ---- Commit the recycle ----
@@ -275,6 +411,9 @@ class H2RecycleRule:
         new_avg = (loser_old_lot * loser_old_avg + self.add_lot * bar_closes[loser.symbol]) / new_loser_lot
         loser.state.entry_price = new_avg
         loser.lot = new_loser_lot
+
+        winner_leg_idx = legs.index(winner)
+        loser_leg_idx = legs.index(loser)
 
         # Record the recycle event
         event = {
@@ -311,7 +450,195 @@ class H2RecycleRule:
             "pnl_usd":     winner_realized,
         })
 
+        # Per-bar record for the recycle-executed bar.
+        # State-capture invariant: at the event bar, the record must show
+        # POST-recycle floating to remain internally consistent with the
+        # POST-recycle realized_total and POST-recycle per-leg lot/avg_entry
+        # (which are already in the leg objects after the mutations above).
+        # We recompute leg_float using the mutated state so equity_total =
+        # stake + realized + floating holds. Equity itself is invariant under
+        # recycle (winner's floating moves into realized; total unchanged).
+        post_leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol]) for leg in legs}
+        post_floating_total = sum(post_leg_float.values())
+        self._record_bar(
+            legs, i, bar_ts,
+            bar_closes=bar_closes, leg_float=post_leg_float,
+            floating_total=post_floating_total, equity=equity, margin_used=margin_used,
+            dd_freeze=False, margin_freeze=False, regime_blocked=False,
+            factor_val=factor_val,
+            skip_reason="NONE",
+            recycle_attempted=True, recycle_executed=True,
+            harvest_triggered=False,
+            winner_leg_idx=winner_leg_idx,
+            loser_leg_idx=loser_leg_idx,
+        )
+
     # ---- helpers --------------------------------------------------------
+
+    def _record_bar(
+        self,
+        legs: list[BasketLeg],
+        i: int,
+        bar_ts: pd.Timestamp,
+        *,
+        bar_closes: dict[str, float],
+        leg_float: dict[str, float],
+        floating_total: float,
+        equity: float,
+        margin_used: float,
+        dd_freeze: bool,
+        margin_freeze: bool,
+        regime_blocked: bool,
+        factor_val: Optional[float],
+        skip_reason: str,
+        recycle_attempted: bool,
+        recycle_executed: bool,
+        harvest_triggered: bool,
+        winner_leg_idx: Optional[int] = None,
+        loser_leg_idx: Optional[int] = None,
+    ) -> None:
+        """Append one row to per_bar_records and update summary_stats accumulators.
+
+        Single source of truth for both the parquet ledger and the MPS row's
+        in-memory summary (plan §4.5 / §6). Called once per apply() invocation
+        that doesn't short-circuit on the harvested check.
+        """
+        # Running peak equity (cummax)
+        if equity > self._peak_equity:
+            self._peak_equity = equity
+        dd_from_peak_usd = equity - self._peak_equity  # <= 0 by construction
+        if self._peak_equity > 0:
+            dd_from_peak_pct = dd_from_peak_usd / self._peak_equity * 100.0
+        else:
+            dd_from_peak_pct = 0.0
+
+        # Margin level + free margin
+        free_margin = equity - margin_used
+        if margin_used > 0:
+            margin_level_pct = equity / margin_used * 100.0
+        else:
+            margin_level_pct = float("nan")
+
+        # Total notional across legs
+        notional_total = 0.0
+        for leg in legs:
+            bc = bar_closes.get(leg.symbol, float("nan"))
+            if bc != bc:  # NaN check
+                continue
+            if leg.symbol in _USD_QUOTE:
+                notional_total += leg.lot * _LOT_UNITS * bc
+            elif leg.symbol in _USD_BASE:
+                notional_total += leg.lot * _LOT_UNITS  # already in USD
+
+        # Block E — basket position state
+        in_pos_lots = [leg.lot for leg in legs if leg.state.in_pos]
+        active_legs = len(in_pos_lots)
+        total_lot = sum(in_pos_lots) if in_pos_lots else 0.0
+        largest_leg_lot = max(in_pos_lots) if in_pos_lots else 0.0
+        smallest_leg_lot = min(in_pos_lots) if in_pos_lots else 0.0
+
+        # Block G — strategy state
+        bars_since_last_recycle = (
+            (i - self._last_recycle_bar) if self._last_recycle_bar is not None else None
+        )
+        bars_since_last_harvest = i  # single-cycle H2: bars since basket open
+
+        record: dict[str, Any] = {
+            # Block A — Time/identity
+            "timestamp":               bar_ts,
+            "directive_id":            self.directive_id,
+            "basket_id":               self.basket_id,
+            "bar_index":               i,
+            "run_id":                  self.run_id,
+            # Block B — Equity state
+            "floating_total_usd":      floating_total,
+            "realized_total_usd":      self.realized_total,
+            "equity_total_usd":        equity,
+            "peak_equity_usd":         self._peak_equity,
+            "dd_from_peak_usd":        dd_from_peak_usd,
+            "dd_from_peak_pct":        dd_from_peak_pct,
+            # Block C — Margin/capital state
+            "margin_used_usd":         margin_used,
+            "free_margin_usd":         free_margin,
+            "margin_level_pct":        margin_level_pct,
+            "notional_total_usd":      notional_total,
+            "leverage_effective":      self.leverage,
+            # Block D — Engine control state
+            "dd_freeze_active":        dd_freeze,
+            "margin_freeze_active":    margin_freeze,
+            "regime_gate_blocked":     regime_blocked,
+            "recycle_attempted":       recycle_attempted,
+            "recycle_executed":        recycle_executed,
+            "harvest_triggered":       harvest_triggered,
+            "engine_paused":           False,
+            "skip_reason":             skip_reason,
+            # Block E — Position state (basket)
+            "active_legs":             active_legs,
+            "total_lot":               total_lot,
+            "largest_leg_lot":         largest_leg_lot,
+            "smallest_leg_lot":        smallest_leg_lot,
+            # Block G — Strategy state
+            "recycle_count":           len(self.recycle_events),
+            "bars_since_last_recycle": bars_since_last_recycle,
+            "bars_since_last_harvest": bars_since_last_harvest,
+            "gate_factor_value":       factor_val if factor_val is not None else float("nan"),
+            "gate_factor_name":        self.factor_column,
+            "winner_leg_idx":          winner_leg_idx,
+            "loser_leg_idx":           loser_leg_idx,
+        }
+
+        # Block F — per-leg state (wide format)
+        for idx, leg in enumerate(legs):
+            bc = bar_closes.get(leg.symbol, float("nan"))
+            if leg.symbol in _USD_QUOTE and bc == bc:
+                leg_margin = leg.lot * _LOT_UNITS * bc / self.leverage
+                leg_notional = leg.lot * _LOT_UNITS * bc
+            elif leg.symbol in _USD_BASE:
+                leg_margin = leg.lot * _LOT_UNITS / self.leverage
+                leg_notional = leg.lot * _LOT_UNITS
+            else:
+                leg_margin = 0.0
+                leg_notional = 0.0
+            record[f"leg_{idx}_symbol"]       = leg.symbol
+            record[f"leg_{idx}_side"]         = "long" if leg.direction == 1 else "short"
+            record[f"leg_{idx}_lot"]          = leg.lot
+            record[f"leg_{idx}_avg_entry"]    = leg.state.entry_price
+            record[f"leg_{idx}_mark"]         = bc
+            record[f"leg_{idx}_floating_usd"] = leg_float.get(leg.symbol, 0.0)
+            record[f"leg_{idx}_margin_usd"]   = leg_margin
+            record[f"leg_{idx}_notional_usd"] = leg_notional
+
+        self.per_bar_records.append(record)
+
+        # ---- Update summary_stats accumulators (running aggregates) ----
+        stats = self.summary_stats
+        if dd_from_peak_usd < stats["peak_floating_dd_usd"]:
+            stats["peak_floating_dd_usd"] = dd_from_peak_usd
+            stats["peak_floating_dd_pct"] = dd_from_peak_pct
+        if dd_freeze and not self._prev_dd_freeze:
+            stats["dd_freeze_count"] += 1
+        if margin_freeze and not self._prev_margin_freeze:
+            stats["margin_freeze_count"] += 1
+        if regime_blocked and not self._prev_regime_blocked:
+            stats["regime_freeze_count"] += 1
+        self._prev_dd_freeze = dd_freeze
+        self._prev_margin_freeze = margin_freeze
+        self._prev_regime_blocked = regime_blocked
+        if margin_used > stats["peak_margin_used_usd"]:
+            stats["peak_margin_used_usd"] = margin_used
+        if margin_used > 0 and not pd.isna(margin_level_pct):
+            if margin_level_pct < stats["min_margin_level_pct"]:
+                stats["min_margin_level_pct"] = margin_level_pct
+        if dd_freeze or margin_freeze or regime_blocked:
+            if floating_total < stats["worst_floating_at_freeze_usd"]:
+                stats["worst_floating_at_freeze_usd"] = floating_total
+        for leg in legs:
+            prev = stats["peak_lots"].get(leg.symbol, 0.0)
+            if leg.lot > prev:
+                stats["peak_lots"][leg.symbol] = leg.lot
+
+        if recycle_executed:
+            self._last_recycle_bar = i
 
     def _exit_all(
         self,
@@ -323,14 +650,54 @@ class H2RecycleRule:
         *,
         reason: str,
     ) -> None:
-        """Close every open leg, banking floating into harvested_total_usd."""
+        """Close every open leg, banking floating into harvested_total_usd.
+
+        Records the harvest bar to per_bar_records BEFORE clearing leg state
+        so the ledger captures end-of-cycle lot/entry/floating per leg. Then
+        finalizes summary_stats (final_pnl_usd, return_on_real_capital_pct).
+        """
         floating_total = sum(leg_float.values())
+        margin_used = sum(
+            _leg_margin_usd(leg, bar_closes[leg.symbol], self.leverage) for leg in legs
+        )
+        equity = self.starting_equity + self.realized_total + floating_total
+
         self.harvested_total_usd = (
             self.starting_equity + self.realized_total + floating_total - self.starting_equity
         )
         self.harvested = True
         self.exit_reason = reason
         self.exit_ts = bar_ts
+
+        # Record the harvest bar (legs still in pos; per-leg state reflects harvest).
+        self._record_bar(
+            legs, i, bar_ts,
+            bar_closes=bar_closes, leg_float=leg_float,
+            floating_total=floating_total, equity=equity, margin_used=margin_used,
+            dd_freeze=False, margin_freeze=False, regime_blocked=False,
+            factor_val=None,  # gate not consulted on harvest
+            skip_reason="NONE",
+            recycle_attempted=False, recycle_executed=False,
+            harvest_triggered=True,
+        )
+
+        # Finalize summary_stats accumulator with harvest-time values.
+        stats = self.summary_stats
+        stats["final_pnl_usd"] = self.harvested_total_usd
+        peak_dd = abs(stats["peak_floating_dd_usd"])
+        if peak_dd > 0:
+            stats["return_on_real_capital_pct"] = (
+                self.harvested_total_usd / (2.0 * peak_dd) * 100.0
+            )
+        else:
+            stats["return_on_real_capital_pct"] = None
+        stats["harvest_bar_index"] = i
+        stats["harvest_bar_ts"] = bar_ts
+        stats["harvest_reason"] = reason
+        if stats["min_margin_level_pct"] == float("inf"):
+            stats["min_margin_level_pct"] = None
+
+        # Close all legs.
         for leg in legs:
             if leg.state.in_pos:
                 bc = bar_closes[leg.symbol]

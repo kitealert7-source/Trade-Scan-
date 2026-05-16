@@ -1,0 +1,64 @@
+# Harvest Robustness Harness — section config.
+#
+# Each entry declares one section of the report. The harness runs the
+# `script` via subprocess, captures stdout (and stderr if non-empty), and
+# embeds the output under a markdown heading with the `title` and a brief
+# `description`.
+#
+# To add a new section: append an entry below. Order in this file = order
+# in the report.
+#
+# Field reference:
+#   id:          short identifier (slug, used in CLI --sections filter)
+#   title:       markdown H2 heading shown in report
+#   description: 1-2 sentence operator-facing context, shown under heading
+#   script:      path relative to repo root
+#   kind:        currently always "stdout_capture" (subprocess + collate)
+#   tags:        list of free-text tags for filtering (capital, dd, composite, etc.)
+
+sections:
+
+  - id: realized_metrics
+    title: "1. Realized Metrics — per-basket"
+    description: >
+      Per-basket realized PnL, Max DD (realized only, NOT operator-facing),
+      profit factor, recycle event count, and harvest outcome across the
+      USD-anchored 4 x 3 matrix. Ranked by net PnL.
+    script: tools/harvest_robustness/modules/h2_s08_results_extract.py
+    kind: stdout_capture
+    tags: [realized, ranking, per_basket]
+
+  - id: composite_realized
+    title: "2. Composite Analysis (Realized) — N-basket parallel rollup"
+    description: >
+      Offline rollup of multiple parallel baskets into composite equity
+      curves. Tests all 2-of-3 and 3-of-3 harvester combinations plus
+      E1 triple, E2 quad, and stabilizer-only triples. NOTE: uses REALIZED
+      DDs only -- see section 4 for the true intra-bar DD which is 10-50x
+      larger and is the right number for capital planning.
+    script: tools/harvest_robustness/modules/h2_harvesters_composite_analysis.py
+    kind: stdout_capture
+    tags: [composite, realized, ranking]
+
+  - id: at_event_floating
+    title: "3. At-Event Floating PnL Snapshots (lower-bound DD)"
+    description: >
+      Per-basket worst floating PnL recorded at any recycle event. Gives
+      a lower-bound estimate of intra-bar floating DD without needing 5m
+      data load. Useful for quick triage; the true number is in section 4.
+    script: tools/harvest_robustness/modules/h2_floating_dd_at_events.py
+    kind: stdout_capture
+    tags: [floating, dd, lower_bound]
+
+  - id: intrabar_floating
+    title: "4. TRUE Intra-Bar Floating Max DD — operator capital truth"
+    description: >
+      Per-bar floating PnL reconstruction. Uses recycle_events.jsonl +
+      5m OHLC data to mark-to-market each leg at every 5m bar. Reports
+      both close-based and bar-low (worst-case wick) Max DD per basket
+      and per composite. This is the number that determines real capital
+      requirement at 1:1000 leverage (see RESEARCH/FX_BASKET_RECYCLE_RESEARCH.md
+      sec 4.13 + 4.15 for rationale).
+    script: tools/harvest_robustness/modules/h2_intrabar_floating_dd.py
+    kind: stdout_capture
+    tags: [floating, dd, intrabar, capital]

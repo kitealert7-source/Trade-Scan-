@@ -76,7 +76,76 @@ _BASKET_METRICS_GLOSSARY_EXTRA = [
      "exit_timestamp. For TARGET exits this is time-to-harvest; for NONE/TIME "
      "it is time-to-window-end. -1 if no trades or no start_date.",
      "days"),
+    # 1.3.0-basket schema — MPS Baskets derived metrics from in-memory summary_stats.
+    ("peak_floating_dd_usd", "Peak Floating Drawdown (USD)",
+     "Worst (most-negative) floating equity drawdown from peak across the basket's lifetime",
+     "USD"),
+    ("peak_floating_dd_pct", "Peak Floating Drawdown (%)",
+     "peak_floating_dd_usd expressed as % of peak equity at that bar",
+     "decimal"),
+    ("dd_freeze_count", "DD Freeze Count",
+     "Number of times the dd_breach condition went False->True (transition count, not bar count)",
+     "count"),
+    ("margin_freeze_count", "Margin Freeze Count",
+     "Number of times margin_breach OR projected-margin-breach went False->True",
+     "count"),
+    ("regime_freeze_count", "Regime Freeze Count",
+     "Number of times the regime gate (factor < min) went False->True",
+     "count"),
+    ("peak_margin_used_usd", "Peak Margin Used (USD)",
+     "Maximum margin tied up across all bars (real-time exposure peak)",
+     "USD"),
+    ("min_margin_level_pct", "Min Margin Level (%)",
+     "Closest the basket got to a broker margin call (equity / margin_used * 100; min over basket lifetime)",
+     "decimal"),
+    ("worst_floating_at_freeze_usd", "Worst Floating At Freeze (USD)",
+     "Most-negative floating_total_usd observed on any bar where a freeze flag was active",
+     "USD"),
+    ("return_on_real_capital_pct", "Return on Real Capital (%)",
+     "final_pnl_usd / (2 * abs(peak_floating_dd_usd)) * 100 — capital-efficient return metric",
+     "decimal"),
 ]
+
+
+# ---------------------------------------------------------------------------
+# 1.3.0-basket per-bar ledger schema (locked — see outputs/H2_TELEMETRY_AUDIT.md)
+# ---------------------------------------------------------------------------
+
+_FIXED_LEDGER_COLUMNS = (
+    # Block A — Time/identity (5)
+    "timestamp", "directive_id", "basket_id", "bar_index", "run_id",
+    # Block B — Equity state (6)
+    "floating_total_usd", "realized_total_usd", "equity_total_usd",
+    "peak_equity_usd", "dd_from_peak_usd", "dd_from_peak_pct",
+    # Block C — Margin/capital state (5)
+    "margin_used_usd", "free_margin_usd", "margin_level_pct",
+    "notional_total_usd", "leverage_effective",
+    # Block D — Engine control state (8)
+    "dd_freeze_active", "margin_freeze_active", "regime_gate_blocked",
+    "recycle_attempted", "recycle_executed", "harvest_triggered",
+    "engine_paused", "skip_reason",
+    # Block E — Position state (basket) (4)
+    "active_legs", "total_lot", "largest_leg_lot", "smallest_leg_lot",
+    # Block G — Strategy state (7)
+    "recycle_count", "bars_since_last_recycle", "bars_since_last_harvest",
+    "gate_factor_value", "gate_factor_name",
+    "winner_leg_idx", "loser_leg_idx",
+)  # Total: 35 fixed columns
+
+_PER_LEG_SUFFIXES = (
+    # Block F — Per-leg state (8 cols × N legs, wide format leg_<i>_*)
+    "symbol", "side", "lot", "avg_entry", "mark",
+    "floating_usd", "margin_usd", "notional_usd",
+)
+
+# Columns the rule emits as None on certain bars (pre-first-recycle, non-recycle bars).
+# These are coerced to pandas nullable Int64 so parquet round-trip preserves None
+# rather than upgrading to float64+NaN.
+_NULLABLE_INT_LEDGER_COLUMNS = (
+    "bars_since_last_recycle",
+    "winner_leg_idx",
+    "loser_leg_idx",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +340,58 @@ def _write_csv_dict(path: Path, row: dict[str, Any]) -> None:
     pd.DataFrame([row]).to_csv(path, index=False)
 
 
+def _write_per_bar_ledger(
+    path: Path,
+    per_bar_records: list[dict[str, Any]],
+    leg_count: int,
+) -> None:
+    """Write the 1.3.0-basket per-bar ledger parquet (machine-consumed audit trail).
+
+    Schema enforcement: every record must carry all 35 fixed columns of the
+    locked schema plus 8 per-leg columns per leg. Extra columns are tolerated
+    (forward compatibility). Empty per_bar_records (legacy V2/V3 rule path)
+    short-circuits without writing — caller decides how to log.
+
+    Dtype handling:
+      * timestamp coerced to datetime64
+      * nullable Int64 for columns the rule emits as None on certain bars
+        (bars_since_last_recycle, winner_leg_idx, loser_leg_idx)
+      * pyarrow engine for typed-schema preservation + columnar reads downstream
+    """
+    if not per_bar_records:
+        return
+
+    df = pd.DataFrame(per_bar_records)
+
+    missing_fixed = set(_FIXED_LEDGER_COLUMNS) - set(df.columns)
+    if missing_fixed:
+        raise ValueError(
+            f"basket_report: per-bar ledger missing required fixed columns: "
+            f"{sorted(missing_fixed)}. Rule must emit all 35 fixed cols of "
+            f"the 1.3.0-basket schema."
+        )
+
+    expected_leg_cols = {
+        f"leg_{i}_{suffix}"
+        for i in range(leg_count)
+        for suffix in _PER_LEG_SUFFIXES
+    }
+    missing_leg = expected_leg_cols - set(df.columns)
+    if missing_leg:
+        raise ValueError(
+            f"basket_report: per-bar ledger missing per-leg columns: "
+            f"{sorted(missing_leg)} (leg_count={leg_count}). Rule must emit "
+            f"all 8 cols per leg of the 1.3.0-basket schema."
+        )
+
+    for col in _NULLABLE_INT_LEDGER_COLUMNS:
+        if col in df.columns:
+            df[col] = df[col].astype("Int64")
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    df.to_parquet(path, engine="pyarrow", index=False)
+
+
 def _write_metrics_glossary(path: Path) -> None:
     """Copy the per-symbol glossary verbatim + append basket-only metric defs.
 
@@ -328,7 +449,7 @@ def _write_run_metadata(
         "engine_name":      "Universal_Research_Engine",
         "engine_version":   engine_version,
         "broker":           test_block.get("broker", "OctaFx"),
-        "schema_version":   "1.2.0-basket",
+        "schema_version":   "1.3.0-basket",
         "reference_capital_usd": 1000.0,
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -636,10 +757,19 @@ def write_per_window_report_artifacts(
     metrics["yearwise"].to_csv(p, index=False)
     paths["yearwise"] = p
 
-    # results_basket.csv (NEW — basket-specific telemetry)
+    # results_basket.csv (basket-specific telemetry)
     p = raw_dir / "results_basket.csv"
     _write_csv_dict(p, metrics["basket"])
     paths["basket"] = p
+
+    # results_basket_per_bar.parquet (1.3.0-basket schema — per-bar ledger,
+    # machine-consumed audit trail). Written only when the rule populated
+    # per_bar_records (H2_recycle@1 today; V2/V3 add this in a later patch).
+    per_bar_records = list(getattr(basket_result, "per_bar_records", []) or [])
+    if per_bar_records:
+        p = raw_dir / "results_basket_per_bar.parquet"
+        _write_per_bar_ledger(p, per_bar_records, leg_count=len(basket_result.legs))
+        paths["per_bar_ledger"] = p
 
     # metrics_glossary.csv
     p = raw_dir / "metrics_glossary.csv"

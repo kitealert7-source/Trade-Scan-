@@ -38,6 +38,7 @@ Schema (locked Phase 5b.2):
 """
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,7 +53,11 @@ from tools.basket_ledger import leg_specs_string
 _BASKETS_SHEET = "Baskets"
 
 # Locked column order for the Baskets sheet (additive only at right edge).
+# 1.3.0-basket additions (right-edge append): 10 derived metrics from the
+# rule's in-memory summary_stats + 1 schema_version column. NOT computed
+# from re-reading the just-written parquet — operator M1 (plan §0.5).
 BASKETS_SHEET_COLUMNS = [
+    # ---- 1.2.0-basket (existing, untouched) ----
     "run_id",
     "directive_id",
     "basket_id",
@@ -69,6 +74,18 @@ BASKETS_SHEET_COLUMNS = [
     "completed_at_utc",
     "backtests_path",
     "vault_path",
+    # ---- 1.3.0-basket additions (right-edge append, in-memory derived) ----
+    "peak_floating_dd_usd",
+    "peak_floating_dd_pct",
+    "dd_freeze_count",
+    "margin_freeze_count",
+    "regime_freeze_count",
+    "peak_margin_used_usd",
+    "min_margin_level_pct",
+    "worst_floating_at_freeze_usd",
+    "return_on_real_capital_pct",
+    "peak_lots_json",
+    "schema_version",
 ]
 
 
@@ -123,7 +140,7 @@ def _build_row(
                         final_realized += float(v)
                     except (TypeError, ValueError):
                         pass
-    return {
+    base_row: dict[str, Any] = {
         "run_id":              run_id,
         "directive_id":        directive_id,
         "basket_id":           basket_result.basket_id,
@@ -141,6 +158,48 @@ def _build_row(
         "backtests_path":      backtests_path,
         "vault_path":          vault_path,
     }
+
+    # 1.3.0-basket: derived columns from the rule's in-memory summary_stats
+    # (plan §6 M1 — explicitly NOT from re-reading the parquet). Rules that
+    # don't emit summary_stats (V2/V3 today) get NaN-filled rows for these
+    # columns; schema_version still records 1.3.0 because the WRITER is
+    # 1.3.0-aware regardless of whether the rule populated the ledger.
+    stats = getattr(basket_result, "summary_stats", None) or {}
+    derived: dict[str, Any] = {"schema_version": "1.3.0-basket"}
+    if stats:
+        peak_dd = stats.get("peak_floating_dd_usd")
+        peak_dd_pct = stats.get("peak_floating_dd_pct")
+        derived["peak_floating_dd_usd"] = (
+            abs(float(peak_dd)) if peak_dd is not None else pd.NA
+        )
+        derived["peak_floating_dd_pct"] = (
+            abs(float(peak_dd_pct)) if peak_dd_pct is not None else pd.NA
+        )
+        derived["dd_freeze_count"]     = int(stats.get("dd_freeze_count", 0))
+        derived["margin_freeze_count"] = int(stats.get("margin_freeze_count", 0))
+        derived["regime_freeze_count"] = int(stats.get("regime_freeze_count", 0))
+        derived["peak_margin_used_usd"] = float(stats.get("peak_margin_used_usd", 0.0))
+        mm = stats.get("min_margin_level_pct")
+        derived["min_margin_level_pct"] = float(mm) if mm is not None else pd.NA
+        derived["worst_floating_at_freeze_usd"] = float(
+            stats.get("worst_floating_at_freeze_usd", 0.0)
+        )
+        ror = stats.get("return_on_real_capital_pct")
+        derived["return_on_real_capital_pct"] = float(ror) if ror is not None else pd.NA
+        peak_lots = stats.get("peak_lots") or {}
+        derived["peak_lots_json"] = json.dumps(peak_lots) if peak_lots else pd.NA
+    else:
+        # Legacy basket run (no summary_stats — rule didn't emit ledger telemetry).
+        for col in (
+            "peak_floating_dd_usd", "peak_floating_dd_pct",
+            "dd_freeze_count", "margin_freeze_count", "regime_freeze_count",
+            "peak_margin_used_usd", "min_margin_level_pct",
+            "worst_floating_at_freeze_usd", "return_on_real_capital_pct",
+            "peak_lots_json",
+        ):
+            derived[col] = pd.NA
+
+    return {**base_row, **derived}
 
 
 def _resolve_exit_reason(basket_result: Any) -> str:

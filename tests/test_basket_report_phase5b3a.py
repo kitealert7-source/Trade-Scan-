@@ -225,7 +225,7 @@ def test_run_metadata_basket_flavored(tmp_path):
     assert meta["basket_id"] == "H2"
     assert meta["leg_symbols"] == ["EURUSD", "USDJPY"]
     assert meta["engine_version"] == "1.5.8"
-    assert meta["schema_version"] == "1.2.0-basket"
+    assert meta["schema_version"] == "1.3.0-basket"
     assert "execution_timestamp_utc" in meta
 
 
