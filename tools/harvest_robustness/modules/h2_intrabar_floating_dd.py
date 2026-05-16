@@ -39,10 +39,17 @@ STAKE_PER_BASKET = 1000.0
 # Champion set (1.3.0-basket parquet on disk). Add directives as parquet
 # ledgers come online (each basket must be re-run through the pipeline
 # under the 1.3.0-basket emitter to generate one).
+#
+# Sleeve challenge (2026-05-16 operator request): EC, GC, AC added as
+# second-sleeve candidates against B2. AJ dropped from primary-deploy
+# consideration but kept in the set for cross-comparison.
 BASKETS = {
     "B1": ("90_PORT_H2_5M_RECYCLE_S03_V1_P00", "EUR+JPY"),
     "AJ": ("90_PORT_H2_5M_RECYCLE_S08_V1_P00", "AUD+JPY"),
     "B2": ("90_PORT_H2_5M_RECYCLE_S05_V1_P04", "AUD+CAD"),
+    "EC": ("90_PORT_H2_5M_RECYCLE_S08_V1_P03", "EUR+CAD"),
+    "GC": ("90_PORT_H2_5M_RECYCLE_S08_V1_P04", "GBP+CAD"),
+    "AC": ("90_PORT_H2_5M_RECYCLE_S08_V1_P07", "AUD+CHF"),
 }
 
 
@@ -148,11 +155,15 @@ def main() -> int:
     print("COMPOSITE TRUE INTRA-BAR Max DD")
     print("=" * 100)
 
+    # Sleeve-challenge composites (operator 2026-05-16): does B1 have a
+    # better second sleeve than B2? Pair B1 with each candidate.
     composites = {
-        "B1+B2":          ["B1", "B2"],
-        "B1+AJ":          ["B1", "AJ"],
-        "B2+AJ":          ["B2", "AJ"],
-        "E1 B1+B2+AJ":    ["B1", "B2", "AJ"],
+        "B1+B2 (champion)": ["B1", "B2"],
+        "B1+EC (EUR+CAD)":  ["B1", "EC"],
+        "B1+GC (GBP+CAD)":  ["B1", "GC"],
+        "B1+AC (AUD+CHF)":  ["B1", "AC"],
+        "B1+AJ (legacy)":   ["B1", "AJ"],
+        "E1 B1+B2+AJ":      ["B1", "B2", "AJ"],
     }
 
     print(f"{'Composite':16s} {'Stake':>7s}  {'Final eq':>9s}  {'Net PnL':>9s}  "
