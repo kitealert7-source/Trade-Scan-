@@ -182,9 +182,10 @@ class H2RecycleRuleV3:
     margin_freeze_frac: float = 0.15
     leverage: float = 1000.0
 
-    # Regime gate
+    # Regime gate (operator-aware, mirrors @1; see h2_recycle.py for full docstring)
     factor_column: str = "compression_5d"
     factor_min: float = 10.0
+    factor_operator: str = ">="
 
     # v2 cap mechanic (preserved)
     max_leg_lot: Optional[float] = None
@@ -244,6 +245,10 @@ class H2RecycleRuleV3:
             raise ValueError("margin_freeze_frac must be in (0, 1).")
         if self.max_leg_lot is not None and self.max_leg_lot <= 0:
             raise ValueError("max_leg_lot must be > 0 or None.")
+        if self.factor_operator not in (">=", "<="):
+            raise ValueError(
+                f"H2RecycleRuleV3.factor_operator must be '>=' or '<='; got {self.factor_operator!r}."
+            )
 
         # 1.3.0-basket schema: initialize summary_stats accumulator with sentinels.
         # Updated each call inside _record_bar(); finalized in _exit_all() at harvest.
@@ -401,7 +406,13 @@ class H2RecycleRuleV3:
                     factor_val = raw_val
             except (KeyError, ValueError, TypeError):
                 column_missing = True
-        regime_blocked = (factor_val is not None) and (factor_val < self.factor_min)
+        # Operator-aware regime block (S12, 2026-05-16) — mirrors @1.
+        if factor_val is None:
+            regime_blocked = False
+        elif self.factor_operator == ">=":
+            regime_blocked = factor_val < self.factor_min
+        else:  # "<="
+            regime_blocked = factor_val > self.factor_min
         if factor_present_but_nan or regime_blocked:
             self._n_regime_freezes += 1
 

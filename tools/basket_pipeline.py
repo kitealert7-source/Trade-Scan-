@@ -141,6 +141,7 @@ def _instantiate_rule(
             leverage=float(params.get("leverage", 1000.0)),
             factor_column=factor_column or params.get("factor_column", "compression_5d"),
             factor_min=float(params.get("factor_min", 10.0)),
+            factor_operator=str(params.get("factor_operator", ">=")),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,
@@ -171,6 +172,7 @@ def _instantiate_rule(
             leverage=float(params.get("leverage", 1000.0)),
             factor_column=factor_column or params.get("factor_column", "compression_5d"),
             factor_min=float(params.get("factor_min", 10.0)),
+            factor_operator=str(params.get("factor_operator", ">=")),
             max_leg_lot=(
                 float(params["max_leg_lot"])
                 if params.get("max_leg_lot") is not None else None
@@ -200,6 +202,7 @@ def _instantiate_rule(
             leverage=float(params.get("leverage", 1000.0)),
             factor_column=factor_column or params.get("factor_column", "compression_5d"),
             factor_min=float(params.get("factor_min", 10.0)),
+            factor_operator=str(params.get("factor_operator", ">=")),
             max_leg_lot=(
                 float(params["max_leg_lot"])
                 if params.get("max_leg_lot") is not None else None

@@ -34,9 +34,39 @@ from config.path_authority import DATA_ROOT
 
 __all__ = [
     "load_basket_leg_data",
-    "load_compression_5d_factor",
+    "load_compression_5d_factor",  # legacy alias; prefer load_usd_synth_factor
+    "load_usd_synth_factor",
     "clear_year_file_cache",
 ]
+
+
+# ---------------------------------------------------------------------------
+# USD_SYNTH factor catalog (S12 generalization, 2026-05-16)
+# ---------------------------------------------------------------------------
+# Maps column name -> source file under SYSTEM_FACTORS/USD_SYNTH/. Used by
+# load_usd_synth_factor to resolve which file holds the requested column.
+# Each file contains multiple period variants of the same metric family.
+
+_USD_SYNTH_FACTOR_CATALOG = {
+    # Compression family — path_length / net_displacement ratio.
+    # LOW = trending; HIGH = chop. Use operator '>=' to gate "skip when below threshold".
+    "compression_5d":  "usd_synth_compression_d1.csv",
+    "compression_20d": "usd_synth_compression_d1.csv",
+    # Volatility family — rolling realized vol (annualized).
+    # HIGH = turbulent/trending; LOW = quiet/chop. Use operator '<=' to gate "skip when above threshold".
+    "vol_5d":  "usd_synth_volatility_d1.csv",
+    "vol_20d": "usd_synth_volatility_d1.csv",
+    "vol_60d": "usd_synth_volatility_d1.csv",
+    # Persistence family — rolling lag-1 autocorr of returns.
+    # HIGH = trending (momentum); LOW/negative = mean-reverting. Use operator '<=' to gate "skip when above threshold".
+    "autocorr_5d":  "usd_synth_persistence_d1.csv",
+    "autocorr_20d": "usd_synth_persistence_d1.csv",
+    "autocorr_60d": "usd_synth_persistence_d1.csv",
+    # Stretch family — Z-score of returns vs rolling window.
+    # HIGH abs = extreme move; LOW abs = normal. Z is signed; gating semantics are caller-specific.
+    "stretch_z20": "usd_synth_stretch_d1.csv",
+    "stretch_z60": "usd_synth_stretch_d1.csv",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -124,44 +154,62 @@ def clear_year_file_cache() -> None:
 # ---------------------------------------------------------------------------
 
 
-def load_compression_5d_factor(start_date: str, end_date: str) -> pd.Series:
-    """Read USD_SYNTH compression_5d daily series filtered to the window.
+def load_usd_synth_factor(factor_column: str, start_date: str, end_date: str) -> pd.Series:
+    """Read any USD_SYNTH daily factor series filtered to the window.
 
-    Returns a Series indexed by daily DatetimeIndex with name 'compression_5d'.
-    NaN rows (pre-warm-up) are retained — caller decides how to handle them.
+    Generalization of the legacy load_compression_5d_factor (S12 patch,
+    2026-05-16). Resolves the column name to a source file via
+    _USD_SYNTH_FACTOR_CATALOG, then reads/shifts/window-filters identically
+    to the compression path.
+
+    Supported `factor_column` values (catalog keys):
+      compression_5d, compression_20d              (compression family)
+      vol_5d, vol_20d, vol_60d                     (volatility family)
+      autocorr_5d, autocorr_20d, autocorr_60d      (persistence family)
+      stretch_z20, stretch_z60                     (stretch family)
+
+    Returns a Series indexed by daily DatetimeIndex with name=factor_column.
+    NaN rows (pre-warm-up) retained — caller handles.
 
     Lookahead-safe: applies `shift(1)` so the value at date D is the value
-    that was originally for date D-1. This matches the convention in
-    `tools/research/regime_gate.py::load_feature_series` and
-    `indicators/macro/usd_synth_zscore.py`. Without the shift, a 5m bar at
-    D 00:05 would read the compression for day D — a value that is not
-    actually known until end of day D in real-time. Phase 5d.1 parity run
-    discovered this lookahead bias was responsible for pipeline blocking
-    via the regime gate ~50% MORE often than the basket_sim reference (in
-    declining-compression regimes) and contributing to the TARGET-count
-    divergence (pipeline 2/10 vs reference 5/10).
+    that was originally for date D-1. Same convention as before; see the
+    Phase 5d.1 parity finding for the rationale on the shift discipline.
     """
-    path = DATA_ROOT / "SYSTEM_FACTORS" / "USD_SYNTH" / "usd_synth_compression_d1.csv"
+    if factor_column not in _USD_SYNTH_FACTOR_CATALOG:
+        raise ValueError(
+            f"Unknown USD_SYNTH factor column: {factor_column!r}. "
+            f"Known columns: {sorted(_USD_SYNTH_FACTOR_CATALOG.keys())}"
+        )
+    filename = _USD_SYNTH_FACTOR_CATALOG[factor_column]
+    path = DATA_ROOT / "SYSTEM_FACTORS" / "USD_SYNTH" / filename
     if not path.is_file():
         raise FileNotFoundError(
-            f"USD_SYNTH compression file missing at {path}. "
+            f"USD_SYNTH factor file missing at {path}. "
             "Confirm DATA_INGRESS has populated SYSTEM_FACTORS/USD_SYNTH/."
         )
     df = pd.read_csv(path, parse_dates=["Date"])
     df = df.set_index("Date").sort_index()
-    if "compression_5d" not in df.columns:
+    if factor_column not in df.columns:
         raise ValueError(
-            f"compression_5d column missing in {path}; found {list(df.columns)}"
+            f"{factor_column!r} column missing in {path}; found {list(df.columns)}"
         )
-    # Lookahead-safe shift on the full daily series BEFORE window filter
-    # (shifting after filter would lose the prior-day value at the start
-    # of the window).
-    series = df["compression_5d"].shift(1)
+    # Lookahead-safe shift BEFORE window filter (so first-day-of-window has
+    # prior-day's value, not NaN from being on the window boundary).
+    series = df[factor_column].shift(1)
     start_ts = pd.Timestamp(start_date)
     end_ts = pd.Timestamp(end_date)
     series = series[(series.index >= start_ts) & (series.index <= end_ts)]
-    series.name = "compression_5d"
+    series.name = factor_column
     return series
+
+
+def load_compression_5d_factor(start_date: str, end_date: str) -> pd.Series:
+    """Legacy alias for load_usd_synth_factor('compression_5d', ...).
+
+    Preserved for backward compatibility with any caller importing this
+    function by name. New code should use load_usd_synth_factor directly.
+    """
+    return load_usd_synth_factor("compression_5d", start_date, end_date)
 
 
 # ---------------------------------------------------------------------------
@@ -219,10 +267,14 @@ def _join_factor_onto_5m(df_5m: pd.DataFrame, factor: pd.Series) -> pd.DataFrame
     The factor's daily date stamp aligns to the START of each UTC day, so
     every 5m bar at-or-after that day's 00:00 inherits the day's value
     until the next daily print. NaN rows (pre-warm-up) propagate.
+
+    The joined column name is taken from `factor.name` so generalized
+    factors (vol_5d, autocorr_5d, etc.) land under their own column.
     """
     out = df_5m.copy()
+    col_name = factor.name or "compression_5d"
     # Reindex factor onto 5m index via forward-fill.
-    out["compression_5d"] = factor.reindex(out.index, method="ffill")
+    out[col_name] = factor.reindex(out.index, method="ffill")
     return out
 
 
@@ -230,21 +282,31 @@ def load_basket_leg_data(
     symbols: list[str],
     start_date: str,
     end_date: str,
+    factor_column: str = "compression_5d",
 ) -> dict[str, pd.DataFrame]:
-    """Load per-symbol 5m OHLC + USD_SYNTH compression_5d for a basket.
+    """Load per-symbol 5m OHLC + a USD_SYNTH regime factor for a basket.
 
     Args:
-        symbols:    list of leg symbols, e.g. ['EURUSD', 'USDJPY']
-        start_date: 'YYYY-MM-DD'
-        end_date:   'YYYY-MM-DD'
+        symbols:        list of leg symbols, e.g. ['EURUSD', 'USDJPY']
+        start_date:     'YYYY-MM-DD'
+        end_date:       'YYYY-MM-DD'
+        factor_column:  USD_SYNTH factor column to join (default
+                        'compression_5d' for backward compat). Any column
+                        in _USD_SYNTH_FACTOR_CATALOG is accepted: vol_5d,
+                        autocorr_5d, stretch_z20, etc. The column lands
+                        on every leg's DataFrame under its own name.
 
     Returns:
         dict mapping symbol -> DataFrame indexed by 'time' with columns:
             open, high, low, close, volume, spread, session,
-            commission_cash, slippage, compression_5d, and (for cross-pair
+            commission_cash, slippage, <factor_column>, and (for cross-pair
             H2_recycle@3 support) usd_ref_<PAIR>_close columns for each
             USD-anchored reference pair needed to convert any non-USD
             currency in the basket to USD.
+
+    S12 patch (2026-05-16): factor_column generalized from hardcoded
+    compression_5d. Backward-compatible default preserves all existing
+    callers and directive YAMLs unchanged.
 
     H2_recycle@3 cross-pair support (2026-05-15): when the basket includes
     pairs whose base or quote currency is NOT USD (e.g. AUDJPY, GBPAUD),
@@ -260,7 +322,7 @@ def load_basket_leg_data(
     # Validate dates are parseable
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
-    factor = load_compression_5d_factor(start_date, end_date)
+    factor = load_usd_synth_factor(factor_column, start_date, end_date)
 
     # Identify USD-anchored reference pairs needed for currency conversion
     ref_pairs = _required_ref_pairs(list(symbols))

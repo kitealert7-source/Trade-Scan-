@@ -114,9 +114,16 @@ class H2RecycleRule:
     margin_freeze_frac: float = 0.15
     leverage: float = 1000.0
 
-    # Regime gate (block recycle this bar when factor < min, NOT a position exit)
+    # Regime gate (block recycle this bar based on factor / operator / threshold)
+    # operator='>=' (default, legacy): gate fires when factor_val < factor_min
+    #   — i.e., recycle requires factor >= threshold (LOW = trending = blocked)
+    # operator='<=' (S12): gate fires when factor_val > factor_min
+    #   — i.e., recycle requires factor <= threshold (HIGH = trending = blocked)
+    # The operator-aware semantics let alternative USD_SYNTH features (vol_5d,
+    # autocorr_5d) which have HIGH = trending plug into the same rule.
     factor_column: str = "compression_5d"
     factor_min: float = 10.0
+    factor_operator: str = ">="
 
     name: str = _RULE_NAME
     version: int = _RULE_VERSION
@@ -172,6 +179,10 @@ class H2RecycleRule:
             raise ValueError("H2RecycleRule.margin_freeze_frac must be in (0, 1).")
         if not self.factor_column:
             raise ValueError("H2RecycleRule.factor_column must be a non-empty string.")
+        if self.factor_operator not in (">=", "<="):
+            raise ValueError(
+                f"H2RecycleRule.factor_operator must be '>=' or '<='; got {self.factor_operator!r}."
+            )
 
         # 1.3.0-basket schema: initialize summary_stats accumulator with sentinels.
         # Updated each call inside _record_bar(); finalized in _exit_all() at harvest.
@@ -273,7 +284,15 @@ class H2RecycleRule:
             except (KeyError, ValueError, TypeError):
                 # Parse failure — treat as missing.
                 column_missing = True
-        regime_blocked = (factor_val is not None) and (factor_val < self.factor_min)
+        # Operator-aware regime block (S12, 2026-05-16):
+        #   '>=' (default): block when factor < threshold (compression: LOW=trending)
+        #   '<=' (S12 new): block when factor > threshold (vol/autocorr: HIGH=trending)
+        if factor_val is None:
+            regime_blocked = False
+        elif self.factor_operator == ">=":
+            regime_blocked = factor_val < self.factor_min
+        else:  # "<="  (validator restricts to these two)
+            regime_blocked = factor_val > self.factor_min
         # Legacy bar-count: preserve pre-1.3.0 semantics — NaN-factor and below-min
         # both increment _n_regime_freezes. (The new summary_stats counter is
         # transition-based and counts only true REGIME_GATE bars.)

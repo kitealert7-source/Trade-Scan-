@@ -64,9 +64,10 @@ class H2RecycleRuleV2:
     margin_freeze_frac: float = 0.15
     leverage: float = 1000.0
 
-    # Regime gate (v1)
+    # Regime gate (operator-aware, S12 2026-05-16 — mirrors @1/@3)
     factor_column: str = "compression_5d"
     factor_min: float = 10.0
+    factor_operator: str = ">="
 
     # NEW v2 parameter: loser-leg lot cap
     max_leg_lot: Optional[float] = None
@@ -107,6 +108,10 @@ class H2RecycleRuleV2:
             raise ValueError("H2RecycleRuleV2.factor_column must be a non-empty string.")
         if self.max_leg_lot is not None and self.max_leg_lot <= 0:
             raise ValueError("H2RecycleRuleV2.max_leg_lot must be > 0 or None.")
+        if self.factor_operator not in (">=", "<="):
+            raise ValueError(
+                f"H2RecycleRuleV2.factor_operator must be '>=' or '<='; got {self.factor_operator!r}."
+            )
 
     # ---- BasketRule.apply --------------------------------------------------
 
@@ -160,7 +165,7 @@ class H2RecycleRuleV2:
         if dd_breach or margin_breach:
             return
 
-        # ---- Regime gate (same as v1) ----
+        # ---- Regime gate (operator-aware; S12 2026-05-16) ----
         primary_df = legs[0].df
         if self.factor_column not in primary_df.columns:
             return
@@ -168,7 +173,14 @@ class H2RecycleRuleV2:
             factor_val = float(primary_df.loc[bar_ts, self.factor_column])
         except (KeyError, ValueError, TypeError):
             return
-        if pd.isna(factor_val) or factor_val < self.factor_min:
+        if pd.isna(factor_val):
+            self._n_regime_freezes += 1
+            return
+        if self.factor_operator == ">=":
+            regime_blocked = factor_val < self.factor_min
+        else:  # "<="
+            regime_blocked = factor_val > self.factor_min
+        if regime_blocked:
             self._n_regime_freezes += 1
             return
 

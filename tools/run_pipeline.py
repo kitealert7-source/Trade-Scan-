@@ -1065,10 +1065,18 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     test_block = parsed.get("test", {})
     start_date = str(test_block.get("start_date", "2024-09-02"))
     end_date = str(test_block.get("end_date", "2026-05-09"))
+    # S12 (2026-05-16): factor_column is read from the recycle rule's params
+    # so alternative USD_SYNTH features (vol_5d, autocorr_5d, etc.) flow
+    # through to the loader. Default 'compression_5d' preserves all
+    # pre-S12 behaviour.
+    _rule_params = (
+        parsed.get("basket", {}).get("recycle_rule", {}).get("params", {}) or {}
+    )
+    factor_column = str(_rule_params.get("factor_column", "compression_5d"))
     try:
         from tools.basket_data_loader import load_basket_leg_data
         from tools.recycle_strategies import ContinuousHoldStrategy
-        leg_data = load_basket_leg_data(symbols, start_date, end_date)
+        leg_data = load_basket_leg_data(symbols, start_date, end_date, factor_column=factor_column)
         leg_strategies = {
             leg["symbol"]: ContinuousHoldStrategy(
                 symbol=leg["symbol"],
