@@ -18,6 +18,7 @@ import pandas as pd
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]  # modules/ -> harvest_robustness/ -> tools/ -> repo
+sys.path.insert(0, str(PROJECT_ROOT))
 from config.path_authority import TRADE_SCAN_STATE
 BACKTESTS = TRADE_SCAN_STATE / "backtests"
 
@@ -68,6 +69,18 @@ def metrics(directive_id: str) -> dict:
     elapsed_days = (df["exit_timestamp"].iloc[-1] - df["entry_timestamp"].iloc[0]).days
     # Harvested if final equity >= $2000
     harvested = final_eq >= HARVEST_TARGET
+
+    # 1.3.0-basket: pull true intra-bar Max DD from parquet ledger when present.
+    # Falls back to None for pre-1.3.0 baskets (no parquet on disk yet).
+    intra_bar_dd_usd = None
+    parquet_path = BACKTESTS / f"{directive_id}_H2" / "raw" / "results_basket_per_bar.parquet"
+    if parquet_path.exists():
+        try:
+            pq = pd.read_parquet(parquet_path, columns=["dd_from_peak_usd"])
+            intra_bar_dd_usd = abs(float(pq["dd_from_peak_usd"].min()))
+        except Exception:
+            intra_bar_dd_usd = None
+
     return {
         "trades": n_trades,
         "recycles": n_recycle,
@@ -79,6 +92,7 @@ def metrics(directive_id: str) -> dict:
         "pf": pf,
         "harvested": harvested,
         "elapsed_days": elapsed_days,
+        "intra_bar_dd_usd": intra_bar_dd_usd,
     }
 
 
@@ -87,9 +101,12 @@ def fmt(m: dict) -> str:
         return f" {m['err']}"
     pf = "inf" if m["pf"] == float("inf") else f"{m['pf']:.2f}"
     dh = f"HARVEST @ {m['elapsed_days']}d" if m["harvested"] else f"no-harvest / {m['elapsed_days']}d"
+    # Intra-bar DD from 1.3.0-basket parquet (only available for re-run baskets).
+    intra = m.get("intra_bar_dd_usd")
+    intra_str = f"intraDD=${intra:6.2f}" if intra is not None else "intraDD=    n/a"
     return (
         f"trd={m['trades']:3d} rec={m['recycles']:3d}  PnL=${m['pnl_usd']:7.2f} ({m['pnl_pct']:+6.1f}%)  "
-        f"DD=${m['max_dd_usd']:6.2f}/{m['max_dd_pct']:6.2f}%  PF={pf:>6s}  {dh}"
+        f"realDD=${m['max_dd_usd']:6.2f}/{m['max_dd_pct']:6.2f}%  {intra_str}  PF={pf:>6s}  {dh}"
     )
 
 

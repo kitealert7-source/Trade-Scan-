@@ -1,87 +1,76 @@
-"""h2_floating_dd_at_events.py -- quick lower-bound on intra-bar floating DD.
+"""h2_floating_dd_at_events.py -- at-recycle-event floating PnL stats from parquet.
 
-The DRY_RUN_VAULT/.../recycle_events.jsonl files carry per-event snapshots
-of basket state including `floating_total` (floating PnL just before the
-recycle action) and `equity_before` (realized + floating).
+[REWRITTEN 2026-05-16] Reads the 1.3.0-basket per-bar parquet ledger and
+extracts the floating_total_usd at every recycle_executed bar. Useful for
+understanding the trigger-USD distribution and the basket's floating
+profile at the moment recycle decisions fire.
 
-This gives the floating PnL AT EVENT TIMES. The true intra-bar Max DD between
-events will be at least this value (lower bound) and likely worse. This script
-gives the quick lower-bound estimate.
+This is a SUBORDINATE diagnostic to h2_intrabar_floating_dd.py; the true
+intra-bar Max DD comes from per-bar min over the full ledger (not just
+event bars). This module surfaces the EVENT-time snapshot for context.
 
-Output: per-basket worst floating-DD at any event timestamp.
+Inputs: parquet ledgers at TradeScan_State/backtests/<id>_H2/raw/.
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
-from config.path_authority import DRY_RUN_VAULT
-VAULT = DRY_RUN_VAULT / "baskets"
-STAKE = 1000.0
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-BASKETS = {
-    "B1 EUR+JPY": "90_PORT_H2_5M_RECYCLE_S03_V1_P00",
-    "AUD+JPY":     "90_PORT_H2_5M_RECYCLE_S08_V1_P00",
-    "GBP+JPY":     "90_PORT_H2_5M_RECYCLE_S08_V1_P01",
-    "B2 AUD+CAD":  "90_PORT_H2_5M_RECYCLE_S05_V1_P04",
-    "GBP+CAD":     "90_PORT_H2_5M_RECYCLE_S08_V1_P04",
-    "EUR+CAD":     "90_PORT_H2_5M_RECYCLE_S08_V1_P03",
-}
+import pandas as pd
+
+from config.path_authority import TRADE_SCAN_STATE
+from tools.harvest_robustness.modules.h2_intrabar_floating_dd import BASKETS, STAKE_PER_BASKET
 
 
-def basket_at_event_metrics(directive_id: str) -> dict:
-    p = VAULT / directive_id / "H2" / "recycle_events.jsonl"
-    if not p.exists():
-        return {"err": f"missing {p}"}
-    events = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines()]
-    if not events:
-        return {"err": "no events"}
-    # floating_total at each event
-    floats = [(e["bar_ts"], e["floating_total"], e["equity_before"], e["realized_total"]) for e in events]
-    worst_floating = min(f[1] for f in floats)
-    worst_idx = [i for i, f in enumerate(floats) if f[1] == worst_floating][0]
-    worst_event = floats[worst_idx]
-    # Equity at worst floating moment
-    worst_equity = worst_event[2]
-    starting = STAKE
-    equity_dd_usd = starting - worst_equity if worst_equity < starting else 0
-    # also track peak equity prior to worst event for a more accurate DD
-    peak_so_far = max([STAKE] + [e[2] for e in floats[:worst_idx + 1]])
-    dd_from_peak = peak_so_far - worst_equity
-    return {
-        "events": len(floats),
-        "worst_floating_at_event_usd": worst_floating,
-        "worst_event_ts": worst_event[0],
-        "equity_at_worst_event": worst_equity,
-        "peak_equity_up_to_worst": peak_so_far,
-        "dd_from_peak_usd": dd_from_peak,
-        "dd_from_peak_pct": dd_from_peak / peak_so_far * 100 if peak_so_far > 0 else 0,
-        "dd_from_stake_pct": (STAKE - worst_equity) / STAKE * 100 if worst_equity < STAKE else 0,
-    }
+def _parquet_path(directive_id: str) -> Path:
+    return (
+        TRADE_SCAN_STATE / "backtests" / f"{directive_id}_H2" / "raw" / "results_basket_per_bar.parquet"
+    )
 
 
 def main() -> int:
-    print()
-    print("AT-EVENT floating PnL snapshots (lower bound on intra-bar floating DD)")
-    print("Worst floating_total recorded at any recycle event")
-    print("=" * 130)
-    print(f"{'Basket':18s} {'Events':>6s}  {'Worst Floating ($)':>18s}  {'Equity@worst ($)':>16s}  {'Peak-equity ($)':>16s}  {'DD from peak ($)':>17s}  {'DD%':>7s}  Worst-event timestamp")
-    print("-" * 130)
-    for label, did in BASKETS.items():
-        m = basket_at_event_metrics(did)
-        if "err" in m:
-            print(f"{label:18s} {m['err']}")
+    print("=" * 100)
+    print("AT-EVENT FLOATING PROFILE (recycle_executed bars only, from parquet)")
+    print("=" * 100)
+    print(f"{'Basket':6s} {'Pair':10s} {'Events':>6s}  {'AvgFloat':>9s}  {'MinFloat':>9s}  "
+          f"{'MaxFloat':>9s}  {'OverallMinFloat':>16s}  {'EventVsOverall':>15s}")
+    print("-" * 100)
+
+    for label, (directive_id, pair) in BASKETS.items():
+        p = _parquet_path(directive_id)
+        if not p.exists():
+            print(f"{label:6s} {pair:10s} SKIP -- no parquet at {p}")
             continue
+        df = pd.read_parquet(p, columns=["floating_total_usd", "recycle_executed"])
+        events = df[df["recycle_executed"]]
+        if events.empty:
+            print(f"{label:6s} {pair:10s} (no recycle_executed bars)")
+            continue
+        avg_f = float(events["floating_total_usd"].mean())
+        min_f = float(events["floating_total_usd"].min())
+        max_f = float(events["floating_total_usd"].max())
+        overall_min = float(df["floating_total_usd"].min())
+        # Gap: how much deeper does the basket go BETWEEN events vs at events?
+        gap_pct = (overall_min - min_f) / overall_min * 100.0 if overall_min < 0 else 0.0
         print(
-            f"{label:18s} {m['events']:>6d}  "
-            f"{m['worst_floating_at_event_usd']:>18.2f}  "
-            f"{m['equity_at_worst_event']:>16.2f}  "
-            f"{m['peak_equity_up_to_worst']:>16.2f}  "
-            f"{m['dd_from_peak_usd']:>17.2f}  "
-            f"{m['dd_from_peak_pct']:>6.2f}%  "
-            f"{m['worst_event_ts']}"
+            f"{label:6s} {pair:10s} {len(events):>6d}  "
+            f"${avg_f:>+8.2f}  ${min_f:>+8.2f}  ${max_f:>+8.2f}  "
+            f"${overall_min:>+15.2f}  {gap_pct:>14.1f}%"
         )
+
+    print()
+    print("Notes:")
+    print("  - 'AvgFloat'  = mean floating_total_usd across all recycle_executed bars.")
+    print("    Values are post-recycle (winner already realized, lot mutations applied) per the 2026-05-16 emitter fix.")
+    print("  - 'MinFloat / MaxFloat' = floating PnL range observed at recycle bars only.")
+    print("  - 'OverallMinFloat'     = min floating across ALL bars (between events too).")
+    print("  - 'EventVsOverall'      = how much deeper the worst between-event bar goes vs the worst event bar.")
+    print("    A large gap means recycle events fire BEFORE the worst floating moment -- the rule's freeze gates")
+    print("    let the basket float deeper between recycle invocations.")
+    print("  - True intra-bar Max DD per basket: see section 4 (h2_intrabar_floating_dd).")
     return 0
 
 

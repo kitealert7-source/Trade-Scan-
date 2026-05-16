@@ -1,211 +1,126 @@
-"""h2_harvesters_composite_analysis.py -- compare parallel composites of harvester baskets.
+"""h2_harvesters_composite_analysis.py — composite ranking from parquet ledger.
 
-Question (operator, 2026-05-16): does combining all 3 harvesting pairs (B1, AUD+JPY,
-GBP+JPY) -- or any 2 of them -- smooth the equity curve, or worsen it?
+[REWRITTEN 2026-05-16] Reads 1.3.0-basket per-bar parquet ledgers and
+enumerates all 2-of-N and 3-of-N composite combinations across the
+champion set, ranked by capital efficiency (PnL / Max DD).
 
-Three harvesters (S08 sweep) all sit in the JPY column of the USD-anchored matrix:
-  B1 (S03_P00):  EUR+JPY  -- 302d harvest, Max DD 0.55%, PF 72.92
-  S08_P00:        AUD+JPY  -- 532d harvest, Max DD 0.54%, PF 62.45
-  S08_P01:        GBP+JPY  -- 441d harvest, Max DD 20.12%, PF 3.49 (GBP tail risk)
+Previous implementation used `results_tradelevel.csv` realized equity and
+the legacy reload+replay reconstruction for intra-bar DD. Both are now
+obsolete — parquet's `equity_total_usd` column is the authoritative
+per-bar equity (stake + realized + floating, internally consistent).
 
-Method: load each basket's tradelevel CSV, build unified time axis (union of
-all event timestamps), forward-fill each basket's realized equity, sum across
-baskets to get composite equity. Compute composite Max DD, Sharpe, Sortino,
-combined days-to-finish.
+Inputs: parquet files at
+    TradeScan_State/backtests/<directive_id>_H2/raw/results_basket_per_bar.parquet
 
-For comparison: B1+B2 (original champion composite, 0.374% DD on $2k stake).
-
-Note on the shared-JPY question: all three harvesters use USDJPY as their
-USD-base leg. They share JPY directional exposure. The empirical question
-is whether their recycle events still fire at sufficiently different times
-to decorrelate the floating PnL paths, despite the shared JPY anchor.
+Outputs: per-composite Max DD + capital-efficiency ranking to stdout.
 """
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from itertools import combinations
+from pathlib import Path
 
-import numpy as np
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]  # modules/ -> harvest_robustness/ -> tools/ -> repo
-from config.path_authority import TRADE_SCAN_STATE
-BACKTESTS = TRADE_SCAN_STATE / "backtests"
-
-STAKE_PER_BASKET = 1000.0
-
-# (label, directive_id, short_name, category)
-BASKETS = {
-    "B1": ("90_PORT_H2_5M_RECYCLE_S03_V1_P00", "EUR+JPY", "harvester"),
-    "AJ": ("90_PORT_H2_5M_RECYCLE_S08_V1_P00", "AUD+JPY", "harvester"),
-    "GJ": ("90_PORT_H2_5M_RECYCLE_S08_V1_P01", "GBP+JPY", "harvester"),
-    "B2": ("90_PORT_H2_5M_RECYCLE_S05_V1_P04", "AUD+CAD", "stabilizer"),
-    "GC": ("90_PORT_H2_5M_RECYCLE_S08_V1_P04", "GBP+CAD", "stabilizer"),
-    "EC": ("90_PORT_H2_5M_RECYCLE_S08_V1_P03", "EUR+CAD", "stabilizer"),
-}
-
-
-def load_trades(directive_id: str) -> pd.DataFrame:
-    p = BACKTESTS / f"{directive_id}_H2" / "raw" / "results_tradelevel.csv"
-    df = pd.read_csv(p)
-    df["exit_timestamp"] = pd.to_datetime(df["exit_timestamp"])
-    df["entry_timestamp"] = pd.to_datetime(df["entry_timestamp"])
-    return df.sort_values("exit_timestamp").reset_index(drop=True)
-
-
-def basket_realized_curve(trades: pd.DataFrame, stake: float) -> pd.Series:
-    """Per-basket realized-PnL equity curve indexed by exit_timestamp."""
-    t = trades.copy()
-    t["realized_eq"] = stake + t["pnl_usd"].cumsum()
-    t = t.set_index("exit_timestamp")
-    return t["realized_eq"]
-
-
-def composite_metrics(curves: dict[str, pd.Series], n_baskets: int) -> dict:
-    """Build composite from list of per-basket curves."""
-    stake_total = n_baskets * STAKE_PER_BASKET
-    # Union of all event timestamps
-    all_times = sorted({t for c in curves.values() for t in c.index})
-    df = pd.DataFrame(index=pd.DatetimeIndex(all_times))
-    for label, curve in curves.items():
-        df[label] = curve.reindex(df.index, method="ffill").fillna(STAKE_PER_BASKET)
-    df["composite"] = df.sum(axis=1)
-
-    # Max DD on composite equity curve
-    peak = df["composite"].cummax()
-    drawdown = df["composite"] - peak
-    max_dd_usd = float(-drawdown.min())
-    max_dd_pct = max_dd_usd / float(peak.max()) * 100 if peak.max() > 0 else 0.0
-    final_eq = float(df["composite"].iloc[-1])
-    net_pnl = final_eq - stake_total
-    days = (df.index[-1] - df.index[0]).days
-
-    # Sharpe / Sortino on daily-resampled returns
-    daily_eq = df["composite"].resample("1D").last().ffill()
-    daily_ret = daily_eq.diff().dropna()
-    if len(daily_ret) > 1 and daily_ret.std() > 0:
-        sharpe = (daily_ret.mean() / daily_ret.std()) * np.sqrt(252)
-    else:
-        sharpe = 0.0
-    sortino_denom = daily_ret[daily_ret < 0].std()
-    if sortino_denom and sortino_denom > 0:
-        sortino = (daily_ret.mean() / sortino_denom) * np.sqrt(252)
-    else:
-        sortino = 0.0
-
-    return {
-        "stake": stake_total,
-        "final_eq": final_eq,
-        "net_pnl": net_pnl,
-        "net_pnl_pct": net_pnl / stake_total * 100,
-        "max_dd_usd": max_dd_usd,
-        "max_dd_pct": max_dd_pct,
-        "days": days,
-        "sharpe": sharpe,
-        "sortino": sortino,
-        "dd_to_pnl_ratio": max_dd_usd / net_pnl if net_pnl > 0 else float("inf"),
-    }
-
-
-def fmt(label: str, m: dict, baskets: str) -> str:
-    return (
-        f"{label:30s}  "
-        f"PnL=${m['net_pnl']:7.2f} ({m['net_pnl_pct']:+6.1f}%)  "
-        f"DD=${m['max_dd_usd']:7.2f}/{m['max_dd_pct']:6.2f}%  "
-        f"days={m['days']:4d}  "
-        f"Sharpe={m['sharpe']:5.2f}  Sortino={m['sortino']:6.2f}  "
-        f"DD/PnL={m['dd_to_pnl_ratio']:5.3f}  "
-        f"[{baskets}]"
-    )
+from tools.harvest_robustness.modules.h2_intrabar_floating_dd import (
+    BASKETS, STAKE_PER_BASKET, basket_dd_metrics, compose_equity, load_basket_equity,
+)
 
 
 def main() -> int:
-    # Pre-load all curves
-    curves = {}
-    for k, (did, name, cat) in BASKETS.items():
-        t = load_trades(did)
-        curves[k] = basket_realized_curve(t, STAKE_PER_BASKET)
-        print(f"loaded {k} ({name}): {len(t)} trades")
+    # Load all available champions
+    basket_equity: dict[str, pd.Series] = {}
+    pair_names: dict[str, str] = {}
+    for label, (directive_id, pair_name) in BASKETS.items():
+        try:
+            basket_equity[label] = load_basket_equity(directive_id)
+            pair_names[label] = pair_name
+        except FileNotFoundError:
+            continue
 
-    print()
-    print("=" * 138)
-    print("COMPARISON: composites of harvester baskets (+ B2 reference for diversification baseline)")
-    print("=" * 138)
+    if len(basket_equity) < 2:
+        print(f"[SKIP] Need >= 2 baskets with parquet ledgers; got {len(basket_equity)}.")
+        return 1
 
-    results = []
+    available = sorted(basket_equity.keys())
+    print(f"Available champions with parquet: {available}\n")
 
-    # Singles
-    for k in ["B1", "AJ", "GJ"]:
-        m = composite_metrics({k: curves[k]}, 1)
-        name = BASKETS[k][1]
-        results.append((f"SINGLE {name}", m, name))
+    # Singles + all pair combos + triple
+    rows: list[dict] = []
+    for label in available:
+        eq = basket_equity[label]
+        m = basket_dd_metrics(eq, STAKE_PER_BASKET, label)
+        rows.append({
+            "name":         f"{label} ({pair_names[label]})",
+            "members":      1,
+            "stake":        STAKE_PER_BASKET,
+            "final_eq":     m["final_eq"],
+            "net_pnl":      m["net_pnl"],
+            "net_pnl_pct":  m["net_pnl_pct"],
+            "max_dd_usd":   m["max_dd_usd"],
+            "dd_pct_stake": m["max_dd_pct_of_stake"],
+            "return_dd":    m["net_pnl"] / m["max_dd_usd"] if m["max_dd_usd"] > 0 else float("inf"),
+        })
 
-    # Pairs (harvester combinations)
-    for c in combinations(["B1", "AJ", "GJ"], 2):
-        sub = {k: curves[k] for k in c}
-        m = composite_metrics(sub, len(c))
-        name = " + ".join(BASKETS[k][1] for k in c)
-        results.append((f"PAIR   {name}", m, name))
+    for k in (2, 3):
+        if len(available) < k:
+            continue
+        for combo in combinations(available, k):
+            comp_eq = compose_equity(basket_equity, list(combo))
+            stake = STAKE_PER_BASKET * len(combo)
+            m = basket_dd_metrics(comp_eq, stake, "+".join(combo))
+            rows.append({
+                "name":         "+".join(combo),
+                "members":      len(combo),
+                "stake":        stake,
+                "final_eq":     m["final_eq"],
+                "net_pnl":      m["net_pnl"],
+                "net_pnl_pct":  m["net_pnl_pct"],
+                "max_dd_usd":   m["max_dd_usd"],
+                "dd_pct_stake": m["max_dd_pct_of_stake"],
+                "return_dd":    m["net_pnl"] / m["max_dd_usd"] if m["max_dd_usd"] > 0 else float("inf"),
+            })
 
-    # Triple
-    sub = {k: curves[k] for k in ["B1", "AJ", "GJ"]}
-    m = composite_metrics(sub, 3)
-    name = "B1 + AUD+JPY + GBP+JPY"
-    results.append((f"TRIPLE {name}", m, name))
-
-    # Reference: original champion composite B1+B2
-    sub = {k: curves[k] for k in ["B1", "B2"]}
-    m = composite_metrics(sub, 2)
-    results.append(("REF-CHAMPION B1+B2", m, "EUR+JPY + AUD+CAD"))
-
-    # E1 — Triple harvester+harvester+stabilizer (skip GBP+JPY)
-    sub = {k: curves[k] for k in ["B1", "AJ", "B2"]}
-    m = composite_metrics(sub, 3)
-    results.append(("E1 TRIPLE B1+AJ+B2", m, "EUR+JPY + AUD+JPY + AUD+CAD"))
-
-    # E2 — Quad composite (2 harvesters + 2 stabilizers)
-    sub = {k: curves[k] for k in ["B1", "AJ", "B2", "GC"]}
-    m = composite_metrics(sub, 4)
-    results.append(("E2 QUAD B1+AJ+B2+GC", m, "EUR+JPY + AUD+JPY + AUD+CAD + GBP+CAD"))
-
-    # Bonus comparisons
-    # Three stabilizers (no harvester, slow but maybe smoothest)
-    sub = {k: curves[k] for k in ["B2", "GC", "EC"]}
-    m = composite_metrics(sub, 3)
-    results.append(("BONUS TRIPLE STAB B2+GC+EC", m, "AUD+CAD + GBP+CAD + EUR+CAD"))
-
-    # B1 + B2 + GC — original champion + extra stabilizer
-    sub = {k: curves[k] for k in ["B1", "B2", "GC"]}
-    m = composite_metrics(sub, 3)
-    results.append(("BONUS B1+B2+GC", m, "EUR+JPY + AUD+CAD + GBP+CAD"))
-
-    # Print as-listed
-    for label, m, name in results:
-        print(fmt(label, m, name))
-
-    # Ranked by DD/PnL ratio (lower = smoother)
-    print()
-    print("Ranked by DD-to-PnL ratio (lower = smoother equity curve):")
-    print("=" * 138)
-    valid = [r for r in results if r[1]["dd_to_pnl_ratio"] != float("inf")]
-    for label, m, name in sorted(valid, key=lambda r: r[1]["dd_to_pnl_ratio"]):
-        print(fmt(label, m, name))
-
-    # Markdown table for research doc
-    print()
-    print("Markdown table (for FX_BASKET_RECYCLE_RESEARCH.md):")
-    print("=" * 138)
-    print("| Composite | Baskets | Stake | Net PnL ($) | Net PnL (%) | Max DD ($) | Max DD (%) | Days | Sharpe | Sortino | DD/PnL |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|")
-    for label, m, name in results:
+    print("=" * 110)
+    print("COMPOSITE RANKING -- sorted by return/DD (capital efficiency)")
+    print("=" * 110)
+    print(f"{'Rank':>4s}  {'Composite':18s} {'N':>2s}  {'Stake':>7s}  "
+          f"{'Final eq':>9s}  {'Net PnL':>9s}  {'PnL%':>6s}  "
+          f"{'MaxDD $':>9s}  {'DD%stake':>8s}  {'PnL/DD':>7s}")
+    print("-" * 110)
+    rows.sort(key=lambda r: -r["return_dd"])
+    for i, r in enumerate(rows, 1):
         print(
-            f"| {label} | {name} | ${m['stake']:.0f} | "
-            f"{m['net_pnl']:.2f} | {m['net_pnl_pct']:+.1f}% | "
-            f"{m['max_dd_usd']:.2f} | {m['max_dd_pct']:.3f}% | "
-            f"{m['days']} | {m['sharpe']:.2f} | {m['sortino']:.2f} | "
-            f"{m['dd_to_pnl_ratio']:.3f} |"
+            f"{i:>4d}  {r['name']:18s} {r['members']:>2d}  ${r['stake']:>6.0f}  "
+            f"${r['final_eq']:>8.2f}  ${r['net_pnl']:>+8.2f}  "
+            f"{r['net_pnl_pct']:>+5.1f}%  ${r['max_dd_usd']:>8.2f}  "
+            f"{r['dd_pct_stake']:>7.2f}%  {r['return_dd']:>6.2f}"
         )
+
+    print()
+    print("=" * 110)
+    print("COMPOSITE RANKING -- sorted by DD%stake (lowest first; capital safety)")
+    print("=" * 110)
+    print(f"{'Rank':>4s}  {'Composite':18s} {'N':>2s}  {'DD%stake':>8s}  "
+          f"{'MaxDD $':>9s}  {'Net PnL':>9s}  {'PnL%':>6s}  {'PnL/DD':>7s}")
+    print("-" * 110)
+    rows_by_dd = sorted(rows, key=lambda r: r["dd_pct_stake"])
+    for i, r in enumerate(rows_by_dd, 1):
+        print(
+            f"{i:>4d}  {r['name']:18s} {r['members']:>2d}  {r['dd_pct_stake']:>7.2f}%  "
+            f"${r['max_dd_usd']:>8.2f}  ${r['net_pnl']:>+8.2f}  "
+            f"{r['net_pnl_pct']:>+5.1f}%  {r['return_dd']:>6.2f}"
+        )
+
+    print()
+    print("Notes:")
+    print("  - 'MaxDD $' = peak intra-bar floating drawdown computed on the composite equity series.")
+    print("  - 'DD%stake' = MaxDD / total stake; operator-facing 'how much of nominal capital floats underwater'.")
+    print("  - 'PnL/DD' = net PnL per dollar of DD; capital efficiency ratio.")
+    print("  - All numbers derived from the spec-correct 1.3.0-basket parquet ledger; no reload+replay.")
     return 0
 
 

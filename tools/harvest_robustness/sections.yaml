@@ -1,12 +1,17 @@
-# Harvest Robustness Harness — section config.
+# Harvest Robustness Harness -- section config.
 #
 # Each entry declares one section of the report. The harness runs the
 # `script` via subprocess, captures stdout (and stderr if non-empty), and
 # embeds the output under a markdown heading with the `title` and a brief
 # `description`.
 #
-# To add a new section: append an entry below. Order in this file = order
-# in the report.
+# 1.3.0-basket schema (2026-05-16): every analytic module now reads the
+# per-bar parquet ledger at
+#   TradeScan_State/backtests/<directive_id>_<basket_id>/raw/results_basket_per_bar.parquet
+# The legacy reload+replay / events.jsonl reconstruction is gone. Baskets
+# that pre-date the 1.3.0-basket emitter (no parquet on disk) appear as
+# "SKIP" in the relevant sections and must be re-run through the pipeline
+# to be analyzable.
 #
 # Field reference:
 #   id:          short identifier (slug, used in CLI --sections filter)
@@ -19,46 +24,63 @@
 sections:
 
   - id: realized_metrics
-    title: "1. Realized Metrics — per-basket"
+    title: "1. Realized Metrics -- per-basket"
     description: >
-      Per-basket realized PnL, Max DD (realized only, NOT operator-facing),
-      profit factor, recycle event count, and harvest outcome across the
-      USD-anchored 4 x 3 matrix. Ranked by net PnL.
+      Per-basket realized PnL, REALIZED Max DD (NOT operator-facing -- only
+      reflects closed-trade equity, ignores floating), profit factor,
+      recycle event count, and harvest outcome. NOW augmented with the
+      intra-bar Max DD from the 1.3.0-basket parquet ledger (intraDD column)
+      where available. The intra-bar value is the operator-facing one;
+      realized DD is cosmetic.
     script: tools/harvest_robustness/modules/h2_s08_results_extract.py
     kind: stdout_capture
     tags: [realized, ranking, per_basket]
 
-  - id: composite_realized
-    title: "2. Composite Analysis (Realized) — N-basket parallel rollup"
-    description: >
-      Offline rollup of multiple parallel baskets into composite equity
-      curves. Tests all 2-of-3 and 3-of-3 harvester combinations plus
-      E1 triple, E2 quad, and stabilizer-only triples. NOTE: uses REALIZED
-      DDs only -- see section 4 for the true intra-bar DD which is 10-50x
-      larger and is the right number for capital planning.
-    script: tools/harvest_robustness/modules/h2_harvesters_composite_analysis.py
-    kind: stdout_capture
-    tags: [composite, realized, ranking]
-
-  - id: at_event_floating
-    title: "3. At-Event Floating PnL Snapshots (lower-bound DD)"
-    description: >
-      Per-basket worst floating PnL recorded at any recycle event. Gives
-      a lower-bound estimate of intra-bar floating DD without needing 5m
-      data load. Useful for quick triage; the true number is in section 4.
-    script: tools/harvest_robustness/modules/h2_floating_dd_at_events.py
-    kind: stdout_capture
-    tags: [floating, dd, lower_bound]
-
   - id: intrabar_floating
-    title: "4. TRUE Intra-Bar Floating Max DD — operator capital truth"
+    title: "2. TRUE Intra-Bar Floating Max DD -- per basket + composite"
     description: >
-      Per-bar floating PnL reconstruction. Uses recycle_events.jsonl +
-      5m OHLC data to mark-to-market each leg at every 5m bar. Reports
-      both close-based and bar-low (worst-case wick) Max DD per basket
-      and per composite. This is the number that determines real capital
-      requirement at 1:1000 leverage (see RESEARCH/FX_BASKET_RECYCLE_RESEARCH.md
-      sec 4.13 + 4.15 for rationale).
+      Per-bar Max DD from the 1.3.0-basket parquet ledger emitted by the
+      H2 rule at basket close. Spec-correct (basket_sim.py line 362/388
+      "lot unchanged" on winner-realize) and internally consistent
+      (equity_total_usd = stake + realized + floating per record).
+      Composites cover B1, AJ, B2 singles + all 2-of-3 pairs + E1 triple.
+      This is the authoritative source for intra-bar DD.
     script: tools/harvest_robustness/modules/h2_intrabar_floating_dd.py
     kind: stdout_capture
-    tags: [floating, dd, intrabar, capital]
+    tags: [floating, dd, intrabar, capital, authoritative]
+
+  - id: composite_ranking
+    title: "3. Composite Ranking -- capital efficiency + DD-safety"
+    description: >
+      All N-of-M composite combinations of available champions, ranked by
+      PnL/DD (capital efficiency) and by DD%stake (capital safety). Answer
+      to "B1+AJ vs B1+B2": both rankings agree on which composites win.
+    script: tools/harvest_robustness/modules/h2_harvesters_composite_analysis.py
+    kind: stdout_capture
+    tags: [composite, ranking, capital, dd]
+
+  - id: deployment_posture
+    title: "4. Deployment Posture -- live capital requirement"
+    description: >
+      Per-basket and per-composite deployment-ready numbers: real capital
+      required (max(peak_margin, 2*peak_dd) per FX_BASKET_RECYCLE_RESEARCH
+      sec 4.15), margin buffer (closest the basket got to a broker margin
+      call), DD multiple (peak_dd / stake), and ROC (return on deployed
+      capital). For composites, shows both CapSum (naive sum-of-singles)
+      and CapDiv (diversification-aware) so operator sees the diversification
+      credit.
+    script: tools/harvest_robustness/modules/h2_deployment_posture.py
+    kind: stdout_capture
+    tags: [deployment, capital, roc, headline]
+
+  - id: at_event_floating
+    title: "5. At-Recycle-Event Floating Profile"
+    description: >
+      Subordinate diagnostic -- floating_total_usd distribution at recycle_executed
+      bars only (from parquet). Shows trigger-distribution and the gap
+      between worst-at-event vs worst-overall floating (which reveals how
+      much deeper the basket goes BETWEEN events; large gap = freeze gates
+      letting the basket drift further than recycle triggers see).
+    script: tools/harvest_robustness/modules/h2_floating_dd_at_events.py
+    kind: stdout_capture
+    tags: [floating, diagnostic, recycle, subordinate]
