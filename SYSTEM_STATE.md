@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 6 uncommitted
 
-> Generated: 2026-05-15T18:31:10Z
+> Generated: 2026-05-16T08:02:21Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 271 directives
+- Completed: 281 directives
 
 ## Ledgers
 
@@ -34,17 +35,16 @@
 - Latest bar: **2026-05-15** | Symbols: 235
 
 ## Artifacts
-- Run directories: 1368
+- Run directories: 1378
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `8235069 tests(basket-report): update telemetry-columns test for days_to_exit addition`
+- Working tree: 6 uncommitted
+- Last substantive commit: `4d771aa research(h2-basket): sleeve challenge - B1+B2 stays as provisional live champion`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Post-merge watch CLOSED_OK:** 5/5 runs clean (commit 1b6cc7b). Run `python tools/post_merge_watch.py --archive` to clear.
-- **Broader-pytest baseline:** 3 acknowledged failure(s) (last refreshed 2026-05-15 @ 5719a7e7). Tests: test_directive_legs_match_h2_spec, test_real_state_paths_module_resolves_to, test_trade_scan_root_invalid_env_falls_t. Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
+- **Broader-pytest baseline:** clean (0 acknowledged failures). Last refreshed 2026-05-15T18:47:52+00:00 @ fbccd79d.
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
