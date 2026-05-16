@@ -99,6 +99,43 @@ class BasketRunner:
     supplies its own StrategyProtocol-conforming object. The runner only
     interleaves per-bar evaluations and (Phase 3+) applies basket-level
     rules between them.
+
+    Basket-level primitives (extension point — see "PRIMITIVE OPERATIONS"
+    section near the bottom of this class)
+    ---------------------------------------------------------------------
+    Methods grouped under that section are *mechanism-only* primitives that
+    rules call to effect basket-level state changes. Rules decide WHEN; the
+    runner decides HOW. This split is the long-term target so that:
+      (a) Rule code is policy-only — no direct mutation of leg.lot or
+          leg.state internals.
+      (b) The same primitive can be reused by multiple basket strategies
+          (the H2_recycle@1 / @2 / @3 / @4 family + future basket designs).
+      (c) Primitives are testable in isolation against synthetic legs.
+
+    Currently implemented:
+      - soft_reset_basket(at_index, at_ts, at_prices): close all current
+        sub-basket positions, reopen each leg fresh at initial_lot at the
+        given prices. Used by cyclical strategies (e.g. H2_recycle@4
+        bump-and-liquidate) that need to reset basket state mid-window
+        without ending the basket lifecycle.
+
+    Future primitives (intentionally deferred — added only when a new
+    strategy needs them; doing them speculatively would be premature):
+      - close_basket(reason): terminate basket lifecycle (would replace
+        H2RecycleRule._exit_all).
+      - add_to_leg(symbol, additional_lot, at_price): grow a leg's lot
+        with weighted-avg entry-price update (would replace direct lot
+        mutation in H2RecycleRule's recycle-add path).
+      - realize_winner(symbol, at_price): close one leg's floating to a
+        realized accumulator + reopen at current price (would replace
+        H2RecycleRule's winner-bank path).
+
+    Rule access to the runner
+    ---------------------------------------------------------------------
+    On `__init__`, the runner assigns `rule.basket_runner = self` on every
+    attached rule. Rules that need to call primitives read this attribute;
+    rules that don't need it (legacy rules) simply ignore it. No protocol
+    change required — keeps existing rules untouched.
     """
 
     def __init__(self, legs: list[BasketLeg], rules: list[BasketRule] | None = None) -> None:
@@ -119,6 +156,19 @@ class BasketRunner:
                 )
         self.legs = legs
         self.rules: list[BasketRule] = list(rules) if rules else []
+
+        # Capture initial lots — read by basket-level primitives such as
+        # soft_reset_basket. Immutable for the lifetime of the runner; only
+        # __init__ writes here. Rules that mutate leg.lot (e.g. recycle
+        # adds) do NOT mutate this dict.
+        self._initial_lots: dict[str, float] = {leg.symbol: leg.lot for leg in self.legs}
+
+        # Back-reference injection — gives rules access to basket-level
+        # primitives. Cyclical strategies (e.g. H2_recycle@4) read
+        # `self.basket_runner` to call `soft_reset_basket`. Legacy rules
+        # that don't need this attribute simply ignore it.
+        for rule in self.rules:
+            rule.basket_runner = self  # type: ignore[attr-defined]
 
     # --- preparation -------------------------------------------------------
 
@@ -322,3 +372,92 @@ class BasketRunner:
             finalize_force_close(view, leg.state, leg.trades)
 
         return {leg.symbol: leg.trades for leg in self.legs}
+
+    # =======================================================================
+    # PRIMITIVE OPERATIONS (extension point)
+    # =======================================================================
+    # Mechanism-only basket-level operations. Rules call these to effect
+    # changes; rules don't mutate leg state directly. See class docstring
+    # for the design rationale and the list of intentionally-deferred
+    # future primitives.
+
+    def soft_reset_basket(
+        self,
+        at_index: int,
+        at_ts: pd.Timestamp,
+        at_prices: dict[str, float],
+    ) -> None:
+        """Close current sub-basket positions and reopen at initial_lot.
+
+        Used by cyclical basket strategies (e.g. H2_recycle@4
+        bump-and-liquidate) that need to reset basket state mid-window
+        without terminating the basket lifecycle. The basket continues; a
+        fresh sub-basket starts at `at_ts` at the given prices.
+
+        Semantics
+        ---------
+        For each leg:
+          - `leg.lot` resets to its initial value (captured in __init__).
+          - `leg.state.entry_price` resets to `at_prices[symbol]`.
+          - `leg.state.entry_index` resets to `at_index`.
+          - `leg.state.trade_high` and `leg.state.trade_low` reset to
+            `at_prices[symbol]` (fresh high/low tracking for the new
+            sub-basket).
+          - `leg.state.in_pos` stays True — basket is still alive.
+          - `leg.state.entry_market_state` is preserved (engine internals
+            are untouched; the rule does not consult them, and resetting
+            them would break the engine's force-close path).
+
+        What this method does NOT do (caller responsibilities)
+        -------------------------------------------------------
+          - Realize floating PnL. The caller (rule) must compute floating
+            and add it to its own realized accumulator BEFORE calling
+            this primitive. This split keeps realization-accounting
+            policy with the rule (currency conventions, P&L formulas) and
+            state-reset mechanics with the runner.
+          - Reset rule-internal state. The rule resets its own counters
+            (mode, consec_same_loser, peaks, etc.) after calling.
+          - Record an event for analysis. The rule logs the cycle event
+            in its own recycle_events / per_bar_records.
+          - Mark the basket as exited. This is mid-window reset only —
+            for true basket termination, use the (future) close_basket
+            primitive or the legacy `_exit_all` rule method.
+
+        Args
+        ----
+        at_index : bar index for entry_index field on each leg's BarState.
+        at_ts    : bar timestamp (logged in events by callers; not stored
+                   on legs by this primitive).
+        at_prices: {symbol: current bar's price} for every leg in the
+                   basket. Used to reset entry_price + trade_high + trade_low.
+
+        Raises
+        ------
+        ValueError : if `at_prices` is missing any basket leg symbol or
+                     contains a non-positive price (invariant: prices must
+                     be valid for entry).
+        """
+        for leg in self.legs:
+            if leg.symbol not in at_prices:
+                raise ValueError(
+                    f"BasketRunner.soft_reset_basket: at_prices missing symbol "
+                    f"{leg.symbol!r}; got keys {sorted(at_prices.keys())}."
+                )
+            price = at_prices[leg.symbol]
+            if not isinstance(price, (int, float)) or price <= 0:
+                raise ValueError(
+                    f"BasketRunner.soft_reset_basket: at_prices[{leg.symbol!r}] "
+                    f"must be a positive number, got {price!r}."
+                )
+
+        for leg in self.legs:
+            price = float(at_prices[leg.symbol])
+            leg.lot = self._initial_lots[leg.symbol]
+            leg.state.entry_price = price
+            leg.state.entry_index = at_index
+            leg.state.trade_high = price
+            leg.state.trade_low = price
+            # leg.state.in_pos intentionally NOT reset — basket continues
+            # leg.state.entry_market_state intentionally NOT reset — engine
+            #   internals (e.g. initial_stop_price, fill_bar_idx) are
+            #   preserved so finalize_force_close on basket-end still works
