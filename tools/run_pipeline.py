@@ -917,6 +917,14 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
                     vault_path_str = str(vault_dir.relative_to(_DRY_RUN_VAULT.parent))
                 except (ValueError, AttributeError):
                     vault_path_str = str(vault_dir)
+            # Phase 5d.2 (2026-05-17): also pass parquet_path + stake_usd so
+            # the writer can populate the canonical_* / cycle_* columns from
+            # tools.basket_hypothesis.canonical_metrics. For cycle-mechanic
+            # rules (@4/@5+), these are the deployment-decision metrics; the
+            # trade-level final_realized_usd column stays for back-compat.
+            _basket_block = parsed.get("basket", {}) or {}
+            _stake_usd = float(_basket_block.get("initial_stake_usd", 1000.0))
+            _parquet_p = backtests_csv.parent / "results_basket_per_bar.parquet"
             mps_path = append_basket_row_to_mps(
                 result, run_id=run_id, directive_id=directive_id,
                 backtests_path=str(backtests_csv.relative_to(TRADE_SCAN_STATE)),
@@ -924,6 +932,8 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
                 df_trades=df_trades,   # Phase 5d.1 fix: writer uses converter's
                                        # computed pnl_usd so force_close trades
                                        # contribute correctly to final_realized_usd
+                parquet_path=_parquet_p if _parquet_p.is_file() else None,
+                stake_usd=_stake_usd,
             )
             print(f"[BASKET] MPS Baskets row: {mps_path}")
         except Exception as exc:

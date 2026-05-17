@@ -791,12 +791,43 @@ def write_per_window_report_artifacts(
     )
     paths["metadata"] = p
 
-    # REPORT_<directive_id>.md
+    # REPORT_<directive_id>.md  (legacy, trade-level)
     p = out_dir / f"REPORT_{directive_id}.md"
     _write_basket_md_report(
         p, run_id=run_id, directive_id=directive_id, basket_id=basket_id,
         parsed_directive=parsed_directive, metrics=metrics,
     )
     paths["report"] = p
+
+    # BASKET_REPORT_<directive_id>.md  (cycle-aware, canonical-metrics-driven)
+    # Authoritative for cycle-mechanic rules (H2_recycle@4/@5+). Generated
+    # alongside the legacy REPORT for backward compat. See
+    # tools/basket_hypothesis/basket_report.py for the design rationale +
+    # legacy-caveat block included inline in the generated file.
+    try:
+        from tools.basket_hypothesis.basket_report import write_basket_report
+        parquet_p = raw_dir / "results_basket_per_bar.parquet"
+        if parquet_p.is_file():
+            basket_block = parsed_directive.get("basket", {}) or {}
+            stake_usd = float(basket_block.get("initial_stake_usd", 1000.0))
+            recycle_rule = basket_block.get("recycle_rule", {}) or {}
+            rule_label = f"{recycle_rule.get('name', '?')}@{recycle_rule.get('version', '?')}"
+            test_block = parsed_directive.get("test", {}) or {}
+            timeframe = str(test_block.get("timeframe", "5m"))
+            date_range = (
+                f"{test_block.get('start_date', '?')} → {test_block.get('end_date', '?')}"
+            )
+            basket_report_path = write_basket_report(
+                out_dir, parquet_p, stake_usd,
+                directive_id=directive_id, rule_label=rule_label,
+                basket_id=basket_id, timeframe=timeframe, date_range=date_range,
+                run_id=run_id,
+            )
+            paths["basket_report"] = basket_report_path
+    except Exception as e:
+        # Cycle-aware report is supplemental — do NOT block the pipeline
+        # if it fails. Surface the error in the manifest so it's visible
+        # in post-run inspection.
+        paths["basket_report_error"] = f"{type(e).__name__}: {e}"
 
     return paths

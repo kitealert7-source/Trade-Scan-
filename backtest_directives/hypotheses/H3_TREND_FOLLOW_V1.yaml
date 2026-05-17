@@ -47,7 +47,7 @@ baseline:
 variants:
   - id: H3_V1_P00
     rule: H2_recycle@5
-    rule_build_required: true
+    rule_build_required: true   # built in commit ede5333
     architecture:
       basket_id: H2
       legs:
@@ -75,6 +75,171 @@ variants:
       regime_gate:     "compression_5d <= 5"
       # OR a stretch-Z gate; finalize during /port-strategy build
       regime_gate_alt: "|stretch_z20| >= 1.0"
+    decision:                    # post-execution slot (2026-05-17 F-window)
+      directive_id:    90_PORT_H2_5M_RECYCLE_S16_V1_P00
+      outcome:         INCONCLUSIVE
+      reasoning: |
+        Bounded-loss design works: DD cut 73% (32.51% → 8.76% vs @4
+        baseline). But ret_dd (1.81) misses primary metric threshold
+        (>1.84) by 0.03. Hard floor fired 23 times vs 14 recovery exits
+        — defensive floor became dominant exit mechanism, not rare backup.
+        Diagnostic traced to PIP-VALUE ASYMMETRY: EURUSD-winner cycles
+        die at hard floor 72.7% of the time vs 46.7% for USDJPY-winner
+        cycles, because EUR-heavy pyramid (0.06+ lot) reverses ~1.55x
+        faster per pip than JPY-heavy pyramid (1:1 ratio's $0.10 vs
+        $0.067/pip mismatch). Same-mechanic + different-architecture
+        variant H3_V2_P00 (2:3 ratio) tests the parity fix.
+      canonical_metrics:
+        net_pct: 15.88
+        max_dd_pct: 8.76
+        ret_dd: 1.81
+        recycle_events: 0
+        pyramids: 45
+        liq_recovery: 14
+        liq_floor: 23
+
+  # ===== V2 variant: 2:3 ratio for pip-value parity =====
+  # Same mechanic (H2_recycle@5), different leg lots. Loser sensor pip-
+  # value parity ($0.20/pip both sides). Reduces EUR/JPY asymmetry from
+  # 1.49x (at init) to 1.0x — within-cycle drift remains as winner
+  # pyramids grow, but loser-sensor and pyramid-trigger spacing are
+  # now perfectly symmetric.
+  - id: H3_V2_P00
+    rule: H2_recycle@5
+    rule_build_required: false   # H2_recycle@5 already exists from V1 build
+    architecture:
+      basket_id: H2
+      legs:
+        - { symbol: EURUSD, direction: long, lot: 0.02 }
+        - { symbol: USDJPY, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window:
+      start: 2024-09-02
+      end:   2026-05-09
+    rule_params:
+      # Same V5 params as V1 — only the architecture (leg lots) changes
+      add_trigger:     loser_floating_new_low_$10
+      add_target:      winner_leg
+      add_lot:         0.01
+      loser_pinned:    true
+      exit_trigger:    loser_floating_recovers_$10_from_trough
+      hard_floor_loss: -10.0
+      reentry:         fresh_2_to_3_next_bar
+      regime_gate:     "compression_5d <= 5"
+    rationale: |
+      Pip-value parity at initialization:
+        EURUSD 0.02 lot = 0.02 × 100k × 0.0001 = $0.20/pip
+        USDJPY 0.03 lot (@ price 150) = 0.03 × 100k × 0.01 / 150 = $0.20/pip
+      → loser sensor is SYMMETRIC ($10 = 50 pips either direction)
+      → first pyramid trigger fires at identical trend-distance both ways
+      → initial winner gain is identical both ways
+      Some asymmetry remains as winner pyramid grows (winner lot grows
+      by 0.01 per add — EUR-side $/pip impact grows faster than JPY-side
+      after enough pyramids), but the dominant first-cycle asymmetry
+      is gone. Hard-floor firings should equalize between EUR-winner
+      and JPY-winner cycles. Testing on same window as V1 for direct
+      comparison.
+    decision:
+      directive_id:    90_PORT_H2_5M_RECYCLE_S17_V1_P00
+      outcome:         INCONCLUSIVE
+      reasoning: |
+        Pip-value parity at init confirmed: absolute hard-floor rate
+        dropped on both sides (EUR-winner 72.7%→63.5%, JPY-winner
+        46.7%→39.5%) — both improved by ~9pp. But EUR/JPY ratio stayed
+        ~1.6x (within-cycle pyramid drift dominates the residual).
+        Net% doubled (+15.88%→+31.70%) but DD% also doubled
+        (8.76%→19.08%) — ret_dd actually DEGRADED to 1.66 (vs V1 1.81)
+        because the basket is 2.5x bigger total exposure but the hard
+        floor stayed at -$10 (relatively tighter). Diagnostic: floor
+        needs to scale with exposure. V3-V6 sweep tests floor at
+        -15/-20/-25/-30.
+      canonical_metrics:
+        net_pct: 31.70
+        max_dd_pct: 19.08
+        ret_dd: 1.66
+        pyramids: 262
+        liq_recovery: 98
+        liq_floor: 114
+
+  # ===== V3-V6 variants: hard-floor sweep at 2:3 ratio =====
+  # When V2 (2:3 ratio) increased total exposure 2.5x vs V1 (1:1), the
+  # hard_floor_loss_usd=-10 became RELATIVELY tighter — basket bleeds
+  # ~$0.50/pip during reversal (V2) vs ~$0.30/pip (V1), so floor fires
+  # in 20 pips vs 33 pips. Scaling the floor proportionally should
+  # restore the cycle's breathing room. Sweep tests 4 points to find
+  # the ret/DD sweet spot.
+  #
+  # Same architecture (2:3 ratio EURUSD 0.02 + USDJPY 0.03), same V5
+  # mechanic, only hard_floor_loss_usd varies.
+
+  - id: H3_V3_P00     # hard_floor = -15
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: H2
+      legs:
+        - { symbol: EURUSD, direction: long, lot: 0.02 }
+        - { symbol: USDJPY, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-09-02, end: 2026-05-09 }
+    rule_params:
+      hard_floor_loss: -15.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
+
+  - id: H3_V4_P00     # hard_floor = -20
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: H2
+      legs:
+        - { symbol: EURUSD, direction: long, lot: 0.02 }
+        - { symbol: USDJPY, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-09-02, end: 2026-05-09 }
+    rule_params:
+      hard_floor_loss: -20.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
+
+  - id: H3_V5_P00     # hard_floor = -25
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: H2
+      legs:
+        - { symbol: EURUSD, direction: long, lot: 0.02 }
+        - { symbol: USDJPY, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-09-02, end: 2026-05-09 }
+    rule_params:
+      hard_floor_loss: -25.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
+
+  - id: H3_V6_P00     # hard_floor = -30
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: H2
+      legs:
+        - { symbol: EURUSD, direction: long, lot: 0.02 }
+        - { symbol: USDJPY, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-09-02, end: 2026-05-09 }
+    rule_params:
+      hard_floor_loss: -30.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
 
 acceptance_criteria:
   primary_metric: ret_dd

@@ -1,0 +1,100 @@
+test:
+  name: 90_PORT_H2_5M_RECYCLE_S21_V1_P00
+  family: PORT
+  strategy: 90_PORT_H2_5M_RECYCLE_S21_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-09-02'
+  end_date: '2026-05-09'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_TREND_FOLLOW_V1
+  hypothesis_variant: H3_V6_P00
+  description: >
+    H3 trend-follow pyramid (2:3 ratio, hard_floor=-30.0) — sweep variant
+    parity. EURUSD long 0.02 + USDJPY long 0.03 → both legs at $0.20/pip
+    at initialization. Tests whether the pip-value asymmetry diagnosed
+    in S16_V1_P00 (H3_V1_P00, 1:1 ratio) — where EURUSD-winner cycles
+    died at hard floor 72.7% of the time vs 46.7% for USDJPY-winner —
+    is fixed by equalizing loser-sensor pip values. Same rule
+    (H2_recycle@5), same window (F/P00), same params; only leg lots
+    change.
+  notes: >
+    H3 V2 variant (same hypothesis: H3_TREND_FOLLOW_V1). Pipeline-only
+    build per Path B. Acceptance same as V1: ret_dd > 1.84, max_dd_pct
+    < 50%, survival = EOD-positive. Expected: hard-floor firings should
+    equalize between EUR-winner and JPY-winner cycles, improving
+    average per-cycle outcome and possibly lifting ret_dd above
+    threshold.
+
+symbols:
+- EURUSD
+- USDJPY
+
+indicators:
+- indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: false
+  reset_on_exit: false
+  entry_logic:
+    type: basket_open_at_start
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+basket:
+  basket_id: H2
+  legs:
+    - symbol: EURUSD
+      lot: 0.02
+      direction: long
+    - symbol: USDJPY
+      lot: 0.03
+      direction: long
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 2000.0
+  recycle_rule:
+    name: H2_recycle
+    version: 5
+    params:
+      pyramid_increment_usd: 10.0
+      exit_recovery_usd: 10.0
+      hard_floor_loss_usd: -30.0
+      trigger_usd: 10.0
+      add_lot: 0.01
+      starting_equity: 1000.0
+      harvest_target_usd: 2000.0
+      factor_column: compression_5d
+      factor_min: 5.0
+      factor_operator: '<='
+      dd_freeze_frac: 0.10
+      margin_freeze_frac: 0.15
+      leverage: 1000.0
+  regime_gate:
+    factor: USD_SYNTH.compression_5d
+    operator: '<='
+    value: 5

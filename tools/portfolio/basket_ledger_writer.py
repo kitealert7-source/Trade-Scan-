@@ -86,6 +86,22 @@ BASKETS_SHEET_COLUMNS = [
     "return_on_real_capital_pct",
     "peak_lots_json",
     "schema_version",
+    # ---- 1.4.0-basket-canonical additions (2026-05-17) ----
+    # Cycle-aware metrics from tools/basket_hypothesis/canonical_metrics
+    # (the parquet IS the source of truth for cycle-mechanic rules).
+    # Populated when run_pipeline.py passes parquet_path + stake_usd;
+    # left as pd.NA otherwise (back-compat). These columns supersede the
+    # trade-level-derived peak_floating_dd_* fields above for cycle
+    # mechanics (@4/@5+); the older columns stay for legacy @1/@2/@3
+    # baskets and for back-compat with historical rows.
+    "canonical_net_pct",
+    "canonical_max_dd_pct",
+    "canonical_ret_dd",
+    "canonical_final_equity_usd",
+    "cycle_win_rate_pct",
+    "cycles_completed",
+    "peak_winner_lot",
+    "rule_family",
 ]
 
 
@@ -111,6 +127,8 @@ def _build_row(
     backtests_path: str,
     vault_path: str,
     df_trades: Any = None,
+    parquet_path: Path | str | None = None,
+    stake_usd: float | None = None,
 ) -> dict[str, Any]:
     """Project a BasketRunResult into one Baskets-sheet row.
 
@@ -199,6 +217,40 @@ def _build_row(
         ):
             derived[col] = pd.NA
 
+    # 1.4.0-basket-canonical: cycle-aware metrics from the parquet, via
+    # tools.basket_hypothesis.canonical_metrics. Populated only when the
+    # caller passed parquet_path + stake_usd (run_pipeline.py does this
+    # post-Phase 5d.2). For cycle-mechanic rules (@4/@5), these supersede
+    # the legacy trade-level fields above; for @1/@2/@3, both are correct.
+    canonical_cols = (
+        "canonical_net_pct", "canonical_max_dd_pct", "canonical_ret_dd",
+        "canonical_final_equity_usd", "cycle_win_rate_pct",
+        "cycles_completed", "peak_winner_lot", "rule_family",
+    )
+    if parquet_path is not None and stake_usd is not None:
+        try:
+            from tools.basket_hypothesis.canonical_metrics import canonical_metrics
+            cm = canonical_metrics(parquet_path, float(stake_usd))
+            peak_lots = cm.get("peak_lots") or {}
+            derived["canonical_net_pct"]          = float(cm["net_pct"])
+            derived["canonical_max_dd_pct"]       = float(cm["max_dd_pct"])
+            derived["canonical_ret_dd"]           = float(cm["ret_dd"])
+            derived["canonical_final_equity_usd"] = float(cm["final_equity_usd"])
+            derived["cycle_win_rate_pct"]         = float(cm["cycle_win_rate_pct"])
+            derived["cycles_completed"]           = int(cm["cycles_completed"])
+            derived["peak_winner_lot"]            = (
+                float(max(peak_lots.values())) if peak_lots else pd.NA
+            )
+            derived["rule_family"]                = str(cm["rule_family"])
+        except Exception:
+            # canonical_metrics is supplemental — do not block row write
+            # on a parquet read error. Mark fields NA.
+            for col in canonical_cols:
+                derived[col] = pd.NA
+    else:
+        for col in canonical_cols:
+            derived[col] = pd.NA
+
     return {**base_row, **derived}
 
 
@@ -216,6 +268,8 @@ def append_basket_row_to_mps(
     backtests_path: str = "",
     vault_path: str = "",
     df_trades: Any = None,
+    parquet_path: Path | str | None = None,
+    stake_usd: float | None = None,
 ) -> Path:
     """Append a basket-run row to the Baskets sheet of MPS.
 
@@ -239,6 +293,8 @@ def append_basket_row_to_mps(
         backtests_path=backtests_path,
         vault_path=vault_path,
         df_trades=df_trades,
+        parquet_path=parquet_path,
+        stake_usd=stake_usd,
     )
 
     # Use the same lock the per-symbol writer uses so basket + per-symbol
