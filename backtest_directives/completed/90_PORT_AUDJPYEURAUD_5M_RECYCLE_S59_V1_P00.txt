@@ -1,0 +1,97 @@
+test:
+  name: 90_PORT_AUDJPYEURAUD_5M_RECYCLE_S59_V1_P00
+  family: PORT
+  strategy: 90_PORT_AUDJPYEURAUD_5M_RECYCLE_S59_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-17'
+  end_date: '2026-05-14'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_TREND_FOLLOW_V1
+  hypothesis_variant: H3_V59_P00
+  description: >
+    Walk-forward W4 (2024-05-17 to 2026-05-14). Pair AUDJPY+EURAUD
+    (rank #1 from 4H honest-as-of screen for this window). H3 1:1
+    with correlation gate enabled at 4H-only (1H matrix lacks pre-2024
+    history for several USD pairs). Concept-validation run -- same gate
+    config across all 4 windows; pair varies per window's screener pick.
+
+symbols:
+- AUDJPY
+- EURAUD
+
+indicators:
+- indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: false
+  reset_on_exit: false
+  entry_logic:
+    type: basket_open_at_start
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+basket:
+  basket_id: AUDJPYEURAUD
+  legs:
+    - symbol: AUDJPY
+      lot: 0.01
+      direction: long
+    - symbol: EURAUD
+      lot: 0.01
+      direction: long
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 2000.0
+  recycle_rule:
+    name: H2_recycle
+    version: 5
+    params:
+      pyramid_increment_usd: 10.0
+      exit_recovery_usd: 10.0
+      hard_floor_loss_usd: -10.0
+      trigger_usd: 10.0
+      add_lot: 0.01
+      starting_equity: 1000.0
+      harvest_target_usd: 2000.0
+      factor_column: compression_5d
+      factor_min: 5.0
+      factor_operator: '<='
+      dd_freeze_frac: 0.10
+      margin_freeze_frac: 0.15
+      leverage: 1000.0
+      correlation_enabled: true
+      correlation_use_1h: false
+      correlation_use_4h: true
+      correlation_entry_low: -0.70
+      correlation_entry_high: -0.20
+      correlation_exit_low: -0.85
+      correlation_exit_high: -0.05
+  regime_gate:
+    factor: USD_SYNTH.compression_5d
+    operator: '<='
+    value: 5
