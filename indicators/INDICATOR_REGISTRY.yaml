@@ -2510,11 +2510,38 @@ indicators:
   pearson_correlation:
     module_path: indicators.stats.pearson_correlation
     category: stats
+    function_name: pearson_correlation
+    classification: Statistical
+    input_requirements:
+    - series_a: pd.Series (price)
+    - series_b: pd.Series (price, aligned index)
+    - window: int (default 200)
+    parameters:
+      window: int — rolling window size in bars (default 200)
+    default_parameters:
+      window: 200
+    output_type: Series
+    output_columns:
+    - pearson_correlation: float in [-1.0, 1.0] (NaN during warmup)
+    output_scale: bounded [-1.0, 1.0]
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Inter-leg correlation for H3 basket gating — measures whether two pairs are independent drivers (low |rho|) or co-moving (high |rho|).'
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: window
+    warmup: window
+    input_columns:
+    - close
     registered_at: '2026-05-17'
-    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
-      output_columns, etc.) to be backfilled.
 registry_summary:
-  total_indicators: 67
+  total_indicators: 68
   by_category:
     momentum_count: 11
     trend_count: 8
@@ -2522,14 +2549,14 @@ registry_summary:
     regime_count: 10
     structure_count: 16
     composite_count: 3
-    statistical_count: 4
+    statistical_count: 5
     macro_count: 2
     price_pattern_count: 2
-  intraday_ready: 45
-  daily_ready: 43
-  htf_ready: 62
-  lookahead_safe: 67
-  vectorized: 52
+  intraday_ready: 46
+  daily_ready: 44
+  htf_ready: 63
+  lookahead_safe: 68
+  vectorized: 53
   files_validated: 67
   validation_status: PASS
   governance_status: PASS

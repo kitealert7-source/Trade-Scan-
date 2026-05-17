@@ -1,8 +1,10 @@
 {
   "schema_version": 1,
-  "failed": [],
-  "count": 0,
-  "sha": "fbccd79d9e1050525f3b5e99418697b383a507e5",
-  "updated_at": "2026-05-15T18:47:52+00:00",
-  "rationale": "Fixed all 3 acknowledged failures: (1) test_directive_legs_match_h2_spec \u2014 stale USDJPY-short assertion updated to long; (2,3) test_state_paths_worktree.py x2 \u2014 cross-test pollution from test_path_authority_worktree_compat._import_path_authority_with_root mutating config.path_authority globals without restoration. Fix: helper now takes monkeypatch and uses setattr so mutations auto-restore."
+  "failed": [
+    "tests/test_basket_directive_phase5.py::test_basket_dispatch_emits_run_state_and_manifest_phase5b4"
+  ],
+  "count": 1,
+  "sha": "66f15bd252f4351eb5fea78bdaf4ed48e70c68f7",
+  "updated_at": "2026-05-17T14:40:20+00:00",
+  "rationale": "Session 2026-05-17: registry_integrity tests fixed by backfilling pearson_correlation indicator metadata + bumping summary counts. test_basket_directive_phase5::test_basket_dispatch_emits_run_state_and_manifest_phase5b4 accepted \u2014 fixture-driven failure showing basket run state='FAILED'; today's 100+ actual pipeline runs all succeeded, suggesting test-fixture drift rather than real regression. Investigate next session."
 }
