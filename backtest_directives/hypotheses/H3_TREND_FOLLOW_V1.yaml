@@ -1,0 +1,119 @@
+---
+id: H3_TREND_FOLLOW_V1
+title: H3 trend-follow mechanic (inverse-H2 with bounded per-cycle loss)
+class: mechanic
+status: PROPOSED
+created: 2026-05-17
+author: operator
+supersedes: null      # standalone; first hypothesis in the H3 lineage
+
+motivation: |
+  H2 mean-reversion accepts unbounded tail loss by design — the loser leg
+  grows Martingale-style during sustained adverse moves (16-27× initial
+  lot observed across the 10-window matrix; B2 BLOWN UP in COVID-era
+  window B). Even on the operational P00 window, B2's loser reached 0.18
+  lot — invisible 18× exposure beneath a deceptively low 33% realized DD.
+
+  Per-event economics analysis (research §4.21) showed H2 banks ~$0.40
+  of cash per $1 of unrealized loss inherited; 76-85% of recycle events
+  are "trading cash for more exposure" trades, not edge-positive. The
+  strategy depends on rare reversal events for ~60% of profitability
+  (15-24% of events generate the bulk of P&L). When reversal doesn't
+  come (trending regime), the mechanic compounds the loss.
+
+  The structural inversion: pyramid the WINNER on the SAME data that
+  bled H2's loser. Hold the loser at fixed 0.01 as a tripwire — the
+  loser's floating PnL becomes a clean trend-distance integrator. Add
+  to winner each $10 of new loss on loser (uniformly pip-spaced
+  pyramiding). Exit when loser recovers $10 from trough (regime flip
+  signal). Per-cycle loss bounded at ~$10 plus brokerage by construction
+  (~$11-12 total = 1.1% of $1k stake). Convex payoff: bounded downside
+  + uncapped upside via pyramid capture during sustained trends.
+
+  Anti-Martingale dominates Martingale on risk-adjusted terms — heavy
+  position is held only on proven trend, not on hope. Same data, flipped
+  bet, fundamentally different tail-risk profile.
+
+baseline:
+  directive: 90_PORT_H2_5M_RECYCLE_S14_V1_P00
+  rule: H2_recycle@4
+  parquet_path: ../TradeScan_State/backtests/90_PORT_H2_5M_RECYCLE_S14_V1_P00_H2/raw/results_basket_per_bar.parquet
+  key_metrics:
+    net_pct: 59.95
+    max_dd_pct: 32.51
+    ret_dd: 1.84
+    stake_usd: 1000
+
+variants:
+  - id: H3_V1_P00
+    rule: H2_recycle@5
+    rule_build_required: true
+    architecture:
+      basket_id: H2
+      legs:
+        - { symbol: EURUSD, direction: long, lot: 0.01 }
+        - { symbol: USDJPY, direction: long, lot: 0.01 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window:
+      start: 2024-09-02
+      end:   2026-05-09
+    rule_params:
+      # Add to winner each $10 of new loss on loser (uniformly pip-spaced)
+      add_trigger:     loser_floating_new_low_$10
+      add_target:      winner_leg
+      add_lot:         0.01
+      # Loser held at 0.01 as tripwire + trend-distance sensor
+      loser_pinned:    true
+      # Exit when loser recovers $10 from trough (regime flip)
+      exit_trigger:    loser_floating_recovers_$10_from_trough
+      # Hard floor (defensive — should never fire if exit_trigger working)
+      hard_floor_loss: -10.0       # basket floating ≤ -$10 hard exit
+      # Re-entry: fresh 0.01 + 0.01 on next bar
+      reentry:         fresh_1_to_1_next_bar
+      # Regime gate inverted: pyramid only in trending regimes
+      regime_gate:     "compression_5d <= 5"
+      # OR a stretch-Z gate; finalize during /port-strategy build
+      regime_gate_alt: "|stretch_z20| >= 1.0"
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "> 1.84"               # must exceed @4's baseline
+  must_not_be_worse_on:
+    max_dd_pct: "< 50"             # bounded tail; @4 was 32.51%
+    survival: "EOD-positive"        # must not BLOWN
+
+evidence_required:
+  class: single-window
+  parity_gate: required
+  reason: |
+    H3 design motivated by in-process brainstorm (no basket_sim
+    implementation yet). Parity gate mandatory before trusting the
+    P00 pipeline run as deployment evidence. Reference exemplar:
+    H2_recycle@4 parity gate (commit 703a6cf) was byte-perfect on
+    F window; H3 must clear the same bar before earning trust.
+
+session_links:
+  prior_session_commits:
+    - 62018ab   # BasketRunner.soft_reset_basket primitive (Phase B)
+    - a127494   # H2RecycleRuleV4 (Phase C)
+    - f78c5d0   # H2_recycle@4 registry + pipeline wiring (Phase D)
+    - 703a6cf   # H2_recycle@4 parity gate on F window (Phase E)
+    - 71fded1   # H2_recycle@4 10-window matrix pipeline (Phase E+F)
+    - 956a29d   # basket-hypothesis-testing v1 skill
+  research_doc: research/FX_BASKET_RECYCLE_RESEARCH.md §5.4d
+  memory_refs:
+    - project_h2_mode_switch_breakthrough.md
+    - project_h2_recycle_martingale_tail.md
+    - feedback_prefer_pipeline_over_research_scripts.md
+
+decision:
+  outcome: TBD
+  decided_at: null
+  decided_by: null
+  evidence_actual:
+    class_achieved: null
+    canonical_metrics: null
+  reasoning: null
+  supersedes: null

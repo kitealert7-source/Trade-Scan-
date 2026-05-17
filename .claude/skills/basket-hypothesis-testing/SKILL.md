@@ -31,38 +31,90 @@ Deferred to later versions: **parameter** (param sweeps), **composite**
 
 ---
 
+## Phase 0 — Hypothesis document (precondition)
+
+Before invoking this orchestrator, the operator drafts a hypothesis
+YAML at `backtest_directives/hypotheses/<HYPOTHESIS_ID>.yaml` per
+[`backtest_directives/hypotheses/SCHEMA.md`](../../backtest_directives/hypotheses/SCHEMA.md).
+
+The hypothesis YAML captures motivation, baseline, variants, acceptance
+criteria, and evidence requirements. It is the single source of truth
+for *what is being tested and why*. Conversation memory informs the
+draft; the YAML is what survives.
+
+The orchestrator is invoked with the hypothesis ID:
+
+```
+/basket-hypothesis-testing H3_TREND_FOLLOW_V1
+```
+
+The orchestrator at Phase 1 reads
+`backtest_directives/hypotheses/<ID>.yaml`, validates it is
+well-formed YAML with the required top-level keys, and proceeds with
+the routing pulled from the YAML's `class`, `baseline`, and `variants`
+fields. **Status transitions** are mechanical:
+`PROPOSED → ACTIVE` at invocation; `ACTIVE → COMPLETED` at Phase 4
+close after the decision block is filled.
+
+Top-level `supersedes` (in the hypothesis YAML) records lineage between
+hypothesis specs — e.g. when H3_V2 replaces H3_V1 before either runs.
+Distinct from `decision.supersedes` (deployment leadership, filled
+only on ACCEPT). See SCHEMA.md §"Two kinds of supersession".
+
+If the YAML is missing or malformed, the orchestrator **blocks** and
+prompts for the spec — refuses to proceed from chat-only intent.
+
+---
+
 ## Phase 1 — Detect
 
 Single-pass gathering of every signal that drives routing in Phase 2.
-Run all checks; act on none yet.
+Run all checks; act on none yet. **All inputs sourced from the
+hypothesis YAML drafted in Phase 0** — no information pulled from
+chat.
 
 ```bash
-# Hypothesis class — declared explicitly by operator at session start
-# Allowed: mechanic | architecture
+# 1. Load hypothesis YAML (block + prompt if missing or malformed)
+HYP=backtest_directives/hypotheses/<HYPOTHESIS_ID>.yaml
+test -f "$HYP" || { echo "ERROR: hypothesis YAML not found: $HYP"; exit 1; }
+python -c "import yaml; h=yaml.safe_load(open('$HYP', encoding='utf-8')); \
+  required=['id','title','class','status','baseline','variants','acceptance_criteria','evidence_required']; \
+  missing=[k for k in required if k not in h]; \
+  assert not missing, f'missing keys: {missing}'; \
+  assert h['status'] in ('PROPOSED','ACTIVE'), f\"status must be PROPOSED or ACTIVE to invoke; got {h['status']}\""
 
-# Baseline existence
-ls ../TradeScan_State/backtests/<BASELINE_DIRECTIVE>_<basket_id>/raw/results_basket_per_bar.parquet
-ls ../TradeScan_State/backtests/<BASELINE_DIRECTIVE>_<basket_id>/raw/results_basket.csv
+# 2. Transition status PROPOSED → ACTIVE (orchestrator is now running on this hypothesis)
+#    (write back to YAML; commit at Phase 4 close along with decision)
 
-# Visibility — is baseline in MPS Baskets sheet?
-python -c "import pandas as pd; b=pd.read_excel('../TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx', sheet_name='Baskets'); print('<BASELINE_DIRECTIVE>' in b['directive_id'].astype(str).values)"
+# 3. Baseline existence (sourced from YAML's baseline.directive)
+ls "<baseline.parquet_path>/results_basket_per_bar.parquet"
+ls "<baseline.parquet_path>/results_basket.csv"
 
-# Sweep slot availability — next free SXX for the idea
+# 4. Visibility — is baseline in MPS Baskets sheet?
+python -c "import pandas as pd; b=pd.read_excel('../TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx', sheet_name='Baskets'); print('<baseline.directive>' in b['directive_id'].astype(str).values)"
+
+# 5. Sweep slot availability — next free SXX for the idea
 grep "requested_sweep:" governance/namespace/sweep_registry.yaml | sort -u | tail
 ```
 
-Print the detection summary:
+Print the detection summary (every field sourced from the YAML or its
+derived state):
 
 ```
 PHASE 1 — DETECT (<UTC>)
-  Hypothesis class           : <mechanic | architecture>
-  Baseline directive         : <NAME>
+  Hypothesis ID              : <ID>                  ← yaml.id
+  Hypothesis class           : <mechanic | architecture>  ← yaml.class
+  Status transition          : PROPOSED → ACTIVE
+  Top-level supersedes       : <prior_id_or_null>    ← yaml.supersedes
+  Baseline directive         : <NAME>                ← yaml.baseline.directive
   Baseline parquet present   : YES / NO
-  Baseline in MPS Baskets    : YES / NO     (NO → 3.V flag in Phase 4)
-  Variants to test (N)       : <list>
+  Baseline in MPS Baskets    : YES / NO              (NO → 3.V flag in Phase 4)
+  Variants to test (N)       : <list>                ← yaml.variants[].id
+  Rule-build required        : YES / NO              ← any yaml.variants[].rule_build_required = true
   Sweep slot to reserve      : SXX
-  In-process probe motivated : YES / NO     (YES → 3.G parity gate MANDATORY)
-  Operational window         : <start> → <end>   (P00 default; stress windows opt-in only)
+  In-process probe motivated : YES / NO              ← yaml.evidence_required.parity_gate = "required"
+  Operational window         : <start> → <end>       ← yaml.variants[0].window
+  Acceptance primary metric  : <metric>              ← yaml.acceptance_criteria.primary_metric
 ```
 
 **Visibility gate (v1 policy):** if baseline NOT in MPS, surface but do
@@ -200,7 +252,9 @@ architecture.
      MUST be pipeline-routable before any backtest — NOT optional.
    - Author a variant directive from the baseline directive: same legs,
      same stake, same window, only `recycle_rule.version` (and any new
-     rule-specific params) differ.
+     rule-specific params) differ. **Insert `hypothesis_ref` and
+     `hypothesis_variant` under the directive's `test:` block** so the
+     directive carries linkage back to the hypothesis YAML.
    - Run through pipeline via [`/execute-directives`](../execute-directives/SKILL.md).
 
 3. **Parity gate (3.G)** if any in-process probe motivated the variant
@@ -240,7 +294,10 @@ initial_stake_usd + harvest_threshold_usd), shared window.
 
 2. **For each architecture:**
    - Author directive (basket.legs + initial_stake_usd +
-     harvest_threshold_usd) with the shared rule.
+     harvest_threshold_usd) with the shared rule. **Insert
+     `hypothesis_ref` and `hypothesis_variant` under the directive's
+     `test:` block** so the directive carries linkage back to the
+     hypothesis YAML.
    - Run through pipeline via [`/execute-directives`](../execute-directives/SKILL.md).
 
 3. **Extract canonical metrics (3.M)** for each architecture (with each
@@ -368,6 +425,22 @@ CURRENT BEST CANDIDATE (post-<session>)
 A leader with `single-window + parity-gated` is deployment-viable on the operational window. A leader with `multi-window-10` adds tail-risk evidence but does not by itself justify deploying a lower-ret/DD candidate over a higher-ret/DD single-window leader (yesterday's framing-drift trap).
 
 Persist this to the project memory file documenting the current best.
+
+**Write decision back to hypothesis YAML:** at Phase 4.D close, update
+`backtest_directives/hypotheses/<HYPOTHESIS_ID>.yaml`:
+
+- Set `status: COMPLETED`
+- Fill `decision.outcome` (ACCEPT | REJECT | INCONCLUSIVE — operator-adjudicated)
+- Fill `decision.decided_at` (UTC), `decision.decided_by`
+- Fill `decision.evidence_actual.class_achieved` (e.g. `single-window + parity-gated`)
+- Fill `decision.evidence_actual.canonical_metrics` (§3.M output per variant)
+- Fill `decision.reasoning` (1-3 line free-text justification)
+- Fill `decision.supersedes` ONLY on ACCEPT that promotes this variant
+  past the prior current-best (deployment-leadership supersession;
+  distinct from top-level `supersedes` which is hypothesis-spec lineage)
+
+Commit the updated YAML in the same session-close commit that lands
+the directive `completed/` files.
 
 ### 4.G Reporting gaps surfaced [ALWAYS]
 
