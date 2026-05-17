@@ -287,3 +287,13 @@ Everything this skill does is recoverable:
 - **State root cleanup**: gone unless backed up — for `events/*.jsonl` files, never delete; for vault-specific dirs, content was re-derivable from the active vault anyway.
 
 If something goes wrong and the validator dies because of a step in this skill: that's a skill bug, not your error. Filing it as a counter-example to incorporate into the next version is more useful than blame.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

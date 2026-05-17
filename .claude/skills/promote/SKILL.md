@@ -303,3 +303,13 @@ Key files:
 | Vault backup | `tools/backup_dryrun_strategies.py` |
 | Portfolio YAML | `TS_Execution/portfolio.yaml` |
 | Classification reference | `outputs/system_reports/11_deployment_and_burnin/CLASSIFICATION_REFERENCE.md` |
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

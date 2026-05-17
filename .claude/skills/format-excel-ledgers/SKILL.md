@@ -85,3 +85,13 @@ Confirm to the human:
 | `tools/filter_strategies.py` | Writes FSP — run formatter after |
 | `tools/reconcile_portfolio_master_sheet.py` | Writes MPS — run formatter after |
 | `tools/portfolio_evaluator.py` | Writes MPS — run formatter after |
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

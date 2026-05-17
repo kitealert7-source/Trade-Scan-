@@ -123,3 +123,13 @@ Before running `--apply`, advance `ARCHIVE_BEFORE` in the script if a newer cuto
 ### Reference: System Contract
 The system is: **Deterministic, Ledger-authoritative, Append-only, Fail-fast, Non-mutating.**
 Maintenance must never alter the `tier` or `status` of a registered run without a justification log.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

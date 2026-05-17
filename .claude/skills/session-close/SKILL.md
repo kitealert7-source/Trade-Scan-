@@ -289,30 +289,16 @@ first read will see "Last substantive commit: <closing snapshot hash>"
 
 ### 9b. Known Issues Truthfulness Gate (NON-NEGOTIABLE)
 
-The S2 fix (2026-05-04) made `system_introspection.collect_known_issues()`
-auto-populate the section under `### Auto-detected` from the same
-signals this gate checks (gate-suite pytest, intent-index audit,
-sweep_registry hash drift, broader-pytest baseline). The file is
-honest by construction post-regen.
-
-This gate is now a *defensive backup* that catches three failure modes
-the auto-populator alone can't cover:
-
-1. **Auto-populator failed to run** — Step 9 regen errored, snapshot
-   is stale, no auto section exists.
-2. **Operator deferred items the automation can't see** — e.g., a
-   data quality issue, an in-flight refactor, a TD that won't surface
-   until the next pipeline run. These belong in `### Manual`.
-3. **Bash-side double-check** — even if introspection worked, run the
-   underlying signals once more and confirm they agree with what's in
-   the file. Catches stale snapshot + auto-populator parser drift.
+Defensive gate that catches stale `SYSTEM_STATE.md` snapshots, silent
+auto-populator failures, and new pytest regressions vs the acknowledged
+baseline. Design rationale + auto-vs-manual section distinction:
+[`reference/known_issues_gate.md`](./reference/known_issues_gate.md).
 
 ```bash
-# Step A — broader-pytest baseline gate (catches NEW regressions).
-# Runs pytest tests/ once, compares failed set against the acknowledged
-# baseline at outputs/.session_state/broader_pytest_baseline.json.
-#   Exit 0 -> failure set matches baseline (or is a strict improvement)
-#   Exit 1 -> NEW failure(s) detected -> BLOCK close
+# Step A — broader-pytest baseline gate (catches NEW regressions vs
+# outputs/.session_state/broader_pytest_baseline.json).
+#   Exit 0 -> baseline match or improvement
+#   Exit 1 -> NEW failure(s) -> BLOCK close
 #   Exit 2 -> internal pytest error
 python tools/check_broader_pytest_baseline.py
 BP_EXIT=$?
@@ -324,15 +310,11 @@ if [ "$BP_EXIT" -eq 1 ]; then
     exit 1
 fi
 
-# Step B — Re-derive the gate-suite signals the auto-populator uses.
-# (Gate suite is the 5-file fast roster from system_introspection's
-# _GATE_TEST_SUITE — same as the pre-commit hook. Broader-pytest is
-# handled by Step A above, not here.)
+# Step B — Re-derive gate-suite signals (5-file fast roster from
+# system_introspection's _GATE_TEST_SUITE; broader-pytest is Step A,
+# not here) + confirm the auto-populator surfaced them.
 TEST_FAILS=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ failed" | head -1 | grep -oE "[0-9]+" || echo 0)
 SKIPPED=$(python -m pytest tests/ -q 2>&1 | grep -oE "[0-9]+ skipped" | head -1 | grep -oE "[0-9]+" || echo 0)
-
-# Auto-populator surfaces these under "### Auto-detected" — verify
-# the section exists (or that there's nothing for it to surface).
 HAS_AUTO_SECTION=$(grep -c "^### Auto-detected" SYSTEM_STATE.md || echo 0)
 HAS_BLOCKERS=$([ "$TEST_FAILS" -gt 0 ] && echo 1 || echo 0)
 
@@ -342,28 +324,17 @@ echo "Auto section exists: $HAS_AUTO_SECTION  (expected 1 when blockers > 0)"
 ```
 
 **Block session close if** `HAS_BLOCKERS == 1` AND `HAS_AUTO_SECTION == 0`
-— meaning the auto-populator should have surfaced something but didn't
-(silent failure / stale snapshot).
+(auto-populator should have surfaced something but didn't — silent
+failure / stale snapshot):
 
 ```
 ERROR: blockers detected but SYSTEM_STATE.md has no Auto-detected
-section. The auto-populator either failed silently or the snapshot
-is stale. Re-run system_introspection.py and confirm the blockers
+section. Re-run system_introspection.py and confirm the blockers
 appear under "### Auto-detected" before closing.
   - test failures: <N>
 ```
 
-> **Why both steps?** Step A (broader-pytest baseline) catches **new**
-> failures the auto-populator can't see (it only checks the gate suite).
-> Step B (existence-check) catches **silent auto-populator failures**
-> (the file is missing the section it should have populated). Together
-> they close the gap that allowed pre-existing failures to slip past
-> session-close on 2026-05-15.
-
-For deferred items the automation can't see (in-flight TDs, data
-quality notes, operational caveats), edit `### Manual` directly.
-The auto-detected section regenerates each run; the manual section
-persists across regen.
+For deferred items the automation can't see, edit `### Manual` directly — the `### Auto-detected` section regenerates each run and will clobber edits there; `### Manual` persists across regen.
 
 ### 9c. Sync Main Checkout
 
@@ -483,3 +454,13 @@ esac
 - Labelling tracked deletions or modifications as "intentional unstaged" — this is never acceptable
 - Leaving `.claude/skills/` or any tracked directory in a deleted-but-uncommitted state
 - Ending with broken hard intents, an unread `violations.jsonl`, or a failing `audit_intent_index.py --all` — silent enforcement rot
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

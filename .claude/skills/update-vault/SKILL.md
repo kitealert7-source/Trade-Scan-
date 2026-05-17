@@ -132,3 +132,13 @@ xcopy /E /I engine_dev\universal_research_engine\<version> vault\engines\Univers
 
 This step is separate from the workspace snapshot and is only needed when promoting
 a new engine version.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

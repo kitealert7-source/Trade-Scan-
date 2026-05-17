@@ -53,3 +53,13 @@ python -m tools.robustness.cli <STRATEGY_ID> --suite full
 
 ### Reference: System Contract
 Robustness reports and research summaries are observational artifacts with no governance authority. They must not be used to re-validate or re-promote runs in the registry.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

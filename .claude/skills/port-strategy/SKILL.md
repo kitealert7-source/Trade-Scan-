@@ -186,3 +186,13 @@ P01+ should target the largest single weak cell from the report's `Edge Decompos
 - **Post-P00 next-step logic:** `feedback_decomposition_workflow.md` (memory)
 - **Path/encoding rules:** project `CLAUDE.md` "Path & Encoding Rules" section
 - **Worktree hard prohibition:** project `CLAUDE.md` "Worktree & Junction Safety" section
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

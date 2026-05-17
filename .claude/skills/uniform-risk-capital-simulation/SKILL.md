@@ -163,3 +163,13 @@ foreach($name in $profiles){
 3. If restore hash mismatch occurs, stop and manually restore from backup before any further run.
 4. Never continue to next variant without successful output isolation.
 
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |
+

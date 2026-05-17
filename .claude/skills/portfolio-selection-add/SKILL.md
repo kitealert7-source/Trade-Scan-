@@ -96,3 +96,13 @@ Run `--apply` any time the Master Filter is rebuilt from scratch to restore all 
 - `IN_PORTFOLIO` flags flow: `Filtered_Strategies_Passed.xlsx` → `--save` → `in_portfolio_selections.json` → `--apply` → `Strategy_Master_Filter.xlsx`
 - No pipeline code path may flip `IN_PORTFOLIO True → False`. Only `--clear` does.
 - `in_portfolio_selections.json` is append-only via `--save`. Only `--clear` removes entries.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

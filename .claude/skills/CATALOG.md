@@ -103,6 +103,14 @@ weekly health check).
 
 ---
 
+## Conventions
+
+Cross-skill authoring conventions (`// turbo` placement, header style)
+live in [`CONVENTIONS.md`](./CONVENTIONS.md). The friction-log + skill
+self-improvement protocol lives in [`SELF_IMPROVEMENT.md`](./SELF_IMPROVEMENT.md).
+
+---
+
 ## Maintenance
 
 When adding a skill:

@@ -297,3 +297,13 @@ If a task is misbehaving:
 3. Cross-reference with `Get-WinEvent` Task Scheduler events (commands above)
 4. If the script is fundamentally broken: `schtasks /Delete /TN "${TASK_NAME}" /F` (admin) to remove the task; fix script; re-register from scratch
 5. Process state across restarts: ensure your script handles "fresh start with leftover state files" gracefully (Lesson 5 + idempotency tokens)
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

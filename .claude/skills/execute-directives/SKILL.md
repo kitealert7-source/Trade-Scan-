@@ -202,3 +202,12 @@ The agent MUST NOT modify the following without an **implementation plan** and *
 - Post-pipeline analysis (Robustness, Portfolios) is conducted via `portfolio-research.md`.
 - System hygiene (Cleanup, Formatting) is conducted via `system-health-maintenance.md`.
 
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

@@ -401,3 +401,13 @@ layer changes.
 | `promote.md` | **Called after** this workflow for accepted hypotheses (human decision) |
 | `portfolio-research.md` | Independent — can run on hypothesis pass results post-hoc |
 | `system-health-maintenance.md` | Independent — run if workspace drift detected |
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

@@ -96,3 +96,13 @@ python tools/sync_portfolio_flags.py --list
 - `--clear` is the ONLY operator-sanctioned way to flip `IN_PORTFOLIO True → False`.
 - No pipeline code path (including `stage3_compiler`) may remove a True flag once set.
 - After a Master Filter rebuild, run `--apply` to restore all persisted True flags.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

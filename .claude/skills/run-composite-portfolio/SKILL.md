@@ -180,3 +180,13 @@ determined in Step 4.
 ```powershell
 python -m tools.robustness.cli <PORTFOLIO_ID> --suite full
 ```
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |
