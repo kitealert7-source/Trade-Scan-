@@ -86,13 +86,18 @@ acceptance_criteria:
 
 evidence_required:
   class: single-window
-  parity_gate: required
+  parity_gate: not_applicable
   reason: |
-    H3 design motivated by in-process brainstorm (no basket_sim
-    implementation yet). Parity gate mandatory before trusting the
-    P00 pipeline run as deployment evidence. Reference exemplar:
-    H2_recycle@4 parity gate (commit 703a6cf) was byte-perfect on
-    F window; H3 must clear the same bar before earning trust.
+    Path B chosen (2026-05-17): pipeline-only build, no duplicate
+    basket_sim implementation. Rationale: yesterday's H2_recycle@4 arc
+    proved that building basket_sim only to parity-gate it against the
+    eventual pipeline implementation creates a self-sustaining loop
+    that doesn't actually reduce risk — the pipeline IS the source of
+    truth post-Phase B/C/D infrastructure (commits 62018ab → 71fded1).
+    No in-process probe exists for H3; the first pipeline run is the
+    definitive measurement. Anti-pattern avoided: building both then
+    spending hours reconciling drift. If the H2_recycle@5 rule has a
+    structural bug, the pipeline parquet will show it directly.
 
 session_links:
   prior_session_commits:

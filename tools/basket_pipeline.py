@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4 dispatch)
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5 dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +121,14 @@ def _instantiate_rule(
                                 in the same window. 10-window matrix:
                                 10/10 survival, max DD halved 120%→60%.
                                 See research §5.4b.
+      H2_recycle@5            — Trend-follow pyramid (inverse-H2; H3
+                                hypothesis 2026-05-17). Pyramids WINNER
+                                each $10 of new loss on LOSER (loser
+                                held at 0.01 as tripwire). Exits on
+                                loser recovery from trough via
+                                soft_reset_basket. Per-cycle loss
+                                bounded at ~$10 by design.
+                                Hypothesis: H3_TREND_FOLLOW_V1.
       H2_v7_compression@1     — DEPRECATED misimplementation; refuses to
                                 instantiate. Directives that still
                                 reference this rule must migrate to
@@ -153,6 +161,42 @@ def _instantiate_rule(
             factor_column=factor_column or params.get("factor_column", "compression_5d"),
             factor_min=float(params.get("factor_min", 10.0)),
             factor_operator=str(params.get("factor_operator", ">=")),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "H2_recycle" and version == 5:
+        # v5 = trend-follow pyramid (inverse-H2; H3 design). Pyramids
+        # WINNER each $10 of new loss on LOSER; loser held at 0.01 as
+        # tripwire. Exits on loser recovery from trough via
+        # BasketRunner.soft_reset_basket. New params: pyramid_increment_usd,
+        # exit_recovery_usd, hard_floor_loss_usd. Inverted regime gate
+        # by default (factor_operator='<=' blocks pyramid in chop). The
+        # basket_runner attribute is populated by BasketRunner.__init__'s
+        # back-ref injection at attach time.
+        return H2RecycleRuleV5(
+            trigger_usd=float(params.get("trigger_usd", 10.0)),
+            add_lot=float(params.get("add_lot", 0.01)),
+            starting_equity=float(params.get("starting_equity", 1000.0)),
+            harvest_target_usd=float(params.get("harvest_target_usd", 2000.0)),
+            equity_floor_usd=(
+                float(params["equity_floor_usd"])
+                if params.get("equity_floor_usd") is not None else None
+            ),
+            time_stop_days=(
+                int(params["time_stop_days"])
+                if params.get("time_stop_days") is not None else None
+            ),
+            dd_freeze_frac=float(params.get("dd_freeze_frac", 0.10)),
+            margin_freeze_frac=float(params.get("margin_freeze_frac", 0.15)),
+            leverage=float(params.get("leverage", 1000.0)),
+            factor_column=factor_column or params.get("factor_column", "compression_5d"),
+            factor_min=float(params.get("factor_min", 5.0)),
+            factor_operator=str(params.get("factor_operator", "<=")),
+            pyramid_increment_usd=float(params.get("pyramid_increment_usd", 10.0)),
+            exit_recovery_usd=float(params.get("exit_recovery_usd", 10.0)),
+            hard_floor_loss_usd=float(params.get("hard_floor_loss_usd", -10.0)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,

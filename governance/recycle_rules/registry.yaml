@@ -152,6 +152,106 @@ rules:
     initial_consumer: tools/basket_runner.py
 
   - name: H2_recycle
+    version: 5
+    description: >
+      H2 trend-follow pyramid (inverse-H2; H3 hypothesis 2026-05-17). The
+      structural inversion of @1/@4: instead of recycling the winner and
+      Martingale-ing the loser, we PYRAMID the winner (anti-Martingale)
+      and hold the loser at its initial 0.01 lot as a tripwire + trend-
+      distance sensor.
+
+      Mechanic. On each bar:
+        - Identify winner (highest floating) / loser (lowest floating).
+        - If we're not yet in a pyramid cycle: first pyramid fires when
+          bar_loser_float <= -pyramid_increment_usd (default -$10 ≈ 100
+          pips of adverse on 0.01 lot). This locks _loser_sym +
+          _pyramid_winner_sym for the cycle.
+        - If we're in a pyramid cycle, the locked loser identity is used.
+          Subsequent pyramids fire each time loser_float drops to
+          (last_add_loser_level - pyramid_increment_usd). Add 0.01 to
+          winner (weighted-avg entry update).
+        - Exit (liquidation) fires when loser_float recovers
+          exit_recovery_usd from its trough (regime reversal signal) OR
+          basket floating drops below hard_floor_loss_usd (defensive
+          floor — should rarely fire if recovery threshold tuned right).
+        - On exit: realize ALL floating, call
+          BasketRunner.soft_reset_basket (Phase-B primitive, commit
+          62018ab), reset rule state. Next cycle starts fresh on next
+          bar.
+
+      Per-cycle loss is bounded at ~$10 plus brokerage (≈ 1.1% of $1k
+      stake) by construction. Per-cycle upside is unbounded — winner
+      pyramid accumulates during sustained trends.
+
+      Regime gate. Typical V5 directive uses INVERTED operator (vs @1):
+        factor_operator: '<='
+        factor_min: 5
+      → gate fires (blocks pyramid) when compression_5d > 5 (= chop).
+      Effectively only pyramids in trending regimes. The factor_operator
+      field is inherited from @1's schema; no new operator added.
+
+      Implementation: tools/recycle_rules/h2_recycle_v5.py. Subclasses
+      H2RecycleRule (@1) for params + helpers + parquet emission;
+      overrides apply() entirely.
+
+      Pipeline-only build (Path B, 2026-05-17): no basket_sim
+      duplicate. The pipeline parquet IS the reference for H3 evidence.
+      Hypothesis spec: backtest_directives/hypotheses/H3_TREND_FOLLOW_V1.yaml.
+    params:
+      # V5 new params:
+      pyramid_increment_usd:
+        type: float
+        default: 10.0
+      exit_recovery_usd:
+        type: float
+        default: 10.0
+      hard_floor_loss_usd:
+        type: float
+        default: -10.0
+      # Inherited from @1:
+      trigger_usd:
+        type: float
+        default: 10.0
+      add_lot:
+        type: float
+        default: 0.01
+      starting_equity:
+        type: float
+        default: 1000.0
+      harvest_target_usd:
+        type: float
+        default: 2000.0
+      equity_floor_usd:
+        type: float
+        default: null
+      time_stop_days:
+        type: int
+        default: null
+      dd_freeze_frac:
+        type: float
+        default: 0.10
+      margin_freeze_frac:
+        type: float
+        default: 0.15
+      leverage:
+        type: float
+        default: 1000.0
+      factor_column:
+        type: str
+        default: compression_5d
+      factor_min:
+        type: float
+        default: 5.0           # H3 typical (operator may override)
+      factor_operator:
+        type: str
+        default: "<="          # INVERTED vs @1 ('>=') — block pyramid in chop
+    required_factors:
+      - USD_SYNTH.compression_5d
+    initial_consumer: tools/basket_runner.py
+    requires_basket_runner_primitives:
+      - soft_reset_basket    # Phase B; commit 62018ab
+
+  - name: H2_recycle
     version: 4
     description: >
       H2 with bump-and-liquidate mechanic (Phase-2 multi-window champion,

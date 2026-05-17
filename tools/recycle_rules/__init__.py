@@ -34,6 +34,15 @@ Available rules:
                                10/10 survival, max DD halved 120%->60%, B2
                                COVID blow-up prevented. See research/
                                FX_BASKET_RECYCLE_RESEARCH.md §5.4b.
+  H2RecycleRuleV5            - Trend-follow pyramid mechanic (inverse-H2).
+                               Registered as H2_recycle@5. Pyramids WINNER
+                               leg each $10 of new loss on LOSER (loser
+                               held at 0.01 as tripwire + trend-distance
+                               sensor). Exits on loser recovery from trough
+                               via soft_reset_basket, then restarts fresh.
+                               Per-cycle loss bounded at ~$10 by design.
+                               Hypothesis: H3_TREND_FOLLOW_V1
+                               (backtest_directives/hypotheses/).
   H2CompressionRecycleRule   - DEPRECATED. Misimplemented H2 mechanic
                                (close+reopen-all on $2k floating threshold).
                                Preserved for audit-replay of any vault that
@@ -45,11 +54,13 @@ from tools.recycle_rules.h2_recycle import H2RecycleRule
 from tools.recycle_rules.h2_recycle_v2 import H2RecycleRuleV2
 from tools.recycle_rules.h2_recycle_v3 import H2RecycleRuleV3
 from tools.recycle_rules.h2_recycle_v4 import H2RecycleRuleV4
+from tools.recycle_rules.h2_recycle_v5 import H2RecycleRuleV5
 
 __all__ = [
     "H2RecycleRule",
     "H2RecycleRuleV2",
     "H2RecycleRuleV3",
     "H2RecycleRuleV4",
+    "H2RecycleRuleV5",
     "H2CompressionRecycleRule",
 ]
