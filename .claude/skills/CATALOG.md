@@ -31,6 +31,7 @@ to use** + **when NOT to use** + **related skills**.
 | Periodic repo hygiene + code DRY | `/repo-cleanup-refactor` |
 | Cleanup of pipeline artifacts (runs/, backtests/, etc.) | `/pipeline-state-cleanup` |
 | System health audit / governance maintenance | `/system-health-maintenance` |
+| Audit / clean up the skill system itself | `/skill-maintenance` |
 
 ---
 
@@ -75,6 +76,7 @@ to use** + **when NOT to use** + **related skills**.
 | `repo-cleanup-refactor` | Weekend before close, Monday before starting, or after major phase completion. Worktrees, stale branches, root-untracked files, cross-repo state orphans, code DRY (duplicate-function extraction) | Mid-task / mid-pipeline → too disruptive | `session-close` (calls this from §8b.i), `pipeline-state-cleanup` |
 | `pipeline-state-cleanup` | Drift-triggered: large MPS delta (≳ 10 new entries), many backtests added (≳ 20), unusual `runs/` growth (≳ 50), or stale strategy folders noticed during work. Lineage-aware prune of `TradeScan_State/runs/`, `backtests/`, `sandbox/`, `strategies/` against the authoritative ledgers | No drift → calendar-running this wastes effort | `session-close` (calls this from §8b.ii), `system-health-maintenance` |
 | `system-health-maintenance` | System health audit + workspace hygiene + recovery operations + vault management — non-authoritative governance tooling | Authoritative pipeline work → use `/execute-directives` instead | `pipeline-state-cleanup`, `repo-cleanup-refactor`, `session-close` |
+| `skill-maintenance` | Auto: called by `/session-close §6c` after any skill was invoked. Manual: when skill drift is suspected (stale friction logs, header inconsistency across skills, missed reference splits) | No skills touched this session AND no manual suspicion → skip | `session-close` (caller), `SELF_IMPROVEMENT.md` + `CONVENTIONS.md` (contracts the audit enforces) |
 
 ### 6. Operational discipline
 
@@ -85,7 +87,7 @@ to use** + **when NOT to use** + **related skills**.
 
 ---
 
-## Distinguishing the three cleanup skills
+## Distinguishing the cleanup skills
 
 Easy to confuse — the names were normalized in the 2026-05-15 catalog
 introduction so the distinction is now lexical:
@@ -95,11 +97,13 @@ introduction so the distinction is now lexical:
 | **`repo-cleanup-refactor`** | The Trade_Scan repo + cross-repo state orphans + code DRY |
 | **`pipeline-state-cleanup`** | TradeScan_State pipeline artifact lineage (runs/, backtests/, sandbox/, strategies/) |
 | **`system-health-maintenance`** | System audit + recovery + vault — non-authoritative governance tools |
+| **`skill-maintenance`** | The skill system itself (`.claude/skills/`) — friction logs, reference links, doctrine compliance |
 
 Cadence: `repo-cleanup-refactor` is calendar-weekly (weekend opt-in);
 `pipeline-state-cleanup` is drift-triggered only; `system-health-maintenance`
 is on-demand (with Phase 1 audit pulled into `session-close §8b.i` for
-weekly health check).
+weekly health check); `skill-maintenance` is triggered by
+`session-close §6c` when any skill was invoked (or manually on suspicion).
 
 ---
 
