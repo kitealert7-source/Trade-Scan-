@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-17T02:16:02Z
+> Generated: 2026-05-17T07:28:39Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 321 directives
+- Completed: 346 directives
 
 ## Ledgers
 
@@ -34,25 +34,16 @@
 - Latest bar: **2026-05-15** | Symbols: 235
 
 ## Artifacts
-- Run directories: 1418
+- Run directories: 1443
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `b969135 test: re-anchor session-close Â§6b expectations to Â§3.5 post-refactor`
+- Last substantive commit: `9e8869e session: idea gate refresh â€” tools_manifest regen post V5 cross-pair patch`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
 - **Broader-pytest baseline:** clean (0 acknowledged failures). Last refreshed 2026-05-15T18:47:52+00:00 @ fbccd79d.
 
-### Manual (unresolved + operationally relevant only)
-<!-- Policy: items here drive startup decisions for the NEXT session.
-     Resolved / superseded / struck-through / informational-only entries
-     must be REMOVED (not archived) — git preserves history. Session-close
-     §3.2 prunes closed entries before the closing snapshot. -->
-
-- **Phase 7a Stage 5 — pending operational supervisor.** Windows Task Scheduler XML + heartbeat-stale monitor (per earlier spec) — no longer a code blocker; just needs the supervisor configuration.
-
-- **Broader-pytest failures outside gate suite (3 pre-existing remaining):**
-  - `tests/test_state_paths_worktree.py` ×2 — pre-existing from 2026-05-11.
-  - `tests/test_basket_directive_phase5.py::test_directive_legs_match_h2_spec` — pre-existing; the test asserts legacy H2 spec (USDJPY-short) but the directive was corrected to USDJPY-long in commit `5528ff1` (Phase 5d.1.1). Test needs to be updated to reflect the corrected spec; the directive is right, the test is stale.
+### Manual (deferred TDs, operational context)
+<!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
