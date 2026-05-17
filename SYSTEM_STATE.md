@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-16T16:56:06Z
+> Generated: 2026-05-17T02:16:02Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,7 +39,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `638338f session: idea gate refresh (tools_manifest regen)`
+- Last substantive commit: `b969135 test: re-anchor session-close Â§6b expectations to Â§3.5 post-refactor`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
