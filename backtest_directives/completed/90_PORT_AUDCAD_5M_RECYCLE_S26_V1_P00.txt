@@ -1,0 +1,93 @@
+test:
+  name: 90_PORT_AUDCAD_5M_RECYCLE_S26_V1_P00
+  family: PORT
+  strategy: 90_PORT_AUDCAD_5M_RECYCLE_S26_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-17'
+  end_date: '2026-05-14'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_TREND_FOLLOW_V1
+  hypothesis_variant: H3_V11_P00
+  description: >
+    H3 trend-follow at PURE 1:1 ratio (0.01+0.01, no parity attempt) on
+    AUDCAD synth. Drops the 2:3 asymmetry "fix" from S22 that hurt
+    cross-pair generalization. Operator brief 2026-05-17: 2:3 was a
+    mistake; either keep clean 1:1 or fix symmetry properly — testing
+    1:1 only across all pairs. hf=-10 matching S16 baseline.
+  notes: >
+    Direct replacement for S22 (which was 2:3, ret/DD 0.67). If 1:1
+    generalizes, this should be markedly closer to S16's 1.81 baseline.
+
+symbols:
+- AUDUSD
+- USDCAD
+
+indicators:
+- indicators.volatility.atr
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: false
+  reset_on_exit: false
+  entry_logic:
+    type: basket_open_at_start
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 50.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.01
+
+basket:
+  basket_id: AUDCAD
+  legs:
+    - symbol: AUDUSD
+      lot: 0.01
+      direction: long
+    - symbol: USDCAD
+      lot: 0.01
+      direction: long
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 2000.0
+  recycle_rule:
+    name: H2_recycle
+    version: 5
+    params:
+      pyramid_increment_usd: 10.0
+      exit_recovery_usd: 10.0
+      hard_floor_loss_usd: -10.0
+      trigger_usd: 10.0
+      add_lot: 0.01
+      starting_equity: 1000.0
+      harvest_target_usd: 2000.0
+      factor_column: compression_5d
+      factor_min: 5.0
+      factor_operator: '<='
+      dd_freeze_frac: 0.10
+      margin_freeze_frac: 0.15
+      leverage: 1000.0
+  regime_gate:
+    factor: USD_SYNTH.compression_5d
+    operator: '<='
+    value: 5
