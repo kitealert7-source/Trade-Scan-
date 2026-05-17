@@ -50,11 +50,29 @@ import pandas as pd
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.recycle_rules.h2_recycle import (
     H2RecycleRule,
-    _leg_margin_usd,
-    _leg_pnl_usd,
     _USD_BASE,
     _USD_QUOTE,
     _LOT_UNITS,
+)
+# Cross-pair extension (2026-05-17): swap V1's USD-anchored PnL/margin
+# helpers for V3's cross-pair-aware versions. Per V3 docstring "for
+# USD-anchored pairs the math collapses cleanly back to v1/v2's hardcoded
+# formulas — validated by parity tests" — so existing V5 USD-pair runs
+# (S16, S22-S32 etc.) stay byte-identical under this swap. The change
+# enables cross-pair legs (EURJPY, GBPAUD, AUDNZD, etc.) to be used in
+# H3 baskets — exercised by S33+ directives.
+#
+# Caveat: the parent's _record_bar (inherited from H2RecycleRule) still
+# uses V1's USD_QUOTE/USD_BASE constants for per-leg notional + margin
+# columns in the per-bar parquet. Those columns become silently zero for
+# cross-pair legs — they are informational only and not used by
+# canonical_metrics, BASKET_REPORT, or any control path. The control
+# path (margin_used computation for freeze checks) flows through the
+# helpers we swap here and IS correct for cross pairs.
+from tools.recycle_rules.h2_recycle_v3 import (
+    _build_ref_closes,
+    _leg_pnl_usd,
+    _leg_margin_usd,
 )
 
 # ABI ANCHOR: H2_RECYCLE_V5_RULE
@@ -179,8 +197,9 @@ class H2RecycleRuleV5(H2RecycleRule):
                 )
                 return
 
-        # ---- Floating + equity (same as @1/@4) ----
-        leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol]) for leg in legs}
+        # ---- Floating + equity (same as @1/@4, now cross-pair aware via V3 helpers) ----
+        ref_closes = _build_ref_closes(legs, bar_ts)
+        leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol], ref_closes) for leg in legs}
         floating_total = sum(leg_float.values())
         equity = self.starting_equity + self.realized_total + floating_total
 
@@ -203,7 +222,7 @@ class H2RecycleRuleV5(H2RecycleRule):
             return
 
         # ---- Freeze checks (same as @1/@4) ----
-        margin_used = sum(_leg_margin_usd(leg, bar_closes[leg.symbol], self.leverage) for leg in legs)
+        margin_used = sum(_leg_margin_usd(leg, bar_closes[leg.symbol], self.leverage, ref_closes) for leg in legs)
         dd_breach = (floating_total < 0) and (abs(floating_total) >= self.dd_freeze_frac * equity)
         margin_breach = margin_used >= self.margin_freeze_frac * equity
         if dd_breach:
@@ -381,14 +400,16 @@ class H2RecycleRuleV5(H2RecycleRule):
         """Add `add_lot` to winner; update state."""
         new_winner_lot = winner.lot + self.add_lot
 
-        # Margin projection
-        proj_margin = 0.0
-        for leg in legs:
-            lot = new_winner_lot if leg is winner else leg.lot
-            if leg.symbol in _USD_QUOTE:
-                proj_margin += lot * _LOT_UNITS * bar_closes[leg.symbol] / self.leverage
-            elif leg.symbol in _USD_BASE:
-                proj_margin += lot * _LOT_UNITS / self.leverage
+        # Margin projection (cross-pair aware via V3 helper).
+        # Temporarily mutate winner lot to project post-add margin, then restore.
+        ref_closes = _build_ref_closes(legs, bar_ts)
+        orig_winner_lot = winner.lot
+        winner.lot = new_winner_lot
+        proj_margin = sum(
+            _leg_margin_usd(leg, bar_closes[leg.symbol], self.leverage, ref_closes)
+            for leg in legs
+        )
+        winner.lot = orig_winner_lot
         if proj_margin >= self.margin_freeze_frac * equity:
             self._n_margin_freezes += 1
             self._record_bar(
@@ -442,7 +463,8 @@ class H2RecycleRuleV5(H2RecycleRule):
         self.recycle_events.append(event)
 
         # Recompute leg_float after the add (new lot on winner)
-        post_leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol]) for leg in legs}
+        post_ref_closes = _build_ref_closes(legs, bar_ts)
+        post_leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol], post_ref_closes) for leg in legs}
         post_floating_total = sum(post_leg_float.values())
         self._record_bar(
             legs, i, bar_ts,
@@ -520,7 +542,8 @@ class H2RecycleRuleV5(H2RecycleRule):
 
         # After soft_reset, leg state is fresh (lots=initial, entry=bar_close,
         # leg_float ~= 0 since entry==mark). Recompute and record.
-        post_leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol]) for leg in legs}
+        post_ref_closes = _build_ref_closes(legs, bar_ts)
+        post_leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol], post_ref_closes) for leg in legs}
         post_floating_total = sum(post_leg_float.values())
         # Equity invariant: total equity unchanged by liquidation+reset
         # (floating moved into realized, then reopened at market = 0 float).
