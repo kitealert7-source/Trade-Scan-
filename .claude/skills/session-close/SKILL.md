@@ -174,6 +174,17 @@ Check whether any of these need updating based on today's work:
 | `outputs/system_reports/` | Stale doc found during session — fix or flag |
 | `.claude/skills/` | New or changed operational procedure |
 | `outputs/system_reports/INTENT_INDEX.yaml` | MISS cluster revealed a real coverage gap, OR a skill under `.claude/skills/` was renamed/added/removed |
+| `SYSTEM_STATE.md` `### Manual` section | **PRUNE** any entry resolved / superseded / struck-through / informational-only — see rule below |
+
+**`SYSTEM_STATE.md ### Manual` pruning rule:** the Manual block under
+`## Known Issues` is for **unresolved + operationally relevant** items
+only. Resolved entries (`~~strikethrough~~`, explicit "closed by commit
+...", "PASSED" status from completed phases, "now retired" /
+"superseded by ...") must be REMOVED — not archived. Git preserves
+history; `SYSTEM_STATE.md` is startup decision support, not historical
+record. While in this step, open the file, scan `### Manual`, remove
+anything that no longer affects the NEXT session's decisions. Edits
+land naturally — Phase 3.10 regen preserves the Manual section.
 
 ### 3.3 Artifact cleanup
 

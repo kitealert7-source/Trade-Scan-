@@ -40,6 +40,11 @@ past session-close on 2026-05-15.
 
 - `### Auto-detected` — regenerates each run from `collect_known_issues()`.
   Don't hand-edit; changes will be clobbered.
-- `### Manual` — persists across regen. For deferred items the
-  automation can't see (in-flight TDs, data quality notes, operational
-  caveats). Edit directly.
+- `### Manual` — persists across regen. **UNRESOLVED + operationally
+  relevant only** — in-flight TDs, data quality notes, operational
+  caveats the operator needs at next-session start. Resolved entries
+  (`~~strikethrough~~`, "closed by commit ...", "PASSED" status from
+  completed phases, "superseded by ...") get REMOVED at session-close
+  §3.2 — not archived. Git preserves history; the file is startup
+  decision support, not historical documentation. Edit directly when
+  adding; the §3.2 audit handles the prune.
