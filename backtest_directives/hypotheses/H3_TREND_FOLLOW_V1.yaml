@@ -241,6 +241,101 @@ variants:
       exit_recovery: 10.0
       regime_gate: "compression_5d <= 5"
 
+  # ===== V7-V10: Cross-pair generalization sweep (2026-05-17) =====
+  # Tests whether S18's design (2:3 ratio, hf=-15) is EUR/JPY-specific or
+  # transfers to other pair structures. Same V5 rule, same params; only
+  # legs vary. Constituent-revealing folder naming convention introduced:
+  # basket_id = synth pair tag (AUDCAD/GBPCHF/AUDJPY/NZDCAD) so the run
+  # folder name surfaces legs without opening contents.
+  # 2-year window per operator brief 2026-05-17 (= today-2y; latest data).
+
+  - id: H3_V7_P00     # AUDCAD synthesis
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: AUDCAD
+      legs:
+        - { symbol: AUDUSD, direction: long, lot: 0.02 }
+        - { symbol: USDCAD, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-05-17, end: 2026-05-14 }
+    rule_params:
+      hard_floor_loss: -15.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
+    rationale: |
+      Commodity-currency synth. USDCAD pip-value at ~1.38 is ~$0.0725/0.01-lot
+      vs AUDUSD $0.10/0.01-lot → ratio 1.38 → same asymmetry direction as
+      EUR/JPY → 2:3 ratio approximately equalizes. Expected behavior:
+      similar metric profile to S18 if H3 design generalizes.
+
+  - id: H3_V8_P00     # GBPCHF synthesis — REVERSED asymmetry
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: GBPCHF
+      legs:
+        - { symbol: GBPUSD, direction: long, lot: 0.02 }
+        - { symbol: USDCHF, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-05-17, end: 2026-05-14 }
+    rule_params:
+      hard_floor_loss: -15.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
+    rationale: |
+      European-pair synth. USDCHF pip-value at ~0.90 is ~$0.111/0.01-lot
+      → HIGHER than GBPUSD's $0.10/pip → asymmetry direction is REVERSED.
+      At 2:3 ratio CHF-side dominates ($0.20 vs $0.333). Predicting
+      GBP-winner cycles will dominate floor failures (mirror of S16's
+      EUR-winner failure mode). Same-ratio-different-asymmetry control.
+
+  - id: H3_V9_P00     # AUDJPY synthesis
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: AUDJPY
+      legs:
+        - { symbol: AUDUSD, direction: long, lot: 0.02 }
+        - { symbol: USDJPY, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-05-17, end: 2026-05-14 }
+    rule_params:
+      hard_floor_loss: -15.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
+    rationale: |
+      Carry-pair synth sharing JPY side with S18. Tests whether S18 result
+      was EUR-side-specific or JPY-side-dominant. If AUDJPY metrics close
+      to S18, JPY side is the dominant character.
+
+  - id: H3_V10_P00    # NZDCAD synthesis
+    rule: H2_recycle@5
+    rule_build_required: false
+    architecture:
+      basket_id: NZDCAD
+      legs:
+        - { symbol: NZDUSD, direction: long, lot: 0.02 }
+        - { symbol: USDCAD, direction: long, lot: 0.03 }
+    stake_usd: 1000
+    harvest_target_usd: 2000
+    window: { start: 2024-05-17, end: 2026-05-14 }
+    rule_params:
+      hard_floor_loss: -15.0
+      pyramid_increment: 10.0
+      exit_recovery: 10.0
+      regime_gate: "compression_5d <= 5"
+    rationale: |
+      Commodity synth using smallest G7 pair. Same asymmetry direction as
+      AUDCAD/EURJPY. If H3 depends on liquid order-flow characteristics
+      results may degrade vs AUDCAD.
+
 acceptance_criteria:
   primary_metric: ret_dd
   must_beat_baseline:
