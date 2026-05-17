@@ -238,7 +238,7 @@ Skip if a previous session-close in the same calendar day already ran it.
 ### 3.7 Pre-push gate — strict clean working tree [NON-NEGOTIABLE]
 
 ```bash
-git status --porcelain | grep -v "^??"
+git status --porcelain | grep -v "^??" || true
 ```
 
 **This MUST return empty output** (except for `SYSTEM_STATE.md`, which
@@ -478,7 +478,7 @@ python tools/indicator_registry_sync.py --check
 #     that must pass the same pre-push gate (3.7) as any other work.
 
 # 3.7 Pre-push gate — MUST be empty (excl. untracked, excl. SYSTEM_STATE.md) (NON-NEGOTIABLE)
-git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$"
+git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$" || true
 
 # 3.8 Push all work commits (ALWAYS)
 git push origin main
@@ -503,7 +503,7 @@ python tools/system_introspection.py
 git add SYSTEM_STATE.md
 git commit -m "session: closing SYSTEM_STATE snapshot"
 git push origin main
-git status --porcelain | grep -v "^??"   # must be empty
+git status --porcelain | grep -v "^??" || true   # must be empty
 
 # 3.13 Sync main checkout (worktree-only) (ALWAYS)
 case "$(git rev-parse --absolute-git-dir 2>/dev/null)" in
@@ -546,4 +546,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| 2026-05-17 | `grep -v "^??"` exits 1 on no match, aborts `&&` chains | wrapped grep with `\|\| true` in §3.7 + Quick Version |
