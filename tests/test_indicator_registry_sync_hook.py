@@ -478,9 +478,13 @@ def test_session_close_drift_check_message_names_remediation_command(fake_repo):
 
 
 def test_session_close_skill_documents_step_6b():
-    """The skill must actually contain the Step 6b instruction the
-    runtime tests above pin. Document-level regression — guards against
-    the skill being silently rewritten in a way that drops the gate.
+    """The skill must actually contain the indicator-registry-drift gate
+    that the runtime tests above pin. Document-level regression — guards
+    against the skill being silently rewritten in a way that drops the gate.
+
+    Heading anchor was renumbered from §6b to §3.5 in the 2026-05-17
+    orchestrator refactor (Detect/Route/Execute/Summarize). Test function
+    name retained for git-blame continuity.
     """
     skill_path = (
         PROJECT_ROOT / ".claude" / "skills" / "session-close" / "SKILL.md"
@@ -490,16 +494,16 @@ def test_session_close_skill_documents_step_6b():
         "run without it."
     )
     text = skill_path.read_text(encoding="utf-8")
-    assert "### 6b. Indicator Registry Drift Check" in text, (
-        "Step 6b heading missing from session-close skill. Patch 1 of "
-        "GOVERNANCE_DRIFT_PREVENTION_PLAN was either reverted or never "
-        "applied."
+    assert "### 3.5 Indicator registry drift" in text, (
+        "Indicator registry drift heading missing from session-close skill. "
+        "Patch 1 of GOVERNANCE_DRIFT_PREVENTION_PLAN was either reverted, "
+        "or the orchestrator refactor renumbered it again — re-anchor here."
     )
     assert "python tools/indicator_registry_sync.py --check" in text, (
-        "Step 6b body must reference the actual check command."
+        "§3.5 body must reference the actual check command."
     )
     # Quick Version copy-paste section must include the same gate.
-    assert "# 4b. Indicator registry drift" in text, (
+    assert "# 3.5 Indicator registry drift" in text, (
         "Quick Version section is missing the registry drift gate."
     )
 
