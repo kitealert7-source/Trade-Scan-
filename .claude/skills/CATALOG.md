@@ -24,7 +24,8 @@ to use** + **when NOT to use** + **related skills**.
 | Add or remove a strategy from the active selection | `/portfolio-selection-add` / `/portfolio-selection-remove` |
 | Analyze the candidate pool | `/portfolio-research` |
 | Format the FSP/MPS spreadsheets | `/format-excel-ledgers` |
-| Test a hypothesis on existing runs | `/hypothesis-testing` |
+| Test a hypothesis on existing runs (single-strategy directive-filter exclusion) | `/hypothesis-testing` |
+| Test a hypothesis on a basket strategy (mechanic / architecture) | `/basket-hypothesis-testing` |
 | Run capital wrappers at uniform risk | `/uniform-risk-capital-simulation` |
 | End a work session cleanly | `/session-close` |
 | Register a long-running Windows daemon | `/launch-windows-supervised-task` |
@@ -66,7 +67,8 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
-| `hypothesis-testing` | An actionable insight from `hypothesis_tester.py` ranks high enough to deserve controlled re-testing | No actionable insights ranked → don't synthesize one | `rerun-backtest`, `execute-directives` |
+| `hypothesis-testing` | Single-strategy hypothesis via directive-filter exclusion (regime cell, direction bias, session, age-gradient, weak-cell) on a baseline that has actionable `hypothesis_tester.py` insights | Basket-strategy hypothesis (mechanic / architecture) → use `/basket-hypothesis-testing`; no actionable insights ranked → don't synthesize one | `rerun-backtest`, `execute-directives`, `basket-hypothesis-testing` (sibling for basket scope) |
+| `basket-hypothesis-testing` | Basket-strategy hypothesis test — v1 scope is **mechanic** (different rule class on same architecture, e.g. `H2_recycle@1` vs `@4`) or **architecture** (different leg compositions with same rule, e.g. B1 vs B2 vs 4-leg). Orchestrator: Detect → Route → Execute → Summarize; delegates to `/execute-directives` and `/port-strategy` | Single-strategy directive-filter exclusion → use `/hypothesis-testing`; parameter sweep / composite / regime-gate / multi-window classes → not in v1 scope yet (deferred) | `hypothesis-testing` (sibling for single-strategy scope), `execute-directives` (called per variant), `port-strategy` (called when new rule class needed), `run-composite-portfolio` (future composite class) |
 | `uniform-risk-capital-simulation` | Need to compare capital profiles on a fixed dataset with `risk_per_trade` held uniform across all profiles | Default capital_wrapper run (per-profile risk varies) → use the standard `run-composite-portfolio` flow | `run-composite-portfolio` |
 
 ### 5. Maintenance & cleanup (periodic — see `session-close §8b`)
