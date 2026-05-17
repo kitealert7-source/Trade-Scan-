@@ -64,18 +64,22 @@ governance_updates:
     date: '2026-05-12'
     changes:
     - 'stub_backfill: 22 stub entries from version_9 now carry required fields (lookback, warmup, input_columns) plus function_name,
-      classification, parameters, default_parameters, output_columns, and other rich metadata. Values extracted from code inspection;
-      no values invented or marked REQUIRES_MANUAL_REVIEW.'
+      classification, parameters, default_parameters, output_columns, and other rich metadata. Values extracted from code
+      inspection; no values invented or marked REQUIRES_MANUAL_REVIEW.'
     - 'tests_unblocked: tests/test_registry_integrity.py — test_required_fields, test_formula_resolution, and test_summary_sync
       were failing on the version_9 stubs; now all pass. See outputs/INDICATOR_REGISTRY_BACKFILL_PLAN.md for the per-indicator
       audit and inference plan.'
-    - 'registry_summary_updated: total_indicators 45 -> 67 (22 backfilled); momentum 7 -> 11, trend 5 -> 8, volatility 5 -> 11,
-      structure 9 -> 16, price_pattern 1 -> 2. Regime, composite, statistical, macro counts unchanged.'
+    - 'registry_summary_updated: total_indicators 45 -> 67 (22 backfilled); momentum 7 -> 11, trend 5 -> 8, volatility 5 ->
+      11, structure 9 -> 16, price_pattern 1 -> 2. Regime, composite, statistical, macro counts unchanged.'
     - 'default_parameters added: bb_squeeze (squeeze_window=20, threshold=0.2) and bollinger_bands (window=20, std_mult=2.0)
       gained explicit defaults so the formula resolver can evaluate warmup formulas with empty caller-params (test_formula_resolution
       contract).'
-registry_version: 10
-generated_at: '2026-05-12T19:00:00+05:30'
+  version_11:
+    date: '2026-05-17'
+    changes:
+    - 'indicator_registry_sync: 1 stub entries added.'
+registry_version: 11
+generated_at: '2026-05-17T09:30:42+00:00'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -1810,7 +1814,7 @@ indicators:
     warmup: period
     input_columns:
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection.'
+    notes: Backfilled 2026-05-12 from code inspection.
   macd:
     module_path: indicators.momentum.macd
     category: momentum
@@ -1847,7 +1851,8 @@ indicators:
     warmup: slow + signal
     input_columns:
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Warmup = slow + signal (explicit at indicators/momentum/macd.py line 59).'
+    notes: Backfilled 2026-05-12 from code inspection. Warmup = slow + signal (explicit at indicators/momentum/macd.py line
+      59).
   macd_htf:
     module_path: indicators.momentum.macd_htf
     category: momentum
@@ -1886,7 +1891,8 @@ indicators:
     warmup: slow + signal
     input_columns:
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Warmup expressed in HTF bars (resample_freq) — explicit at indicators/momentum/macd_htf.py line 158.'
+    notes: Backfilled 2026-05-12 from code inspection. Warmup expressed in HTF bars (resample_freq) — explicit at indicators/momentum/macd_htf.py
+      line 158.
   rsi_extremes:
     module_path: indicators.momentum.rsi_extremes
     category: momentum
@@ -1949,7 +1955,7 @@ indicators:
     warmup: 2
     input_columns:
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Strict close-to-close comparison (current + prior bar = 2-bar window).'
+    notes: Backfilled 2026-05-12 from code inspection. Strict close-to-close comparison (current + prior bar = 2-bar window).
   consecutive_highs_lows:
     module_path: indicators.price.consecutive_highs_lows
     category: price
@@ -1979,7 +1985,7 @@ indicators:
     input_columns:
     - high
     - low
-    notes: 'Backfilled 2026-05-12 from code inspection. n+1 bar window (current + n lookback bars).'
+    notes: Backfilled 2026-05-12 from code inspection. n+1 bar window (current + n lookback bars).
   avg_range:
     module_path: indicators.structure.avg_range
     category: structure
@@ -2008,7 +2014,8 @@ indicators:
     input_columns:
     - high
     - low
-    notes: 'Backfilled 2026-05-12 from code inspection. Despite living in indicators/structure/, this is a volatility-flavoured rolling-mean primitive (preserved category for stability).'
+    notes: Backfilled 2026-05-12 from code inspection. Despite living in indicators/structure/, this is a volatility-flavoured
+      rolling-mean primitive (preserved category for stability).
   choch_v2:
     module_path: indicators.structure.choch_v2
     category: structure
@@ -2043,7 +2050,8 @@ indicators:
     - high
     - low
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Depends on swing_pivots (k=3) confirmation; first usable pivot at bar 2*k+1 = 7.'
+    notes: Backfilled 2026-05-12 from code inspection. Depends on swing_pivots (k=3) confirmation; first usable pivot at bar
+      2*k+1 = 7.
   choch_v3:
     module_path: indicators.structure.choch_v3
     category: structure
@@ -2076,7 +2084,8 @@ indicators:
     - high
     - low
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Same pivot-confirmation cost as choch_v2; structural readiness (HH+HL / LL+LH) requires multiple pivots and is pattern-dependent (not bar-count-dependent).'
+    notes: Backfilled 2026-05-12 from code inspection. Same pivot-confirmation cost as choch_v2; structural readiness (HH+HL
+      / LL+LH) requires multiple pivots and is pattern-dependent (not bar-count-dependent).
   dmi_wilder:
     module_path: indicators.structure.dmi_wilder
     category: structure
@@ -2108,7 +2117,8 @@ indicators:
     - high
     - low
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Wilder''s RMA (alpha = 1/period) — calibrated against Pine ta.dmi(); not the EMA-span variant.'
+    notes: Backfilled 2026-05-12 from code inspection. Wilder's RMA (alpha = 1/period) — calibrated against Pine ta.dmi();
+      not the EMA-span variant.
   fair_value_gap:
     module_path: indicators.structure.fair_value_gap
     category: structure
@@ -2148,7 +2158,8 @@ indicators:
     - high
     - low
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. 3-bar imbalance detector (i, i-1, i-2); explicit `for i in range(2, n)` at fair_value_gap.py line 98.'
+    notes: Backfilled 2026-05-12 from code inspection. 3-bar imbalance detector (i, i-1, i-2); explicit `for i in range(2,
+      n)` at fair_value_gap.py line 98.
   prev_session_extremes:
     module_path: indicators.structure.prev_session_extremes
     category: structure
@@ -2181,7 +2192,9 @@ indicators:
     input_columns:
     - open
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Per-bar reducer; bar-count warmup is 1, but real usability requires at least one completed real session (asia/london/ny) on the index. When expand_during_dead_zone=true the indicator also reads high/low.'
+    notes: Backfilled 2026-05-12 from code inspection. Per-bar reducer; bar-count warmup is 1, but real usability requires
+      at least one completed real session (asia/london/ny) on the index. When expand_during_dead_zone=true the indicator also
+      reads high/low.
   session_clock:
     module_path: indicators.structure.session_clock
     category: structure
@@ -2214,7 +2227,8 @@ indicators:
     input_columns:
     - high
     - low
-    notes: 'Backfilled 2026-05-12 from code inspection. XAU liquidity-tuned session boundaries (asia 00-07, london 07-13, ny 13-21 UTC). Intraday-only — htf_compatible=false because session classification is by UTC hour-of-day.'
+    notes: Backfilled 2026-05-12 from code inspection. XAU liquidity-tuned session boundaries (asia 00-07, london 07-13, ny
+      13-21 UTC). Intraday-only — htf_compatible=false because session classification is by UTC hour-of-day.
   session_clock_universal:
     module_path: indicators.structure.session_clock_universal
     category: structure
@@ -2247,8 +2261,8 @@ indicators:
     input_columns:
     - high
     - low
-    notes: 'Backfilled 2026-05-12 from code inspection. Canonical UTC exchange-aligned boundaries (asia 00-08, london 08-14, ny 14-21) — asset-portable variant of session_clock.'
-
+    notes: Backfilled 2026-05-12 from code inspection. Canonical UTC exchange-aligned boundaries (asia 00-08, london 08-14,
+      ny 14-21) — asset-portable variant of session_clock.
   swing_pivots:
     module_path: indicators.structure.swing_pivots
     category: structure
@@ -2277,7 +2291,8 @@ indicators:
     input_columns:
     - high
     - low
-    notes: 'Backfilled 2026-05-12 from code inspection. Fixed _K = 3 symmetric window (k bars left + k bars right). First confirmable pivot at bar 2*K+1 = 7. Strict-left / non-strict-right asymmetry resolves flat ties to earlier pivot.'
+    notes: Backfilled 2026-05-12 from code inspection. Fixed _K = 3 symmetric window (k bars left + k bars right). First confirmable
+      pivot at bar 2*K+1 = 7. Strict-left / non-strict-right asymmetry resolves flat ties to earlier pivot.
   ema_cross:
     module_path: indicators.trend.ema_cross
     category: trend
@@ -2308,7 +2323,7 @@ indicators:
     warmup: slow
     input_columns:
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Explicit `warmup = slow` (ema_cross.py line 44). Validates fast < slow.'
+    notes: Backfilled 2026-05-12 from code inspection. Explicit `warmup = slow` (ema_cross.py line 44). Validates fast < slow.
   gaussian_slope:
     module_path: indicators.trend.gaussian_slope
     category: trend
@@ -2340,7 +2355,7 @@ indicators:
     warmup: length
     input_columns:
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Explicit `warmup = length` (gaussian_slope.py line 61).'
+    notes: Backfilled 2026-05-12 from code inspection. Explicit `warmup = length` (gaussian_slope.py line 61).
   atr_with_dollar_floor:
     module_path: indicators.volatility.atr_with_dollar_floor
     category: volatility
@@ -2371,7 +2386,7 @@ indicators:
     - high
     - low
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Wraps atr() with a dollar-denominated stop-distance floor.'
+    notes: Backfilled 2026-05-12 from code inspection. Wraps atr() with a dollar-denominated stop-distance floor.
   atr_with_pip_floor:
     module_path: indicators.volatility.atr_with_pip_floor
     category: volatility
@@ -2403,7 +2418,8 @@ indicators:
     - high
     - low
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. Wraps atr() with a pip-denominated stop-distance floor (currency-pair analogue of atr_with_dollar_floor).'
+    notes: Backfilled 2026-05-12 from code inspection. Wraps atr() with a pip-denominated stop-distance floor (currency-pair
+      analogue of atr_with_dollar_floor).
   bar_range:
     module_path: indicators.volatility.bar_range
     category: volatility
@@ -2428,7 +2444,7 @@ indicators:
     input_columns:
     - high
     - low
-    notes: 'Backfilled 2026-05-12 from code inspection. Stateless per-bar high-low spread.'
+    notes: Backfilled 2026-05-12 from code inspection. Stateless per-bar high-low spread.
   bb_squeeze:
     module_path: indicators.volatility.bb_squeeze
     category: volatility
@@ -2458,7 +2474,8 @@ indicators:
     warmup: squeeze_window
     input_columns:
     - atr_percentile
-    notes: 'Backfilled 2026-05-12 from code inspection. Consumes a pre-computed atr_percentile series rather than raw OHLC; input_columns lists the dependent column (precedent set by apply_choch_state).'
+    notes: Backfilled 2026-05-12 from code inspection. Consumes a pre-computed atr_percentile series rather than raw OHLC;
+      input_columns lists the dependent column (precedent set by apply_choch_state).
   bollinger_bands:
     module_path: indicators.volatility.bollinger_bands
     category: volatility
@@ -2488,7 +2505,14 @@ indicators:
     warmup: window * 2
     input_columns:
     - close
-    notes: 'Backfilled 2026-05-12 from code inspection. window and std_mult have no defaults (required at call site); precedent for warmup = window * 2 from bollinger_band_width registry entry.'
+    notes: Backfilled 2026-05-12 from code inspection. window and std_mult have no defaults (required at call site); precedent
+      for warmup = window * 2 from bollinger_band_width registry entry.
+  pearson_correlation:
+    module_path: indicators.stats.pearson_correlation
+    category: stats
+    registered_at: '2026-05-17'
+    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
+      output_columns, etc.) to be backfilled.
 registry_summary:
   total_indicators: 67
   by_category:

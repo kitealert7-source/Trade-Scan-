@@ -41,7 +41,8 @@ import pandas as pd
 
 # Skip-reason tags by rule family (used for auto-detection)
 _V5_TAGS = {"PYRAMID_ADDED", "TREND_LIQUIDATE_RECOVERY",
-            "TREND_LIQUIDATE_FLOOR", "HOLDING_PYRAMID", "WAITING_FOR_PYRAMID"}
+            "TREND_LIQUIDATE_FLOOR", "TREND_LIQUIDATE_CORRELATION",
+            "HOLDING_PYRAMID", "WAITING_FOR_PYRAMID", "CORRELATION_GATE"}
 _V4_TAGS = {"BUMP_INTO_HOLD", "LIQUIDATE_RESET", "HOLD_MODE",
             "BUMP_REJECTED_MARGIN", "HOLD_NO_TREND_WINNER"}
 
@@ -234,6 +235,8 @@ def canonical_metrics(
         "pyramids":         int((skip == "PYRAMID_ADDED").sum()),
         "liq_recovery":     int((skip == "TREND_LIQUIDATE_RECOVERY").sum()),
         "liq_floor":        int((skip == "TREND_LIQUIDATE_FLOOR").sum()),
+        "liq_correlation":  int((skip == "TREND_LIQUIDATE_CORRELATION").sum()),
+        "correlation_gate_blocks": int((skip == "CORRELATION_GATE").sum()),
         "holding_bars":     int(((skip == "HOLD_MODE") | (skip == "HOLDING_PYRAMID")).sum()),
         "waiting_bars":     int((skip == "WAITING_FOR_PYRAMID").sum()),
     }
@@ -242,7 +245,7 @@ def canonical_metrics(
     cycle_pnls: list[dict] = []
     if rf == "v5_pyramid":
         cycle_pnls = _cycle_pnl_from_parquet(
-            df, ["TREND_LIQUIDATE_RECOVERY", "TREND_LIQUIDATE_FLOOR"]
+            df, ["TREND_LIQUIDATE_RECOVERY", "TREND_LIQUIDATE_FLOOR", "TREND_LIQUIDATE_CORRELATION"]
         )
     elif rf == "v4_bump_liquidate":
         cycle_pnls = _cycle_pnl_from_parquet(df, ["LIQUIDATE_RESET"])
@@ -266,7 +269,7 @@ def canonical_metrics(
     per_winner_side: dict[str, dict[str, Any]] = {}
     if rf == "v5_pyramid":
         per_winner_side = _per_winner_side_breakdown(
-            df, ["TREND_LIQUIDATE_RECOVERY", "TREND_LIQUIDATE_FLOOR"]
+            df, ["TREND_LIQUIDATE_RECOVERY", "TREND_LIQUIDATE_FLOOR", "TREND_LIQUIDATE_CORRELATION"]
         )
     elif rf == "v4_bump_liquidate":
         per_winner_side = _per_winner_side_breakdown(df, ["LIQUIDATE_RESET"])

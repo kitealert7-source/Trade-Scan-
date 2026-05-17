@@ -131,6 +131,43 @@ class H2RecycleRuleV5(H2RecycleRule):
     exit_recovery_usd: float = 10.0
     hard_floor_loss_usd: float = -10.0
 
+    # --- Correlation gate (2026-05-17, isolation-first per operator brief) ---
+    # OFF by default — leaving correlation_enabled=False keeps every
+    # existing S22-S40 directive byte-identical under this version.
+    # When enabled, the rule blocks the FIRST PYRAMID of each cycle if
+    # the leg-pair's Pearson correlation (read from leg.df at the bar)
+    # falls outside the entry band on BOTH timeframes (1H AND 4H).
+    # In-cycle, hysteresis: a cycle is force-liquidated if 1H rho moves
+    # OUTSIDE the exit band (drivers locked up = no pyramid edge OR
+    # degenerate-synthetic territory).
+    correlation_enabled: bool = False
+    correlation_column_1h: str = "fx_corr_1h"
+    correlation_column_4h: str = "fx_corr_4h"
+    # Per-TF enable flags (2026-05-17): for walk-forward windows where
+    # one TF's matrix lacks history (e.g., 1H only goes back to 2024 for
+    # several USD pairs), set the corresponding flag to False so the
+    # gate runs in degraded-but-honest single-TF mode rather than
+    # blocking everything because the missing TF returns NaN.
+    correlation_use_1h: bool = True
+    correlation_use_4h: bool = True
+    # Persistence gate (2026-05-17): require correlation to have been
+    # in entry band for last N *4H* bars before first pyramid is allowed.
+    # 0 = disabled (any single in-band bar allows entry — current default).
+    # 3 = require 3 consecutive 4H bars (12 hours of in-band history)
+    # before the gate fires. Filters out transient correlation flips that
+    # cross the band momentarily and back out. Counted in 4H bars; the
+    # internal 5m counter equivalents are persistence * 48.
+    correlation_persistence_4h_bars: int = 0
+    # Entry band: pyramid permitted only when rho is INSIDE this band on
+    # BOTH timeframes. Default targets moderately negative regime
+    # (independent drivers without degenerate-synthetic collapse).
+    correlation_entry_low: float = -0.70    # too negative -> degenerate synth
+    correlation_entry_high: float = -0.20   # too positive -> drivers locked
+    # Exit hysteresis: in-cycle, force-liquidate if 1H rho leaves this
+    # WIDER band (gap below entry low / above entry high to avoid whipsaw).
+    correlation_exit_low: float = -0.85
+    correlation_exit_high: float = -0.05
+
     # --- Version override ---
     version: int = _RULE_VERSION_V5
 
@@ -141,6 +178,9 @@ class H2RecycleRuleV5(H2RecycleRule):
     _last_add_loser_level: float = 0.0
     _n_pyramids: int = 0
     _n_liquidations: int = 0
+    _n_correlation_blocks: int = 0   # diag: pre-pyramid bars blocked by gate
+    _n_correlation_exits: int = 0    # diag: cycles closed via correlation exit
+    _consec_in_band_5m: int = 0      # running count of consecutive 5m bars in-band (for persistence gate)
 
     # Back-reference (populated by BasketRunner.__init__ via injection)
     basket_runner: Optional[BasketRunner] = None
@@ -166,6 +206,93 @@ class H2RecycleRuleV5(H2RecycleRule):
                 f"(it's a floor on basket floating, expressed as a "
                 f"negative dollar threshold); got {self.hard_floor_loss_usd!r}."
             )
+        # Correlation gate validation (only when enabled; defaults are sane).
+        if self.correlation_enabled:
+            if not (-1.0 <= self.correlation_entry_low <
+                    self.correlation_entry_high <= 1.0):
+                raise ValueError(
+                    f"H2RecycleRuleV5: correlation_entry_low ({self.correlation_entry_low}) "
+                    f"must be < correlation_entry_high ({self.correlation_entry_high}), "
+                    f"both in [-1.0, 1.0]."
+                )
+            if not (self.correlation_exit_low <= self.correlation_entry_low):
+                raise ValueError(
+                    f"H2RecycleRuleV5: correlation_exit_low ({self.correlation_exit_low}) "
+                    f"must be <= correlation_entry_low ({self.correlation_entry_low}); "
+                    f"hysteresis requires exit band to be WIDER than entry band."
+                )
+            if not (self.correlation_exit_high >= self.correlation_entry_high):
+                raise ValueError(
+                    f"H2RecycleRuleV5: correlation_exit_high ({self.correlation_exit_high}) "
+                    f"must be >= correlation_entry_high ({self.correlation_entry_high}); "
+                    f"hysteresis requires exit band to be WIDER than entry band."
+                )
+
+    # ---- Correlation helpers ----------------------------------------------
+
+    def _read_correlation(self, legs: list[BasketLeg], bar_ts: pd.Timestamp
+                          ) -> tuple[Optional[float], Optional[float]]:
+        """Return (rho_1h, rho_4h) for the current bar from the leg-pair
+        FX correlation factor (joined by basket_data_loader). Returns
+        (None, None) if columns are missing or the value is NaN.
+
+        Reads from legs[0].df only — both legs see the same correlation
+        series (it's a pair-level property; loader joins identical
+        columns onto every leg). NaN values during warmup propagate as
+        None.
+        """
+        df = legs[0].df
+        rho_1h: Optional[float] = None
+        rho_4h: Optional[float] = None
+        if self.correlation_column_1h in df.columns:
+            try:
+                v = float(df.loc[bar_ts, self.correlation_column_1h])
+                if not pd.isna(v):
+                    rho_1h = v
+            except (KeyError, ValueError, TypeError):
+                pass
+        if self.correlation_column_4h in df.columns:
+            try:
+                v = float(df.loc[bar_ts, self.correlation_column_4h])
+                if not pd.isna(v):
+                    rho_4h = v
+            except (KeyError, ValueError, TypeError):
+                pass
+        return rho_1h, rho_4h
+
+    def _correlation_in_entry_band(self, rho_1h: Optional[float],
+                                   rho_4h: Optional[float]) -> bool:
+        """True if all ENABLED timeframes have rho inside [entry_low,
+        entry_high]. Disabled timeframes (correlation_use_1h/4h=False)
+        are skipped entirely. Missing values on an ENABLED TF fail the
+        gate (defensive: NO data on an enabled TF = NO entry)."""
+        if self.correlation_use_1h:
+            if rho_1h is None:
+                return False
+            if not (self.correlation_entry_low <= rho_1h <= self.correlation_entry_high):
+                return False
+        if self.correlation_use_4h:
+            if rho_4h is None:
+                return False
+            if not (self.correlation_entry_low <= rho_4h <= self.correlation_entry_high):
+                return False
+        # At least one TF must be enabled (otherwise the gate is meaningless).
+        return self.correlation_use_1h or self.correlation_use_4h
+
+    def _correlation_breached_exit(self, rho_1h: Optional[float],
+                                   rho_4h: Optional[float] = None) -> bool:
+        """True if in-cycle rho has moved OUTSIDE the WIDER exit band
+        on any ENABLED timeframe (drivers locked up OR degenerate-
+        synthetic territory). Disabled timeframes are skipped. Missing
+        value on an enabled TF does NOT trigger exit (avoids spurious
+        early-exits when data is absent at a single bar)."""
+        if self.correlation_use_1h and rho_1h is not None:
+            if not (self.correlation_exit_low <= rho_1h <= self.correlation_exit_high):
+                return True
+        if self.correlation_use_4h and rho_4h is not None:
+            if not (self.correlation_exit_low <= rho_4h <= self.correlation_exit_high):
+                return True
+        return False
 
     # ---- BasketRule.apply override ----------------------------------------
 
@@ -258,6 +385,17 @@ class H2RecycleRuleV5(H2RecycleRule):
         if factor_present_but_nan or regime_blocked:
             self._n_regime_freezes += 1
 
+        # ---- Correlation persistence counter update (runs every bar) ----
+        # Tracks consecutive 5m bars where the entry-band check passes,
+        # so the pre-pyramid gate can require N continuous in-band bars
+        # before allowing first pyramid. 0 = disabled.
+        if self.correlation_enabled and self.correlation_persistence_4h_bars > 0:
+            _rho_1h_p, _rho_4h_p = self._read_correlation(legs, bar_ts)
+            if self._correlation_in_entry_band(_rho_1h_p, _rho_4h_p):
+                self._consec_in_band_5m += 1
+            else:
+                self._consec_in_band_5m = 0
+
         # ---- Identify CURRENT bar's winner / loser (highest / lowest floating) ----
         # If we're in a pyramid cycle, we use the LOCKED _loser_sym
         # rather than the bar-identified loser (the trend's loser side
@@ -293,6 +431,21 @@ class H2RecycleRuleV5(H2RecycleRule):
                     reason="TREND_LIQUIDATE_FLOOR",
                 )
                 return
+
+            # Exit trigger 3 (2026-05-17): correlation regime breach.
+            # Only fires when enabled. Liquidates the cycle if 1H rho has
+            # moved OUTSIDE the WIDER exit band (drivers locked up =
+            # no pyramid edge remaining, OR degenerate-synthetic territory).
+            if self.correlation_enabled:
+                rho_1h, rho_4h = self._read_correlation(legs, bar_ts)
+                if self._correlation_breached_exit(rho_1h, rho_4h):
+                    self._n_correlation_exits += 1
+                    self._commit_liquidation(
+                        legs, i, bar_ts, bar_closes, leg_float, floating_total,
+                        equity, margin_used, factor_val,
+                        reason="TREND_LIQUIDATE_CORRELATION",
+                    )
+                    return
 
             # Hard freezes block pyramid (but not exit checks above)
             if dd_breach or margin_breach or regime_blocked:
@@ -358,6 +511,44 @@ class H2RecycleRuleV5(H2RecycleRule):
                     harvest_triggered=False,
                 )
                 return
+
+            # Correlation gate (2026-05-17): block FIRST PYRAMID if the
+            # leg-pair correlation is outside the entry band on either
+            # timeframe. Only fires when enabled — disabled is byte-
+            # identical to V5 pre-patch behavior.
+            if self.correlation_enabled:
+                rho_1h, rho_4h = self._read_correlation(legs, bar_ts)
+                if not self._correlation_in_entry_band(rho_1h, rho_4h):
+                    self._n_correlation_blocks += 1
+                    self._record_bar(
+                        legs, i, bar_ts,
+                        bar_closes=bar_closes, leg_float=leg_float,
+                        floating_total=floating_total, equity=equity, margin_used=margin_used,
+                        dd_freeze=False, margin_freeze=False, regime_blocked=False,
+                        factor_val=factor_val,
+                        skip_reason="CORRELATION_GATE",
+                        recycle_attempted=False, recycle_executed=False,
+                        harvest_triggered=False,
+                    )
+                    return
+                # Persistence sub-gate: require N consecutive 4H bars
+                # (= N*48 consecutive 5m bars) of in-band correlation
+                # before allowing first pyramid. Filters transient flips.
+                if self.correlation_persistence_4h_bars > 0:
+                    required_5m_bars = self.correlation_persistence_4h_bars * 48
+                    if self._consec_in_band_5m < required_5m_bars:
+                        self._n_correlation_blocks += 1
+                        self._record_bar(
+                            legs, i, bar_ts,
+                            bar_closes=bar_closes, leg_float=leg_float,
+                            floating_total=floating_total, equity=equity, margin_used=margin_used,
+                            dd_freeze=False, margin_freeze=False, regime_blocked=False,
+                            factor_val=factor_val,
+                            skip_reason="CORRELATION_PERSISTENCE",
+                            recycle_attempted=False, recycle_executed=False,
+                            harvest_triggered=False,
+                        )
+                        return
 
             if bar_loser_float <= -self.pyramid_increment_usd:
                 # First pyramid event of the cycle — lock loser identity

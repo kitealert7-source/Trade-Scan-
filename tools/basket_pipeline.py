@@ -197,6 +197,17 @@ def _instantiate_rule(
             pyramid_increment_usd=float(params.get("pyramid_increment_usd", 10.0)),
             exit_recovery_usd=float(params.get("exit_recovery_usd", 10.0)),
             hard_floor_loss_usd=float(params.get("hard_floor_loss_usd", -10.0)),
+            # Correlation gate (2026-05-17): OFF by default to preserve
+            # parity with all existing V5 directives. Enable per-directive
+            # by setting correlation_enabled: true in the recycle_rule.params.
+            correlation_enabled=bool(params.get("correlation_enabled", False)),
+            correlation_entry_low=float(params.get("correlation_entry_low", -0.70)),
+            correlation_entry_high=float(params.get("correlation_entry_high", -0.20)),
+            correlation_exit_low=float(params.get("correlation_exit_low", -0.85)),
+            correlation_exit_high=float(params.get("correlation_exit_high", -0.05)),
+            correlation_use_1h=bool(params.get("correlation_use_1h", True)),
+            correlation_use_4h=bool(params.get("correlation_use_4h", True)),
+            correlation_persistence_4h_bars=int(params.get("correlation_persistence_4h_bars", 0)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,
