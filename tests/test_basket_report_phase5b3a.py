@@ -147,9 +147,16 @@ def test_write_per_window_report_artifacts_produces_all_files(tmp_path):
         basket_result=result, df_trades=df, parsed_directive=_directive(),
         engine_version="1.5.8", starting_equity=1000.0,
     )
+    # Legacy "report" key (REPORT_<directive>.md) was suppressed 2026-05-18
+    # for basket runs — see tools.basket_report comment block. BASKET_REPORT
+    # is now the authoritative artifact, generated when the per-bar parquet
+    # is present (not the case in this synthetic test fixture).
     expected_purposes = {"standard", "risk", "yearwise", "basket",
-                         "glossary", "bar_geometry", "metadata", "report"}
-    assert set(written.keys()) == expected_purposes
+                         "glossary", "bar_geometry", "metadata"}
+    assert set(written.keys()) >= expected_purposes
+    assert "report" not in written, (
+        "legacy REPORT.md should be suppressed for basket runs"
+    )
     for purpose, path in written.items():
         assert path.is_file(), f"missing: {purpose} -> {path}"
         assert path.stat().st_size > 0, f"empty: {purpose}"
@@ -245,7 +252,17 @@ def test_bar_geometry_per_timeframe(tmp_path):
         assert bg["median_bar_seconds"] == expected, f"timeframe {tf} got {bg}"
 
 
-def test_report_md_contains_key_fields(tmp_path):
+def test_report_md_no_longer_written_for_basket_runs(tmp_path):
+    """Legacy REPORT_<directive>.md was suppressed 2026-05-18 for basket
+    runs — its trade-level lens missed every pyramid + liquidation event,
+    producing misleading Trades/WinRate/MaxDD/PF values. Authoritative
+    artifact is now BASKET_REPORT_<directive>.md (only generated when the
+    per-bar parquet is present; covered by
+    test_basket_hypothesis_basket_report).
+
+    Renamed from test_report_md_contains_key_fields (which asserted on
+    the suppressed legacy REPORT.md fields).
+    """
     from tools.basket_report import write_per_window_report_artifacts
     df = _trades_df([
         {"symbol": "EURUSD", "pnl_usd": 25.0, "exit_timestamp": "2024-09-10"},
@@ -260,19 +277,11 @@ def test_report_md_contains_key_fields(tmp_path):
         basket_result=result, df_trades=df, parsed_directive=_directive(),
         engine_version="1.5.8",
     )
-    md = (tmp_path / "REPORT_90_PORT_H2_5M_RECYCLE_S01_V1_P00.md").read_text(encoding="utf-8")
-    assert "Basket Report" in md
-    assert "90_PORT_H2_5M_RECYCLE_S01_V1_P00" in md
-    assert "Run ID: `RIDABC`" in md
-    assert "Basket ID: `H2`" in md
-    assert "H2_recycle@1" in md
-    assert "EURUSD" in md and "USDJPY" in md
-    # Top-line metric appears
-    assert "Trades" in md
-    assert "Profit Factor" in md
-    # Basket telemetry section
-    assert "Basket Telemetry" in md
-    assert "Recycle Events" in md
+    legacy_path = tmp_path / "REPORT_90_PORT_H2_5M_RECYCLE_S01_V1_P00.md"
+    assert not legacy_path.exists(), (
+        f"legacy REPORT.md should be suppressed for basket runs; "
+        f"found {legacy_path}"
+    )
 
 
 def test_basket_strategy_card_written(tmp_path):

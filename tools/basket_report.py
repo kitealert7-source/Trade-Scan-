@@ -791,19 +791,18 @@ def write_per_window_report_artifacts(
     )
     paths["metadata"] = p
 
-    # REPORT_<directive_id>.md  (legacy, trade-level)
-    p = out_dir / f"REPORT_{directive_id}.md"
-    _write_basket_md_report(
-        p, run_id=run_id, directive_id=directive_id, basket_id=basket_id,
-        parsed_directive=parsed_directive, metrics=metrics,
-    )
-    paths["report"] = p
+    # REPORT_<directive_id>.md (legacy, trade-level) — SUPPRESSED for basket runs
+    # 2026-05-18. The trade-level lens misses every pyramid + liquidation event
+    # in cycle-mechanic rules (H2_recycle@4/@5, H3_spread@1), producing
+    # misleading Trades/WinRate/MaxDD/ProfitFactor numbers — operators have
+    # been silently mistaking these for authoritative metrics. Per-symbol
+    # per-strategy backtests still emit REPORT.md unchanged; this suppression
+    # is scoped to the basket-pipeline emit path only. The authoritative
+    # cycle-aware report is BASKET_REPORT.md below.
 
     # BASKET_REPORT_<directive_id>.md  (cycle-aware, canonical-metrics-driven)
-    # Authoritative for cycle-mechanic rules (H2_recycle@4/@5+). Generated
-    # alongside the legacy REPORT for backward compat. See
-    # tools/basket_hypothesis/basket_report.py for the design rationale +
-    # legacy-caveat block included inline in the generated file.
+    # Authoritative for cycle-mechanic rules (H2_recycle@4/@5+, H3_spread@1+).
+    # See tools/basket_hypothesis/basket_report.py for the design rationale.
     try:
         from tools.basket_hypothesis.basket_report import write_basket_report
         parquet_p = raw_dir / "results_basket_per_bar.parquet"

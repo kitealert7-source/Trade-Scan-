@@ -32,20 +32,34 @@ _BASE = Path("../TradeScan_State/backtests")
 # decision blocks. If any of these mismatch, the canonical_metrics module
 # diverged from the reference.
 _REFERENCE_RUNS = [
-    # (run_dir, stake, expected_rule_family, expected_net_pct, expected_dd_pct,
-    #  expected_ret_dd, expected_event_counts)
+    # (run_dir, stake, expected_rule_family, expected_net_pct,
+    #  expected_dd_pct_peak_relative, expected_ret_dd, expected_event_counts)
+    #
+    # DD% values were recomputed to peak-relative basis on 2026-05-18 when
+    # canonical_metrics switched from stake-relative (legacy) to peak-relative
+    # (standard backtest convention). Stake-relative numbers preserved in
+    # max_dd_pct_vs_stake; covered by test_max_dd_pct_vs_stake_legacy_form below.
     ("90_PORT_H2_5M_RECYCLE_S14_V1_P00_H2", 1000.0, "v4_bump_liquidate",
-     59.95, 32.51, 1.84, {"bumps": 5, "liquidate_reset": 5}),
+     59.95, 18.76, 3.19, {"bumps": 5, "liquidate_reset": 5}),
 
     ("90_PORT_H2_5M_RECYCLE_S16_V1_P00_H2", 1000.0, "v5_pyramid",
-     15.88, 8.76, 1.81, {"pyramids": 45, "liq_recovery": 14, "liq_floor": 23}),
+     15.88, 7.46, 2.13, {"pyramids": 45, "liq_recovery": 14, "liq_floor": 23}),
 
     ("90_PORT_H2_5M_RECYCLE_S17_V1_P00_H2", 1000.0, "v5_pyramid",
-     31.70, 19.08, 1.66, {"pyramids": 262, "liq_recovery": 98, "liq_floor": 114}),
+     31.70, 13.77, 2.30, {"pyramids": 262, "liq_recovery": 98, "liq_floor": 114}),
 
     ("90_PORT_H2_5M_RECYCLE_S18_V1_P00_H2", 1000.0, "v5_pyramid",
-     35.60, 19.59, 1.82, {"pyramids": 145, "liq_recovery": 61, "liq_floor": 43}),
+     35.60, 13.95, 2.55, {"pyramids": 145, "liq_recovery": 61, "liq_floor": 43}),
 ]
+
+# Stake-relative DD% values preserved for the backward-compat
+# max_dd_pct_vs_stake field. Indexed by run_dir.
+_REFERENCE_DD_PCT_VS_STAKE = {
+    "90_PORT_H2_5M_RECYCLE_S14_V1_P00_H2": 32.51,
+    "90_PORT_H2_5M_RECYCLE_S16_V1_P00_H2":  8.76,
+    "90_PORT_H2_5M_RECYCLE_S17_V1_P00_H2": 19.08,
+    "90_PORT_H2_5M_RECYCLE_S18_V1_P00_H2": 19.59,
+}
 
 
 def _parquet(run_dir: str) -> Path:
@@ -224,17 +238,36 @@ def test_stake_basis_affects_net_pct_proportionally():
 
 def test_full_sweep_table_matches_ad_hoc_analysis():
     """Reproduces the H3 hard-floor sweep summary table generated
-    interactively. If any row diverges, the canonical formula has
-    drifted from the ad-hoc analysis we used to pick V3 as the leader.
+    interactively. DD% values updated 2026-05-18 to peak-relative basis;
+    stake-relative variant covered separately by
+    test_max_dd_pct_vs_stake_legacy_form.
     """
     expected = {
-        "90_PORT_H2_5M_RECYCLE_S14_V1_P00_H2": (59.95, 32.51, 1.84),
-        "90_PORT_H2_5M_RECYCLE_S16_V1_P00_H2": (15.88,  8.76, 1.81),
-        "90_PORT_H2_5M_RECYCLE_S17_V1_P00_H2": (31.70, 19.08, 1.66),
-        "90_PORT_H2_5M_RECYCLE_S18_V1_P00_H2": (35.60, 19.59, 1.82),
+        # (net%, dd% peak-relative, ret/dd peak-relative)
+        "90_PORT_H2_5M_RECYCLE_S14_V1_P00_H2": (59.95, 18.76, 3.19),
+        "90_PORT_H2_5M_RECYCLE_S16_V1_P00_H2": (15.88,  7.46, 2.13),
+        "90_PORT_H2_5M_RECYCLE_S17_V1_P00_H2": (31.70, 13.77, 2.30),
+        "90_PORT_H2_5M_RECYCLE_S18_V1_P00_H2": (35.60, 13.95, 2.55),
     }
     for run, (exp_net, exp_dd, exp_rd) in expected.items():
         m = canonical_metrics(_parquet(run), 1000.0)
         assert m["net_pct"]    == pytest.approx(exp_net, abs=0.05), f"net%  drift on {run}"
         assert m["max_dd_pct"] == pytest.approx(exp_dd,  abs=0.05), f"DD%   drift on {run}"
         assert m["ret_dd"]     == pytest.approx(exp_rd,  abs=0.02), f"ret/DD drift on {run}"
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat: stake-relative DD% preserved in max_dd_pct_vs_stake
+# ---------------------------------------------------------------------------
+
+
+def test_max_dd_pct_vs_stake_legacy_form():
+    """Stake-relative DD% (the pre-2026-05-18 form) is preserved as
+    max_dd_pct_vs_stake for callers that still need it (e.g. capital
+    sizing decisions: can the basket lose more than its stake)."""
+    for run_dir, expected_stake_dd in _REFERENCE_DD_PCT_VS_STAKE.items():
+        m = canonical_metrics(_parquet(run_dir), 1000.0)
+        assert m["max_dd_pct_vs_stake"] == pytest.approx(expected_stake_dd, abs=0.05), (
+            f"stake-relative DD% drift on {run_dir}: "
+            f"got {m['max_dd_pct_vs_stake']:.2f}, expected {expected_stake_dd:.2f}"
+        )

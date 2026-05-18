@@ -47,9 +47,12 @@ _V4_TAGS = {"BUMP_INTO_HOLD", "LIQUIDATE_RESET", "HOLD_MODE",
             "BUMP_REJECTED_MARGIN", "HOLD_NO_TREND_WINNER"}
 # H3_spread@1 (2026-05-18): LONG-SHORT pair-spread basket rule.
 # Distinct event vocabulary; HOLDING/PYRAMID/LIQUIDATE_<reason> forms.
+# LIQUIDATE_TRAIL_STOP added 2026-05-18 (P04 variant): peak-relative trailing
+# stop. Activates when running cycle-peak floating >= trail_arm_floating_usd
+# AND current floating retraces by trail_retrace_pct%.
 _H3_SPREAD_TAGS = {"PYRAMID", "AWAITING_ENTRY", "HOLDING",
                    "LIQUIDATE_TIME_STOP", "LIQUIDATE_ADVERSE_STOP",
-                   "LIQUIDATE_REVERSE_CROSS"}
+                   "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP"}
 
 
 def detect_rule_family(df: pd.DataFrame) -> str:
@@ -211,8 +214,16 @@ def canonical_metrics(
         float((df["peak_equity_usd"] - df["equity_total_usd"]).max())
         if len(df) else 0.0
     )
+    peak_equity = (
+        float(df["peak_equity_usd"].max()) if len(df) else float(stake_usd)
+    )
     net_pct = (final_eq - stake_usd) / stake_usd * 100 if stake_usd > 0 else 0.0
-    max_dd_pct = peak_dd_usd / stake_usd * 100 if stake_usd > 0 else 0.0
+    # DD% is peak-relative (standard backtest convention). Predecessor divided
+    # by stake_usd which produced > 100% for profitable runs when peak >> stake
+    # (e.g. H3_spread BEAR 24mo: DD $1379 / stake $1000 = 138% vs DD/peak = 36%).
+    # The stake-relative form is still computed for callers that need it.
+    max_dd_pct = peak_dd_usd / peak_equity * 100 if peak_equity > 0 else 0.0
+    max_dd_pct_vs_stake = peak_dd_usd / stake_usd * 100 if stake_usd > 0 else 0.0
     ret_dd = (net_pct / max_dd_pct) if max_dd_pct > 0 else 0.0
 
     # Exit reason + days (from basket csv, if available)
@@ -237,6 +248,7 @@ def canonical_metrics(
     events = {
         "recycle_executed": int(df["recycle_executed"].sum())
                             if "recycle_executed" in df.columns else 0,
+        # H2 v4 / v5 tags
         "bumps":            int((skip == "BUMP_INTO_HOLD").sum()),
         "liquidate_reset":  int((skip == "LIQUIDATE_RESET").sum()),
         "pyramids":         int((skip == "PYRAMID_ADDED").sum()),
@@ -246,6 +258,14 @@ def canonical_metrics(
         "correlation_gate_blocks": int((skip == "CORRELATION_GATE").sum()),
         "holding_bars":     int(((skip == "HOLD_MODE") | (skip == "HOLDING_PYRAMID")).sum()),
         "waiting_bars":     int((skip == "WAITING_FOR_PYRAMID").sum()),
+        # H3_spread tags (2026-05-18)
+        "h3_pyramids":      int((skip == "PYRAMID").sum()),
+        "h3_holding":       int((skip == "HOLDING").sum()),
+        "h3_awaiting":      int((skip == "AWAITING_ENTRY").sum()),
+        "h3_liq_time":      int((skip == "LIQUIDATE_TIME_STOP").sum()),
+        "h3_liq_adverse":   int((skip == "LIQUIDATE_ADVERSE_STOP").sum()),
+        "h3_liq_reverse":   int((skip == "LIQUIDATE_REVERSE_CROSS").sum()),
+        "h3_liq_trail":     int((skip == "LIQUIDATE_TRAIL_STOP").sum()),
     }
 
     # Cycle-level reconstruction (only meaningful for cycle-mechanic rules)
@@ -256,6 +276,12 @@ def canonical_metrics(
         )
     elif rf == "v4_bump_liquidate":
         cycle_pnls = _cycle_pnl_from_parquet(df, ["LIQUIDATE_RESET"])
+    elif rf == "h3_spread":
+        cycle_pnls = _cycle_pnl_from_parquet(
+            df,
+            ["LIQUIDATE_TIME_STOP", "LIQUIDATE_ADVERSE_STOP",
+             "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP"],
+        )
 
     cycles_completed = len(cycle_pnls)
     cycles_won = sum(1 for c in cycle_pnls if c["cycle_pnl_usd"] > 0)
@@ -292,12 +318,159 @@ def canonical_metrics(
         if sym:
             peak_lots[sym] = float(df[lot_col].max())
 
+    # --- Time-in-position telemetry -------------------------------------
+    # Fraction of bars with at least one leg in position. Distinguishes
+    # signal-triggered strategies (mostly waiting) from continuous-hold
+    # baskets (always open).
+    total_bars = len(df)
+    if total_bars > 0 and "active_legs" in df.columns:
+        in_position_bars = int((df["active_legs"] > 0).sum())
+        time_in_position_pct = in_position_bars / total_bars * 100.0
+    else:
+        in_position_bars = 0
+        time_in_position_pct = 0.0
+
+    # --- Cycle-duration distribution (bars between consecutive liquidations) -
+    cycle_durations_bars: list[int] = []
+    if cycle_pnls:
+        prev_bar = 0
+        for c in cycle_pnls:
+            cycle_durations_bars.append(int(c["bar_index"]) - prev_bar)
+            prev_bar = int(c["bar_index"])
+    cycle_dur_series = pd.Series(cycle_durations_bars, dtype=float) if cycle_durations_bars else pd.Series(dtype=float)
+
+    # --- Capital efficiency: peak notional / peak equity --------------------
+    peak_notional = (
+        float(df["notional_total_usd"].max()) if "notional_total_usd" in df.columns and total_bars else 0.0
+    )
+    peak_leverage_ratio = (peak_notional / peak_equity) if peak_equity > 0 else 0.0
+
+    # --- Recovery time from worst DD ----------------------------------------
+    # Bars between the worst-DD bar and the next bar that exceeded the prior peak.
+    recovery_bars: Optional[int] = None
+    if total_bars and "dd_from_peak_usd" in df.columns:
+        worst_idx = int(df["dd_from_peak_usd"].idxmin())
+        peak_at_worst = float(df.loc[worst_idx, "peak_equity_usd"])
+        after = df.iloc[worst_idx + 1:]
+        if not after.empty:
+            recovered = after[after["equity_total_usd"] > peak_at_worst]
+            if not recovered.empty:
+                recovery_bars = int(recovered.index[0]) - worst_idx
+            # else stays None → never recovered within the window
+
+    # --- Underwater-period analysis -----------------------------------------
+    # An "underwater period" is a contiguous run of bars where equity is
+    # below the running peak. The longest such period bounds operator
+    # patience expectations ("how many months might I sit at a loss?").
+    underwater_periods_bars: list[int] = []
+    longest_underwater_bars: int = 0
+    if total_bars and "dd_from_peak_usd" in df.columns:
+        # underwater = dd_from_peak_usd < 0 (strictly below peak)
+        uw = (df["dd_from_peak_usd"] < 0).to_numpy()
+        # Run-length encode True spans
+        in_run = False
+        run_len = 0
+        for v in uw:
+            if v:
+                run_len += 1
+                in_run = True
+            elif in_run:
+                underwater_periods_bars.append(run_len)
+                run_len = 0
+                in_run = False
+        if in_run:
+            underwater_periods_bars.append(run_len)
+        if underwater_periods_bars:
+            longest_underwater_bars = max(underwater_periods_bars)
+    n_underwater_periods = len(underwater_periods_bars)
+    underwater_total_bars = sum(underwater_periods_bars)
+    underwater_total_pct = (
+        underwater_total_bars / total_bars * 100.0 if total_bars else 0.0
+    )
+
+    # --- Monthly equity curve -----------------------------------------------
+    # Year-month bucketing: starting equity, ending equity, MTD return %, and
+    # cycle count per month. Operators use this to spot regime windows where
+    # the strategy worked vs failed.
+    monthly_rows: list[dict[str, Any]] = []
+    if total_bars and "timestamp" in df.columns:
+        ts_series = pd.to_datetime(df["timestamp"])
+        df_ts = df.assign(_month=ts_series.dt.to_period("M").astype(str))
+        # Map each cycle to its month
+        cycle_months: dict[str, int] = {}
+        for c in cycle_pnls:
+            cts = c.get("ts")
+            if cts is None:
+                continue
+            try:
+                ym = pd.Timestamp(cts).to_period("M").strftime("%Y-%m")
+                cycle_months[ym] = cycle_months.get(ym, 0) + 1
+            except Exception:
+                continue
+        grouped = df_ts.groupby("_month", sort=True)
+        for month, sub in grouped:
+            start_eq = float(sub["equity_total_usd"].iloc[0])
+            end_eq = float(sub["equity_total_usd"].iloc[-1])
+            mtd_pct = ((end_eq - start_eq) / start_eq * 100.0) if start_eq > 0 else 0.0
+            monthly_rows.append({
+                "month": str(month),
+                "starting_equity": start_eq,
+                "ending_equity": end_eq,
+                "mtd_return_pct": mtd_pct,
+                "n_cycles": cycle_months.get(str(month), 0),
+            })
+
+    # --- Per-cycle PnL histogram (adaptive bucketing) -----------------------
+    # 7 buckets across the observed range. The bucket boundaries are
+    # rounded to the nearest sensible currency value (cent / dollar).
+    pnl_histogram: list[dict[str, Any]] = []
+    if cycle_pnls:
+        pnl_values = [c["cycle_pnl_usd"] for c in cycle_pnls]
+        s = pd.Series(pnl_values, dtype=float)
+        # Use seven quantile-based buckets; falls back to equal-width if
+        # quantiles collapse (e.g., all values identical).
+        try:
+            bins = pd.qcut(s, q=7, duplicates="drop")
+        except ValueError:
+            bins = pd.cut(s, bins=7, duplicates="drop")
+        counts = bins.value_counts().sort_index()
+        for interval, n in counts.items():
+            pnl_histogram.append({
+                "lo": float(interval.left),
+                "hi": float(interval.right),
+                "count": int(n),
+                "share_pct": float(n) / len(s) * 100.0,
+            })
+
+    # --- Exit reason breakdown (for cycle-mechanic rules) -------------------
+    exit_breakdown: dict[str, int] = {}
+    if cycle_pnls:
+        from collections import Counter
+        c = Counter(cp.get("exit_tag", "?") for cp in cycle_pnls)
+        exit_breakdown = dict(c)
+
+    # --- Per-leg cumulative floating contribution at end --------------------
+    leg_final_lots: dict[str, float] = {}
+    leg_final_floats: dict[str, float] = {}
+    if total_bars:
+        last_row = df.iloc[-1]
+        for lot_col, sym_col in zip(leg_lot_cols, leg_sym_cols):
+            sym = df[sym_col].dropna().iloc[0] if not df[sym_col].dropna().empty else None
+            if not sym:
+                continue
+            leg_final_lots[sym] = float(last_row.get(lot_col, 0.0))
+            float_col = lot_col.replace("_lot", "_floating_usd")
+            if float_col in df.columns:
+                leg_final_floats[sym] = float(last_row.get(float_col, 0.0))
+
     return {
         # Headline
         "final_equity_usd":   final_eq,
+        "peak_equity_usd":    peak_equity,
         "net_pct":            net_pct,
         "max_dd_usd":         peak_dd_usd,
-        "max_dd_pct":         max_dd_pct,
+        "max_dd_pct":         max_dd_pct,             # peak-relative (standard)
+        "max_dd_pct_vs_stake": max_dd_pct_vs_stake,    # stake-relative (legacy / capital sizing)
         "ret_dd":             ret_dd,
         "exit_reason":        exit_reason,
         "days_to_exit":       days_to_exit,
@@ -314,12 +487,33 @@ def canonical_metrics(
         "median_cycle_pnl":   median_cycle_pnl,
         "mean_cycle_pnl":     mean_cycle_pnl,
         "cycle_pnls":         cycle_pnls,         # full list for distribution analysis
+        "exit_breakdown":     exit_breakdown,     # {tag: count} for cycle exits
+        "cycle_durations_bars": cycle_durations_bars,  # bars between liquidations
 
         # Asymmetry diagnostic (per-winner-side)
         "per_winner_side":    per_winner_side,
 
         # Per-leg peak exposure (for capital sizing)
         "peak_lots":          peak_lots,
+        "leg_final_lots":     leg_final_lots,
+        "leg_final_floats":   leg_final_floats,
+
+        # Time / capital telemetry
+        "time_in_position_pct": time_in_position_pct,
+        "in_position_bars":   in_position_bars,
+        "total_bars":         total_bars,
+        "peak_notional_usd":  peak_notional,
+        "peak_leverage_ratio": peak_leverage_ratio,
+        "recovery_bars":      recovery_bars,
+
+        # Underwater + monthly + histogram telemetry (2026-05-18)
+        "longest_underwater_bars": longest_underwater_bars,
+        "underwater_periods_bars": underwater_periods_bars,
+        "n_underwater_periods": n_underwater_periods,
+        "underwater_total_bars": underwater_total_bars,
+        "underwater_total_pct": underwater_total_pct,
+        "monthly_curve":      monthly_rows,
+        "pnl_histogram":      pnl_histogram,
 
         # Rule context
         "rule_family":        rf,

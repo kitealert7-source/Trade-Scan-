@@ -76,9 +76,10 @@ def test_top_line_table_includes_canonical_metrics():
     assert "Net %" in md
     assert "Max DD %" in md
     assert "Return / DD" in md
-    # Specific V3 values (from canonical_metrics reference set)
-    assert "+35.60%" in md   # net_pct
-    assert "1.82" in md       # ret/DD
+    # Specific V3 values (from canonical_metrics reference set; DD% updated
+    # to peak-relative basis 2026-05-18).
+    assert "+35.60%" in md     # net_pct
+    assert "2.55" in md         # ret/DD peak-relative
 
 
 def test_v5_report_includes_pyramid_event_taxonomy():
@@ -129,28 +130,35 @@ def test_v5_report_includes_asymmetry_diagnostic():
     assert "USDJPY" in md
 
 
-def test_report_includes_legacy_caveat_block():
-    """All reports include the caveat explaining why this file exists
-    alongside the legacy REPORT.md."""
+def test_report_includes_authority_note_block():
+    """All reports include the authority note declaring BASKET_REPORT
+    as the canonical source. Section renamed from legacy 'caveat' block
+    when legacy REPORT.md generation was suppressed for basket runs
+    (2026-05-18)."""
     md = render_basket_report(
         _parquet("90_PORT_H2_5M_RECYCLE_S14_V1_P00_H2"), 1000.0,
         directive_id="90_PORT_H2_5M_RECYCLE_S14_V1_P00",
         rule_label="H2_recycle@4", basket_id="H2",
         timeframe="5m", date_range="F",
     )
-    assert "legacy REPORT.md caveat" in md
+    assert "Authoritative source" in md
     assert "canonical_metrics" in md
     assert "authoritative" in md
 
 
 def test_peak_lots_section_present():
+    """Per-leg exposure section renamed from 'Per-Leg Peak Lot Exposure'
+    to 'Per-Leg Exposure' (2026-05-18) when final-lot column was added
+    alongside peak-lot."""
     md = render_basket_report(
         _parquet("90_PORT_H2_5M_RECYCLE_S18_V1_P00_H2"), 1000.0,
         directive_id="90_PORT_H2_5M_RECYCLE_S18_V1_P00",
         rule_label="H2_recycle@5", basket_id="H2",
         timeframe="5m", date_range="F",
     )
-    assert "Per-Leg Peak Lot Exposure" in md
+    assert "Per-Leg Exposure" in md
+    assert "Peak lot" in md
+    assert "Final lot" in md
 
 
 # ---------------------------------------------------------------------------
