@@ -4,7 +4,7 @@
 - WARNING: 77 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-18T12:13:07Z
+> Generated: 2026-05-18T15:15:07Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,7 +13,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 479 directives
+- Completed: 483 directives
 
 ## Ledgers
 
@@ -36,12 +36,12 @@
 - Latest bar: **2026-05-18** | Symbols: 221 | **Stale (>3d): 77**
 
 ## Artifacts
-- Run directories: 1577
+- Run directories: 1581
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `8ef56fe fix(state-machine): terminal-state guard + audit + timestamp fixes in PipelineStateManager`
+- Last substantive commit: `01bfc85 test(basket-path-b): drop legacy REPORT.md assertion (suppressed for baskets)`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
