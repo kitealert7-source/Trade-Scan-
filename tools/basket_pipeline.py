@@ -324,6 +324,8 @@ def _instantiate_rule(
             reverse_cross_column=str(params.get("reverse_cross_column", "cross_side")),
             entry_direction=int(params.get("entry_direction", +1)),
             initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            trail_arm_floating_usd=float(params.get("trail_arm_floating_usd", 0.0)),
+            trail_retrace_pct=float(params.get("trail_retrace_pct", 0.0)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,

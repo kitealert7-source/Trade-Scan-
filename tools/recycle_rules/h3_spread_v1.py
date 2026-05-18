@@ -113,6 +113,13 @@ class H3SpreadV1Rule(H2RecycleRule):
     reverse_cross_column: str = "cross_side"
     entry_direction: int = +1          # +1 = first-leg-long; -1 = first-leg-short
     initial_notional_usd: float = 1000.0
+    # Peak-relative trailing stop (2026-05-18). Arms once cycle running-peak
+    # floating exceeds `trail_arm_floating_usd`. Once armed, liquidates when
+    # current floating retraces by `trail_retrace_pct`% of the running peak.
+    # Both default 0.0 (= disabled) so existing directives (P00-P03) behave
+    # byte-identically. Evaluated AFTER adverse-stop and BEFORE reverse-cross.
+    trail_arm_floating_usd: float = 0.0
+    trail_retrace_pct: float = 0.0     # 50.0 = exit at 50% retrace from peak
 
     # --- Name + version overrides (parent fields) ---
     name: str = _RULE_NAME
@@ -127,6 +134,10 @@ class H3SpreadV1Rule(H2RecycleRule):
     _n_adverse_stops: int = 0
     _n_reverse_cross_exits: int = 0
     _n_time_stops: int = 0
+    _n_trail_stops: int = 0
+    # Running max floating since cycle open; reset on each liquidation.
+    # Drives the peak-relative trail-stop logic.
+    _cycle_peak_floating: float = 0.0
     # 1.3.0-basket ledger tracking (running peaks consumed inside _emit_record).
     _peak_equity_h3: float = 0.0
     _last_pyramid_bar: Optional[int] = None
@@ -168,6 +179,16 @@ class H3SpreadV1Rule(H2RecycleRule):
             raise ValueError(
                 f"H3SpreadV1Rule.pyramid_level_pcts must be monotonically increasing; "
                 f"got {self.pyramid_level_pcts!r}."
+            )
+        if self.trail_arm_floating_usd < 0:
+            raise ValueError(
+                f"H3SpreadV1Rule.trail_arm_floating_usd must be >= 0; "
+                f"got {self.trail_arm_floating_usd!r}."
+            )
+        if not (0.0 <= self.trail_retrace_pct < 100.0):
+            raise ValueError(
+                f"H3SpreadV1Rule.trail_retrace_pct must be in [0, 100); "
+                f"got {self.trail_retrace_pct!r}."
             )
 
         # Manually initialize parent-class attributes that _record_bar reads
@@ -273,6 +294,11 @@ class H3SpreadV1Rule(H2RecycleRule):
             )
             return
 
+        # Update running cycle peak floating BEFORE exit checks so the trail
+        # check sees the most recent peak. Set on every in-position bar.
+        if floating_total > self._cycle_peak_floating:
+            self._cycle_peak_floating = floating_total
+
         # ---- Exit checks (priority order) -------------------------------
 
         # 1. TIME STOP
@@ -291,6 +317,20 @@ class H3SpreadV1Rule(H2RecycleRule):
             self._liquidate(legs, i, bar_ts, bar_closes, leg_float,
                             floating_total, reason="ADVERSE_STOP")
             return
+
+        # 2.5 TRAIL STOP (peak-relative; armed once running peak >= arm threshold)
+        # Disabled when either param == 0 → no behavioral change for P00-P03.
+        if (self.trail_retrace_pct > 0.0
+                and self.trail_arm_floating_usd > 0.0
+                and self._cycle_peak_floating >= self.trail_arm_floating_usd):
+            retrace_floor = (
+                self._cycle_peak_floating * (1.0 - self.trail_retrace_pct / 100.0)
+            )
+            if floating_total <= retrace_floor:
+                self._n_trail_stops += 1
+                self._liquidate(legs, i, bar_ts, bar_closes, leg_float,
+                                floating_total, reason="TRAIL_STOP")
+                return
 
         # 3. REVERSE CROSS
         try:
@@ -430,6 +470,7 @@ class H3SpreadV1Rule(H2RecycleRule):
         self._basket_open = False
         self._entry_bar_idx = None
         self._next_pyramid_level = 0
+        self._cycle_peak_floating = 0.0   # reset for next cycle's trail-stop
 
         self.recycle_events.append({
             "bar_index": i,
