@@ -83,6 +83,13 @@ from tools.recycle_rules.h2_recycle_v3 import (
     _leg_margin_usd,
 )
 
+# 1.3.0-basket per-leg suffixes — mirrors tools.basket_report._PER_LEG_SUFFIXES.
+# Kept literal here so we don't import a downstream module just for a tuple.
+_PER_LEG_SUFFIXES = (
+    "symbol", "side", "lot", "avg_entry", "mark",
+    "floating_usd", "margin_usd", "notional_usd",
+)
+
 
 _RULE_NAME = "H3_spread"
 _RULE_VERSION = 1
@@ -120,6 +127,9 @@ class H3SpreadV1Rule(H2RecycleRule):
     _n_adverse_stops: int = 0
     _n_reverse_cross_exits: int = 0
     _n_time_stops: int = 0
+    # 1.3.0-basket ledger tracking (running peaks consumed inside _emit_record).
+    _peak_equity_h3: float = 0.0
+    _last_pyramid_bar: Optional[int] = None
 
     # --- Back-reference (populated by BasketRunner.__init__) ---
     basket_runner: Optional[BasketRunner] = None
@@ -183,6 +193,28 @@ class H3SpreadV1Rule(H2RecycleRule):
         self.factor_column = ""                # not used
         self.factor_min = 0.0
         self.factor_operator = ">="
+
+        # 1.3.0-basket schema: initialize peak + summary_stats so per-bar
+        # records emit the 35-col standard schema and downstream basket_report
+        # can build per-window cycle metrics. Schema reference:
+        # tools.basket_report._FIXED_LEDGER_COLUMNS + _PER_LEG_SUFFIXES.
+        self._peak_equity_h3 = self.starting_equity
+        self.summary_stats: dict[str, Any] = {
+            "peak_floating_dd_usd":         0.0,
+            "peak_floating_dd_pct":         0.0,
+            "dd_freeze_count":              0,      # H3 has no dd-freeze gate
+            "margin_freeze_count":          0,      # H3 has no margin-freeze gate
+            "regime_freeze_count":          0,      # H3 has no regime gate
+            "peak_margin_used_usd":         0.0,
+            "min_margin_level_pct":         float("inf"),
+            "worst_floating_at_freeze_usd": 0.0,
+            "peak_lots":                    {},
+            "final_pnl_usd":                None,
+            "return_on_real_capital_pct":   None,
+            "harvest_bar_index":            None,
+            "harvest_bar_ts":               None,
+            "harvest_reason":               None,
+        }
 
     # ---- core mechanic ---------------------------------------------------
 
@@ -345,6 +377,8 @@ class H3SpreadV1Rule(H2RecycleRule):
         self._emit_record(
             legs, i, bar_ts, bar_closes, leg_float, floating_total,
             skip_reason="PYRAMID",
+            recycle_attempted=True,
+            recycle_executed=True,
         )
 
     # ---- Liquidation -----------------------------------------------------
@@ -412,32 +446,155 @@ class H3SpreadV1Rule(H2RecycleRule):
             skip_reason=f"LIQUIDATE_{reason}",
         )
 
-    # ---- Per-bar record (parquet emission) -------------------------------
+    # ---- Per-bar record (1.3.0-basket 35-col parquet emission) ----------
 
     def _emit_record(
         self,
         legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp,
         bar_closes: dict[str, float], leg_float: dict[str, float],
         floating_total: float, skip_reason: str,
+        *,
+        recycle_attempted: bool = False,
+        recycle_executed: bool = False,
     ) -> None:
-        """Lightweight per-bar record. The parent's _record_bar takes more
-        params than we track; we emit a simpler structure that downstream
-        canonical_metrics can read."""
+        """Emit one per-bar record matching the 1.3.0-basket 35-col fixed
+        schema + 8 cols per leg (Block F). Schema is locked in
+        tools.basket_report._FIXED_LEDGER_COLUMNS / _PER_LEG_SUFFIXES;
+        downstream basket_report._write_per_bar_ledger raises if any fixed
+        column is missing.
+
+        H3-specific mappings:
+          - recycle_attempted / recycle_executed: pyramid-add events
+            (H3's analog of H2's winner-add-to-loser recycle).
+          - harvest_triggered: always False (H3 has no equity target).
+          - regime_gate_blocked / dd_freeze_active / margin_freeze_active:
+            always False (H3 has no factor gate or DD/margin freezes).
+          - gate_factor_value / gate_factor_name: NaN / "" (no gate).
+          - winner_leg_idx / loser_leg_idx: None (H3 pyramids both legs
+            uniformly; winner/loser concept doesn't apply).
+        """
+        # Equity + drawdown tracking (running peak across the whole basket)
         equity = self.starting_equity + self.realized_total + floating_total
-        self.per_bar_records.append({
-            "bar_index": i,
-            "bar_ts": bar_ts,
-            "bar_closes": dict(bar_closes),
-            "leg_float": dict(leg_float),
-            "floating_total": floating_total,
-            "equity": equity,
-            "realized_total": self.realized_total,
-            "n_pyramids_total": self._n_pyramids_total,
-            "n_liquidations": self._n_liquidations,
-            "next_pyramid_level": self._next_pyramid_level,
-            "basket_open": self._basket_open,
-            "skip_reason": skip_reason,
-        })
+        if equity > self._peak_equity_h3:
+            self._peak_equity_h3 = equity
+        dd_from_peak_usd = equity - self._peak_equity_h3
+        if self._peak_equity_h3 > 0:
+            dd_from_peak_pct = dd_from_peak_usd / self._peak_equity_h3 * 100.0
+        else:
+            dd_from_peak_pct = 0.0
+
+        # Margin / notional aggregates via v3 cross-pair helpers.
+        ref_closes = _build_ref_closes(legs, bar_ts)
+        margin_used = 0.0
+        notional_total = 0.0
+        per_leg_margin: dict[str, float] = {}
+        per_leg_notional: dict[str, float] = {}
+        for leg in legs:
+            bc = bar_closes.get(leg.symbol, float("nan"))
+            if bc != bc or not leg.state.in_pos:
+                per_leg_margin[leg.symbol] = 0.0
+                per_leg_notional[leg.symbol] = 0.0
+                continue
+            m = _leg_margin_usd(leg, bc, self.leverage, ref_closes)
+            per_leg_margin[leg.symbol] = m
+            margin_used += m
+            # Notional = margin * leverage (in USD)
+            n = m * self.leverage
+            per_leg_notional[leg.symbol] = n
+            notional_total += n
+
+        free_margin = equity - margin_used
+        margin_level_pct = (equity / margin_used * 100.0) if margin_used > 0 else float("nan")
+
+        in_pos_lots = [leg.lot for leg in legs if leg.state.in_pos]
+        active_legs = len(in_pos_lots)
+        total_lot = sum(in_pos_lots) if in_pos_lots else 0.0
+        largest_leg_lot = max(in_pos_lots) if in_pos_lots else 0.0
+        smallest_leg_lot = min(in_pos_lots) if in_pos_lots else 0.0
+
+        bars_since_last_recycle = (
+            (i - self._last_pyramid_bar) if self._last_pyramid_bar is not None else None
+        )
+        bars_since_last_harvest = (
+            (i - self._entry_bar_idx) if self._entry_bar_idx is not None else 0
+        )
+
+        record: dict[str, Any] = {
+            # Block A — Time/identity (5)
+            "timestamp":               bar_ts,
+            "directive_id":            self.directive_id,
+            "basket_id":               self.basket_id,
+            "bar_index":               i,
+            "run_id":                  self.run_id,
+            # Block B — Equity state (6)
+            "floating_total_usd":      floating_total,
+            "realized_total_usd":      self.realized_total,
+            "equity_total_usd":        equity,
+            "peak_equity_usd":         self._peak_equity_h3,
+            "dd_from_peak_usd":        dd_from_peak_usd,
+            "dd_from_peak_pct":        dd_from_peak_pct,
+            # Block C — Margin/capital state (5)
+            "margin_used_usd":         margin_used,
+            "free_margin_usd":         free_margin,
+            "margin_level_pct":        margin_level_pct,
+            "notional_total_usd":      notional_total,
+            "leverage_effective":      self.leverage,
+            # Block D — Engine control state (8). H3 has no DD-freeze /
+            # margin-freeze / regime gate, so those flags are constant False.
+            "dd_freeze_active":        False,
+            "margin_freeze_active":    False,
+            "regime_gate_blocked":     False,
+            "recycle_attempted":       recycle_attempted,
+            "recycle_executed":        recycle_executed,
+            "harvest_triggered":       False,
+            "engine_paused":           False,
+            "skip_reason":             skip_reason,
+            # Block E — Position state (4)
+            "active_legs":             active_legs,
+            "total_lot":               total_lot,
+            "largest_leg_lot":         largest_leg_lot,
+            "smallest_leg_lot":        smallest_leg_lot,
+            # Block G — Strategy state (7)
+            "recycle_count":           self._n_pyramids_total,
+            "bars_since_last_recycle": bars_since_last_recycle,
+            "bars_since_last_harvest": bars_since_last_harvest,
+            "gate_factor_value":       float("nan"),
+            "gate_factor_name":        self.factor_column,  # "" by default
+            "winner_leg_idx":          None,
+            "loser_leg_idx":           None,
+        }
+
+        # Block F — per-leg state (8 cols × N legs)
+        for idx, leg in enumerate(legs):
+            bc = bar_closes.get(leg.symbol, float("nan"))
+            record[f"leg_{idx}_symbol"]       = leg.symbol
+            record[f"leg_{idx}_side"]         = "long" if leg.direction == 1 else "short"
+            record[f"leg_{idx}_lot"]          = leg.lot
+            record[f"leg_{idx}_avg_entry"]    = leg.state.entry_price
+            record[f"leg_{idx}_mark"]         = bc
+            record[f"leg_{idx}_floating_usd"] = leg_float.get(leg.symbol, 0.0)
+            record[f"leg_{idx}_margin_usd"]   = per_leg_margin.get(leg.symbol, 0.0)
+            record[f"leg_{idx}_notional_usd"] = per_leg_notional.get(leg.symbol, 0.0)
+
+        self.per_bar_records.append(record)
+
+        # ---- summary_stats running aggregates (consumed by canonical_metrics) ----
+        stats = self.summary_stats
+        if dd_from_peak_usd < stats["peak_floating_dd_usd"]:
+            stats["peak_floating_dd_usd"] = dd_from_peak_usd
+            stats["peak_floating_dd_pct"] = dd_from_peak_pct
+        if margin_used > stats["peak_margin_used_usd"]:
+            stats["peak_margin_used_usd"] = margin_used
+        if margin_used > 0 and not pd.isna(margin_level_pct):
+            if margin_level_pct < stats["min_margin_level_pct"]:
+                stats["min_margin_level_pct"] = margin_level_pct
+        for leg in legs:
+            prev = stats["peak_lots"].get(leg.symbol, 0.0)
+            if leg.lot > prev:
+                stats["peak_lots"][leg.symbol] = leg.lot
+
+        if recycle_executed:
+            self._last_pyramid_bar = i
 
 
 __all__ = ["H3SpreadV1Rule"]
