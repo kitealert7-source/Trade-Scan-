@@ -71,6 +71,7 @@ model:
   - FVG
   - PSBRK
   - RECYCLE
+  - PAIRX
 filter:
   - ATRFILT
   - VOLFILT
