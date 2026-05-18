@@ -302,6 +302,7 @@ These are the items that need explicit policy choices, not mechanical execution:
 | 2026-05-14 | Stage 4 added as 5th explicit stage | Operator-flagged that "implicit" coverage by Stages 1+3 was insufficient |
 | 2026-05-14 | Stage 5 ordered last | Wall-clock-expensive (72h); only after cheap stages have confirmed validator correctness |
 | 2026-05-15 | §6.6 items 2/3/4 closed; item 5 deferred to Mon | Operator concurred with retention/consolidation/governance recommendations as written. TS_Engine archive question deferred until Stage 5 results inform Phase 7b shadow-read planning. |
+| 2026-05-18 | Kill-switch redesigned — single peak-DD rule (40% from rolling 90-day peak), daily check, per-strategy, manual unlock — replaces 3 baseline-comparison rules | Stage 5 replay surfaced 5/6 strategies tripping HALT_EQUITY_DD due to backtest-baseline floors being too tight for live vol. Operator pinpointed the design flaw: old rule conflated capital-preservation (kill's actual job) with strategy-invalidation (a human-analysis task). Full design: `KILL_SWITCH_REDESIGN_PROPOSAL.md`. TSSV implementation: commit `ce28653`. Stage 5 will re-run with new rule once code is deployed. |
 
 ---
 
