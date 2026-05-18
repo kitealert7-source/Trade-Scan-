@@ -334,6 +334,70 @@ rules:
     requires_basket_runner_primitives:
       - soft_reset_basket    # Phase B; commit 62018ab
 
+  - name: H3_spread
+    version: 1
+    description: >
+      LONG-SHORT pair-spread basket rule (H3 family). Distinct from
+      H2_recycle@1-5 (which manage LONG-LONG / USD-cancelling baskets
+      via leg-asymmetric loser-driven mechanics). H3_spread manages a
+      USD-directional spread where one leg is long and the other short,
+      so basket P&L isolates the USD-direction component.
+
+      Hypothesis (2026-05-18 session): after a z-normalized SMA
+      crossover between two USD-anchored pairs (e.g. EURUSD/USDJPY), the
+      USD-direction spread tends to drift in the current macro regime
+      direction. Capture by:
+        - opening on cross signal (via SpreadCrossLegStrategy on each leg)
+        - holding while regime persists
+        - pyramiding into the winners (anti-Martingale)
+        - exiting on reverse cross / adverse stop / time stop
+
+      Mechanic per bar (priority order):
+        1. TIME_STOP: liquidate if elapsed bars >= time_stop_bars
+        2. ADVERSE_STOP: liquidate if floating <= -adverse_stop_pct * notional
+        3. REVERSE_CROSS: liquidate if leg.df[cross_side] != entry_direction
+        4. PYRAMID: if floating >= next level threshold, add pyramid_add_lot
+           to BOTH legs (preserving direction)
+
+      v1 limitations:
+        - Adverse stop uses bar-close P&L (not intra-bar OHLC). v2 plan:
+          use engine v1_5_8 unrealized_r_intrabar.
+        - Pyramid adds uniformly to both legs (preserves spread structure).
+          Asymmetric variant (only better leg) deferred to v2.
+
+      Implementation: tools/recycle_rules/h3_spread_v1.py. Inherits from
+      H2RecycleRule for parquet+events list machinery; overrides apply()
+      entirely. Uses V3 cross-pair helpers (_build_ref_closes, _leg_pnl_usd).
+      Consumed by tools.basket_runner via BasketRule protocol.
+    params:
+      pyramid_level_pcts:
+        type: list[float]
+        default: [0.15, 0.30]
+      pyramid_add_lot:
+        type: float
+        default: 0.05
+      adverse_stop_pct:
+        type: float
+        default: 0.0020
+      time_stop_bars:
+        type: int
+        default: 288
+      reverse_cross_column:
+        type: str
+        default: "cross_side"
+      entry_direction:
+        type: int
+        default: 1
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+    required_factors:
+      - spread_sma_cross.cross_side
+      - spread_sma_cross.cross_event
+    initial_consumer: tools/basket_runner.py
+    requires_basket_runner_primitives:
+      - soft_reset_basket    # Phase B; commit 62018ab
+
   - name: H2_recycle
     version: 2
     description: >
