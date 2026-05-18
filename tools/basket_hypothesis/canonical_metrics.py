@@ -45,19 +45,26 @@ _V5_TAGS = {"PYRAMID_ADDED", "TREND_LIQUIDATE_RECOVERY",
             "HOLDING_PYRAMID", "WAITING_FOR_PYRAMID", "CORRELATION_GATE"}
 _V4_TAGS = {"BUMP_INTO_HOLD", "LIQUIDATE_RESET", "HOLD_MODE",
             "BUMP_REJECTED_MARGIN", "HOLD_NO_TREND_WINNER"}
+# H3_spread@1 (2026-05-18): LONG-SHORT pair-spread basket rule.
+# Distinct event vocabulary; HOLDING/PYRAMID/LIQUIDATE_<reason> forms.
+_H3_SPREAD_TAGS = {"PYRAMID", "AWAITING_ENTRY", "HOLDING",
+                   "LIQUIDATE_TIME_STOP", "LIQUIDATE_ADVERSE_STOP",
+                   "LIQUIDATE_REVERSE_CROSS"}
 
 
 def detect_rule_family(df: pd.DataFrame) -> str:
     """Auto-detect rule family from per-bar skip_reason values.
 
-    Returns one of: "v5_pyramid", "v4_bump_liquidate", "v1_recycle".
-    Used to drive cycle-level metric reconstruction in
+    Returns one of: "h3_spread", "v5_pyramid", "v4_bump_liquidate",
+    "v1_recycle". Used to drive cycle-level metric reconstruction in
     `canonical_metrics`. Pass `rule_family` explicitly if auto-detect
     would be ambiguous (e.g. zero-event runs).
     """
     if "skip_reason" not in df.columns:
         return "v1_recycle"
     reasons = set(df["skip_reason"].dropna().unique())
+    if reasons & _H3_SPREAD_TAGS:
+        return "h3_spread"
     if reasons & _V5_TAGS:
         return "v5_pyramid"
     if reasons & _V4_TAGS:

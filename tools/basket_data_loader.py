@@ -37,6 +37,7 @@ __all__ = [
     "load_compression_5d_factor",  # legacy alias; prefer load_usd_synth_factor
     "load_usd_synth_factor",
     "load_fx_correlation_factor",
+    "compute_spread_sma_cross_5m",
     "clear_year_file_cache",
 ]
 
@@ -441,4 +442,65 @@ def load_basket_leg_data(
         for tf, corr_series in fx_corr_series.items():
             df_5m[f"fx_corr_{tf}"] = corr_series.reindex(df_5m.index, method="ffill")
         out[sym] = df_5m
+
+    # spread_sma_cross signal join (2026-05-18) — auto-joined for 2-leg
+    # baskets. Adds `cross_event` and `cross_side` columns to every leg's
+    # df (both legs see the same signal series — it's a pair-property).
+    # Used by H3_spread@1 rule + SpreadCrossLegStrategy. Failure is
+    # non-fatal: directives that don't use the signal continue to work.
+    if len(symbols) == 2:
+        try:
+            cross_df = compute_spread_sma_cross_5m(
+                out[symbols[0]]["close"],
+                out[symbols[1]]["close"],
+                z_window=600,    # ~50h at 5m (≈ 200 bars at 15m)
+                sma_window=15,   # ~75min at 5m (≈ 5 bars at 15m)
+            )
+            for sym in symbols:
+                out[sym]["cross_event"] = cross_df["cross_event"].reindex(
+                    out[sym].index, method="ffill", fill_value=0
+                ).astype(int)
+                out[sym]["cross_side"] = cross_df["cross_side"].reindex(
+                    out[sym].index, method="ffill", fill_value=0
+                ).astype(int)
+        except Exception as exc:
+            print(
+                f"[BASKET_DATA] WARN: spread_sma_cross unavailable for "
+                f"({symbols[0]}, {symbols[1]}) ({exc}); H3_spread rule will "
+                f"not fire entries if configured."
+            )
+
     return out
+
+
+def compute_spread_sma_cross_5m(
+    close_a: pd.Series,
+    close_b: pd.Series,
+    z_window: int = 600,
+    sma_window: int = 15,
+) -> pd.DataFrame:
+    """Compute the SMA-crossover signal on z-normalized 5m closes of two
+    pairs. Thin wrapper around indicators.stats.spread_sma_cross — keeps
+    the indicator pure and centralizes the basket-loader-side parameter
+    defaults (which differ from the indicator's 15m-oriented defaults).
+
+    The output is aligned to whichever close index is the inner-join of
+    the two inputs (caller passes already-aligned series).
+    """
+    # Local import to avoid top-of-module circular ordering concerns when
+    # indicators/ imports any tools/ helper in the future.
+    from indicators.stats.spread_sma_cross import spread_sma_cross
+    aligned = pd.concat([close_a, close_b], axis=1).dropna()
+    if aligned.empty:
+        # Empty input — return empty same-schema frame so callers can join safely.
+        return pd.DataFrame(
+            columns=["z_a", "z_b", "sma_z_a", "sma_z_b", "diff",
+                     "cross_side", "cross_event"],
+            index=close_a.index,
+        )
+    return spread_sma_cross(
+        aligned.iloc[:, 0],
+        aligned.iloc[:, 1],
+        z_window=z_window,
+        sma_window=sma_window,
+    )

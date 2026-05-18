@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5 dispatch)
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +307,26 @@ def _instantiate_rule(
                 float(params["max_leg_lot"])
                 if params.get("max_leg_lot") is not None else None
             ),
+        )
+
+    if name == "H3_spread" and version == 1:
+        # H3_spread@1 (2026-05-18): LONG-SHORT pair-spread basket rule.
+        # Manages a USD-directional spread (one leg long, other short) with
+        # signal-triggered entry (via SpreadCrossLegStrategy), basket-level
+        # pyramid + adverse stop + reverse-cross / time-stop exits. Distinct
+        # from H2_recycle@1-5 (long-long baskets). Inherits H2RecycleRule
+        # for parquet+events machinery but overrides apply() entirely.
+        return H3SpreadV1Rule(
+            pyramid_level_pcts=tuple(params.get("pyramid_level_pcts", (0.15, 0.30))),
+            pyramid_add_lot=float(params.get("pyramid_add_lot", 0.05)),
+            adverse_stop_pct=float(params.get("adverse_stop_pct", 0.0020)),
+            time_stop_bars=int(params.get("time_stop_bars", 288)),
+            reverse_cross_column=str(params.get("reverse_cross_column", "cross_side")),
+            entry_direction=int(params.get("entry_direction", +1)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
         )
 
     if name == "H2_v7_compression" and version == 1:

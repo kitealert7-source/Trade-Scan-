@@ -1085,15 +1085,45 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     factor_column = str(_rule_params.get("factor_column", "compression_5d"))
     try:
         from tools.basket_data_loader import load_basket_leg_data
-        from tools.recycle_strategies import ContinuousHoldStrategy
+        from tools.recycle_strategies import (
+            ContinuousHoldStrategy,
+            SpreadCrossArmedState,
+            SpreadCrossLegStrategy,
+        )
         leg_data = load_basket_leg_data(symbols, start_date, end_date, factor_column=factor_column)
-        leg_strategies = {
-            leg["symbol"]: ContinuousHoldStrategy(
-                symbol=leg["symbol"],
-                direction=+1 if leg["direction"] == "long" else -1,
-            )
-            for leg in parsed["basket"]["legs"]
-        }
+        # Leg-strategy dispatch by recycle rule name (2026-05-18 — H3_spread@1):
+        # different rules require different leg-entry semantics. ContinuousHold
+        # opens unconditionally on bar 1 (the H2-family default); SpreadCross
+        # waits for cross signal + reconfirmation. The shared SpreadCrossArmedState
+        # instance is critical: BOTH legs of the basket MUST reference the same
+        # instance so arming + fire decisions are atomic at the basket level.
+        # Without it, per-leg state can drift and legs fire on different bars.
+        rule_block = parsed.get("basket", {}).get("recycle_rule", {}) or {}
+        rule_name = rule_block.get("name", "")
+        if rule_name == "H3_spread":
+            rule_params = rule_block.get("params", {}) or {}
+            cross_watch = int(rule_params.get("entry_direction", +1))
+            delay_bars = int(rule_params.get("entry_delay_bars", 12))
+            # ONE shared armed state for both legs.
+            shared_armed_state = SpreadCrossArmedState()
+            leg_strategies = {
+                leg["symbol"]: SpreadCrossLegStrategy(
+                    symbol=leg["symbol"],
+                    position_direction=+1 if leg["direction"] == "long" else -1,
+                    cross_watch_direction=cross_watch,
+                    armed_state=shared_armed_state,
+                    delay_bars=delay_bars,
+                )
+                for leg in parsed["basket"]["legs"]
+            }
+        else:
+            leg_strategies = {
+                leg["symbol"]: ContinuousHoldStrategy(
+                    symbol=leg["symbol"],
+                    direction=+1 if leg["direction"] == "long" else -1,
+                )
+                for leg in parsed["basket"]["legs"]
+            }
         return leg_data, leg_strategies, "real"
     except Exception as exc:
         print(f"[BASKET] WARN real data load failed ({exc}); falling back to synthetic mode.")
