@@ -13,23 +13,22 @@ test:
   parameter_mutation: false
   hypothesis_ref: H3_PAIR_SPREAD_V1
   hypothesis_variant: H3_PAIR_SPREAD_V1_BEAR
-  description: >
-    H3 PAIR SPREAD V1, BEAR variant: LONG EURUSD + SHORT USDJPY, signal-
-    triggered entry on UP-cross of SMA(5)-of-z(EURUSD) vs SMA(5)-of-z(USDJPY).
-    Manages with H3_spread@1: pyramid winners at +0.15% / +0.30% basket
-    notional, liquidate at -0.20% adverse OR reverse cross OR 3-day time
-    stop. 24mo window on policy default. Tests the USD-direction drift
-    hypothesis after pair convergence (regime-mirror signal — captures
-    USD-weakening direction in 2024-05 -> 2026-05 window).
+  description: 'H3 PAIR SPREAD V1, BEAR variant: LONG EURUSD + SHORT USDJPY, signal- triggered entry on UP-cross of SMA(5)-of-z(EURUSD)
+    vs SMA(5)-of-z(USDJPY). Manages with H3_spread@1: pyramid winners at +0.15% / +0.30% basket notional, liquidate at -0.20%
+    adverse OR reverse cross OR 3-day time stop. 24mo window on policy default. Tests the USD-direction drift hypothesis after
+    pair convergence (regime-mirror signal — captures USD-weakening direction in 2024-05 -> 2026-05 window).
 
+    '
+  repeat_override_reason: '[RERUN:ENGINE@2026-05-18 origin=directive-clone strategy=90_PORT_EURUSDUSDJPY_5M_PAIRX_S01_V1_P00]
+    Validate H3SpreadV1Rule 35-col schema emission end-to-end against real EURUSD/USDJPY data (commit 807e02c). Prior run
+    completed at 06:44 UTC before the schema fix landed; need authoritative cycle-aware numbers via the new BASKET_REPORT
+    path.'
 symbols:
 - EURUSD
 - USDJPY
-
 indicators:
 - indicators.volatility.atr
 - indicators.stats.spread_sma_cross
-
 execution_rules:
   pyramiding: false
   entry_when_flat_only: true
@@ -45,38 +44,36 @@ execution_rules:
     enabled: false
   take_profit:
     enabled: false
-
 order_placement:
   type: market
   execution_timing: next_bar_open
-
 trade_management:
   direction: basket_mixed
   reentry:
     allowed: true
   session_reset: none
-
 position_management:
-  lots: 0.10
-
+  lots: 0.1
 basket:
   basket_id: EURUSDUSDJPYBEAR
   legs:
-    - symbol: EURUSD
-      lot: 0.10
-      direction: long
-    - symbol: USDJPY
-      lot: 0.10
-      direction: short
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
   initial_stake_usd: 1000.0
   harvest_threshold_usd: 1000000.0
   recycle_rule:
     name: H3_spread
     version: 1
     params:
-      pyramid_level_pcts: [0.15, 0.30]
+      pyramid_level_pcts:
+      - 0.15
+      - 0.3
       pyramid_add_lot: 0.05
-      adverse_stop_pct: 0.0020
+      adverse_stop_pct: 0.002
       time_stop_bars: 864
       reverse_cross_column: cross_side
       entry_direction: 1

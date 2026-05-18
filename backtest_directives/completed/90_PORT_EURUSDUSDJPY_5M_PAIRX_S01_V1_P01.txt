@@ -1,0 +1,82 @@
+basket:
+  basket_id: EURUSDUSDJPYBEAR
+  harvest_threshold_usd: 1000000.0
+  initial_stake_usd: 1000.0
+  legs:
+  - direction: long
+    lot: 0.1
+    symbol: EURUSD
+  - direction: short
+    lot: 0.1
+    symbol: USDJPY
+  recycle_rule:
+    name: H3_spread
+    params:
+      adverse_stop_pct: 0.01
+      entry_delay_bars: 12
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      pyramid_add_lot: 0.05
+      pyramid_level_pcts:
+      - 0.15
+      - 0.3
+      reverse_cross_column: cross_side
+      time_stop_bars: 864
+    version: 1
+execution_rules:
+  entry_logic:
+    type: spread_sma_cross_signal
+  entry_when_flat_only: true
+  exit_logic:
+    type: basket_recycle_rule
+  pyramiding: false
+  reset_on_exit: false
+  stop_loss:
+    atr_multiplier: 100000.0
+    type: atr_multiple
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+position_management:
+  lots: 0.1
+symbols:
+- EURUSD
+- USDJPY
+test:
+  broker: OctaFx
+  description: "H3 PAIR SPREAD V1, BEAR variant: LONG EURUSD + SHORT USDJPY, signal-\
+    \ triggered entry on UP-cross of SMA(5)-of-z(EURUSD) vs SMA(5)-of-z(USDJPY). Manages\
+    \ with H3_spread@1: pyramid winners at +0.15% / +0.30% basket notional, liquidate\
+    \ at -0.20% adverse OR reverse cross OR 3-day time stop. 24mo window on policy\
+    \ default. Tests the USD-direction drift hypothesis after pair convergence (regime-mirror\
+    \ signal \u2014 captures USD-weakening direction in 2024-05 -> 2026-05 window).\n"
+  end_date: '2026-05-18'
+  family: PORT
+  hypothesis_ref: H3_PAIR_SPREAD_V1
+  hypothesis_variant: H3_PAIR_SPREAD_V1_BEAR
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S01_V1_P01
+  parameter_mutation: false
+  repeat_override_reason: '[RERUN:PARAMETER@2026-05-18 origin=PAIRX-P00-baseline target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S01_V1_P01]
+    H3_spread@1 adverse-stop sweep: loosen -$2 to -$10 per prior MAE audit which found
+    22% of -$2 stopped cycles recover with median MAE -$17. Sweet-spot probe at $10/$15/$20
+    levels to isolate adverse_stop_pct effect on adverse-stop rate, win rate, mean
+    cycle PnL, and basket-level DD vs the BEAR P00 baseline.'
+  research_mode: true
+  signal_version: 1
+  start_date: '2024-05-18'
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S01_V1_P01
+  timeframe: 5m
+  tuning_allowed: false
+  version: 1
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
