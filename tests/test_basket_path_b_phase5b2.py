@@ -284,9 +284,16 @@ def test_dispatch_produces_all_four_artifact_paths(monkeypatch, tmp_path):
         legacy_csv = fake_state / "research" / "basket_runs.csv"
         assert legacy_csv.is_file()
 
-        # Phase 5b.3a — per-window report stack lands in the directive folder
+        # Phase 5b.3a — per-window report stack lands in the directive folder.
+        # Legacy REPORT_<id>.md was SUPPRESSED for basket runs 2026-05-18
+        # (its trade-level lens mis-reports cycle-mechanic strategies); the
+        # authoritative artifact is BASKET_REPORT_<id>.md, which only renders
+        # when the per-bar parquet is present (not the case in this synthetic
+        # test fixture). Assert legacy is absent + raw artifacts still land.
         directive_dir = fake_state / "backtests" / f"{directive_id}_H2"
-        assert (directive_dir / f"REPORT_{directive_id}.md").is_file()
+        assert not (directive_dir / f"REPORT_{directive_id}.md").is_file(), (
+            "legacy REPORT.md should be suppressed for basket runs"
+        )
         for fname in ("results_standard.csv", "results_risk.csv",
                       "results_yearwise.csv", "results_basket.csv",
                       "metrics_glossary.csv", "bar_geometry.json"):
