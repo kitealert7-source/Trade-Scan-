@@ -1,0 +1,103 @@
+---
+id: H3_PAIR_SPREAD_V1
+title: H3 USD-spread pair crossover (signal-triggered LONG-SHORT basket)
+class: mechanic
+status: PROPOSED
+created: 2026-05-18
+author: operator
+supersedes: null      # standalone; distinct from H3_TREND_FOLLOW_V1
+                     # (long-long EURJPY synthetic basket) and H2_recycle@1-5
+                     # (long-long Martingale/anti-Martingale rules)
+
+motivation: |
+  H3_TREND_FOLLOW_V1 + H2_recycle@4/@5 work LONG-LONG baskets where two
+  same-currency legs hedge USD (EURJPY synthetic). Per-bar screening on
+  EURUSD/USDJPY (2026-05-18 session) revealed that the structurally-
+  negative correlation (median rho -0.45 on 1H 200-bar log returns) means
+  these pairs almost always diverge in opposite directions. The signal
+  that DOES exist is in the USD-direction SPREAD:
+
+      P&L = direction * (delta_log(EURUSD) - delta_log(USDJPY))
+
+  which captures the move both legs make when USD strengthens or weakens.
+
+  Mechanism: when SMA(5) of z-normalized EURUSD crosses SMA(5) of
+  z-normalized USDJPY (a regime-balance event), the spread tends to drift
+  in the dominant macro direction for up to several days. Cross direction
+  predicts the macro side: UP-cross precedes USD-bear; DN-cross precedes
+  USD-bull. The 15m bare-signal screening showed +12 bps excess per trade
+  in Window A (2024-05 -> 2026-05) at p=0.018, with the direction
+  flipping between Window A (USD-weakening) and Window B (USD-strengthening
+  2022-05 -> 2024-05). This is a regime-MIRROR signal; portfolio gates
+  retire it when conditions flip.
+
+  We accept this regime-dependence as part of the strategy's contract.
+
+baseline:
+  reference: bare-signal screen tmp/path_a5_recent_window.py (2026-05-18 session)
+  key_metrics:
+    window_a_signal:   "SMA(5) UP-cross @ H=96b: +0.118% excess, p=0.018, hit=53.1%"
+    window_a_events:   "195/year at 15m"
+    cross_pair:        "EURUSD vs USDJPY"
+    sample_period:     "2024-05-20 -> 2026-05-15 (2yr, Window A only)"
+
+architecture:
+  - id: H3_PAIR_SPREAD_V1_BEAR
+    rule: H3_spread@1
+    rule_build_required: false   # built in commit (this session, 2026-05-18)
+    description: USD-bear directional spread basket on UP-cross trigger
+    basket_legs:
+      - { symbol: EURUSD, direction: long,  lot: 0.10 }
+      - { symbol: USDJPY, direction: short, lot: 0.10 }
+    cross_watch: UP   # entry on cross_event == +1 (UP-cross)
+    window:
+      start: 2024-05-18
+      end:   2026-05-18
+    rule_params:
+      pyramid_level_pcts:   [0.15, 0.30]   # % of initial notional (1000 USD)
+      pyramid_add_lot:      0.05            # add 0.05 to each leg per pyramid
+      adverse_stop_pct:     0.0020          # -0.20% basket notional triggers liquidation
+      time_stop_bars:       864             # 72 hours at 5m (= 288 bars at 15m)
+      entry_direction:      1               # UP-cross
+      initial_notional_usd: 1000.0
+      entry_delay_bars:     12              # 1 hour at 5m (= 4 bars at 15m)
+
+  - id: H3_PAIR_SPREAD_V1_BULL
+    rule: H3_spread@1
+    description: USD-bull directional spread basket on DN-cross trigger (mirror of BEAR)
+    basket_legs:
+      - { symbol: EURUSD, direction: short, lot: 0.10 }
+      - { symbol: USDJPY, direction: long,  lot: 0.10 }
+    cross_watch: DOWN   # entry on cross_event == -1
+    window:
+      start: 2024-05-18
+      end:   2026-05-18
+    rule_params:
+      pyramid_level_pcts:   [0.15, 0.30]
+      pyramid_add_lot:      0.05
+      adverse_stop_pct:     0.0020
+      time_stop_bars:       864
+      entry_direction:      -1
+      initial_notional_usd: 1000.0
+      entry_delay_bars:     12
+
+evidence_required: |
+  Per-window net% > 0 after spread cost (prices SPREAD_INCLUDED_IN_PRICE
+  in research CSVs, so backtest P&L is gross-of-broker-spread by 0; the
+  rule's adverse stop and pyramid thresholds should net out vs round-trip
+  cost). Master Filter PF >= 1.1 and max DD <= 40%. If both pass, the
+  variant qualifies for the portfolio's H3-spread WATCH bucket.
+
+  Asymmetric outcome is the most informative scenario: if ONE variant
+  (BEAR or BULL) passes and the other fails, the strategy is correctly
+  detecting the macro regime in Window A (USD-weakening) and we deploy
+  only the passing direction with a manual regime-monitor.
+
+v1_limitations:
+  - adverse_stop uses bar-close basket P&L, not intra-bar OHLC. Violent
+    spikes can over-shoot the threshold before exit. v2 plan: use engine
+    v1_5_8's unrealized_r_intrabar.
+  - pyramid adds uniformly to both legs (preserves spread structure).
+    Asymmetric variant (add to better leg only) deferred.
+  - Reverse-cross exit signal monitored at 5m bar-close (= 5 min latency).
+    Sub-bar (1m) monitoring deferred to v2.

@@ -1,0 +1,84 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S01_V1_P00
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S01_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-18'
+  end_date: '2026-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V1
+  hypothesis_variant: H3_PAIR_SPREAD_V1_BEAR
+  description: >
+    H3 PAIR SPREAD V1, BEAR variant: LONG EURUSD + SHORT USDJPY, signal-
+    triggered entry on UP-cross of SMA(5)-of-z(EURUSD) vs SMA(5)-of-z(USDJPY).
+    Manages with H3_spread@1: pyramid winners at +0.15% / +0.30% basket
+    notional, liquidate at -0.20% adverse OR reverse cross OR 3-day time
+    stop. 24mo window on policy default. Tests the USD-direction drift
+    hypothesis after pair convergence (regime-mirror signal — captures
+    USD-weakening direction in 2024-05 -> 2026-05 window).
+
+symbols:
+- EURUSD
+- USDJPY
+
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+
+position_management:
+  lots: 0.10
+
+basket:
+  basket_id: EURUSDUSDJPYBEAR
+  legs:
+    - symbol: EURUSD
+      lot: 0.10
+      direction: long
+    - symbol: USDJPY
+      lot: 0.10
+      direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 1
+    params:
+      pyramid_level_pcts: [0.15, 0.30]
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.0020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12
