@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: Latest data bar unknown
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-17T14:43:35Z
+> Generated: 2026-05-18T07:01:59Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 478 directives
+- Completed: 479 directives
 
 ## Ledgers
 
@@ -32,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **unknown** | Symbols: 0
+- Latest bar: **2026-05-15** | Symbols: 1
 
 ## Artifacts
-- Run directories: 1576
+- Run directories: 1577
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `ad6e962 session: registry backfill + pytest baseline update (3 new failures resolved)`
+- Last substantive commit: `17747e4 session: idea-gate refresh post H3_spread infrastructure`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -49,4 +49,8 @@
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
-- **`data_root/freshness_index.json` is currently EMPTY (0 entries) — root cause of SESSION STATUS=BROKEN.** Data itself is intact on disk (verified per-symbol path access works). The `engines/ops/build_freshness_index.py` script in DATA_INGRESS wrote an empty index when invoked from this session; per-symbol rebuild attempts also returned 0 entries (likely a `pd.read_csv(usecols=['time'])` failure mode under the ACL bypass pattern). Not actionable mid-close; flagging for next session to investigate the build_freshness_index script or use the daily scheduled task to regenerate. SYSTEM_STATE shows `Symbols: 0` until the index is rebuilt.
+- **freshness_index ACL workaround**: MASTER_DATA root has `DENY INTERACTIVE` ACL (service-account architecture per 2026-05-07 incident). `build_freshness_index.py`'s `glob("*_MASTER")` fails to enumerate from interactive sessions, producing an empty index. Per-symbol path access still works. Long-term fix: trigger the daily scheduled task before pipeline runs, or refactor `build_freshness_index.py` to accept a symbol-universe parameter and bypass `glob`. Workaround pattern (per-symbol manual enumeration from a hardcoded universe list) was demonstrated this session.
+
+- **H3_spread@1 per-bar parquet schema gap (cosmetic, non-blocking)**: `H3SpreadV1Rule._emit_record` writes a simpler per-bar dict than the 1.3.0-basket 35-column standard schema (active_legs, dd_freeze_active, equity_total_usd, etc.). Strategy logic + Master Filter + MPS work correctly; downstream BASKET_REPORT can't generate per-window cycle metrics until the emission is extended. Fix is straightforward, just enumeration; defer to next-session v2 work.
+
+- **H3_PAIR_SPREAD_V1_BULL counterpart not yet executed**: BEAR variant (LONG EURUSD + SHORT USDJPY, UP-cross entry) ran cleanly with deployment-grade metrics (+60.08% / 31% DD / PF 1.33 / RR 1.93 over 2yr). Mirror BULL variant (SHORT EURUSD + LONG USDJPY, DN-cross entry) needed for symmetry test — likely fails in current USD-weakening macro, but confirming asymmetry is the diagnostic.
