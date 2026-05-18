@@ -38,6 +38,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+SIGNAL_PRIMITIVE = "spread_sma_cross"
+
 
 def spread_sma_cross(
     series_a: pd.Series,

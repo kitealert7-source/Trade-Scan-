@@ -85,6 +85,8 @@ _ALLOWED_PRIMITIVES = {
     "consecutive_highs_lows_breakout", # consecutive higher-highs / lower-lows breakout (indicators.price.consecutive_highs_lows)
     "dmi_wilder_directional",          # Wilder DMI directional movement +DI / -DI (indicators.structure.dmi_wilder)
     "session_clock_universal",         # generic 3-session UTC clock (sibling of session_clock; indicators.structure.session_clock_universal)
+    # --- 2026-05-18: H3_spread basket infrastructure ---
+    "spread_sma_cross",                # SMA cross of rolling-z-scored pair series (indicators.stats.spread_sma_cross)
 }
 _ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3", "session_high_low"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}

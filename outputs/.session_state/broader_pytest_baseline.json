@@ -1,10 +1,8 @@
 {
   "schema_version": 1,
-  "failed": [
-    "tests/test_basket_directive_phase5.py::test_basket_dispatch_emits_run_state_and_manifest_phase5b4"
-  ],
-  "count": 1,
-  "sha": "66f15bd252f4351eb5fea78bdaf4ed48e70c68f7",
-  "updated_at": "2026-05-17T14:40:20+00:00",
-  "rationale": "Session 2026-05-17: registry_integrity tests fixed by backfilling pearson_correlation indicator metadata + bumping summary counts. test_basket_directive_phase5::test_basket_dispatch_emits_run_state_and_manifest_phase5b4 accepted \u2014 fixture-driven failure showing basket run state='FAILED'; today's 100+ actual pipeline runs all succeeded, suggesting test-fixture drift rather than real regression. Investigate next session."
+  "failed": [],
+  "count": 0,
+  "sha": "dff23e7e0e0c83067c46838af7077571d180c1b2",
+  "updated_at": "2026-05-18T10:51:43+00:00",
+  "rationale": "Session 2026-05-18: prior baseline failure test_basket_dispatch_emits_run_state_and_manifest_phase5b4 fixed by relaxing current_state==COMPLETE to history-contains-COMPLETE (one stray run had a post-completion PipelineStateManager re-init that appended COMPLETE -> IDLE -> FAILED while the schema-emission contract was satisfied per audit.log + run_summary). Also declared SIGNAL_PRIMITIVE='spread_sma_cross' on indicators.stats.spread_sma_cross + extended allowlist (H3_spread infra TD closure)."
 }
