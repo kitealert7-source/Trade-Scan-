@@ -461,29 +461,53 @@ class PipelineStateManager:
                       (e.g. engine_version, engine_status, engine_model).
                       Written into the state file under the 'metadata' key.
                       Append-only; does not participate in governance gates.
+
+        Behavior on existing state files:
+          - PREFLIGHT_COMPLETE_SEMANTICALLY_VALID: silent no-op (provision-only
+            resume path).
+          - Terminal states (COMPLETE / FAILED / ABORTED): raises RuntimeError.
+            Re-initializing a finished run silently corrupts its state machine
+            (the trigger for the 2026-05-18 basket-run-7440e5e7 incident, which
+            transitioned COMPLETE -> IDLE -> FAILED via a duplicate dispatch).
+            To intentionally rerun a terminal run, archive its state files
+            first via `tools/reset_directive.py --reason ...`.
+          - Other in-progress states: reset to IDLE and append a history
+            entry recording the true prior state (re-init contract tested
+            by TestInitializeResetHistory).
         """
-        # Idempotency guard: only skip reset when state is exactly
-        # PREFLIGHT_COMPLETE_SEMANTICALLY_VALID \u2014 the state provision-only
-        # leaves runs at. All other non-IDLE states fall through to the
-        # existing reset-to-IDLE logic, preserving the re-init contract
-        # tested by TestInitializeResetHistory.
         current = self.get_state_data().get("current_state")
         if current == "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID":
             return  # Provision-only resume \u2014 do not reset
 
+        # Terminal-state guard \u2014 added 2026-05-18. Silently resetting a
+        # COMPLETE/FAILED/ABORTED run is the bug shape that produced the
+        # baseline pytest failure on basket run 7440e5e77ab968eb01c1a6b4
+        # (a duplicate basket dispatch re-initialized a completed run, then
+        # the surrounding try/except transitioned it to FAILED). Raise so
+        # the duplicate path is visible at its source instead of corrupting
+        # state silently.
+        if current in ("COMPLETE", "FAILED", "ABORTED"):
+            raise RuntimeError(
+                f"PipelineStateManager.initialize() called on run {self.run_id} "
+                f"in terminal state {current!r}. Re-initialization is a no-op "
+                f"and would silently corrupt the state machine. Archive the "
+                f"prior state via tools/reset_directive.py before re-running."
+            )
+
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. State File
+        now_iso = datetime.now(timezone.utc).isoformat()
         initial_data = {
             "run_id": self.run_id,
             "directive_id": self.directive_id,
             "current_state": "IDLE",
             "history": [],
-            "last_updated": datetime.now(timezone.utc).isoformat()
+            "last_updated": now_iso,
         }
         if metadata:
             initial_data["metadata"] = metadata
-        
+
         # Atomic Write (New Runs Only)
         if not self.state_file.exists():
             self._write_atomic(initial_data) # Use existing _write_atomic
@@ -498,14 +522,26 @@ class PipelineStateManager:
                  # records the true prior state (e.g. STAGE_3_COMPLETE \u2192 IDLE)
                  # not the post-mutation value (IDLE \u2192 IDLE).
                  old_state = existing_data.get("current_state", "UNKNOWN")
+                 # datetime.now(timezone.utc).isoformat() already emits +00:00.
+                 # Appending "Z" produces "...+00:00Z", a malformed timestamp
+                 # that several downstream parsers reject. Fixed 2026-05-18 as
+                 # part of the basket-run-7440e5e7 incident triage.
                  existing_data["history"].append({
                      "from": old_state,
                      "to": "IDLE",
-                     "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+                     "timestamp": now_iso,
                  })
                  existing_data["current_state"] = "IDLE"
-                 existing_data["last_updated"] = datetime.now(timezone.utc).isoformat()
+                 existing_data["last_updated"] = now_iso
                  self._write_atomic(existing_data)
+                 # Audit the reset \u2014 predecessor wrote history but skipped the
+                 # audit log, making STATE_RESET invisible to investigators.
+                 self._append_audit_log("STATE_RESET", {
+                     "from": old_state,
+                     "to": "IDLE",
+                 })
+             except RuntimeError:
+                 raise  # propagate terminal-state guard
              except Exception as e:
                  print(f"[WARNING] Could not reset existing state file for {self.run_id}: {e}. Initializing as new.")
                  self._write_atomic(initial_data)
@@ -612,15 +648,18 @@ class PipelineStateManager:
             })
             return False
 
+        # datetime.now(timezone.utc).isoformat() emits +00:00 already; appending
+        # "Z" produces the malformed "...+00:00Z" tail (fixed 2026-05-18).
+        now_iso = datetime.now(timezone.utc).isoformat()
         data["history"].append({
             "from": old_state,
             "to": "ABORTED",
-            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+            "timestamp": now_iso,
         })
         data["current_state"] = "ABORTED"
         data["previous_state"] = old_state
         data["abort_reason"] = reason
-        data["last_transition"] = datetime.now(timezone.utc).isoformat() + "Z"
+        data["last_transition"] = now_iso
 
         self._write_atomic(data)
         self._append_audit_log("STATE_TRANSITION", {

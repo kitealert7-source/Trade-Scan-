@@ -216,6 +216,20 @@ def test_dispatch_produces_all_four_artifact_paths(monkeypatch, tmp_path):
     fake_state = tmp_path / "TradeScan_State"
     fake_state.mkdir()
     monkeypatch.setattr(pa, "TRADE_SCAN_STATE", fake_state)
+    # config.state_paths pins RUNS_DIR at module import-time from pa.TRADE_SCAN_STATE,
+    # so monkeypatching pa alone leaves PipelineStateManager.run_dir pointing at
+    # whichever path was active when state_paths was first imported (often an
+    # earlier test's tmp_path). Without this rebind, the test passes in
+    # isolation but fails in the broader pytest suite because the state file
+    # from an earlier test is left in COMPLETE state and the post-2026-05-18
+    # terminal-state guard in PipelineStateManager.initialize() correctly
+    # rejects the re-init. Rebinding state_paths.RUNS_DIR here aligns the
+    # state-machine layer with the artifact-write layer.
+    import config.state_paths as sp
+    monkeypatch.setattr(sp, "STATE_ROOT", fake_state)
+    monkeypatch.setattr(sp, "RUNS_DIR", fake_state / "runs")
+    import tools.pipeline_utils as pu
+    monkeypatch.setattr(pu, "RUNS_DIR", fake_state / "runs")
     # tools.system_registry caches REGISTRY_PATH at module import time;
     # patch it to point at our fake state.
     import tools.system_registry as sr
