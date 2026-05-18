@@ -1186,17 +1186,24 @@ def run_single_directive(directive_id, provision_only=False):
 
 
 def _report_data_freshness() -> None:
-    """Read freshness_index.json (via data_root symlink) and print stale-only report.
-    Uses Path.exists() which follows symlinks — returns False for broken links.
+    """Read freshness_index.json and print stale-only report.
+
+    Path source: config.path_authority.FRESHNESS_INDEX (canonical = MASTER_DATA/
+    freshness_index.json). Predecessor read from PROJECT_ROOT/data_root/
+    freshness_index.json which diverged from path_authority and from the
+    DATA_INGRESS writer contract; the divergence left this reader pointed at
+    a stale 1-entry file even when the canonical index was fully populated.
+
     Never raises.
     """
     try:
-        index_path = PROJECT_ROOT / "data_root" / "freshness_index.json"
+        from config.path_authority import FRESHNESS_INDEX as index_path
         if not index_path.exists():
             print(
                 "[WARN] freshness_index.json missing — "
                 "data ingestion may have failed or not yet run. "
-                "Run build_freshness_index in DATA_INGRESS to generate it."
+                "Run tools/refresh_freshness_index.py "
+                "or build_freshness_index in DATA_INGRESS to generate it."
             )
             return
         index  = json.loads(index_path.read_text(encoding="utf-8"))

@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 from tools.pipeline_utils import parse_directive, get_canonical_hash
-from config.path_authority import REAL_REPO_ROOT as PROJECT_ROOT  # worktree-safe (anchors on .git.is_dir(), not __file__)
+from config.path_authority import (  # worktree-safe (anchors on .git.is_dir(), not __file__)
+    REAL_REPO_ROOT as PROJECT_ROOT,
+    FRESHNESS_INDEX as _FRESHNESS_INDEX,
+)
 
 # Required SOPs
 REQUIRED_SOPS = [
@@ -28,7 +31,6 @@ REQUIRED_SOPS = [
 
 
 _FIXED_START    = pd.Timestamp("2024-01-02")
-_FRESHNESS_INDEX = PROJECT_ROOT / "data_root" / "freshness_index.json"
 
 
 def resolve_data_range(symbols: list, broker: str, timeframe: str) -> tuple[str, str]:

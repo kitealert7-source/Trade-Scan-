@@ -44,6 +44,7 @@ __all__ = [
     "DRY_RUN_VAULT",
     "ANTI_GRAVITY_DATA_ROOT",
     "VALIDATION_DATASET",
+    "DATA_INGRESS",
     # Shared data layer (anchored on REAL_REPO_ROOT, not WORKTREE_ROOT)
     "DATA_ROOT",
     "FRESHNESS_INDEX",
@@ -137,11 +138,14 @@ ANTI_GRAVITY_DATA_ROOT: Path = _resolve_sibling(
 # Never create a junction or symlink pointing at this path — Section 1m-iii.
 VALIDATION_DATASET: Path = _resolve_sibling("VALIDATION_DATASET", "VALIDATION_DATASET_ROOT")
 
+# Data ingestion repo. tools/refresh_freshness_index.py needs the symbol universe
+# (config/symbol_universe.json) and the builder module (engines/ops/build_freshness_index.py).
+DATA_INGRESS: Path = _resolve_sibling("DATA_INGRESS", "DATA_INGRESS_ROOT")
+
 # Reserved peer projects — not currently referenced from Trade_Scan code.
 # Uncomment + add the env-var override the first time tooling needs them:
-#   DATA_INGRESS = _resolve_sibling("DATA_INGRESS", "DATA_INGRESS_ROOT")
-#   TS_ENGINE    = _resolve_sibling("TS_Engine",    "TS_ENGINE_ROOT")
-#   TS_PINE      = _resolve_sibling("TS_Pine",      "TS_PINE_ROOT")
+#   TS_ENGINE = _resolve_sibling("TS_Engine", "TS_ENGINE_ROOT")
+#   TS_PINE   = _resolve_sibling("TS_Pine",   "TS_PINE_ROOT")
 
 
 # ---------------------------------------------------------------------------

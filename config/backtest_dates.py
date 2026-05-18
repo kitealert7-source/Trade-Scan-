@@ -21,11 +21,14 @@ from pathlib import Path
 
 import yaml
 
+# Canonical FRESHNESS_INDEX via path_authority — see governance/preflight.py
+# for why the legacy inline path diverged from the writer contract.
+from config.path_authority import FRESHNESS_INDEX as FRESHNESS_PATH
+
 __all__ = ["resolve_dates", "report"]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH  = PROJECT_ROOT / "config" / "backtest_date_policy.yaml"
-FRESHNESS_PATH = PROJECT_ROOT / "data_root" / "freshness_index.json"
 
 # Cache
 _policy: dict | None = None

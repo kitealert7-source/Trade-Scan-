@@ -84,11 +84,12 @@ COMPLETED_DIR = PROJECT_ROOT / "backtest_directives" / "completed"
 
 ENGINE_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine"
 ENGINE_REGISTRY = PROJECT_ROOT / "config" / "engine_registry.json"
-# data_root is a local-only symlink (not tracked) at the Trade_Scan
-# root pointing at Anti_Gravity_DATA_ROOT. Worktrees don't inherit it,
-# so anchor on the real repo root rather than PROJECT_ROOT to keep
-# freshness reads consistent across worktree and main invocations.
-FRESHNESS_INDEX = _TRADE_SCAN_ROOT / "data_root" / "freshness_index.json"
+# Canonical source via path_authority — keeps every reader in agreement
+# with config.path_authority.FRESHNESS_INDEX (= MASTER_DATA/freshness_index.json).
+# Predecessor computed the path inline at PROJECT_ROOT/data_root/freshness_index.json,
+# which diverged from path_authority and silently read a stale 1-entry file
+# even when the canonical index at MASTER_DATA was fully populated.
+from config.path_authority import FRESHNESS_INDEX  # noqa: E402
 
 TS_EXECUTION = _resolve_sibling("TS_Execution")
 PORTFOLIO_YAML = TS_EXECUTION / "portfolio.yaml"

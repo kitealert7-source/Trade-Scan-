@@ -123,8 +123,13 @@ def _import_path_authority_with_root(start: Path, monkeypatch):
         pa._resolve_sibling("Anti_Gravity_DATA_ROOT", "ANTI_GRAVITY_DATA_ROOT"),
     )
     monkeypatch.setattr(pa, "DATA_ROOT", new_real / "data_root")
+    # FRESHNESS_INDEX is anchored on ANTI_GRAVITY_DATA_ROOT/MASTER_DATA — mirror
+    # the production definition so the downstream assertion in
+    # TestSharedDataLayer.test_data_root_anchors_on_real_repo_root validates the
+    # *real* path shape, not a placeholder.
     monkeypatch.setattr(
-        pa, "FRESHNESS_INDEX", new_real / "data_root" / "freshness_index.json"
+        pa, "FRESHNESS_INDEX",
+        pa.ANTI_GRAVITY_DATA_ROOT / "MASTER_DATA" / "freshness_index.json",
     )
     return pa
 
@@ -274,7 +279,12 @@ class TestDataRootAnchoring:
             f"Anchoring on WORKTREE_ROOT would point at the worktree's "
             f"local data_root which is either missing or a stale copy."
         )
-        assert pa.FRESHNESS_INDEX == pa.DATA_ROOT / "freshness_index.json"
+        # FRESHNESS_INDEX anchors on ANTI_GRAVITY_DATA_ROOT/MASTER_DATA (the
+        # canonical sibling-data layout). The legacy DATA_ROOT/freshness_index.json
+        # shape pointed at a stale 1-entry file at Anti_Gravity_DATA_ROOT root.
+        assert pa.FRESHNESS_INDEX == (
+            pa.ANTI_GRAVITY_DATA_ROOT / "MASTER_DATA" / "freshness_index.json"
+        )
 
 
 # ---------------------------------------------------------------------------
