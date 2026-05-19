@@ -143,16 +143,21 @@ def _required_ref_pairs(trade_symbols: list[str]) -> list[str]:
 
 
 @lru_cache(maxsize=64)
-def _read_year_csv_cached(symbol: str, year: int) -> pd.DataFrame:
-    """Parse one year of 5m bars for one symbol. Cached process-locally.
+def _read_year_csv_cached(symbol: str, year: int, timeframe: str = "5m") -> pd.DataFrame:
+    """Parse one year of OCTAFX bars for one symbol at the given timeframe.
+    Cached process-locally (per (symbol, year, timeframe)).
 
     Returned DataFrame is the FULL year (no window filter applied) with
     `time` as a DatetimeIndex. Callers slice by date range themselves.
     Returns an EMPTY DataFrame if the year-file is missing — callers
     should treat that as a gap year.
+
+    `timeframe` selects the OCTAFX CSV file (5m, 15m, 30m, 1h available
+    per the 2026-05 ingest). Default "5m" preserves legacy behavior for
+    all pre-2026-05-19 callers.
     """
     research_dir = DATA_ROOT / "MASTER_DATA" / f"{symbol}_OCTAFX_MASTER" / "RESEARCH"
-    f = research_dir / f"{symbol}_OCTAFX_5m_{year}_RESEARCH.csv"
+    f = research_dir / f"{symbol}_OCTAFX_{timeframe}_{year}_RESEARCH.csv"
     if not f.is_file():
         return pd.DataFrame()  # caller treats as gap year
     df = pd.read_csv(f, comment="#", parse_dates=["time"])
@@ -290,31 +295,34 @@ def load_compression_5d_factor(start_date: str, end_date: str) -> pd.Series:
 # ---------------------------------------------------------------------------
 
 
-def _load_symbol_5m(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """Read every RESEARCH 5m CSV year-file for symbol covering the window,
-    concat (via cache), filter to [start, end].
+def _load_symbol_5m(symbol: str, start_date: str, end_date: str,
+                    timeframe: str = "5m") -> pd.DataFrame:
+    """Read every RESEARCH year-file for symbol covering the window at the
+    given timeframe, concat (via cache), filter to [start, end].
 
+    Function name retains _5m suffix for callsite-compat; `timeframe` param
+    selects the actual file series (5m/15m/30m/1h per DATA_INGRESS ingest).
     Year-files are cached process-locally via _read_year_csv_cached so
-    cross-window matrix runs (e.g., h2_parity_run.py --all) reuse parsed
-    frames instead of re-parsing each window.
+    cross-window matrix runs reuse parsed frames instead of re-parsing.
     """
     research_dir = DATA_ROOT / "MASTER_DATA" / f"{symbol}_OCTAFX_MASTER" / "RESEARCH"
     if not research_dir.is_dir():
         raise FileNotFoundError(
             f"RESEARCH dir missing for {symbol} at {research_dir}. "
-            "Confirm DATA_INGRESS has produced the OctaFx 5m series for this symbol."
+            f"Confirm DATA_INGRESS has produced the OctaFx {timeframe} "
+            f"series for this symbol."
         )
     start_year = int(start_date[:4])
     end_year = int(end_date[:4])
     pieces: list[pd.DataFrame] = []
     for year in range(start_year, end_year + 1):
-        piece = _read_year_csv_cached(symbol, year)
+        piece = _read_year_csv_cached(symbol, year, timeframe)
         if piece.empty:
             continue  # gap year — not necessarily fatal; window filter handles edges
         pieces.append(piece)
     if not pieces:
         raise FileNotFoundError(
-            f"No 5m RESEARCH files found for {symbol} in window "
+            f"No {timeframe} RESEARCH files found for {symbol} in window "
             f"{start_year}-{end_year} under {research_dir}."
         )
     df = pd.concat(pieces).sort_index()
@@ -323,8 +331,9 @@ def _load_symbol_5m(symbol: str, start_date: str, end_date: str) -> pd.DataFrame
     df = df[(df.index >= start_ts) & (df.index <= end_ts)]
     if df.empty:
         raise ValueError(
-            f"After window filter {start_date}..{end_date}, no 5m bars remain "
-            f"for {symbol}. Year files were present but bars fall outside the window."
+            f"After window filter {start_date}..{end_date}, no {timeframe} bars "
+            f"remain for {symbol}. Year files were present but bars fall outside "
+            f"the window."
         )
     return df
 
@@ -351,13 +360,31 @@ def _join_factor_onto_5m(df_5m: pd.DataFrame, factor: pd.Series) -> pd.DataFrame
     return out
 
 
+_BAR_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+                "4h": 14400, "1d": 86400}
+
+
+# Macro-direction filter defaults (2026-05-19). Used only when
+# macro_direction_timeframe is set on load_basket_leg_data. The z/sma
+# windows are macro-meaningful at the daily TF (3 months / 1 week) rather
+# than the calendar-equivalent ~50h rule used for the entry timeframe.
+_MACRO_Z_WINDOW = 60
+_MACRO_SMA_WINDOW = 5
+_MACRO_WARMUP_DAYS_DEFAULT = 120
+
+
 def load_basket_leg_data(
     symbols: list[str],
     start_date: str,
     end_date: str,
     factor_column: str = "compression_5d",
+    timeframe: str = "5m",
+    macro_direction_timeframe: str | None = None,
+    macro_warmup_days: int = _MACRO_WARMUP_DAYS_DEFAULT,
+    macro_z_window: int = _MACRO_Z_WINDOW,
+    macro_sma_window: int = _MACRO_SMA_WINDOW,
 ) -> dict[str, pd.DataFrame]:
-    """Load per-symbol 5m OHLC + a USD_SYNTH regime factor for a basket.
+    """Load per-symbol OHLC + a USD_SYNTH regime factor for a basket.
 
     Args:
         symbols:        list of leg symbols, e.g. ['EURUSD', 'USDJPY']
@@ -402,7 +429,8 @@ def load_basket_leg_data(
     ref_closes: dict[str, pd.Series] = {}
     for ref_pair in ref_pairs:
         try:
-            ref_df = _load_symbol_5m(ref_pair, start_date, end_date)
+            ref_df = _load_symbol_5m(ref_pair, start_date, end_date,
+                                      timeframe=timeframe)
             ref_closes[ref_pair] = ref_df["close"]
         except (FileNotFoundError, ValueError) as exc:
             # Non-fatal — the v3 rule's _build_ref_closes will degrade gracefully
@@ -431,7 +459,7 @@ def load_basket_leg_data(
 
     out: dict[str, pd.DataFrame] = {}
     for sym in symbols:
-        df_5m = _load_symbol_5m(sym, start_date, end_date)
+        df_5m = _load_symbol_5m(sym, start_date, end_date, timeframe=timeframe)
         df_5m = _join_factor_onto_5m(df_5m, factor)
         # Join USD reference rates as columns
         for ref_pair, ref_series in ref_closes.items():
@@ -450,11 +478,17 @@ def load_basket_leg_data(
     # non-fatal: directives that don't use the signal continue to work.
     if len(symbols) == 2:
         try:
+            # Calendar-time-equivalent params: keep z-normalization lookback
+            # ≈ 50h and SMA smoothing ≈ 75min regardless of bar size. At 5m
+            # this preserves the historical defaults (z=600, sma=15).
+            bar_sec = _BAR_SECONDS.get(timeframe, 300)
+            z_window_tf = max(20, int(50 * 3600 / bar_sec))      # ~50h
+            sma_window_tf = max(2, int(75 * 60 / bar_sec))       # ~75min
             cross_df = compute_spread_sma_cross_5m(
                 out[symbols[0]]["close"],
                 out[symbols[1]]["close"],
-                z_window=600,    # ~50h at 5m (≈ 200 bars at 15m)
-                sma_window=15,   # ~75min at 5m (≈ 5 bars at 15m)
+                z_window=z_window_tf,
+                sma_window=sma_window_tf,
             )
             for sym in symbols:
                 out[sym]["cross_event"] = cross_df["cross_event"].reindex(
@@ -463,12 +497,96 @@ def load_basket_leg_data(
                 out[sym]["cross_side"] = cross_df["cross_side"].reindex(
                     out[sym].index, method="ffill", fill_value=0
                 ).astype(int)
+
+            # Macro-direction filter (2026-05-19). When configured, compute
+            # the SAME SMA-of-z cross signal on a HIGHER native broker
+            # timeframe (e.g. 1d, 4h), shift by 1 macro bar to prevent
+            # look-ahead leakage from the macro bar's own close into 5m
+            # bars on the same day, and forward-fill onto the entry-TF
+            # grid as `htf_direction`. Then AND-filter the entry-TF
+            # `cross_event` column so only macro-aligned crosses fire
+            # entries. cross_side (used for reverse-cross EXITS) is left
+            # untouched — per design, cycles still exit on entry-TF flips.
+            if macro_direction_timeframe is not None:
+                # Extend the start backwards to give the macro indicator
+                # full warmup. Each leg is reloaded at the macro TF over
+                # the extended range; the result is forward-filled onto
+                # the entry-TF grid (which is bounded by the ORIGINAL
+                # start_date).
+                ext_start = (
+                    pd.Timestamp(start_date)
+                    - pd.Timedelta(days=int(macro_warmup_days))
+                ).strftime("%Y-%m-%d")
+                macro_closes: dict[str, pd.Series] = {}
+                for sym in symbols:
+                    sym_df_macro = _load_symbol_5m(
+                        sym, ext_start, end_date,
+                        timeframe=macro_direction_timeframe,
+                    )
+                    macro_closes[sym] = sym_df_macro["close"]
+                macro_cross = compute_spread_sma_cross_5m(
+                    macro_closes[symbols[0]],
+                    macro_closes[symbols[1]],
+                    z_window=macro_z_window,
+                    sma_window=macro_sma_window,
+                )
+                # 1-bar shift: a 5m bar at time T should see the macro
+                # cross_side from the PREVIOUS macro close, not the
+                # macro bar it's currently inside. Otherwise we leak
+                # information from the current macro bar's close back
+                # into intra-bar 5m decisions.
+                macro_side_shifted = macro_cross["cross_side"].shift(1)
+                for sym in symbols:
+                    htf_direction = macro_side_shifted.reindex(
+                        out[sym].index, method="ffill", fill_value=0
+                    ).astype(int)
+                    out[sym]["htf_direction"] = htf_direction
+                    # Entry-only filter: zero out cross_event where it
+                    # doesn't match the macro direction. cross_side
+                    # (exit signal) intentionally left untouched.
+                    cross_event = out[sym]["cross_event"]
+                    aligned = (cross_event != 0) & (cross_event == htf_direction)
+                    out[sym]["cross_event"] = cross_event.where(aligned, 0).astype(int)
+
         except Exception as exc:
             print(
                 f"[BASKET_DATA] WARN: spread_sma_cross unavailable for "
                 f"({symbols[0]}, {symbols[1]}) ({exc}); H3_spread rule will "
                 f"not fire entries if configured."
             )
+
+        # Macro-filter warmup assertion (lives OUTSIDE the try block above
+        # so it isn't swallowed by the cross-signal try/except). If the
+        # macro filter was requested but the htf_direction column is all-
+        # zero during the first 24h of the test window, the macro
+        # indicator's warmup hasn't completed → fail fast instead of
+        # silently running with all entries blocked.
+        if macro_direction_timeframe is not None and len(symbols) == 2:
+            # Sample by BAR INDEX, not calendar time — start_date may fall on
+            # a market-closed day (weekend / holiday), in which case the
+            # first actual bar is later. We check that within the first
+            # ~24 trading hours of bars the macro signal has populated to
+            # something other than zero.
+            bars_per_day = max(1, int(86400 / _BAR_SECONDS.get(timeframe, 300)))
+            for sym in symbols:
+                if "htf_direction" not in out[sym].columns:
+                    raise ValueError(
+                        f"macro_direction_filter: htf_direction column "
+                        f"missing for {sym}. Upstream macro-cross computation "
+                        f"likely failed silently — check [BASKET_DATA] WARN "
+                        f"output above."
+                    )
+                first_day = out[sym]["htf_direction"].iloc[:bars_per_day]
+                if len(first_day) > 0 and (first_day == 0).all():
+                    raise ValueError(
+                        f"macro_direction_filter: htf_direction is all-zero "
+                        f"for {sym} during the first 24h of [{start_date}, "
+                        f"{end_date}]. macro_warmup_days={macro_warmup_days} "
+                        f"may be insufficient for macro_direction_timeframe="
+                        f"{macro_direction_timeframe!r} (need ~"
+                        f"{macro_z_window + macro_sma_window} bars at "
+                        f"that TF before start_date)."
+                    )
 
     return out
 

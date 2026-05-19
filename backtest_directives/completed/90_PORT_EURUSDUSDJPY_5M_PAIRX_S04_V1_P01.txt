@@ -1,0 +1,81 @@
+basket:
+  basket_id: EURUSDUSDJPYBEAR
+  harvest_threshold_usd: 1000000.0
+  initial_stake_usd: 1000.0
+  legs:
+  - direction: long
+    lot: 0.1
+    symbol: EURUSD
+  - direction: short
+    lot: 0.1
+    symbol: USDJPY
+  recycle_rule:
+    name: H3_spread
+    params:
+      adverse_stop_pct: 0.02
+      entry_delay_bars: 12
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      max_exposure_multiple: 3.0
+      pyramid_add_lot: 0.05
+      pyramid_threshold_step_pct: 0.15
+      reverse_cross_column: cross_side
+      time_stop_bars: 864
+      harvest_start_after_extra_pyramids: 12
+    version: 2
+execution_rules:
+  entry_logic:
+    type: spread_sma_cross_signal
+  entry_when_flat_only: true
+  exit_logic:
+    type: basket_recycle_rule
+  pyramiding: false
+  reset_on_exit: false
+  stop_loss:
+    atr_multiplier: 100000.0
+    type: atr_multiple
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+order_placement:
+  execution_timing: next_bar_open
+  type: market
+position_management:
+  lots: 0.1
+symbols:
+- EURUSD
+- USDJPY
+test:
+  broker: OctaFx
+  description: 'H3 PAIR SPREAD V2, BEAR variant: harvest_start_after_extra_pyramids
+    = 12 (= 3 x 4 entry pyramids). Same mechanics as S03 V1 P00 (cap=3x, immediate-harvest=No,
+    harvest scale-out after HOLD window) EXCEPT N value differs. Structural test of
+    the operator-defined parameter: how many extra pyramid-threshold crossings to
+    HOLD at cap before harvest begins scaling out. Single-window probe (Window A 2024-05
+    -> 2026-05). Goal: compare K = 2/3/4 multipliers.'
+  end_date: '2026-05-18'
+  family: PORT
+  hypothesis_ref: H3_PAIR_SPREAD_V2
+  hypothesis_variant: H3_PAIR_SPREAD_V2_BEAR_CAP3X_HARVEST_AFTER_12
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S04_V1_P01
+  parameter_mutation: false
+  repeat_override_reason: '[RERUN:ARCHITECTURE@2026-05-19 origin=PAIRX-S03-baseline
+    target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S04_V1_P01] S04_K3_N12 probe: harvest_start_after_extra_pyramids=12.
+    Single-point value per operator spec; not a sweep beyond the 3 K-multiplier variants
+    explicitly authorized in this session.'
+  research_mode: true
+  signal_version: 1
+  start_date: '2024-05-18'
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S04_V1_P01
+  timeframe: 5m
+  tuning_allowed: false
+  version: 1
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none

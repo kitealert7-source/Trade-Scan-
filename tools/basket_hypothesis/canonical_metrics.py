@@ -50,9 +50,26 @@ _V4_TAGS = {"BUMP_INTO_HOLD", "LIQUIDATE_RESET", "HOLD_MODE",
 # LIQUIDATE_TRAIL_STOP added 2026-05-18 (P04 variant): peak-relative trailing
 # stop. Activates when running cycle-peak floating >= trail_arm_floating_usd
 # AND current floating retraces by trail_retrace_pct%.
+# LIQUIDATE_HARVEST_COMPLETE + HARVEST_SCALE_OUT added 2026-05-19 with
+# H3_spread@2 (bounded-exposure + harvest scale-out). The @2 rule emits
+# HARVEST_SCALE_OUT on each Phase-2 scale-out bar (non-terminal partial
+# realization, cycle remains open) and LIQUIDATE_HARVEST_COMPLETE when
+# the scale-out chain reduces the residual to zero (terminal exit; the
+# leg strategy resumes for the next cross signal).
+# HOLD_AT_CAP added 2026-05-19 with the harvest_delay_levels extension:
+# threshold crossings at the exposure cap that neither add nor scale-out,
+# consumed during the delay window before HARVEST begins.
+# SCALE_OUT_TO_CORE + CORE_HOLD added 2026-05-19 with the
+# harvest_keeps_core extension: the LAST scale-out lands at initial_lot
+# (rather than zero) and emits SCALE_OUT_TO_CORE; subsequent threshold
+# crossings emit CORE_HOLD (silent threshold consumption, lot persists
+# at the floor until reverse-cross / adverse / time fires).
 _H3_SPREAD_TAGS = {"PYRAMID", "AWAITING_ENTRY", "HOLDING",
+                   "HARVEST_SCALE_OUT", "HOLD_AT_CAP",
+                   "SCALE_OUT_TO_CORE", "CORE_HOLD",
                    "LIQUIDATE_TIME_STOP", "LIQUIDATE_ADVERSE_STOP",
-                   "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP"}
+                   "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP",
+                   "LIQUIDATE_HARVEST_COMPLETE"}
 
 
 def detect_rule_family(df: pd.DataFrame) -> str:
@@ -266,6 +283,12 @@ def canonical_metrics(
         "h3_liq_adverse":   int((skip == "LIQUIDATE_ADVERSE_STOP").sum()),
         "h3_liq_reverse":   int((skip == "LIQUIDATE_REVERSE_CROSS").sum()),
         "h3_liq_trail":     int((skip == "LIQUIDATE_TRAIL_STOP").sum()),
+        # H3_spread@2 events (2026-05-19)
+        "h3_harvest_scaleouts": int((skip == "HARVEST_SCALE_OUT").sum()),
+        "h3_liq_harvest":   int((skip == "LIQUIDATE_HARVEST_COMPLETE").sum()),
+        "h3_hold_at_cap":   int((skip == "HOLD_AT_CAP").sum()),
+        "h3_scale_to_core": int((skip == "SCALE_OUT_TO_CORE").sum()),
+        "h3_core_hold":     int((skip == "CORE_HOLD").sum()),
     }
 
     # Cycle-level reconstruction (only meaningful for cycle-mechanic rules)
@@ -280,7 +303,8 @@ def canonical_metrics(
         cycle_pnls = _cycle_pnl_from_parquet(
             df,
             ["LIQUIDATE_TIME_STOP", "LIQUIDATE_ADVERSE_STOP",
-             "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP"],
+             "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP",
+             "LIQUIDATE_HARVEST_COMPLETE"],
         )
 
     cycles_completed = len(cycle_pnls)

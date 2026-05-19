@@ -1083,6 +1083,25 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
         parsed.get("basket", {}).get("recycle_rule", {}).get("params", {}) or {}
     )
     factor_column = str(_rule_params.get("factor_column", "compression_5d"))
+    # Bar timeframe — drives the underlying CSV series + cross-signal window
+    # scaling. Default "5m" matches the historical default; 15m / 30m / 1h
+    # are supported per the 2026-05 DATA_INGRESS ingest.
+    bar_timeframe = str(parsed.get("test", {}).get("timeframe", "5m"))
+    _BAR_SECONDS_MAP = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
+    bar_seconds = _BAR_SECONDS_MAP.get(bar_timeframe, 300)
+    # Macro-direction filter (2026-05-19). When set, the loader computes
+    # the spread cross at this higher native broker timeframe and uses it
+    # to gate entry-TF cross_event entries. cross_side (exit signal) stays
+    # untouched. None = no macro filter (byte-equivalent to legacy).
+    macro_direction_timeframe = _rule_params.get("macro_direction_timeframe", None)
+    if macro_direction_timeframe is not None:
+        macro_direction_timeframe = str(macro_direction_timeframe)
+    macro_warmup_days = int(_rule_params.get("macro_warmup_days", 120))
+    # Indicator-window overrides for the macro filter. Defaults match
+    # daily-calendar conventions (z=60, sma=5); override to scale 4h or
+    # 1h macro signals to the same calendar lookback.
+    macro_z_window = int(_rule_params.get("macro_z_window", 60))
+    macro_sma_window = int(_rule_params.get("macro_sma_window", 5))
     try:
         from tools.basket_data_loader import load_basket_leg_data
         from tools.recycle_strategies import (
@@ -1090,7 +1109,14 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             SpreadCrossArmedState,
             SpreadCrossLegStrategy,
         )
-        leg_data = load_basket_leg_data(symbols, start_date, end_date, factor_column=factor_column)
+        leg_data = load_basket_leg_data(
+            symbols, start_date, end_date,
+            factor_column=factor_column, timeframe=bar_timeframe,
+            macro_direction_timeframe=macro_direction_timeframe,
+            macro_warmup_days=macro_warmup_days,
+            macro_z_window=macro_z_window,
+            macro_sma_window=macro_sma_window,
+        )
         # Leg-strategy dispatch by recycle rule name (2026-05-18 — H3_spread@1):
         # different rules require different leg-entry semantics. ContinuousHold
         # opens unconditionally on bar 1 (the H2-family default); SpreadCross
@@ -1102,7 +1128,16 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
         rule_name = rule_block.get("name", "")
         if rule_name == "H3_spread":
             rule_params = rule_block.get("params", {}) or {}
-            cross_watch = int(rule_params.get("entry_direction", +1))
+            # Bidirectional mode: leg strategy watches BOTH cross directions
+            # and the rule sets cycle direction per cycle from cross_side at
+            # entry. cross_watch_direction=0 signals bidirectional to the leg
+            # strategy. The leg's YAML "direction" becomes the base orientation
+            # (UP-cross direction) and gets flipped per cycle by the leg
+            # strategy's signal × armed_direction multiplication.
+            if bool(rule_params.get("bidirectional", False)):
+                cross_watch = 0
+            else:
+                cross_watch = int(rule_params.get("entry_direction", +1))
             delay_bars = int(rule_params.get("entry_delay_bars", 12))
             # ONE shared armed state for both legs.
             shared_armed_state = SpreadCrossArmedState()
@@ -1113,6 +1148,7 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
                     cross_watch_direction=cross_watch,
                     armed_state=shared_armed_state,
                     delay_bars=delay_bars,
+                    bar_seconds=bar_seconds,
                 )
                 for leg in parsed["basket"]["legs"]
             }

@@ -1,0 +1,97 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P01
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2021-05-18'
+  end_date: '2023-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V2
+  hypothesis_variant: H3_PAIR_SPREAD_V2_BEAR_CAP3X_KEEPS_CORE_WINDOW_B
+  description: 'H3 PAIR SPREAD V2, BEAR variant, KEEPS_CORE mechanic
+    (identical params to S05 V1 P00) tested on a DIFFERENT 2-year window:
+    2021-05-18 -> 2023-05-18. This window spans the strongest USD-
+    strengthening regime in 15 years (Fed hike cycle anticipation 2021-
+    mid-2022, sharp DXY rally through Oct 2022 peak, then mixed retracement
+    through 2023). The BEAR variant entry direction (LONG EURUSD + SHORT
+    USDJPY, UP-cross of SMA(5)-of-z) is structurally a USD-WEAKENING bet,
+    so this window is HOSTILE to the BEAR direction.
+
+    Test goal: validate (or refute) whether the harvest_keeps_core
+    mechanism survives a regime that runs counter to its directional
+    thesis. If it does, the keep-core structural separation generalizes.
+    If it blows out (deep DD, large worst-cycle, or net negative), the
+    mechanism is regime-dependent and Window A''s +287% Net is a
+    favorable-regime artifact.
+
+    Single window, single test. No sweeps. Direct A/B vs S05 V1 P00
+    (same params, different 2-year window).
+
+    '
+  repeat_override_reason: '[RERUN:WINDOW@2026-05-19 origin=PAIRX-S05-P00-WindowA
+    target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P01] Out-of-sample
+    structural validation: same rule + params, hostile macro regime
+    (2021-2023 USD-strengthening). Operator-authorized single-test
+    cross-window check.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBEAR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 2
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12

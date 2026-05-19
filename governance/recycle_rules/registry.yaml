@@ -335,6 +335,115 @@ rules:
       - soft_reset_basket    # Phase B; commit 62018ab
 
   - name: H3_spread
+    version: 2
+    description: >
+      H3_spread@1 + bounded-exposure + symmetric harvest scale-out
+      (structural probe, 2026-05-19). Identical to @1 P03 in every
+      respect EXCEPT the pyramid mechanic now has a two-phase lifecycle:
+
+      Phase 1 (accumulation): pyramid threshold crossings ADD
+      pyramid_add_lot to both legs, weighted-avg entry update — same as
+      @1 — until per-leg lot reaches max_exposure_multiple * initial_lot
+      (default 3.0×, i.e. 0.10 → 0.30).
+
+      Phase 2 (harvest): once cap reached, subsequent threshold crossings
+      SCALE OUT both legs by pyramid_add_lot each, realizing the
+      proportional share of leg floating as cycle PnL (entry-price
+      unchanged on scale-out). Continues at each monotonically-increasing
+      threshold until any leg's lot would drop to <= 0, at which point
+      the cycle terminates with LIQUIDATE_HARVEST_COMPLETE and the leg
+      strategy resumes watching for the next cross signal.
+
+      All other exits (TIME_STOP, ADVERSE_STOP, REVERSE_CROSS, optional
+      TRAIL_STOP) preserve @1 priority + thresholds. Threshold spacing
+      generalized from @1's [0.15, 0.30] list to a single
+      `pyramid_threshold_step_pct` (default 0.15) so harvest can fire
+      indefinitely above the cap.
+
+      Hypothesis: bounded exposure growth + systematic harvest preserves
+      convex runners (Phase 2 banks profits at every level above the cap
+      instead of waiting for reverse-cross) while reducing late-cycle
+      adverse-stop dollar losses (smaller residual position by the time
+      -adverse_stop_pct hits).
+
+      Implementation: tools/recycle_rules/h3_spread_v2.py. Subclasses
+      H3SpreadV1Rule; overrides apply() entirely; adds _commit_harvest().
+    params:
+      # New V2 params:
+      max_exposure_multiple:
+        type: float
+        default: 3.0
+      pyramid_threshold_step_pct:
+        type: float
+        default: 0.15
+      # Delayed-harvest extension (2026-05-19). When > 0, cycle enters a
+      # HOLD phase on cap-reach: subsequent threshold crossings are consumed
+      # (hysteresis preserved) without changing lot, until
+      # harvest_start_after_extra_pyramids have passed. Then HARVEST begins
+      # as before. Default 0 = original @2 immediate-harvest behavior
+      # (byte-equivalent).
+      # Legacy alias `harvest_delay_levels` (deprecated 2026-05-19): the
+      # dispatcher still accepts the old name as a fallback for S02/S03
+      # directive replay; new directives should use the canonical name.
+      harvest_start_after_extra_pyramids:
+        type: int
+        default: 0
+      # Keep-core extension (2026-05-19). When True, the harvest scale-out
+      # chain stops at the initial lot per leg rather than continuing to
+      # zero. After reaching the floor, the cycle enters a CORE_HOLD phase
+      # (silent threshold consumption, lot persists) and exits only via
+      # reverse-cross / adverse-stop / time-stop. Designed to separate
+      # leverage growth (controlled by cap + harvest) from trend
+      # participation (preserved by persistent core). Default False =
+      # scale-to-zero (terminate at LIQUIDATE_HARVEST_COMPLETE).
+      harvest_keeps_core:
+        type: bool
+        default: false
+      # Bidirectional extension (2026-05-19). When True, the cycle's
+      # direction is set per-cycle from the cross-side at basket-open
+      # (UP-cross -> +1 / LONG spread, DOWN-cross -> -1 / SHORT spread)
+      # rather than the static entry_direction param. Reverse-cross exit
+      # check uses the cycle's own direction. Requires the leg strategy
+      # to also run in bidirectional mode (cross_watch_direction=0) —
+      # tools.run_pipeline auto-configures this when bidirectional=true.
+      # Default false = uni-directional behavior driven by entry_direction
+      # (byte-equivalent to S01-S05 directives).
+      bidirectional:
+        type: bool
+        default: false
+      # All V1 params inherited:
+      pyramid_add_lot:
+        type: float
+        default: 0.05
+      adverse_stop_pct:
+        type: float
+        default: 0.0020
+      time_stop_bars:
+        type: int
+        default: 288
+      reverse_cross_column:
+        type: str
+        default: "cross_side"
+      entry_direction:
+        type: int
+        default: 1
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      trail_arm_floating_usd:
+        type: float
+        default: 0.0
+      trail_retrace_pct:
+        type: float
+        default: 0.0
+    required_factors:
+      - spread_sma_cross.cross_side
+      - spread_sma_cross.cross_event
+    initial_consumer: tools/basket_runner.py
+    requires_basket_runner_primitives:
+      - soft_reset_basket
+
+  - name: H3_spread
     version: 1
     description: >
       LONG-SHORT pair-spread basket rule (H3 family). Distinct from

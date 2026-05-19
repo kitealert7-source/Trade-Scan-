@@ -1,0 +1,100 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P02
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P02
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2021-05-18'
+  end_date: '2023-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V2
+  hypothesis_variant: H3_PAIR_SPREAD_V2_BULL_CAP3X_KEEPS_CORE_WINDOW_B
+  description: 'H3 PAIR SPREAD V2, BULL variant on Window B (2021-05 ->
+    2023-05, USD-strengthening regime). Direction-corrected cross-window
+    test of the harvest_keeps_core mechanic.
+
+    Prior result: S05 V1 P01 (BEAR on Window B) catastrophically failed
+    (-197% Net, -261% Max DD) because the BEAR direction (LONG EUR + SHORT
+    JPY, UP-cross entries) ran against the prevailing USD-strengthening
+    drift. The operator-defined directional rule is: enter LONG on UP-cross,
+    SHORT on DOWN-cross. The BULL variant captures the SHORT-on-DOWN-cross
+    half of that rule: entry_direction = -1, fires on DOWN-cross
+    (cross_side = -1), positions are SHORT EUR + LONG JPY (= USD-
+    strengthening directional bet, trend-aligned for Window B).
+
+    Test goal: validate whether the harvest_keeps_core mechanism, when
+    correctly direction-aligned to the regime, recovers the structural
+    edge seen on Window A. Same rule + same params as S05 V1 P00 — only
+    direction and date window differ.
+
+    Single test, no sweeps. Direct A/B vs S05 V1 P00 (BEAR/A) and S05
+    V1 P01 (BEAR/B, the failed counter-regime test).
+
+    '
+  repeat_override_reason: '[RERUN:DIRECTION@2026-05-19 origin=PAIRX-S05-P00-BEAR-WindowA
+    target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P02] Direction-aligned
+    cross-window check after S05 P01 (BEAR on Window B) confirmed the
+    BEAR direction was structurally mismatched to USD-strengthening
+    regime. BULL variant on Window B is the trend-aligned counterpart.
+    Operator-authorized single test.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBULL
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: short
+  - symbol: USDJPY
+    lot: 0.1
+    direction: long
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 2
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: -1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12

@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread dispatch)
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2 dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +318,44 @@ def _instantiate_rule(
         # for parquet+events machinery but overrides apply() entirely.
         return H3SpreadV1Rule(
             pyramid_level_pcts=tuple(params.get("pyramid_level_pcts", (0.15, 0.30))),
+            pyramid_add_lot=float(params.get("pyramid_add_lot", 0.05)),
+            adverse_stop_pct=float(params.get("adverse_stop_pct", 0.0020)),
+            time_stop_bars=int(params.get("time_stop_bars", 288)),
+            reverse_cross_column=str(params.get("reverse_cross_column", "cross_side")),
+            entry_direction=int(params.get("entry_direction", +1)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            trail_arm_floating_usd=float(params.get("trail_arm_floating_usd", 0.0)),
+            trail_retrace_pct=float(params.get("trail_retrace_pct", 0.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "H3_spread" and version == 2:
+        # H3_spread@2 (2026-05-19): bounded-exposure + harvest scale-out
+        # with optional delayed-harvest window. @1 with three-phase pyramid
+        # lifecycle: ACCUMULATE up to max_exposure_multiple * initial_lot,
+        # optionally HOLD at cap for `harvest_delay_levels` additional
+        # threshold crossings, then HARVEST scale-out on subsequent
+        # crossings until LIQUIDATE_HARVEST_COMPLETE or another exit
+        # (adverse / reverse-cross / time) fires. Threshold spacing
+        # generalized to a single step (pyramid_threshold_step_pct) so the
+        # harvest phase can fire indefinitely above the cap.
+        # `harvest_start_after_extra_pyramids=0` (default) preserves the
+        # original @2 immediate-harvest behavior byte-equivalently.
+        # Backward-compat: the param was originally named
+        # `harvest_delay_levels` (S02/S03 directives in completed/). The
+        # new name takes precedence; old name is the replay-safe fallback.
+        delay_param = params.get(
+            "harvest_start_after_extra_pyramids",
+            params.get("harvest_delay_levels", 0),
+        )
+        return H3SpreadV2Rule(
+            max_exposure_multiple=float(params.get("max_exposure_multiple", 3.0)),
+            pyramid_threshold_step_pct=float(params.get("pyramid_threshold_step_pct", 0.15)),
+            harvest_start_after_extra_pyramids=int(delay_param),
+            harvest_keeps_core=bool(params.get("harvest_keeps_core", False)),
+            bidirectional=bool(params.get("bidirectional", False)),
             pyramid_add_lot=float(params.get("pyramid_add_lot", 0.05)),
             adverse_stop_pct=float(params.get("adverse_stop_pct", 0.0020)),
             time_stop_bars=int(params.get("time_stop_bars", 288)),

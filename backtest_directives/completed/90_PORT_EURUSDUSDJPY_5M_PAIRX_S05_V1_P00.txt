@@ -1,0 +1,107 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P00
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-18'
+  end_date: '2026-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V2
+  hypothesis_variant: H3_PAIR_SPREAD_V2_BEAR_CAP3X_KEEPS_CORE
+  description: 'H3 PAIR SPREAD V2, BEAR variant: leverage-only harvest with
+    persistent core trend hold. 4-phase exposure lifecycle:
+
+    Phase 1 (core entry): basket opens at 0.10 base lot per leg.
+    Phase 2 (expansion): pyramid adds at +0.05 step crossings up to cap
+                         (3x = 0.30 per leg). 4 ADDs.
+    Phase 3 (harvest leverage only): subsequent threshold crossings scale
+                         OUT 0.05 each, but the chain stops at the floor
+                         (= initial_lot = 0.10). 4 scale-outs land back
+                         at base, with the LAST emitting SCALE_OUT_TO_CORE.
+    Phase 4 (persistent core hold): residual 0.10 per leg held; threshold
+                         crossings emit CORE_HOLD (silent, no lot change);
+                         cycle exits ONLY via reverse-cross / adverse / time.
+
+    Designed to separate two effects entangled in prior @2 variants:
+    (a) leverage escalation -> bounded by cap + harvest;
+    (b) trend participation -> preserved by persistent core.
+    immediate-harvest @2 (S02) and the delay-window @2 family (S03/S04)
+    both suppress BOTH effects simultaneously. This variant suppresses
+    only the leverage escalation. Goal is structural: see whether the
+    persistent core recovers some of the long-runner edge P03 captured,
+    while the harvested leverage chain protects against the leverage-tail
+    loss that uncapped pyramiding produced.
+
+    Single window. No sweeps. Direct A/B vs S02 (= same params except
+    harvest_keeps_core = True).
+
+    '
+  repeat_override_reason: '[RERUN:ARCHITECTURE@2026-05-19 origin=PAIRX-S02-P00-baseline
+    target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S05_V1_P00] Structural test of
+    harvest_keeps_core extension. Same rule (@2), same cap, same step,
+    same immediate-harvest (delay=0). The one diff: harvest chain stops
+    at initial_lot, residual rides to natural exit. Tests the operator
+    hypothesis that leverage and trend-participation can be cleanly
+    separated by mechanic.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBEAR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 2
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12

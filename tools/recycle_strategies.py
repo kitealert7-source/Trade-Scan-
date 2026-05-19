@@ -57,6 +57,17 @@ class SpreadCrossArmedState:
         # Timestamp at which entry signal should fire (both legs read this
         # and return signal on a matching bar_ts).
         self.fire_at_ts: pd.Timestamp | None = None
+        # Direction in which the basket was armed / will fire. +1 = UP-cross
+        # entry (LONG spread); -1 = DN-cross entry (SHORT spread). In
+        # uni-directional mode this stays at the strategy's cross_watch_direction.
+        # In bidirectional mode (cross_watch_direction=0), this captures the
+        # signed direction of whichever cross fired and flows through to the
+        # entry signal so legs open with the correct per-cycle direction.
+        self.armed_direction: int = 0
+        # Direction stored at fire time so both legs see the same signed
+        # direction when fire_at_ts == bar_ts (separate from armed_direction
+        # because armed_direction is cleared on a confirmed fire).
+        self.fire_direction: int = 0
 
 
 class ContinuousHoldStrategy:
@@ -240,10 +251,10 @@ class SpreadCrossLegStrategy:
                 f"SpreadCrossLegStrategy: position_direction must be +1 or -1, "
                 f"got {position_direction!r}."
             )
-        if cross_watch_direction not in (+1, -1):
+        if cross_watch_direction not in (+1, -1, 0):
             raise ValueError(
-                f"SpreadCrossLegStrategy: cross_watch_direction must be +1 or -1, "
-                f"got {cross_watch_direction!r}."
+                f"SpreadCrossLegStrategy: cross_watch_direction must be +1, -1, or 0 "
+                f"(bidirectional), got {cross_watch_direction!r}."
             )
         if delay_bars < 0:
             raise ValueError(
@@ -261,9 +272,13 @@ class SpreadCrossLegStrategy:
         self.side_column = side_column
         self.delay_bars = delay_bars
         self.bar_seconds = bar_seconds
+        if cross_watch_direction == 0:
+            xwatch_tag = "bi"
+        else:
+            xwatch_tag = "+" if cross_watch_direction > 0 else "-"
         self.name = (
             f"spread_cross_{symbol}_pos{'+' if position_direction > 0 else '-'}"
-            f"_xwatch{'+' if cross_watch_direction > 0 else '-'}"
+            f"_xwatch{xwatch_tag}"
         )
 
     def prepare_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -308,28 +323,51 @@ class SpreadCrossLegStrategy:
         if state.last_processed_ts != bar_ts:
             state.last_processed_ts = bar_ts
 
-            # Arm on cross_event match
-            if cross_event == self.cross_watch_direction:
+            # Arm on cross_event match. In uni-directional mode (+1 or -1),
+            # only that direction arms. In bidirectional mode (cross_watch_direction=0),
+            # EITHER direction arms; the signed direction is stored in
+            # state.armed_direction and flows through to fire_direction.
+            should_arm = (
+                cross_event != 0 and (
+                    self.cross_watch_direction == 0
+                    or cross_event == self.cross_watch_direction
+                )
+            )
+            if should_arm:
                 state.armed_ts = bar_ts
+                state.armed_direction = cross_event
 
             # Confirmation check
             if state.armed_ts is not None:
                 elapsed_seconds = (bar_ts - state.armed_ts).total_seconds()
                 elapsed_bars = int(elapsed_seconds // self.bar_seconds)
                 if elapsed_bars >= self.delay_bars:
-                    if cross_side == self.cross_watch_direction:
+                    expected_side = state.armed_direction
+                    if cross_side == expected_side and expected_side != 0:
                         # Both legs will fire at this bar_ts.
                         state.fire_at_ts = bar_ts
+                        state.fire_direction = expected_side
                         state.armed_ts = None
+                        state.armed_direction = 0
                     else:
                         # Whipsaw — reverted during the wait. Drop the arm.
                         state.armed_ts = None
+                        state.armed_direction = 0
 
         # Each leg reads shared fire_at_ts; if it matches current bar_ts,
-        # the leg returns its own position_direction. Both legs see the
-        # same fire_at_ts so both return signal at the same bar.
+        # the leg returns its own position_direction scaled by fire_direction.
+        # In uni-directional mode fire_direction == cross_watch_direction so the
+        # scale is +1 (no-op vs legacy behavior). In bidirectional mode
+        # (cross_watch_direction=0), fire_direction matches the cross that
+        # actually fired, so legs flip direction per cycle accordingly.
         if state.fire_at_ts == bar_ts:
-            return {"signal": int(self.position_direction)}
+            if self.cross_watch_direction == 0:
+                # Bidirectional: scale by the cross direction that fired.
+                signal = int(self.position_direction) * int(state.fire_direction)
+            else:
+                # Legacy uni-directional: position_direction is the signal.
+                signal = int(self.position_direction)
+            return {"signal": signal}
         return None
 
     def check_exit(self, ctx) -> bool:

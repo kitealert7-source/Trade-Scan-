@@ -23,6 +23,7 @@ from typing import Any
 import pandas as pd
 
 from tools.basket_hypothesis.canonical_metrics import canonical_metrics
+from tools.basket_hypothesis.mfe_giveback import compute_mfe_giveback
 
 
 def _fmt_money(x: float) -> str:
@@ -117,16 +118,29 @@ def _build_event_taxonomy_table(m: dict[str, Any]) -> str:
         ])
     elif rf == "h3_spread":
         n_trail = ev.get("h3_liq_trail", 0)
-        total_liq = ev["h3_liq_time"] + ev["h3_liq_adverse"] + ev["h3_liq_reverse"] + n_trail
+        n_scaleouts = ev.get("h3_harvest_scaleouts", 0)
+        n_harvest = ev.get("h3_liq_harvest", 0)
+        n_hold = ev.get("h3_hold_at_cap", 0)
+        n_to_core = ev.get("h3_scale_to_core", 0)
+        n_core_hold = ev.get("h3_core_hold", 0)
+        total_liq = (
+            ev["h3_liq_time"] + ev["h3_liq_adverse"] + ev["h3_liq_reverse"]
+            + n_trail + n_harvest
+        )
         lines.extend([
             "| Event | Count | Notes |",
             "|---|---|---|",
-            f"| Pyramids (add to both legs) | {_fmt_int(ev['h3_pyramids'])} | anti-Martingale add when basket P&L crosses threshold |",
+            f"| Pyramids (Phase-1 add to both legs) | {_fmt_int(ev['h3_pyramids'])} | anti-Martingale add when basket P&L crosses threshold below cap |",
+            f"| Hold-at-cap (delayed-harvest window) | {_fmt_int(n_hold)} | threshold crossings consumed at cap before harvest begins (@2 w/ harvest_start_after_extra_pyramids > 0) |",
+            f"| Harvest scale-outs (Phase-2) | {_fmt_int(n_scaleouts)} | symmetric partial realization above the cap (@2 only) |",
+            f"| Scale-out-to-core (final, keeps_core=True) | {_fmt_int(n_to_core)} | last scale-out landing at initial_lot (residual rides on) |",
+            f"| Core-hold bars (persistent trend) | {_fmt_int(n_core_hold)} | threshold crossings post-harvest at the floor (@2 w/ harvest_keeps_core=True) |",
             f"| Liquidations — TIME stop | {_fmt_int(ev['h3_liq_time'])} | basket aged out of position window |",
             f"| Liquidations — ADVERSE stop | {_fmt_int(ev['h3_liq_adverse'])} | basket P&L below adverse threshold |",
             f"| Liquidations — TRAIL stop | {_fmt_int(n_trail)} | peak-relative retracement after running peak armed |",
             f"| Liquidations — REVERSE cross | {_fmt_int(ev['h3_liq_reverse'])} | regime-flip detected via cross_side inversion |",
-            f"| Liquidations (total) | {_fmt_int(total_liq)} | sum of above four |",
+            f"| Liquidations — HARVEST complete | {_fmt_int(n_harvest)} | Phase-2 scale-outs reduced residual to zero (@2 only) |",
+            f"| Liquidations (total) | {_fmt_int(total_liq)} | sum of above five |",
             f"| Holding bars (in position) | {_fmt_int(ev['h3_holding'])} | basket open + waiting for trigger |",
             f"| Awaiting-entry bars | {_fmt_int(ev['h3_awaiting'])} | flat, waiting for next cross signal |",
         ])
@@ -347,6 +361,116 @@ def _build_pnl_histogram_table(m: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _build_mfe_giveback_section(mfe: dict[str, Any]) -> str:
+    """Per-cycle MFE / give-back distribution + capture-rate at exit.
+
+    Quantifies how much unrealized profit each cycle peaked at and how
+    much was surrendered before the exit signal fired. Rule-family
+    agnostic; reads only `floating_total_usd` per cycle window.
+    """
+    cycles = mfe.get("cycles") or []
+    if not cycles:
+        return ""
+
+    summary = mfe.get("summary") or {}
+    by_tag = mfe.get("by_exit_tag") or {}
+    profitable = mfe.get("profitable") or {}
+    losing = mfe.get("losing") or {}
+    hist = mfe.get("giveback_pct_histogram") or []
+    capture_rate = mfe.get("capture_rate_pct", 0.0)
+    gp = summary.get("giveback_pct_stats") or {}
+
+    lines = [
+        "## Cycle MFE / Give-back",
+        "",
+        "Per-cycle maximum favorable excursion (MFE = peak unrealized PnL",
+        "reached during the cycle) versus the realized exit. Give-back =",
+        "MFE − exit_floating; capture rate = exit_floating / MFE.",
+        "Useful for spotting whether the exit signal harvests peaks (high",
+        "capture) or rides cycles back down (low capture).",
+        "",
+        "| Metric | Value |",
+        "|---|---|",
+        f"| Cycles analyzed | {summary.get('n_cycles', 0):,} |",
+        f"| **Aggregate capture rate** (Σ exit / Σ MFE) | **{capture_rate:.1f}%** |",
+        f"| Total unrealized peak (Σ MFE, clipped @ 0) | {_fmt_money(summary.get('total_mfe_usd', 0.0))} |",
+        f"| Total realized at exit (Σ exit_floating) | {_fmt_money(summary.get('total_exit_floating', 0.0))} |",
+        f"| Total give-back (Σ MFE − Σ exit) | {_fmt_money(summary.get('total_giveback_usd', 0.0))} |",
+        f"| Mean per-cycle MFE | {_fmt_money(summary.get('mean_mfe_usd', 0.0))} |",
+        f"| Median per-cycle MFE | {_fmt_money(summary.get('median_mfe_usd', 0.0))} |",
+        f"| Mean per-cycle give-back ($) | {_fmt_money(summary.get('mean_giveback_usd', 0.0))} |",
+        f"| Median per-cycle give-back ($) | {_fmt_money(summary.get('median_giveback_usd', 0.0))} |",
+    ]
+    if gp and gp.get("n", 0) > 0:
+        lines.extend([
+            f"| Give-back % — median | {gp['median']:.1f}% |",
+            f"| Give-back % — p75 / p90 | {gp['p75']:.1f}% / {gp['p90']:.1f}% |",
+        ])
+
+    # By-exit-tag table — shows which exit kinds harvest vs leak.
+    if by_tag:
+        lines.extend([
+            "",
+            "### By exit tag",
+            "",
+            "| Exit tag | n | Mean MFE | Mean exit | Mean give-back | Capture % |",
+            "|---|---|---|---|---|---|",
+        ])
+        for tag, d in sorted(by_tag.items(), key=lambda kv: -kv[1]["n"]):
+            lines.append(
+                f"| `{tag}` | {d['n']} | "
+                f"{_fmt_money(d['mean_mfe_usd'])} | "
+                f"{_fmt_money(d['mean_exit_floating'])} | "
+                f"{_fmt_money(d['mean_giveback_usd'])} | "
+                f"{d['capture_rate_pct']:.1f}% |"
+            )
+
+    # Profitable vs losing segmentation.
+    if profitable.get("n", 0) > 0 or losing.get("n", 0) > 0:
+        lines.extend([
+            "",
+            "### Profitable vs losing cycles",
+            "",
+            "| Segment | n | Mean MFE | Mean exit | Mean give-back | Capture % | Had MFE>0 | Never profitable |",
+            "|---|---|---|---|---|---|---|---|",
+        ])
+        for label, d in (("profitable (cycle_pnl > 0)", profitable),
+                         ("losing (cycle_pnl ≤ 0)", losing)):
+            if d.get("n", 0) == 0:
+                lines.append(f"| {label} | 0 | — | — | — | — | — | — |")
+                continue
+            lines.append(
+                f"| {label} | {d['n']} | "
+                f"{_fmt_money(d['mean_mfe_usd'])} | "
+                f"{_fmt_money(d['mean_exit_floating'])} | "
+                f"{_fmt_money(d['mean_giveback_usd'])} | "
+                f"{d['capture_rate_pct']:.1f}% | "
+                f"{d.get('n_had_mfe_positive', 0)} | "
+                f"{d.get('n_never_profitable', 0)} |"
+            )
+
+    # Give-back % histogram — quick visual of give-back distribution.
+    if hist:
+        max_count = max((b["count"] for b in hist), default=0)
+        BAR_WIDTH = 30
+        lines.extend([
+            "",
+            "### Give-back % distribution (cycles with MFE > 0)",
+            "",
+            "| Give-back % range | Count | Share | Distribution |",
+            "|---|---|---|---|",
+        ])
+        for b in hist:
+            bar_len = int(round(b["count"] / max_count * BAR_WIDTH)) if max_count else 0
+            bar = "█" * bar_len
+            lines.append(
+                f"| {b['lo']:>3}–{b['hi']:>3}% | {b['count']} | "
+                f"{b['share_pct']:.1f}% | `{bar}` |"
+            )
+
+    return "\n".join(lines)
+
+
 def _build_time_and_capital_table(m: dict[str, Any]) -> str:
     """Time-in-position + capital-efficiency diagnostics. Signals whether
     capital is being deployed productively or sitting idle."""
@@ -416,6 +540,7 @@ def render_basket_report(
     (below) or directly.
     """
     m = canonical_metrics(parquet_path, stake_usd, basket_csv_path=basket_csv_path)
+    mfe = compute_mfe_giveback(parquet_path, rule_family=m.get("rule_family"))
 
     header = [
         f"# Basket Report (cycle-aware) — {directive_id}",
@@ -438,6 +563,7 @@ def render_basket_report(
         _build_underwater_section(m),
         _build_cycle_breakdown_table(m),
         _build_pnl_histogram_table(m),
+        _build_mfe_giveback_section(mfe),
         _build_monthly_curve_table(m),
         _build_asymmetry_table(m),
         _build_peak_lots_table(m),

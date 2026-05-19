@@ -56,6 +56,7 @@ from tools.recycle_rules.h2_recycle_v3 import H2RecycleRuleV3
 from tools.recycle_rules.h2_recycle_v4 import H2RecycleRuleV4
 from tools.recycle_rules.h2_recycle_v5 import H2RecycleRuleV5
 from tools.recycle_rules.h3_spread_v1 import H3SpreadV1Rule
+from tools.recycle_rules.h3_spread_v2 import H3SpreadV2Rule
 
 __all__ = [
     "H2RecycleRule",
@@ -65,4 +66,5 @@ __all__ = [
     "H2RecycleRuleV5",
     "H2CompressionRecycleRule",
     "H3SpreadV1Rule",
+    "H3SpreadV2Rule",
 ]

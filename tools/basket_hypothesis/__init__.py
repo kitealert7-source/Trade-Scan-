@@ -17,5 +17,11 @@ basket_report     : generates BASKET_REPORT.md alongside the legacy
 """
 from tools.basket_hypothesis.basket_report import render_basket_report, write_basket_report
 from tools.basket_hypothesis.canonical_metrics import canonical_metrics
+from tools.basket_hypothesis.mfe_giveback import compute_mfe_giveback
 
-__all__ = ["canonical_metrics", "render_basket_report", "write_basket_report"]
+__all__ = [
+    "canonical_metrics",
+    "compute_mfe_giveback",
+    "render_basket_report",
+    "write_basket_report",
+]
