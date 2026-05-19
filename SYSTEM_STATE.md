@@ -1,10 +1,10 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: 77 symbol(s) stale (>3 days behind)
+- WARNING: 3 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-18T15:15:07Z
+> Generated: 2026-05-19T08:43:22Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,7 +13,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 483 directives
+- Completed: 512 directives
 
 ## Ledgers
 
@@ -33,15 +33,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-18** | Symbols: 221 | **Stale (>3d): 77**
+- Latest bar: **2026-05-19** | Symbols: 221 | **Stale (>3d): 3**
 
 ## Artifacts
-- Run directories: 1581
+- Run directories: 1610
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `01bfc85 test(basket-path-b): drop legacy REPORT.md assertion (suppressed for baskets)`
+- Last substantive commit: `3fec05e research(h3_spread@2): cross-pair + Window-C + correlation-filter probes`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -68,3 +68,36 @@
     5. Then run on FULL 10-year window (2016+) that spans BOTH regimes (USD-weakening 2016-2018, USD-strengthening 2018-2024, USD-weakening 2024-2026). This is the real regime-robustness test — does the architecture extract edge in BOTH macro regimes when correctly aligned, or only one direction regardless of slope?
 
   Build BULL-on-Window-A directive is DROPPED from pending. Not informative given the charts + screening already establish the regime-mirror behavior.
+
+- **H3_spread@2 architectural arc complete; deployment is REGIME-CONDITIONAL not regime-robust (2026-05-19).** Session built and tested H3_spread@2 — a research-validated extension of @1 composing four structural improvements: (1) max_exposure_multiple cap on bidirectional pyramid growth, (2) symmetric harvest scale-out above the cap, (3) harvest_keeps_core (floor=initial_lot, persistent CORE_HOLD), (4) bidirectional cycle direction set from cross_side at basket-open. Committed `7f33a8c feat(h3_spread@2)`.
+
+  **Best variants on 2-window cross-regime test (EUR+USDJPY only, S10 mechanic):**
+  - **Window A (2024-05 → 2026-05 USD-weakening):** S08 (1d macro) +184% / DD −24%; **S10 (4h-scaled macro)** +198% / DD −23% / Ret/DD 8.54
+  - **Window B (2021-05 → 2023-05 USD-strengthening):** S08 +153% / DD −27%; **S10** +156% / DD −26% / Ret/DD 6.01
+  - 1d and 4h-scaled (same daily calendar lookback) deliver equivalent results; 4h sampled finer is marginally better.
+
+  **Two negative-result probes (committed under follow-on S11/S12/S13/S14 directives, NOT in `7f33a8c`):**
+  - **Cross-pair fails:** GBPUSD+USDJPY −72%/−152% on A/B; AUDUSD+USDCAD −146%/−80% on A/B. Mechanism does NOT transfer to other pair combinations. GBP/USDJPY has only marginally weaker correlation profile than EUR/JPY but loses anyway (higher 5m vol + Brexit idiosyncratic shocks); AUD/USDCAD has STRONGER inverse correlation but the spread captures commodity-vs-oil dynamics rather than USD direction.
+  - **Window C 2018-05 → 2020-05 fails:** −130% Net / −124% DD on the EUR/JPY/S10 mechanic that won the other two windows. Multi-regime period (trade war 2018 + Brexit + Fed pivot 2019 + COVID March 2020). 74% of loss is PRE-COVID (worst single quarter 2019Q1 = −$536 with no COVID involvement). Direction was right 99.7% of cycles; 5m chop within macro-coherent segments + correlation breakdown (25% of days corr > −0.2 vs 5% on Window A) were the proximate drivers.
+
+  **EUR/JPY 20-day return correlation predicts win/loss monotonically across the 3 windows:**
+  - Window A: mean corr −0.594, 69% strongly inverse (< −0.5) → **+198% Net**
+  - Window B: mean corr −0.408, 36% strongly inverse → **+156% Net**
+  - Window C: mean corr −0.342, 24% strongly inverse → **−130% Net**
+
+  **Correlation filter approach TESTED AND DROPPED (S13/S14 directives in completed/, code in basket_data_loader.py with default=off).** Adding `macro_correlation_window + macro_correlation_threshold` params to gate cross_event by daily rolling correlation works directionally (Window C loss reduced 74% at threshold=−0.5, 30% at −0.2) but the cost on Windows A/B is non-trivial (−0.5: lose 62-76% of edge; −0.2: lose 4-41%). No single threshold preserves A/B edge while making Window C profitable — per-cycle PF on Window C stays 0.75-0.78 regardless of threshold, meaning the strategy lacks per-cycle edge on Window C structurally, not just from "broken correlation" entries. **Decision: leave correlation filter OUT of deployment; let portfolio-level max-DD constraints do the risk-management work.** Filter code retained as research diagnostic (default macro_correlation_window=None preserves legacy behavior).
+
+  **Deployment posture (locked, end of session 2026-05-19):**
+  - EUR/JPY is the SINGLE deployable pair (cross-pair attempts negative).
+  - 2/3 windows positive; 1/3 catastrophically negative. Strategy is regime-conditional, not regime-robust.
+  - Required: portfolio-level max-DD discipline to bound the Window-C-like tail when it recurs.
+  - Open structural question: how to DETECT regime-condition (correlation health + 5m intra-macro coherence + macro flip frequency) BEFORE deployment damage accumulates. Operator-side review of macro indicators per quarter is the manual baseline.
+
+  **Research artifacts (not yet committed at session-close; will be committed by /session-close):**
+  S11 V1 P00/P01 (GBPUSD+USDJPY × A/B), S12 V1 P00/P01 (AUDUSD+USDCAD × A/B), S10 V1 P02 (EUR/JPY × Window C), S13 V1 P00/P01/P02 (corr filter −0.5 × 3 windows), S14 V1 P00/P01/P02 (corr filter −0.2 × 3 windows). Plus correlation-filter code + 6 new tests in `tests/test_basket_data_loader_macro_filter.py`.
+
+- **Reading list for next session.** Operator will think over the picture. Key strategic questions to consider before next probe:
+  1. Accept EUR/JPY-only deployment with manual regime gating + portfolio-level DD?
+  2. Build a second filter (5m intra-macro coherence — realized vol within macro-stable segments)?
+  3. Search for a different basket structure where the cross-pair mechanism transfers (e.g., truly USD-anchored synthetic spreads, not naive pair-combinations)?
+  4. Park the mechanism and pursue a different strategy family?
