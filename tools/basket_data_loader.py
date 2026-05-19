@@ -27,6 +27,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from config.path_authority import DATA_ROOT
@@ -383,6 +384,8 @@ def load_basket_leg_data(
     macro_warmup_days: int = _MACRO_WARMUP_DAYS_DEFAULT,
     macro_z_window: int = _MACRO_Z_WINDOW,
     macro_sma_window: int = _MACRO_SMA_WINDOW,
+    macro_correlation_window: int | None = None,
+    macro_correlation_threshold: float = -0.5,
 ) -> dict[str, pd.DataFrame]:
     """Load per-symbol OHLC + a USD_SYNTH regime factor for a basket.
 
@@ -547,6 +550,72 @@ def load_basket_leg_data(
                     cross_event = out[sym]["cross_event"]
                     aligned = (cross_event != 0) & (cross_event == htf_direction)
                     out[sym]["cross_event"] = cross_event.where(aligned, 0).astype(int)
+
+            # Correlation-health filter (2026-05-19, post-Window-C diagnosis).
+            # The H3_spread basket's PnL math (leg_a × Δa − leg_b × Δb)
+            # only IS a USD-direction trade when corr(Δa, Δb) is strongly
+            # negative. When correlation breaks (Δa and Δb decouple), the
+            # basket becomes two independent noise streams and the cycle PnL
+            # distribution flattens to coin-flip (cycle PF -> ~1.0 or below).
+            # Verified empirically: Window C had 25% of days with broken
+            # correlation (vs 5% on Window A) and lost -130% Net.
+            #
+            # Filter: compute rolling correlation of daily log-returns over
+            # macro_correlation_window days, shift by 1 day (look-ahead
+            # protection), forward-fill onto entry-TF grid as
+            # htf_correlation, and AND-filter cross_event so it only fires
+            # when correlation is at-or-below macro_correlation_threshold
+            # (strongly inverse). cross_side (exit signal) intentionally
+            # left untouched — symmetric with the macro-direction filter
+            # design.
+            #
+            # Default macro_correlation_window=None preserves legacy
+            # behavior. Typical config: macro_correlation_window=20,
+            # macro_correlation_threshold=-0.5.
+            if macro_correlation_window is not None:
+                # Load daily closes (re-use the macro extended window if
+                # the macro-direction filter ran; otherwise compute a
+                # similar extended window).
+                ext_start_corr = (
+                    pd.Timestamp(start_date)
+                    - pd.Timedelta(days=max(int(macro_warmup_days),
+                                            int(macro_correlation_window) + 30))
+                ).strftime("%Y-%m-%d")
+                daily_closes: dict[str, pd.Series] = {}
+                for sym in symbols:
+                    sym_df_daily = _load_symbol_5m(
+                        sym, ext_start_corr, end_date, timeframe="1d",
+                    )
+                    daily_closes[sym] = sym_df_daily["close"]
+                aligned_d = pd.concat(
+                    [daily_closes[symbols[0]].rename("a"),
+                     daily_closes[symbols[1]].rename("b")],
+                    axis=1,
+                ).dropna()
+                ret_d = np.log(aligned_d).diff()
+                roll_corr = (
+                    ret_d["a"]
+                    .rolling(int(macro_correlation_window))
+                    .corr(ret_d["b"])
+                )
+                # 1-bar shift: a 5m bar at time T uses correlation from
+                # the PREVIOUS daily close, not today's (which wasn't
+                # known until end-of-day).
+                roll_corr_shifted = roll_corr.shift(1)
+                for sym in symbols:
+                    corr_aligned = roll_corr_shifted.reindex(
+                        out[sym].index, method="ffill",
+                    )
+                    # During warmup `corr` is NaN; treat as "no signal" =
+                    # not-strongly-inverse = filter rejects entries.
+                    out[sym]["htf_correlation"] = corr_aligned
+                    # Entry-only gate: cross_event must be nonzero AND
+                    # correlation must be at-or-below threshold (strongly
+                    # inverse). NaN comparisons return False → reject.
+                    cross_event = out[sym]["cross_event"]
+                    corr_ok = (corr_aligned <= macro_correlation_threshold)
+                    keep = (cross_event != 0) & corr_ok.fillna(False)
+                    out[sym]["cross_event"] = cross_event.where(keep, 0).astype(int)
 
         except Exception as exc:
             print(

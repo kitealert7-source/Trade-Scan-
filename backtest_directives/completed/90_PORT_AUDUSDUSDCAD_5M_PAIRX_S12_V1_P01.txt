@@ -1,0 +1,106 @@
+test:
+  name: 90_PORT_AUDUSDUSDCAD_5M_PAIRX_S12_V1_P01
+  family: PORT
+  strategy: 90_PORT_AUDUSDUSDCAD_5M_PAIRX_S12_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2021-05-18'
+  end_date: '2023-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V2
+  hypothesis_variant: H3_PAIR_SPREAD_V2_BIDIR_MACRO4H_SCALED_AUDUSDCAD_WINDOW_B
+  description: 'H3 PAIR SPREAD V2, BIDIRECTIONAL + DAILY MACRO-DIRECTION
+    FILTER on Window B (2021-05 -> 2023-05). Cross-window counterpart to
+    S08 V1 P00. Window B is the USD-strengthening regime that crushed
+    bidirectional-no-filter S06 V1 P01 (-145% Net, -221% DD) because
+    countertrend BEAR cycles dragged with the trend-aligned BULL
+    cycles.
+
+    Expected behavior with macro filter: the daily htf_direction is
+    mostly -1 (SHORT-spread / USD-strengthening) across this window.
+    UP-cross 5m entries get suppressed; only DOWN-cross 5m entries
+    fire. Should produce a result comparable to BULL-only S05 V1 P02
+    (+231%) but with the structural integration / no manual direction
+    preselection.
+
+    Single-test cross-window probe. Compare to:
+      S05 V1 P01 (BEAR/B, no filter, no macro brain)        -> -197%
+      S05 V1 P02 (BULL/B, no filter, no macro brain)        -> +231%
+      S06 V1 P01 (BIDIR/B, no filter, no macro brain)       ->   +4%
+      S08 V1 P01 (BIDIR/B, macro=1d filter)                 -> ???
+
+    If S08 P01 lands in the BULL/B (+200%-range) territory, the macro
+    filter is structurally correct. If it underperforms, the filter
+    has a regime-specific weakness we have not yet identified.
+
+    '
+  repeat_override_reason: '[RERUN:MACRO-FILTER+WINDOW@2026-05-19 origin=PAIRX-S08-P00-WindowA
+    target=90_PORT_AUDUSDUSDCAD_5M_PAIRX_S12_V1_P01] Window-B counterpart
+    to S08 P00. Tests whether the daily macro filter rescues the
+    hostile-regime failure of S06 V1 P01.'
+symbols:
+- AUDUSD
+- USDCAD
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: AUDUSDUSDCADBIDIR
+  legs:
+  - symbol: AUDUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDCAD
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 2
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12

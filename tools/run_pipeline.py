@@ -1102,6 +1102,17 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     # 1h macro signals to the same calendar lookback.
     macro_z_window = int(_rule_params.get("macro_z_window", 60))
     macro_sma_window = int(_rule_params.get("macro_sma_window", 5))
+    # Correlation-health filter (2026-05-19). When set, the loader computes
+    # rolling daily-log-return correlation between the two basket legs and
+    # gates entry-TF cross_event entries on it being at-or-below
+    # macro_correlation_threshold (strongly inverse = USD-direction thesis
+    # holds). None = no filter (legacy behavior preserved).
+    macro_correlation_window = _rule_params.get("macro_correlation_window", None)
+    if macro_correlation_window is not None:
+        macro_correlation_window = int(macro_correlation_window)
+    macro_correlation_threshold = float(
+        _rule_params.get("macro_correlation_threshold", -0.5)
+    )
     try:
         from tools.basket_data_loader import load_basket_leg_data
         from tools.recycle_strategies import (
@@ -1116,6 +1127,8 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             macro_warmup_days=macro_warmup_days,
             macro_z_window=macro_z_window,
             macro_sma_window=macro_sma_window,
+            macro_correlation_window=macro_correlation_window,
+            macro_correlation_threshold=macro_correlation_threshold,
         )
         # Leg-strategy dispatch by recycle rule name (2026-05-18 — H3_spread@1):
         # different rules require different leg-entry semantics. ContinuousHold

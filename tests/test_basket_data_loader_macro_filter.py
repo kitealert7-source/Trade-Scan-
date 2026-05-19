@@ -165,6 +165,148 @@ def test_macro_filter_uses_previous_macro_bar_no_lookahead():
 
 
 @_REQUIRES_DATA
+def test_correlation_filter_off_preserves_legacy_columns():
+    """macro_correlation_window=None — no htf_correlation column added."""
+    data = load_basket_leg_data(
+        ["EURUSD", "USDJPY"],
+        "2024-05-18", "2024-06-18",
+        timeframe="5m",
+        macro_correlation_window=None,
+    )
+    eur = data["EURUSD"]
+    assert "htf_correlation" not in eur.columns
+
+
+@_REQUIRES_DATA
+def test_correlation_filter_on_adds_column_and_gates_entries():
+    """macro_correlation_window=20 — htf_correlation column populated;
+    surviving cross_events are all in periods where correlation <= threshold."""
+    data = load_basket_leg_data(
+        ["EURUSD", "USDJPY"],
+        "2024-05-18", "2024-06-18",
+        timeframe="5m",
+        macro_correlation_window=20,
+        macro_correlation_threshold=-0.5,
+    )
+    eur = data["EURUSD"]
+    assert "htf_correlation" in eur.columns
+    # All surviving cross_events must be in bars where correlation <= -0.5
+    fires = eur[eur["cross_event"] != 0]
+    if len(fires) > 0:
+        assert (fires["htf_correlation"] <= -0.5).all(), (
+            "Every filtered cross_event must be in a bar with "
+            "correlation <= threshold"
+        )
+
+
+@_REQUIRES_DATA
+def test_correlation_filter_does_not_touch_cross_side_exits():
+    """cross_side (the reverse-cross EXIT signal) must be identical with
+    and without the correlation filter — per design: entries gated,
+    exits untouched."""
+    no_corr = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], "2024-05-18", "2024-06-18",
+        timeframe="5m", macro_correlation_window=None,
+    )
+    with_corr = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], "2024-05-18", "2024-06-18",
+        timeframe="5m", macro_correlation_window=20,
+        macro_correlation_threshold=-0.5,
+    )
+    eur_no = no_corr["EURUSD"]
+    eur_with = with_corr["EURUSD"]
+    assert (eur_no.index == eur_with.index).all()
+    assert (eur_no["cross_side"] == eur_with["cross_side"]).all(), (
+        "cross_side must NOT change when correlation filter is enabled"
+    )
+
+
+@_REQUIRES_DATA
+def test_correlation_filter_one_bar_shift_no_lookahead():
+    """The htf_correlation at a 5m bar must derive from the PREVIOUS daily
+    close's correlation. Test: independently compute the shifted daily
+    correlation and compare a few sample bars."""
+    from tools.basket_data_loader import _load_symbol_5m
+    import numpy as np
+    start, end = "2024-05-18", "2024-06-18"
+    data = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], start, end,
+        timeframe="5m", macro_correlation_window=20,
+        macro_correlation_threshold=-0.5,
+        macro_warmup_days=120,
+    )
+    # Independent re-computation
+    ext_start = (pd.Timestamp(start) - pd.Timedelta(days=120)).strftime("%Y-%m-%d")
+    eur_d = _load_symbol_5m("EURUSD", ext_start, end, timeframe="1d")
+    jpy_d = _load_symbol_5m("USDJPY", ext_start, end, timeframe="1d")
+    aligned = pd.concat([eur_d["close"].rename("a"), jpy_d["close"].rename("b")],
+                         axis=1).dropna()
+    ret = np.log(aligned).diff()
+    roll = ret["a"].rolling(20).corr(ret["b"])
+    shifted = roll.shift(1)
+
+    eur_5m = data["EURUSD"]
+    sample_ts = eur_5m.index[::1000]
+    for ts in sample_ts:
+        candidates = shifted[shifted.index <= ts].dropna()
+        if candidates.empty:
+            continue
+        expected = float(candidates.iloc[-1])
+        actual = float(eur_5m.loc[ts, "htf_correlation"])
+        # Allow tiny tolerance (pandas float roundoff)
+        assert abs(actual - expected) < 1e-9, (
+            f"htf_correlation mismatch at {ts}: loader={actual}, "
+            f"independent-shifted={expected}"
+        )
+
+
+@_REQUIRES_DATA
+def test_correlation_filter_blocks_more_entries_than_no_filter():
+    """With the correlation filter on, the number of surviving
+    cross_events should be <= the count without the filter (the filter
+    only suppresses, never adds)."""
+    no_corr = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], "2024-05-18", "2024-06-18",
+        timeframe="5m", macro_correlation_window=None,
+    )
+    with_corr = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], "2024-05-18", "2024-06-18",
+        timeframe="5m", macro_correlation_window=20,
+        macro_correlation_threshold=-0.5,
+    )
+    n_no = int((no_corr["EURUSD"]["cross_event"] != 0).sum())
+    n_with = int((with_corr["EURUSD"]["cross_event"] != 0).sum())
+    assert n_with <= n_no, (
+        f"Correlation filter should suppress (not add) cross_events; "
+        f"got no_filter={n_no}, with_filter={n_with}"
+    )
+
+
+@_REQUIRES_DATA
+def test_correlation_filter_composes_with_macro_direction_filter():
+    """When BOTH filters are on, surviving cross_events must satisfy both
+    constraints (direction match AND correlation <= threshold)."""
+    data = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], "2024-05-18", "2024-06-18",
+        timeframe="5m",
+        macro_direction_timeframe="4h",
+        macro_warmup_days=120,
+        macro_z_window=360,
+        macro_sma_window=30,
+        macro_correlation_window=20,
+        macro_correlation_threshold=-0.5,
+    )
+    eur = data["EURUSD"]
+    assert "htf_direction" in eur.columns
+    assert "htf_correlation" in eur.columns
+    fires = eur[eur["cross_event"] != 0]
+    if len(fires) > 0:
+        # Both constraints must hold on every surviving cross_event
+        assert (fires["cross_event"] == fires["htf_direction"]).all()
+        assert (fires["htf_correlation"] <= -0.5).all()
+
+
+@_REQUIRES_DATA
 def test_warmup_assertion_fires_when_insufficient():
     """macro_warmup_days=1 is insufficient for a 60-bar daily z-window.
     The loader should raise ValueError early instead of silently running
