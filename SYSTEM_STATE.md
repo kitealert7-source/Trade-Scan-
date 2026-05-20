@@ -1,10 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: 3 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 1 uncommitted
+- WARNING: Working tree 13 uncommitted
 
-> Generated: 2026-05-19T08:43:22Z
+> Generated: 2026-05-20T08:13:52Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,17 +12,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 512 directives
+- Completed: 243 directives
 
 ## Ledgers
 
-- **Master Filter:** 1151 rows
+- **Master Filter:** 1256 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 131 rows — CORE: 4, FAIL: 121, PROFILE_UNRESOLVED: 1, WATCH: 5
   - **Single-Asset Composites:** 81 rows — CORE: 11, FAIL: 65, WATCH: 5
 
-- **Candidates (FPS):** 521 rows — CORE: 14, FAIL: 351, LIVE: 13, RESERVE: 25, WATCH: 118
+- **Candidates (FPS):** 380 rows — CORE: 10, FAIL: 252, LIVE: 12, RESERVE: 18, WATCH: 88
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
@@ -33,19 +32,19 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-19** | Symbols: 221 | **Stale (>3d): 3**
+- Latest bar: **2026-05-20** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1610
+- Run directories: 1602
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `3fec05e research(h3_spread@2): cross-pair + Window-C + correlation-filter probes`
+- Working tree: 13 uncommitted
+- Last substantive commit: `a537940 session: accept 13 broader-pytest TDs from directive_reconciler purge`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Broader-pytest baseline:** clean (0 acknowledged failures). Last refreshed 2026-05-18T10:51:43+00:00 @ dff23e7e.
+- **Broader-pytest baseline:** 13 acknowledged failure(s) (last refreshed 2026-05-20 @ 112a300e). Tests: test_directive_basket_block_parses, test_directive_file_exists, test_directive_legs_match_h2_spec (+10 more). Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
