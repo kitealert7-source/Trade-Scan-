@@ -1118,6 +1118,7 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     try:
         from tools.basket_data_loader import load_basket_leg_data
         from tools.recycle_strategies import (
+            CointMeanRevLegStrategy,
             ContinuousHoldStrategy,
             SpreadCrossArmedState,
             SpreadCrossLegStrategy,
@@ -1164,6 +1165,42 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
                     armed_state=shared_armed_state,
                     delay_bars=delay_bars,
                     bar_seconds=bar_seconds,
+                )
+                for leg in parsed["basket"]["legs"]
+            }
+        elif rule_name == "COINTREV_meanrev":
+            # COINTREV mean-reversion (2026-05-20 — Path C C3c).
+            # Each leg watches 15m |intra_z| crossing entry_z while
+            # qualified_daily=True. The basket-level direction comes from
+            # the leg directions set in the directive (uni-directional v1);
+            # bidirectional support is a v1.1 enhancement.
+            # No shared state needed — both legs read identical joined
+            # columns and fire deterministically on the same bar.
+            rule_params = rule_block.get("params", {}) or {}
+            entry_z = float(rule_params.get("entry_z", 2.0))
+            # watch_direction inferred from the long leg's direction in
+            # the basket: long-A + short-B configuration trades the
+            # SHORT-spread direction (signal fires when z >= +entry_z).
+            # Reverse for short-A + long-B (LONG spread, z <= -entry_z).
+            # Bidirectional (watch=0) is enabled by the optional
+            # rule_params.bidirectional=true flag (v1.1).
+            if bool(rule_params.get("bidirectional", False)):
+                watch = 0
+            else:
+                # Map first leg's direction → watch direction.
+                # Reasoning: spread = close_b - β·close_a (canonical).
+                # SHORT-spread trade = long A + short B → opens when z>0
+                # LONG-spread trade  = short A + long B → opens when z<0
+                first_leg_dir = parsed["basket"]["legs"][0]["direction"]
+                watch = +1 if first_leg_dir == "long" else -1
+            leg_strategies = {
+                leg["symbol"]: CointMeanRevLegStrategy(
+                    symbol=leg["symbol"],
+                    position_direction=+1 if leg["direction"] == "long" else -1,
+                    watch_direction=watch,
+                    entry_z=entry_z,
+                    intra_z_column=str(rule_params.get("intra_z_column", "intra_z")),
+                    qualified_column=str(rule_params.get("qualified_column", "qualified_daily")),
                 )
                 for leg in parsed["basket"]["legs"]
             }

@@ -38,7 +38,9 @@ __all__ = [
     "load_compression_5d_factor",  # legacy alias; prefer load_usd_synth_factor
     "load_usd_synth_factor",
     "load_fx_correlation_factor",
+    "load_cointegration_factor",
     "compute_spread_sma_cross_5m",
+    "compute_intra_z",
     "clear_year_file_cache",
 ]
 
@@ -657,7 +659,138 @@ def load_basket_leg_data(
                         f"that TF before start_date)."
                     )
 
+    # Cointegration factor auto-join (2026-05-20) — auto-joined for 2-leg
+    # baskets. Adds columns for COINTREV_meanrev@1 + CointMeanRevLegStrategy:
+    #   qualified_daily (bool)  — daily ADF gate, forward-filled from matrix
+    #   daily_z         (float) — daily-TF spread z-score (diagnostic)
+    #   beta_daily      (float) — daily-TF hedge ratio (pinned for intra_z)
+    #   intra_z         (float) — 100-bar rolling z-score on chart TF using
+    #                              daily-pinned β (operator-tuned 2026-05-20:
+    #                              ~25h window, structural memory delegated
+    #                              to the daily qualification layer)
+    # Failure is non-fatal — directives that don't use COINTREV continue
+    # to work. Pair-pair is symmetric (canonical alphabetical lookup); both
+    # legs see identical intra_z + qualified_daily values (pair-property).
+    if len(symbols) == 2:
+        try:
+            coint_df = load_cointegration_factor(
+                symbols[0], symbols[1],
+                start_date=start_date, end_date=end_date,
+            )
+            # Canonical orientation for spread sign: pair_a = alphabetically
+            # first, spread = close_b - β·close_a. Matches matrix convention.
+            canonical_a, canonical_b = sorted(symbols)
+            # Forward-fill daily β onto leg 0's index, then compute intra_z
+            # using the canonical orientation. Both legs share the result.
+            leg_index = out[symbols[0]].index
+            beta_15m = coint_df["beta"].reindex(leg_index, method="ffill")
+            intra_z = compute_intra_z(
+                close_a=out[canonical_a]["close"],
+                close_b=out[canonical_b]["close"],
+                beta_series=beta_15m,
+                window=100,
+            )
+            # Cast qualified bool→float BEFORE reindex so the NaN that
+            # reindex introduces lands in a float column (cleanly fillable
+            # to 0.0). Avoids pandas FutureWarning on object-dtype downcast.
+            qualified_float = coint_df["qualified"].astype("float32")
+            for sym in symbols:
+                out[sym]["qualified_daily"] = (
+                    qualified_float.reindex(out[sym].index, method="ffill")
+                    .fillna(0.0).astype("bool")
+                )
+                out[sym]["daily_z"] = coint_df["daily_z"].reindex(
+                    out[sym].index, method="ffill",
+                )
+                out[sym]["beta_daily"] = coint_df["beta"].reindex(
+                    out[sym].index, method="ffill",
+                )
+                out[sym]["intra_z"] = intra_z.reindex(out[sym].index)
+        except (FileNotFoundError, KeyError) as exc:
+            print(
+                f"[BASKET_DATA] WARN: cointegration factor unavailable "
+                f"for ({symbols[0]}, {symbols[1]}) ({exc}); COINTREV_meanrev "
+                f"rule + CointMeanRevLegStrategy will not fire if configured."
+            )
+
     return out
+
+
+def load_cointegration_factor(
+    sym_a: str,
+    sym_b: str,
+    *,
+    matrix_hash: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> pd.DataFrame:
+    """Load per-bar cointegration features for one pair-pair.
+
+    Reads the historical cointegration matrix (built by
+    tools/cointegration_history_matrix.py) and extracts the per-date
+    feature rows for the unordered (sym_a, sym_b) pair. Pair lookup is
+    alphabetically canonicalized so caller order doesn't matter.
+
+    Returns a DataFrame indexed by date with columns:
+        beta, spread_mean, spread_std, daily_z,
+        adf_p_252, adf_p_504, qualified
+
+    matrix_hash:
+        None  → reads LATEST pointer (most recent matrix build)
+        "..." → pins to a specific historical build for reproducibility
+
+    Used by load_basket_leg_data's auto-join block to inject cointegration
+    columns onto every 2-leg basket. Raises FileNotFoundError if no matrix
+    has been built, KeyError if the pair-pair isn't in the matrix universe.
+    """
+    # Local import keeps top-of-module light + avoids ordering concerns.
+    from indicators.stats.cointegration_state import (
+        FEATURE_COLUMNS,
+        load_history_matrix,
+    )
+    matrix = load_history_matrix(matrix_hash)
+    a, b = sorted([sym_a, sym_b])
+    sub = matrix.loc[(matrix["pair_a"] == a) & (matrix["pair_b"] == b)]
+    if sub.empty:
+        raise KeyError(
+            f"cointegration matrix has no pair ({a}, {b}). "
+            f"Universe size: {matrix.groupby(['pair_a','pair_b']).ngroups} pair-pairs."
+        )
+    sub = sub.set_index("date")[FEATURE_COLUMNS].sort_index()
+    if start_date is not None:
+        sub = sub.loc[sub.index >= pd.Timestamp(start_date)]
+    if end_date is not None:
+        sub = sub.loc[sub.index <= pd.Timestamp(end_date)]
+    return sub
+
+
+def compute_intra_z(
+    close_a: pd.Series,
+    close_b: pd.Series,
+    beta_series: pd.Series,
+    *,
+    window: int = 100,
+) -> pd.Series:
+    """Compute rolling 15m z-score of spread = close_b - beta·close_a.
+
+    `beta_series` is the daily β forward-filled onto the 15m index — typically
+    pulled from the cointegration matrix via load_cointegration_factor and
+    reindexed onto the leg df's intraday timestamps.
+
+    `window` defaults to 100 bars (~25h on 15m = one full FX session cycle).
+    Per operator review 2026-05-20, this is the operational sweet spot —
+    short enough to respond within hours of a fresh dislocation, long enough
+    that single-session noise doesn't dominate. The daily-cointegration
+    qualification (joined separately) carries the structural-memory job, so
+    the intraday window doesn't need to recreate it.
+
+    Returns a Series aligned to `close_a`'s index. NaN during warmup
+    (first ~window/2 bars).
+    """
+    spread = close_b - beta_series * close_a
+    sp_mean = spread.rolling(window, min_periods=max(2, window // 2)).mean()
+    sp_std = spread.rolling(window, min_periods=max(2, window // 2)).std(ddof=0)
+    return (spread - sp_mean) / sp_std
 
 
 def compute_spread_sma_cross_5m(

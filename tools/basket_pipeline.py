@@ -369,6 +369,30 @@ def _instantiate_rule(
             basket_id=basket_id,
         )
 
+    if name == "COINTREV_meanrev" and version == 1:
+        # COINTREV_meanrev@1 (Path C 2026-05-20): single-cycle cointegration
+        # mean-reversion basket rule. Entry handled by CointMeanRevLegStrategy
+        # (wired in run_pipeline._load_basket_leg_inputs); this rule manages
+        # the cycle after both legs open — exits on first of:
+        #   |intra_z| ≤ exit_z (winner) | |intra_z| ≥ stop_z (stop) |
+        #   elapsed ≥ time_stop_bars (time)
+        # No pyramiding, no recycling. Inherits H2RecycleRule for parquet
+        # emission; overrides apply() entirely.
+        from tools.recycle_rules.cointegration_meanrev_v1 import CointMeanRevV1Rule
+        return CointMeanRevV1Rule(
+            entry_z=float(params.get("entry_z", 2.0)),
+            exit_z=float(params.get("exit_z", 1.0)),
+            stop_z=float(params.get("stop_z", 4.0)),
+            time_stop_bars=int(params.get("time_stop_bars", 192)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            intra_z_column=str(params.get("intra_z_column", "intra_z")),
+            qualified_column=str(params.get("qualified_column", "qualified_daily")),
+            matrix_hash=str(params.get("matrix_hash", "")),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
     if name == "H2_v7_compression" and version == 1:
         raise NotImplementedError(
             "basket_pipeline: rule H2_v7_compression@1 is DEPRECATED — it "

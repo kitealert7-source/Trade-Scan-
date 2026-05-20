@@ -72,6 +72,7 @@ model:
   - PSBRK
   - RECYCLE
   - PAIRX
+  - COINTREV
 filter:
   - ATRFILT
   - VOLFILT

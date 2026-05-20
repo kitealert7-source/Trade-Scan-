@@ -524,3 +524,11 @@ ideas:
     role: baseline
     instruments: FX
     status: active
+  '91':
+    family: PORT
+    title: "COINTREV Mean-Reversion (Path C 2026-05-20) -- 15m intraday entry on FX pair-pairs that are daily-TF cointegrated (ADF p<0.05 in BOTH 252d AND 504d windows). Setup detected on daily TF (qualified_daily=True via coint_1d_history_matrix), execution on 15m TF (|intra_z| crosses entry_z=2.0 from below in a qualified window). Single round-trip per signal, no pyramiding. Exit on first of |intra_z|<=1.0 (winner), |intra_z|>=4.0 (stop), or 192 bars (48h time stop). Equal 0.1 lots per leg matching 90-series convention for backtest comparison. Spreads in OctaFx prices (no commission model in v1). Validated by event-study cohort metrics (54 qualified events @tau=2.0 over 14y, 37% reversion rate at target=1.0, +10.1pp lift over baseline). v1 uni-directional (one direction per directive); bidirectional support deferred to v1.1."
+    class: basket_logic
+    regime: mean_reversion
+    role: entry_edge
+    instruments: FX
+    status: active

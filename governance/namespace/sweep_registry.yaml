@@ -3211,3 +3211,303 @@ ideas:
             signature_hash: 67431755dbb5f149
             directive_hash_full: 67431755dbb5f149b6f4f14e30ca07538e9e4aafadbea3ce05af9ba8c994e9f6
             signature_hash_full: 67431755dbb5f149b6f4f14e30ca07538e9e4aafadbea3ce05af9ba8c994e9f6
+  '91':
+    next_sweep: 49
+    sweeps:
+      S01:
+        directive_name: 91_PORT_AUDNZDAUDUSD_15M_COINTREV_S01_V1_P00
+        signature_hash: 183466463160e448
+        signature_hash_full: 183466463160e4486b61a4d97e623e210d4eeb567cca1978791ac403338bb837
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 183466463160e448
+        directive_hash_full: 183466463160e4486b61a4d97e623e210d4eeb567cca1978791ac403338bb837
+      S02:
+        directive_name: 91_PORT_AUDNZDAUDUSD_15M_COINTREV_S02_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S03:
+        directive_name: 91_PORT_AUDNZDEURAUD_15M_COINTREV_S03_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S04:
+        directive_name: 91_PORT_AUDNZDEURAUD_15M_COINTREV_S04_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S05:
+        directive_name: 91_PORT_AUDNZDNZDJPY_15M_COINTREV_S05_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S06:
+        directive_name: 91_PORT_AUDNZDNZDJPY_15M_COINTREV_S06_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S07:
+        directive_name: 91_PORT_AUDNZDNZDUSD_15M_COINTREV_S07_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S08:
+        directive_name: 91_PORT_AUDNZDNZDUSD_15M_COINTREV_S08_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S09:
+        directive_name: 91_PORT_AUDNZDUSDCHF_15M_COINTREV_S09_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S10:
+        directive_name: 91_PORT_AUDNZDUSDCHF_15M_COINTREV_S10_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S11:
+        directive_name: 91_PORT_AUDUSDEURAUD_15M_COINTREV_S11_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S12:
+        directive_name: 91_PORT_AUDUSDEURAUD_15M_COINTREV_S12_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S13:
+        directive_name: 91_PORT_AUDUSDGBPAUD_15M_COINTREV_S13_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S14:
+        directive_name: 91_PORT_AUDUSDGBPAUD_15M_COINTREV_S14_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S15:
+        directive_name: 91_PORT_AUDUSDGBPUSD_15M_COINTREV_S15_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S16:
+        directive_name: 91_PORT_AUDUSDGBPUSD_15M_COINTREV_S16_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S17:
+        directive_name: 91_PORT_AUDUSDNZDUSD_15M_COINTREV_S17_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S18:
+        directive_name: 91_PORT_AUDUSDNZDUSD_15M_COINTREV_S18_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S19:
+        directive_name: 91_PORT_CHFJPYGBPNZD_15M_COINTREV_S19_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S20:
+        directive_name: 91_PORT_CHFJPYGBPNZD_15M_COINTREV_S20_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S21:
+        directive_name: 91_PORT_EURGBPEURUSD_15M_COINTREV_S21_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S22:
+        directive_name: 91_PORT_EURGBPEURUSD_15M_COINTREV_S22_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S23:
+        directive_name: 91_PORT_EURGBPGBPUSD_15M_COINTREV_S23_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S24:
+        directive_name: 91_PORT_EURGBPGBPUSD_15M_COINTREV_S24_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S25:
+        directive_name: 91_PORT_EURJPYEURUSD_15M_COINTREV_S25_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S26:
+        directive_name: 91_PORT_EURJPYEURUSD_15M_COINTREV_S26_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S27:
+        directive_name: 91_PORT_EURUSDGBPJPY_15M_COINTREV_S27_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S28:
+        directive_name: 91_PORT_EURUSDGBPJPY_15M_COINTREV_S28_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S29:
+        directive_name: 91_PORT_EURUSDNZDJPY_15M_COINTREV_S29_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S30:
+        directive_name: 91_PORT_EURUSDNZDJPY_15M_COINTREV_S30_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S31:
+        directive_name: 91_PORT_EURUSDUSDJPY_15M_COINTREV_S31_V1_P00
+        signature_hash: 296671b9db902144
+        signature_hash_full: 296671b9db902144f753d1ed10c43120ee702cb403f208366bf067712ff22706
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 296671b9db902144
+        directive_hash_full: 296671b9db902144f753d1ed10c43120ee702cb403f208366bf067712ff22706
+      S32:
+        directive_name: 91_PORT_EURUSDUSDJPY_15M_COINTREV_S32_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S33:
+        directive_name: 91_PORT_GBPUSDNZDJPY_15M_COINTREV_S33_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S34:
+        directive_name: 91_PORT_GBPUSDNZDJPY_15M_COINTREV_S34_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S35:
+        directive_name: 91_PORT_GBPUSDUSDJPY_15M_COINTREV_S35_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S36:
+        directive_name: 91_PORT_GBPUSDUSDJPY_15M_COINTREV_S36_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S37:
+        directive_name: 91_PORT_NZDJPYUSDCHF_15M_COINTREV_S37_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S38:
+        directive_name: 91_PORT_NZDJPYUSDCHF_15M_COINTREV_S38_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S39:
+        directive_name: 91_PORT_USDCADUSDCHF_15M_COINTREV_S39_V1_P00
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+      S40:
+        directive_name: 91_PORT_USDCADUSDCHF_15M_COINTREV_S40_V1_P00
+        signature_hash: acde5730e1fdef4e
+        signature_hash_full: acde5730e1fdef4ece04fef2e37003362b967aeb9a25bf77e5fa0a747ebeae7f
+        reserved_at_utc: '2026-05-20T12:17:41.035020+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: acde5730e1fdef4e
+        directive_hash_full: acde5730e1fdef4ece04fef2e37003362b967aeb9a25bf77e5fa0a747ebeae7f
+      S41:
+        directive_name: 91_PORT_AUDNZDAUDUSD_15M_COINTREV_S41_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}
+      S42:
+        directive_name: 91_PORT_AUDNZDAUDUSD_15M_COINTREV_S42_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}
+      S43:
+        directive_name: 91_PORT_AUDNZDUSDCHF_15M_COINTREV_S43_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}
+      S44:
+        directive_name: 91_PORT_AUDNZDUSDCHF_15M_COINTREV_S44_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}
+      S45:
+        directive_name: 91_PORT_AUDUSDGBPUSD_15M_COINTREV_S45_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}
+      S46:
+        directive_name: 91_PORT_AUDUSDGBPUSD_15M_COINTREV_S46_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}
+      S47:
+        directive_name: 91_PORT_USDCADUSDCHF_15M_COINTREV_S47_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}
+      S48:
+        directive_name: 91_PORT_USDCADUSDCHF_15M_COINTREV_S48_V1_P01
+        signature_hash: '0000000000000000'
+        signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
+        reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
+        patches: {}

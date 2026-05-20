@@ -26,6 +26,7 @@ __all__ = [
     "ContinuousHoldStrategy",
     "SpreadCrossArmedState",
     "SpreadCrossLegStrategy",
+    "CointMeanRevLegStrategy",
 ]
 
 
@@ -369,6 +370,174 @@ class SpreadCrossLegStrategy:
                 signal = int(self.position_direction)
             return {"signal": signal}
         return None
+
+    def check_exit(self, ctx) -> bool:
+        """Never close via signal. Recycle rule handles all exits."""
+        return False
+
+
+class CointMeanRevLegStrategy:
+    """Leg strategy for COINTREV mean-reversion baskets.
+
+    Sibling of SpreadCrossLegStrategy but uses cointegration features
+    instead of SMA-cross. Watches for a 15m |z| crossing the entry
+    threshold while the daily cointegration regime is qualified. Single
+    round-trip per signal — the basket recycle rule
+    (CointMeanRevV1Rule) handles all exits; this strategy never signals
+    an exit.
+
+    Entry condition (all four must hold on the same bar):
+      1. qualified_daily == True   (forward-filled from history matrix)
+      2. |intra_z| >= entry_z      (current bar — local extreme)
+      3. |intra_z_prev| < entry_z  (this is the FIRST bar crossing)
+      4. sign(intra_z) matches watch_direction
+                                   (or watch_direction == 0 = bidirectional)
+
+    Returns {"signal": position_direction} when condition met, None
+    otherwise. Direction returned is the leg's fixed position_direction
+    (set per directive — typically +1 for the "long-spread leg" and -1
+    for the "short-spread leg" of the pair, or inverted for the
+    opposite-direction variant of the same pair).
+
+    Required input columns on leg.df (joined by basket_data_loader):
+      intra_z          (float) — 15m rolling z-score of the spread
+      qualified_daily  (bool)  — daily cointegration regime
+
+    Internal state:
+      _prev_z — last observed intra_z value; needed to detect crossings.
+                Reset to None on NaN or column-read failure so a fresh
+                pair of consecutive valid bars is required for the next
+                crossing detection (safe-side default).
+
+    NOT fast-path eligible — requires per-bar evaluation to watch the
+    crossing.
+
+    Compared to SpreadCrossLegStrategy, this is simpler:
+      * No two-stage arming (no whipsaw delay) — the daily-cointegration
+        filter already rejects structural noise
+      * No shared armed_state between legs — both legs read identical
+        joined columns (intra_z, qualified_daily) so they fire
+        deterministically on the same bar
+    """
+
+    timeframe = "15m"
+
+    # --- STRATEGY SIGNATURE START ---
+    STRATEGY_SIGNATURE = {
+        "execution_rules": {
+            "entry_logic":           {"type": "cointegration_zscore_signal"},
+            "entry_when_flat_only":  True,
+            "exit_logic":            {"type": "basket_rule_owned"},
+            "pyramiding":            False,
+            "reset_on_exit":         False,
+            "stop_loss":             {"type": "atr_multiple", "atr_multiplier": 100000.0},
+            "take_profit":           {"enabled": False},
+            "trailing_stop":         {"enabled": False},
+        },
+        "indicators":                ["indicators.stats.cointegration_state"],
+        "order_placement":           {"type": "market", "execution_timing": "next_bar_open"},
+        "position_management":       {"lots": 0.10},
+        "signal_version":            1,
+        "signature_version":         1,
+        "trade_management":          {"direction": "basket_leg", "reentry": {"allowed": True}, "session_reset": "none"},
+        "version":                   1,
+    }
+    # --- STRATEGY SIGNATURE END ---
+
+    def __init__(
+        self,
+        symbol: str,
+        position_direction: int,
+        watch_direction: int = 0,
+        entry_z: float = 2.0,
+        intra_z_column: str = "intra_z",
+        qualified_column: str = "qualified_daily",
+    ) -> None:
+        if position_direction not in (+1, -1):
+            raise ValueError(
+                f"CointMeanRevLegStrategy: position_direction must be +1 or -1, "
+                f"got {position_direction!r}."
+            )
+        if watch_direction not in (+1, -1, 0):
+            raise ValueError(
+                f"CointMeanRevLegStrategy: watch_direction must be +1, -1, or 0, "
+                f"got {watch_direction!r}."
+            )
+        if entry_z <= 0:
+            raise ValueError(
+                f"CointMeanRevLegStrategy: entry_z must be > 0, "
+                f"got {entry_z!r}."
+            )
+        self.symbol = symbol
+        self.position_direction = position_direction
+        self.watch_direction = watch_direction
+        self.entry_z = entry_z
+        self.intra_z_column = intra_z_column
+        self.qualified_column = qualified_column
+        watch_tag = ("bi" if watch_direction == 0
+                     else ("+" if watch_direction > 0 else "-"))
+        self.name = (
+            f"coint_meanrev_{symbol}"
+            f"_pos{'+' if position_direction > 0 else '-'}"
+            f"_watch{watch_tag}"
+        )
+        # Last seen intra_z. None = no prior bar (or last was NaN).
+        self._prev_z: float | None = None
+
+    def prepare_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Verify required columns are present (joined upstream)."""
+        missing = [c for c in (self.intra_z_column, self.qualified_column)
+                   if c not in df.columns]
+        if missing:
+            raise RuntimeError(
+                f"CointMeanRevLegStrategy({self.symbol}): leg.df missing "
+                f"required columns {missing}. Expected upstream join from "
+                f"basket_data_loader + indicators.stats.cointegration_state."
+            )
+        return df
+
+    def check_entry(self, ctx) -> dict[str, Any] | None:
+        # Read current bar's intra_z with safe fallback.
+        intra_z_raw = ctx.get(self.intra_z_column, float("nan"))
+        try:
+            intra_z = float(intra_z_raw) if intra_z_raw is not None else float("nan")
+        except (TypeError, ValueError):
+            intra_z = float("nan")
+
+        # NaN intra_z (data gap / pre-warmup) → reset prev_z, abstain
+        if pd.isna(intra_z):
+            self._prev_z = None
+            return None
+
+        # Capture prev BEFORE updating self._prev_z
+        prev_z = self._prev_z
+        self._prev_z = intra_z
+
+        # Daily qualification gate — fast-fail
+        try:
+            qualified = bool(ctx.get(self.qualified_column, False))
+        except (TypeError, ValueError):
+            qualified = False
+        if not qualified:
+            return None
+
+        # Need a previous valid z to detect a crossing
+        if prev_z is None or pd.isna(prev_z):
+            return None
+
+        # Crossing condition: |z| >= entry_z AND |prev_z| < entry_z
+        abs_z = abs(intra_z)
+        abs_prev = abs(prev_z)
+        if not (abs_z >= self.entry_z and abs_prev < self.entry_z):
+            return None
+
+        # Direction filter
+        if self.watch_direction != 0:
+            z_sign = +1 if intra_z >= 0 else -1
+            if z_sign != self.watch_direction:
+                return None
+
+        return {"signal": int(self.position_direction)}
 
     def check_exit(self, ctx) -> bool:
         """Never close via signal. Recycle rule handles all exits."""
