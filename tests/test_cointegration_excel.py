@@ -126,7 +126,8 @@ class TestPivot:
         # Every pivoted column either has _252 / _504 suffix or is a key/agreement column
         for col in pivoted.columns:
             assert (col.endswith("_252") or col.endswith("_504")
-                    or col in ("pair_a", "pair_b", "agreement", "history_depth"))
+                    or col in ("pair_a", "pair_b", "agreement", "tradability",
+                                "history_depth", "corr_504d"))
 
 
 # ---------------------------------------------------------------------------

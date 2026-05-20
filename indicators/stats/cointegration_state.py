@@ -60,6 +60,13 @@ FEATURE_COLUMNS = [
 # ~12 MB each — a small cache amortizes repeated reads cheaply.
 _MATRIX_CACHE: dict[str, pd.DataFrame] = {}
 
+# Semantic contract — declares what kind of signal this indicator produces.
+# Used by tests/test_indicator_semantic_contracts.py to validate registry
+# coverage and by Stage-0.5 semantic_validator. cointegration_state emits
+# a daily regime classification (qualified bool) + per-bar spread statistics
+# (z-score, beta) — primarily a 'regime' filter, not a fresh-signal trigger.
+SIGNAL_PRIMITIVE = "regime"
+
 
 # ---------------------------------------------------------------------------
 # Hash resolution

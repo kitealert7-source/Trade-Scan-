@@ -2591,11 +2591,45 @@ indicators:
   cointegration_state:
     module_path: indicators.stats.cointegration_state
     category: stats
+    function_name: get_pair_features
+    classification: Statistical
+    input_requirements:
+    - matrix: pd.DataFrame (cointegration history matrix from coint_1d_history_matrix parquet)
+    - pair_a: str (canonical alphabetical-first FX pair)
+    - pair_b: str (canonical alphabetical-second FX pair)
+    - target_index: pd.DatetimeIndex (timestamps to forward-fill onto)
+    parameters:
+      ffill: bool — forward-fill daily values onto target_index (no-look-ahead)
+      matrix_hash: 'str | None — pin specific matrix build (None = LATEST)'
+    default_parameters:
+      ffill: true
+      matrix_hash: null
+    lookback: 504
+    warmup: 504
+    input_columns:
+    - close
+    output_type: DataFrame
+    output_columns:
+    - 'qualified: bool — both 252d AND 504d ADF p<0.05'
+    - 'daily_z: float — z-score of spread at most recent closed daily bar'
+    - 'beta: float — hedge ratio for spread = B − β·A'
+    - 'adf_pvalue_252: float — ADF p-value on 252d window'
+    - 'adf_pvalue_504: float — ADF p-value on 504d window'
+    output_scale: 'qualified: bool; daily_z: typically ±3; beta: real; adf_pvalue: 0-1'
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: false
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: Runtime cointegration-feature lookup for COINTREV mean-reversion baskets. Joins daily regime + spread z-score onto intraday leg DataFrames; daily-cadence values forward-filled to sub-daily bars without look-ahead.
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      suitable_for_HTF: true
     registered_at: '2026-05-20'
-    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
-      output_columns, etc.) to be backfilled.
+    notes: Daily-cadence cointegration regime (ADF p<0.05 in BOTH 252d AND 504d windows) + spread statistics, looked up from coint_1d_history_matrix parquet. SIGNAL_PRIMITIVE='regime'.
 registry_summary:
-  total_indicators: 69
+  total_indicators: 70
   by_category:
     momentum_count: 11
     trend_count: 8
@@ -2603,13 +2637,13 @@ registry_summary:
     regime_count: 10
     structure_count: 16
     composite_count: 3
-    statistical_count: 6
+    statistical_count: 7
     macro_count: 2
     price_pattern_count: 2
-  intraday_ready: 47
-  daily_ready: 45
-  htf_ready: 64
-  lookahead_safe: 69
+  intraday_ready: 48
+  daily_ready: 46
+  htf_ready: 65
+  lookahead_safe: 70
   vectorized: 54
   files_validated: 68
   validation_status: PASS
