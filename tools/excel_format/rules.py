@@ -154,6 +154,30 @@ FORMAT_MAP = {
     "activation_rate_pct": FMT_PCT_RAW,
     "regime_blocked_trades": FMT_INT,
     "blocked_pnl_raw": FMT_CURRENCY,
+
+    # Baskets sheet (Phase 5b.2+ schema; see basket_ledger_writer.py)
+    "rule_version": FMT_INT,
+    "leg_count": FMT_INT,
+    "trades_total": FMT_INT,
+    "recycle_event_count": FMT_INT,
+    "harvested_total_usd": FMT_CURRENCY,
+    "final_realized_usd": FMT_CURRENCY,
+    "peak_floating_dd_usd": FMT_CURRENCY,
+    "peak_floating_dd_pct": FMT_PCT_RAW,
+    "dd_freeze_count": FMT_INT,
+    "margin_freeze_count": FMT_INT,
+    "regime_freeze_count": FMT_INT,
+    "peak_margin_used_usd": FMT_CURRENCY,
+    "min_margin_level_pct": FMT_PCT_RAW,
+    "worst_floating_at_freeze_usd": FMT_CURRENCY,
+    "return_on_real_capital_pct": FMT_PCT_RAW,
+    "canonical_net_pct": FMT_PCT_RAW,
+    "canonical_max_dd_pct": FMT_PCT_RAW,
+    "canonical_ret_dd": FMT_FLOAT,
+    "canonical_final_equity_usd": FMT_CURRENCY,
+    "cycle_win_rate_pct": FMT_PCT_RAW,
+    "cycles_completed": FMT_INT,
+    "peak_winner_lot": FMT_FLOAT,
 }
 
 # Hidden Columns (SOP Auditing Fields)
@@ -185,6 +209,11 @@ COLUMN_WIDTH_OVERRIDES = {
     "net_pnl":      12,   # 6 decimal places (e.g. -0.001234)
     "portfolio_status": 12,
     "evaluation_timeframe": 12,
+    "verdict_status": 10,
+    "enrichment_status": 13,
+    "directive_id": 32,
+    "basket_id":    20,
+    "rule_family":  14,
 }
 
 # Dropdown Columns (Column Name -> list of allowed values)
@@ -194,6 +223,7 @@ COLUMN_WIDTH_OVERRIDES = {
 DROPDOWN_COLS = {
     "Analysis_selection": ["0", "1"],
     "candidate_status": ["CORE", "WATCH", "FAIL", "LIVE", "REMOVE"],
+    "verdict_status":  ["CORE", "WATCH", "FAIL"],
 }
 
 # Strategy Master Filter — Preferred Column Order
@@ -342,6 +372,50 @@ SINGLE_ASSET_COLUMN_ORDER = [
     "portfolio_engine_version",
     "creation_timestamp",
     "constituent_run_ids",
+]
+
+# Baskets sheet — Preferred Column Order (Phase 5b.2+ schema)
+# Layout: identifier → verdict → canonical KPIs (at-a-glance) → context →
+# legacy 1.3.0 diagnostics (right edge; NA on pre-canonical rows).
+BASKETS_COLUMN_ORDER = [
+    "run_id",                       # hidden via HIDDEN_COLS
+    "directive_id",
+    "basket_id",
+    "rule_family",
+    "verdict_status",
+    "enrichment_status",
+    "canonical_net_pct",
+    "canonical_max_dd_pct",
+    "canonical_ret_dd",
+    "cycle_win_rate_pct",
+    "cycles_completed",
+    "trades_total",
+    "recycle_event_count",
+    "canonical_final_equity_usd",
+    "harvested_total_usd",
+    "final_realized_usd",
+    "peak_winner_lot",
+    "leg_specs",
+    "leg_count",
+    "rule_name",
+    "rule_version",
+    "completed_at_utc",
+    "schema_version",
+    "backtests_path",
+    "vault_path",
+    "exit_reason",
+    "execution_mode",
+    "peak_lots_json",
+    # Legacy 1.3.0 in-memory diagnostics (NA on pre-canonical rows)
+    "peak_floating_dd_usd",
+    "peak_floating_dd_pct",
+    "dd_freeze_count",
+    "margin_freeze_count",
+    "regime_freeze_count",
+    "peak_margin_used_usd",
+    "min_margin_level_pct",
+    "worst_floating_at_freeze_usd",
+    "return_on_real_capital_pct",
 ]
 
 # Shadow Trades — Finalized column order (v2, 2026-04-06)

@@ -38,6 +38,18 @@ from config.state_paths import (
 
 MPS_PATH = STRATEGIES_DIR / "Master_Portfolio_Sheet.xlsx"
 
+
+def _resolve_mps_path() -> Path:
+    """Resolve the current MPS xlsx path at call time, not import time.
+
+    Tests monkeypatch `config.path_authority.TRADE_SCAN_STATE` after this
+    module is already imported, which makes the module-level MPS_PATH stale.
+    Mirrors `basket_ledger_writer._mps_path()` — dynamic resolution picks
+    up the patched value.
+    """
+    from config.path_authority import TRADE_SCAN_STATE
+    return TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
+
 # ---------------------------------------------------------------------------
 # Schema definitions — column names match Excel exactly
 # ---------------------------------------------------------------------------
@@ -105,13 +117,80 @@ MPS_ALL_COLUMNS = _MPS_BASE + [
 ]
 
 
+# Basket sheet — Phase 5b.3 schema (promoted from Excel-direct to DB).
+# Mirrors BASKETS_SHEET_COLUMNS in tools/portfolio/basket_ledger_writer.py
+# (the 35 writer-emitted columns) plus DB-only bookkeeping:
+#   - verdict_status: CORE/WATCH/FAIL, computed at write time in the writer.
+#     Moved from tools/excel_format/styling.py (presentation → persistence).
+#   - is_current / superseded_*: supersession tracking, mirrors master_filter.
+BASKET_SHEET_COLUMNS = [
+    # 1.2.0-basket — identity + base mechanics
+    "run_id",
+    "directive_id",
+    "basket_id",
+    "execution_mode",
+    "rule_name",
+    "rule_version",
+    "leg_count",
+    "leg_specs",
+    "trades_total",
+    "recycle_event_count",
+    "harvested_total_usd",
+    "final_realized_usd",
+    "exit_reason",
+    "completed_at_utc",
+    "backtests_path",
+    "vault_path",
+    # 1.3.0-basket — in-memory derived (NA on pre-canonical / legacy CSV rows)
+    "peak_floating_dd_usd",
+    "peak_floating_dd_pct",
+    "dd_freeze_count",
+    "margin_freeze_count",
+    "regime_freeze_count",
+    "peak_margin_used_usd",
+    "min_margin_level_pct",
+    "worst_floating_at_freeze_usd",
+    "return_on_real_capital_pct",
+    "peak_lots_json",
+    "schema_version",
+    # 1.4.0-basket-canonical — parquet-derived (NA on legacy CSV rows)
+    "canonical_net_pct",
+    "canonical_max_dd_pct",
+    "canonical_ret_dd",
+    "canonical_final_equity_usd",
+    "cycle_win_rate_pct",
+    "cycles_completed",
+    "peak_winner_lot",
+    "rule_family",
+    # Phase 5b.3 additions
+    "verdict_status",       # CORE/WATCH/FAIL — computed by writer at row build
+    "enrichment_status",    # complete | no_canonical | no_parquet | overwritten | archived
+    "is_current",
+    "superseded_by",
+    "superseded_at",
+    "supersede_reason",
+]
+
+
 # ---------------------------------------------------------------------------
 # Connection management
 # ---------------------------------------------------------------------------
 
+def _resolve_db_path() -> Path:
+    """Resolve LEDGER_DB_PATH at call time (mirrors _resolve_mps_path()).
+
+    Same rationale as the MPS resolver: tests monkey-patch
+    `config.path_authority.TRADE_SCAN_STATE` after import, so the
+    module-level `LEDGER_DB_PATH` (captured at import time) is stale.
+    Dynamic resolution picks up the patched value.
+    """
+    from config.path_authority import TRADE_SCAN_STATE
+    return TRADE_SCAN_STATE / "ledger.db"
+
+
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     """Open a connection with WAL mode for safe concurrent reads."""
-    path = db_path or LEDGER_DB_PATH
+    path = db_path or _resolve_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")
@@ -146,6 +225,16 @@ def _col_def(col: str) -> str:
         "max_pairwise_corr_stress", "n_strategies",
         "portfolio_net_profit_low_vol", "portfolio_net_profit_normal_vol",
         "portfolio_net_profit_high_vol", "rank",
+        # basket_sheet numerics (Phase 5b.3) — all REAL per existing convention
+        "rule_version", "leg_count", "trades_total", "recycle_event_count",
+        "harvested_total_usd", "final_realized_usd",
+        "peak_floating_dd_usd", "peak_floating_dd_pct",
+        "dd_freeze_count", "margin_freeze_count", "regime_freeze_count",
+        "peak_margin_used_usd", "min_margin_level_pct",
+        "worst_floating_at_freeze_usd", "return_on_real_capital_pct",
+        "canonical_net_pct", "canonical_max_dd_pct", "canonical_ret_dd",
+        "canonical_final_equity_usd", "cycle_win_rate_pct",
+        "cycles_completed", "peak_winner_lot",
     }
     # Columns with numeric prefixes (net_profit_*, trades_*)
     if col.startswith(("net_profit_", "trades_")):
@@ -233,6 +322,42 @@ def create_tables(conn: sqlite3.Connection) -> None:
             'UPDATE master_filter SET "quarantined" = 0 '
             'WHERE "quarantined" IS NULL'
         )
+
+    # Basket Sheet — Phase 5b.3 promotion of the Baskets tab from Excel-direct
+    # to DB-canonical. Append-only via the writer's pre-insert SELECT-1 check
+    # (mirrors per-symbol writer's invariant); ON CONFLICT(run_id) DO NOTHING
+    # is the safety net.
+    basket_cols = ",\n        ".join(_col_def(c) for c in BASKET_SHEET_COLUMNS)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS basket_sheet (
+            {basket_cols},
+            PRIMARY KEY ("run_id")
+        )
+    """)
+    b_existing = {row[1] for row in conn.execute(
+        'PRAGMA table_info("basket_sheet")').fetchall()}
+    newly_added_b: list[str] = []
+    for col in BASKET_SHEET_COLUMNS:
+        if col not in b_existing:
+            conn.execute(f'ALTER TABLE basket_sheet ADD COLUMN {_col_def(col)}')
+            newly_added_b.append(col)
+    # Backfill is_current default on schema migration (ADD COLUMN ignores
+    # DEFAULT for existing rows in SQLite — they receive NULL).
+    if "is_current" in newly_added_b:
+        conn.execute(
+            'UPDATE basket_sheet SET "is_current" = 1 '
+            'WHERE "is_current" IS NULL'
+        )
+    # Indexes for the common query shapes: lookup by directive+basket
+    # (re-run detection) and verdict filtering (reporting).
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_basket_directive '
+        'ON basket_sheet(directive_id, basket_id)'
+    )
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_basket_verdict '
+        'ON basket_sheet(verdict_status)'
+    )
 
     # Portfolio Control — user decision store for promote/disable
     conn.execute("""
@@ -371,6 +496,49 @@ def upsert_mps_df(
         values = [_py_val(row.get(c)) if c != "sheet" else sheet for c in all_cols]
         conn.execute(sql, values)
     conn.commit()
+
+
+def upsert_basket_row(
+    conn: sqlite3.Connection,
+    row: dict[str, Any],
+) -> None:
+    """Insert a basket row. Append-only: existing run_id → NO-OP at the SQL
+    layer (writer raises FATAL upstream via SELECT-1 pre-check).
+    """
+    cols = [c for c in BASKET_SHEET_COLUMNS if c in row]
+    col_names = ", ".join(f'"{c}"' for c in cols)
+    placeholders = ", ".join("?" for _ in cols)
+    values = [_py_val(row[c]) for c in cols]
+    conn.execute(
+        f'INSERT INTO basket_sheet ({col_names}) VALUES ({placeholders}) '
+        f'ON CONFLICT("run_id") DO NOTHING',
+        values,
+    )
+    conn.commit()
+
+
+def upsert_basket_df(
+    conn: sqlite3.Connection,
+    df: pd.DataFrame,
+) -> int:
+    """Bulk-insert basket rows from a DataFrame (used by backfill).
+
+    Returns count of rows inserted (excludes ON CONFLICT no-ops).
+    """
+    if df.empty:
+        return 0
+    all_cols = [c for c in BASKET_SHEET_COLUMNS if c in df.columns]
+    col_names = ", ".join(f'"{c}"' for c in all_cols)
+    placeholders = ", ".join("?" for _ in all_cols)
+    sql = (f'INSERT INTO basket_sheet ({col_names}) VALUES ({placeholders}) '
+           f'ON CONFLICT("run_id") DO NOTHING')
+    inserted = 0
+    for _, row in df.iterrows():
+        values = [_py_val(row.get(c)) for c in all_cols]
+        cur = conn.execute(sql, values)
+        inserted += cur.rowcount
+    conn.commit()
+    return inserted
 
 
 def update_column(
@@ -642,6 +810,31 @@ def query_mps(
             _conn.close()
 
 
+def query_baskets(
+    conn: sqlite3.Connection | None = None,
+    current_only: bool = True,
+) -> pd.DataFrame:
+    """Read basket_sheet as DataFrame.
+
+    Args:
+        current_only: drop superseded rows (is_current=0). Default True
+            mirrors the per-symbol writer's reader semantics.
+    """
+    _conn = conn or _connect()
+    try:
+        if not LEDGER_DB_PATH.exists():
+            return pd.DataFrame(columns=BASKET_SHEET_COLUMNS)
+        sql = "SELECT * FROM basket_sheet"
+        if current_only:
+            sql += " WHERE \"is_current\" = 1 OR \"is_current\" IS NULL"
+        sql += " ORDER BY completed_at_utc DESC"
+        df = pd.read_sql_query(sql, _conn)
+        return df
+    finally:
+        if conn is None:
+            _conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Convenience readers — DB only, fail hard
 # ---------------------------------------------------------------------------
@@ -674,6 +867,13 @@ def read_mps(sheet: str | None = None) -> pd.DataFrame:
     return df
 
 
+def read_baskets(current_only: bool = True) -> pd.DataFrame:
+    """Read basket_sheet from DB. Fails hard — no Excel fallback."""
+    if not LEDGER_DB_PATH.exists():
+        return pd.DataFrame(columns=BASKET_SHEET_COLUMNS)
+    return query_baskets(current_only=current_only)
+
+
 # ---------------------------------------------------------------------------
 # Export — regenerate Excel from DB
 # ---------------------------------------------------------------------------
@@ -700,40 +900,63 @@ def export_mps(
     conn: sqlite3.Connection | None = None,
     output_path: Path | None = None,
 ) -> Path:
-    """Write MPS Excel from DB with Portfolios + Single-Asset sheets."""
+    """Write MPS Excel from DB with Portfolios + Single-Asset + Baskets sheets.
+
+    The Baskets sheet is only included if basket_sheet has rows (so a fresh
+    install with no basket runs still produces a valid 2-sheet xlsx).
+    """
     _conn = conn or _connect()
     try:
         df_port = query_mps(_conn, sheet="Portfolios")
         df_single = query_mps(_conn, sheet="Single-Asset Composites")
+        df_baskets = query_baskets(_conn, current_only=True)
 
-        # Drop the 'sheet' discriminator and all-null columns from export
+        # Drop the 'sheet' discriminator and all-null columns from export.
+        # NOTE: on an empty DataFrame, df[c].isna().all() is True for every
+        # column — guard the all-null drop with len>0 to avoid wiping the
+        # schema (regression surfaced by Phase 5b.3 basket-only test runs
+        # where portfolio_sheet is empty but basket_sheet has rows).
         for df in (df_port, df_single):
             if "sheet" in df.columns:
                 df.drop(columns=["sheet"], inplace=True)
-            # Remove columns that are entirely NULL (union schema artifacts)
-            all_null = [c for c in df.columns if df[c].isna().all()]
-            if all_null:
-                df.drop(columns=all_null, inplace=True)
+            if len(df) > 0:
+                all_null = [c for c in df.columns if df[c].isna().all()]
+                if all_null:
+                    df.drop(columns=all_null, inplace=True)
 
-        # Join burn_in_status from portfolio_control (read-only view column)
+        # Join burn_in_status from portfolio_control (read-only view column).
+        # Skip if portfolio_id was wiped (empty Portfolios table).
         ctrl = read_portfolio_control(conn=_conn)
         if not ctrl.empty:
             status_map = dict(zip(ctrl["portfolio_id"], ctrl["status"]))
         else:
             status_map = {}
         for df in (df_port, df_single):
-            df.insert(1, "burn_in_status",
-                      df["portfolio_id"].map(status_map).fillna(""))
+            if "portfolio_id" in df.columns:
+                df.insert(1, "burn_in_status",
+                          df["portfolio_id"].map(status_map).fillna(""))
 
-        out = output_path or MPS_PATH
+        # Strip DB-bookkeeping columns from the Baskets export — they belong
+        # in the DB, not the user-facing sheet (mirrors how master_filter's
+        # is_current/superseded_* are absent from FSP export).
+        if not df_baskets.empty:
+            for c in ("is_current", "superseded_by", "superseded_at",
+                      "supersede_reason"):
+                if c in df_baskets.columns:
+                    df_baskets = df_baskets.drop(columns=[c])
+
+        out = output_path or _resolve_mps_path()
         out.parent.mkdir(parents=True, exist_ok=True)
 
         with pd.ExcelWriter(str(out), engine="openpyxl") as writer:
             df_port.to_excel(writer, sheet_name="Portfolios", index=False)
             df_single.to_excel(writer, sheet_name="Single-Asset Composites", index=False)
+            if not df_baskets.empty:
+                df_baskets.to_excel(writer, sheet_name="Baskets", index=False)
 
+        suffix = f", Baskets={len(df_baskets)}" if not df_baskets.empty else ""
         print(f"  [EXPORT] MPS: Portfolios={len(df_port)}, "
-              f"Single-Asset Composites={len(df_single)} -> {out}")
+              f"Single-Asset Composites={len(df_single)}{suffix} -> {out}")
         return out
     finally:
         if conn is None:
@@ -745,9 +968,21 @@ def export_mps(
 # ---------------------------------------------------------------------------
 
 def _py_val(val: Any) -> Any:
-    """Convert pandas/numpy scalars to native Python for SQLite."""
+    """Convert pandas/numpy scalars to native Python for SQLite.
+
+    Handles None, pd.NA, np.nan, np.integer/np.floating/np.bool_. pd.NA is
+    coerced to None so sqlite3's parameter binding works (it does not
+    natively understand pandas.NAType).
+    """
     if val is None:
         return None
+    # pd.NA propagates through `==` so the usual check fails; use isna.
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        # pd.isna raises on non-scalar inputs (lists, dicts); fall through
+        pass
     try:
         import numpy as np
         if isinstance(val, (np.integer,)):
@@ -777,11 +1012,24 @@ def print_stats(conn: sqlite3.Connection | None = None) -> None:
         mps_single = _conn.execute(
             "SELECT COUNT(*) FROM portfolio_sheet WHERE sheet='Single-Asset Composites'"
         ).fetchone()[0]
+        # basket_sheet may not exist on first run before create_tables
+        try:
+            basket_count = _conn.execute(
+                "SELECT COUNT(*) FROM basket_sheet"
+            ).fetchone()[0]
+            basket_current = _conn.execute(
+                "SELECT COUNT(*) FROM basket_sheet "
+                "WHERE \"is_current\" = 1 OR \"is_current\" IS NULL"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            basket_count = basket_current = 0
 
         print(f"\n  Ledger DB: {LEDGER_DB_PATH}")
         print(f"  master_filter:    {mf_count} rows")
         print(f"  portfolio_sheet:  {mps_count} rows "
               f"(Portfolios={mps_port}, Single-Asset Composites={mps_single})")
+        print(f"  basket_sheet:     {basket_count} rows "
+              f"(current={basket_current})")
         print()
     finally:
         if conn is None:

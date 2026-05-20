@@ -14,6 +14,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from .rules import (
     ALT_ROW_FILL_COLOR,
+    BASKETS_COLUMN_ORDER,
     COLUMN_WIDTH_OVERRIDES,
     DROPDOWN_COLS,
     FORMAT_MAP,
@@ -30,6 +31,11 @@ from .rules import (
 )
 
 
+# Phase 5b.3: verdict_status is now computed at write time in
+# tools/portfolio/basket_ledger_writer.py::compute_verdict and persisted
+# to ledger.db.basket_sheet. The formatter just preserves the column.
+
+
 def _preprocess_with_pandas(path, profile):
     """Pandas-based pre-step: sort by return_dd_ratio, inject missing columns, reorder.
 
@@ -38,14 +44,17 @@ def _preprocess_with_pandas(path, profile):
     workbooks are left untouched.
     """
     try:
+        import shutil
+        from datetime import datetime
+
         import pandas as pd
 
         xl = pd.ExcelFile(path)
         sheet_names = xl.sheet_names
 
         # Portfolio workbooks may have multiple data sheets (Portfolios,
-        # Single-Asset Composites) — process each independently.
-        _PORTFOLIO_DATA_SHEETS = {"Portfolios", "Single-Asset Composites"}
+        # Single-Asset Composites, Baskets) — process each independently.
+        _PORTFOLIO_DATA_SHEETS = {"Portfolios", "Single-Asset Composites", "Baskets"}
         _is_portfolio_multi = (profile == "portfolio"
                                and any(s in _PORTFOLIO_DATA_SHEETS for s in sheet_names))
 
@@ -71,13 +80,27 @@ def _preprocess_with_pandas(path, profile):
                                 if s not in _sheets_to_process
                                 and s not in _PORTFOLIO_DATA_SHEETS]
 
+            # Read preserved sheets into memory BEFORE opening the writer.
+            # ExcelWriter(mode="w") truncates the file on __enter__, which
+            # invalidates the `xl` handle and silently broke preservation
+            # for unknown sheets (e.g. the Baskets tab was dropped).
+            _preserved_dfs: dict[str, "pd.DataFrame"] = {}
+            for ps in _preserve_sheets:
+                _preserved_dfs[ps] = pd.read_excel(xl, sheet_name=ps)
+
             for sheet_name in _sheets_to_process:
                 df = pd.read_excel(path, sheet_name=sheet_name)
 
-                # --- Sort by return_dd_ratio (descending) ---
+                # Phase 5b.3: verdict_status is computed at write time in
+                # basket_ledger_writer.compute_verdict and persisted to
+                # ledger.db.basket_sheet. Formatter just preserves it.
+
+                # --- Sort by primary KPI (descending) ---
                 sort_col = None
                 if "return_dd_ratio" in df.columns:
                     sort_col = "return_dd_ratio"
+                elif sheet_name == "Baskets" and "canonical_ret_dd" in df.columns:
+                    sort_col = "canonical_ret_dd"
 
                 if sort_col:
                     df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce")
@@ -101,6 +124,8 @@ def _preprocess_with_pandas(path, profile):
                 elif profile == "portfolio":
                     if sheet_name == "Single-Asset Composites":
                         col_order = SINGLE_ASSET_COLUMN_ORDER
+                    elif sheet_name == "Baskets":
+                        col_order = BASKETS_COLUMN_ORDER
                     else:
                         col_order = PORTFOLIO_COLUMN_ORDER
 
@@ -124,18 +149,24 @@ def _preprocess_with_pandas(path, profile):
 
                 _all_dfs[sheet_name] = df
 
-            # Save all processed sheets back.
+            # Safety net: snapshot the file before the destructive rewrite so
+            # an unexpected drop is recoverable. Bounded to last 5 snapshots.
+            _bak_dir = path.parent / ".format_backups"
+            _bak_dir.mkdir(exist_ok=True)
+            _bak_path = _bak_dir / f"{path.name}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            shutil.copy2(path, _bak_path)
+            existing_baks = sorted(_bak_dir.glob(f"{path.name}.bak_*"))
+            for old in existing_baks[:-5]:
+                old.unlink()
+            print(f"  [BACKUP] Pre-format snapshot -> {_bak_path.relative_to(path.parent)}")
+
+            # Save all processed sheets back along with preserved sheets.
             with pd.ExcelWriter(path, engine="openpyxl", mode="w") as writer:
                 for sname, sdf in _all_dfs.items():
                     sdf.to_excel(writer, sheet_name=sname, index=False)
-                # Preserve non-data sheets (will be re-created by notes pass, but
-                # keep existing content if notes pass doesn't run)
-                for ps in _preserve_sheets:
-                    try:
-                        pdf = pd.read_excel(xl, sheet_name=ps)
-                        pdf.to_excel(writer, sheet_name=ps, index=False)
-                    except Exception:
-                        pass
+                for ps, pdf in _preserved_dfs.items():
+                    pdf.to_excel(writer, sheet_name=ps, index=False)
+                    print(f"  [PRESERVE] Sheet preserved: {ps} ({len(pdf)} rows)")
         else:
             print(f"  [INFO] Pre-processing skipped (multi-sheet workbook: {len(sheet_names)} sheets)")
     except Exception as e:
@@ -333,9 +364,15 @@ def _style_portfolio_sheet(ws, path, col_map, max_col, max_row):
         ws.auto_filter.ref = f"A1:{get_column_letter(max_col)}{max_row}"
 
         _headers_lower = [str(c.value).lower() if c.value else "" for c in ws[1]]
-        if "portfolio_status" in _headers_lower:
+        # Portfolios uses portfolio_status; Baskets uses verdict_status — same
+        # CORE/WATCH semantics, so reuse the pre-filter for both.
+        _status_col_name = next(
+            (c for c in ("portfolio_status", "verdict_status") if c in _headers_lower),
+            None,
+        )
+        if _status_col_name:
             from openpyxl.worksheet.filters import FilterColumn, Filters
-            _ps_idx = _headers_lower.index("portfolio_status")
+            _ps_idx = _headers_lower.index(_status_col_name)
             _fc = FilterColumn(colId=_ps_idx)
             _fc.filters = Filters(filter=["CORE", "WATCH"])
             ws.auto_filter.filterColumn.append(_fc)
@@ -346,7 +383,7 @@ def _style_portfolio_sheet(ws, path, col_map, max_col, max_row):
                 if _val not in ("CORE", "WATCH"):
                     ws.row_dimensions[_r].hidden = True
                     _hidden_count += 1
-            print(f"    [FILTER] Pre-selected portfolio_status=CORE/WATCH (hidden {_hidden_count} FAIL rows)")
+            print(f"    [FILTER] Pre-selected {_status_col_name}=CORE/WATCH (hidden {_hidden_count} non-CORE/WATCH rows)")
 
 
 def _style_strategy_sheet(ws, path, max_col, max_row):
@@ -420,7 +457,12 @@ def _ensure_legacy_portfolio_notes(wb):
 
 def _restore_hyperlinks(wb, path):
     """Apply hyperlinks (survives pandas rewrite). Config: column_name → link_prefix
-    relative to file. Applied to ALL data sheets, skipping Notes."""
+    relative to file. Applied to ALL data sheets, skipping Notes.
+
+    The Master_Portfolio_Sheet → Baskets tab needs a two-column template
+    (`../backtests/<directive_id>_<basket_id>/`); that case is handled
+    explicitly after the single-column loop.
+    """
     _HYPERLINK_MAP = {
         "Filtered_Strategies_Passed": {"strategy": "../backtests/"},
         "Master_Portfolio_Sheet":     {"portfolio_id": ""},
@@ -428,31 +470,54 @@ def _restore_hyperlinks(wb, path):
     _LINK_FONT = Font(color="0563C1", underline="single")
     _file_stem = Path(path).stem
     _hl_conf = _HYPERLINK_MAP.get(_file_stem, {})
-    if not _hl_conf:
-        return
     _data_sheets = [s for s in wb.sheetnames if s != "Notes"]
-    for _sheet_name in _data_sheets:
-        _ws = wb[_sheet_name]
+    if _hl_conf:
+        for _sheet_name in _data_sheets:
+            _ws = wb[_sheet_name]
+            _max_row = _ws.max_row or 1
+            _max_col = _ws.max_column or 1
+            # Build header map for this sheet
+            _hdr = {str(_ws.cell(row=1, column=c).value or "").strip(): c
+                    for c in range(1, _max_col + 1)}
+            for _hl_col_name, _hl_prefix in _hl_conf.items():
+                _hl_col_idx = _hdr.get(_hl_col_name)
+                if _hl_col_idx is None:
+                    continue
+                _hl_count = 0
+                for _r in range(2, _max_row + 1):
+                    _cell = _ws.cell(row=_r, column=_hl_col_idx)
+                    _val = str(_cell.value or "").strip()
+                    if not _val:
+                        continue
+                    _cell.hyperlink = f"{_hl_prefix}{_val}/"
+                    _cell.font = _LINK_FONT
+                    _hl_count += 1
+                if _hl_count:
+                    print(f"    [HYPERLINKS] {_sheet_name} / {_hl_col_name}: {_hl_count} links applied")
+
+    # Two-column template: Master_Portfolio_Sheet → Baskets / directive_id
+    # links to ../backtests/<directive_id>_<basket_id>/ (folder per run).
+    if _file_stem == "Master_Portfolio_Sheet" and "Baskets" in wb.sheetnames:
+        _ws = wb["Baskets"]
         _max_row = _ws.max_row or 1
         _max_col = _ws.max_column or 1
-        # Build header map for this sheet
         _hdr = {str(_ws.cell(row=1, column=c).value or "").strip(): c
                 for c in range(1, _max_col + 1)}
-        for _hl_col_name, _hl_prefix in _hl_conf.items():
-            _hl_col_idx = _hdr.get(_hl_col_name)
-            if _hl_col_idx is None:
-                continue
-            _hl_count = 0
+        _d_col = _hdr.get("directive_id")
+        _b_col = _hdr.get("basket_id")
+        if _d_col and _b_col:
+            _count = 0
             for _r in range(2, _max_row + 1):
-                _cell = _ws.cell(row=_r, column=_hl_col_idx)
-                _val = str(_cell.value or "").strip()
-                if not _val:
+                _d = str(_ws.cell(row=_r, column=_d_col).value or "").strip()
+                _b = str(_ws.cell(row=_r, column=_b_col).value or "").strip()
+                if not (_d and _b):
                     continue
-                _cell.hyperlink = f"{_hl_prefix}{_val}/"
+                _cell = _ws.cell(row=_r, column=_d_col)
+                _cell.hyperlink = f"../backtests/{_d}_{_b}/"
                 _cell.font = _LINK_FONT
-                _hl_count += 1
-            if _hl_count:
-                print(f"    [HYPERLINKS] {_sheet_name} / {_hl_col_name}: {_hl_count} links applied")
+                _count += 1
+            if _count:
+                print(f"    [HYPERLINKS] Baskets / directive_id: {_count} links applied")
 
 
 def apply_formatting(file_path, profile):

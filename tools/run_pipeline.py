@@ -744,7 +744,10 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     # ---- Basket dispatch path ----
     from tools.basket_pipeline import run_basket_pipeline
     from tools.basket_vault import write_basket_vault
-    from tools.portfolio_evaluator import append_basket_row_to_research_csv
+    # Phase 5b.3 (2026-05-20): research/basket_runs.csv writer retired.
+    # The legacy import (append_basket_row_to_research_csv) is gone; the
+    # function remains in tools/portfolio_evaluator.py as dead code until
+    # the next cleanup sweep.
 
     print(f"[BASKET] Phase 5b dispatch: {directive_id}")
     print(f"[BASKET] Directive: {path}")
@@ -804,10 +807,10 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     #   * TradeScan_State/backtests/<directive_id>_<basket_id>/raw/results_tradelevel.csv
     #   * TradeScan_State/registry/run_registry.json
     #   * Master_Portfolio_Sheet.xlsx (Baskets sheet)
-    # Without this, basket runs hide in DRY_RUN_VAULT/baskets/ and a research-
-    # only CSV — the user's principle: "results must be discoverable later,
-    # not just produced." The legacy basket_runs.csv writer is preserved during
-    # the transition (see header comment on that file).
+    # Without this, basket runs hide in DRY_RUN_VAULT/baskets/ — the user's
+    # principle: "results must be discoverable later, not just produced."
+    # Phase 5b.3 (2026-05-20): writer now goes through ledger.db.basket_sheet;
+    # the legacy research/basket_runs.csv writer is retired.
     # run_id + _content_hash were already generated above (pre-run, so the rule
     # can thread run_id into per-bar ledger rows). Reused here verbatim.
     state_mgr = None  # Phase 5b.4: emit run_state.json (startup-guardrail compliance)
@@ -994,13 +997,12 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
             except Exception:
                 pass
 
-    # Append basket row to legacy research CSV (Phase 5b.1 — slated for
-    # retirement after the Baskets MPS sheet stabilizes; review 2026-06-14).
-    try:
-        csv_path = append_basket_row_to_research_csv(result, directive_id=directive_id)
-        print(f"[BASKET] Research row appended (LEGACY): {csv_path}")
-    except Exception as exc:
-        print(f"[BASKET] WARN legacy research CSV append failed: {exc}")
+    # Phase 5b.3 (2026-05-20): the legacy research/basket_runs.csv writer is
+    # retired. basket_sheet (ledger.db) is now the canonical store; the CSV
+    # file remains on disk for historical reference (290 rows imported into
+    # basket_sheet; 256 legacy pre-2026-05-18 rows have synthetic 'L'-prefixed
+    # run_ids). The function append_basket_row_to_research_csv stays in
+    # tools/portfolio_evaluator.py as dead code until the next cleanup sweep.
 
     print(f"[BASKET] Phase 5b.2 dispatch complete. "
           f"trades={trades_total}, recycles={len(result.recycle_events)}, "

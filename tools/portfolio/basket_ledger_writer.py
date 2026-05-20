@@ -1,22 +1,26 @@
 """basket_ledger_writer.py — append-only writer for the Baskets sheet of MPS.
 
-Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 5b.2 (Path B).
+Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 5b.3 (SQL promotion, 2026-05-20).
 
-The per-symbol writer in `tools/portfolio/portfolio_ledger_writer.py`
-goes through SQLite (ledger_db) → Excel. Basket runs don't fit the
-per-symbol metrics shape that `_compute_ledger_row` expects, so this
-writer maintains a SEPARATE sheet (`Baskets`) within
-`Master_Portfolio_Sheet.xlsx` via openpyxl directly. SQLite integration
-of the basket schema is deferred to Phase 5b.3 cleanup; until then the
-Excel sheet IS the source of truth for basket runs.
+The writer goes through SQLite (`ledger.db.basket_sheet` via `tools/ledger_db.py`)
+and then calls `export_mps()` to regenerate `Master_Portfolio_Sheet.xlsx`
+from the DB. Mirrors the per-symbol writer's flow exactly.
 
 Both the per-symbol writer and this writer use the same FileLock on
-`Master_Portfolio_Sheet.xlsx.lock`, so concurrent writes from a basket
-dispatch and a per-symbol pipeline are serialized correctly.
+`Master_Portfolio_Sheet.xlsx.lock` so the Excel export step is serialized
+across concurrent basket dispatches and per-symbol pipelines (SQLite's
+own WAL handles the DB-write serialization).
 
-Append-only invariant (Invariant #2): existing Baskets rows are never
-mutated. Writing the same (run_id) twice raises a FATAL error matching
-the per-symbol writer's pattern.
+Append-only invariant (Invariant #2): existing basket_sheet rows are
+never mutated. Writing the same `run_id` twice raises a FATAL error,
+matching the per-symbol writer's pattern. Pre-insert SELECT-1 is the
+primary check; the ON CONFLICT(run_id) DO NOTHING in `upsert_basket_row`
+is the SQL-level safety net.
+
+Verdict computation (CORE/WATCH/FAIL) was previously in
+`tools/excel_format/styling.py::_compute_basket_verdict` (presentation
+layer). Phase 5b.3 moved it here so it lives in the DB (mirrors how
+`portfolio_status` is computed at write time, not at export time).
 
 Schema (locked Phase 5b.2):
     run_id              str  — 12-char hex from generate_run_id()
@@ -39,7 +43,6 @@ Schema (locked Phase 5b.2):
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -102,6 +105,18 @@ BASKETS_SHEET_COLUMNS = [
     "cycles_completed",
     "peak_winner_lot",
     "rule_family",
+    # ---- Phase 5b.3 additions (right-edge append, 2026-05-20) ----
+    # verdict_status: CORE/WATCH/FAIL computed at write time by compute_verdict().
+    # Was previously injected by the formatter (tools/excel_format/styling.py);
+    # promoted to a writer output as part of the SQL migration so the value
+    # lives in ledger.db.basket_sheet and is consistent across readers.
+    "verdict_status",
+    # enrichment_status: data-completeness marker for the row. Values:
+    #   complete    — canonical_metrics computed; verdict + KPIs trustworthy
+    #   no_canonical — legacy row, artifact matched, but no parquet available
+    #   overwritten  — legacy row whose artifact dir was clobbered by a later
+    #                  same-directive_id re-run (paired with is_current=0)
+    "enrichment_status",
 ]
 
 
@@ -260,6 +275,50 @@ def _resolve_exit_reason(basket_result: Any) -> str:
     return getattr(basket_result, "exit_reason", None) or ""
 
 
+def compute_verdict(row: dict[str, Any]) -> str:
+    """Compute CORE/WATCH/FAIL verdict from a row's canonical metrics.
+
+    Mirrors the convention in
+    `tools.portfolio.portfolio_profile_selection._compute_portfolio_status`:
+    realized cash <= 0 is an instant FAIL regardless of equity-curve metrics
+    (otherwise a basket carrying large floating PnL on still-open positions
+    can mask negative closed-trade cash). For baskets, "real cash" is
+    `final_realized_usd + harvested_total_usd`.
+
+    Verdict ladder:
+      FAIL  — canonical_net_pct < 0  OR  (realized + harvested) <= 0
+      CORE  — passes FAIL AND canonical_ret_dd >= 2.0 AND canonical_max_dd_pct <= 40
+      WATCH — passes FAIL but does not meet CORE thresholds
+    Rows missing any required canonical metric return "" (legacy rows).
+    """
+    import math
+
+    net = row.get("canonical_net_pct")
+    dd = row.get("canonical_max_dd_pct")
+    ret_dd = row.get("canonical_ret_dd")
+
+    def _isna(v: Any) -> bool:
+        if v is None:
+            return True
+        try:
+            return bool(pd.isna(v))
+        except (TypeError, ValueError):
+            return isinstance(v, float) and math.isnan(v)
+
+    if _isna(net) or _isna(dd) or _isna(ret_dd):
+        return ""
+
+    realized = 0.0 if _isna(row.get("final_realized_usd")) else float(row["final_realized_usd"])
+    harvested = 0.0 if _isna(row.get("harvested_total_usd")) else float(row["harvested_total_usd"])
+    real_cash = realized + harvested
+
+    if float(net) < 0 or real_cash <= 0:
+        return "FAIL"
+    if float(ret_dd) >= 2.0 and float(dd) <= 40:
+        return "CORE"
+    return "WATCH"
+
+
 def append_basket_row_to_mps(
     basket_result: Any,
     *,
@@ -271,10 +330,10 @@ def append_basket_row_to_mps(
     parquet_path: Path | str | None = None,
     stake_usd: float | None = None,
 ) -> Path:
-    """Append a basket-run row to the Baskets sheet of MPS.
+    """Append a basket-run row to ledger.db.basket_sheet, then regenerate MPS xlsx.
 
     Returns the path of the MPS file written. Raises BasketLedgerError if
-    the run_id already exists (append-only invariant).
+    the run_id already exists (append-only invariant — pre-insert SELECT 1).
 
     df_trades is the optional tradelevel DataFrame from
     `tools.basket_ledger.basket_result_to_tradelevel_df`. When supplied,
@@ -283,6 +342,15 @@ def append_basket_row_to_mps(
     back to summing pnl_usd from `basket_result.per_leg_trades` directly
     (lossy for force_close trades — see _build_row docstring).
     """
+    # Imported here to avoid circular import at module load (ledger_db
+    # imports basket_ledger_writer for backfill helpers).
+    from tools.ledger_db import (
+        _connect,
+        create_tables,
+        export_mps,
+        upsert_basket_row,
+    )
+
     ledger_path = _mps_path()
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -297,61 +365,45 @@ def append_basket_row_to_mps(
         stake_usd=stake_usd,
     )
 
-    # Use the same lock the per-symbol writer uses so basket + per-symbol
-    # writes serialize correctly.
+    # Verdict + DB bookkeeping (Phase 5b.3 — moved out of formatter).
+    new_row["verdict_status"] = compute_verdict(new_row)
+    # New writes always go through the canonical_metrics path (parquet exists,
+    # stake known) so enrichment_status defaults to "complete". Backfills /
+    # legacy imports set their own status.
+    new_row["enrichment_status"] = "complete"
+    new_row["is_current"] = 1
+
+    # FileLock coordinates the Excel export step with the per-symbol writer;
+    # SQLite WAL handles concurrent DB writes on its own.
     lock_path = ledger_path.with_suffix(".lock")
     with FileLock(str(lock_path), timeout=120):
-        # Read existing sheets (preserve all other tabs verbatim).
-        existing_sheets: dict[str, pd.DataFrame] = {}
-        if ledger_path.exists():
-            with pd.ExcelFile(ledger_path) as xls:
-                for sn in xls.sheet_names:
-                    try:
-                        existing_sheets[sn] = pd.read_excel(xls, sheet_name=sn)
-                    except Exception:
-                        pass
+        conn = _connect()
+        try:
+            create_tables(conn)
+            # Append-only invariant: explicit pre-check beats relying on
+            # ON CONFLICT DO NOTHING (silent no-op vs. caller's FATAL).
+            existing = conn.execute(
+                'SELECT 1 FROM basket_sheet WHERE run_id = ? LIMIT 1',
+                (run_id,),
+            ).fetchone()
+            if existing:
+                raise BasketLedgerError(
+                    f"[FATAL] basket_sheet already contains run_id={run_id!r}. "
+                    f"Append-only invariant; manual deletion required if a "
+                    f"re-run is intentional. (Per-symbol writer enforces the "
+                    f"same rule on master_filter.)"
+                )
+            upsert_basket_row(conn, new_row)
+        finally:
+            conn.close()
 
-        # Build / extend the Baskets sheet
-        if _BASKETS_SHEET in existing_sheets:
-            df_baskets = existing_sheets[_BASKETS_SHEET]
-        else:
-            df_baskets = pd.DataFrame(columns=BASKETS_SHEET_COLUMNS)
-
-        # Append-only invariant: refuse to add the same run_id twice.
-        if "run_id" in df_baskets.columns and run_id in set(df_baskets["run_id"].astype(str)):
-            raise BasketLedgerError(
-                f"[FATAL] Baskets sheet already contains run_id={run_id!r}. "
-                f"Append-only invariant; manual deletion required if a re-run "
-                f"is intentional. (Per-symbol writer enforces the same rule.)"
-            )
-
-        # Add any newly introduced columns at the right edge of the existing
-        # frame so column order stays append-only across versions.
-        for col in BASKETS_SHEET_COLUMNS:
-            if col not in df_baskets.columns:
-                df_baskets[col] = pd.NA
-        # Reorder to canonical order (any extra columns from older writers
-        # remain trailing).
-        ordered = BASKETS_SHEET_COLUMNS + [c for c in df_baskets.columns if c not in BASKETS_SHEET_COLUMNS]
-        df_baskets = df_baskets[ordered]
-
-        df_baskets = pd.concat([df_baskets, pd.DataFrame([new_row])], ignore_index=True)
-        existing_sheets[_BASKETS_SHEET] = df_baskets
-
-        # Atomic write: tmp + fsync + replace
-        tmp_path = ledger_path.with_suffix(".xlsx.tmp")
-        with pd.ExcelWriter(tmp_path, engine="openpyxl", mode="w") as writer:
-            for sn, sdf in existing_sheets.items():
-                sdf.to_excel(writer, sheet_name=sn, index=False)
-        with open(tmp_path, "r+b") as fh:
-            os.fsync(fh.fileno())
-        os.replace(str(tmp_path), str(ledger_path))
-
-    # NOTE: deliberately NOT calling tools/format_excel_artifact.py here.
-    # That formatter is per-symbol-portfolio-schema-aware and DESTROYS our
-    # Baskets sheet by reshaping it to match Portfolios columns. Phase 5b.3
-    # cleanup may add a basket-aware formatter profile; until then the
-    # Baskets sheet is readable as-is in Excel + via pandas.
+        # Regenerate MPS xlsx from DB so human-readable artifact stays in sync.
+        # Failure is non-fatal — DB is the source of truth; re-export catches up.
+        try:
+            export_mps()
+        except Exception as exc:
+            print(f"  [WARN] basket_sheet row written to DB; MPS xlsx export "
+                  f"failed: {exc}. Re-run: python tools/ledger_db.py --export-mps")
 
     return ledger_path
 
@@ -360,4 +412,5 @@ __all__ = [
     "BASKETS_SHEET_COLUMNS",
     "BasketLedgerError",
     "append_basket_row_to_mps",
+    "compute_verdict",
 ]

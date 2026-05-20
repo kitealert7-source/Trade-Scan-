@@ -177,31 +177,46 @@ def test_append_basket_row_append_only_invariant(monkeypatch, tmp_path):
 
 
 def test_append_basket_row_preserves_other_sheets(monkeypatch, tmp_path):
-    """Writing the Baskets sheet must NOT mutate Portfolios or other sheets."""
+    """Writing the Baskets sheet must NOT clobber Portfolios rows.
+
+    Phase 5b.3 (2026-05-20): the writer goes through ledger.db now; the
+    xlsx is regenerated from DB on every write. Other-sheet preservation
+    therefore means "DB rows for portfolio_sheet survive the basket write",
+    not "pre-existing xlsx sheets are surgically preserved".
+    """
     import config.path_authority as pa
     monkeypatch.setattr(pa, "TRADE_SCAN_STATE", tmp_path)
     (tmp_path / "strategies").mkdir()
+    # ledger_db._connect() resolves LEDGER_DB_PATH dynamically from
+    # path_authority.TRADE_SCAN_STATE, so the monkeypatch above is enough.
 
-    # Pre-seed an MPS with a fake Portfolios sheet
-    mps = tmp_path / "strategies" / "Master_Portfolio_Sheet.xlsx"
-    pd.DataFrame({"portfolio_id": ["fake_p1", "fake_p2"], "score": [1.0, 2.0]}).to_excel(
-        mps, sheet_name="Portfolios", index=False,
-    )
+    # Pre-seed the portfolio_sheet table with two Portfolios rows.
+    import tools.ledger_db as ldb
+    conn = ldb._connect()
+    try:
+        ldb.create_tables(conn)
+        ldb.upsert_mps_df(conn, pd.DataFrame({
+            "portfolio_id": ["fake_p1", "fake_p2"],
+            "reference_capital_usd": [1.0, 2.0],
+        }), sheet="Portfolios")
+    finally:
+        conn.close()
 
     from tools.portfolio.basket_ledger_writer import append_basket_row_to_mps
     result = _make_basket_result()
     append_basket_row_to_mps(result, run_id="RID01", directive_id="d",
                              backtests_path="", vault_path="")
 
+    mps = tmp_path / "strategies" / "Master_Portfolio_Sheet.xlsx"
     with pd.ExcelFile(mps) as xls:
-        assert set(xls.sheet_names) == {"Portfolios", "Baskets"}
+        # Portfolios + Single-Asset Composites + Baskets all present.
+        assert "Portfolios" in xls.sheet_names
+        assert "Baskets" in xls.sheet_names
         df_p = pd.read_excel(xls, sheet_name="Portfolios")
         df_b = pd.read_excel(xls, sheet_name="Baskets")
-    # Portfolios untouched
-    assert df_p.shape == (2, 2)
-    assert list(df_p["portfolio_id"]) == ["fake_p1", "fake_p2"]
-    assert list(df_p["score"]) == [1.0, 2.0]
-    # Baskets has our row
+    # Portfolios rows survived the basket write.
+    assert set(df_p["portfolio_id"]) == {"fake_p1", "fake_p2"}
+    # Baskets has our row.
     assert df_b.shape[0] == 1
     assert df_b["run_id"].iloc[0] == "RID01"
 
@@ -280,9 +295,12 @@ def test_dispatch_produces_all_four_artifact_paths(monkeypatch, tmp_path):
         df_b = pd.read_excel(mps_path, sheet_name="Baskets")
         assert (df_b["run_id"] == run_id).any()
 
-        # Legacy research CSV still appended (transition support)
+        # Phase 5b.3 (2026-05-20): legacy research/basket_runs.csv writer is
+        # retired. basket_sheet (ledger.db) is now the canonical store.
+        # Assertion that the CSV is NOT created — confirms the writer wiring
+        # has actually been removed from _try_basket_dispatch.
         legacy_csv = fake_state / "research" / "basket_runs.csv"
-        assert legacy_csv.is_file()
+        assert not legacy_csv.exists()
 
         # Phase 5b.3a — per-window report stack lands in the directive folder.
         # Legacy REPORT_<id>.md was SUPPRESSED for basket runs 2026-05-18
