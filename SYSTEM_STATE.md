@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 13 uncommitted
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-20T08:13:52Z
+> Generated: 2026-05-20T14:51:05Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 243 directives
+- Completed: 292 directives
 
 ## Ledgers
 
@@ -22,7 +22,7 @@
   - **Portfolios:** 131 rows — CORE: 4, FAIL: 121, PROFILE_UNRESOLVED: 1, WATCH: 5
   - **Single-Asset Composites:** 81 rows — CORE: 11, FAIL: 65, WATCH: 5
 
-- **Candidates (FPS):** 380 rows — CORE: 10, FAIL: 252, LIVE: 12, RESERVE: 18, WATCH: 88
+- **Candidates (FPS):** 477 rows — CORE: 17, FAIL: 304, LIVE: 15, RESERVE: 22, WATCH: 119
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
@@ -35,12 +35,12 @@
 - Latest bar: **2026-05-20** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1602
+- Run directories: 1650
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 13 uncommitted
-- Last substantive commit: `a537940 session: accept 13 broader-pytest TDs from directive_reconciler purge`
+- Working tree: 1 uncommitted
+- Last substantive commit: `07032ee fix(cointegration_state): backfill registry metadata + SIGNAL_PRIMITIVE`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -110,3 +110,17 @@
   2. Build a second filter (5m intra-macro coherence — realized vol within macro-stable segments)?
   3. Search for a different basket structure where the cross-pair mechanism transfers (e.g., truly USD-anchored synthetic spreads, not naive pair-combinations)?
   4. Park the mechanism and pursue a different strategy family?
+
+- **COINTREV / Cointegration screener — infrastructure built, strategy thesis NOT validated (2026-05-20).** Session delivered the full Path-A through C5 pipeline: daily cointegration screener (153 pair-pairs, 4-sheet Excel viewer, chained into DATA_INGRESS), content-addressable history matrix (623k rows, hash 6e6202fa4958), runtime feature lookup (`indicators.stats.cointegration_state`), COINTREV mean-reversion basket rule, leg strategy + data-loader auto-join, directive generator, cohort + concurrency reporter, and 48 backtested directives (40 P00 + 8 P01).
+
+  **But the +$727 P00 / +$123 P01 result is NOT a cointegration mean-reversion result.** COINTREV v1 uses equal-lot sizing (no β-weighting). At |β| >> 1 (e.g., EURUSD/USDJPY β=−113), the position is a directional bet on the larger-β leg, not a spread trade — caused the −$811 catastrophic loss in P00. The β/correlation universe filter added in P01 (`mean_beta > 0 AND 0.1 < corr < 0.85`) is a **workaround** for the equal-lot bug, not a partner to cointegration analysis: it selects pairs where equal-lot ≈ β-weighted. Operator correctly identified this conceptual drift at end of session.
+
+  **Two paths forward (operator decision required):**
+    1. **Re-architect properly (recommended).** Add β-weighted lot sizing to COINTREV v1.2 (`lot_a = base · |β| / 1.0` with sane cap). Strip `tradability` + `corr_504d` columns from the Excel — return it to pure cointegration view. Re-run the full unfiltered cohort with proper sizing — negatively-cointegrated pairs (EURUSD/USDJPY etc.) get tested *fairly* this time. Then evaluate whether cointegration mean-reversion has real edge.
+    2. **Accept as-is and rename.** Acknowledge COINTREV-as-implemented is "equal-lot pairs trade on positively-correlated cointegrated pairs." Update labels everywhere (rule docstring, spec doc, Excel title, generator). The +$123 P01 result is the honest expectancy for this strategy class.
+
+  **Infrastructure reuse value is real either way.** Screener + history matrix + runtime feature lookup + cohort tooling are all reusable for v1.2 or any other cointegration-aware strategy. Daily screener is genuinely useful as a monitoring tool independent of any strategy.
+
+  **Mid-session bug fix (already landed in commit b4ad0f8).** Non-directional STOP_LOSS in `cointegration_meanrev_v1.py` made directional now (signed against `_entry_z_at_open`); was a real bug that stopped winning trades on the wrong side of |z|. Fix dropped P01 cohort drawdowns ~50% vs P00 on the same 4 pairs.
+
+  **Code: commits da37de3 (screener), b4ad0f8 (strategy), 2657eca (artifacts).** Excel viewer at `data_root/SYSTEM_FACTORS/FX_COINTEGRATION/Cointegration_Screener.xlsx` — currently shows 9 TRUE_SPREAD pairs in BOTH-cointegrated universe (4 of those overlap with the backtest 4-pair universe; AUDNZD/USDCHF appears DIRECTIONAL today despite TRUE_SPREAD historical mean-β, an interesting regime-flip signal).
