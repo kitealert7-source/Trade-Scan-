@@ -1,0 +1,84 @@
+test:
+  name: 91_PORT_AUDUSDGBPUSD_15M_COINTREV_S45_V1_P01
+  family: PORT
+  strategy: 91_PORT_AUDUSDGBPUSD_15M_COINTREV_S45_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2024-05-20'
+  end_date: '2026-05-20'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: COINTREV_V1
+  hypothesis_variant: short_spread_uni_p00
+  description: |
+    COINTREV mean-reversion v1 — C4 fan-out (auto-generated, P01).
+
+    Pair: AUDUSD / GBPUSD
+    Direction: SHORT spread (watch z >= +2.7 (spread above mean, expect fall)).
+    Entry: 15m |intra_z| crossing entry_z (=2.7) from below AND qualified_daily=True.
+    Exit:  first of |intra_z| <= 1.0 (winner) | DIRECTIONAL stop at signed
+           ±3.5 (regime break) | 192 bars time stop.
+
+    Universe filter (v1.1): mean β > 0 AND 0.1 < corr < 0.85 in window —
+    drops directional / collinear pairs to keep COINTREV's mean-reversion
+    edge clean. Negatively-correlated pairs route to H3_spread (pyramid).
+
+    Sizing: 0.1 lots per leg (matches 90-series convention).
+    Cointegration matrix: LATEST pointer at directive load time.
+    Generator: tools/generate_cointrev_directives.py
+symbols:
+- AUDUSD
+- GBPUSD
+indicators:
+- indicators.volatility.atr
+- indicators.stats.cointegration_state
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: cointegration_zscore_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: AUDUSDGBPUSD
+  legs:
+  - symbol: AUDUSD
+    lot: 0.1
+    direction: long
+  - symbol: GBPUSD
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: COINTREV_meanrev
+    version: 1
+    params:
+      entry_z: 2.7
+      exit_z: 1.0
+      stop_z: 3.5
+      time_stop_bars: 192
+      initial_notional_usd: 1000.0
+      intra_z_column: intra_z
+      qualified_column: qualified_daily

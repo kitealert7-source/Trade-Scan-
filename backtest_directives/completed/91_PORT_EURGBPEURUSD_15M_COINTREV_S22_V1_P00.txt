@@ -1,0 +1,79 @@
+test:
+  name: 91_PORT_EURGBPEURUSD_15M_COINTREV_S22_V1_P00
+  family: PORT
+  strategy: 91_PORT_EURGBPEURUSD_15M_COINTREV_S22_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2024-05-20'
+  end_date: '2026-05-20'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: COINTREV_V1
+  hypothesis_variant: long_spread_uni_p00
+  description: |
+    COINTREV mean-reversion v1 — C4 fan-out (auto-generated).
+
+    Pair: EURGBP / EURUSD
+    Direction: LONG spread (watch z <= -2 (spread below mean, expect rise)).
+    Entry: 15m |intra_z| crossing entry_z (=2.0) from below AND qualified_daily=True.
+    Exit:  first of |intra_z| <= 1.0 (winner) | |intra_z| >= 4.0 (stop) | 192 bars (48h).
+    Sizing: 0.1 lots per leg (matches 90-series convention).
+
+    Cointegration matrix: LATEST pointer at directive load time.
+    Generator: tools/generate_cointrev_directives.py
+symbols:
+- EURGBP
+- EURUSD
+indicators:
+- indicators.volatility.atr
+- indicators.stats.cointegration_state
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: cointegration_zscore_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURGBPEURUSD
+  legs:
+  - symbol: EURGBP
+    lot: 0.1
+    direction: short
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: COINTREV_meanrev
+    version: 1
+    params:
+      entry_z: 2.0
+      exit_z: 1.0
+      stop_z: 4.0
+      time_stop_bars: 192
+      initial_notional_usd: 1000.0
+      intra_z_column: intra_z
+      qualified_column: qualified_daily
