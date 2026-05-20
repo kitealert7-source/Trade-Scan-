@@ -1,0 +1,59 @@
+//@version=6
+indicator("Correlation Coefficient", shorttitle = "CC", format = format.price, precision = 2)
+
+// --- Inputs ----------------------------------------------------
+// Dropdown of FX majors + JPY crosses + cross-majors + metals
+// (covers every pair in DATA_INGRESS's deep-history set). Edit the
+// list below if you need to add/remove a symbol.
+symbolInput = input.string("OANDA:USDJPY", "Symbol", options = [
+     "OANDA:EURUSD", "OANDA:GBPUSD", "OANDA:USDJPY",
+     "OANDA:AUDUSD", "OANDA:NZDUSD", "OANDA:USDCAD", "OANDA:USDCHF",
+     "OANDA:EURJPY", "OANDA:GBPJPY", "OANDA:AUDJPY",
+     "OANDA:CADJPY", "OANDA:CHFJPY", "OANDA:NZDJPY",
+     "OANDA:EURGBP", "OANDA:EURAUD", "OANDA:GBPAUD",
+     "OANDA:AUDNZD", "OANDA:GBPNZD",
+     "OANDA:XAUUSD", "OANDA:XAGUSD"])
+lengthInput = input.int(100, "Length")
+tfInput     = input.timeframe("", "Timeframe (blank = chart)")
+
+adjustedSeries = ticker.modify(symbolInput)
+
+// --- Compute correlation at the selected TF --------------------
+// Both legs fetched at the selected TF — values are stepped onto
+// chart bars (each HTF value repeats N times before the next HTF
+// bar closes, where N = HTF_secs / chart_secs).
+//
+// To correlate over `length` HTF bars (not `length` chart bars of
+// repeated values), scale the lookback by N:
+//
+//   Pearson identity — replicating every (x,y) pair N times in a
+//   sample does NOT change the correlation coefficient. The N²
+//   factors cancel out of both numerator and denominator. So:
+//       corr(chart_at_htf, other_at_htf, length*N) on chart bars
+//     = corr(chart,        other,        length)   at HTF
+//
+// This avoids nested request.security entirely — no syminfo.tickerid
+// or sourceInput context-evaluation traps. When tfInput is blank,
+// ratio = 1 and behaviour matches a plain chart-TF correlation.
+tf = tfInput == "" ? timeframe.period : tfInput
+
+chartHTF = request.security(syminfo.tickerid, tf, close)
+otherHTF = request.security(adjustedSeries,    tf, close)
+
+htfSecs   = timeframe.in_seconds(tf)
+chartSecs = timeframe.in_seconds(timeframe.period)
+ratio     = chartSecs > 0 and htfSecs > 0 ? htfSecs / chartSecs : 1.0
+// Clamp to stay inside Pine's max_bars_back budget. With a 15m
+// chart this still supports daily correlation of ~40 bars.
+effLen    = math.min(4000, math.max(lengthInput, math.round(lengthInput * ratio)))
+
+correlation = ta.correlation(chartHTF, otherHTF, effLen)
+
+// --- Render ----------------------------------------------------
+// Sign-coded area fill: green when correlation >= 0, red when < 0.
+fillColor = correlation >= 0 ? color.new(color.green, 40) : color.new(color.red, 40)
+plot(correlation, "Correlation", color = fillColor, style = plot.style_area)
+
+hline( 1,  "+1", color = color.new(color.gray, 50))
+hline( 0,   "0", color = color.new(color.gray, 30))
+hline(-1, "-1",  color = color.new(color.gray, 50))

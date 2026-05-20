@@ -78,8 +78,12 @@ governance_updates:
     date: '2026-05-17'
     changes:
     - 'indicator_registry_sync: 1 stub entries added.'
-registry_version: 11
-generated_at: '2026-05-17T09:30:42+00:00'
+  version_12:
+    date: '2026-05-20'
+    changes:
+    - 'indicator_registry_sync: 1 stub entries added.'
+registry_version: 12
+generated_at: '2026-05-20T11:50:51+00:00'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -2529,7 +2533,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Inter-leg correlation for H3 basket gating — measures whether two pairs are independent drivers (low |rho|) or co-moving (high |rho|).'
+    typical_use_case: Inter-leg correlation for H3 basket gating — measures whether two pairs are independent drivers (low
+      |rho|) or co-moving (high |rho|).
     compatibility:
       suitable_for_intraday: true
       suitable_for_daily: true
@@ -2571,7 +2576,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Cross-pair regime detector for pair-spread strategies — fires entry trigger (cross_event) and tracks current state (cross_side) for reverse-cross exit. Used by H3_spread basket family.'
+    typical_use_case: Cross-pair regime detector for pair-spread strategies — fires entry trigger (cross_event) and tracks
+      current state (cross_side) for reverse-cross exit. Used by H3_spread basket family.
     compatibility:
       suitable_for_intraday: true
       suitable_for_daily: true
@@ -2582,6 +2588,12 @@ indicators:
     input_columns:
     - close
     registered_at: '2026-05-18'
+  cointegration_state:
+    module_path: indicators.stats.cointegration_state
+    category: stats
+    registered_at: '2026-05-20'
+    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
+      output_columns, etc.) to be backfilled.
 registry_summary:
   total_indicators: 69
   by_category:

@@ -1,0 +1,208 @@
+//@version=6
+indicator('SMA Cross Screener ', overlay = true)
+
+// =============================================================
+// 90-series spread-SMA crossover screener for FX pair combos.
+// Real-time dashboard only — no orders, no parity with the OctaFx
+// backtest data. Feed is hardcoded to OANDA per leg so the spread
+// stays consistent regardless of which chart it's dropped on.
+//
+// Add to any 5m chart (or whatever TF you want to scan); the table
+// updates per bar of the chart's TF.
+// =============================================================
+
+// --- Inputs ----------------------------------------------------
+z_window = input.int(600, 'z-window (bars)', minval = 10)
+sma_window = input.int(15, 'SMA window (bars)', minval = 1)
+
+macro_tf         = input.timeframe('D', 'Macro timeframe')
+macro_z_window   = input.int(60, 'Macro z-window (bars)', minval = 10)
+macro_sma_window = input.int(5,  'Macro SMA window (bars)', minval = 1)
+
+corr_window = input.int(100, 'Correlation window (bars, chart TF)', minval = 5)
+
+sym_a1 = input.symbol('OANDA:EURUSD', 'Combo 1 — Leg A')
+sym_b1 = input.symbol('OANDA:USDJPY', 'Combo 1 — Leg B')
+sym_a2 = input.symbol('OANDA:GBPUSD', 'Combo 2 — Leg A')
+sym_b2 = input.symbol('OANDA:USDJPY', 'Combo 2 — Leg B')
+sym_a3 = input.symbol('OANDA:AUDUSD', 'Combo 3 — Leg A')
+sym_b3 = input.symbol('OANDA:USDCAD', 'Combo 3 — Leg B')
+
+tbl_pos_str = input.string('top_right', 'Table position', options = ['top_left', 'top_right', 'bottom_left', 'bottom_right'])
+
+// --- SMA-of-rolling-zscore (parameterized) --------------------
+sma_of_z(src, zw, sw) =>
+    mu = ta.sma(src, zw)
+    sd = ta.stdev(src, zw)
+    z = (src - mu) / sd
+    ta.sma(z, sw)
+
+// --- Per-combo signal -----------------------------------------
+// Returns [side, event, diff, macro]
+//   side  =  1 when 5m SMA(z_A) > SMA(z_B), -1 when <, 0 during warmup
+//   event = true on the bar where side flips (excludes warmup)
+//   diff  = SMA(z_A) - SMA(z_B)  (current z-spread)
+//   macro =  1 / -1 / 0 — same logic on macro_tf (default 1D).
+//           request.security defaults to lookahead_off, so during a
+//           forming higher-TF bar we use only the previous CLOSED
+//           higher-TF bar — no look-ahead.
+combo_sig(_sa, _sb) =>
+    ca = request.security(_sa, timeframe.period, close)
+    cb = request.security(_sb, timeframe.period, close)
+    sma_za = sma_of_z(ca, z_window, sma_window)
+    sma_zb = sma_of_z(cb, z_window, sma_window)
+    diff = sma_za - sma_zb
+    side = na(diff) ? 0 : diff > 0 ? 1 : -1
+    prev = nz(side[1], 0)
+    event = side != 0 and prev != 0 and side != prev
+
+    mca = request.security(_sa, macro_tf, close)
+    mcb = request.security(_sb, macro_tf, close)
+    msma_za = sma_of_z(mca, macro_z_window, macro_sma_window)
+    msma_zb = sma_of_z(mcb, macro_z_window, macro_sma_window)
+    mdiff = msma_za - msma_zb
+    macro = na(mdiff) ? 0 : mdiff > 0 ? 1 : -1
+
+    // Pair-relationship health: chart-TF rolling correlation of the
+    // two legs' closes. Strategy logic assumes negative correlation;
+    // a value drifting toward 0 means the spread structure has decayed.
+    corr = ta.correlation(ca, cb, corr_window)
+
+    [side, event, diff, macro, corr]
+
+[s1, e1, d1, m1, cor1] = combo_sig(sym_a1, sym_b1)
+[s2, e2, d2, m2, cor2] = combo_sig(sym_a2, sym_b2)
+[s3, e3, d3, m3, cor3] = combo_sig(sym_a3, sym_b3)
+
+// --- Per-combo bars-since-flip + last-cross time ---------------
+var int bars1 = na
+var int bars2 = na
+var int bars3 = na
+var int last1 = na
+var int last2 = na
+var int last3 = na
+
+bars1 := e1 ? 0 : na(bars1) ? s1 != 0 ? 0 : na : bars1 + 1
+bars2 := e2 ? 0 : na(bars2) ? s2 != 0 ? 0 : na : bars2 + 1
+bars3 := e3 ? 0 : na(bars3) ? s3 != 0 ? 0 : na : bars3 + 1
+
+if e1
+    last1 := time
+    last1
+if e2
+    last2 := time
+    last2
+if e3
+    last3 := time
+    last3
+
+// --- Helpers for rendering ------------------------------------
+strip_prefix(s) =>
+    parts = str.split(s, ':')
+    array.get(parts, array.size(parts) - 1)
+
+pair_label(a, b) =>
+    strip_prefix(a) + ' / ' + strip_prefix(b)
+side_str(s) =>
+    s == 1 ? 'LONG' : s == -1 ? 'SHORT' : '—'
+side_clr(s) =>
+    s == 1 ? color.new(color.green, 30) : s == -1 ? color.new(color.red, 30) : color.new(color.gray, 60)
+fmt_diff(d) =>
+    na(d) ? '—' : str.tostring(d, '#.####')
+fmt_bars(b) =>
+    na(b) ? '—' : str.tostring(b)
+fmt_time(t) =>
+    na(t) ? '—' : str.format_time(t, 'MM-dd HH:mm', syminfo.timezone)
+macro_str(m) =>
+    m == 1 ? 'BULL' : m == -1 ? 'BEAR' : '—'
+align_clr(side, macro) =>
+    side == 0 or macro == 0 ? color.new(color.gray, 60) : side == macro ? color.new(color.green, 30) : color.new(color.red, 30)
+fmt_corr(c) =>
+    na(c) ? '—' : str.tostring(c, '#.##')
+corr_clr(c) =>
+    na(c) ? color.new(color.gray, 60) : c < -0.5 ? color.new(color.green, 30) : c < -0.2 ? color.new(color.yellow, 30) : color.new(color.red, 30)
+
+// --- Table render on last bar ---------------------------------
+var table tbl = na
+
+if barstate.islast
+    pos = switch tbl_pos_str
+        'top_left' => position.top_left
+        'top_right' => position.top_right
+        'bottom_left' => position.bottom_left
+        'bottom_right' => position.bottom_right
+        => position.top_right
+
+    tbl := table.new(pos, columns = 7, rows = 4, border_width = 1, border_color = color.new(color.gray, 60))
+
+    header_bg = color.new(color.black, 30)
+    ts        = size.small
+    table.cell(tbl, 0, 0, 'Pair',       text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 1, 0, 'Side',       text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 2, 0, 'Macro',      text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 3, 0, 'Corr',       text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 4, 0, 'Bars',       text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 5, 0, 'z-spread',   text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 6, 0, 'Last cross', text_color = color.white, bgcolor = header_bg, text_size = ts)
+
+    table.cell(tbl, 0, 1, pair_label(sym_a1, sym_b1),                              text_size = ts)
+    table.cell(tbl, 1, 1, side_str(s1),   bgcolor = side_clr(s1),         text_color = color.white, text_size = ts)
+    table.cell(tbl, 2, 1, macro_str(m1),  bgcolor = align_clr(s1, m1),    text_color = color.white, text_size = ts)
+    table.cell(tbl, 3, 1, fmt_corr(cor1), bgcolor = corr_clr(cor1),       text_color = color.white, text_size = ts)
+    table.cell(tbl, 4, 1, fmt_bars(bars1),                                         text_size = ts)
+    table.cell(tbl, 5, 1, fmt_diff(d1),                                            text_size = ts)
+    table.cell(tbl, 6, 1, fmt_time(last1),                                         text_size = ts)
+
+    table.cell(tbl, 0, 2, pair_label(sym_a2, sym_b2),                              text_size = ts)
+    table.cell(tbl, 1, 2, side_str(s2),   bgcolor = side_clr(s2),         text_color = color.white, text_size = ts)
+    table.cell(tbl, 2, 2, macro_str(m2),  bgcolor = align_clr(s2, m2),    text_color = color.white, text_size = ts)
+    table.cell(tbl, 3, 2, fmt_corr(cor2), bgcolor = corr_clr(cor2),       text_color = color.white, text_size = ts)
+    table.cell(tbl, 4, 2, fmt_bars(bars2),                                         text_size = ts)
+    table.cell(tbl, 5, 2, fmt_diff(d2),                                            text_size = ts)
+    table.cell(tbl, 6, 2, fmt_time(last2),                                         text_size = ts)
+
+    table.cell(tbl, 0, 3, pair_label(sym_a3, sym_b3),                              text_size = ts)
+    table.cell(tbl, 1, 3, side_str(s3),   bgcolor = side_clr(s3),         text_color = color.white, text_size = ts)
+    table.cell(tbl, 2, 3, macro_str(m3),  bgcolor = align_clr(s3, m3),    text_color = color.white, text_size = ts)
+    table.cell(tbl, 3, 3, fmt_corr(cor3), bgcolor = corr_clr(cor3),       text_color = color.white, text_size = ts)
+    table.cell(tbl, 4, 3, fmt_bars(bars3),                                         text_size = ts)
+    table.cell(tbl, 5, 3, fmt_diff(d3),                                            text_size = ts)
+    table.cell(tbl, 6, 3, fmt_time(last3),                                         text_size = ts)
+
+// --- Alerts (bar-close confirmation in TV alert dialog) -------
+alertcondition(e1, title = 'Combo 1 cross', message = 'Combo 1 spread-SMA cross')
+alertcondition(e2, title = 'Combo 2 cross', message = 'Combo 2 spread-SMA cross')
+alertcondition(e3, title = 'Combo 3 cross', message = 'Combo 3 spread-SMA cross')
+
+// =============================================================
+// LEGEND / REFRESHER
+// -------------------------------------------------------------
+// Column      | Meaning
+// ----------- | ------------------------------------------------
+// Pair        | Leg_A / Leg_B (exchange prefix stripped for display)
+// Side        | 5m cross side. LONG = SMA(z_A) > SMA(z_B); SHORT = inverse.
+//             |   bg green = LONG, red = SHORT, grey = warmup
+// Macro       | Same SMA-of-z-spread logic on macro_tf (default 1D,
+//             |   z_window=60, sma_window=5).  BULL / BEAR / —
+//             |   bg green = aligned with Side (regime-confirmed)
+//             |   bg red   = opposed (countertrend — S14 suppresses these)
+//             |   bg grey  = either side or macro is still in warmup
+// Corr        | Rolling pair correlation on chart TF (corr_window bars).
+//             |   bg green  = corr < −0.5  (healthy negative spread)
+//             |   bg yellow = −0.5 ≤ corr < −0.2  (degrading)
+//             |   bg red    = corr ≥ −0.2  (relationship broken — S14
+//             |               macro_correlation_threshold = −0.2)
+// Bars        | Bars since last side flip on the chart TF.
+// z-spread    | Live SMA(z_A) − SMA(z_B). Sign change = cross_event.
+// Last cross  | Wall-clock time of last side flip (chart timezone).
+//
+// Operational read:
+//   * Side green + Macro green-bg + Corr green = high-conviction entry
+//   * Macro red-bg                            = countertrend, S14 would skip
+//   * Corr red                                = pair relationship decayed,
+//                                               ignore signal regardless of
+//                                               Side/Macro alignment
+//
+// Feed: every leg is hardcoded to OANDA via the OANDA: prefix on inputs.
+// Drop on any chart — the screener does NOT inherit the chart's feed.
+// =============================================================

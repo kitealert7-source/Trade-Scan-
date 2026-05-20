@@ -1,0 +1,397 @@
+"""cointegration_db.py — Phase 2: parquet → SQLite upsert + enrichment.
+
+Reads coint_1d_latest.parquet, enriches each row with:
+  * pvalue_rolling_median_5d — median of last 5 BEFORE-today snapshots
+                                for this (pair_a, pair_b, lookback_days)
+  * regime — hysteresis-aware classifier (spec §7), overwriting the
+            bootstrap regime from parquet
+
+then upserts into the cointegration_daily SQLite table.
+
+Per COINTEGRATION_SCREENER_V1_SPEC.md §3, §5b, §7.
+
+**Architectural rule** (enforced by code structure):
+  parquet is the source of truth — base statistics (adf_pvalue,
+  adf_statistic, half_life_days, hedge_ratio, current_zscore,
+  sample_size, window_*) come from parquet unchanged.
+
+  SQLite is the reporting sink — the two enrichment columns derive
+  from SQLite's OWN prior history, not from re-computing anything.
+
+Flow:
+    parquet → DataFrame → enrich-per-row using SQLite history queries
+            → upsert into cointegration_daily
+
+API (mirrors tools/ledger_db.py):
+    connect(db_path) -> sqlite3.Connection
+    create_tables(conn)
+    upsert_from_parquet(conn, parquet_path)        -> int (rows upserted)
+    query_today(conn)                              -> pd.DataFrame
+    query_history(conn, pair_a, pair_b, lookback_days, days=90) -> pd.DataFrame
+    query_for_classifier(conn, pair_a, pair_b, lookback_days,
+                         lookback=5, before_as_of=None)         -> list[float]
+
+CLI:
+    python tools/cointegration_db.py --upsert
+    python tools/cointegration_db.py --query-today
+"""
+from __future__ import annotations
+
+import argparse
+import sqlite3
+import statistics
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import pandas as pd
+
+from config.path_authority import DATA_ROOT
+from tools.cointegration_screen import PARQUET_PATH
+
+
+# 2026-05-20 location move: SQLite was originally in
+# TradeScan_State/cointegration/ (alongside MPS) but is conceptually a
+# derived FX system factor, not pipeline run state. Moved alongside the
+# parquet under DATA_ROOT/SYSTEM_FACTORS/FX_COINTEGRATION/ for backtest
+# read convenience (one location for all cointegration artifacts,
+# matching the FX_CORRELATION_MATRIX precedent).
+SQLITE_DB = DATA_ROOT / "SYSTEM_FACTORS" / "FX_COINTEGRATION" / "cointegration.db"
+TABLE_NAME = "cointegration_daily"
+
+# Hysteresis classifier constants (spec §7).
+P_COINTEGRATED = 0.05
+P_BREAKING = 0.10
+HYSTERESIS_LOOKBACK = 5         # last N snapshots
+HYSTERESIS_MIN_COINT_COUNT = 4  # ≥ this many must agree
+ROLLING_MEDIAN_LOOKBACK = 5
+
+# Column order in SQLite (matches spec §5b schema declaration).
+# `history_depth` added by spec amendment 2026-05-20 — number of prior
+# snapshots actually used for THIS row's classification (0..HYSTERESIS_LOOKBACK).
+# Operators must be able to see when a row is bootstrap-classified
+# (history_depth < HYSTERESIS_LOOKBACK) vs hysteresis-classified.
+DB_COLUMNS = [
+    "as_of", "pair_a", "pair_b", "tf", "lookback_days",
+    "window_start", "window_end", "sample_size",
+    "adf_pvalue", "pvalue_rolling_median_5d", "history_depth", "adf_statistic",
+    "half_life_days", "hedge_ratio", "beta_method", "test_method",
+    "current_zscore", "regime",
+    "data_version", "inserted_at",
+]
+
+
+# ---------------------------------------------------------------------------
+# Connection + schema
+# ---------------------------------------------------------------------------
+
+
+def connect(db_path: Path | str = SQLITE_DB) -> sqlite3.Connection:
+    """Open SQLite with WAL mode + Row factory."""
+    db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def create_tables(conn: sqlite3.Connection) -> None:
+    """Idempotent: CREATE IF NOT EXISTS for table + indexes (spec §5b)."""
+    conn.executescript(f"""
+        CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+            as_of           TEXT    NOT NULL,
+            pair_a          TEXT    NOT NULL,
+            pair_b          TEXT    NOT NULL,
+            tf              TEXT    NOT NULL,
+            lookback_days   INTEGER NOT NULL,
+            window_start    TEXT    NOT NULL,
+            window_end      TEXT    NOT NULL,
+            sample_size     INTEGER NOT NULL,
+            adf_pvalue      REAL    NOT NULL,
+            pvalue_rolling_median_5d REAL,
+            history_depth   INTEGER NOT NULL DEFAULT 0,
+            adf_statistic   REAL,
+            half_life_days  REAL,
+            hedge_ratio     REAL    NOT NULL,
+            beta_method     TEXT    NOT NULL,
+            test_method     TEXT    NOT NULL,
+            current_zscore  REAL,
+            regime          TEXT    NOT NULL,
+            data_version    TEXT    NOT NULL,
+            inserted_at     TEXT    NOT NULL,
+            PRIMARY KEY (as_of, pair_a, pair_b, tf, lookback_days)
+        );
+        CREATE INDEX IF NOT EXISTS idx_coint_pair
+            ON {TABLE_NAME} (pair_a, pair_b);
+        CREATE INDEX IF NOT EXISTS idx_coint_regime
+            ON {TABLE_NAME} (as_of, regime);
+        CREATE INDEX IF NOT EXISTS idx_coint_history
+            ON {TABLE_NAME} (pair_a, pair_b, lookback_days, as_of DESC);
+    """)
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# History queries — used by the enrichment step + by Excel render (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+def query_for_classifier(conn: sqlite3.Connection,
+                         pair_a: str, pair_b: str, lookback_days: int,
+                         *,
+                         lookback: int = HYSTERESIS_LOOKBACK,
+                         before_as_of: str | None = None,
+                         ) -> list[float]:
+    """Return list of `adf_pvalue` values from the last `lookback`
+    snapshots STRICTLY BEFORE `before_as_of` for this pair-window.
+
+    Ordered MOST RECENT FIRST. Used both for the hysteresis classifier
+    and the rolling-median enrichment.
+
+    `before_as_of` defaults to the maximum as_of in the table
+    (i.e. "before today's row" when called during enrichment).
+    """
+    if before_as_of is None:
+        row = conn.execute(
+            f"SELECT MAX(as_of) AS m FROM {TABLE_NAME}"
+        ).fetchone()
+        before_as_of = row["m"] if row and row["m"] else "0000-00-00"
+
+    rows = conn.execute(
+        f"""
+        SELECT adf_pvalue FROM {TABLE_NAME}
+        WHERE pair_a = ? AND pair_b = ? AND lookback_days = ?
+              AND as_of < ?
+        ORDER BY as_of DESC
+        LIMIT ?
+        """,
+        (pair_a, pair_b, int(lookback_days), before_as_of, int(lookback)),
+    ).fetchall()
+    return [float(r["adf_pvalue"]) for r in rows]
+
+
+def query_today(conn: sqlite3.Connection) -> pd.DataFrame:
+    """All rows for the most recent as_of in the table."""
+    row = conn.execute(
+        f"SELECT MAX(as_of) AS m FROM {TABLE_NAME}"
+    ).fetchone()
+    if not row or not row["m"]:
+        return pd.DataFrame(columns=DB_COLUMNS)
+    as_of = row["m"]
+    return pd.read_sql_query(
+        f"SELECT * FROM {TABLE_NAME} WHERE as_of = ? ORDER BY pair_a, pair_b, lookback_days",
+        conn, params=(as_of,),
+    )
+
+
+def query_history(conn: sqlite3.Connection,
+                  pair_a: str, pair_b: str, lookback_days: int,
+                  *, days: int = 90) -> pd.DataFrame:
+    """Last `days` snapshots for a specific pair-window, oldest first."""
+    return pd.read_sql_query(
+        f"""
+        SELECT * FROM {TABLE_NAME}
+        WHERE pair_a = ? AND pair_b = ? AND lookback_days = ?
+        ORDER BY as_of DESC
+        LIMIT ?
+        """,
+        conn,
+        params=(pair_a, pair_b, int(lookback_days), int(days)),
+    ).sort_values("as_of").reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Enrichment
+# ---------------------------------------------------------------------------
+
+
+def classify_regime(current_pvalue: float, prior_pvalues: list[float]) -> str:
+    """Hysteresis-aware regime classifier (spec §7).
+
+    `prior_pvalues` = at most HYSTERESIS_LOOKBACK most-recent values
+                      strictly BEFORE this snapshot.
+
+    Bootstrap exception: if fewer than HYSTERESIS_LOOKBACK priors,
+    classify on current_pvalue alone.
+    """
+    if len(prior_pvalues) < HYSTERESIS_LOOKBACK:
+        # Bootstrap path (insufficient history).
+        if current_pvalue < P_COINTEGRATED:
+            return "cointegrated"
+        if current_pvalue < P_BREAKING:
+            return "breaking"
+        return "broken"
+
+    coint_prior_count = sum(1 for p in prior_pvalues if p < P_COINTEGRATED)
+    above_breaking_prior_count = sum(1 for p in prior_pvalues if p >= P_BREAKING)
+
+    # broken: ≥ 0.10 dominates
+    if current_pvalue >= P_BREAKING:
+        return "broken"
+
+    # cointegrated: < 0.05 AND ≥ 4 of last 5 priors also < 0.05
+    if (current_pvalue < P_COINTEGRATED
+            and coint_prior_count >= HYSTERESIS_MIN_COINT_COUNT):
+        return "cointegrated"
+
+    # breaking: catches:
+    #   * current in [0.05, 0.10)
+    #   * current < 0.05 but priors don't agree (last 5 all ≥ 0.10)
+    return "breaking"
+
+
+def compute_rolling_median(prior_pvalues: list[float]) -> float | None:
+    """Median of up to ROLLING_MEDIAN_LOOKBACK prior p-values.
+
+    Returns None if no priors (NaN in SQLite). Observability only —
+    NOT consumed by the classifier in v1 (spec §14 item 4).
+    """
+    if not prior_pvalues:
+        return None
+    sample = prior_pvalues[:ROLLING_MEDIAN_LOOKBACK]
+    return float(statistics.median(sample))
+
+
+# ---------------------------------------------------------------------------
+# Upsert
+# ---------------------------------------------------------------------------
+
+
+def upsert_from_parquet(conn: sqlite3.Connection,
+                        parquet_path: Path | str = PARQUET_PATH) -> int:
+    """Read parquet, enrich with history-aware columns, upsert.
+
+    Returns rows upserted. ON CONFLICT REPLACE — re-running for the
+    same as_of overwrites the previous insert cleanly.
+    """
+    parquet_path = Path(parquet_path)
+    if not parquet_path.is_file():
+        raise FileNotFoundError(f"parquet not found: {parquet_path}")
+
+    df = pd.read_parquet(parquet_path)
+    if df.empty:
+        return 0
+
+    # Derive as_of from window_end (just the date, since this is a
+    # daily screener). Same as_of for all rows in a single snapshot.
+    df = df.copy()
+    df["window_end_dt"] = pd.to_datetime(df["window_end"], errors="coerce")
+    # If window_end is NaT (placeholder row), fall back to generated_at.
+    df["window_end_dt"] = df["window_end_dt"].fillna(
+        pd.to_datetime(df["generated_at"]))
+    df["as_of"] = df["window_end_dt"].dt.strftime("%Y-%m-%d")
+
+    inserted_at = datetime.now(timezone.utc).isoformat()
+    rows_to_insert: list[tuple] = []
+
+    for _, r in df.iterrows():
+        # Pull the prior history for this pair-window STRICTLY BEFORE
+        # this row's as_of. By querying with `before_as_of=as_of` we
+        # naturally exclude any prior re-run of TODAY's snapshot.
+        prior = query_for_classifier(
+            conn,
+            r["pair_a"], r["pair_b"], int(r["lookback_days"]),
+            lookback=HYSTERESIS_LOOKBACK,
+            before_as_of=r["as_of"],
+        )
+
+        # Enrich.
+        regime_hysteresis = classify_regime(float(r["adf_pvalue"]), prior)
+        rolling_median = compute_rolling_median(prior)
+        history_depth = len(prior)  # 0..HYSTERESIS_LOOKBACK; <5 = bootstrap
+
+        rows_to_insert.append((
+            r["as_of"],
+            r["pair_a"], r["pair_b"],
+            r["tf"], int(r["lookback_days"]),
+            _to_iso_or_null(r["window_start"]),
+            _to_iso_or_null(r["window_end"]),
+            int(r["sample_size"]),
+            float(r["adf_pvalue"]),
+            rolling_median,                # may be None on early bars
+            history_depth,                 # NEW: bootstrap visibility
+            _float_or_none(r["adf_statistic"]),
+            _float_or_none(r["half_life_days"]),
+            float(r["hedge_ratio"]) if pd.notna(r["hedge_ratio"]) else 0.0,
+            r["beta_method"],
+            r["test_method"],
+            _float_or_none(r["current_zscore"]),
+            regime_hysteresis,
+            r["data_version"],
+            inserted_at,
+        ))
+
+    placeholders = ", ".join(["?"] * len(DB_COLUMNS))
+    columns = ", ".join(DB_COLUMNS)
+    conn.executemany(
+        f"INSERT OR REPLACE INTO {TABLE_NAME} ({columns}) VALUES ({placeholders})",
+        rows_to_insert,
+    )
+    conn.commit()
+    return len(rows_to_insert)
+
+
+def _to_iso_or_null(v) -> str | None:
+    if pd.isna(v):
+        return None
+    if isinstance(v, str):
+        return v
+    return pd.Timestamp(v).isoformat()
+
+
+def _float_or_none(v) -> float | None:
+    if pd.isna(v):
+        return None
+    return float(v)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Cointegration screener — Phase 2 parquet → SQLite."
+    )
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--upsert", action="store_true",
+                   help="Read coint_1d_latest.parquet, enrich, upsert into SQLite.")
+    g.add_argument("--query-today", action="store_true",
+                   help="Print today's snapshot from SQLite.")
+    p.add_argument("--db", type=str, default=str(SQLITE_DB),
+                   help=f"SQLite path (default: {SQLITE_DB})")
+    p.add_argument("--parquet", type=str, default=str(PARQUET_PATH),
+                   help=f"Parquet path (default: {PARQUET_PATH})")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    conn = connect(args.db)
+    try:
+        create_tables(conn)
+        if args.upsert:
+            n = upsert_from_parquet(conn, args.parquet)
+            print(f"[cointegration_db] upserted {n} rows into {args.db}")
+            # quick regime summary
+            df_today = query_today(conn)
+            if not df_today.empty:
+                counts = df_today.groupby(["lookback_days", "regime"]).size().unstack(fill_value=0)
+                print(f"[cointegration_db] today's regime counts:\n{counts}")
+        elif args.query_today:
+            df = query_today(conn)
+            print(df.to_string(index=False))
+    finally:
+        conn.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
