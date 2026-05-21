@@ -161,6 +161,26 @@ intents:
       - {tag: "reset", weight: 1}
       - {tag: "cleanup", weight: 1}
 
+  - id: session_start
+    priority: 30
+    enforcement: soft
+    must_skill: session-start
+    suppress_on_infra: true
+    reason: "Starting a session with orientation to current priorities prevents missing critical blockers and stale-context drift."
+    # session_start has no natural subject — it's a workflow action.
+    # suppress_on_infra catches meta-tooling prompts about the skill itself
+    # ("refactor session-start phases", "delete session_start entry") so
+    # they don't fire the hint.
+    regex_patterns:
+      - "(?i)\\b(start|begin|kick\\s*off)\\s+(the\\s+|a\\s+)?session\\b"
+      - "(?i)\\bsession[- ]?start\\b"
+      - "(?i)\\b(orient|brief)\\s+me\\s+(to\\s+)?(the\\s+)?(current\\s+)?(state|priorities|tasks)\\b"
+    semantic_tags:
+      - {tag: "session_start", weight: 3}
+      - {tag: "start_session", weight: 3}
+      - {tag: "orient", weight: 1}
+      - {tag: "priorities", weight: 1}
+
   - id: session_close
     priority: 30
     enforcement: soft
