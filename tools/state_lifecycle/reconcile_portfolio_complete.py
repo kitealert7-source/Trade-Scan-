@@ -37,24 +37,33 @@ LOGS_DIR = STATE_ROOT / "logs"
 
 
 def _is_run_alive(rid: str, runs_dir: Path, sandbox_dir: Path, backtests_dir: Path) -> bool:
-    """Mirror lineage_pruner.verify_referential_integrity's triple-check.
+    """Mirror lineage_pruner.verify_referential_integrity's two-gate check.
 
-    A run is ALIVE if any of these footprints exist:
-      - runs/<rid>/  (native dir)
-      - sandbox/<rid>/  (sandbox dir)
-      - backtests/<rid>.json  (legacy backtest artifact)
-      - runs/<rid>/run_state.json  (native state file)
-      - sandbox/<rid>/run_state.json  (sandbox state file)
+    A run is ALIVE iff BOTH gates pass (matches the integrity check that this
+    tool exists to unblock):
+
+      gate 1 (folder): runs/<rid>/ is a directory OR sandbox/<rid>/ is a directory
+      gate 2 (state) : backtests/<rid>.json exists
+                       OR runs/<rid>/run_state.json exists
+                       OR sandbox/<rid>/run_state.json exists
+
+    A rid with state JSON only (folder gone) is DEAD — lineage_pruner will
+    refuse to proceed even though some artifact remains.
     """
-    if (runs_dir / rid).exists() or (sandbox_dir / rid).exists():
-        return True
-    if (backtests_dir / f"{rid}.json").exists():
-        return True
-    if (runs_dir / rid / "run_state.json").exists():
-        return True
-    if (sandbox_dir / rid / "run_state.json").exists():
-        return True
-    return False
+    target_run = runs_dir / rid
+    target_sandbox = sandbox_dir / rid
+    has_folder = (
+        (target_run.exists() and target_run.is_dir())
+        or (target_sandbox.exists() and target_sandbox.is_dir())
+    )
+    if not has_folder:
+        return False
+    has_state = (
+        (backtests_dir / f"{rid}.json").exists()
+        or (target_run / "run_state.json").exists()
+        or (target_sandbox / "run_state.json").exists()
+    )
+    return has_state
 
 
 def _classify_directive(

@@ -40,18 +40,28 @@ def _write_directive_state(
     return ds
 
 
-def test_is_run_alive_recognises_each_footprint(tmp_path):
+def test_is_run_alive_requires_folder_and_state(tmp_path):
+    """Matches lineage_pruner.verify_referential_integrity: BOTH gates required."""
     runs, sandbox, backtests = _make_fake_state(tmp_path)
-    # native dir
+    # alive: folder + run_state.json
     (runs / "aaaa").mkdir()
+    (runs / "aaaa" / "run_state.json").write_text("{}", encoding="utf-8")
     assert _is_run_alive("aaaa", runs, sandbox, backtests) is True
-    # sandbox dir
+    # alive: sandbox folder + run_state.json
     (sandbox / "bbbb").mkdir()
+    (sandbox / "bbbb" / "run_state.json").write_text("{}", encoding="utf-8")
     assert _is_run_alive("bbbb", runs, sandbox, backtests) is True
-    # backtests json
+    # alive: folder + legacy backtests JSON
+    (runs / "cccc").mkdir()
     (backtests / "cccc.json").write_text("{}", encoding="utf-8")
     assert _is_run_alive("cccc", runs, sandbox, backtests) is True
-    # nothing
+    # DEAD: folder present but no state JSON anywhere
+    (runs / "dddd").mkdir()
+    assert _is_run_alive("dddd", runs, sandbox, backtests) is False
+    # DEAD: BT JSON present but no folder (lineage_pruner integrity case)
+    (backtests / "eeee.json").write_text("{}", encoding="utf-8")
+    assert _is_run_alive("eeee", runs, sandbox, backtests) is False
+    # DEAD: nothing
     assert _is_run_alive("zzzz", runs, sandbox, backtests) is False
 
 
