@@ -267,3 +267,201 @@ intents:
       - {tag: "logontype", weight: 2}
       - {tag: "winerror_5", weight: 3}
       - {tag: "interactive_token", weight: 2}
+
+  # ---------- RESEARCH WORKFLOWS ----------
+  - id: hypothesis_testing
+    priority: 55
+    enforcement: soft
+    must_skill: hypothesis-testing
+    requires_subject: true
+    reason: "Single-strategy hypothesis tests must derive from ranked hypothesis_tester.py insights — fabricating a hypothesis without that baseline is a known failure mode."
+    # requires_subject gates the fuzzy path on a strategy/directive ID;
+    # pure "run a hypothesis" without an attached strategy routes to noise.
+    regex_patterns:
+      - "(?i)\\b(run|execute|test)\\s+a?\\s*hypothesis\\b"
+      - "(?i)\\bhypothesis[_ ]test(er|ing)?\\b"
+      - "(?i)\\b(regime|session|direction)[- ]?(exclusion|filter|gate)\\s+(test|hypothesis)\\b"
+    semantic_tags:
+      - {tag: "hypothesis", weight: 2}
+      - {tag: "regime_exclusion", weight: 3}
+      - {tag: "filter_exclusion", weight: 3}
+      - {tag: "direction_bias", weight: 2}
+
+  - id: basket_hypothesis_testing
+    priority: 50
+    enforcement: soft
+    must_skill: basket-hypothesis-testing
+    requires_subject: true
+    reason: "Basket hypothesis tests need the mechanic/architecture routing distinction — conflating the two classes causes wrong variant construction."
+    regex_patterns:
+      - "(?i)\\bbasket[- ]?hypothesis\\b"
+      - "(?i)\\bH2[_ ]recycle@\\d+\\b"
+      - "(?i)\\b(B1|B2)\\s+vs\\s+(B1|B2)\\b"
+      - "(?i)\\b(mechanic|architecture)\\s+(variant|test|hypothesis)\\b"
+    semantic_tags:
+      - {tag: "basket_hypothesis", weight: 3}
+      - {tag: "basket_variant", weight: 2}
+      - {tag: "mechanic_variant", weight: 3}
+      - {tag: "architecture_variant", weight: 3}
+
+  - id: port_strategy
+    priority: 45
+    enforcement: soft
+    must_skill: port-strategy
+    suppress_on_infra: true
+    reason: "Strategy porting requires namespace token validation and indicator-infra build order — skipping produces ungoverned strategy files."
+    # suppress_on_infra catches meta-tooling prompts ("refactor the
+    # port-strategy skill") so they don't fire the hint.
+    regex_patterns:
+      - "(?i)\\bport\\s+(a?\\s*)?(pine|strategy)\\b"
+      - "(?i)\\b(build|create|write)\\s+(a\\s+new\\s+)?strategy\\.py\\b"
+      - "(?i)\\bpine[_ ]?(script|indicator)?\\s*(to|->)\\s*(python|trade[_ ]?scan)\\b"
+    semantic_tags:
+      - {tag: "port_strategy", weight: 3}
+      - {tag: "pine_port", weight: 3}
+      - {tag: "strategy_build", weight: 2}
+      - {tag: "new_strategy", weight: 1}
+
+  - id: run_composite_portfolio
+    priority: 45
+    enforcement: soft
+    must_skill: run-composite-portfolio
+    requires_subject: true
+    reason: "Composite portfolio construction requires capital wrappers and robustness suite in a specific order."
+    regex_patterns:
+      - "(?i)\\bcomposite[_ ]?portfolio\\b"
+      - "(?i)\\bcombine\\s+\\d+\\+?\\s+(runs?|strategies)\\b"
+      - "(?i)\\brun[- ]?composite\\b"
+      - "(?i)\\bmulti[- ]?strategy\\s+portfolio\\b"
+    semantic_tags:
+      - {tag: "composite_portfolio", weight: 3}
+      - {tag: "combine_runs", weight: 3}
+      - {tag: "capital_wrapper", weight: 2}
+      - {tag: "robustness_suite", weight: 2}
+
+  - id: uniform_risk_capital_simulation
+    priority: 40
+    enforcement: soft
+    must_skill: uniform-risk-capital-simulation
+    requires_subject: true
+    reason: "Uniform-risk simulation holds risk_per_trade constant across profiles — distinct from the standard composite flow where risk varies per profile."
+    regex_patterns:
+      - "(?i)\\buniform[- ]?risk\\b"
+      - "(?i)\\bcapital[_ ]simulation\\b"
+      - "(?i)\\brisk[_ ]per[_ ]trade.{0,20}uniform\\b"
+    semantic_tags:
+      - {tag: "uniform_risk", weight: 3}
+      - {tag: "capital_simulation", weight: 3}
+      - {tag: "fixed_risk", weight: 2}
+      - {tag: "risk_per_trade", weight: 1}
+
+  # ---------- PORTFOLIO MANAGEMENT ----------
+  - id: portfolio_research
+    priority: 40
+    enforcement: soft
+    must_skill: portfolio-research
+    suppress_on_infra: true
+    reason: "Portfolio research requires structured candidate-pool analysis with diversity controls — ad-hoc queries miss the three-pass model."
+    regex_patterns:
+      - "(?i)\\bportfolio[- ]?research\\b"
+      - "(?i)\\b(analyze|review|audit)\\s+(the\\s+)?candidate\\s+pool\\b"
+      - "(?i)\\b(which|what)\\s+(strategies|runs)\\s+(should|to)\\s+(go|add|include)\\s+(in|into)\\s+(the\\s+)?portfolio\\b"
+    semantic_tags:
+      - {tag: "portfolio_research", weight: 3}
+      - {tag: "candidate_pool", weight: 3}
+      - {tag: "portfolio_composition", weight: 2}
+
+  - id: portfolio_selection_remove
+    priority: 40
+    enforcement: soft
+    must_skill: portfolio-selection-remove
+    requires_subject: true
+    reason: "Portfolio removal clears the IN_PORTFOLIO flag in append-only ledgers — must use the governed workflow."
+    regex_patterns:
+      - "(?is)(?=.*\\b[A-Z0-9][A-Z0-9_]*_V\\d+_P\\d+\\b)(?=.*\\b(remove|drop|deselect|take\\s+out)\\b.*\\bportfolio\\b)"
+      - "(?i)\\bIN_PORTFOLIO\\s*=\\s*0\\b"
+      - "(?i)\\b(remove|drop|deselect)\\s+\\S+(\\s+\\S+){0,3}\\s+from\\s+(the\\s+)?portfolio\\b"
+    semantic_tags:
+      - {tag: "portfolio_remove", weight: 3}
+      - {tag: "deselect_strategy", weight: 3}
+      - {tag: "in_portfolio_0", weight: 3}
+
+  - id: format_excel_ledgers
+    priority: 35
+    enforcement: soft
+    must_skill: format-excel-ledgers
+    suppress_on_infra: true
+    reason: "Formatting FSP/MPS requires format_excel_artifact.py with the correct profile — ad-hoc openpyxl calls break column widths and conditional formatting."
+    regex_patterns:
+      - "(?i)\\bformat[_ ]excel\\b"
+      - "(?i)\\bformat.{0,20}(FSP|MPS|Filtered_Strategies_Passed|Master_Portfolio_Sheet)\\.xlsx\\b"
+      - "(?i)\\b(refresh|fix|reformat)\\s+(the\\s+)?(spreadsheet|ledger|xlsx)\\s+(format|layout|columns)\\b"
+    semantic_tags:
+      - {tag: "format_ledger", weight: 3}
+      - {tag: "excel_format", weight: 3}
+      - {tag: "FSP_format", weight: 2}
+      - {tag: "MPS_format", weight: 2}
+
+  # ---------- MAINTENANCE ----------
+  - id: pipeline_state_cleanup
+    priority: 35
+    enforcement: soft
+    must_skill: pipeline-state-cleanup
+    suppress_on_infra: true
+    reason: "Pipeline artifact cleanup requires lineage-aware pruning against authoritative ledgers — blind deletion breaks run lineage."
+    regex_patterns:
+      - "(?i)\\bpipeline[- ]?state[- ]?cleanup\\b"
+      - "(?i)\\b(prune|clean\\s*up)\\s+(stale\\s+)?(runs|backtests|artifacts)\\b"
+      - "(?i)\\blineage[- ]?aware\\s+(prune|cleanup)\\b"
+    semantic_tags:
+      - {tag: "pipeline_cleanup", weight: 3}
+      - {tag: "stale_runs", weight: 2}
+      - {tag: "prune_artifacts", weight: 2}
+      - {tag: "lineage", weight: 1}
+
+  - id: repo_cleanup_refactor
+    priority: 30
+    enforcement: soft
+    must_skill: repo-cleanup-refactor
+    suppress_on_infra: true
+    reason: "Repo cleanup covers worktrees, stale branches, root-untracked files, and cross-repo state orphans — ad-hoc cleanup misses the cross-repo scope."
+    regex_patterns:
+      - "(?i)\\brepo[- ]?cleanup\\b"
+      - "(?i)\\b(clean\\s*up|prune)\\s+(stale\\s+)?(worktrees?|branches?)\\b"
+      - "(?i)\\b(extract|deduplicate)\\s+(duplicate|shared)\\s+function\\b"
+    semantic_tags:
+      - {tag: "repo_cleanup", weight: 3}
+      - {tag: "stale_branches", weight: 2}
+      - {tag: "worktree_cleanup", weight: 2}
+      - {tag: "code_dry", weight: 2}
+
+  - id: system_health_maintenance
+    priority: 35
+    enforcement: soft
+    must_skill: system-health-maintenance
+    suppress_on_infra: true
+    reason: "System health audit has a defined Phase 1-4 workflow covering vault management and recovery operations."
+    regex_patterns:
+      - "(?i)\\bsystem[- ]?health\\b"
+      - "(?i)\\bhealth[- ]?audit\\b"
+      - "(?i)\\bworkspace[- ]?hygiene\\b"
+    semantic_tags:
+      - {tag: "system_health", weight: 3}
+      - {tag: "health_audit", weight: 3}
+      - {tag: "workspace_hygiene", weight: 2}
+      - {tag: "recovery_operation", weight: 2}
+
+  - id: skill_maintenance
+    priority: 30
+    enforcement: soft
+    must_skill: skill-maintenance
+    suppress_on_infra: true
+    reason: "Skill audits need the governed 13-check workflow to catch friction-log drift, archive cap violations, and reference-link rot."
+    regex_patterns:
+      - "(?i)\\bskill[- ]?maintenance\\b"
+      - "(?i)\\baudit\\s+(the\\s+)?skills?\\b"
+      - "(?i)\\bfriction[- ]?log\\s+(drift|audit|check)\\b"
+    semantic_tags:
+      - {tag: "skill_maintenance", weight: 3}
+      - {tag: "skill_audit", weight: 3}
+      - {tag: "friction_log", weight: 2}
