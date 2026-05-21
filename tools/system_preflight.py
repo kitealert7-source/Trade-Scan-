@@ -349,7 +349,7 @@ class PreflightCheck:
         for item in STRATEGIES_DIR.iterdir():
             if item.is_file() and item.name != "Master_Portfolio_Sheet.xlsx":
                 drift.append(item.name)
-            elif item.is_dir() and not item.name.startswith("_"):
+            elif item.is_dir() and not item.name.startswith(("_", ".")):
                 has_metadata = (
                     (item / "portfolio_metadata.json").exists()
                     or (item / "portfolio_evaluation" / "portfolio_metadata.json").exists()
