@@ -1,6 +1,7 @@
 """cointegration_screen.py — Phase 1: compute → parquet.
 
-Daily-cadence cointegration screener for the 18-pair FX universe.
+Daily-cadence cointegration screener for the 21-symbol cross-asset
+universe (18 FX pairs + XAU/BTC/ETH added 2026-05-21).
 Reads native daily closes from MASTER_DATA, computes ADF / half-life /
 hedge-ratio / z-score per unordered pair-pair × lookback window, and
 writes a single parquet snapshot.
@@ -51,6 +52,17 @@ from config.path_authority import DATA_ROOT
 # Private import is intentional (per spec §V1 "for v1 just call it directly");
 # TODO v1.1: lift _load_native_closes into a shared tools/factors/_loaders.py.
 from tools.factors.fx_correlation_matrix import _load_native_closes, FX_UNIVERSE
+
+
+# Cross-asset cointegration universe (2026-05-21).
+# Starts from the 18-pair FX universe + adds XAUUSD/BTCUSD/ETHUSD so the
+# screener can detect cross-asset cointegrations (e.g., commodity-currency
+# blocks, USD-anchored crypto, gold/risk-asset spreads). The cointegration
+# math is symbol-agnostic — same OLS+ADF compute applies. ETHUSD has only
+# ~2.5 years of daily history; the 504d window will yield reduced sample
+# size on ETH pairings (screener already handles via the
+# `sample_size < lookback // 2` reject path).
+COINT_UNIVERSE: list[str] = list(FX_UNIVERSE) + ["XAUUSD", "BTCUSD", "ETHUSD"]
 
 
 SCHEMA_VERSION = "1.0.0"
@@ -202,7 +214,7 @@ def run(as_of: pd.Timestamp | None = None,
     split is intentional so unit tests can verify compute without
     needing write access.
     """
-    universe = list(universe) if universe is not None else list(FX_UNIVERSE)
+    universe = list(universe) if universe is not None else list(COINT_UNIVERSE)
 
     # Load all daily closes once (much faster than reloading per pair).
     closes: dict[str, pd.Series] = {}
@@ -280,9 +292,9 @@ def write_parquet(df: pd.DataFrame, path: Path = PARQUET_PATH) -> None:
         "schema_version": SCHEMA_VERSION,
         "tf": TF,
         "lookback_windows": list(LOOKBACK_WINDOWS),
-        "universe": list(FX_UNIVERSE),
-        "n_pairs": len(FX_UNIVERSE),
-        "n_pair_pairs": len(list(itertools.combinations(FX_UNIVERSE, 2))),
+        "universe": list(COINT_UNIVERSE),
+        "n_pairs": len(COINT_UNIVERSE),
+        "n_pair_pairs": len(list(itertools.combinations(COINT_UNIVERSE, 2))),
         "rows_written": len(df),
         "data_version": df["data_version"].iloc[0] if len(df) else None,
         "generated_at": (
@@ -317,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     as_of = pd.Timestamp(args.as_of) if args.as_of else None
 
-    print(f"[cointegration_screen] universe={len(FX_UNIVERSE)} pairs "
+    print(f"[cointegration_screen] universe={len(COINT_UNIVERSE)} symbols "
           f"windows={LOOKBACK_WINDOWS} as_of={as_of}")
     t0 = datetime.now(timezone.utc)
     df = run(as_of=as_of)
