@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-20T14:51:05Z
+> Generated: 2026-05-21T06:03:39Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 292 directives
+- Completed: 243 directives
 
 ## Ledgers
 
@@ -22,7 +22,7 @@
   - **Portfolios:** 131 rows — CORE: 4, FAIL: 121, PROFILE_UNRESOLVED: 1, WATCH: 5
   - **Single-Asset Composites:** 81 rows — CORE: 11, FAIL: 65, WATCH: 5
 
-- **Candidates (FPS):** 477 rows — CORE: 17, FAIL: 304, LIVE: 15, RESERVE: 22, WATCH: 119
+- **Candidates (FPS):** 381 rows — CORE: 14, FAIL: 241, LIVE: 13, RESERVE: 17, WATCH: 96
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
@@ -32,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-20** | Symbols: 221
+- Latest bar: **2026-05-21** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1650
+- Run directories: 1612
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `07032ee fix(cointegration_state): backfill registry metadata + SIGNAL_PRIMITIVE`
+- Last substantive commit: `35b4a89 cointegration: hypothesis-led curation + asset-class tabs + singles ADF`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -48,8 +48,6 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
-
-- **Phase 5b.3 carry-over — `lineage_pruner` blocked. RESOLVED 2026-05-21.** `tools/state_lifecycle/reconcile_portfolio_complete.py` built (commit ba6041f), tightened to match `lineage_pruner`'s two-gate integrity check (folder AND state JSON), and applied: 169 directives + 13 follow-up = 182 mutated, 193 dead child rids removed. `repair_integrity --action drop` then dropped 96 FSP rows and cell-edited 4 MPS portfolios. The 38 surgical orphans (29 RUN_INCOMPLETE + 9 ABORTED) were quarantined to `TradeScan_State/quarantine/20260521T014750Z_surgical_cleanup/`; reconcile follow-up scrubbed the 5 dead refs created; `system_registry --reconcile` marked the 6 missing entries invalid + auto-cleaned `22_CONT_FX_30M_RSIAVG_TRENDFILT_S02_V1_P03/portfolio_evaluation/portfolio_metadata.json`. **Preflight RUNS RED → GREEN, REGISTRY RED → YELLOW** (only QUARANTINED_BUT_NOT_FOUND remaining; informational). The broader `lineage_pruner --execute` sweep (702 runs / 71 backtests / 293 directives / 33 portfolios / 87 deployed portfolios / 8 sandbox = 1204 items) was NOT run — deferred to a dedicated `/pipeline-state-cleanup` session for scoped review.
 
 - **Phase 5b.3 carry-over — 13 broader-pytest TDs from directive_reconciler purge (commit a537940).** `directive_reconciler --execute` on 2026-05-20 removed 270 orphan PORTFOLIO_COMPLETE .txt files; 13 of those were test fixtures (e.g. `90_PORT_H2_5M_RECYCLE_S01_V1_P00.txt` used by `test_basket_dispatch_phase5b`). Affected test files: `test_basket_directive_phase5` (5), `test_basket_dispatch_phase5b` (4), `test_basket_path_b_phase5b2::test_dispatch_produces_all_four_artifact_paths` (1), `test_basket_phase5c_real_data` (2), `test_basket_telemetry_end_to_end::test_mps_baskets_new_columns_populate` (1). **Proper fix (next session):** (a) restore the 13 fixture .txt files from `governance/directive_reconciler_audit.log`, AND (b) extend `tools/directive_reconciler.py` to recognize fixtures — either a `tests/_fixtures/directives.yaml` registry of preserved IDs OR a `protected: true` marker honored by `_directive_state_is_alive`. Vault snapshot `DR_BASELINE_2026_05_20_PHASE_5B_3` captures pre-purge state if a full restore is needed.
 
@@ -64,8 +62,6 @@
 - **H3_spread peak-relative trail-stop ABANDONED for BEAR (2026-05-18, P04 structural test).** P04 = clone of P03 + trail_arm_floating_usd=$25, trail_retrace_pct=50%, evaluated before reverse-cross. Result: net PnL −76% vs P03 ($+1,571 vs $+6,553), mean cycle PnL collapsed from $20.94 → $5.02, max DD% degraded −16% → −31%, longest underwater 28k → 80k bars. 131 TRAIL_STOP exits substituted for adverse + reverse exits, but at half-peak the captures are tiny and cycles that would have run multi-hundred-dollar peaks get chopped at $25-tier exits. The strategy is structurally lottery-shaped — trail-stop is not the right exit lever for THIS strategy. Trail-stop infrastructure (params + canonical_metrics tag + report row) is retained and available for any future strategy family with different exit characteristics; defaults are 0.0 (disabled) so P00-P03 unaffected. Do not re-test trail-stop on H3_spread without changing the mechanic shape.
 
 - **Pyramid-2 bifurcation at firing bar has NO predictive signal in standard observable features (2026-05-18).** Audited at the exact bar where lot[0] transitions 0.15 → 0.20: of 194 cycles that fired pyramid-2, 38 ran +$50+ above (tail-runners), 143 slid back >$5 below (slide-back, mostly to adverse-stop). Tested features: signed SMA separation, Δdiff over 2/3/4 bars, 10-bar diff slope, rolling 50-bar EUR/JPY correlation, EUR bar range (absolute + z-scored), UTC hour, bars-since-entry. All effect sizes ≤ 0.25 with 40-85% IQR overlap. Top features paradoxically go the WRONG direction (sliders have HIGHER bar range; runners come from QUIETER pyr-2 bars; sliders have HIGHER current SMA gap; runners have lower current gap with still-positive velocity). Implication: the bifurcation is NOT predictable from these features at the pyr-2 firing instant. Either need different features (cross-pair flow, broader USD basket dynamics, term structure) OR accept the strategy as fundamentally tail-driven (improve via entry-side filtering or position-sizing-by-regime, not per-cycle in-flight prediction). Reverse-cross MFE audit on P03: 44.1% capture rate (sum_realized / sum_MFE positive), $10,141 of $18,154 peak surrendered to reverse-cross lag; smarter exit IS possible but trail-stop is not it.
-
-- **Preserved diagnostic scripts in tmp/ — DELETED 2026-05-19.** The four forex-basket-specific analyses + one authoring utility (replay_h3_no_adverse_stop, stage0_sma_separation_signal, p03_reverse_cross_mfe, p03_pyr2_bifurcation_features, create_pairx_variants — plus 3 paired CSVs) were removed without promotion. Rationale: `p03_reverse_cross_mfe.py` was already superseded by [tools/basket_hypothesis/mfe_giveback.py](tools/basket_hypothesis/mfe_giveback.py) (generalized to all rule families, wired into BASKET_REPORT.md); the other three were H3_spread-specific forensics whose findings are already captured in this file's Manual entries above (P03 adverse-stop sweep verdict, pyr-2 bifurcation null-result, trail-stop abandoned). No reusable infra value remained; rebuild on demand if a future basket strategy needs equivalent forensics.
 
 - **H3_spread next move (LEGACY plan, pre-dates P03 result): slope-gated direction, NOT BEAR+BULL symmetry test.** BEAR variant (LONG EURUSD + SHORT USDJPY, UP-cross entry) ran cleanly with deployment-grade metrics on Window A 2024-05 -> 2026-05 (+60.08% / 31% DD / PF 1.33 / RR 1.93 — note: legacy trade-level numbers; canonical BASKET_REPORT now shows +219.81% / −35.55% peak-relative DD for baseline P00). Original plan was to run BULL on same window for symmetry — operator (2026-05-18) flagged this as wasted effort: charts clearly show macro regimes are multi-year and asymmetric; symmetry on a single window CANNOT exist, so running BULL on Window A would just confirm the regime-mirror finding from the screening (Window A: UP-LONG wins; Window B: DN-SHORT wins). Revised plan = slope-gated direction selection.
 
