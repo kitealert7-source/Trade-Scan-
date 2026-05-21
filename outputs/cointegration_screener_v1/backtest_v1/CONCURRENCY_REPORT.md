@@ -1,3 +1,15 @@
+> ⚠ **POLLUTED — COINTREV v1 retired 2026-05-21.**
+>
+> This report measures calendar overlap of trades produced by the
+> equal-lot COINTREV v1 strategy + P01 universe filter (`mean_beta > 0`,
+> `0.10 < corr < 0.85`). Because the strategy didn't construct the
+> cointegrating portfolio (no β-weighting), and the P01 filter selected
+> correlation-pair-trade-friendly pairs, the trade clusters reflected
+> here are NOT cointegration-mean-reversion clusters. Retained for audit.
+> Full retirement story in `COHORT_REPORT.md` header.
+>
+> ---
+
 # COINTREV Calendar-Overlap Analysis — C5 addition
 
 **Generated:** 2026-05-20T13:56:17.574474+00:00

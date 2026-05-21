@@ -659,59 +659,11 @@ def load_basket_leg_data(
                         f"that TF before start_date)."
                     )
 
-    # Cointegration factor auto-join (2026-05-20) — auto-joined for 2-leg
-    # baskets. Adds columns for COINTREV_meanrev@1 + CointMeanRevLegStrategy:
-    #   qualified_daily (bool)  — daily ADF gate, forward-filled from matrix
-    #   daily_z         (float) — daily-TF spread z-score (diagnostic)
-    #   beta_daily      (float) — daily-TF hedge ratio (pinned for intra_z)
-    #   intra_z         (float) — 100-bar rolling z-score on chart TF using
-    #                              daily-pinned β (operator-tuned 2026-05-20:
-    #                              ~25h window, structural memory delegated
-    #                              to the daily qualification layer)
-    # Failure is non-fatal — directives that don't use COINTREV continue
-    # to work. Pair-pair is symmetric (canonical alphabetical lookup); both
-    # legs see identical intra_z + qualified_daily values (pair-property).
-    if len(symbols) == 2:
-        try:
-            coint_df = load_cointegration_factor(
-                symbols[0], symbols[1],
-                start_date=start_date, end_date=end_date,
-            )
-            # Canonical orientation for spread sign: pair_a = alphabetically
-            # first, spread = close_b - β·close_a. Matches matrix convention.
-            canonical_a, canonical_b = sorted(symbols)
-            # Forward-fill daily β onto leg 0's index, then compute intra_z
-            # using the canonical orientation. Both legs share the result.
-            leg_index = out[symbols[0]].index
-            beta_15m = coint_df["beta"].reindex(leg_index, method="ffill")
-            intra_z = compute_intra_z(
-                close_a=out[canonical_a]["close"],
-                close_b=out[canonical_b]["close"],
-                beta_series=beta_15m,
-                window=100,
-            )
-            # Cast qualified bool→float BEFORE reindex so the NaN that
-            # reindex introduces lands in a float column (cleanly fillable
-            # to 0.0). Avoids pandas FutureWarning on object-dtype downcast.
-            qualified_float = coint_df["qualified"].astype("float32")
-            for sym in symbols:
-                out[sym]["qualified_daily"] = (
-                    qualified_float.reindex(out[sym].index, method="ffill")
-                    .fillna(0.0).astype("bool")
-                )
-                out[sym]["daily_z"] = coint_df["daily_z"].reindex(
-                    out[sym].index, method="ffill",
-                )
-                out[sym]["beta_daily"] = coint_df["beta"].reindex(
-                    out[sym].index, method="ffill",
-                )
-                out[sym]["intra_z"] = intra_z.reindex(out[sym].index)
-        except (FileNotFoundError, KeyError) as exc:
-            print(
-                f"[BASKET_DATA] WARN: cointegration factor unavailable "
-                f"for ({symbols[0]}, {symbols[1]}) ({exc}); COINTREV_meanrev "
-                f"rule + CointMeanRevLegStrategy will not fire if configured."
-            )
+    # Cointegration factor auto-join was retired 2026-05-21 with the COINTREV
+    # v1 strategy chain. The screener infrastructure (load_cointegration_factor
+    # below, indicators/stats/cointegration_state, tools/cointegration_*) is
+    # retained. Any future β-weighted cointegration strategy should re-add a
+    # deliberate auto-join here, with explicit opt-in via directive params.
 
     return out
 

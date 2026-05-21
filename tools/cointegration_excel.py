@@ -53,20 +53,6 @@ from tools.cointegration_db import (
     TABLE_NAME,
     connect,
 )
-from tools.factors.fx_correlation_matrix import _load_native_closes
-
-
-# Universe tradability filter (matches generate_cointrev_directives.py)
-# A pair is a TRUE_SPREAD only when:
-#   hedge_ratio (β) > 0  AND  TRADABILITY_MIN_CORR < corr < TRADABILITY_MAX_CORR
-# Otherwise it's a different kind of pair-relationship that does NOT belong
-# in COINTREV. Other classes are still relevant — they may route to
-# H3_spread (pyramid) or be flagged "do not trade as spread".
-TRADABILITY_MIN_CORR = 0.10
-TRADABILITY_MAX_CORR = 0.85
-TRADABILITY_CORR_WINDOW_DAYS = 504   # match the longer ADF window
-
-
 # Co-located with parquet + SQLite under SYSTEM_FACTORS — see
 # cointegration_db.py for the 2026-05-20 location-move rationale.
 EXCEL_PATH = DATA_ROOT / "SYSTEM_FACTORS" / "FX_COINTEGRATION" / "Cointegration_Screener.xlsx"
@@ -171,72 +157,6 @@ _AGREEMENT_FILL = {
     "504-only": _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
     "NEITHER":  _fill(COLOR_RED_BG,    COLOR_RED_FG),
 }
-# Tradability — the β/corr filter that distinguishes TRUE spreads from
-# directional bets. Added 2026-05-20 after the EURUSD/USDJPY catastrophic-
-# loss investigation showed β<0 "cointegrated" pairs are pyramidable
-# directional trades, not mean-revertible spreads.
-_TRADABILITY_FILL = {
-    "TRUE_SPREAD":     _fill(COLOR_GREEN_BG,  COLOR_GREEN_FG),
-    "DIRECTIONAL":     _fill(COLOR_RED_BG,    COLOR_RED_FG),
-    "COLLINEAR":       _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
-    "WEAK_CORR":       _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
-    "MISSING":         _fill(COLOR_GREY_BG,   "000000"),
-}
-
-
-def classify_tradability(beta, corr) -> str:
-    """Bucket a cointegrated pair by its (β, corr) signature.
-
-    Matches the universe filter in tools/generate_cointrev_directives.py
-    so the screener Excel and the directive-cohort gate stay in lockstep.
-    """
-    if beta is None or pd.isna(beta) or corr is None or pd.isna(corr):
-        return "MISSING"
-    if beta <= 0:
-        return "DIRECTIONAL"          # → route to H3_spread (pyramid)
-    if abs(corr) < TRADABILITY_MIN_CORR:
-        return "WEAK_CORR"            # → no usable relationship
-    if abs(corr) >= TRADABILITY_MAX_CORR:
-        return "COLLINEAR"            # → near-identical, no spread to revert
-    if corr < 0:
-        return "DIRECTIONAL"          # negative corr + positive β = anomalous
-    return "TRUE_SPREAD"              # → COINTREV-eligible
-
-
-def compute_corr_lookup(symbols: list[str], window_days: int) -> dict:
-    """Build {(sym_a, sym_b): pearson_corr} on daily returns for the most
-    recent `window_days` calendar days. Used once per Excel export.
-
-    Returns canonical (alphabetical) keys; failed loads → corr=NaN."""
-    end = pd.Timestamp.now(tz=None).normalize()
-    start = end - pd.Timedelta(days=window_days + 30)  # +30 cushion for weekends
-    closes_by_sym: dict[str, pd.Series] = {}
-    for sym in sorted(set(symbols)):
-        try:
-            s = _load_native_closes(sym, "1d", start, end)
-            closes_by_sym[sym] = s
-        except Exception:
-            closes_by_sym[sym] = pd.Series(dtype=float)
-    out: dict[tuple[str, str], float] = {}
-    syms_sorted = sorted(closes_by_sym.keys())
-    for i, a in enumerate(syms_sorted):
-        for b in syms_sorted[i + 1:]:
-            sa, sb = closes_by_sym[a], closes_by_sym[b]
-            if sa.empty or sb.empty:
-                out[(a, b)] = float("nan"); continue
-            aligned = pd.concat([sa, sb], axis=1, join="inner").dropna()
-            if len(aligned) < 30:
-                out[(a, b)] = float("nan"); continue
-            aligned.columns = ["A", "B"]
-            ra = aligned["A"].pct_change().dropna()
-            rb = aligned["B"].pct_change().dropna()
-            try:
-                out[(a, b)] = float(ra.corr(rb))
-            except Exception:
-                out[(a, b)] = float("nan")
-    return out
-
-
 def _half_life_color(hl) -> tuple[PatternFill, Font] | None:
     if hl is None or pd.isna(hl):
         return _fill(COLOR_RED_BG, COLOR_RED_FG)
@@ -278,16 +198,10 @@ def _section_header(ws, row: int, text: str, span: int = 4) -> int:
     return row + 1
 
 
-def _pivot_today(df: pd.DataFrame, corr_lookup: dict | None = None) -> pd.DataFrame:
-    """Pivot from (pair, window) rows to (pair) rows with window columns.
-
-    If corr_lookup is provided, adds correlation_504d + tradability_class cols.
-    Tradability is computed from the 504d hedge_ratio (β) + the returns corr.
-    """
+def _pivot_today(df: pd.DataFrame) -> pd.DataFrame:
+    """Pivot from (pair, window) rows to (pair) rows with window columns."""
     if df.empty:
         return df
-    if corr_lookup is None:
-        corr_lookup = {}
     pivoted = []
     for (a, b), grp in df.groupby(["pair_a", "pair_b"], sort=True):
         r252 = grp[grp.lookback_days == 252]
@@ -306,26 +220,21 @@ def _pivot_today(df: pd.DataFrame, corr_lookup: dict | None = None) -> pd.DataFr
             agreement = "504-only"
         else:
             agreement = "NEITHER"
-        corr_504 = corr_lookup.get((a, b), float("nan"))
-        tradability = classify_tradability(r504["hedge_ratio"], corr_504)
         pivoted.append({
             "pair_a": a, "pair_b": b,
             "agreement": agreement,
-            "tradability": tradability,
             "regime_252": regime_252, "regime_504": regime_504,
             "adf_pvalue_252": r252["adf_pvalue"], "adf_pvalue_504": r504["adf_pvalue"],
             "half_life_days_252": r252["half_life_days"], "half_life_days_504": r504["half_life_days"],
             "current_zscore_252": r252["current_zscore"], "current_zscore_504": r504["current_zscore"],
             "hedge_ratio_252": r252["hedge_ratio"], "hedge_ratio_504": r504["hedge_ratio"],
-            "corr_504d": corr_504,
             "history_depth": max(r252["history_depth"], r504["history_depth"]),
         })
     return pd.DataFrame(pivoted)
 
 
 def _write_summary(wb: Workbook, conn: sqlite3.Connection,
-                    df_today: pd.DataFrame,
-                    corr_lookup: dict | None = None) -> None:
+                    df_today: pd.DataFrame) -> None:
     ws = wb.create_sheet("Summary", 0)
     as_of = df_today["as_of"].iloc[0] if not df_today.empty else "—"
     ws.cell(row=1, column=1, value=f"Cointegration Screener — Summary  ({as_of})").font = Font(bold=True, size=14)
@@ -404,7 +313,7 @@ def _write_summary(wb: Workbook, conn: sqlite3.Connection,
     for c, h in enumerate(headers, start=1):
         _header_style(ws.cell(row=row, column=c, value=h))
     row += 1
-    pivoted = _pivot_today(df_today, corr_lookup)
+    pivoted = _pivot_today(df_today)
     agree_counts = (pivoted["agreement"].value_counts() if not pivoted.empty else pd.Series(dtype=int))
     for label in ("BOTH", "252-only", "504-only", "NEITHER"):
         ws.cell(row=row, column=1, value=label)
@@ -412,38 +321,6 @@ def _write_summary(wb: Workbook, conn: sqlite3.Connection,
             ws.cell(row=row, column=1).fill, ws.cell(row=row, column=1).font = _AGREEMENT_FILL[label]
             ws.cell(row=row, column=1).alignment = Alignment(horizontal="center")
         ws.cell(row=row, column=2, value=int(agree_counts.get(label, 0))).alignment = Alignment(horizontal="center")
-        row += 1
-    row += 1
-
-    # --- Section 4b: Tradability classification (β + corr filter)
-    row = _section_header(
-        ws, row,
-        f"4b. Tradability — β sign + corr filter "
-        f"(true spread: β>0, {TRADABILITY_MIN_CORR}<|corr|<{TRADABILITY_MAX_CORR})",
-        span=3,
-    )
-    headers = ["class", "pair count (cointegrated 'BOTH' only)", "routing"]
-    for c, h in enumerate(headers, start=1):
-        _header_style(ws.cell(row=row, column=c, value=h))
-    row += 1
-    trad_routing = {
-        "TRUE_SPREAD": "COINTREV (mean-reversion, single round-trip)",
-        "DIRECTIONAL": "H3_spread (pyramid into the directional move)",
-        "COLLINEAR":   "NEITHER — near-identical pair, no spread to revert",
-        "WEAK_CORR":   "NEITHER — no meaningful relationship",
-        "MISSING":     "data unavailable — investigate before any deployment",
-    }
-    if pivoted.empty:
-        trad_counts = pd.Series(dtype=int)
-    else:
-        trad_counts = pivoted[pivoted.agreement == "BOTH"]["tradability"].value_counts()
-    for label in ("TRUE_SPREAD", "DIRECTIONAL", "COLLINEAR", "WEAK_CORR", "MISSING"):
-        ws.cell(row=row, column=1, value=label)
-        if label in _TRADABILITY_FILL:
-            ws.cell(row=row, column=1).fill, ws.cell(row=row, column=1).font = _TRADABILITY_FILL[label]
-            ws.cell(row=row, column=1).alignment = Alignment(horizontal="center")
-        ws.cell(row=row, column=2, value=int(trad_counts.get(label, 0))).alignment = Alignment(horizontal="center")
-        ws.cell(row=row, column=3, value=trad_routing[label])
         row += 1
     row += 1
 
@@ -516,10 +393,9 @@ def _write_summary(wb: Workbook, conn: sqlite3.Connection,
 
 
 def _write_today(wb: Workbook, conn: sqlite3.Connection,
-                  df_today: pd.DataFrame,
-                  corr_lookup: dict | None = None) -> None:
+                  df_today: pd.DataFrame) -> None:
     ws = wb.create_sheet("Today", 1)
-    pivoted = _pivot_today(df_today, corr_lookup)
+    pivoted = _pivot_today(df_today)
 
     # Compute composite score per row from SQLite (uses 252d row only).
     scores = []
@@ -532,13 +408,12 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
     pivoted = pivoted.sort_values("score", ascending=False).reset_index(drop=True)
 
     columns = [
-        "pair_a", "pair_b", "agreement", "tradability",
+        "pair_a", "pair_b", "agreement",
         "regime_252", "regime_504",
         "adf_pvalue_252", "adf_pvalue_504",
         "half_life_days_252", "half_life_days_504",
         "current_zscore_252", "current_zscore_504",
         "hedge_ratio_252", "hedge_ratio_504",
-        "corr_504d",
         "history_depth", "score",
     ]
     for c, h in enumerate(columns, start=1):
@@ -562,8 +437,6 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
                 cell.fill, cell.font = _REGIME_FILL[v]
             elif col == "agreement" and v in _AGREEMENT_FILL:
                 cell.fill, cell.font = _AGREEMENT_FILL[v]
-            elif col == "tradability" and v in _TRADABILITY_FILL:
-                cell.fill, cell.font = _TRADABILITY_FILL[v]
             elif col in ("half_life_days_252", "half_life_days_504"):
                 fc = _half_life_color(v)
                 if fc:
@@ -572,23 +445,12 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
                 zc = _zscore_color(v)
                 if zc:
                     cell.fill, cell.font = zc
-            elif col in ("hedge_ratio_252", "hedge_ratio_504"):
-                # Red-flag negative β (the directional-pair tell)
-                if isinstance(v, (int, float)) and not pd.isna(v) and v < 0:
-                    cell.fill, cell.font = _fill(COLOR_RED_BG, COLOR_RED_FG)
-            elif col == "corr_504d":
-                # Same red-flag for corr outside the [+0.1, +0.85] band
-                if isinstance(v, (int, float)) and not pd.isna(v):
-                    if v <= TRADABILITY_MIN_CORR or v >= TRADABILITY_MAX_CORR:
-                        cell.fill, cell.font = _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG)
-                    elif v < 0:
-                        cell.fill, cell.font = _fill(COLOR_RED_BG, COLOR_RED_FG)
             elif col == "history_depth":
                 if isinstance(v, (int, float)) and v < HYSTERESIS_LOOKBACK:
                     cell.fill, cell.font = _fill(COLOR_BOOTSTRAP_BG, "000000")
 
-    ws.freeze_panes = "E2"
-    widths = [10, 10, 11, 13, 13, 13, 14, 14, 18, 18, 18, 18, 14, 14, 12, 14, 10]
+    ws.freeze_panes = "D2"
+    widths = [10, 10, 11, 13, 13, 14, 14, 18, 18, 18, 18, 14, 14, 14, 10]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
@@ -663,27 +525,15 @@ def _write_notes(wb: Workbook) -> None:
         "  Empirical example from this corpus: EURUSD/NZDUSD at chart-TF correlation ≈ 0.79 but ADF",
         "  p-value 0.086 (252d) / 0.110 (504d) — regime='breaking'/'broken'. The screener catches this.",
         "",
-        "TRADABILITY CLASSIFICATION (2026-05-20 addition)",
-        "  Cointegration alone does NOT determine whether a pair is a true mean-revertible",
-        "  spread. The hedge_ratio (β) sign and the price-return correlation both matter:",
-        "",
-        f"    TRUE_SPREAD   β > 0  AND  {TRADABILITY_MIN_CORR} < corr < {TRADABILITY_MAX_CORR}",
-        "                  → use COINTREV (single round-trip mean-reversion)",
-        "    DIRECTIONAL   β < 0  (spread = SUM, not difference)",
-        "                  → these are pyramidable directional bets, NOT spreads.",
-        "                  → use H3_spread (pyramid into the trend) instead.",
-        "                  → example: EURUSD vs USDJPY (USD on opposite sides) showed",
-        "                    cointegration p-value 0.03 but β=-113 and r=-0.60. COINTREV",
-        "                    on it produced -$811 in the v1.0 backtest (catastrophic).",
-        f"    COLLINEAR     |corr| ≥ {TRADABILITY_MAX_CORR} → near-identical, no spread to revert.",
-        f"    WEAK_CORR     |corr| < {TRADABILITY_MIN_CORR} → no usable relationship.",
-        "    MISSING       β or corr unavailable — do not deploy until investigated.",
-        "",
-        "  This filter is the SOLE filter used by tools/generate_cointrev_directives.py",
-        "  to select the COINTREV deployable universe. The Summary §4b counts and the",
-        "  Today.tradability column are the operator-facing surface of that filter.",
-        "  When a pair toggles class day-over-day, that is a structural event — review",
-        "  before continuing to trade it.",
+        "STRATEGY-CONSTRUCTION CAVEAT (cleanup 2026-05-21)",
+        "  Cointegration says: spread B − β·A is stationary for some β.",
+        "  Trading that spread requires β-weighted lot sizing — NOT equal-lot.",
+        "  An equal-lot trade on a cointegrated pair with |β| large is a",
+        "  directional bet weighted by whichever leg has higher dollar-volatility,",
+        "  not a mean-reversion trade. The retired COINTREV v1 strategy made",
+        "  exactly this mistake and was deleted on 2026-05-21. Any future",
+        "  strategy that consumes this screener must size legs by the screener's",
+        "  hedge_ratio (β) column, not 1:1.",
         "",
         "THE PROBE",
         "  Phase 0a probe script: tools/cointegration_screener_smoke.py (re-runnable via the registered",
@@ -715,21 +565,12 @@ def export_excel(db_path: Path | str = SQLITE_DB,
                 ORDER BY pair_a, pair_b, lookback_days""",
             conn,
         )
-        # Build correlation lookup ONCE for all pairs (used by Summary §4b
-        # and the Today sheet's tradability column).
-        if df_today.empty:
-            corr_lookup: dict = {}
-        else:
-            symbols = pd.unique(
-                df_today[["pair_a", "pair_b"]].values.ravel("K")
-            ).tolist()
-            corr_lookup = compute_corr_lookup(symbols, TRADABILITY_CORR_WINDOW_DAYS)
         wb = Workbook()
         # Remove default sheet
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
-        _write_summary(wb, conn, df_today, corr_lookup=corr_lookup)
-        _write_today(wb, conn, df_today, corr_lookup=corr_lookup)
+        _write_summary(wb, conn, df_today)
+        _write_today(wb, conn, df_today)
         _write_history(wb, conn)
         _write_notes(wb)
         wb.save(str(output_path))

@@ -1,3 +1,23 @@
+> ⚠ **POLLUTED — COINTREV v1 retired 2026-05-21.**
+>
+> The strategy (`tools/recycle_rules/cointegration_meanrev_v1.py`, now
+> deleted — see git history) used **equal-lot sizing**, never constructing
+> the cointegrating portfolio that the screener identified (which
+> requires β-weighting per the OLS hedge ratio). Every trade was therefore
+> a directional bet weighted by whichever leg had higher dollar-volatility,
+> not a spread trade. The P01 universe filter (`mean_beta > 0`, `0.10 <
+> corr < 0.85`) was a workaround that excluded the worst equal-lot cases
+> by restricting to pairs where equal-lot ≈ β-weighted-lot — making the
+> result correlation pair-trading dressed in cointegration language.
+>
+> **Do not use these numbers as evidence for or against cointegration
+> mean-reversion as a strategy.** The screener's ADF test was incidental
+> to what this strategy was actually capturing. Retained for audit trail
+> of the conflation. See git log around 2026-05-21 and the retirement
+> manifest at `TradeScan_State/quarantine/20260521T032947Z_coint_v1_retirement/`.
+>
+> ---
+
 # COINTREV Cohort Report — Path C C5 fan-out
 
 **Generated:** 2026-05-20T13:56:17.570995+00:00

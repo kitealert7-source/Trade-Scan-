@@ -1,3 +1,41 @@
+> ⚠ **CAVEAT — REGIME-CLASSIFICATION-TRUST NOT INDEPENDENTLY VERIFIED (2026-05-21).**
+>
+> The methodology described below uses pure cointegration math (ADF on
+> OLS residual spread, no correlation involvement). Internally it is
+> consistent. The 37% qualified-reversion rate at τ=2.0 is a property of
+> the screener's regime classifier acting on the 18-pair FX universe.
+>
+> But the chain of inference this report set up — "qualified pairs revert
+> 37% of the time → therefore a strategy on them is worth backtesting" —
+> was tested with `tools/recycle_rules/cointegration_meanrev_v1.py`,
+> which used equal-lot sizing and never constructed the cointegrating
+> portfolio. So the actionable claim ("worth backtesting") has NOT been
+> validated; the strategy that supposedly tested it was a different
+> strategy. Until a properly β-weighted strategy actually trades on these
+> signals, the 37% number is a statistical curiosity of the classifier,
+> not a validated edge signal.
+>
+> Specific items that need re-validation before this report is used to
+> motivate a new strategy build:
+>
+>   1. The regime classifier itself is correct math but operates on a
+>      monthly anchor (qualification can be over/under-stated by up to
+>      21 days, per the existing Caveats section).
+>   2. The 92-100% `qual_break_rate` may partly reflect mechanical
+>      perturbation by the extreme spread (already flagged below).
+>   3. Universe was 18 FX pairs only. The 2026-05-21 universe expansion
+>      adds XAUUSD/BTCUSD/ETHUSD, which may reveal cross-asset
+>      cointegrations not captured here.
+>   4. P-value < 0.05 in BOTH 252d AND 504d windows is a strong filter
+>      that selects very few pair-pairs; the surviving universe may
+>      not be economically meaningful for trading at any β-weighting.
+>
+> The companion `COHORT_REPORT.md` was POLLUTED (strategy bug). This
+> report (`EVENT_STUDY_REPORT.md`) is methodology-clean but its actionable
+> implication for any future strategy must be re-tested.
+>
+> ---
+
 # Cointegration Event Study — Concept Validation
 
 **Generated:** 2026-05-20T09:13:33.688251+00:00  

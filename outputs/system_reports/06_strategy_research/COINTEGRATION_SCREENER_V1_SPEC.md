@@ -1,3 +1,7 @@
+> ℹ **Note (2026-05-21):** This spec describes the **screener** (compute → SQLite → Excel → scheduled task). It is **clean infrastructure** that remains in service. The strategy chain that was built on top of it (`tools/recycle_rules/cointegration_meanrev_v1.py` + `tools/generate_cointrev_directives.py`) was retired 2026-05-21 due to an equal-lot vs β-weighted conflation that turned the COINTREV trades into directional bets, not spread trades. See `outputs/cointegration_screener_v1/backtest_v1/COHORT_REPORT.md` header for the full retirement story. The 2026-05-21 universe expansion (XAU/BTC/ETH added) is also reflected in `tools/factors/fx_correlation_matrix.py` — that change is incremental, not a spec break.
+>
+> ---
+
 # COINTEGRATION SCREENER — V1 SPECIFICATION (FROZEN)
 
 **Status:** v1 frozen — implementation may proceed once Phase 0 (identity smoke test) passes

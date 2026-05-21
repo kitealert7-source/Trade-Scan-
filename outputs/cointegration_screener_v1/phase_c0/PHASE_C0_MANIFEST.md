@@ -1,3 +1,17 @@
+> ⚠ **HISTORICAL — COINTREV v1 strategy chain retired 2026-05-21.**
+> This phase describes the cointegration history matrix and its consumer
+> contract. The history matrix infrastructure itself is **clean and
+> retained** (`indicators/stats/cointegration_state.py`,
+> `tools/cointegration_history_matrix.py`). What was retired is the
+> strategy this manifest motivated (`cointegration_meanrev_v1.py`) and
+> the directive generator (`generate_cointrev_directives.py`) — both
+> deleted per the conflation story documented in
+> `outputs/cointegration_screener_v1/backtest_v1/COHORT_REPORT.md` header.
+> Re-evaluate the consumer-contract claims before any future strategy
+> takes a dependency on this matrix.
+>
+> ---
+
 # Phase C0 — Historical Cointegration Matrix Manifest
 
 **Status:** BUILT + VERIFIED + ARTIFACT IMMUTABLE — 2026-05-20
