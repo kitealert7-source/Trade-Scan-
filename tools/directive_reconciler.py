@@ -24,6 +24,33 @@ COMPLETED_DIR = DIRECTIVES_ROOT / "completed"
 # recoverable from logs even though the .txt is gone from disk.
 PURGE_AUDIT_LOG = PROJECT_ROOT / "governance" / "directive_reconciler_audit.log"
 
+# Test fixture registry — directives in this list survive --execute purges
+# even when they have no master_filter / registry / FSM linkage. See the
+# YAML file for the rationale and recovery procedure.
+FIXTURE_REGISTRY_PATH = PROJECT_ROOT / "tests" / "_fixtures" / "directives.yaml"
+
+
+def _load_fixture_directives() -> frozenset[str]:
+    """Return the set of directive_ids protected as test fixtures.
+
+    Absence of the YAML or a parse error yields an empty set — fixtures
+    fall back to the standard living-check paths. Failing loudly here
+    would block reconciliation runs on unrelated test-infrastructure
+    issues.
+    """
+    if not FIXTURE_REGISTRY_PATH.exists():
+        return frozenset()
+    try:
+        import yaml  # local import: keep reconciler usable without PyYAML
+        payload = yaml.safe_load(FIXTURE_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[WARN] Failed to read fixture registry {FIXTURE_REGISTRY_PATH}: {exc}")
+        return frozenset()
+    ids = payload.get("protected_directives") if isinstance(payload, dict) else None
+    if not isinstance(ids, list):
+        return frozenset()
+    return frozenset(str(i) for i in ids if isinstance(i, str))
+
 
 def _directive_state_is_alive(directive_id: str) -> bool:
     """True if the directive has an intact state file showing progress past IDLE.
@@ -137,10 +164,12 @@ def main():
         if d_id:
             raw_living_names.add(d_id)
 
+    fixture_ids = _load_fixture_directives()
+
     def is_directive_living(d_id):
         """Fuzzy check if a directive ID is alive in the system.
 
-        Three independent signals, any one is sufficient:
+        Four independent signals, any one is sufficient:
           1. Directive appears in master_filter or run_registry directive_hash
              (raw_living_names — built from authoritative ledgers above).
           2. Directive ID is a prefix of a known strategy name.
@@ -148,7 +177,12 @@ def main():
              guards PORTFOLIO_COMPLETE directives whose registry linkage was
              corrupted (e.g. directive_hash == "recovered") so they survive
              `--execute` even when (1) and (2) both fail.
+          4. Directive is registered as a test fixture in
+             tests/_fixtures/directives.yaml — these .txt files are
+             referenced by pytest suites and must not be purged.
         """
+        if d_id in fixture_ids:
+            return True
         if d_id in raw_living_names:
             return True
         # Check if d_id is a prefix of any strategy name (e.g. S01 matches S01_XAUUSD)

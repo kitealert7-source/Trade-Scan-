@@ -1,0 +1,24 @@
+# Directive fixtures preserved across directive_reconciler --execute purges.
+#
+# These directive .txt files live under backtest_directives/completed/ but
+# are NOT real completed directives — they are test fixtures referenced by
+# pytest suites that depend on the canonical on-disk shape of a directive.
+#
+# tools/directive_reconciler.py is_directive_living() consults this list as
+# a fourth signal (alongside master_filter / registry / FSM state) so a
+# --execute purge does NOT silently delete them.
+#
+# Adding a fixture here is the contract for "keep this directive on disk."
+# Removing one means the file becomes purge-eligible if it isn't backed by
+# real pipeline state.
+#
+# Recovery: if a fixture listed here is missing from disk, restore it from
+# git (look up the directive ID in `git log -- backtest_directives/completed/`).
+#
+# Reference: 2026-05-20 incident — directive_reconciler --execute removed
+# 270 orphan .txt files including this fixture, breaking 12 broader-pytest
+# tests in test_basket_directive_phase5, test_basket_dispatch_phase5b,
+# test_basket_path_b_phase5b2, test_basket_phase5c_real_data.
+
+protected_directives:
+  - 90_PORT_H2_5M_RECYCLE_S01_V1_P00
