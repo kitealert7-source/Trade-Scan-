@@ -51,7 +51,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import pandas as pd
 
 from config.path_authority import DATA_ROOT
-from tools.cointegration_screen import PARQUET_PATH
+from tools.cointegration_screen import PARQUET_PATH, SINGLES_PARQUET_PATH
 
 
 # 2026-05-20 location move: SQLite was originally in
@@ -62,6 +62,7 @@ from tools.cointegration_screen import PARQUET_PATH
 # matching the FX_CORRELATION_MATRIX precedent).
 SQLITE_DB = DATA_ROOT / "SYSTEM_FACTORS" / "FX_COINTEGRATION" / "cointegration.db"
 TABLE_NAME = "cointegration_daily"
+SINGLES_TABLE_NAME = "singles_daily"
 
 # Hysteresis classifier constants (spec §7).
 P_COINTEGRATED = 0.05
@@ -80,6 +81,19 @@ DB_COLUMNS = [
     "window_start", "window_end", "sample_size",
     "adf_pvalue", "pvalue_rolling_median_5d", "history_depth", "adf_statistic",
     "half_life_days", "hedge_ratio", "beta_method", "test_method",
+    "current_zscore", "regime",
+    "data_version", "inserted_at",
+]
+
+# Singles table schema. `symbol` may be a direct broker symbol (AUDNZD) or a
+# synthetic series tag (RATIO:BTCUSD/ETHUSD) — see tools/cointegration_screen
+# .py::run_singles. Mirrors DB_COLUMNS layout minus pair_b / hedge_ratio /
+# beta_method (single-series test has no OLS hedge ratio).
+SINGLES_DB_COLUMNS = [
+    "as_of", "symbol", "tf", "lookback_days",
+    "window_start", "window_end", "sample_size",
+    "adf_pvalue", "pvalue_rolling_median_5d", "history_depth", "adf_statistic",
+    "half_life_days", "test_method",
     "current_zscore", "regime",
     "data_version", "inserted_at",
 ]
@@ -133,6 +147,33 @@ def create_tables(conn: sqlite3.Connection) -> None:
             ON {TABLE_NAME} (as_of, regime);
         CREATE INDEX IF NOT EXISTS idx_coint_history
             ON {TABLE_NAME} (pair_a, pair_b, lookback_days, as_of DESC);
+
+        CREATE TABLE IF NOT EXISTS {SINGLES_TABLE_NAME} (
+            as_of           TEXT    NOT NULL,
+            symbol          TEXT    NOT NULL,
+            tf              TEXT    NOT NULL,
+            lookback_days   INTEGER NOT NULL,
+            window_start    TEXT,
+            window_end      TEXT,
+            sample_size     INTEGER NOT NULL,
+            adf_pvalue      REAL    NOT NULL,
+            pvalue_rolling_median_5d REAL,
+            history_depth   INTEGER NOT NULL DEFAULT 0,
+            adf_statistic   REAL,
+            half_life_days  REAL,
+            test_method     TEXT    NOT NULL,
+            current_zscore  REAL,
+            regime          TEXT    NOT NULL,
+            data_version    TEXT    NOT NULL,
+            inserted_at     TEXT    NOT NULL,
+            PRIMARY KEY (as_of, symbol, tf, lookback_days)
+        );
+        CREATE INDEX IF NOT EXISTS idx_singles_symbol
+            ON {SINGLES_TABLE_NAME} (symbol);
+        CREATE INDEX IF NOT EXISTS idx_singles_regime
+            ON {SINGLES_TABLE_NAME} (as_of, regime);
+        CREATE INDEX IF NOT EXISTS idx_singles_history
+            ON {SINGLES_TABLE_NAME} (symbol, lookback_days, as_of DESC);
     """)
     conn.commit()
 
@@ -352,6 +393,102 @@ def _float_or_none(v) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Singles upsert + queries
+# ---------------------------------------------------------------------------
+
+
+def query_singles_for_classifier(
+    conn: sqlite3.Connection, symbol: str, lookback_days: int,
+    *, lookback: int = HYSTERESIS_LOOKBACK, before_as_of: str | None = None,
+) -> list[float]:
+    """Singles analog of query_for_classifier — last N prior p-values."""
+    if before_as_of is None:
+        row = conn.execute(
+            f"SELECT MAX(as_of) AS m FROM {SINGLES_TABLE_NAME}"
+        ).fetchone()
+        before_as_of = row["m"] if row and row["m"] else "0000-00-00"
+    rows = conn.execute(
+        f"""
+        SELECT adf_pvalue FROM {SINGLES_TABLE_NAME}
+        WHERE symbol = ? AND lookback_days = ? AND as_of < ?
+        ORDER BY as_of DESC
+        LIMIT ?
+        """,
+        (symbol, int(lookback_days), before_as_of, int(lookback)),
+    ).fetchall()
+    return [float(r["adf_pvalue"]) for r in rows]
+
+
+def query_singles_today(conn: sqlite3.Connection) -> pd.DataFrame:
+    row = conn.execute(
+        f"SELECT MAX(as_of) AS m FROM {SINGLES_TABLE_NAME}"
+    ).fetchone()
+    if not row or not row["m"]:
+        return pd.DataFrame(columns=SINGLES_DB_COLUMNS)
+    return pd.read_sql_query(
+        f"SELECT * FROM {SINGLES_TABLE_NAME} "
+        f"WHERE as_of = ? ORDER BY symbol, lookback_days",
+        conn, params=(row["m"],),
+    )
+
+
+def upsert_singles_from_parquet(
+    conn: sqlite3.Connection,
+    parquet_path: Path | str = SINGLES_PARQUET_PATH,
+) -> int:
+    """Read singles parquet, enrich with history, upsert. Returns rows count."""
+    parquet_path = Path(parquet_path)
+    if not parquet_path.is_file():
+        raise FileNotFoundError(f"singles parquet not found: {parquet_path}")
+    df = pd.read_parquet(parquet_path)
+    if df.empty:
+        return 0
+
+    df = df.copy()
+    df["window_end_dt"] = pd.to_datetime(df["window_end"], errors="coerce")
+    df["window_end_dt"] = df["window_end_dt"].fillna(
+        pd.to_datetime(df["generated_at"]))
+    df["as_of"] = df["window_end_dt"].dt.strftime("%Y-%m-%d")
+
+    inserted_at = datetime.now(timezone.utc).isoformat()
+    rows_to_insert: list[tuple] = []
+    for _, r in df.iterrows():
+        prior = query_singles_for_classifier(
+            conn, r["symbol"], int(r["lookback_days"]),
+            lookback=HYSTERESIS_LOOKBACK, before_as_of=r["as_of"],
+        )
+        regime_hysteresis = classify_regime(float(r["adf_pvalue"]), prior)
+        rolling_median = compute_rolling_median(prior)
+        history_depth = len(prior)
+        rows_to_insert.append((
+            r["as_of"],
+            r["symbol"],
+            r["tf"], int(r["lookback_days"]),
+            _to_iso_or_null(r["window_start"]),
+            _to_iso_or_null(r["window_end"]),
+            int(r["sample_size"]),
+            float(r["adf_pvalue"]),
+            rolling_median,
+            history_depth,
+            _float_or_none(r["adf_statistic"]),
+            _float_or_none(r["half_life_days"]),
+            "adf",  # test_method — fixed for singles
+            _float_or_none(r["current_zscore"]),
+            regime_hysteresis,
+            r["data_version"],
+            inserted_at,
+        ))
+    placeholders = ", ".join(["?"] * len(SINGLES_DB_COLUMNS))
+    columns = ", ".join(SINGLES_DB_COLUMNS)
+    conn.executemany(
+        f"INSERT OR REPLACE INTO {SINGLES_TABLE_NAME} ({columns}) VALUES ({placeholders})",
+        rows_to_insert,
+    )
+    conn.commit()
+    return len(rows_to_insert)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -379,12 +516,20 @@ def main(argv: list[str] | None = None) -> int:
         create_tables(conn)
         if args.upsert:
             n = upsert_from_parquet(conn, args.parquet)
-            print(f"[cointegration_db] upserted {n} rows into {args.db}")
+            print(f"[cointegration_db] upserted {n} pair-pair rows")
+            # Singles parquet is optional — if present, upsert it too.
+            if Path(SINGLES_PARQUET_PATH).is_file():
+                n_s = upsert_singles_from_parquet(conn, SINGLES_PARQUET_PATH)
+                print(f"[cointegration_db] upserted {n_s} singles rows")
             # quick regime summary
             df_today = query_today(conn)
             if not df_today.empty:
                 counts = df_today.groupby(["lookback_days", "regime"]).size().unstack(fill_value=0)
-                print(f"[cointegration_db] today's regime counts:\n{counts}")
+                print(f"[cointegration_db] today's pair-pair regime counts:\n{counts}")
+            df_singles = query_singles_today(conn)
+            if not df_singles.empty:
+                s_counts = df_singles.groupby(["lookback_days", "regime"]).size().unstack(fill_value=0)
+                print(f"[cointegration_db] today's singles regime counts:\n{s_counts}")
         elif args.query_today:
             df = query_today(conn)
             print(df.to_string(index=False))

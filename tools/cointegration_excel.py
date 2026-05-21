@@ -1,22 +1,26 @@
 """cointegration_excel.py — Phase 3: SQLite → Excel report.
 
-Reads cointegration_daily from SQLite and writes a 4-sheet workbook:
+Reads cointegration_daily + singles_daily from SQLite and writes a
+multi-sheet workbook organized by ASSET CLASS (per 2026-05-21 cleanup):
 
-  1. Summary    — universe-level structural state (regime distribution,
-                  half-life summary, top recurring currencies in
-                  cointegrated pairs, window agreement, regime changes
-                  vs prior snapshot, bootstrap visibility)
-  2. Today      — pair-level pivoted: one row per (pair_a, pair_b)
-                  with 252d and 504d columns adjacent, agreement flag,
-                  ranking score. Raw values stay visible alongside the
-                  composite score (doctrine: ranking helps sorting,
-                  never replaces diagnostics).
-  3. History    — last 90 daily snapshots per (pair_a, pair_b, lookback)
-                  for regime-transition forensics.
-  4. Notes      — schema docs, classifier doctrine, ranking formula,
-                  the "don't trade on p-value alone" warning.
+  1. Summary                   — universe-level structural state
+  2. Forex (incl. Metals)      — curated FX + XAU candidates only
+  3. Crypto                    — curated BTC/ETH candidates only
+  4. Indices & Stocks          — placeholder (deferred until equity universe)
+  5. All Pairs (Diagnostic)    — full 210-pair-pair output, audit-only
+  6. Singles (Diagnostic)      — full single-symbol ADF output, audit-only
+  7. History                   — last 90 daily snapshots per pair-window
+  8. Notes                     — doctrine, classifier rules, per-candidate
+                                  rationale
 
-Per COINTEGRATION_SCREENER_V1_SPEC.md §8 (ranking) + §9 (sheet layout).
+The asset-class tabs (2-4) are operator-actionable; the diagnostic tabs
+(5-6) preserve the full screener output as audit trail but are flagged
+as not-to-be-acted-on-without-economic-rationale. The curated candidates
+come from governance/cointegration_candidates.yaml — see that file for
+the structural reasoning behind each candidate.
+
+Per COINTEGRATION_SCREENER_V1_SPEC.md §8 (ranking) + §9 (sheet layout)
++ 2026-05-21 hypothesis-led curation amendment.
 
 Conditional formatting is applied via explicit cell fills (computed in
 Python) — simpler than openpyxl ConditionalFormatting rules for the
@@ -44,11 +48,14 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+import yaml
+
 from config.path_authority import DATA_ROOT
 from tools.cointegration_db import (
     HYSTERESIS_LOOKBACK,
     P_BREAKING,
     P_COINTEGRATED,
+    SINGLES_TABLE_NAME,
     SQLITE_DB,
     TABLE_NAME,
     connect,
@@ -56,6 +63,7 @@ from tools.cointegration_db import (
 # Co-located with parquet + SQLite under SYSTEM_FACTORS — see
 # cointegration_db.py for the 2026-05-20 location-move rationale.
 EXCEL_PATH = DATA_ROOT / "SYSTEM_FACTORS" / "FX_COINTEGRATION" / "Cointegration_Screener.xlsx"
+CANDIDATES_YAML = PROJECT_ROOT / "governance" / "cointegration_candidates.yaml"
 
 # --- Colors (hex without #) --------------------------------------
 COLOR_HEADER_BG    = "4472C4"  # matches existing format_excel convention
@@ -196,6 +204,85 @@ def _section_header(ws, row: int, text: str, span: int = 4) -> int:
     ws.cell(row=row, column=1).fill = PatternFill("solid", fgColor=COLOR_SECTION_BG)
     ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=span)
     return row + 1
+
+
+# ---------------------------------------------------------------------------
+# Curated candidates loader + per-candidate query
+# ---------------------------------------------------------------------------
+
+
+def load_candidates(path: Path = CANDIDATES_YAML) -> dict:
+    """Read the hypothesis-led candidates YAML.
+
+    Returns the raw `asset_classes` dict. Each top-level key is an
+    asset-class slug (e.g. 'forex'); values carry `label`, `description`,
+    `candidates` list (may be empty), and optional `deferred` bool.
+    """
+    if not path.is_file():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return data.get("asset_classes") or {}
+
+
+def _query_candidate_rows(
+    conn: sqlite3.Connection, candidate: dict, df_pairs: pd.DataFrame,
+    df_singles: pd.DataFrame,
+) -> dict:
+    """Resolve one candidate to per-window result rows.
+
+    Returns a dict with `regime`, `adf_pvalue`, `half_life_days`,
+    `current_zscore` for each lookback window (252, 504), plus
+    `route`, `rationale`, `type`, `subject` (display label).
+    Empty values become None.
+    """
+    ctype = candidate["type"]
+
+    def _cells(sub: pd.DataFrame) -> dict:
+        out: dict[str, object] = {}
+        for lb in (252, 504):
+            r = sub[sub.lookback_days == lb]
+            if r.empty:
+                out[f"regime_{lb}"] = None
+                out[f"p_{lb}"] = None
+                out[f"hl_{lb}"] = None
+                out[f"z_{lb}"] = None
+            else:
+                rr = r.iloc[0]
+                out[f"regime_{lb}"] = rr["regime"]
+                out[f"p_{lb}"] = float(rr["adf_pvalue"])
+                out[f"hl_{lb}"] = float(rr["half_life_days"]) if pd.notna(
+                    rr["half_life_days"]) else None
+                out[f"z_{lb}"] = float(rr["current_zscore"]) if pd.notna(
+                    rr["current_zscore"]) else None
+        return out
+
+    if ctype == "single":
+        sym = candidate["symbol"]
+        sub = df_singles[df_singles.symbol == sym]
+        subject = sym
+    elif ctype == "synthetic_ratio":
+        sym = f"RATIO:{candidate['pair_a']}/{candidate['pair_b']}"
+        sub = df_singles[df_singles.symbol == sym]
+        subject = sym
+    elif ctype == "pair":
+        # Canonical orientation: alphabetical
+        a, b = sorted([candidate["pair_a"], candidate["pair_b"]])
+        sub = df_pairs[(df_pairs.pair_a == a) & (df_pairs.pair_b == b)]
+        subject = f"{a}/{b}"
+    else:
+        sub = pd.DataFrame()
+        subject = candidate.get("key", "?")
+
+    cells = _cells(sub)
+    cells.update({
+        "key":       candidate["key"],
+        "type":      ctype,
+        "subject":   subject,
+        "route":     candidate.get("route", "—"),
+        "canonical": candidate.get("canonical"),
+        "rationale": candidate.get("rationale", "").strip(),
+    })
+    return cells
 
 
 def _pivot_today(df: pd.DataFrame) -> pd.DataFrame:
@@ -393,8 +480,10 @@ def _write_summary(wb: Workbook, conn: sqlite3.Connection,
 
 
 def _write_today(wb: Workbook, conn: sqlite3.Connection,
-                  df_today: pd.DataFrame) -> None:
-    ws = wb.create_sheet("Today", 1)
+                  df_today: pd.DataFrame, position: int | None = None) -> None:
+    if position is None:
+        position = len(wb.sheetnames)
+    ws = wb.create_sheet("Today", position)
     pivoted = _pivot_today(df_today)
 
     # Compute composite score per row from SQLite (uses 252d row only).
@@ -455,8 +544,184 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
         ws.column_dimensions[get_column_letter(c)].width = w
 
 
-def _write_history(wb: Workbook, conn: sqlite3.Connection) -> None:
-    ws = wb.create_sheet("History", 2)
+_ROUTE_FILL = {
+    "direct":         _fill(COLOR_GREEN_BG,  COLOR_GREEN_FG),
+    "synthesize":     _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
+    "redundant_with": _fill(COLOR_GREY_BG,   "000000"),
+}
+
+
+def _write_asset_class_tab(
+    wb: Workbook, conn: sqlite3.Connection, class_key: str, class_def: dict,
+    df_pairs: pd.DataFrame, df_singles: pd.DataFrame, position: int,
+) -> None:
+    """Write one asset-class tab with curated candidates only."""
+    label = class_def.get("label", class_key)
+    description = class_def.get("description", "")
+    deferred = bool(class_def.get("deferred", False))
+    candidates = class_def.get("candidates") or []
+
+    ws = wb.create_sheet(label, position)
+
+    # Header row + description
+    ws.cell(row=1, column=1, value=label).font = Font(bold=True, size=14)
+    ws.merge_cells(start_row=1, end_row=1, start_column=1, end_column=10)
+    ws.cell(row=2, column=1, value=description.replace("\n", " ").strip())
+    ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=2, end_row=2, start_column=1, end_column=10)
+    ws.row_dimensions[2].height = 45
+
+    if deferred:
+        ws.cell(row=4, column=1, value="DEFERRED — no candidates active.")
+        ws.cell(row=4, column=1).font = Font(italic=True, color="9C5700")
+        ws.column_dimensions["A"].width = 80
+        return
+
+    if not candidates:
+        ws.cell(row=4, column=1, value="No curated candidates configured.")
+        ws.column_dimensions["A"].width = 80
+        return
+
+    headers = [
+        "key", "type", "subject", "route", "canonical",
+        "reg252", "reg504", "p252", "p504", "hl252", "hl504",
+        "z252", "z504", "rationale",
+    ]
+    for c, h in enumerate(headers, start=1):
+        _header_style(ws.cell(row=4, column=c, value=h))
+
+    for i, candidate in enumerate(candidates):
+        row = 5 + i
+        cells = _query_candidate_rows(conn, candidate, df_pairs, df_singles)
+
+        def put(col_idx, value):
+            cell = ws.cell(row=row, column=col_idx, value=value)
+            cell.alignment = Alignment(horizontal="center" if col_idx <= 13 else "left",
+                                       vertical="top",
+                                       wrap_text=col_idx == 14)
+            cell.border = BORDER
+            return cell
+
+        put(1, cells["key"])
+        put(2, cells["type"])
+        put(3, cells["subject"])
+        route_cell = put(4, cells["route"])
+        if cells["route"] in _ROUTE_FILL:
+            route_cell.fill, route_cell.font = _ROUTE_FILL[cells["route"]]
+        put(5, cells.get("canonical") or "")
+
+        # regime + p-value cells, with regime-fill
+        for col_offset, lb in enumerate((252, 504)):
+            reg = cells.get(f"regime_{lb}")
+            cell = put(6 + col_offset, reg)
+            if reg in _REGIME_FILL:
+                cell.fill, cell.font = _REGIME_FILL[reg]
+            p = cells.get(f"p_{lb}")
+            put(8 + col_offset, round(p, 4) if p is not None else None)
+
+        for col_offset, lb in enumerate((252, 504)):
+            hl = cells.get(f"hl_{lb}")
+            hl_cell = put(10 + col_offset, round(hl, 1) if hl is not None else None)
+            fc = _half_life_color(hl)
+            if fc:
+                hl_cell.fill, hl_cell.font = fc
+
+        for col_offset, lb in enumerate((252, 504)):
+            z = cells.get(f"z_{lb}")
+            z_cell = put(12 + col_offset, round(z, 2) if z is not None else None)
+            zc = _zscore_color(z)
+            if zc:
+                z_cell.fill, z_cell.font = zc
+
+        # Rationale — wrapped
+        put(14, cells["rationale"])
+        ws.row_dimensions[row].height = 50
+
+    # Column widths
+    widths = [22, 16, 22, 14, 22, 12, 12, 9, 9, 9, 9, 9, 9, 70]
+    for c, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = w
+    ws.freeze_panes = "F5"
+
+
+def _write_singles_diagnostic(wb: Workbook, conn: sqlite3.Connection,
+                                df_singles: pd.DataFrame, position: int) -> None:
+    """Full singles output (diagnostic / audit). Not operator-actionable
+    unless an entry survives economic-rationale screening (then promote
+    to candidates yaml).
+    """
+    ws = wb.create_sheet("Singles (Diagnostic)", position)
+    ws.cell(row=1, column=1, value="Singles — full single-symbol ADF (diagnostic only)"
+            ).font = Font(bold=True, size=12)
+    ws.cell(row=2, column=1,
+            value=("Each row: ADF on log-price of a single symbol (or synthetic "
+                   "ratio). NOT operator-actionable without explicit economic "
+                   "rationale — see Forex/Crypto tabs for curated subset."))
+    ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True)
+    ws.merge_cells(start_row=2, end_row=2, start_column=1, end_column=10)
+    ws.row_dimensions[2].height = 30
+
+    if df_singles.empty:
+        ws.cell(row=4, column=1, value="(no singles data yet — daily runner pending)")
+        return
+
+    # Pivot per symbol: 252 + 504 side-by-side
+    pivot = []
+    for sym, sub in df_singles.groupby("symbol"):
+        r252 = sub[sub.lookback_days == 252]
+        r504 = sub[sub.lookback_days == 504]
+        if r252.empty or r504.empty:
+            continue
+        pivot.append({
+            "symbol": sym,
+            "regime_252": r252.iloc[0]["regime"],
+            "regime_504": r504.iloc[0]["regime"],
+            "adf_pvalue_252": r252.iloc[0]["adf_pvalue"],
+            "adf_pvalue_504": r504.iloc[0]["adf_pvalue"],
+            "half_life_days_252": r252.iloc[0]["half_life_days"],
+            "half_life_days_504": r504.iloc[0]["half_life_days"],
+            "current_zscore_252": r252.iloc[0]["current_zscore"],
+            "current_zscore_504": r504.iloc[0]["current_zscore"],
+            "history_depth": max(r252.iloc[0]["history_depth"],
+                                  r504.iloc[0]["history_depth"]),
+        })
+    df_pivot = pd.DataFrame(pivot).sort_values("adf_pvalue_252")
+
+    headers = list(df_pivot.columns) if not df_pivot.empty else []
+    for c, h in enumerate(headers, start=1):
+        _header_style(ws.cell(row=4, column=c, value=h))
+
+    for i, r in df_pivot.reset_index(drop=True).iterrows():
+        excel_row = i + 5
+        for c, col in enumerate(headers, start=1):
+            v = r[col]
+            cell = ws.cell(row=excel_row, column=c)
+            cell.value = (round(float(v), 4) if isinstance(v, float) and pd.notna(v)
+                          else (None if pd.isna(v) else v))
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = BORDER
+            if col in ("regime_252", "regime_504") and v in _REGIME_FILL:
+                cell.fill, cell.font = _REGIME_FILL[v]
+            elif col in ("half_life_days_252", "half_life_days_504"):
+                fc = _half_life_color(v)
+                if fc:
+                    cell.fill, cell.font = fc
+            elif col in ("current_zscore_252", "current_zscore_504"):
+                zc = _zscore_color(v)
+                if zc:
+                    cell.fill, cell.font = zc
+
+    ws.freeze_panes = "B5"
+    widths = [22, 12, 12, 14, 14, 18, 18, 18, 18, 14]
+    for c, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = w
+
+
+def _write_history(wb: Workbook, conn: sqlite3.Connection,
+                    position: int | None = None) -> None:
+    if position is None:
+        position = len(wb.sheetnames)
+    ws = wb.create_sheet("History", position)
     df = pd.read_sql_query(
         f"""SELECT as_of, pair_a, pair_b, lookback_days, regime,
                    adf_pvalue, pvalue_rolling_median_5d, half_life_days,
@@ -489,9 +754,41 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection) -> None:
 
 
 def _write_notes(wb: Workbook) -> None:
-    ws = wb.create_sheet("Notes", 3)
+    # Notes sheet appended last by export_excel orchestrator; position arg
+    # is the new index after all earlier tabs have been written.
+    position = len(wb.sheetnames)
+    ws = wb.create_sheet("Notes", position)
     ws.cell(row=1, column=1, value="Cointegration Screener — Operator Notes").font = Font(bold=True, size=14)
     lines = [
+        "",
+        "HYPOTHESIS-LED CURATION (2026-05-21 amendment)",
+        "  This workbook is organized by ASSET CLASS, with operator-actionable",
+        "  candidates separated from the full diagnostic ADF surface. Curated",
+        "  candidates have explicit economic rationale (governance/cointegration",
+        "  _candidates.yaml). Diagnostic tabs preserve the full universe output",
+        "  but are NOT operator-actionable without economic-rationale screening.",
+        "",
+        "  Why: a blind ADF screen of ~210 pair-pairs × 2 windows is a data-",
+        "  mining exercise. At α=0.05 you expect ~21 spurious 'cointegrated'",
+        "  finds even on pure random walks. Hypothesis-led curation flips the",
+        "  workflow: start from structural reasoning, use the screener to",
+        "  confirm and monitor regime persistence — not to discover.",
+        "",
+        "TAB GUIDE",
+        "  • Forex (incl. Metals)   : curated FX + XAU candidates only",
+        "  • Crypto                 : curated BTC/ETH candidates only",
+        "  • Indices & Stocks       : deferred placeholder",
+        "  • All Pairs (Diagnostic) : full pair-pair output, audit-only",
+        "  • Singles (Diagnostic)   : full single-symbol output, audit-only",
+        "  • History                : last 90 days per pair-window",
+        "  • Notes                  : this sheet",
+        "",
+        "ROUTE COLUMN (curated tabs)",
+        "  • direct           — trade the symbol/pair as listed (cheapest execution)",
+        "  • synthesize       — trade as two-leg basket (no direct symbol available)",
+        "  • redundant_with   — pointer to canonical candidate; this row is the",
+        "                       triangular-synthesis alternative, generally not",
+        "                       preferred over the canonical (see candidate row)",
         "",
         "SOURCE OF TRUTH",
         "  Parquet (data_root/SYSTEM_FACTORS/FX_COINTEGRATION/coint_1d_latest.parquet) is the deterministic",
@@ -553,7 +850,18 @@ def _write_notes(wb: Workbook) -> None:
 
 def export_excel(db_path: Path | str = SQLITE_DB,
                  output_path: Path | str = EXCEL_PATH) -> Path:
-    """Read DB, build workbook, write to `output_path`."""
+    """Read DB, build workbook, write to `output_path`.
+
+    Sheet order (2026-05-21):
+      0  Summary
+      1  Forex (incl. Metals)         [curated]
+      2  Crypto                       [curated]
+      3  Indices & Stocks             [deferred placeholder]
+      4  All Pairs (Diagnostic)       [full pair-pair output]
+      5  Singles (Diagnostic)         [full single-symbol output]
+      6  History
+      7  Notes
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -565,18 +873,54 @@ def export_excel(db_path: Path | str = SQLITE_DB,
                 ORDER BY pair_a, pair_b, lookback_days""",
             conn,
         )
+        df_singles = pd.read_sql_query(
+            f"""SELECT * FROM {SINGLES_TABLE_NAME}
+                WHERE as_of = (SELECT MAX(as_of) FROM {SINGLES_TABLE_NAME})
+                ORDER BY symbol, lookback_days""",
+            conn,
+        ) if _table_exists(conn, SINGLES_TABLE_NAME) else pd.DataFrame()
+        candidates = load_candidates()
+
         wb = Workbook()
-        # Remove default sheet
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
+
+        # 0 — Summary (always first)
         _write_summary(wb, conn, df_today)
+
+        # 1-3 — asset class tabs in canonical order
+        class_order = ["forex", "crypto", "indices_stocks"]
+        pos = 1
+        for class_key in class_order:
+            if class_key in candidates:
+                _write_asset_class_tab(
+                    wb, conn, class_key, candidates[class_key],
+                    df_today, df_singles, position=pos,
+                )
+                pos += 1
+
+        # 4 — All Pairs (Diagnostic)
         _write_today(wb, conn, df_today)
+        wb["Today"].title = "All Pairs (Diagnostic)"
+
+        # 5 — Singles (Diagnostic)
+        _write_singles_diagnostic(wb, conn, df_singles, position=pos + 1)
+
+        # 6 — History; 7 — Notes
         _write_history(wb, conn)
         _write_notes(wb)
         wb.save(str(output_path))
     finally:
         conn.close()
     return output_path
+
+
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone()
+    return row is not None
 
 
 def _parser() -> argparse.ArgumentParser:

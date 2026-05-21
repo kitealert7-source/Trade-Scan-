@@ -1,0 +1,160 @@
+# =============================================================================
+# COINTEGRATION CANDIDATES — hypothesis-led curated list
+# =============================================================================
+#
+# This file enumerates the cointegration / mean-reversion candidates that have
+# explicit structural economic rationale. The daily screener computes ADF on
+# the full COINT_UNIVERSE as a diagnostic background; only the candidates in
+# THIS file are surfaced as operator-actionable in the Excel viewer's
+# asset-class tabs.
+#
+# Rationale for hypothesis-led curation (per 2026-05-21 cleanup discussion):
+#   A blind ADF screen of all pair combinations is a data-mining exercise.
+#   With ~210 pair-pairs × 2 windows = 420 tests at α=0.05, you'd expect ~21
+#   spurious "cointegrated" finds even on pure random walks. The candidates
+#   listed here have prior economic reasoning that supports a structural
+#   mean-reverting relationship — the screener serves to confirm and monitor
+#   regime persistence, not to discover.
+#
+# Schema per candidate:
+#   key             : human-readable identifier (used as Excel row label)
+#   type            : single | pair | synthetic_ratio
+#   symbol(s)       : direct symbol (single) or pair tokens (pair) or two
+#                     symbols for synthetic_ratio
+#   rationale       : structural economic reasoning (kept short, ≤200 chars)
+#   route           : direct | synthesize | redundant_with
+#                       - direct          : trade the symbol/pair as listed
+#                       - synthesize      : trade as two-leg basket
+#                       - redundant_with  : prefer the referenced candidate
+#                                            (used when a pair-pair restates a
+#                                             direct single candidate via the
+#                                             triangular identity)
+#   notes           : (optional) extra context
+#
+# When a candidate is "redundant_with" another, the screener still shows it
+# in the Excel viewer but marks it as a routing pointer to the canonical
+# candidate. Provides operator visibility into the synthesis alternative
+# without implying it should be traded.
+# =============================================================================
+
+asset_classes:
+  forex:
+    label: "Forex (incl. Metals)"
+    description: >
+      Commodity-bloc currencies (shared China-demand driver), risk-off cluster
+      pairs combining JPY-crosses with XAU (gold), and synthesis routes for
+      the same underlying spread trades. XAUUSD is included here because the
+      broker treats it as an FX-style spot symbol; revisit if a separate
+      Metals tab is warranted later.
+    candidates:
+      - key: AUDNZD
+        type: single
+        symbol: AUDNZD
+        rationale: >
+          Commodity-bloc: both AUD and NZD driven by China demand, iron ore,
+          dairy. Strong shared fundamental → structural reason for the spread
+          to mean-revert when it dislocates.
+        route: direct
+        notes: >
+          AUDNZD is directly tradeable on OctaFx. If currently regime=broken
+          (which it is today, p≈0.86), wait for regime to flip before any
+          mean-reversion attempt.
+
+      - key: AUDUSD_vs_NZDUSD
+        type: pair
+        pair_a: AUDUSD
+        pair_b: NZDUSD
+        rationale: >
+          Triangular synthesis route for AUDNZD spread (shared USD numerator
+          cancels in the log-spread, leaving log(AUDNZD)).
+        route: redundant_with
+        canonical: AUDNZD
+        notes: >
+          Only worth the two-leg execution if AUDNZD direct spreads become
+          uneconomic OR if leg-level risk-management is materially different.
+
+      - key: GBPJPY_vs_XAUUSD
+        type: pair
+        pair_a: GBPJPY
+        pair_b: XAUUSD
+        rationale: >
+          Risk-off cluster: gold and JPY-crosses both react to global risk-off
+          / safe-haven demand. Disjoint tokens (no shared currency) → not a
+          triangular artifact.
+        route: synthesize
+        notes: >
+          Daily screener flagged this as BOTH-window cointegrated on
+          2026-05-21 (p252=0.0135, p504=0.0437, hl≈10-25d). Genuine cross-
+          asset find. No direct GBPJPY/XAUUSD spread symbol exists, so a
+          β-weighted two-leg basket would be the execution vehicle (deferred
+          strategy work).
+
+      - key: EURJPY_vs_XAUUSD
+        type: pair
+        pair_a: EURJPY
+        pair_b: XAUUSD
+        rationale: >
+          Same risk-off cluster as GBPJPY/XAUUSD. Disjoint tokens.
+        route: synthesize
+        notes: >
+          BOTH-window cointegrated on 2026-05-21 (p252=0.0165, p504=0.0370).
+
+      - key: CHFJPY_vs_XAUUSD
+        type: pair
+        pair_a: CHFJPY
+        pair_b: XAUUSD
+        rationale: >
+          Risk-off cluster: CHF and JPY are both safe-haven currencies;
+          combined with XAU this is the strongest risk-off composite in our
+          universe. Disjoint tokens.
+        route: synthesize
+        notes: >
+          252-cointegrated but 504 breaking on 2026-05-21 (p504=0.0531) —
+          one threshold tick from full BOTH-window. Watch for confirmation.
+
+  crypto:
+    label: "Crypto"
+    description: >
+      Crypto-sector rotation candidates. BTC and ETH share the broader crypto
+      market liquidity cycle; their RATIO captures relative dominance shifts.
+      OctaFx does not list a direct BTCETH symbol, so the ratio is traded
+      either as a synthetic series (single ADF on BTC/ETH log-price) or as
+      a two-leg basket (BTCUSD long + ETHUSD short, β-weighted).
+    candidates:
+      - key: BTC_ETH_RATIO
+        type: synthetic_ratio
+        pair_a: BTCUSD
+        pair_b: ETHUSD
+        rationale: >
+          Crypto-sector rotation: BTC dominance vs ETH dominance shifts on
+          liquidity / risk-on cycles. Multi-month oscillation observed
+          historically. Strong shared crypto-market driver.
+        route: synthesize
+        notes: >
+          ADF on log(BTCUSD/ETHUSD) emitted as RATIO:BTCUSD/ETHUSD in the
+          singles parquet. Currently broken on both windows (2026-05-21).
+
+      - key: BTCUSD_vs_ETHUSD
+        type: pair
+        pair_a: BTCUSD
+        pair_b: ETHUSD
+        rationale: >
+          Triangular synthesis: same trade as BTC_ETH_RATIO, expressed as
+          two USD-quoted legs (shared USD cancels in the log-spread, leaving
+          log(BTC/ETH)).
+        route: redundant_with
+        canonical: BTC_ETH_RATIO
+        notes: >
+          Pair-pair ADF rediscovers BTC/ETH ratio stationarity. Prefer the
+          synthetic single-series candidate unless leg-level treatment is
+          needed.
+
+  indices_stocks:
+    label: "Indices & Stocks"
+    description: >
+      Deferred — equity universe not yet ingested into MASTER_DATA;
+      cointegration on equity pairs is conceptually the strongest case
+      (share-class arbitrage, same-sector revenue drivers) but requires
+      separate data + execution path. Reactivate when stocks pipeline lands.
+    deferred: true
+    candidates: []

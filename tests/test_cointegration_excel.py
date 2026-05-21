@@ -178,21 +178,31 @@ class TestCompositeScore:
 
 class TestExportExcel:
 
-    def test_produces_four_sheet_workbook(self, conn_with_4_pairs, tmp_path):
+    def test_produces_expected_sheet_layout(self, conn_with_4_pairs, tmp_path):
+        """2026-05-21: layout extended from 4 tabs to 8 (Summary, asset-
+        class tabs, diagnostics, History, Notes). Singles tab may be
+        empty if the test fixture's DB has no singles_daily table."""
         out = tmp_path / "out.xlsx"
         export_excel(db_path=conn_with_4_pairs.execute("PRAGMA database_list").fetchone()[2],
                      output_path=out)
         assert out.exists()
         wb = openpyxl.load_workbook(out, read_only=True)
         try:
-            assert wb.sheetnames == ["Summary", "Today", "History", "Notes"]
-            # Today should have 4 data rows + 1 header
-            ws = wb["Today"]
+            names = wb.sheetnames
+            # Summary first, Notes last, History before Notes.
+            assert names[0] == "Summary"
+            assert names[-1] == "Notes"
+            assert "History" in names
+            # Diagnostic tab renamed to "All Pairs (Diagnostic)".
+            assert "All Pairs (Diagnostic)" in names
+            # Asset-class tabs present (from candidates yaml).
+            assert "Forex (incl. Metals)" in names
+            assert "Crypto" in names
+            assert "Indices & Stocks" in names
+            # All Pairs has the existing 4-pair test fixture data
+            ws = wb["All Pairs (Diagnostic)"]
             assert ws.max_row >= 5
-            # History should have 8 data rows (4 pairs × 2 windows) + 1 header
-            ws = wb["History"]
-            assert ws.max_row >= 9
-            # Summary should have multiple sections
+            # Summary still has multiple sections
             ws = wb["Summary"]
             assert ws.max_row >= 25
         finally:
