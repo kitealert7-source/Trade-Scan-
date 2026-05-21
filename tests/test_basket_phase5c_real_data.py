@@ -151,9 +151,12 @@ def test_load_basket_leg_inputs_falls_back_to_synthetic_for_unknown_symbols(monk
 # ---- end-to-end dispatch with real data ------------------------------------
 
 
-def test_dispatch_against_h2_directive_with_real_data(monkeypatch, tmp_path):
+def test_dispatch_against_h2_directive_with_real_data(monkeypatch, tmp_path, request):
     """Full Phase 5c smoke: dispatch produces 'real' mode, opens positions
-    on both legs, writes vault, appends research CSV row."""
+    on both legs, writes vault, appends basket_sheet row.
+
+    Phase 5b.3 retired the legacy research/basket_runs.csv writer; the
+    sink is now ledger.db.basket_sheet."""
     from tools.run_pipeline import _try_basket_dispatch
     import tools.run_pipeline as rp
 
@@ -164,7 +167,54 @@ def test_dispatch_against_h2_directive_with_real_data(monkeypatch, tmp_path):
     tmp_active = tmp_path / "active_backup"
     tmp_active.mkdir()
     shutil.copy2(src, tmp_active / src.name)
+    staged = tmp_active / src.name
     monkeypatch.setattr(rp, "ACTIVE_BACKUP_DIR", tmp_active)
+
+    # Wipe state pollution from prior runs (deterministic run_id collides
+    # across invocations; PipelineStateManager uses module-level RUNS_DIR
+    # which the monkey-patch on path_authority does not intercept).
+    from tools.pipeline_utils import generate_run_id
+    from config.state_paths import RUNS_DIR
+    from config.path_authority import TRADE_SCAN_STATE
+    import yaml
+    parsed = yaml.safe_load(staged.read_text(encoding="utf-8"))
+    basket_id = parsed["basket"]["basket_id"]
+    run_id, _ = generate_run_id(staged, symbol=basket_id)
+    run_dir = RUNS_DIR / run_id
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    backtests_dir = TRADE_SCAN_STATE / "backtests" / f"{directive_id}_{basket_id}"
+    if backtests_dir.exists():
+        shutil.rmtree(backtests_dir)
+    from tools.system_registry import _load_registry, _save_registry_atomic
+    reg = _load_registry()
+    if run_id in reg:
+        reg.pop(run_id)
+        _save_registry_atomic(reg)
+    from tools.ledger_db import _connect, create_tables
+    _conn = _connect()
+    create_tables(_conn)
+    _conn.execute("DELETE FROM basket_sheet WHERE directive_id = ?", (directive_id,))
+    _conn.commit()
+    _conn.close()
+
+    # Same purge after test — PipelineStateManager writes to module-level
+    # RUNS_DIR even under monkeypatch, leaving a RUN_INCOMPLETE entry.
+    def _post_purge():
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        if backtests_dir.exists():
+            shutil.rmtree(backtests_dir)
+        _reg = _load_registry()
+        if run_id in _reg:
+            _reg.pop(run_id)
+            _save_registry_atomic(_reg)
+        _c = _connect()
+        create_tables(_c)
+        _c.execute("DELETE FROM basket_sheet WHERE directive_id = ?", (directive_id,))
+        _c.commit()
+        _c.close()
+    request.addfinalizer(_post_purge)
 
     fake_state = tmp_path / "TradeScan_State"
     import config.path_authority as pa
@@ -184,12 +234,16 @@ def test_dispatch_against_h2_directive_with_real_data(monkeypatch, tmp_path):
         vault_dir = vault_parent / "H2"
         assert vault_dir.is_dir()
 
-        # CSV row
-        csv_path = fake_state / "research" / "basket_runs.csv"
-        assert csv_path.is_file()
-        with open(csv_path, encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
-        assert len(rows) == 1
+        # basket_sheet row in ledger.db
+        from tools.ledger_db import _connect, create_tables
+        conn = _connect()
+        create_tables(conn)
+        cur = conn.execute(
+            "SELECT * FROM basket_sheet WHERE directive_id = ?", (directive_id,)
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        assert len(rows) == 1, f"expected 1 basket_sheet row, got {len(rows)}"
         row = rows[0]
         # Real data means at least one entry per leg fires -> trades_total >= 2
         # (each leg's evaluate_bar appends an entry+exit pair as trades, plus

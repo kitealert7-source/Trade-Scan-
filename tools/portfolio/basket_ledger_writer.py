@@ -266,7 +266,10 @@ def _build_row(
         for col in canonical_cols:
             derived[col] = pd.NA
 
-    return {**base_row, **derived}
+    row = {**base_row, **derived}
+    row["verdict_status"] = compute_verdict(row)
+    row["enrichment_status"] = "complete"
+    return row
 
 
 def _resolve_exit_reason(basket_result: Any) -> str:
@@ -365,12 +368,8 @@ def append_basket_row_to_mps(
         stake_usd=stake_usd,
     )
 
-    # Verdict + DB bookkeeping (Phase 5b.3 — moved out of formatter).
-    new_row["verdict_status"] = compute_verdict(new_row)
-    # New writes always go through the canonical_metrics path (parquet exists,
-    # stake known) so enrichment_status defaults to "complete". Backfills /
-    # legacy imports set their own status.
-    new_row["enrichment_status"] = "complete"
+    # verdict_status + enrichment_status are populated by _build_row.
+    # is_current is DB-only bookkeeping, added at the writer layer.
     new_row["is_current"] = 1
 
     # FileLock coordinates the Excel export step with the per-symbol writer;

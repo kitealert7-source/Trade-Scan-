@@ -1,22 +1,8 @@
 {
   "schema_version": 1,
-  "failed": [
-    "tests/test_basket_directive_phase5.py::test_directive_basket_block_parses",
-    "tests/test_basket_directive_phase5.py::test_directive_file_exists",
-    "tests/test_basket_directive_phase5.py::test_directive_legs_match_h2_spec",
-    "tests/test_basket_directive_phase5.py::test_directive_namespace_validates",
-    "tests/test_basket_directive_phase5.py::test_directive_runs_through_basket_pipeline_with_synthetic_data",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_emits_research_csv_row",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_returns_false_for_provision_only",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_returns_true_for_recycle_directive",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_writes_vault",
-    "tests/test_basket_path_b_phase5b2.py::test_dispatch_produces_all_four_artifact_paths",
-    "tests/test_basket_phase5c_real_data.py::test_dispatch_against_h2_directive_with_real_data",
-    "tests/test_basket_phase5c_real_data.py::test_load_basket_leg_inputs_returns_real_mode_for_h2_directive",
-    "tests/test_basket_telemetry_end_to_end.py::test_mps_baskets_new_columns_populate"
-  ],
-  "count": 13,
-  "sha": "112a300e403671d15178fa8ace9c0df9366fac46",
-  "updated_at": "2026-05-20T08:13:09+00:00",
-  "rationale": "Phase 5b.3 collateral: 13 broader-pytest tests depend on directive files in backtest_directives/completed/ as fixtures (e.g. 90_PORT_H2_5M_RECYCLE_S01_V1_P00.txt). The 2026-05-20 directive_reconciler --execute purge ran the canonical-pipeline cleanup (no ad-hoc preservation) and removed these fixtures along with the 270 genuine orphans. Properly fixing requires: (a) restoring test-fixture directives from governance/directive_reconciler_audit.log AND (b) extending directive_reconciler to recognize test fixtures (eg a registry of preserved IDs). Accepted as baseline TD; gate test suite (70 tests + 8 regression harness) still PASS."
+  "failed": [],
+  "count": 0,
+  "sha": "71d49d9966596670f6a6fd0746e1e473c711338b",
+  "updated_at": "2026-05-21T14:12:37+00:00",
+  "rationale": "fixed: Phase 5b.3 carry-overs \u2014 fixture .txt restored from git; _build_row emits verdict_status+enrichment_status; dispatch tests asserted on ledger.db.basket_sheet (the new Phase 5b.3 sink); test isolation: pre-cleanup of deterministic run_id state; directive_reconciler hardened with tests/_fixtures/directives.yaml protection list"
 }
