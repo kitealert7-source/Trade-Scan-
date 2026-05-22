@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2 dispatch)
+from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +356,59 @@ def _instantiate_rule(
             harvest_start_after_extra_pyramids=int(delay_param),
             harvest_keeps_core=bool(params.get("harvest_keeps_core", False)),
             bidirectional=bool(params.get("bidirectional", False)),
+            pyramid_add_lot=float(params.get("pyramid_add_lot", 0.05)),
+            adverse_stop_pct=float(params.get("adverse_stop_pct", 0.0020)),
+            time_stop_bars=int(params.get("time_stop_bars", 288)),
+            reverse_cross_column=str(params.get("reverse_cross_column", "cross_side")),
+            entry_direction=int(params.get("entry_direction", +1)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            trail_arm_floating_usd=float(params.get("trail_arm_floating_usd", 0.0)),
+            trail_retrace_pct=float(params.get("trail_retrace_pct", 0.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "H3_spread" and version == 3:
+        # H3_spread@3 (2026-05-22): @2 + extreme-z take-profit exit +
+        # ARMED-for-reentry phase for multi-leg trend capture within a
+        # single macro regime. Inherits ALL @2 mechanics (harvest,
+        # keep_core, bidirectional, macro filter wiring) and adds:
+        #   - extreme_z_threshold (mechanic A): cycle liquidates when
+        #     cycle_dir * diff > threshold (LIQUIDATE_EXTREME_Z, priority
+        #     between ADVERSE and TRAIL).
+        #   - reentry_z_threshold (mechanic B): after EXTREME_Z, transitions
+        #     to ARMED_FOR_REENTRY; re-enters when 0 < cycle_dir * diff <
+        #     threshold AND cross_side/htf_direction still aligned;
+        #     aborts on cross/macro flip or per-regime cap.
+        # All @3 params default off -> byte-equivalent to @2 (regression-
+        # tested in tests/test_h3_spread_v3.py).
+        # Same delay_param backward-compat as @2.
+        delay_param = params.get(
+            "harvest_start_after_extra_pyramids",
+            params.get("harvest_delay_levels", 0),
+        )
+        # Optional @3 params: None when not set (preserves byte-equivalence)
+        extreme_z_param = params.get("extreme_z_threshold")
+        reentry_z_param = params.get("reentry_z_threshold")
+        return H3SpreadV3Rule(
+            # @3 additions
+            extreme_z_threshold=(
+                float(extreme_z_param) if extreme_z_param is not None else None
+            ),
+            reentry_z_threshold=(
+                float(reentry_z_param) if reentry_z_param is not None else None
+            ),
+            reentry_macro_check=bool(params.get("reentry_macro_check", True)),
+            reentry_cross_check=bool(params.get("reentry_cross_check", True)),
+            reentry_max_per_regime=int(params.get("reentry_max_per_regime", 3)),
+            # @2 inheritance
+            max_exposure_multiple=float(params.get("max_exposure_multiple", 3.0)),
+            pyramid_threshold_step_pct=float(params.get("pyramid_threshold_step_pct", 0.15)),
+            harvest_start_after_extra_pyramids=int(delay_param),
+            harvest_keeps_core=bool(params.get("harvest_keeps_core", False)),
+            bidirectional=bool(params.get("bidirectional", False)),
+            # @1 inheritance
             pyramid_add_lot=float(params.get("pyramid_add_lot", 0.05)),
             adverse_stop_pct=float(params.get("adverse_stop_pct", 0.0020)),
             time_stop_bars=int(params.get("time_stop_bars", 288)),
