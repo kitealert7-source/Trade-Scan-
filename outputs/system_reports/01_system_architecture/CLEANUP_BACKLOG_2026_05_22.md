@@ -126,7 +126,21 @@ Active validator (PID 7596) is using `config.shadow_journal.example.yaml` (vault
 
 ---
 
-## 5. Excluded by design — NOT cleanup items
+## 5. NEW (2026-05-22 post-followup) — Latent FSP-vs-disk integrity drift
+
+**Discovery during the Item 4 follow-up pass:** `tools/state_lifecycle/lineage_pruner.py` Phase-1B integrity check fails — 1015 ledger-referenced runs but only 939 on disk (76-run deficit). `tools/state_lifecycle/repair_integrity.py` reports MPS clean (0 changes), so the deficit is concentrated in `Filtered_Strategies_Passed.xlsx`: a one-off diagnostic showed 96 of 381 FSP rows reference run_ids no longer on disk.
+
+**Symptom impact:** `system_preflight.py` is currently GREEN. Day-to-day pipeline gates do NOT flag this; the deeper integrity check only fires when a state-cleanup pass is invoked. So the next `/pipeline-state-cleanup` HALTs at Phase 1B until resolved.
+
+**Likely root cause:** `tools/state_lifecycle/repair_integrity.py` only audits MPS (Master_Portfolio_Sheet), not FSP (Filtered_Strategies_Passed). Today's earlier cleanup quarantined runs that FSP rows still referenced, leaving FSP stranded with dead run_ids. The cleanup's `[PASS] No KEEP_RUNS ID appears in delete list` safety check did honor FSP at quarantine time — so the drift accumulated from PRIOR cleanups before today's session, then surfaced once today's cleanup completed.
+
+**Recommendation (separate task):** extend `repair_integrity.py` to also audit FSP — drop or flag rows whose `run_id` is not on disk. Currently the script's docstring talks about "Master and Filtered" but only the Master side is implemented.
+
+**Cost of delay:** moderate. Future `/pipeline-state-cleanup` runs HALT immediately. Workaround: surgically remove individual orphans (as done today for `da25368a5d6bd939aaa977e5`) but the broader cleanup tool is unusable until repair_integrity covers FSP.
+
+---
+
+## 6. Excluded by design — NOT cleanup items
 
 - `DRY_RUN_VAULT/shadow_backups/` — small, historical reference; defer per skill 2b
 - SYSTEM_STATE.md inline comment blocks (2026-05-21 four-issue resolution, 2026-05-22 V1 directional H3_spread prune) — within stated retention windows, leave alone
