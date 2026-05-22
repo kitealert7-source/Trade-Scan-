@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-22T12:42:33Z
+> Generated: 2026-05-22T15:57:31Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,11 +11,11 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 273 directives
+- Completed: 0 directives
 
 ## Ledgers
 
-- **Master Filter:** 1256 rows
+- **Master Filter:** 1257 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 131 rows — CORE: 4, FAIL: 122, WATCH: 5
@@ -35,12 +34,12 @@
 - Latest bar: **2026-05-22** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1621
+- Run directories: 939
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `670b35d research_memory: H3_spread@2 S16 + H3_spread@3 deployment baseline (2026-05-22)`
+- Working tree: clean
+- Last substantive commit: `e6fdca5 chore(sync): auto-regen sweep_registry + tools_manifest after chip work`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
