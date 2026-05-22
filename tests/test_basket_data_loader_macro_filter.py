@@ -202,6 +202,34 @@ def test_cross_side_raw_column_present_on_basket_load():
 
 
 @_REQUIRES_DATA
+def test_diff_column_present_on_basket_load():
+    """The smoothed diff = SMA(z_a) - SMA(z_b) column must be forward-filled
+    onto each leg's df. Used by H3_spread@3 extreme-z exit when
+    extreme_z_threshold is set (S17 multi-leg-capture probe).
+    """
+    data = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], "2024-05-18", "2024-06-18",
+        timeframe="5m", macro_direction_timeframe=None,
+    )
+    eur = data["EURUSD"]
+    assert "diff" in eur.columns
+    # diff is continuous float; should be neither all-zero nor all-NaN
+    # on a real-data window (the cross indicator's z-normalization
+    # ensures non-trivial signal after warmup).
+    non_zero = (eur["diff"] != 0.0).sum()
+    assert non_zero > 100, (
+        f"diff column too sparse: only {non_zero} non-zero bars on "
+        f"a 1-month window — indicator warmup may be broken"
+    )
+    # Sanity: |diff| should occasionally exceed 1.0 on real data (the
+    # spread does fluctuate beyond 1 sigma-equivalent over a month).
+    assert eur["diff"].abs().max() > 1.0, (
+        f"|diff| max only {eur['diff'].abs().max():.3f} — extreme-z exit "
+        f"thresholds of 2.0+ would never trigger on a window like this"
+    )
+
+
+@_REQUIRES_DATA
 def test_correlation_filter_on_adds_column_and_gates_entries():
     """macro_correlation_window=20 — htf_correlation column populated;
     surviving cross_events are all in periods where correlation <= threshold."""

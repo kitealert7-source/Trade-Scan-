@@ -509,6 +509,15 @@ def load_basket_leg_data(
                 out[sym]["cross_side_raw"] = cross_df["cross_side_raw"].reindex(
                     out[sym].index, method="ffill", fill_value=0
                 ).astype(int)
+                # Smoothed diff = SMA(z_a) - SMA(z_b) (added 2026-05-22 for
+                # the H3_spread@3 extreme-z exit). Read by the @3 rule
+                # when extreme_z_threshold is set; @2 and earlier ignore it.
+                # Float dtype (the smoothed diff is a continuous signal,
+                # not a categorical side). fill_value=0.0 keeps warmup
+                # bars within the extreme-z deadband (no false trigger).
+                out[sym]["diff"] = cross_df["diff"].reindex(
+                    out[sym].index, method="ffill", fill_value=0.0
+                ).astype(float)
 
             # Macro-direction filter (2026-05-19). When configured, compute
             # the SAME SMA-of-z cross signal on a HIGHER native broker
