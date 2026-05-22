@@ -69,6 +69,10 @@ def spread_sma_cross(
             cross_event: +1 on bar where side flips from <=0 to +1
                         -1 on bar where side flips from >=0 to -1
                         0 otherwise
+            diff_raw: z_a - z_b (unsmoothed; no SMA applied to z-series)
+            cross_side_raw: +1 when diff_raw > 0, -1 when diff_raw < 0, 0 warmup
+            cross_event_raw: transition signal of cross_side_raw (same semantic
+                            as cross_event but on unsmoothed diff)
 
     Notes:
         - cross_side is the current state of the two SMAs. The recycle
@@ -76,8 +80,14 @@ def spread_sma_cross(
           inverted from the basket's entry direction).
         - cross_event fires exactly once per crossover. The leg strategy
           reads this to trigger entry (matching directive direction).
+        - cross_side_raw / cross_event_raw mirror the above but on the
+          UNSMOOTHED diff (z_a - z_b). They fire earlier than the smoothed
+          variants by roughly sma_window/2 bars in any retrace. Intended
+          for exit-side experimentation (faster reverse-cross detection)
+          while keeping the entry-side smoothed signal stable. Added
+          2026-05-22 for S16 z=0 exit probe.
         - The first valid output is at row index z_window + sma_window
-          (warmup of both stages).
+          for smoothed columns; at z_window for the _raw columns.
     """
     if z_window < 2:
         raise ValueError(f"spread_sma_cross.z_window must be >= 2; got {z_window}")
@@ -109,6 +119,18 @@ def spread_sma_cross(
     cross_event[(cross_side == 1) & (prev_side <= 0)] = 1
     cross_event[(cross_side == -1) & (prev_side >= 0)] = -1
 
+    # Unsmoothed (raw) variants — added 2026-05-22 for S16 z=0 exit probe.
+    # Mirror cross_side / cross_event but skip the SMA step on the diff,
+    # so the cross fires roughly sma_window/2 bars earlier in any retrace.
+    diff_raw = z_a - z_b
+    cross_side_raw = pd.Series(0, index=a.index, dtype=int)
+    cross_side_raw[diff_raw > 0] = 1
+    cross_side_raw[diff_raw < 0] = -1
+    prev_side_raw = cross_side_raw.shift(1, fill_value=0)
+    cross_event_raw = pd.Series(0, index=a.index, dtype=int)
+    cross_event_raw[(cross_side_raw == 1) & (prev_side_raw <= 0)] = 1
+    cross_event_raw[(cross_side_raw == -1) & (prev_side_raw >= 0)] = -1
+
     out = pd.DataFrame(
         {
             "z_a": z_a,
@@ -118,6 +140,9 @@ def spread_sma_cross(
             "diff": diff,
             "cross_side": cross_side,
             "cross_event": cross_event,
+            "diff_raw": diff_raw,
+            "cross_side_raw": cross_side_raw,
+            "cross_event_raw": cross_event_raw,
         },
         index=a.index,
     )
