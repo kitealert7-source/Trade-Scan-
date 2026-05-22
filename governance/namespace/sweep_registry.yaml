@@ -178,12 +178,12 @@ ideas:
             signature_hash_full: 6cba5f84104d0e1b81116ec7d4199c8e073101b107f8830cf98ba666c6c9a492
       S06:
         directive_name: 02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S06_V1_P00
-        signature_hash: 3cd3de033d80e6b6
+        signature_hash: 839f0f0310544d9b
         reserved_at_utc: '2026-03-17T10:11:39.543115+00:00'
-        signature_hash_full: 3cd3de033d80e6b6036c0c7950fe4b128b4f200ab31a9cac15601b947a42ac0f
+        signature_hash_full: 839f0f0310544d9b876f5b70edc129b75ecb02b172ff78024cfbaabc79eb40c7
         attempt: 2
-        directive_hash: 3cd3de033d80e6b6
-        directive_hash_full: 3cd3de033d80e6b6036c0c7950fe4b128b4f200ab31a9cac15601b947a42ac0f
+        directive_hash: 839f0f0310544d9b
+        directive_hash_full: 839f0f0310544d9b876f5b70edc129b75ecb02b172ff78024cfbaabc79eb40c7
   '03':
     next_sweep: 2
     sweeps:
