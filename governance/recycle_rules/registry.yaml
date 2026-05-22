@@ -563,3 +563,117 @@ rules:
     required_factors:
       - USD_SYNTH.compression_5d
     initial_consumer: tools/basket_runner.py
+
+  - name: H3_spread
+    version: 3
+    description: >
+      H3_spread@2 + extreme-z take-profit exit + ARMED-for-reentry phase
+      (multi-leg trend capture, 2026-05-22). Inherits all @2 mechanics
+      (harvest, keep_core, bidirectional, macro filter wiring) and adds
+      two composable mechanics, both default off (config'd to be byte-
+      equivalent to @2 when params unset).
+
+      Mechanic A -- EXTREME-Z EXIT
+        When `cycle_dir * diff > extreme_z_threshold`, the cycle liquidates
+        via a new exit reason `LIQUIDATE_EXTREME_Z`. Priority slot:
+        TIME > ADVERSE > EXTREME_Z > TRAIL > REVERSE > HARVEST. Side-aware:
+        wrong-direction extremes (cycle_dir * diff << 0) are NOT triggers
+        -- those are losing-leg scenarios for ADVERSE_STOP. Reads the
+        smoothed `diff` column from each leg's df (joined by
+        basket_data_loader, commit faecf6b).
+
+      Mechanic B -- ARMED-for-reentry
+        After an EXTREME_Z exit (and ONLY that exit), if
+        `reentry_z_threshold` is set, transitions to ARMED_FOR_REENTRY
+        instead of fully terminating. While armed, watches each bar for:
+          - re-entry trigger: 0 < cycle_dir * diff < reentry_z_threshold
+            AND cross_side aligned with cycle_dir
+            AND htf_direction aligned (if reentry_macro_check=true)
+            -> reset leg state, fresh cycle, _reentries_this_regime++
+          - abort: cross_side flips (CROSS_FLIPPED) OR htf_direction
+            flips (MACRO_FLIPPED) OR per-regime cap reached
+            (MAX_REENTRIES_REACHED) -> clear armed flag, await new
+            cross_event
+        cycle_direction is preserved across the EXTREME_Z -> ARMED ->
+        REENTRY gap. Pyramid stack resets to 0 on re-entry (fresh cycle).
+
+      Hypothesis: H3_spread@2 captures only ONE leg per cross_event before
+      sitting in CORE_HOLD waiting for the macro turn. Within a macro
+      regime that lasts months, the spread oscillates around its long-run
+      mean producing multiple distinct legs. Profit-take at peak +
+      re-engage on normalization captures each leg distinctly.
+
+      Implementation: tools/recycle_rules/h3_spread_v3.py. Subclasses
+      H3SpreadV2Rule. Reuses the @2 _check_extreme_z_exit_hook (no-op
+      in @2, real check in @3) for the exit priority insertion.
+
+      Default-off byte-equivalence: with extreme_z_threshold=None and
+      reentry_z_threshold=None, H3SpreadV3Rule produces byte-identical
+      recycle_events to H3SpreadV2Rule (enforced by
+      test_v3_byte_equiv_to_v2_* and
+      test_v3_extreme_z_with_threshold_byte_equiv_to_v2_when_diff_subthreshold).
+    params:
+      # New V3 params (all default off):
+      extreme_z_threshold:
+        type: float
+        default: null     # null = mechanic A disabled
+      reentry_z_threshold:
+        type: float
+        default: null     # null = mechanic B disabled; requires extreme_z set
+      reentry_macro_check:
+        type: bool
+        default: true     # require htf_direction still aligned on re-entry
+      reentry_cross_check:
+        type: bool
+        default: true     # require cross_side still aligned on re-entry
+      reentry_max_per_regime:
+        type: int
+        default: 3        # safety cap on re-entries between cross_events
+      # All V2 params inherited:
+      max_exposure_multiple:
+        type: float
+        default: 3.0
+      pyramid_threshold_step_pct:
+        type: float
+        default: 0.15
+      harvest_start_after_extra_pyramids:
+        type: int
+        default: 0
+      harvest_keeps_core:
+        type: bool
+        default: false
+      bidirectional:
+        type: bool
+        default: false
+      # V1 params inherited:
+      pyramid_add_lot:
+        type: float
+        default: 0.05
+      adverse_stop_pct:
+        type: float
+        default: 0.0020
+      time_stop_bars:
+        type: int
+        default: 288
+      reverse_cross_column:
+        type: str
+        default: "cross_side"
+      entry_direction:
+        type: int
+        default: 1
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      trail_arm_floating_usd:
+        type: float
+        default: 0.0
+      trail_retrace_pct:
+        type: float
+        default: 0.0
+    required_factors:
+      - spread_sma_cross.cross_side
+      - spread_sma_cross.cross_event
+      - spread_sma_cross.diff
+    initial_consumer: tools/basket_runner.py
+    requires_basket_runner_primitives:
+      - soft_reset_basket
