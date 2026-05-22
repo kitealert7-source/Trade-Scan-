@@ -72,6 +72,23 @@ Each entry needs an operator decision before action can be taken.
 
 ## 3. Cross-repo `outputs/` cleanup (TS_SignalValidator + TS_Execution)
 
+**Update 2026-05-22 (post-followup pass):** TS_Execution archive move
+attempted, then DEFERRED. The sibling repo is in a state that needs an
+operator-side cleanup first:
+
+  - 7 uncommitted modifications (`harness/replay.py`, `portfolio.yaml`,
+    multiple `src/*.py`)
+  - 1 untracked file (`src/phase0_validation.py`)
+  - 5 `claude/*` feature branches outstanding, including
+    `claude/upbeat-merkle-716d98` (28 commits behind origin/main) and
+    `claude/nifty-meninsky-e46a9f` whose commit *message* references
+    archiving operational outputs but whose diff is a 100-file /
+    +13k-line code restructure unrelated to the archive task
+
+Touching TS_Execution to move the pre-retirement shadow files in this
+state would tangle the move with pending operator work. Re-attempt
+after TS_Execution's branches and uncommitted changes are resolved.
+
 **Question:** should stale Stage-2 outputs and pre-retirement shadow_trades backups be culled?
 
 **TS_SignalValidator/outputs/ (4 files, 4.3 MB):**
