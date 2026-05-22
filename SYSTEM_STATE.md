@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-21T14:46:36Z
+> Generated: 2026-05-22T07:06:46Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -31,7 +31,7 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-21** | Symbols: 221
+- Latest bar: **2026-05-22** | Symbols: 221
 
 ## Artifacts
 - Run directories: 1592
@@ -39,7 +39,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `741a3ce docs(system_state): prune all four Phase 5b.3 ### Manual carry-overs`
+- Last substantive commit: `778106d pine: combine overlay+screener; add PairTradeStrategy`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
