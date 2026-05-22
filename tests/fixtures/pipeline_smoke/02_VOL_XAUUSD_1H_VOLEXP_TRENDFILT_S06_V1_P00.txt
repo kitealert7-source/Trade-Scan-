@@ -11,6 +11,7 @@ test:
   end_date: 2026-02-28
 
   description: Normal+high, stop2.3, exit14
+  repeat_override_reason: "Pipeline smoke fixture validates end-to-end plumbing (Stages -0.35 through Step 9 + ledger integrity) on a deterministic directive; not a research claim. MODEL=VOLEXP is REPEAT_FAILED by design and the Idea Gate is correct to halt; this audited override is the intended escape hatch for CI plumbing tests, logged to governance/idea_gate_overrides.csv."
 
 symbols:
   - XAUUSD
