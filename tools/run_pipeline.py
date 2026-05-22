@@ -588,7 +588,7 @@ def detect_strategy_drift(project_root: Path):
             if item.name != "Master_Portfolio_Sheet.xlsx" and not item.name.startswith("~$"):
                 drift.append(f"Unexpected file: {item.name}")
         elif item.is_dir():
-            if item.name.startswith("_"):
+            if item.name.startswith(("_", ".")):
                 continue
             has_portfolio = (item / "portfolio_evaluation" / "portfolio_metadata.json").exists()
             has_code = any(item.glob("*.py"))
@@ -1422,6 +1422,34 @@ def run_batch_mode(provision_only=False):
         except Exception as e:
             print(f"[WARN] Hyperlink restoration failed: {e}")
 
+        # Format MPS + FSP to the operator's preferred tab structure
+        # (filters, dropdowns, hyperlinks, sort, hidden non-CORE rows).
+        # Must run AFTER hyperlinks so column formatting doesn't lose
+        # the link sweep. Warn-only: if MPS is open in Excel locally,
+        # format will fail with permission-denied and the operator can
+        # close + re-run `format-excel-ledgers` manually.
+        from config.path_authority import TRADE_SCAN_STATE as _TS_STATE
+        print("\n[BATCH] Formatting MPS (Master_Portfolio_Sheet.xlsx)...")
+        try:
+            run_command(
+                [PYTHON_EXE, "tools/format_excel_artifact.py",
+                 "--file", str(_TS_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"),
+                 "--profile", "portfolio"],
+                "Format MPS",
+            )
+        except Exception as e:
+            print(f"[WARN] MPS formatting failed: {e}")
+        print("\n[BATCH] Formatting FSP (Filtered_Strategies_Passed.xlsx)...")
+        try:
+            run_command(
+                [PYTHON_EXE, "tools/format_excel_artifact.py",
+                 "--file", str(_TS_STATE / "candidates" / "Filtered_Strategies_Passed.xlsx"),
+                 "--profile", "strategy"],
+                "Format FSP",
+            )
+        except Exception as e:
+            print(f"[WARN] FSP formatting failed: {e}")
+
     print("\n[BATCH] All directives processed successfully.")
 
 def main():
@@ -1497,6 +1525,30 @@ def main():
                     run_command([PYTHON_EXE, "tools/add_strategy_hyperlinks.py", "--target", "all"], "Hyperlinks")
                 except Exception as e:
                     print(f"[WARN] Hyperlink restoration failed: {e}")
+
+                # Format MPS + FSP to the operator's preferred tab structure.
+                # See batch-mode block above for rationale + behavior.
+                from config.path_authority import TRADE_SCAN_STATE as _TS_STATE
+                print("\n[PIPELINE] Formatting MPS (Master_Portfolio_Sheet.xlsx)...")
+                try:
+                    run_command(
+                        [PYTHON_EXE, "tools/format_excel_artifact.py",
+                         "--file", str(_TS_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"),
+                         "--profile", "portfolio"],
+                        "Format MPS",
+                    )
+                except Exception as e:
+                    print(f"[WARN] MPS formatting failed: {e}")
+                print("\n[PIPELINE] Formatting FSP (Filtered_Strategies_Passed.xlsx)...")
+                try:
+                    run_command(
+                        [PYTHON_EXE, "tools/format_excel_artifact.py",
+                         "--file", str(_TS_STATE / "candidates" / "Filtered_Strategies_Passed.xlsx"),
+                         "--profile", "strategy"],
+                        "Format FSP",
+                    )
+                except Exception as e:
+                    print(f"[WARN] FSP formatting failed: {e}")
 
                 print("\n[PIPELINE] Regenerating run summary view...")
                 try:
