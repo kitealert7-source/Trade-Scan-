@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.pipeline_utils import generate_run_id  # noqa: E402
+from config.state_paths import RUNS_DIR  # noqa: E402
 
 
 DEFAULT_FIXTURE_ID = "02_VOL_XAUUSD_1H_VOLEXP_TRENDFILT_S06_V1_P00"
@@ -36,7 +37,6 @@ ACTIVE_DIR = PROJECT_ROOT / "backtest_directives" / "INBOX"
 COMPLETED_DIR = PROJECT_ROOT / "backtest_directives" / "completed"
 STRATEGIES_DIR = PROJECT_ROOT / "strategies"
 BACKTESTS_DIR = PROJECT_ROOT / "backtests"
-RUNS_DIR = PROJECT_ROOT / "runs"
 REPORTS_DIR = PROJECT_ROOT / "reports_summary"
 
 STRATEGY_MASTER_PATH = BACKTESTS_DIR / "Strategy_Master_Filter.xlsx"
