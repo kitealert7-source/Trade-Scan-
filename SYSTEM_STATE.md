@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-22T07:06:46Z
+> Generated: 2026-05-22T12:42:33Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 244 directives
+- Completed: 273 directives
 
 ## Ledgers
 
@@ -34,12 +35,12 @@
 - Latest bar: **2026-05-22** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1592
+- Run directories: 1621
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `778106d pine: combine overlay+screener; add PairTradeStrategy`
+- Working tree: 1 uncommitted
+- Last substantive commit: `670b35d research_memory: H3_spread@2 S16 + H3_spread@3 deployment baseline (2026-05-22)`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -95,11 +96,27 @@
   **Research artifacts (not yet committed at session-close; will be committed by /session-close):**
   S11 V1 P00/P01 (GBPUSD+USDJPY × A/B), S12 V1 P00/P01 (AUDUSD+USDCAD × A/B), S10 V1 P02 (EUR/JPY × Window C), S13 V1 P00/P01/P02 (corr filter −0.5 × 3 windows), S14 V1 P00/P01/P02 (corr filter −0.2 × 3 windows). Plus correlation-filter code + 6 new tests in `tests/test_basket_data_loader_macro_filter.py`.
 
-- **Reading list for next session.** Operator will think over the picture. Key strategic questions to consider before next probe:
-  1. Accept EUR/JPY-only deployment with manual regime gating + portfolio-level DD?
-  2. Build a second filter (5m intra-macro coherence — realized vol within macro-stable segments)?
-  3. Search for a different basket structure where the cross-pair mechanism transfers (e.g., truly USD-anchored synthetic spreads, not naive pair-combinations)?
-  4. Park the mechanism and pursue a different strategy family?
+- **H3_spread@3 deployment baseline LOCKED (2026-05-22).** New cross-window winner: `90_PORT_EURUSDUSDJPY_15M_PAIRX` with `rule=H3_spread@3`, `extreme_z_threshold=5.0`, `reentry_z_threshold=1.0`, `entry_delay_bars=8`, all @2 mechanics inherited (bidirectional, macro_tf=4h with sma=30/z=360, harvest_keeps_core=true, cap_mult=3.0, pyramid_step=0.15, adverse_stop=0.020). Strict Pareto improvement over prior 5m @2 d=12 baseline on the two favorable regimes:
+
+  | Window | 5m @2 d=12 (prior) | 15m @3 d=8 (NEW) | Δ Net% / Δ DD / Δ Ret/DD |
+  |---|---|---|---|
+  | A (USD-weakening 2024-05→2026-05) | +198.36% / 23.22% / 8.54 | **+218.21% / 18.71% / 11.66** | +20pp / -4.5pp / +37% |
+  | B (USD-strengthening 2021-05→2023-05) | +156.04% / 25.98% / 6.01 | **+225.94% / 20.79% / 10.87** | **+70pp** / -5.2pp / **+81%** |
+  | C (multi-regime 2018-05→2020-05) | -129.98% / 124.36% / -1.05 | -112.21% / 107.95% / -1.04 | +17.8pp (less bad) / -16.4pp |
+
+  @3 mechanic = @2 + extreme-z take-profit exit + ARMED-for-reentry phase. Built this session (commits c8e400a + f12abe0 + faecf6b + 6344753 + fa0f18e + ed40845 + 246bb7d + 7166970 + bd33963). Default-off byte-equivalent to @2; all @3 logic gated by `extreme_z_threshold` and `reentry_z_threshold` being non-null. Calibration sweep (S17/S18/S19) confirms e=5.0 is the cross-window robust point; e=4 fails on both windows, e=6 wins A by noise but loses B, e=7 asymptotes to baseline. Entry-delay sweep (S21/S22) confirms d=8 wins at 15m TF; d=4 wins on 5m Window A only but fails Window B (window-conditional).
+
+  Strategy posture: SAME regime-conditional caveat as @2. Window C still requires operator regime gate (correlation health + intra-macro coherence + macro-flip-frequency review per quarter). @3 reduces Window C bleed by 14% (-130 → -112) but doesn't make C profitable. Open question for next session: programmatic regime detector to flip "regime-conditional + manual gate" to "regime-tolerant + automated".
+
+  Reading list (2026-05-19 questions) resolved this session:
+    Q1 EUR/JPY-only + portfolio DD → YES (still single deployable pair; cross-pair attempts S11/S12 failed @2 and weren't re-tested @3 — architectural failure expected to hold)
+    Q2 5m intra-macro coherence filter → @3 mechanic IS the answer (extreme-z catches over-extension events that proxy for incoherence)
+    Q3 Different basket structure → DEFERRED (cross-asset cointegration screener already running daily; β-weighted COINTREV v1.2 pending)
+    Q4 Park and pursue different family → NO — @3 deployment-grade improvement justifies continued development of this family
+
+- **5m + d=4 + @3 retained as Window-A-only research peer (2026-05-22).** S21 V1 P00 hit +230.54% / 20.99 DD / RetDD 10.99 on Window A — the highest Net% of any tested config — but fails Window B catastrophically (+144.10% / 43.44 DD / RetDD 3.32). Not deployable as a universal baseline but documents the Window-A peak. If a regime detector later distinguishes A-like from B-like, deploying 5m+d=4 selectively on A-like regimes is a viable second tier.
+
+- **All entry-side and exit-side single-variable axes for h3_spread are now EXHAUSTED for EUR/USDJPY (2026-05-22):** macro filter ✓ (win), correlation filter ✗ (dropped), adverse-stop ✓ ($20=Pareto frontier), reverse-cross timing (unsmoothed=neutral, extreme_z=win), timeframe (window-dependent), entry-delay (15m+d=8 win, 5m has window-conditional sweet spot). Open work for this family limited to: (a) Window C regime detector, (b) different basket pair (cross-pair already failed for naive combinations; would need transferable mechanic), (c) different basket architecture (synthetic spreads, β-weighted cointegration).
 
 - **COINTREV v1 retired 2026-05-21 (commit 605317c). Screener universe expanded to XAU/BTC/ETH (commit b8f4251).** The polluted strategy chain (cointegration_meanrev_v1.py + generate_cointrev_directives.py + CointMeanRevLegStrategy + cohort report tool + 48 backtest directives + tradability/corr_504d columns in the Excel viewer) was retired in one commit. Pollution was equal-lot sizing in the strategy + a correlation-based "tradability filter" added at directive-generation time to mask the equal-lot bug — together they made COINTREV correlation-pair-trading dressed in cointegration language. 98 directive admission records quarantined to `TradeScan_State/quarantine/20260521T032947Z_coint_v1_retirement/` with full manifest.
 
