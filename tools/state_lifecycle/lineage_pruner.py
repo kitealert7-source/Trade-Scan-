@@ -223,11 +223,14 @@ def verify_referential_integrity(keep_runs: set, active_portfolios: set):
     
     # Check 1: Verify valid state dimensions
     total_keep = len(keep_runs)
-    total_disk_runs = len([d for d in RUNS_DIR.iterdir() if d.is_dir()]) if RUNS_DIR.exists() else 0
-    
+    runs_count = len([d for d in RUNS_DIR.iterdir() if d.is_dir()]) if RUNS_DIR.exists() else 0
+    sandbox_count = len([d for d in SANDBOX_DIR.iterdir() if d.is_dir()]) if SANDBOX_DIR.exists() else 0
+    # sandbox/ is a valid run home — the per-run check below accepts it, so include both tiers in the global tally.
+    total_disk_runs = runs_count + sandbox_count
+
     # Mathematical sanity bound checking against total disk vs targets
     if total_disk_runs < total_keep:
-        print(f"[FAIL] Integrity breached: Total disk runs ({total_disk_runs}) is less than required active targets ({total_keep}).")
+        print(f"[FAIL] Integrity breached: Total disk runs ({total_disk_runs} = {runs_count} runs/ + {sandbox_count} sandbox/) is less than required active targets ({total_keep}).")
         sys.exit(1)
     
     # Check 2 & 3: Deep check file linkages

@@ -126,17 +126,41 @@ Active validator (PID 7596) is using `config.shadow_journal.example.yaml` (vault
 
 ---
 
-## 5. NEW (2026-05-22 post-followup) — Latent FSP-vs-disk integrity drift
+## 5. RESOLVED (2026-05-22) — lineage_pruner global tally was double-counting against the wrong denominator
 
-**Discovery during the Item 4 follow-up pass:** `tools/state_lifecycle/lineage_pruner.py` Phase-1B integrity check fails — 1015 ledger-referenced runs but only 939 on disk (76-run deficit). `tools/state_lifecycle/repair_integrity.py` reports MPS clean (0 changes), so the deficit is concentrated in `Filtered_Strategies_Passed.xlsx`: a one-off diagnostic showed 96 of 381 FSP rows reference run_ids no longer on disk.
+**Original framing (now retracted):** an earlier diagnostic suggested that
+`Filtered_Strategies_Passed.xlsx` contained 96 stranded rows referencing
+quarantined run_ids, and that `repair_integrity.py` was failing to audit FSP.
 
-**Symptom impact:** `system_preflight.py` is currently GREEN. Day-to-day pipeline gates do NOT flag this; the deeper integrity check only fires when a state-cleanup pass is invoked. So the next `/pipeline-state-cleanup` HALTs at Phase 1B until resolved.
+**What was actually wrong:** nothing in FSP. Every keep_set run_id (FSP ∪ MPS,
+1015 ids) had a live footprint on disk — 919 in `runs/` and 96 in `sandbox/`,
+zero truly missing. `repair_integrity.py` already audits both ledgers (lines
+69–89 cover FSP; the `is_valid_run()` helper accepts a run in either `runs/`
+or `sandbox/` provided it has a `run_state.json`) and was correctly reporting
+**0 drops needed** in both sheets.
 
-**Likely root cause:** `tools/state_lifecycle/repair_integrity.py` only audits MPS (Master_Portfolio_Sheet), not FSP (Filtered_Strategies_Passed). Today's earlier cleanup quarantined runs that FSP rows still referenced, leaving FSP stranded with dead run_ids. The cleanup's `[PASS] No KEEP_RUNS ID appears in delete list` safety check did honor FSP at quarantine time — so the drift accumulated from PRIOR cleanups before today's session, then surfaced once today's cleanup completed.
+The bug was in `tools/state_lifecycle/lineage_pruner.py::verify_referential_integrity()`.
+Its **global tally** at line 226 counted only `runs/` subdirs (939) and
+compared to `total_keep` (1015). Its own **per-run** check immediately below
+(line 241) accepted `runs/ OR sandbox/` — i.e., the two checks inside the
+same function disagreed about whether `sandbox/` was a valid run home. The
+strict global tally fired first and `sys.exit(1)`'d before the permissive
+per-run check could vindicate the 96 sandbox-only ids.
 
-**Recommendation (separate task):** extend `repair_integrity.py` to also audit FSP — drop or flag rows whose `run_id` is not on disk. Currently the script's docstring talks about "Master and Filtered" but only the Master side is implemented.
+**Fix:** patched `verify_referential_integrity()` to count both tiers
+(`total_disk_runs = runs/ + sandbox/`), aligning the global tally with the
+per-run check. Output now reads `1352 = 939 runs/ + 413 sandbox/`. Phase 1B
+PASSes, `repair_integrity.py` continues to report 0 drops in both ledgers.
 
-**Cost of delay:** moderate. Future `/pipeline-state-cleanup` runs HALT immediately. Workaround: surgically remove individual orphans (as done today for `da25368a5d6bd939aaa977e5`) but the broader cleanup tool is unusable until repair_integrity covers FSP.
+**Cost-of-delay reassessment:** the original "moderate cost" was based on a
+false premise (FSP rows would need to be dropped). The actual fix is a
+3-line patch with no row mutations; FSP remains intact and the 96 research
+records in `sandbox/` are preserved.
+
+**Lesson:** when an integrity check fails, audit the *checker* before the
+*ledger*. The default assumption that ledgers have drifted is dangerous when
+the checker has internal disagreements; acting on the original framing would
+have destroyed 96 valid FSP rows.
 
 ---
 
