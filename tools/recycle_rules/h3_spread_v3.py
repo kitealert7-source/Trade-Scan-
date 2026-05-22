@@ -214,12 +214,50 @@ class H3SpreadV3Rule(H3SpreadV2Rule):
     def _liquidate(self, legs, i, bar_ts, bar_closes, leg_float,
                    floating_total, reason: str) -> None:
         # Non-EXTREME_Z liquidations end the regime -- reset re-entry
-        # state. (EXTREME_Z handling will be added in B.3 when the
-        # extreme-z exit logic is implemented; for B.1 scaffold, no path
-        # produces "EXTREME_Z" reason yet, so this branch is dead until
-        # B.3.)
+        # state. EXTREME_Z liquidations may transition to ARMED in B.4;
+        # for B.3 the cycle just terminates like any other reason (the
+        # ARMED transition is gated on reentry_z_threshold being set,
+        # which has no apply()-side logic yet -- coming in B.4).
         if reason != "EXTREME_Z":
             self._armed_for_reentry = False
             self._reentries_this_regime = 0
         super()._liquidate(legs, i, bar_ts, bar_closes, leg_float,
                            floating_total, reason)
+
+    # ---- Hook override: extreme-z take-profit exit -----------------------
+    # Fires when extreme_z_threshold is set AND cycle_dir * diff exceeds
+    # the threshold (the spread is over-extended in the cycle's direction).
+    # Side-aware: wrong-direction extremes (e.g., LONG cycle with diff
+    # deeply negative) are NOT triggers -- those are losing-leg scenarios
+    # handled by ADVERSE_STOP. Priority slot per @2's call site:
+    # TIME > ADVERSE > EXTREME_Z > TRAIL > REVERSE > HARVEST.
+
+    def _check_extreme_z_exit_hook(
+        self, legs, i, bar_ts, bar_closes, leg_float, floating_total,
+    ) -> bool:
+        if self.extreme_z_threshold is None:
+            return False
+
+        try:
+            diff = float(legs[0].df.loc[bar_ts, "diff"])
+        except (KeyError, ValueError, TypeError):
+            return False
+
+        # cycle_dir mirrors the reverse_cross check's dir resolution.
+        cycle_dir = (
+            self._cycle_direction if self.bidirectional
+            else int(self.entry_direction)
+        )
+
+        # Side-aware extreme: trigger only when the spread is extended
+        # IN the cycle's direction. Wrong-direction extremes are losing-
+        # leg scenarios for ADVERSE_STOP, not profit-take candidates.
+        if cycle_dir * diff > self.extreme_z_threshold:
+            self._n_extreme_z_exits += 1
+            self._liquidate(
+                legs, i, bar_ts, bar_closes, leg_float,
+                floating_total, reason="EXTREME_Z",
+            )
+            return True
+
+        return False

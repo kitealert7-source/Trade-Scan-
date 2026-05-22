@@ -198,6 +198,17 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
         super()._liquidate(legs, i, bar_ts, bar_closes, leg_float,
                            floating_total, reason)
 
+    # ---- Subclass hook for additional exit signals -----------------------
+    # Default no-op. Subclasses override to inject custom exits between
+    # ADVERSE_STOP and TRAIL_STOP in apply(). Must return True if a
+    # liquidation fired (apply() will return immediately), False otherwise.
+    # Called once per bar AFTER ADVERSE_STOP check has passed.
+
+    def _check_extreme_z_exit_hook(
+        self, legs, i, bar_ts, bar_closes, leg_float, floating_total,
+    ) -> bool:
+        return False
+
     # ---- core mechanic --------------------------------------------------
 
     def apply(self, legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp) -> None:
@@ -300,6 +311,16 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
             self._n_adverse_stops += 1
             self._liquidate(legs, i, bar_ts, bar_closes, leg_float,
                             floating_total, reason="ADVERSE_STOP")
+            return
+
+        # Subclass hook for additional exit signals at this priority slot
+        # (between ADVERSE_STOP and TRAIL_STOP). @2 returns False
+        # unconditionally -- behavior bit-identical to pre-hook. @3
+        # overrides this to fire the extreme-z take-profit exit when
+        # cycle_dir * diff exceeds extreme_z_threshold.
+        if self._check_extreme_z_exit_hook(
+            legs, i, bar_ts, bar_closes, leg_float, floating_total,
+        ):
             return
 
         if (self.trail_retrace_pct > 0.0

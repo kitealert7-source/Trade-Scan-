@@ -259,3 +259,199 @@ def test_v3_extreme_z_state_unset_when_threshold_none():
     assert rule._n_extreme_z_exits == 0
     assert rule._n_reentries == 0
     assert rule._reentries_this_regime == 0
+
+
+# ---------------------------------------------------------------------------
+# B.3: extreme-z exit logic
+# ---------------------------------------------------------------------------
+
+
+def _find_event(events, **filters):
+    """Return the first event matching all key/value filters."""
+    for e in events:
+        if all(e.get(k) == v for k, v in filters.items()):
+            return e
+    return None
+
+
+def test_v3_extreme_z_fires_at_threshold():
+    """LONG cycle (cycle_dir=+1) with diff climbing past extreme_z_threshold
+    must fire a LIQUIDATE event with reason='EXTREME_Z'."""
+    n = 50
+    eur = np.linspace(1.0800, 1.0850, n)   # gently rising → no adverse
+    jpy = np.full(n, 150.0)
+    # diff: starts at 0, ramps to +2.5 by bar 25 (above threshold 2.0)
+    diff = np.concatenate([
+        np.linspace(0.0, 1.5, 20),    # below threshold
+        np.linspace(1.5, 2.5, 30),    # crosses threshold at bar ~30
+    ])
+    cross = np.full(n, 1, dtype=int)
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(extreme_z_threshold=2.0))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    evt = _find_event(events, action="LIQUIDATE", reason="EXTREME_Z")
+    assert evt is not None, (
+        f"No LIQUIDATE_EXTREME_Z event found. All events: "
+        f"{[(e.get('action'), e.get('reason')) for e in events]}"
+    )
+    assert rule._n_extreme_z_exits == 1
+
+
+def test_v3_extreme_z_side_aware_wrong_dir_not_triggered():
+    """LONG cycle (cycle_dir=+1) with diff at -3.0 (extreme but WRONG
+    direction) must NOT fire EXTREME_Z. That's an adverse-territory
+    scenario, not a profit-take."""
+    n = 30
+    eur = np.linspace(1.0800, 1.0810, n)   # nearly flat to avoid adverse
+    jpy = np.full(n, 150.0)
+    diff = np.full(n, -3.0)                # extreme in WRONG direction
+    cross = np.full(n, 1, dtype=int)       # cycle stays open
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(extreme_z_threshold=2.0))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    evt = _find_event(events, action="LIQUIDATE", reason="EXTREME_Z")
+    assert evt is None, "EXTREME_Z must not fire on wrong-direction extreme"
+    assert rule._n_extreme_z_exits == 0
+
+
+def test_v3_extreme_z_loses_priority_to_adverse():
+    """When floating_total is BELOW adverse threshold AND diff is ABOVE
+    extreme_z threshold simultaneously on the same bar, ADVERSE_STOP
+    wins per priority order (TIME > ADVERSE > EXTREME_Z > TRAIL > REVERSE).
+    Construct a clean co-trigger: bars 0-10 quiet (no adverse, no extreme),
+    bar 11 has both conditions firing.
+    """
+    n = 15
+    # bars 0-10: EUR flat 1.0800, no PnL movement; diff sub-threshold
+    # bar 11: EUR drops to 1.0500 (-$30 floating on 0.10 LONG-EUR leg),
+    #         diff jumps to 3.0 (above threshold 2.0)
+    eur = np.concatenate([
+        np.full(11, 1.0800),
+        np.full(4, 1.0500),
+    ])
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.full(11, 1.0),       # below threshold
+        np.full(4, 3.0),        # above threshold from bar 11
+    ])
+    cross = np.full(n, 1, dtype=int)
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(extreme_z_threshold=2.0))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    liq_events = [e for e in events if e.get("action") == "LIQUIDATE"]
+    assert len(liq_events) >= 1
+    assert liq_events[0]["reason"] == "ADVERSE_STOP", (
+        f"Expected ADVERSE_STOP first, got {liq_events[0]['reason']}"
+    )
+    assert rule._n_extreme_z_exits == 0
+
+
+def test_v3_extreme_z_wins_priority_over_reverse_cross():
+    """When EXTREME_Z and REVERSE_CROSS fire on the SAME bar, EXTREME_Z
+    wins (priority slot is between ADVERSE and TRAIL/REVERSE)."""
+    n = 30
+    eur = np.linspace(1.0800, 1.0830, n)    # gentle rise
+    jpy = np.full(n, 150.0)
+    # diff above threshold from bar 15 onward
+    diff = np.concatenate([
+        np.full(15, 1.0),       # below threshold
+        np.full(15, 2.5),       # above threshold from bar 15
+    ])
+    # cross_side flips to -1 also at bar 15 (would trigger reverse)
+    cross = np.concatenate([
+        np.full(15, 1, dtype=int),
+        np.full(15, -1, dtype=int),
+    ])
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(extreme_z_threshold=2.0))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    liq_events = [e for e in events if e.get("action") == "LIQUIDATE"]
+    assert len(liq_events) >= 1
+    assert liq_events[0]["reason"] == "EXTREME_Z", (
+        f"Expected EXTREME_Z first (priority over REVERSE_CROSS), got "
+        f"{liq_events[0]['reason']}"
+    )
+
+
+def test_v3_extreme_z_no_trigger_when_threshold_none():
+    """Even with diff far above any reasonable threshold, EXTREME_Z must
+    NOT fire when extreme_z_threshold is None (mechanism disabled)."""
+    n = 30
+    eur = np.linspace(1.0800, 1.0810, n)
+    jpy = np.full(n, 150.0)
+    diff = np.full(n, 5.0)                  # very extreme
+    cross = np.full(n, 1, dtype=int)
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair())  # extreme_z_threshold=None
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    evt = _find_event(events, action="LIQUIDATE", reason="EXTREME_Z")
+    assert evt is None
+    assert rule._n_extreme_z_exits == 0
+
+
+def test_v3_extreme_z_telemetry_counter_increments_per_exit():
+    """When extreme_z fires multiple times across multiple cycles within
+    a single rule instance, _n_extreme_z_exits should match exit count."""
+    n = 80
+    # Set up a sequence: rise, EXTREME_Z exit, cross flip (regime reset),
+    # rise again, second EXTREME_Z exit.
+    eur = np.full(n, 1.0820)
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.linspace(0.0, 2.5, 20),    # cycle 1: hits threshold at ~bar 16
+        np.linspace(0.0, 2.5, 20),    # cycle 2: hits threshold at ~bar 36
+        np.full(40, 0.5),             # quiet
+    ])
+    # cross_side: +1 then flip to -1 at bar 20 (triggers cycle reset),
+    # then back to +1 at bar 40 for cycle 2 entry
+    cross = np.concatenate([
+        np.full(20, 1, dtype=int),
+        np.full(20, -1, dtype=int),
+        np.full(40, 1, dtype=int),
+    ])
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(extreme_z_threshold=2.0))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    extreme_z_events = [
+        e for e in events
+        if e.get("action") == "LIQUIDATE" and e.get("reason") == "EXTREME_Z"
+    ]
+    assert rule._n_extreme_z_exits == len(extreme_z_events), (
+        f"Counter mismatch: rule._n_extreme_z_exits={rule._n_extreme_z_exits}, "
+        f"events with EXTREME_Z reason={len(extreme_z_events)}"
+    )
+
+
+def test_v3_extreme_z_with_threshold_byte_equiv_to_v2_when_diff_subthreshold():
+    """When extreme_z is configured but diff never exceeds the threshold,
+    @3 must produce identical events to @2 (i.e., the hook fires but the
+    check returns False every bar -- no behavioral divergence)."""
+    n = 40
+    eur = np.linspace(1.0800, 1.0830, n)
+    jpy = np.full(n, 150.0)
+    diff = np.full(n, 0.5)                  # always below threshold 2.0
+    cross = np.full(n, 1, dtype=int)
+    eur_leg2, jpy_leg2, idx2 = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    eur_leg3, jpy_leg3, idx3 = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule2 = H3SpreadV2Rule(**_make_params_pair())
+    rule3 = H3SpreadV3Rule(**_make_params_pair(extreme_z_threshold=2.0))
+    events2 = _run_rule(rule2, eur_leg2, jpy_leg2, idx2)
+    events3 = _run_rule(rule3, eur_leg3, jpy_leg3, idx3)
+    assert _strip_volatile(events2) == _strip_volatile(events3)
+    assert rule3._n_extreme_z_exits == 0
