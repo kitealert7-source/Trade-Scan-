@@ -213,16 +213,36 @@ class H3SpreadV3Rule(H3SpreadV2Rule):
 
     def _liquidate(self, legs, i, bar_ts, bar_closes, leg_float,
                    floating_total, reason: str) -> None:
-        # Non-EXTREME_Z liquidations end the regime -- reset re-entry
-        # state. EXTREME_Z liquidations may transition to ARMED in B.4;
-        # for B.3 the cycle just terminates like any other reason (the
-        # ARMED transition is gated on reentry_z_threshold being set,
-        # which has no apply()-side logic yet -- coming in B.4).
+        # Save cycle_direction before super() clears it -- needed if we
+        # transition to ARMED (re-entry must remember the cycle's side).
+        saved_cycle_direction = self._cycle_direction
+
+        # Non-EXTREME_Z liquidations end the regime: clear re-entry state.
+        # EXTREME_Z liquidations leave _reentries_this_regime intact so
+        # the cap counter accumulates across multiple extreme-z exits.
         if reason != "EXTREME_Z":
             self._armed_for_reentry = False
             self._reentries_this_regime = 0
+
         super()._liquidate(legs, i, bar_ts, bar_closes, leg_float,
                            floating_total, reason)
+
+        # On EXTREME_Z, if re-entry is configured AND we haven't exhausted
+        # the per-regime cap, transition to ARMED. Otherwise the cycle
+        # terminates normally (super() already cleared all state).
+        if (reason == "EXTREME_Z"
+                and self.reentry_z_threshold is not None
+                and self._reentries_this_regime < self.reentry_max_per_regime):
+            self._cycle_direction = saved_cycle_direction
+            self._armed_for_reentry = True
+            self.recycle_events.append({
+                "bar_index": i,
+                "bar_ts": bar_ts,
+                "action": "ARMED_FOR_REENTRY",
+                "cycle_direction": saved_cycle_direction,
+                "reentries_this_regime": self._reentries_this_regime,
+                "reentry_max_per_regime": self.reentry_max_per_regime,
+            })
 
     # ---- Hook override: extreme-z take-profit exit -----------------------
     # Fires when extreme_z_threshold is set AND cycle_dir * diff exceeds
@@ -261,3 +281,115 @@ class H3SpreadV3Rule(H3SpreadV2Rule):
             return True
 
         return False
+
+    # ---- ARMED-for-reentry state machine (Mechanic B) --------------------
+    # When `_armed_for_reentry` is True (set by _liquidate after an
+    # EXTREME_Z exit), apply() pre-empts the normal @2 flow with this
+    # state handler. Three outcomes per bar:
+    #   ABORTED   -- regime/macro flipped; clear armed flag, fall through
+    #   REENTERED -- conditions met; reset leg state, fall through (super()
+    #                will snap the basket open in its normal flow)
+    #   WAITING   -- still armed, no transition; fall through (super() will
+    #                emit AWAITING_ENTRY record for this bar)
+    # The decision to always fall through to super().apply() keeps per-bar
+    # record emission consistent regardless of state.
+
+    def apply(self, legs, i, bar_ts):  # noqa: D401
+        if self._armed_for_reentry:
+            self._step_armed_state(legs, i, bar_ts)
+        super().apply(legs, i, bar_ts)
+
+    def _step_armed_state(self, legs, i, bar_ts) -> str:
+        """Step the ARMED-for-reentry state machine on this bar. Returns
+        one of 'ABORTED', 'REENTERED', 'WAITING' (mainly for testing /
+        telemetry; the outer apply() always falls through to super())."""
+        cycle_dir = self._cycle_direction
+
+        # Read diff and cross_side on this bar.
+        try:
+            diff = float(legs[0].df.loc[bar_ts, "diff"])
+        except (KeyError, ValueError, TypeError):
+            return "WAITING"
+        try:
+            cross_side = int(legs[0].df.loc[bar_ts, self.reverse_cross_column])
+        except (KeyError, ValueError, TypeError):
+            cross_side = 0
+
+        # Abort #1: cross_side has flipped against cycle_dir (regime end)
+        if (self.reentry_cross_check
+                and cross_side != 0
+                and cross_side != cycle_dir):
+            return self._abort_armed(i, bar_ts, "CROSS_FLIPPED")
+
+        # Abort #2: macro filter has flipped against cycle_dir
+        if self.reentry_macro_check:
+            try:
+                htf_direction = int(legs[0].df.loc[bar_ts, "htf_direction"])
+            except (KeyError, ValueError, TypeError):
+                # No macro column joined onto this leg -- treat as aligned
+                # (the rule shouldn't penalize directives that opt out of
+                # macro filtering by simply not setting macro_direction_timeframe).
+                htf_direction = cycle_dir
+            if htf_direction != 0 and htf_direction != cycle_dir:
+                return self._abort_armed(i, bar_ts, "MACRO_FLIPPED")
+
+        # Abort #3: per-regime re-entry cap reached
+        if self._reentries_this_regime >= self.reentry_max_per_regime:
+            return self._abort_armed(i, bar_ts, "MAX_REENTRIES_REACHED")
+
+        # Re-entry trigger: cycle_dir * diff in (0, reentry_z_threshold)
+        # = spread has normalized back below the re-entry threshold but
+        # is still on the cycle's side.
+        aligned_z = cycle_dir * diff
+        if 0.0 < aligned_z < self.reentry_z_threshold:
+            return self._force_reentry(legs, i, bar_ts)
+
+        return "WAITING"
+
+    def _abort_armed(self, i, bar_ts, reason: str) -> str:
+        """Clear ARMED state and emit an ABORT event. After this, the cycle
+        is fully flat and awaits a new cross_event for a fresh cycle."""
+        self._armed_for_reentry = False
+        self._reentries_this_regime = 0
+        self.recycle_events.append({
+            "bar_index": i,
+            "bar_ts": bar_ts,
+            "action": "ARMED_ABORT",
+            "reason": reason,
+        })
+        return "ABORTED"
+
+    def _force_reentry(self, legs, i, bar_ts) -> str:
+        """Re-open the basket as a fresh cycle, preserving cycle_direction.
+        leg.state.in_pos / lot / entry_price are reset; super().apply() in
+        the same bar will then execute its normal `all_open and not
+        _basket_open` snapshot block, emitting the BASKET_OPEN event."""
+        cycle_dir = self._cycle_direction
+        initial_lot = self._initial_lot_per_leg
+
+        for leg in legs:
+            leg.state.in_pos = True
+            # Preserve direction (set on the FIRST cycle's BASKET_OPEN);
+            # for bidirectional mode super() re-captures from cross_side
+            # at this bar (which the re-entry check verified is aligned).
+            try:
+                close = float(leg.df.loc[bar_ts, "close"])
+                leg.state.entry_price = close
+            except (KeyError, ValueError):
+                pass
+            leg.state.entry_index = i
+            if initial_lot is not None:
+                leg.lot = initial_lot
+
+        self._armed_for_reentry = False
+        self._reentries_this_regime += 1
+        self._n_reentries += 1
+        self.recycle_events.append({
+            "bar_index": i,
+            "bar_ts": bar_ts,
+            "action": "REENTRY",
+            "cycle_direction": cycle_dir,
+            "reentries_this_regime": self._reentries_this_regime,
+            "n_reentries_total": self._n_reentries,
+        })
+        return "REENTERED"

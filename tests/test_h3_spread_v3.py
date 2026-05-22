@@ -455,3 +455,274 @@ def test_v3_extreme_z_with_threshold_byte_equiv_to_v2_when_diff_subthreshold():
     events3 = _run_rule(rule3, eur_leg3, jpy_leg3, idx3)
     assert _strip_volatile(events2) == _strip_volatile(events3)
     assert rule3._n_extreme_z_exits == 0
+
+
+# ---------------------------------------------------------------------------
+# B.4: ARMED-for-reentry state machine
+# ---------------------------------------------------------------------------
+
+
+def _build_legs_with_macro(eur_prices, jpy_prices, cross_side_arr,
+                           diff_arr, htf_direction_arr, initial_lot=0.10):
+    """Extended fixture that also injects an htf_direction column on
+    each leg df (needed for the macro-abort tests)."""
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur_prices, jpy_prices, cross_side_arr=cross_side_arr,
+        diff_arr=diff_arr, initial_lot=initial_lot,
+    )
+    eur_leg.df["htf_direction"] = htf_direction_arr
+    jpy_leg.df["htf_direction"] = htf_direction_arr
+    return eur_leg, jpy_leg, idx
+
+
+def test_v3_reentry_fires_when_conditions_met():
+    """EXTREME_Z exit at bar 6 transitions to ARMED. Diff drops to 0.5
+    at bar 7 (in reentry zone (0, 1.0)), cross_side still aligned -> a
+    REENTRY event fires and a fresh cycle opens."""
+    n = 20
+    eur = np.full(n, 1.0800)        # flat -- no adverse, no MFE
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.full(6, 1.5),            # bars 0-5: subthreshold
+        np.full(1, 2.5),            # bar 6: extreme → EXTREME_Z
+        np.full(13, 0.5),           # bars 7-19: reentry zone → RE-ENTRY
+    ])
+    cross = np.full(n, 1, dtype=int)
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(
+        extreme_z_threshold=2.0,
+        reentry_z_threshold=1.0,
+        reentry_macro_check=False,   # no htf_direction column in fixture
+    ))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+
+    extreme = _find_event(events, action="LIQUIDATE", reason="EXTREME_Z")
+    armed = _find_event(events, action="ARMED_FOR_REENTRY")
+    reentry = _find_event(events, action="REENTRY")
+    assert extreme is not None, "EXTREME_Z must fire at bar 6"
+    assert armed is not None, "ARMED_FOR_REENTRY must be emitted after EXTREME_Z"
+    assert reentry is not None, "REENTRY event must fire after re-entry conditions met"
+
+    # Telemetry counters
+    assert rule._n_extreme_z_exits == 1
+    assert rule._n_reentries == 1
+    assert rule._reentries_this_regime == 1
+    # cycle_direction preserved across the transition
+    assert reentry["cycle_direction"] == 1
+
+
+def test_v3_reentry_aborts_on_cross_flip_during_armed():
+    """While ARMED, if cross_side flips against cycle_dir, the cycle
+    aborts (no re-entry). _reentries_this_regime resets to 0."""
+    n = 20
+    eur = np.full(n, 1.0800)
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.full(6, 1.5),
+        np.full(1, 2.5),            # bar 6: EXTREME_Z
+        np.full(13, 0.5),           # would be reentry zone -- but cross flips
+    ])
+    # cross flips to -1 starting at bar 7
+    cross = np.concatenate([
+        np.full(7, 1, dtype=int),
+        np.full(13, -1, dtype=int),
+    ])
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(
+        extreme_z_threshold=2.0,
+        reentry_z_threshold=1.0,
+        reentry_macro_check=False,
+    ))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    abort = _find_event(events, action="ARMED_ABORT", reason="CROSS_FLIPPED")
+    reentry = _find_event(events, action="REENTRY")
+    assert abort is not None, "ARMED_ABORT(CROSS_FLIPPED) must fire"
+    assert reentry is None, "No REENTRY should fire after cross flip"
+    assert rule._n_reentries == 0
+    assert rule._reentries_this_regime == 0
+    assert rule._armed_for_reentry is False
+
+
+def test_v3_reentry_aborts_on_macro_flip_during_armed():
+    """While ARMED, if htf_direction flips against cycle_dir, the cycle
+    aborts (no re-entry)."""
+    n = 20
+    eur = np.full(n, 1.0800)
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.full(6, 1.5),
+        np.full(1, 2.5),
+        np.full(13, 0.5),
+    ])
+    cross = np.full(n, 1, dtype=int)
+    # htf_direction flips to -1 starting at bar 7
+    htf = np.concatenate([
+        np.full(7, 1, dtype=int),
+        np.full(13, -1, dtype=int),
+    ])
+    eur_leg, jpy_leg, idx = _build_legs_with_macro(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+        htf_direction_arr=htf,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(
+        extreme_z_threshold=2.0,
+        reentry_z_threshold=1.0,
+        reentry_macro_check=True,
+    ))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    abort = _find_event(events, action="ARMED_ABORT", reason="MACRO_FLIPPED")
+    reentry = _find_event(events, action="REENTRY")
+    assert abort is not None, "ARMED_ABORT(MACRO_FLIPPED) must fire"
+    assert reentry is None
+    assert rule._n_reentries == 0
+
+
+def test_v3_reentry_max_per_regime_caps_reentries():
+    """With reentry_max_per_regime=2, the 3rd extreme-z exit terminates
+    fully (no ARMED transition) because the per-regime cap is reached
+    in the _liquidate override.
+
+    Fixture (5-bar period: 1 extreme bar + 4 reentry-zone bars):
+      Bars 0-2:  diff=1.5 (subthreshold; cycle 1 runs)
+      Bar  3:    diff=2.5 -> EXTREME_Z #1, ARMED
+      Bar  4:    diff=0.5 -> REENTRY #1 (cycle 2 starts)
+      Bars 5-8:  diff=0.5 (reentry zone, but already in cycle 2)
+      Bar  9:    diff=2.5 -> EXTREME_Z #2, ARMED
+      Bar  10:   diff=0.5 -> REENTRY #2 (cycle 3 starts)
+      Bars 11-14: diff=0.5
+      Bar  15:   diff=2.5 -> EXTREME_Z #3, NO ARMED (cap=2 reached)
+      Bars 16-19: diff=0.5 (cycle fully flat, no further activity)
+    """
+    diff_pattern = (
+        [1.5]*3 + [2.5] + [0.5]*5      # bars 0-8:  cycle1+EZ+reentry1+running
+        + [2.5] + [0.5]*5              # bars 9-14: EZ+reentry2+running
+        + [2.5] + [0.5]*4              # bars 15-19: EZ #3 (capped)
+    )
+    n = len(diff_pattern)
+    eur = np.full(n, 1.0800)
+    jpy = np.full(n, 150.0)
+    diff = np.array(diff_pattern, dtype=float)
+    cross = np.full(n, 1, dtype=int)
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(
+        extreme_z_threshold=2.0,
+        reentry_z_threshold=1.0,
+        reentry_macro_check=False,
+        reentry_max_per_regime=2,
+    ))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    reentries = [e for e in events if e.get("action") == "REENTRY"]
+    extreme_exits = [e for e in events
+                     if e.get("action") == "LIQUIDATE"
+                     and e.get("reason") == "EXTREME_Z"]
+    assert rule._n_reentries == 2, (
+        f"Expected exactly 2 re-entries (cap=2), got {rule._n_reentries}"
+    )
+    assert len(reentries) == 2
+    assert rule._armed_for_reentry is False
+    assert len(extreme_exits) == 3, (
+        f"Expected 3 EXTREME_Z exits, got {len(extreme_exits)}"
+    )
+
+
+def test_v3_extreme_z_alone_without_reentry_terminates_normally():
+    """When extreme_z_threshold is set but reentry_z_threshold is None,
+    EXTREME_Z exits behave like any other terminal liquidation -- no
+    ARMED transition."""
+    n = 20
+    eur = np.full(n, 1.0800)
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.full(6, 1.5),
+        np.full(14, 2.5),
+    ])
+    cross = np.full(n, 1, dtype=int)
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(
+        extreme_z_threshold=2.0,
+        # reentry_z_threshold left None -> mechanic B disabled
+    ))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    extreme = _find_event(events, action="LIQUIDATE", reason="EXTREME_Z")
+    armed = _find_event(events, action="ARMED_FOR_REENTRY")
+    reentry = _find_event(events, action="REENTRY")
+    assert extreme is not None
+    assert armed is None, "No ARMED_FOR_REENTRY expected when reentry_z_threshold=None"
+    assert reentry is None
+    assert rule._armed_for_reentry is False
+    assert rule._n_reentries == 0
+
+
+def test_v3_reentries_this_regime_resets_on_reverse_cross():
+    """After a re-entry within a regime, a REVERSE_CROSS exit (i.e., the
+    regime actually flips) must reset _reentries_this_regime to 0 so the
+    cap applies to the NEXT regime independently."""
+    n = 30
+    eur = np.full(n, 1.0800)
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.full(3, 1.5),
+        np.full(1, 2.5),     # bar 3: EXTREME_Z
+        np.full(3, 0.5),     # bars 4-6: REENTRY at bar 4
+        np.full(23, 1.5),    # cycle 2 runs
+    ])
+    # cross_side flips to -1 at bar 15 -> REVERSE_CROSS on cycle 2
+    cross = np.concatenate([
+        np.full(15, 1, dtype=int),
+        np.full(15, -1, dtype=int),
+    ])
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(
+        extreme_z_threshold=2.0,
+        reentry_z_threshold=1.0,
+        reentry_macro_check=False,
+    ))
+    _run_rule(rule, eur_leg, jpy_leg, idx)
+
+    # After REVERSE_CROSS exit (cycle 2), _reentries_this_regime resets.
+    assert rule._reentries_this_regime == 0
+    # But _n_reentries (cumulative) keeps the 1 from earlier
+    assert rule._n_reentries == 1
+
+
+def test_v3_reentry_preserves_cycle_direction_for_bidirectional():
+    """In bidirectional mode, the re-entered cycle's direction must match
+    the original cycle's direction (not be re-captured from a possibly-
+    stale cross_side at re-entry bar)."""
+    n = 20
+    eur = np.full(n, 1.0800)
+    jpy = np.full(n, 150.0)
+    diff = np.concatenate([
+        np.full(6, 1.5),
+        np.full(1, 2.5),       # EXTREME_Z at bar 6
+        np.full(13, 0.5),
+    ])
+    cross = np.full(n, 1, dtype=int)
+    eur_leg, jpy_leg, idx = _build_legs(
+        eur, jpy, cross_side_arr=cross, diff_arr=diff,
+    )
+    rule = H3SpreadV3Rule(**_make_params_pair(
+        extreme_z_threshold=2.0,
+        reentry_z_threshold=1.0,
+        reentry_macro_check=False,
+        bidirectional=True,
+    ))
+    events = _run_rule(rule, eur_leg, jpy_leg, idx)
+    reentry = _find_event(events, action="REENTRY")
+    assert reentry is not None
+    assert reentry["cycle_direction"] == 1, (
+        f"Expected cycle_direction=+1 (preserved from cycle 1), "
+        f"got {reentry['cycle_direction']}"
+    )
+    # After re-entry the rule should also see _cycle_direction == 1
+    assert rule._cycle_direction == 1
