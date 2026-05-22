@@ -1,0 +1,141 @@
+//@version=6
+indicator('Multi-Pair Normalized Overlay', overlay = true, max_lines_count = 50)
+
+// ============================================================================
+// Multi-pair normalized overlay for basket / pair-trade visual confirmation.
+//
+// Each external symbol is min-max normalized into the chart asset's high/low
+// range over <norm_len> bars, then plotted on the price pane. Use it to
+// eyeball how the chart symbol co-moves vs DXY and the other USD_SYNTH legs
+// (90-series H2 basket recycle, H3_spread, PAIRX research).
+//
+// Default slots: DXY + 5 USD_SYNTH legs (EURUSD, USDJPY, AUDUSD, USDCAD,
+// GBPUSD). Sixth leg USDCHF omitted to keep slot count at 6; swap any
+// slot's symbol in the inputs panel if you need it (e.g. EURJPY for the
+// H3_spread basket).
+//
+// Slot 1 (DXY) starts ON; slots 2-6 start OFF — toggle as needed.
+// Each slot's Show checkbox is on its own row above the Symbol/Color row.
+// ============================================================================
+
+// === General ===
+minmax_len = input.int(100, title = 'Min-Max Window (bars)',
+     minval = 10, maxval = 1000, group = 'General',
+     tooltip = 'Lookback for the rolling high/low used in min-max scaling. Only matters when "Use z-score normalization" is OFF. Longer windows give a more stable envelope; shorter windows respond faster to recent extremes.')
+
+zscore_len = input.int(30, title = 'Z-Score Window (bars)',
+     minval = 10, maxval = 1000, group = 'General',
+     tooltip = 'Lookback for the rolling mean/stdev used in z-score scaling. Only matters when "Use z-score normalization" is ON. 30 matches the ZREV chart-TF rolling_zscore default; 20 matches the stretch_z20 conceptual number on daily USD_SYNTH; 100 matches the macro filter _Z_LOOKBACK on daily.')
+
+hide_self = input.bool(true, title = 'Hide slot matching chart symbol', group = 'General',
+     tooltip = 'When ON, any slot whose symbol matches the chart symbol is suppressed — avoids the duplicate normalized line on top of price. Ticker-only comparison, so OANDA:EURUSD on FX_IDC:EURUSD chart is still treated as the same symbol.')
+
+use_zscore = input.bool(true, title = 'Use z-score normalization', group = 'General',
+     tooltip = 'OFF (default): min-max scaling — each slot is stretched into the chart\'s high/low envelope over the lookback. Visual co-movement only; amplitudes NOT comparable across pairs. ON: z-score — each slot is computed as (close − rolling_mean) / rolling_stdev and re-anchored at the chart\'s mean ± stdev. Amplitudes ARE comparable across pairs and match the strategy z-score logic.')
+
+// === Slot 1 — DXY ===
+show_1 = input.bool(true, title = 'Show DXY', group = 'Slot 1 — DXY')
+sym_1 = input.symbol('TVC:DXY', title = 'Symbol', group = 'Slot 1 — DXY', inline = 's1')
+col_1 = input.color(color.black, title = 'Color', group = 'Slot 1 — DXY', inline = 's1')
+
+// === Slot 2 — EURUSD ===
+show_2 = input.bool(false, title = 'Show', group = 'Slot 2 — EURUSD')
+sym_2 = input.symbol('OANDA:EURUSD', title = 'Symbol', group = 'Slot 2 — EURUSD', inline = 's2')
+col_2 = input.color(color.blue, title = 'Color', group = 'Slot 2 — EURUSD', inline = 's2')
+
+// === Slot 3 — USDJPY ===
+show_3 = input.bool(false, title = 'Show', group = 'Slot 3 — USDJPY')
+sym_3 = input.symbol('OANDA:USDJPY', title = 'Symbol', group = 'Slot 3 — USDJPY', inline = 's3')
+col_3 = input.color(color.red, title = 'Color', group = 'Slot 3 — USDJPY', inline = 's3')
+
+// === Slot 4 — AUDUSD ===
+show_4 = input.bool(false, title = 'Show', group = 'Slot 4 — AUDUSD')
+sym_4 = input.symbol('OANDA:AUDUSD', title = 'Symbol', group = 'Slot 4 — AUDUSD', inline = 's4')
+col_4 = input.color(color.green, title = 'Color', group = 'Slot 4 — AUDUSD', inline = 's4')
+
+// === Slot 5 — USDCAD ===
+show_5 = input.bool(false, title = 'Show', group = 'Slot 5 — USDCAD')
+sym_5 = input.symbol('OANDA:USDCAD', title = 'Symbol', group = 'Slot 5 — USDCAD', inline = 's5')
+col_5 = input.color(color.orange, title = 'Color', group = 'Slot 5 — USDCAD', inline = 's5')
+
+// === Slot 6 — GBPUSD ===
+show_6 = input.bool(false, title = 'Show', group = 'Slot 6 — GBPUSD')
+sym_6 = input.symbol('OANDA:GBPUSD', title = 'Symbol', group = 'Slot 6 — GBPUSD', inline = 's6')
+col_6 = input.color(color.purple, title = 'Color', group = 'Slot 6 — GBPUSD', inline = 's6')
+
+// === Chart asset stats ===
+// Min-max stats over minmax_len; z-score stats over zscore_len.
+asset_min = ta.lowest(low, minmax_len)
+asset_max = ta.highest(high, minmax_len)
+asset_range = asset_max - asset_min
+asset_mean = ta.sma(close, zscore_len)
+asset_stdev = ta.stdev(close, zscore_len)
+
+// === Normalization helper ===
+// One request.security call per slot, fetching close + rolling stats of
+// close in the source symbol's context. Returns either:
+//   - min-max scaled into the chart's high/low envelope (use_zscore=false), OR
+//   - z-score around the source's rolling mean, re-anchored at the chart's
+//     mean ± stdev (use_zscore=true; amplitude-comparable across pairs).
+normalize(_sym) =>
+    [c, lo, hi, mean, std] = request.security(_sym, timeframe.period,
+         [close,
+          ta.lowest(close, minmax_len),
+          ta.highest(close, minmax_len),
+          ta.sma(close, zscore_len),
+          ta.stdev(close, zscore_len)])
+    src_range = hi - lo
+    minmax_out = src_range == 0 or na(src_range) ? na : (c - lo) / src_range * asset_range + asset_min
+    zscore_out = std == 0 or na(std) ? na : asset_mean + (c - mean) / std * asset_stdev
+    use_zscore ? zscore_out : minmax_out
+
+// === Compute normalized series ===
+n1 = normalize(sym_1)
+n2 = normalize(sym_2)
+n3 = normalize(sym_3)
+n4 = normalize(sym_4)
+n5 = normalize(sym_5)
+n6 = normalize(sym_6)
+
+// === Helpers — chart-symbol detection ===
+// Extract just the ticker portion of a "PREFIX:TICKER" symbol id, so a slot
+// configured as e.g. "OANDA:EURUSD" matches the chart symbol on EURUSD
+// regardless of which broker prefix the chart uses.
+ticker_only(_sym) =>
+    parts = str.split(_sym, ":")
+    array.size(parts) > 1 ? array.get(parts, 1) : _sym
+
+is_chart_symbol(_sym) => ticker_only(_sym) == syminfo.ticker
+
+// === Draw flags ===
+// A slot draws only when Show is ON AND the chart-symbol-hide rule doesn't
+// suppress it. Setting hide_self=false in inputs lets you compare a slot's
+// normalized line against the raw chart price for diagnostic purposes.
+draw_1 = show_1 and not (hide_self and is_chart_symbol(sym_1))
+draw_2 = show_2 and not (hide_self and is_chart_symbol(sym_2))
+draw_3 = show_3 and not (hide_self and is_chart_symbol(sym_3))
+draw_4 = show_4 and not (hide_self and is_chart_symbol(sym_4))
+draw_5 = show_5 and not (hide_self and is_chart_symbol(sym_5))
+draw_6 = show_6 and not (hide_self and is_chart_symbol(sym_6))
+
+// === Plots ===
+// Two-layer gating to satisfy Pine v6 type qualifiers:
+//   - `display` binds to show_N (input-qualified) — controls BOTH chart and
+//     Style-tab visibility. Slot OFF in Inputs ⇒ no Style-tab entry.
+//   - The series itself is `na`-gated by draw_N (series-qualified, from the
+//     ticker-string comparison) — suppresses the chart line when the slot's
+//     symbol matches the chart symbol, while keeping the Style-tab entry.
+// `display=` only accepts input/const qualifiers, so the chart-symbol-hide
+// rule has to live in the series gate, not the display gate.
+plot(draw_1 ? n1 : na, title = 'Slot 1 — DXY', color = col_1, linewidth = 2,
+     display = show_1 ? display.all : display.none)
+plot(draw_2 ? n2 : na, title = 'Slot 2 — EURUSD', color = col_2, linewidth = 2,
+     display = show_2 ? display.all : display.none)
+plot(draw_3 ? n3 : na, title = 'Slot 3 — USDJPY', color = col_3, linewidth = 2,
+     display = show_3 ? display.all : display.none)
+plot(draw_4 ? n4 : na, title = 'Slot 4 — AUDUSD', color = col_4, linewidth = 2,
+     display = show_4 ? display.all : display.none)
+plot(draw_5 ? n5 : na, title = 'Slot 5 — USDCAD', color = col_5, linewidth = 2,
+     display = show_5 ? display.all : display.none)
+plot(draw_6 ? n6 : na, title = 'Slot 6 — GBPUSD', color = col_6, linewidth = 2,
+     display = show_6 ? display.all : display.none)

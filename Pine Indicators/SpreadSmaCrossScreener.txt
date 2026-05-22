@@ -1,80 +1,312 @@
 //@version=6
-indicator('SMA Cross Screener ', overlay = true)
+indicator('Pair Trade Screener', overlay = true, max_lines_count = 50)
 
-// =============================================================
-// 90-series spread-SMA crossover screener for FX pair combos.
-// Real-time dashboard only — no orders, no parity with the OctaFx
-// backtest data. Feed is hardcoded to OANDA per leg so the spread
-// stays consistent regardless of which chart it's dropped on.
+// =========================================================================
+// COMBINED — normalized leg overlay + pair-trade signals in ONE indicator.
 //
-// Add to any 5m chart (or whatever TF you want to scan); the table
-// updates per bar of the chart's TF.
-// =============================================================
+// Up to 6 normalized leg lines are plotted on the price chart. Up to 3
+// pair-trade combos are evaluated by referencing TWO slot numbers each.
+// The SAME z values drive both the visible lines AND the cross-detection
+// diff, so a marker can never fire without the underlying lines having
+// crossed (modulo the hysteresis deadband).
+//
+// Setup
+//   1. Configure 6 slots (symbol + color). Toggle Show to plot a line.
+//   2. Define 3 combos by picking two slot numbers each (leg A / leg B).
+//      Defaults: C1 = slot 2 vs 3, C2 = slot 6 vs 3, C3 = slot 4 vs 5.
+//   3. Drop the indicator on any chart belonging to a combo leg —
+//      green entry / red exit arrows fire for that chart.
+// =========================================================================
 
-// --- Inputs ----------------------------------------------------
-z_window = input.int(600, 'z-window (bars)', minval = 10)
-sma_window = input.int(15, 'SMA window (bars)', minval = 1)
+// --- General ------------------------------------------------------------
+minmax_len = input.int(100, 'Min-Max window (bars)', minval = 10, maxval = 1000, group = 'General',
+     tooltip = 'Lookback for rolling high/low used in min-max plotting. Only matters when "Use z-score normalization" is OFF.')
+z_window = input.int(30, 'z-window (bars)', minval = 5, maxval = 1000, group = 'General',
+     tooltip = 'Per-leg z-score lookback. Drives BOTH the plotted z-lines AND the cross-detection diff — guaranteed sync.')
+sma_window = input.int(1, 'SMA window (bars)', minval = 1, group = 'General',
+     tooltip = 'Optional SMA smoothing of the diff before crossover detection. 1 = no smoothing. Raise to lag-smooth the diff.')
+use_zscore = input.bool(true, 'Use z-score normalization', group = 'General',
+     tooltip = 'ON: z-score scaling, amplitude-comparable across legs. OFF: min-max scaling, visual co-movement only.')
+hide_self = input.bool(true, 'Hide slot matching chart symbol', group = 'General',
+     tooltip = 'When ON, the slot whose symbol matches the chart symbol is not drawn (avoids the duplicate line on price).')
+cross_buffer = input.float(0.3, 'Cross deadband (z-units)', minval = 0.0, step = 0.05, group = 'General',
+     tooltip = 'Hysteresis. The side only flips when |diff| clearly exceeds this in the new direction. 0 = strict zero-crossing.')
 
-macro_tf         = input.timeframe('D', 'Macro timeframe')
-macro_z_window   = input.int(60, 'Macro z-window (bars)', minval = 10)
-macro_sma_window = input.int(5,  'Macro SMA window (bars)', minval = 1)
+// --- Slot 1 -------------------------------------------------------------
+show_1 = input.bool(false, 'Show DXY', group = 'Slot 1 — DXY')
+sym_1 = input.symbol('TVC:DXY', 'Symbol', group = 'Slot 1 — DXY', inline = 's1')
+col_1 = input.color(color.black, 'Color', group = 'Slot 1 — DXY', inline = 's1')
 
-corr_window = input.int(100, 'Correlation window (bars, chart TF)', minval = 5)
+// --- Slot 2 -------------------------------------------------------------
+show_2 = input.bool(true, 'Show', group = 'Slot 2 — EURUSD')
+sym_2 = input.symbol('OANDA:EURUSD', 'Symbol', group = 'Slot 2 — EURUSD', inline = 's2')
+col_2 = input.color(color.blue, 'Color', group = 'Slot 2 — EURUSD', inline = 's2')
 
-sym_a1 = input.symbol('OANDA:EURUSD', 'Combo 1 — Leg A')
-sym_b1 = input.symbol('OANDA:USDJPY', 'Combo 1 — Leg B')
-sym_a2 = input.symbol('OANDA:GBPUSD', 'Combo 2 — Leg A')
-sym_b2 = input.symbol('OANDA:USDJPY', 'Combo 2 — Leg B')
-sym_a3 = input.symbol('OANDA:AUDUSD', 'Combo 3 — Leg A')
-sym_b3 = input.symbol('OANDA:USDCAD', 'Combo 3 — Leg B')
+// --- Slot 3 -------------------------------------------------------------
+show_3 = input.bool(true, 'Show', group = 'Slot 3 — USDJPY')
+sym_3 = input.symbol('OANDA:USDJPY', 'Symbol', group = 'Slot 3 — USDJPY', inline = 's3')
+col_3 = input.color(color.red, 'Color', group = 'Slot 3 — USDJPY', inline = 's3')
 
-tbl_pos_str = input.string('top_right', 'Table position', options = ['top_left', 'top_right', 'bottom_left', 'bottom_right'])
+// --- Slot 4 -------------------------------------------------------------
+show_4 = input.bool(false, 'Show', group = 'Slot 4 — AUDUSD')
+sym_4 = input.symbol('OANDA:AUDUSD', 'Symbol', group = 'Slot 4 — AUDUSD', inline = 's4')
+col_4 = input.color(color.green, 'Color', group = 'Slot 4 — AUDUSD', inline = 's4')
 
-// --- SMA-of-rolling-zscore (parameterized) --------------------
-sma_of_z(src, zw, sw) =>
-    mu = ta.sma(src, zw)
-    sd = ta.stdev(src, zw)
-    z = (src - mu) / sd
-    ta.sma(z, sw)
+// --- Slot 5 -------------------------------------------------------------
+show_5 = input.bool(false, 'Show', group = 'Slot 5 — USDCAD')
+sym_5 = input.symbol('OANDA:USDCAD', 'Symbol', group = 'Slot 5 — USDCAD', inline = 's5')
+col_5 = input.color(color.orange, 'Color', group = 'Slot 5 — USDCAD', inline = 's5')
 
-// --- Per-combo signal -----------------------------------------
-// Returns [side, event, diff, macro]
-//   side  =  1 when 5m SMA(z_A) > SMA(z_B), -1 when <, 0 during warmup
-//   event = true on the bar where side flips (excludes warmup)
-//   diff  = SMA(z_A) - SMA(z_B)  (current z-spread)
-//   macro =  1 / -1 / 0 — same logic on macro_tf (default 1D).
-//           request.security defaults to lookahead_off, so during a
-//           forming higher-TF bar we use only the previous CLOSED
-//           higher-TF bar — no look-ahead.
-combo_sig(_sa, _sb) =>
-    ca = request.security(_sa, timeframe.period, close)
-    cb = request.security(_sb, timeframe.period, close)
-    sma_za = sma_of_z(ca, z_window, sma_window)
-    sma_zb = sma_of_z(cb, z_window, sma_window)
-    diff = sma_za - sma_zb
-    side = na(diff) ? 0 : diff > 0 ? 1 : -1
-    prev = nz(side[1], 0)
-    event = side != 0 and prev != 0 and side != prev
+// --- Slot 6 -------------------------------------------------------------
+show_6 = input.bool(false, 'Show', group = 'Slot 6 — GBPUSD')
+sym_6 = input.symbol('OANDA:GBPUSD', 'Symbol', group = 'Slot 6 — GBPUSD', inline = 's6')
+col_6 = input.color(color.purple, 'Color', group = 'Slot 6 — GBPUSD', inline = 's6')
 
-    mca = request.security(_sa, macro_tf, close)
-    mcb = request.security(_sb, macro_tf, close)
-    msma_za = sma_of_z(mca, macro_z_window, macro_sma_window)
-    msma_zb = sma_of_z(mcb, macro_z_window, macro_sma_window)
-    mdiff = msma_za - msma_zb
-    macro = na(mdiff) ? 0 : mdiff > 0 ? 1 : -1
+// --- Macro layer --------------------------------------------------------
+use_macro_filter = input.bool(true, 'Use macro filter (gate entries)', group = 'Macro',
+     tooltip = 'ON (default): entries fire ONLY when chart-TF cross direction matches macro direction. Countertrend crosses become exits (S14 doctrine). OFF: every chart-TF cross is a reversal — previous trade exits and a new trade opens in the new direction. Macro is still computed and shown in the table for context.')
+macro_tf = input.timeframe('D', 'Macro timeframe', group = 'Macro',
+     tooltip = 'Higher TF that defines the regime. Daily (D) by default. Switch to 4H, 1W, etc. as needed. Ignored when "Use macro filter" is OFF.')
+macro_z_window = input.int(60, 'Macro z-window (bars)', minval = 10, group = 'Macro')
+macro_sma_window = input.int(5, 'Macro SMA window (bars)', minval = 1, group = 'Macro')
 
-    // Pair-relationship health: chart-TF rolling correlation of the
-    // two legs' closes. Strategy logic assumes negative correlation;
-    // a value drifting toward 0 means the spread structure has decayed.
-    corr = ta.correlation(ca, cb, corr_window)
+// --- Combos (reference slot numbers) ------------------------------------
+c1_a_slot = input.int(2, 'Combo 1 — Leg A slot', minval = 1, maxval = 6, group = 'Combo 1', inline = 'c1')
+c1_b_slot = input.int(3, 'Combo 1 — Leg B slot', minval = 1, maxval = 6, group = 'Combo 1', inline = 'c1')
+c2_a_slot = input.int(6, 'Combo 2 — Leg A slot', minval = 1, maxval = 6, group = 'Combo 2', inline = 'c2')
+c2_b_slot = input.int(3, 'Combo 2 — Leg B slot', minval = 1, maxval = 6, group = 'Combo 2', inline = 'c2')
+c3_a_slot = input.int(4, 'Combo 3 — Leg A slot', minval = 1, maxval = 6, group = 'Combo 3', inline = 'c3')
+c3_b_slot = input.int(5, 'Combo 3 — Leg B slot', minval = 1, maxval = 6, group = 'Combo 3', inline = 'c3')
 
-    [side, event, diff, macro, corr]
+// --- Signal params ------------------------------------------------------
+corr_window = input.int(100, 'Correlation window (bars)', minval = 5, group = 'Signal')
+sz_window = input.int(600, 'Spread-z window (bars)', minval = 10, group = 'Signal',
+     tooltip = 'Lookback for the rolling z-score of diff. Used by the stretched-too-far exit.')
+spread_z_threshold = input.float(2.0, 'Spread-z exit threshold', minval = 0.1, step = 0.1, group = 'Signal')
+show_signals = input.bool(true, 'Show entry/exit markers', group = 'Signal')
 
-[s1, e1, d1, m1, cor1] = combo_sig(sym_a1, sym_b1)
-[s2, e2, d2, m2, cor2] = combo_sig(sym_a2, sym_b2)
-[s3, e3, d3, m3, cor3] = combo_sig(sym_a3, sym_b3)
+// --- Table --------------------------------------------------------------
+tbl_pos_str = input.string('top_right', 'Table position',
+     options = ['top_left', 'top_right', 'bottom_left', 'bottom_right'], group = 'Table')
 
-// --- Per-combo bars-since-flip + last-cross time ---------------
+// =========================================================================
+// Chart asset stats — used to rescale z (or min-max) into price space
+// =========================================================================
+asset_min = ta.lowest(low, minmax_len)
+asset_max = ta.highest(high, minmax_len)
+asset_range = asset_max - asset_min
+asset_mean = ta.sma(close, z_window)
+asset_stdev = ta.stdev(close, z_window)
+
+// =========================================================================
+// Per-slot normalization
+//   Returns:  [plot_val, z_raw, c]
+//     plot_val = z-scaled or min-max scaled, rescaled to chart price range
+//     z_raw    = pure per-leg z-score in z-units (used for cross diff)
+//     c        = chart-TF close (used for correlation)
+// =========================================================================
+leg_norm(_sym) =>
+    [c, lo, hi, mean, std] = request.security(_sym, timeframe.period,
+         [close,
+          ta.lowest(close, minmax_len),
+          ta.highest(close, minmax_len),
+          ta.sma(close, z_window),
+          ta.stdev(close, z_window)])
+    src_range = hi - lo
+    minmax_plot = src_range == 0 or na(src_range) ? na : (c - lo) / src_range * asset_range + asset_min
+    z_raw = std == 0 or na(std) ? na : (c - mean) / std
+    z_plot = na(z_raw) ? na : asset_mean + z_raw * asset_stdev
+    plot_val = use_zscore ? z_plot : minmax_plot
+    [plot_val, z_raw, c]
+
+[plot_1, z_1, c_1] = leg_norm(sym_1)
+[plot_2, z_2, c_2] = leg_norm(sym_2)
+[plot_3, z_3, c_3] = leg_norm(sym_3)
+[plot_4, z_4, c_4] = leg_norm(sym_4)
+[plot_5, z_5, c_5] = leg_norm(sym_5)
+[plot_6, z_6, c_6] = leg_norm(sym_6)
+
+// === Slot lookup helpers (combo refs a slot number → fetch its values) ==
+get_slot_sym(n) =>
+    n == 1 ? sym_1 : n == 2 ? sym_2 : n == 3 ? sym_3 : n == 4 ? sym_4 : n == 5 ? sym_5 : sym_6
+get_slot_z(n) =>
+    n == 1 ? z_1 : n == 2 ? z_2 : n == 3 ? z_3 : n == 4 ? z_4 : n == 5 ? z_5 : z_6
+get_slot_c(n) =>
+    n == 1 ? c_1 : n == 2 ? c_2 : n == 3 ? c_3 : n == 4 ? c_4 : n == 5 ? c_5 : c_6
+
+// === Chart-symbol detection =============================================
+ticker_only(_sym) =>
+    parts = str.split(_sym, ':')
+    array.size(parts) > 1 ? array.get(parts, 1) : _sym
+is_chart_symbol(_sym) => ticker_only(_sym) == syminfo.ticker
+
+// === Slot draw flags + plot =============================================
+draw_1 = show_1 and not (hide_self and is_chart_symbol(sym_1))
+draw_2 = show_2 and not (hide_self and is_chart_symbol(sym_2))
+draw_3 = show_3 and not (hide_self and is_chart_symbol(sym_3))
+draw_4 = show_4 and not (hide_self and is_chart_symbol(sym_4))
+draw_5 = show_5 and not (hide_self and is_chart_symbol(sym_5))
+draw_6 = show_6 and not (hide_self and is_chart_symbol(sym_6))
+
+plot(draw_1 ? plot_1 : na, title = 'Slot 1', color = col_1, linewidth = 2,
+     display = show_1 ? display.all : display.none)
+plot(draw_2 ? plot_2 : na, title = 'Slot 2', color = col_2, linewidth = 2,
+     display = show_2 ? display.all : display.none)
+plot(draw_3 ? plot_3 : na, title = 'Slot 3', color = col_3, linewidth = 2,
+     display = show_3 ? display.all : display.none)
+plot(draw_4 ? plot_4 : na, title = 'Slot 4', color = col_4, linewidth = 2,
+     display = show_4 ? display.all : display.none)
+plot(draw_5 ? plot_5 : na, title = 'Slot 5', color = col_5, linewidth = 2,
+     display = show_5 ? display.all : display.none)
+plot(draw_6 ? plot_6 : na, title = 'Slot 6', color = col_6, linewidth = 2,
+     display = show_6 ? display.all : display.none)
+
+// === Combo resolution (symbols + z + close from slot numbers) ==========
+sym_c1_a = get_slot_sym(c1_a_slot)
+sym_c1_b = get_slot_sym(c1_b_slot)
+z_c1_a   = get_slot_z(c1_a_slot)
+z_c1_b   = get_slot_z(c1_b_slot)
+c_c1_a   = get_slot_c(c1_a_slot)
+c_c1_b   = get_slot_c(c1_b_slot)
+
+sym_c2_a = get_slot_sym(c2_a_slot)
+sym_c2_b = get_slot_sym(c2_b_slot)
+z_c2_a   = get_slot_z(c2_a_slot)
+z_c2_b   = get_slot_z(c2_b_slot)
+c_c2_a   = get_slot_c(c2_a_slot)
+c_c2_b   = get_slot_c(c2_b_slot)
+
+sym_c3_a = get_slot_sym(c3_a_slot)
+sym_c3_b = get_slot_sym(c3_b_slot)
+z_c3_a   = get_slot_z(c3_a_slot)
+z_c3_b   = get_slot_z(c3_b_slot)
+c_c3_a   = get_slot_c(c3_a_slot)
+c_c3_b   = get_slot_c(c3_b_slot)
+
+// === Combo diff (optionally smoothed) ===================================
+diff_c1 = ta.sma(z_c1_a - z_c1_b, sma_window)
+diff_c2 = ta.sma(z_c2_a - z_c2_b, sma_window)
+diff_c3 = ta.sma(z_c3_a - z_c3_b, sma_window)
+
+// === Hysteresis side detection — top-level vars per combo ==============
+var int s1 = 0
+var int s2 = 0
+var int s3 = 0
+s1 := na(diff_c1) ? 0 : diff_c1 > cross_buffer ? 1 : diff_c1 < -cross_buffer ? -1 : s1
+s2 := na(diff_c2) ? 0 : diff_c2 > cross_buffer ? 1 : diff_c2 < -cross_buffer ? -1 : s2
+s3 := na(diff_c3) ? 0 : diff_c3 > cross_buffer ? 1 : diff_c3 < -cross_buffer ? -1 : s3
+
+e1 = s1 != 0 and nz(s1[1], 0) != 0 and s1 != nz(s1[1], 0)
+e2 = s2 != 0 and nz(s2[1], 0) != 0 and s2 != nz(s2[1], 0)
+e3 = s3 != 0 and nz(s3[1], 0) != 0 and s3 != nz(s3[1], 0)
+
+// === Macro layer (z-of-spread on macro_tf) ==============================
+macro_z_smooth(_sym) =>
+    [mc, mean, std] = request.security(_sym, macro_tf,
+         [close, ta.sma(close, macro_z_window), ta.stdev(close, macro_z_window)])
+    z = std == 0 or na(std) ? na : (mc - mean) / std
+    ta.sma(z, macro_sma_window)
+
+mz_c1_a = macro_z_smooth(sym_c1_a)
+mz_c1_b = macro_z_smooth(sym_c1_b)
+mdiff_c1 = mz_c1_a - mz_c1_b
+m1 = na(mdiff_c1) ? 0 : mdiff_c1 > 0 ? 1 : -1
+
+mz_c2_a = macro_z_smooth(sym_c2_a)
+mz_c2_b = macro_z_smooth(sym_c2_b)
+mdiff_c2 = mz_c2_a - mz_c2_b
+m2 = na(mdiff_c2) ? 0 : mdiff_c2 > 0 ? 1 : -1
+
+mz_c3_a = macro_z_smooth(sym_c3_a)
+mz_c3_b = macro_z_smooth(sym_c3_b)
+mdiff_c3 = mz_c3_a - mz_c3_b
+m3 = na(mdiff_c3) ? 0 : mdiff_c3 > 0 ? 1 : -1
+
+// === Correlation + spread_z =============================================
+cor1 = ta.correlation(c_c1_a, c_c1_b, corr_window)
+cor2 = ta.correlation(c_c2_a, c_c2_b, corr_window)
+cor3 = ta.correlation(c_c3_a, c_c3_b, corr_window)
+
+sz_mu1 = ta.sma(diff_c1, sz_window)
+sz_sd1 = ta.stdev(diff_c1, sz_window)
+sz1 = sz_sd1 == 0 or na(sz_sd1) ? na : (diff_c1 - sz_mu1) / sz_sd1
+
+sz_mu2 = ta.sma(diff_c2, sz_window)
+sz_sd2 = ta.stdev(diff_c2, sz_window)
+sz2 = sz_sd2 == 0 or na(sz_sd2) ? na : (diff_c2 - sz_mu2) / sz_sd2
+
+sz_mu3 = ta.sma(diff_c3, sz_window)
+sz_sd3 = ta.stdev(diff_c3, sz_window)
+sz3 = sz_sd3 == 0 or na(sz_sd3) ? na : (diff_c3 - sz_mu3) / sz_sd3
+
+// === Exit triggers (sz threshold + counter-cross) =======================
+sz_exit1 = ta.crossover(math.abs(sz1), spread_z_threshold)
+sz_exit2 = ta.crossover(math.abs(sz2), spread_z_threshold)
+sz_exit3 = ta.crossover(math.abs(sz3), spread_z_threshold)
+
+// === Combo chart involvement ============================================
+ca_1 = is_chart_symbol(sym_c1_a)
+cb_1 = is_chart_symbol(sym_c1_b)
+ca_2 = is_chart_symbol(sym_c2_a)
+cb_2 = is_chart_symbol(sym_c2_b)
+ca_3 = is_chart_symbol(sym_c3_a)
+cb_3 = is_chart_symbol(sym_c3_b)
+
+// === Direction source (macro or chart-TF side) ==========================
+// When use_macro_filter is OFF, direction comes from current chart-TF side.
+md1 = use_macro_filter ? m1 : s1
+md2 = use_macro_filter ? m2 : s2
+md3 = use_macro_filter ? m3 : s3
+
+// === Entry / counter-cross exit =========================================
+// Macro ON:  entry only on macro-aligned cross; counter-cross becomes exit.
+// Macro OFF: every cross is a reversal — entry in the new side direction,
+//            and the previous trade (if any) is exited at the same bar.
+entry1 = use_macro_filter ? (e1 and s1 == m1 and m1 != 0) : (e1 and s1 != 0)
+entry2 = use_macro_filter ? (e2 and s2 == m2 and m2 != 0) : (e2 and s2 != 0)
+entry3 = use_macro_filter ? (e3 and s3 == m3 and m3 != 0) : (e3 and s3 != 0)
+
+xc_exit1 = use_macro_filter ? (e1 and m1 != 0 and s1 != m1) : (e1 and s1 != 0)
+xc_exit2 = use_macro_filter ? (e2 and m2 != 0 and s2 != m2) : (e2 and s2 != 0)
+xc_exit3 = use_macro_filter ? (e3 and m3 != 0 and s3 != m3) : (e3 and s3 != 0)
+
+// === State machine: strict entry → exit alternation =====================
+var bool in_trade1 = false
+var bool in_trade2 = false
+var bool in_trade3 = false
+var int  em1 = 0
+var int  em2 = 0
+var int  em3 = 0
+
+// Macro ON: entries gated by NOT in_trade (strict alternation).
+// Macro OFF: entries fire on every cross — same-bar exit+entry handles the
+//            reversal (state updates exit BEFORE entry so both can fire).
+fire_entry1 = entry1 and (use_macro_filter ? not in_trade1 : true)
+fire_entry2 = entry2 and (use_macro_filter ? not in_trade2 : true)
+fire_entry3 = entry3 and (use_macro_filter ? not in_trade3 : true)
+
+fire_exit1 = (sz_exit1 or xc_exit1) and in_trade1
+fire_exit2 = (sz_exit2 or xc_exit2) and in_trade2
+fire_exit3 = (sz_exit3 or xc_exit3) and in_trade3
+
+// Exit first, then entry — allows same-bar reversal in macro-off mode.
+if fire_exit1
+    in_trade1 := false
+if fire_entry1
+    in_trade1 := true
+    em1 := md1
+if fire_exit2
+    in_trade2 := false
+if fire_entry2
+    in_trade2 := true
+    em2 := md2
+if fire_exit3
+    in_trade3 := false
+if fire_entry3
+    in_trade3 := true
+    em3 := md3
+
+// === Bars-since-flip + last-cross time per combo ========================
 var int bars1 = na
 var int bars2 = na
 var int bars3 = na
@@ -96,11 +328,39 @@ if e3
     last3 := time
     last3
 
-// --- Helpers for rendering ------------------------------------
+// === Chart markers ======================================================
+c1_buy  = show_signals and fire_entry1 and ((ca_1 and md1 ==  1) or (cb_1 and md1 == -1))
+c1_sell = show_signals and fire_entry1 and ((ca_1 and md1 == -1) or (cb_1 and md1 ==  1))
+c2_buy  = show_signals and fire_entry2 and ((ca_2 and md2 ==  1) or (cb_2 and md2 == -1))
+c2_sell = show_signals and fire_entry2 and ((ca_2 and md2 == -1) or (cb_2 and md2 ==  1))
+c3_buy  = show_signals and fire_entry3 and ((ca_3 and md3 ==  1) or (cb_3 and md3 == -1))
+c3_sell = show_signals and fire_entry3 and ((ca_3 and md3 == -1) or (cb_3 and md3 ==  1))
+
+c1_exit_sell = show_signals and fire_exit1 and ((ca_1 and em1 ==  1) or (cb_1 and em1 == -1))
+c1_exit_buy  = show_signals and fire_exit1 and ((ca_1 and em1 == -1) or (cb_1 and em1 ==  1))
+c2_exit_sell = show_signals and fire_exit2 and ((ca_2 and em2 ==  1) or (cb_2 and em2 == -1))
+c2_exit_buy  = show_signals and fire_exit2 and ((ca_2 and em2 == -1) or (cb_2 and em2 ==  1))
+c3_exit_sell = show_signals and fire_exit3 and ((ca_3 and em3 ==  1) or (cb_3 and em3 == -1))
+c3_exit_buy  = show_signals and fire_exit3 and ((ca_3 and em3 == -1) or (cb_3 and em3 ==  1))
+
+plotshape(c1_buy,  title = 'C1 BUY',  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small)
+plotshape(c1_sell, title = 'C1 SELL', style = shape.triangledown, location = location.abovebar, color = color.new(color.green, 0), size = size.small)
+plotshape(c2_buy,  title = 'C2 BUY',  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small)
+plotshape(c2_sell, title = 'C2 SELL', style = shape.triangledown, location = location.abovebar, color = color.new(color.green, 0), size = size.small)
+plotshape(c3_buy,  title = 'C3 BUY',  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small)
+plotshape(c3_sell, title = 'C3 SELL', style = shape.triangledown, location = location.abovebar, color = color.new(color.green, 0), size = size.small)
+
+plotshape(c1_exit_sell, title = 'C1 EXIT (close long)',  style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small)
+plotshape(c1_exit_buy,  title = 'C1 EXIT (close short)', style = shape.triangleup,   location = location.belowbar, color = color.new(color.red, 0), size = size.small)
+plotshape(c2_exit_sell, title = 'C2 EXIT (close long)',  style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small)
+plotshape(c2_exit_buy,  title = 'C2 EXIT (close short)', style = shape.triangleup,   location = location.belowbar, color = color.new(color.red, 0), size = size.small)
+plotshape(c3_exit_sell, title = 'C3 EXIT (close long)',  style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small)
+plotshape(c3_exit_buy,  title = 'C3 EXIT (close short)', style = shape.triangleup,   location = location.belowbar, color = color.new(color.red, 0), size = size.small)
+
+// === Helpers for table rendering ========================================
 strip_prefix(s) =>
     parts = str.split(s, ':')
     array.get(parts, array.size(parts) - 1)
-
 pair_label(a, b) =>
     strip_prefix(a) + ' / ' + strip_prefix(b)
 side_str(s) =>
@@ -109,6 +369,8 @@ side_clr(s) =>
     s == 1 ? color.new(color.green, 30) : s == -1 ? color.new(color.red, 30) : color.new(color.gray, 60)
 fmt_diff(d) =>
     na(d) ? '—' : str.tostring(d, '#.####')
+fmt_sz(sz) =>
+    na(sz) ? '—' : (sz >= 0 ? '+' : '') + str.tostring(sz, '#.##')
 fmt_bars(b) =>
     na(b) ? '—' : str.tostring(b)
 fmt_time(t) =>
@@ -121,8 +383,10 @@ fmt_corr(c) =>
     na(c) ? '—' : str.tostring(c, '#.##')
 corr_clr(c) =>
     na(c) ? color.new(color.gray, 60) : c < -0.5 ? color.new(color.green, 30) : c < -0.2 ? color.new(color.yellow, 30) : color.new(color.red, 30)
+sz_clr(sz) =>
+    na(sz) ? color.new(color.gray, 60) : math.abs(sz) >= spread_z_threshold ? color.new(color.red, 30) : math.abs(sz) >= 1.0 ? color.new(color.yellow, 30) : color.new(color.gray, 60)
 
-// --- Table render on last bar ---------------------------------
+// === Table render on last bar ===========================================
 var table tbl = na
 
 if barstate.islast
@@ -133,7 +397,7 @@ if barstate.islast
         'bottom_right' => position.bottom_right
         => position.top_right
 
-    tbl := table.new(pos, columns = 7, rows = 4, border_width = 1, border_color = color.new(color.gray, 60))
+    tbl := table.new(pos, columns = 8, rows = 4, border_width = 1, border_color = color.new(color.gray, 60))
 
     header_bg = color.new(color.black, 30)
     ts        = size.small
@@ -143,66 +407,73 @@ if barstate.islast
     table.cell(tbl, 3, 0, 'Corr',       text_color = color.white, bgcolor = header_bg, text_size = ts)
     table.cell(tbl, 4, 0, 'Bars',       text_color = color.white, bgcolor = header_bg, text_size = ts)
     table.cell(tbl, 5, 0, 'z-spread',   text_color = color.white, bgcolor = header_bg, text_size = ts)
-    table.cell(tbl, 6, 0, 'Last cross', text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 6, 0, 'sz',         text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 7, 0, 'Last cross', text_color = color.white, bgcolor = header_bg, text_size = ts)
 
-    table.cell(tbl, 0, 1, pair_label(sym_a1, sym_b1),                              text_size = ts)
-    table.cell(tbl, 1, 1, side_str(s1),   bgcolor = side_clr(s1),         text_color = color.white, text_size = ts)
-    table.cell(tbl, 2, 1, macro_str(m1),  bgcolor = align_clr(s1, m1),    text_color = color.white, text_size = ts)
-    table.cell(tbl, 3, 1, fmt_corr(cor1), bgcolor = corr_clr(cor1),       text_color = color.white, text_size = ts)
-    table.cell(tbl, 4, 1, fmt_bars(bars1),                                         text_size = ts)
-    table.cell(tbl, 5, 1, fmt_diff(d1),                                            text_size = ts)
-    table.cell(tbl, 6, 1, fmt_time(last1),                                         text_size = ts)
+    table.cell(tbl, 0, 1, pair_label(sym_c1_a, sym_c1_b),                                     text_size = ts)
+    table.cell(tbl, 1, 1, side_str(s1),     bgcolor = side_clr(s1),         text_color = color.white, text_size = ts)
+    table.cell(tbl, 2, 1, macro_str(m1),    bgcolor = align_clr(s1, m1),    text_color = color.white, text_size = ts)
+    table.cell(tbl, 3, 1, fmt_corr(cor1),   bgcolor = corr_clr(cor1),       text_color = color.white, text_size = ts)
+    table.cell(tbl, 4, 1, fmt_bars(bars1),                                                    text_size = ts)
+    table.cell(tbl, 5, 1, fmt_diff(diff_c1),                                                  text_size = ts)
+    table.cell(tbl, 6, 1, fmt_sz(sz1),      bgcolor = sz_clr(sz1),          text_color = color.white, text_size = ts)
+    table.cell(tbl, 7, 1, fmt_time(last1),                                                    text_size = ts)
 
-    table.cell(tbl, 0, 2, pair_label(sym_a2, sym_b2),                              text_size = ts)
-    table.cell(tbl, 1, 2, side_str(s2),   bgcolor = side_clr(s2),         text_color = color.white, text_size = ts)
-    table.cell(tbl, 2, 2, macro_str(m2),  bgcolor = align_clr(s2, m2),    text_color = color.white, text_size = ts)
-    table.cell(tbl, 3, 2, fmt_corr(cor2), bgcolor = corr_clr(cor2),       text_color = color.white, text_size = ts)
-    table.cell(tbl, 4, 2, fmt_bars(bars2),                                         text_size = ts)
-    table.cell(tbl, 5, 2, fmt_diff(d2),                                            text_size = ts)
-    table.cell(tbl, 6, 2, fmt_time(last2),                                         text_size = ts)
+    table.cell(tbl, 0, 2, pair_label(sym_c2_a, sym_c2_b),                                     text_size = ts)
+    table.cell(tbl, 1, 2, side_str(s2),     bgcolor = side_clr(s2),         text_color = color.white, text_size = ts)
+    table.cell(tbl, 2, 2, macro_str(m2),    bgcolor = align_clr(s2, m2),    text_color = color.white, text_size = ts)
+    table.cell(tbl, 3, 2, fmt_corr(cor2),   bgcolor = corr_clr(cor2),       text_color = color.white, text_size = ts)
+    table.cell(tbl, 4, 2, fmt_bars(bars2),                                                    text_size = ts)
+    table.cell(tbl, 5, 2, fmt_diff(diff_c2),                                                  text_size = ts)
+    table.cell(tbl, 6, 2, fmt_sz(sz2),      bgcolor = sz_clr(sz2),          text_color = color.white, text_size = ts)
+    table.cell(tbl, 7, 2, fmt_time(last2),                                                    text_size = ts)
 
-    table.cell(tbl, 0, 3, pair_label(sym_a3, sym_b3),                              text_size = ts)
-    table.cell(tbl, 1, 3, side_str(s3),   bgcolor = side_clr(s3),         text_color = color.white, text_size = ts)
-    table.cell(tbl, 2, 3, macro_str(m3),  bgcolor = align_clr(s3, m3),    text_color = color.white, text_size = ts)
-    table.cell(tbl, 3, 3, fmt_corr(cor3), bgcolor = corr_clr(cor3),       text_color = color.white, text_size = ts)
-    table.cell(tbl, 4, 3, fmt_bars(bars3),                                         text_size = ts)
-    table.cell(tbl, 5, 3, fmt_diff(d3),                                            text_size = ts)
-    table.cell(tbl, 6, 3, fmt_time(last3),                                         text_size = ts)
+    table.cell(tbl, 0, 3, pair_label(sym_c3_a, sym_c3_b),                                     text_size = ts)
+    table.cell(tbl, 1, 3, side_str(s3),     bgcolor = side_clr(s3),         text_color = color.white, text_size = ts)
+    table.cell(tbl, 2, 3, macro_str(m3),    bgcolor = align_clr(s3, m3),    text_color = color.white, text_size = ts)
+    table.cell(tbl, 3, 3, fmt_corr(cor3),   bgcolor = corr_clr(cor3),       text_color = color.white, text_size = ts)
+    table.cell(tbl, 4, 3, fmt_bars(bars3),                                                    text_size = ts)
+    table.cell(tbl, 5, 3, fmt_diff(diff_c3),                                                  text_size = ts)
+    table.cell(tbl, 6, 3, fmt_sz(sz3),      bgcolor = sz_clr(sz3),          text_color = color.white, text_size = ts)
+    table.cell(tbl, 7, 3, fmt_time(last3),                                                    text_size = ts)
 
-// --- Alerts (bar-close confirmation in TV alert dialog) -------
-alertcondition(e1, title = 'Combo 1 cross', message = 'Combo 1 spread-SMA cross')
-alertcondition(e2, title = 'Combo 2 cross', message = 'Combo 2 spread-SMA cross')
-alertcondition(e3, title = 'Combo 3 cross', message = 'Combo 3 spread-SMA cross')
+// === Alerts =============================================================
+alertcondition(e1,          title = 'Combo 1 cross', message = 'Combo 1 spread sign flip')
+alertcondition(e2,          title = 'Combo 2 cross', message = 'Combo 2 spread sign flip')
+alertcondition(e3,          title = 'Combo 3 cross', message = 'Combo 3 spread sign flip')
+alertcondition(fire_entry1, title = 'Combo 1 entry', message = 'Combo 1 macro-aligned entry signal')
+alertcondition(fire_entry2, title = 'Combo 2 entry', message = 'Combo 2 macro-aligned entry signal')
+alertcondition(fire_entry3, title = 'Combo 3 entry', message = 'Combo 3 macro-aligned entry signal')
+alertcondition(fire_exit1,  title = 'Combo 1 exit',  message = 'Combo 1 exit (sz threshold or reversal)')
+alertcondition(fire_exit2,  title = 'Combo 2 exit',  message = 'Combo 2 exit (sz threshold or reversal)')
+alertcondition(fire_exit3,  title = 'Combo 3 exit',  message = 'Combo 3 exit (sz threshold or reversal)')
 
-// =============================================================
-// LEGEND / REFRESHER
-// -------------------------------------------------------------
-// Column      | Meaning
-// ----------- | ------------------------------------------------
-// Pair        | Leg_A / Leg_B (exchange prefix stripped for display)
-// Side        | 5m cross side. LONG = SMA(z_A) > SMA(z_B); SHORT = inverse.
-//             |   bg green = LONG, red = SHORT, grey = warmup
-// Macro       | Same SMA-of-z-spread logic on macro_tf (default 1D,
-//             |   z_window=60, sma_window=5).  BULL / BEAR / —
-//             |   bg green = aligned with Side (regime-confirmed)
-//             |   bg red   = opposed (countertrend — S14 suppresses these)
-//             |   bg grey  = either side or macro is still in warmup
-// Corr        | Rolling pair correlation on chart TF (corr_window bars).
-//             |   bg green  = corr < −0.5  (healthy negative spread)
-//             |   bg yellow = −0.5 ≤ corr < −0.2  (degrading)
-//             |   bg red    = corr ≥ −0.2  (relationship broken — S14
-//             |               macro_correlation_threshold = −0.2)
-// Bars        | Bars since last side flip on the chart TF.
-// z-spread    | Live SMA(z_A) − SMA(z_B). Sign change = cross_event.
-// Last cross  | Wall-clock time of last side flip (chart timezone).
+// =========================================================================
+// LEGEND
+// -------------------------------------------------------------------------
+// Slots — up to 6 leg lines plotted on chart. Their z values are reused
+//   by combos for cross detection. Same math, no sync question.
 //
-// Operational read:
-//   * Side green + Macro green-bg + Corr green = high-conviction entry
-//   * Macro red-bg                            = countertrend, S14 would skip
-//   * Corr red                                = pair relationship decayed,
-//                                               ignore signal regardless of
-//                                               Side/Macro alignment
+// Combos — pick TWO slot numbers per combo. diff = z_slotA − z_slotB.
+//   The cross you see between the two slots' lines on chart IS the cross
+//   the screener is detecting (modulo cross_buffer hysteresis).
 //
-// Feed: every leg is hardcoded to OANDA via the OANDA: prefix on inputs.
-// Drop on any chart — the screener does NOT inherit the chart's feed.
-// =============================================================
+// Chart markers (toggle show_signals):
+//   ▲ below bar (green) = BUY this chart's symbol  (open long)
+//   ▼ above bar (green) = SELL this chart's symbol (open short)
+//   ▼ above bar (red)   = EXIT a long  (sell to close)
+//   ▲ below bar (red)   = EXIT a short (buy to close)
+//   Color: green = open, red = close. Shape: ▲ = buy-side, ▼ = sell-side.
+//
+// Trade rule (depends on Use macro filter setting):
+//   Macro ON  (default):
+//     * Entry only on macro-aligned crossover (Side aligned with Macro)
+//     * Exit on counter-crossover OR |sz| ≥ threshold
+//     * One entry → one exit per cycle (state machine)
+//     * No re-entry until the NEXT macro-aligned crossover
+//   Macro OFF:
+//     * Every cross is a reversal — previous trade exits, new trade opens
+//       in the new side direction at the same bar (red ✕ + green ▲/▼)
+//     * Macro column in table still shows the daily-TF regime for context
+//     * |sz| ≥ threshold still fires exit between crosses
+// =========================================================================

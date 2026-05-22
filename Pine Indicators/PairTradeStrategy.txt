@@ -1,0 +1,255 @@
+//@version=6
+strategy('Pair Trade Strategy', overlay = true,
+     default_qty_type = strategy.percent_of_equity, default_qty_value = 100,
+     initial_capital = 10000, pyramiding = 1,
+     commission_type = strategy.commission.percent, commission_value = 0.002,
+     calc_on_every_tick = false, process_orders_on_close = true)
+
+// =========================================================================
+// SINGLE-SYMBOL strategy version of the Pair Trade Screener.
+//
+// The two source legs (default EURUSD + USDJPY) drive the z-spread cross
+// signal. The strategy detects the chart's role in the source pair and
+// trades accordingly:
+//
+//   * Drop on LEG A (EURUSD) → backtests the long-EURUSD leg
+//     md=+1 → BUY EURUSD ; md=-1 → SELL EURUSD
+//   * Drop on LEG B (USDJPY) → backtests the short-USDJPY leg
+//     md=+1 → SELL USDJPY ; md=-1 → BUY USDJPY  (direction inverted)
+//   * Drop on the CROSS (EURJPY) → approximate single-symbol view
+//     md=+1 → BUY EURJPY ; md=-1 → SELL EURJPY
+//
+// For a full pair backtest:
+//   1. Run on the leg A chart → record Strategy Tester PnL.
+//   2. Run on the leg B chart → record Strategy Tester PnL.
+//   3. Sum the two reports. (Strategy Tester is independent per chart.)
+//
+// All signal logic (z-window, hysteresis, macro filter, sz exit) mirrors
+// the Pair Trade Screener indicator one-for-one.
+// =========================================================================
+
+// --- General ------------------------------------------------------------
+minmax_len = input.int(100, 'Min-Max window (bars)', minval = 10, maxval = 1000, group = 'General',
+     tooltip = 'For optional source-pair line plotting on chart (use_zscore = false).')
+z_window = input.int(30, 'z-window (bars)', minval = 5, maxval = 1000, group = 'General',
+     tooltip = 'Per-leg z-score lookback.')
+sma_window = input.int(1, 'SMA window (bars)', minval = 1, group = 'General',
+     tooltip = 'Optional smoothing of the diff before cross detection. 1 = no smoothing.')
+use_zscore = input.bool(true, 'Use z-score normalization', group = 'General')
+cross_buffer = input.float(0.3, 'Cross deadband (z-units)', minval = 0.0, step = 0.05, group = 'General',
+     tooltip = 'Hysteresis. Side only flips when |diff| > this.')
+
+// --- Source pair (drives the signal) ------------------------------------
+sym_a = input.symbol('OANDA:EURUSD', 'Source Leg A', group = 'Source pair')
+sym_b = input.symbol('OANDA:USDJPY', 'Source Leg B', group = 'Source pair')
+show_lines = input.bool(true, 'Plot source pair lines on chart', group = 'Source pair',
+     tooltip = 'Rescaled to chart price range for visual confirmation.')
+col_a = input.color(color.blue, 'Leg A color', group = 'Source pair', inline = 'cols')
+col_b = input.color(color.red, 'Leg B color', group = 'Source pair', inline = 'cols')
+
+// --- Macro layer --------------------------------------------------------
+use_macro_filter = input.bool(true, 'Use macro filter (gate entries)', group = 'Macro',
+     tooltip = 'ON: entries only when chart-TF cross direction matches macro. OFF: every cross is a reversal.')
+macro_tf = input.timeframe('D', 'Macro timeframe', group = 'Macro',
+     tooltip = 'Higher TF that defines the regime. D = daily. Switch to 240 (4H), W, etc.')
+macro_z_window = input.int(60, 'Macro z-window (bars)', minval = 10, group = 'Macro')
+macro_sma_window = input.int(5, 'Macro SMA window (bars)', minval = 1, group = 'Macro')
+
+// --- Signal -------------------------------------------------------------
+sz_window = input.int(600, 'Spread-z window (bars)', minval = 10, group = 'Signal')
+spread_z_threshold = input.float(2.0, 'Spread-z exit threshold', minval = 0.1, step = 0.1, group = 'Signal')
+
+// --- Table --------------------------------------------------------------
+tbl_pos_str = input.string('top_right', 'Table position',
+     options = ['top_left', 'top_right', 'bottom_left', 'bottom_right'], group = 'Table')
+
+// =========================================================================
+// Chart asset stats for line rescaling
+// =========================================================================
+asset_min = ta.lowest(low, minmax_len)
+asset_max = ta.highest(high, minmax_len)
+asset_range = asset_max - asset_min
+asset_mean = ta.sma(close, z_window)
+asset_stdev = ta.stdev(close, z_window)
+
+// =========================================================================
+// Per-leg normalization — returns [plot_val, z_raw, close]
+// =========================================================================
+leg_norm(_sym) =>
+    [c, lo, hi, mean, std] = request.security(_sym, timeframe.period,
+         [close,
+          ta.lowest(close, minmax_len),
+          ta.highest(close, minmax_len),
+          ta.sma(close, z_window),
+          ta.stdev(close, z_window)])
+    src_range = hi - lo
+    minmax_plot = src_range == 0 or na(src_range) ? na : (c - lo) / src_range * asset_range + asset_min
+    z_raw = std == 0 or na(std) ? na : (c - mean) / std
+    z_plot = na(z_raw) ? na : asset_mean + z_raw * asset_stdev
+    plot_val = use_zscore ? z_plot : minmax_plot
+    [plot_val, z_raw, c]
+
+[plot_a, z_a, c_a] = leg_norm(sym_a)
+[plot_b, z_b, c_b] = leg_norm(sym_b)
+
+// Source pair lines (visual context on chart)
+plot(show_lines ? plot_a : na, title = 'Leg A', color = col_a, linewidth = 2,
+     display = show_lines ? display.all : display.none)
+plot(show_lines ? plot_b : na, title = 'Leg B', color = col_b, linewidth = 2,
+     display = show_lines ? display.all : display.none)
+
+// =========================================================================
+// Cross detection with hysteresis
+// =========================================================================
+diff = ta.sma(z_a - z_b, sma_window)
+
+var int s = 0
+s := na(diff) ? 0 : diff > cross_buffer ? 1 : diff < -cross_buffer ? -1 : s
+e = s != 0 and nz(s[1], 0) != 0 and s != nz(s[1], 0)
+
+// =========================================================================
+// Macro layer
+// =========================================================================
+macro_z_smooth(_sym) =>
+    [mc, mean, std] = request.security(_sym, macro_tf,
+         [close, ta.sma(close, macro_z_window), ta.stdev(close, macro_z_window)])
+    z = std == 0 or na(std) ? na : (mc - mean) / std
+    ta.sma(z, macro_sma_window)
+
+mz_a = macro_z_smooth(sym_a)
+mz_b = macro_z_smooth(sym_b)
+mdiff = mz_a - mz_b
+m = na(mdiff) ? 0 : mdiff > 0 ? 1 : -1
+
+// Direction: macro if filter on, else current side
+md = use_macro_filter ? m : s
+
+// =========================================================================
+// Spread-z exit
+// =========================================================================
+sz_mu = ta.sma(diff, sz_window)
+sz_sd = ta.stdev(diff, sz_window)
+sz = sz_sd == 0 or na(sz_sd) ? na : (diff - sz_mu) / sz_sd
+sz_exit = ta.crossover(math.abs(sz), spread_z_threshold)
+
+// =========================================================================
+// Entry / counter-cross exit signals (same semantics as indicator)
+// =========================================================================
+entry_sig  = use_macro_filter ? (e and s == m and m != 0) : (e and s != 0)
+xc_exit    = use_macro_filter ? (e and m != 0 and s != m) : (e and s != 0)
+
+// =========================================================================
+// Chart-role auto-detection for correct per-leg trade direction:
+//
+//   chart = leg A   →  chart_md =  md   (BUY A when md=+1, SELL A when md=-1)
+//   chart = leg B   →  chart_md = -md   (pair trade SHORTS B when md=+1, so
+//                                         INVERT direction on the B chart)
+//   chart = neither →  chart_md =  md   (treat as "the cross", e.g. EURJPY,
+//                                         which trades in same direction as
+//                                         leg A by construction)
+//
+// Drop the strategy on the EURUSD chart → backtests the long-EURUSD leg.
+// Drop it on the USDJPY chart           → backtests the short-USDJPY leg.
+// Sum the two Strategy Tester reports for the full pair-trade PnL.
+// =========================================================================
+ticker_only(_sym) =>
+    parts = str.split(_sym, ':')
+    array.size(parts) > 1 ? array.get(parts, 1) : _sym
+is_chart_symbol(_sym) => ticker_only(_sym) == syminfo.ticker
+
+chart_is_a = is_chart_symbol(sym_a)
+chart_is_b = is_chart_symbol(sym_b)
+chart_md   = chart_is_b ? -md : md
+
+// =========================================================================
+// Strategy actions — trades the chart symbol
+//
+// macro ON:
+//   * entry_sig + md == ±1 → strategy.entry long/short
+//   * xc_exit → close (counter-cross closes position)
+//   * sz_exit → close (stretched-too-far)
+//   Pyramiding=1 means a same-direction entry is a no-op; opposite reverses.
+//
+// macro OFF:
+//   * every cross calls strategy.entry → Pine reverses automatically
+//   * sz_exit → close
+// =========================================================================
+in_long  = strategy.position_size > 0
+in_short = strategy.position_size < 0
+in_trade = in_long or in_short
+
+should_close_sz = sz_exit and in_trade
+should_close_xc = use_macro_filter and xc_exit and in_trade
+
+if should_close_sz
+    strategy.close_all(comment = 'sz exit')
+else if should_close_xc
+    strategy.close_all(comment = 'reversal exit')
+
+if entry_sig and chart_md == 1
+    strategy.entry('LONG', strategy.long, comment = 'BUY')
+if entry_sig and chart_md == -1
+    strategy.entry('SHORT', strategy.short, comment = 'SELL')
+
+// =========================================================================
+// Table — minimal status panel
+// =========================================================================
+fmt_diff(d)  => na(d) ? '—' : str.tostring(d, '#.####')
+fmt_sz(z)    => na(z) ? '—' : (z >= 0 ? '+' : '') + str.tostring(z, '#.##')
+side_str(x)  => x == 1 ? 'LONG' : x == -1 ? 'SHORT' : '—'
+side_clr(x)  => x == 1 ? color.new(color.green, 30) : x == -1 ? color.new(color.red, 30) : color.new(color.gray, 60)
+macro_str(x) => x == 1 ? 'BULL' : x == -1 ? 'BEAR' : '—'
+align_clr(side, macro_x) =>
+    side == 0 or macro_x == 0 ? color.new(color.gray, 60) : side == macro_x ? color.new(color.green, 30) : color.new(color.red, 30)
+sz_clr(z) =>
+    na(z) ? color.new(color.gray, 60) : math.abs(z) >= spread_z_threshold ? color.new(color.red, 30) : math.abs(z) >= 1.0 ? color.new(color.yellow, 30) : color.new(color.gray, 60)
+
+var table tbl = na
+
+if barstate.islast
+    pos = switch tbl_pos_str
+        'top_left' => position.top_left
+        'top_right' => position.top_right
+        'bottom_left' => position.bottom_left
+        'bottom_right' => position.bottom_right
+        => position.top_right
+
+    tbl := table.new(pos, columns = 5, rows = 2, border_width = 1, border_color = color.new(color.gray, 60))
+    header_bg = color.new(color.black, 30)
+    ts        = size.small
+    table.cell(tbl, 0, 0, 'Side',     text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 1, 0, 'Macro',    text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 2, 0, 'z-spread', text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 3, 0, 'sz',       text_color = color.white, bgcolor = header_bg, text_size = ts)
+    table.cell(tbl, 4, 0, 'Position', text_color = color.white, bgcolor = header_bg, text_size = ts)
+
+    table.cell(tbl, 0, 1, side_str(s),   bgcolor = side_clr(s),       text_color = color.white, text_size = ts)
+    table.cell(tbl, 1, 1, macro_str(m),  bgcolor = align_clr(s, m),   text_color = color.white, text_size = ts)
+    table.cell(tbl, 2, 1, fmt_diff(diff),                                                       text_size = ts)
+    table.cell(tbl, 3, 1, fmt_sz(sz),    bgcolor = sz_clr(sz),        text_color = color.white, text_size = ts)
+    table.cell(tbl, 4, 1, in_long ? 'LONG' : in_short ? 'SHORT' : '—',
+         bgcolor = in_long ? color.new(color.green, 30) : in_short ? color.new(color.red, 30) : color.new(color.gray, 60),
+         text_color = color.white, text_size = ts)
+
+// =========================================================================
+// LEGEND
+// -------------------------------------------------------------------------
+// Setup
+//   1. Pick the source pair (e.g., EURUSD + USDJPY).
+//   2. Drop on the matching cross chart (e.g., EURJPY).
+//   3. Strategy Tester gives PnL, win rate, max DD, profit factor, etc.
+//
+// Strategy params (Pine "Properties" tab):
+//   initial_capital = 10000, qty = 100% equity, commission = 0.002%.
+//   Adjust as needed for realistic FX backtest assumptions.
+//
+// Signal logic mirrors the Pair Trade Screener indicator exactly:
+//   * Per-leg z-score, diff = z_A − z_B
+//   * Hysteresis (cross_buffer) suppresses near-zero brushing
+//   * Macro layer (default daily) optionally gates entries to regime
+//   * Cross-event → entry; counter-cross → exit; |sz| ≥ threshold → exit
+//
+// To compare with the indicator's markers visually: load both on the
+// SAME chart (the indicator works on any chart; the strategy works on
+// the cross chart). Markers should align bar-for-bar.
+// =========================================================================
