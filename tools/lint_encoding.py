@@ -24,9 +24,11 @@ Exit codes:
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lint_helpers import get_staged_py_files, get_all_py_files, is_in_exempt_dir
 
 # Windows consoles default to cp1252 — violation lines may contain → or other
 # multi-byte chars that crash the print itself. Force stdout to UTF-8 so the
@@ -61,36 +63,7 @@ RE_MODE_ARG = re.compile(r"['\"]([rwxabt+]+)['\"]")
 
 
 def is_exempt(filepath: Path) -> bool:
-    parts = filepath.parts
-    if any(exempt in parts for exempt in EXEMPT_DIRS):
-        return True
-    if filepath.name in EXEMPT_FILES:
-        return True
-    return False
-
-
-def get_staged_py_files() -> list[Path]:
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
-        capture_output=True, text=True,
-    )
-    return [Path(f) for f in result.stdout.strip().splitlines() if f.endswith(".py")]
-
-
-def get_all_py_files(root: Path) -> list[Path]:
-    results = []
-    try:
-        for f in root.rglob("*.py"):
-            try:
-                if f.is_symlink():
-                    continue
-                if not is_exempt(f):
-                    results.append(f)
-            except OSError:
-                continue
-    except OSError:
-        pass
-    return results
+    return is_in_exempt_dir(filepath, EXEMPT_DIRS) or filepath.name in EXEMPT_FILES
 
 
 def _arg_has_encoding(args: str) -> bool:
@@ -138,9 +111,9 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
 
     if staged_only:
-        files = [repo_root / f for f in get_staged_py_files()]
+        files = get_staged_py_files(repo_root)
     else:
-        files = get_all_py_files(repo_root)
+        files = get_all_py_files(repo_root, is_exempt)
 
     files = [f for f in files if not is_exempt(f)]
 

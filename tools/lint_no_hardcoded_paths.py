@@ -16,8 +16,10 @@ Exit codes:
 
 import re
 import sys
-import subprocess
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lint_helpers import get_staged_py_files, get_all_py_files, is_in_exempt_dir
 
 # Directories that are exempt (frozen archives, throwaway scripts)
 EXEMPT_DIRS = {
@@ -68,38 +70,7 @@ SIBLING_BAN_EXEMPT_FILES = {
 
 def is_exempt(filepath: Path) -> bool:
     """Check if file is inside an exempt directory or is an exempt file."""
-    parts = filepath.parts
-    if any(exempt in parts for exempt in EXEMPT_DIRS):
-        return True
-    if filepath.name in EXEMPT_FILES:
-        return True
-    return False
-
-
-def get_staged_py_files() -> list[Path]:
-    """Get list of staged .py files from git."""
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
-        capture_output=True, text=True
-    )
-    return [Path(f) for f in result.stdout.strip().splitlines() if f.endswith(".py")]
-
-
-def get_all_py_files(root: Path) -> list[Path]:
-    """Get all .py files in repo, excluding exempt dirs and symlinks."""
-    results = []
-    try:
-        for f in root.rglob("*.py"):
-            try:
-                if f.is_symlink():
-                    continue
-                if not is_exempt(f):
-                    results.append(f)
-            except OSError:
-                continue
-    except OSError:
-        pass
-    return results
+    return is_in_exempt_dir(filepath, EXEMPT_DIRS) or filepath.name in EXEMPT_FILES
 
 
 def scan_file(filepath: Path) -> list[tuple[int, str, str]]:
@@ -132,10 +103,9 @@ def main():
     repo_root = Path(__file__).resolve().parent.parent
 
     if staged_only:
-        files = get_staged_py_files()
-        files = [repo_root / f for f in files]
+        files = get_staged_py_files(repo_root)
     else:
-        files = get_all_py_files(repo_root)
+        files = get_all_py_files(repo_root, is_exempt)
 
     # Filter exemptions
     files = [f for f in files if not is_exempt(f)]

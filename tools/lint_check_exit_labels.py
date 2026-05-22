@@ -19,12 +19,14 @@ Usage:
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STRATEGIES_DIR = REPO_ROOT / "strategies"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lint_helpers import get_staged_py_files, is_in_exempt_dir
 
 EXEMPT_DIRS = {"vault", "tmp", "archive", ".git", "__pycache__", "node_modules"}
 
@@ -34,15 +36,7 @@ DEDENT = re.compile(r"^\S")
 
 
 def is_exempt(p: Path) -> bool:
-    return any(part in EXEMPT_DIRS for part in p.parts)
-
-
-def get_staged_py_files() -> list[Path]:
-    r = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
-        capture_output=True, text=True,
-    )
-    return [REPO_ROOT / f for f in r.stdout.strip().splitlines() if f.endswith(".py")]
+    return is_in_exempt_dir(p, EXEMPT_DIRS)
 
 
 def get_strategy_files() -> list[Path]:
@@ -85,7 +79,7 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
 def main() -> None:
     staged_only = "--staged" in sys.argv
     if staged_only:
-        files = [p for p in get_staged_py_files() if p.name == "strategy.py" and not is_exempt(p)]
+        files = [p for p in get_staged_py_files(REPO_ROOT) if p.name == "strategy.py" and not is_exempt(p)]
     else:
         files = get_strategy_files()
 
