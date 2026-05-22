@@ -67,8 +67,8 @@ vault/snapshots_pre_edit/
 
 # Refactor scratch artifacts (large-file remediation working set)
 outputs/refactor_baseline/
-outputs/system_reports/LARGE_FILE_REFACTOR_PLAN.md
-outputs/system_reports/LARGE_FILE_SUMMARY.json
+outputs/system_reports/01_system_architecture/LARGE_FILE_REFACTOR_PLAN.md
+outputs/system_reports/01_system_architecture/LARGE_FILE_SUMMARY.json
 
 tmp/
 
@@ -130,6 +130,7 @@ governance/*.jsonl
 # source of truth is the code + tests, not the report.
 outputs/*.docx
 outputs/*.pdf
+archive/**/*.docx
 
 # ===== Backups =====
 *.backup
