@@ -48,6 +48,16 @@
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
+- **Pine PAIRX cross-signal strategy NOT deployable (2026-05-22).** Built combined Pine indicator + Pine `strategy()` script in `Pine Indicators/` to backtest the z-spread cross signal (per-leg z-score of close, then sign-of-(z_A − z_B) with hysteresis deadband, macro-aligned by daily TF z-of-spread). TradingView Strategy Tester on EURUSD with EURUSD/USDJPY source pair, 2002–2026:
+
+  | Chart TF | Trades | Win% | PF | Net | Verdict |
+  |---|---|---|---|---|---|
+  | 1D | 298 (~12/yr) | 20.1 | 1.58 | +66% | tail-driven, would FAIL Edge Quality Gate |
+  | 4H | 1220 (~94/yr) | 20.3 | 1.077 | +11% | edge gone — noise |
+  | 1H | 1384 (~460/yr) | 16.6 | 0.971 | −2.25% | losing |
+
+  Classic edge-decay-with-frequency pattern, same shape as ZREV/ZPULL/COINTREV (low WR + thin PF + tail-driven). Daily PF 1.58 reads OK in isolation but ~12 trades/year means a DD takes years to recover — operationally unattractive. Combined indicator (`Pine Indicators/SpreadSmaCrossScreener.txt`) retained as a discretionary screening overlay (plots per-leg normalized z-lines + table of side/macro/sz/corr per combo); strategy form (`Pine Indicators/PairTradeStrategy.txt`) retained for re-tests. **Do NOT re-open this arc without an architectural change** — different signal primitive, different macro context, basket-level harvesting on top, or fundamentally different exit mechanic. Single-lever parameter sweeps (cross_buffer, sz_window, sma_window, macro_tf) on the existing mechanic are exhausted directionally.
+
 <!-- 2026-05-21: All four Phase 5b.3 carry-overs resolved in a dedicated session. Kept for archaeology in `git log`; remove the comment block once a few sessions have passed without regression. Resolution summary:
   • PROFILE_UNRESOLVED on 68_PORT_FX_5M_PORT_S01_V1_P05 — surgical MPS DB upsert via tmp/fix_profile_unresolved_portfolio.py; Step 7 retro-resolved RAW_MIN_LOT_V1; verdict = FAIL (one symbol misses 50-trades/yr density gate by 2).
   • .format_backups YELLOW — one-line dotdir exclusion in tools/system_preflight.py::_check_strategy_drift.
