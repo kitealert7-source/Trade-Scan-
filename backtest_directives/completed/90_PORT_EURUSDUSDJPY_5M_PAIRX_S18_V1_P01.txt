@@ -1,0 +1,138 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S18_V1_P01
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S18_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2018-05-18'
+  end_date: '2020-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V3
+  hypothesis_variant: H3_PAIR_SPREAD_V3_EXTREME_Z_5p0_REENTRY_1p0_WINDOW_C
+  description: 'S18 P01 = Window C validation of the @3 winning calibration
+    (extreme_z=5.0, reentry_z=1.0). Window C is the multi-regime chaos
+    period (trade war 2018-2019, Brexit, Fed pivot, COVID March 2020)
+    where every prior H3_spread variant catastrophically failed.
+
+    Identical to S18 V1 P00 except the date window (2018-05 -> 2020-05).
+
+    Prior Window C results (all catastrophic):
+      S10 V1 P02 (@2 e=4h-tuned macro)        -> -129.98% / -124.36% DD
+      S08 V1 P02 (@2 1d macro)                -> -123.40% / -119.38% DD
+      S13 V1 P02 (@2 + corr-0.5 filter)       -> -34.00%  / -61.35% DD
+      S14 V1 P02 (@2 + corr-0.2 filter)       -> -91.38%  / -97.33% DD
+
+    The S13/S14 results showed that aggressive correlation filtering
+    can REDUCE the magnitude of failure but cannot make Window C
+    profitable. The strategy''s per-cycle PF flips to ~0.76 on Window C
+    regardless of macro filtering.
+
+    @3 hypothesis for Window C: the extreme-z take-profit might catch
+    the mini-tops within the regime BEFORE the cumulative damage
+    accumulates. If many of the failed cycles had brief profitable
+    moments before going adverse, EXTREME_Z would convert those into
+    realized take-profits + clean re-entries, potentially reducing
+    the catastrophic Net% to merely-bad or even break-even.
+
+    Three plausible outcomes:
+      (a) @3 still catastrophically fails Window C (-100% to -130%):
+          the extreme-z take-profit doesn''t fire often enough during
+          Window C (low |diff| range), OR fires but the re-entries
+          immediately hit adverse on the wrong-direction cycle. @3 is
+          a clean A+B improvement only; deploy with manual regime
+          gate for C-like environments.
+      (b) @3 partially rescues Window C (-30% to -70%): meaningful
+          improvement over @2 catastrophic. Strategy becomes "regime-
+          tolerant" — still loses in C but bounded loss is portfolio-
+          manageable.
+      (c) @3 rescues Window C entirely (-10% to +20%): unexpected
+          breakthrough. The extreme-z + re-entry mechanic is actually
+          the regime-tolerance primitive S10 lacked. Deployment
+          posture upgrades dramatically.
+
+    Compare to:
+      S10 V1 P00 (@2 baseline, Window A)      -> +198.36%
+      S17 V1 P03 (@3 e=5.0, Window A)         -> +205.67% (+3.7%)
+      S10 V1 P01 (@2 baseline, Window B)      -> +156.04%
+      S18 V1 P00 (@3 e=5.0, Window B)         -> +192.91% (+23.6%)
+      S10 V1 P02 (@2 baseline, Window C)      -> -129.98%
+      S18 V1 P01 (@3 e=5.0, Window C)         -> ???      (this probe)
+
+    '
+  repeat_override_reason: '[RERUN:V3-WINDOW-C-VALIDATION@2026-05-22 origin=PAIRX-S18-V1-P00
+    target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S18_V1_P01] Critical third-window
+    test. Determines whether @3 mechanic is fully regime-robust (rescues C)
+    or partially regime-tolerant (improves but still loses on C) or
+    regime-conditional like @2 (catastrophic on C regardless of mechanic).'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 3
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12
+      # @3 winning calibration from S17 sweep
+      extreme_z_threshold: 5.0
+      reentry_z_threshold: 1.0
+      reentry_macro_check: true
+      reentry_cross_check: true
+      reentry_max_per_regime: 3

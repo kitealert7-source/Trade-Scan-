@@ -1,0 +1,129 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P01
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P01
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-18'
+  end_date: '2026-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V3
+  hypothesis_variant: H3_PAIR_SPREAD_V3_EXTREME_Z_3p5_REENTRY_1p0_WINDOW_A
+  description: 'H3 PAIR SPREAD V3 -- S17 group, P01 = re-calibration of
+    P00 thresholds based on the P00 result analysis (2026-05-22).
+
+    Change vs S17 V1 P00:
+      extreme_z_threshold: 2.0 -> 3.5  (catch only TRULY extreme spreads)
+      reentry_z_threshold: 1.0 (unchanged)
+      => gap: 1.0sigma -> 2.5sigma (wider; deeper retracement required
+         before re-entry)
+
+    All other params identical to S17 V1 P00 (which is S10 V1 P00 +
+    H3_spread@3 mechanics enabled).
+
+    Rationale: S17 P00 (extreme=2.0, reentry=1.0) fired 116 EXTREME_Z
+    exits and 112 re-entries -- mechanic worked but Net% dropped 71%
+    vs S10 baseline (+198 -> +58). Diagnosis: extreme=2.0 cut cycles
+    too early (many would have continued profitably under @2 harvest);
+    reentry=1.0 left the new leg only ~1sigma of runway before
+    capping again.
+
+    P01 hypothesis: a higher extreme threshold (3.5) means EXTREME_Z
+    fires only at the genuine tails of the diff distribution -- the
+    "obvious over-extension" cases where mean-reversion is much more
+    likely. The wider gap to reentry=1.0 means the spread must retrace
+    2.5sigma before re-entering, giving the new cycle real runway.
+
+    Expected event signatures:
+      - EXTREME_Z exits: substantially fewer than 116 (P00 had ~1 per
+        6 days; P01 should have ~1 per 15-30 days, only the true tops)
+      - REENTRY events: proportionally fewer
+      - Core-hold bars: should recover toward S10 levels (1,142 -> closer
+        to 6,087) since cycles aren''t cut as aggressively
+      - Net%: target = at least match S10 baseline (+198%); upside if
+        multi-leg capture works at proper calibration
+
+    Compare to:
+      S10 V1 P00 (@2 baseline)  -> +198.36% / 23.22% DD / RetDD 8.54
+      S17 V1 P00 (@3 e=2.0,r=1) -> +58.52%  / 33.65% DD / RetDD 1.74
+      S17 V1 P01 (@3 e=3.5,r=1) -> ???
+
+    '
+  repeat_override_reason: '[RERUN:V3-THRESHOLD-RECALIBRATION@2026-05-22 origin=PAIRX-S17-V1-P00
+    target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P01] Recalibrate @3
+    thresholds based on P00 analysis. extreme_z 2.0 -> 3.5 (higher
+    extreme bar); reentry_z 1.0 unchanged (wider gap for retracement
+    runway). Tests whether @3 architecture is viable with proper
+    threshold tuning.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 3
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12
+      # @3 calibration (this is the P-sweep dimension)
+      extreme_z_threshold: 3.5
+      reentry_z_threshold: 1.0
+      reentry_macro_check: true
+      reentry_cross_check: true
+      reentry_max_per_regime: 3

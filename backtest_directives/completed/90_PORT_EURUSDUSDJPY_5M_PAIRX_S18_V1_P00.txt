@@ -1,0 +1,129 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S18_V1_P00
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S18_V1_P00
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2021-05-18'
+  end_date: '2023-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V3
+  hypothesis_variant: H3_PAIR_SPREAD_V3_EXTREME_Z_5p0_REENTRY_1p0_WINDOW_B
+  description: 'S18 = first cross-window validation of the winning @3
+    calibration (extreme_z=5.0, reentry_z=1.0). P00 = Window B (USD-
+    strengthening regime, 2021-05 -> 2023-05).
+
+    Identical to S17 V1 P03 except the date window. Tests whether the
+    +3.7% Net% / -2.5pp DD / +16% RetDD lift S17 P03 delivered over
+    S10 baseline on Window A generalizes to Window B.
+
+    Calibration rationale (from S17 sweep):
+      - extreme_z = 5.0: high threshold; fires only on truly extreme
+        spread peaks (~28 events over 2 years on Window A; ~1.2/month).
+        Catches rare-event tops where mean-reversion is likely; does
+        NOT cut moderate-extension cycles that S10 would have ridden
+        productively in CORE_HOLD.
+      - reentry_z = 1.0: loose enough to re-enter reliably (100% reentry
+        success on Window A: 28/28 ARMED -> REENTRY transitions, 0 aborts).
+
+    Operator framing (2026-05-22): "this recapture is just for little
+    more extraction" — @3 is a marginal Pareto improvement, value comes
+    from rare-event capture + reliable re-entry, not from aggressive
+    take-profit. Calibration honors this framing.
+
+    Compare to:
+      S10 V1 P01 (@2 baseline, Window B)  -> +153.18% / 26.80% DD / RetDD 5.72
+      S17 V1 P03 (@3 e=5.0, Window A)     -> +205.67% / 20.68% DD / RetDD 9.95  (+3.7% vs S10 A)
+      S18 V1 P00 (@3 e=5.0, Window B)     -> ???      (this probe)
+
+    Expected outcomes:
+      (a) Improvement holds (~+3-5% Net%, similar DD reduction) ->
+          @3 calibration generalizes; viable for deployment as
+          improved baseline. Next: Window C validation, then promote.
+      (b) Improvement is small (-2% to +2% Net%, DD similar) -> the
+          mechanic is window-neutral; the Window A +3.7% was real
+          but not a strong signal. Worth deploying for the DD
+          reduction alone if that holds.
+      (c) Improvement reverses (Window B FAILs or significantly
+          underperforms S10 P01) -> the +3.7% on A was Window-A-
+          specific (likely overfit to the specific extreme events
+          in that period). Mechanic does not generalize; revert to
+          S10 as production baseline.
+
+    '
+  repeat_override_reason: '[RERUN:V3-WINDOW-B-VALIDATION@2026-05-22 origin=PAIRX-S17-V1-P03
+    target=90_PORT_EURUSDUSDJPY_5M_PAIRX_S18_V1_P00] Cross-window validation
+    of @3 winning calibration. Critical generalization test before any
+    fine-grain sweep or deployment consideration.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 3
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12
+      # @3 winning calibration from S17 sweep
+      extreme_z_threshold: 5.0
+      reentry_z_threshold: 1.0
+      reentry_macro_check: true
+      reentry_cross_check: true
+      reentry_max_per_regime: 3
