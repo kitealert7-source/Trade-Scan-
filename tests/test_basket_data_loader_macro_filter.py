@@ -178,6 +178,30 @@ def test_correlation_filter_off_preserves_legacy_columns():
 
 
 @_REQUIRES_DATA
+def test_cross_side_raw_column_present_on_basket_load():
+    """The unsmoothed cross_side_raw column must be forward-filled onto
+    each leg's df, with values in {-1, 0, +1}. Used by directives that
+    set reverse_cross_column: cross_side_raw (S16 z=0 exit probe).
+    """
+    data = load_basket_leg_data(
+        ["EURUSD", "USDJPY"], "2024-05-18", "2024-06-18",
+        timeframe="5m", macro_direction_timeframe=None,
+    )
+    eur = data["EURUSD"]
+    assert "cross_side_raw" in eur.columns
+    unique_vals = set(eur["cross_side_raw"].unique())
+    assert unique_vals.issubset({-1, 0, 1}), (
+        f"cross_side_raw has unexpected values: {unique_vals}"
+    )
+    # Sanity: raw should differ from smoothed somewhere (otherwise the
+    # SMA lag is zero and the probe is pointless on this data).
+    assert (eur["cross_side"] != eur["cross_side_raw"]).any(), (
+        "cross_side_raw must differ from cross_side on at least one bar "
+        "(otherwise the unsmoothed signal provides no lead)"
+    )
+
+
+@_REQUIRES_DATA
 def test_correlation_filter_on_adds_column_and_gates_entries():
     """macro_correlation_window=20 — htf_correlation column populated;
     surviving cross_events are all in periods where correlation <= threshold."""

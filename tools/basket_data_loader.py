@@ -502,6 +502,13 @@ def load_basket_leg_data(
                 out[sym]["cross_side"] = cross_df["cross_side"].reindex(
                     out[sym].index, method="ffill", fill_value=0
                 ).astype(int)
+                # Unsmoothed exit signal (added 2026-05-22 for S16 z=0 exit
+                # probe). Default behavior unchanged — recycle rules only
+                # read this column if they set `reverse_cross_column:
+                # cross_side_raw` in their directive params.
+                out[sym]["cross_side_raw"] = cross_df["cross_side_raw"].reindex(
+                    out[sym].index, method="ffill", fill_value=0
+                ).astype(int)
 
             # Macro-direction filter (2026-05-19). When configured, compute
             # the SAME SMA-of-z cross signal on a HIGHER native broker
