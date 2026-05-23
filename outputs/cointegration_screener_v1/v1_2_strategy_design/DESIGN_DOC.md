@@ -41,15 +41,21 @@ That's single-symbol-strategy thinking. The basket pipeline supports multi-trade
 
 Avg ~3 trades per pair, median probably 2-3, top pair (NZDUSD/USDCAD) = 19 trades.
 
-### Edge cases for the strategy
+### Edge cases for the strategy (BASE RUN — no pyramid, no hard stop)
+
+Per operator direction 2026-05-23: base run captures the **pure cointegration
+mean-reversion thesis** without mixing in stop-loss tail truncation. The
+regime-break exit IS the de facto stop loss for a spread trade — when the
+screener says regime is broken, qualification is gone, position closes. No
+separate z-based hard stop in base run.
 
 | Scenario | Decision |
 |---|---|
 | Trigger arrives while position is already open | **SKIP** — same direction, already covered. Don't pyramid. |
-| Regime breaks (broken/breaking) during open position | **CLOSE IMMEDIATELY** — qualification gone, exit at next bar. Per v2.1 caveats, regime_break_rate is 70-80% in the realized data, so this is the dominant exit path. |
-| Reversion not reached within FORWARD_BARS (default 60) | **TIME STOP** — close at bar 60 regardless of z. |
-| `|z|` returns inside ±exit_z band | **MEAN-REVERSION EXIT** — primary success path. |
-| Adverse z excursion past entry by X z-units | **HARD STOP** — per event study p90 adverse ≈ 1.4-1.7 z-units past entry; default stop at z_entry + 2.0 absolute. |
+| `|z|` returns inside ±exit_z band | **MEAN-REVERSION EXIT** — primary success path. Bar of exit recorded for bars-to-reversion stat. |
+| Regime breaks (broken/breaking) during open position | **REGIME-BREAK EXIT** — close at next bar. This IS the de facto stop loss for a cointegration trade; qualification is gone so the thesis is invalid. Per v2.1 event study `qual_break_rate` was 95-100%, so this exit fires reliably. |
+| Reversion not reached within FORWARD_BARS (default 60) | **TIME-STOP EXIT** — close at bar 60 regardless of z. Thesis unresolved. |
+| Adverse z excursion past entry | **NOT EXITED in base run** — recorded as an output metric per trade (max adverse \|z\| during position), but no explicit hard stop. v1.2.1 may add this after base results are evaluated. |
 
 ---
 
@@ -103,17 +109,33 @@ Total: ~650-700 new LOC + 5-line yaml/registry edits.
 
 ## 4. Strategy class spec — `cointegration_meanrev_v1_2`
 
-### Inputs (params)
+### Inputs (params) — BASE RUN
 
 | Param | Default | Notes |
 |---|---|---|
 | `entry_source` | `"cointegration_triggers"` | SQLite table name; allows future swap to a stub for testing |
 | `lookback_filter` | `252` | Only trigger if matching lookback row exists; one directive per lookback (avoid double-counting) |
 | `exit_z` | `1.0` | Spread z that triggers mean-reversion exit |
-| `time_stop_bars` | `60` | Time stop |
-| `hard_stop_z_above_entry` | `2.0` | Hard stop = entry_z + this |
-| `regime_break_action` | `"exit_at_next_bar"` | Or `"hold_until_z_target"` (less safe) |
+| `time_stop_bars` | `60` | Time stop — close at this bar regardless of z |
+| `regime_break_action` | `"exit_at_next_bar"` | Mandatory; serves as the de facto stop loss for the trade |
 | `min_gap_days_between_triggers` | `5` | Dedupe consecutive triggers (matches Phase 3 default) |
+| ~~`hard_stop_z_above_entry`~~ | ~~`2.0`~~ | **REMOVED for base run.** No z-based hard stop. v1.2.1 may add this after base results are evaluated. |
+
+### Optional params for v1.2.x extensions (NOT in base run)
+
+These would be added in subsequent iterations to measure their incremental
+effect on top of the base. Don't include in v1.2 base directives.
+
+| Param | Future default | Purpose |
+|---|---|---|
+| `hard_stop_z_above_entry` | `2.0` | Z-based hard stop (cuts adverse tail); v1.2.1 |
+| `enable_pyramid` | `false` | Add to position on new trigger if already in; v1.2.2 |
+| `harvest_scale_out` | `false` | Partial close at intermediate z levels; v1.2.3 |
+| `pre_break_exit` | `false` | Exit when regime flips to "breaking" (one step before "broken"); v1.2.4 |
+
+Doctrine: each v1.2.x adds **one knob**. Compare against base (and previous
+x) to attribute the delta. Don't bundle 3 changes in one variant or you
+can't tell which helped.
 
 ### Bar-by-bar logic
 
