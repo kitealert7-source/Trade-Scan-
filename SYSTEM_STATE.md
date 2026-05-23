@@ -85,7 +85,7 @@ H1 (revised 2026-05-23): cross-side flip count in a rolling N-bar lookback separ
 - Dead if: no signal combination predicts Window-C structure at acceptable precision; fall back to portfolio-level max-DD caps as the only mitigation and re-allocate attention to a different strategy family
 
 **Sessions on this charter:**
-- (none yet — charter created 2026-05-23)
+- 2026-05-23: V1 design (binary halt of cycle_init + pyramids when flips > T) NEGATIVE on pipeline test. 6 directives ran (S22 P00-P05). Charter goals NOT met: Window A -244pp / B -153pp / C ~unchanged (+0.4pp). Probe was right that signal differentiates (gate fired 39% on C vs 4-10% on A/B), but per-bar halt is economically correlated with pyramid attempts in healthy regimes — suppresses the buy-the-dip mechanic that drives cycle profit. Charter Decision Rule "signal exists" met → CONTINUE. Five V2-V5 variations documented at [outputs/system_reports/06_strategy_research/H3_SPREAD_REGIME_GATE_V1_2026_05_23.md](outputs/system_reports/06_strategy_research/H3_SPREAD_REGIME_GATE_V1_2026_05_23.md); recommended V3 (soft gate — halve pyramid_add_lot when tripped, not full halt) as next iteration.
 
 ---
 
