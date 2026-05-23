@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 3 uncommitted
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-23T06:05:33Z
+> Generated: 2026-05-23T14:46:55Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,8 +39,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 3 uncommitted
-- Last substantive commit: `dbfa9c1 research(regime_gate): V1 NEGATIVE â€” pipeline run + diagnosis + V2-V5 variations`
+- Working tree: 1 uncommitted
+- Last substantive commit: `7168f68 session: idea-gate refresh â€” tools_manifest regen for 5 changed tools`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
