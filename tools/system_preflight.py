@@ -202,8 +202,16 @@ class PreflightCheck:
             non_run_dirs = {"archive"}
             orphans = [o for o in (all_disk - reg_ids) if "_" not in o and o not in non_run_dirs]
 
-            if orphans:
-                self.report("REGISTRY", "RED", f"DISK_NOT_IN_REGISTRY: {orphans[:3]}...")
+            # Severity tiering (F9 retro 2026-05-22): a single orphan is structural
+            # noise — lineage_pruner clears it on the next pass. RED is reserved
+            # for multi-orphan drift, where the registry-vs-disk gap is large
+            # enough to indicate a systemic issue rather than a leftover.
+            if len(orphans) == 1:
+                self.report("REGISTRY", "YELLOW",
+                            f"DISK_NOT_IN_REGISTRY: 1 orphan ({orphans[0]})")
+            elif len(orphans) >= 2:
+                self.report("REGISTRY", "RED",
+                            f"DISK_NOT_IN_REGISTRY: {len(orphans)} orphans: {orphans[:3]}...")
 
             # 2. Missing (In registry but not on disk — tier-aware resolution)
             missing = []
