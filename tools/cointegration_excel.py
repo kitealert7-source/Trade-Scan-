@@ -206,6 +206,37 @@ def _section_header(ws, row: int, text: str, span: int = 4) -> int:
     return row + 1
 
 
+def _apply_default_filter_cointegrated(
+    ws, header_row: int, regime_col_idx: int,
+) -> None:
+    """Add an Excel AutoFilter to the sheet's data range and pre-apply a
+    'cointegrated'-only filter on the named regime column.
+
+    Sets:
+      * `auto_filter.ref` so Excel renders the filter dropdown UI
+      * `add_filter_column` so the saved file remembers the cointegrated
+        filter is active
+      * `row_dimensions[r].hidden = True` for every non-cointegrated row so
+        Excel renders the filtered view immediately on open (without this,
+        the filter UI shows as "applied" but all rows still display until
+        the user re-clicks the filter)
+
+    Operator can click the filter dropdown and uncheck `(Show All)` /
+    pick a different regime to expand the view manually.
+    """
+    last_row = ws.max_row
+    if last_row <= header_row:
+        return
+    last_col = get_column_letter(ws.max_column)
+    ws.auto_filter.ref = f"A{header_row}:{last_col}{last_row}"
+    # add_filter_column wants a 0-indexed offset from auto_filter.ref's
+    # first column; our ref starts at A so offset = (col_idx - 1)
+    ws.auto_filter.add_filter_column(regime_col_idx - 1, ["cointegrated"])
+    for r in range(header_row + 1, last_row + 1):
+        if ws.cell(row=r, column=regime_col_idx).value != "cointegrated":
+            ws.row_dimensions[r].hidden = True
+
+
 # ---------------------------------------------------------------------------
 # Curated candidates loader + per-candidate query
 # ---------------------------------------------------------------------------
@@ -543,6 +574,9 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
+    # All Pairs (Diagnostic): pre-apply cointegrated filter on regime_252 (col D = 4)
+    _apply_default_filter_cointegrated(ws, header_row=1, regime_col_idx=4)
+
 
 _ROUTE_FILL = {
     "direct":         _fill(COLOR_GREEN_BG,  COLOR_GREEN_FG),
@@ -651,6 +685,12 @@ def _write_asset_class_tab(
     if not any(c.get("canonical") for c in candidates):
         ws.column_dimensions[get_column_letter(5)].hidden = True
 
+    # Pre-applied cointegrated-only filter on reg252 (col F = index 6) for
+    # crypto + indices_stocks tabs. Forex left unfiltered so all candidates
+    # (incl. currently-broken ones like AUDNZD) stay visible by default.
+    if class_key in ("crypto", "indices_stocks"):
+        _apply_default_filter_cointegrated(ws, header_row=4, regime_col_idx=6)
+
     ws.freeze_panes = "F5"
 
 
@@ -726,6 +766,9 @@ def _write_singles_diagnostic(wb: Workbook, conn: sqlite3.Connection,
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
+    # Singles (Diagnostic): pre-apply cointegrated filter on regime_252 (col B = 2)
+    _apply_default_filter_cointegrated(ws, header_row=4, regime_col_idx=2)
+
 
 def _write_history(wb: Workbook, conn: sqlite3.Connection,
                     position: int | None = None) -> None:
@@ -761,6 +804,9 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection,
     ws.freeze_panes = "A2"
     for c, w in enumerate([12, 10, 10, 10, 14, 12, 14, 14, 12, 12, 12], start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
+
+    # History: pre-apply cointegrated filter on regime (col E = 5)
+    _apply_default_filter_cointegrated(ws, header_row=1, regime_col_idx=5)
 
 
 def _write_notes(wb: Workbook) -> None:
