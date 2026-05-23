@@ -63,6 +63,41 @@ from tools.cointegration_screen import PARQUET_PATH, SINGLES_PARQUET_PATH
 SQLITE_DB = DATA_ROOT / "SYSTEM_FACTORS" / "FX_COINTEGRATION" / "cointegration.db"
 TABLE_NAME = "cointegration_daily"
 SINGLES_TABLE_NAME = "singles_daily"
+TRIGGERS_TABLE_NAME = "cointegration_triggers"
+
+# Trigger detection floor — any row where regime == 'cointegrated' AND
+# |current_zscore| >= TRIGGER_Z_FLOOR is recorded as a screener "trigger
+# event" in cointegration_triggers. The floor of 1.5 captures every
+# threshold studied by the v2.1 event study ([1.5, 2.0, 2.5, 3.0]); the
+# backtest report subsets by higher thresholds at read time.
+TRIGGER_Z_FLOOR = 1.5
+
+# Asset-class membership — mirrors the sets in cointegration_excel.py.
+# Centralised here so the triggers table can stamp pair_class at write
+# time without depending on the Excel module.
+_FX_SYMBOLS = frozenset({
+    "AUDUSD", "EURUSD", "GBPUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY",
+    "AUDJPY", "AUDNZD", "CADJPY", "CHFJPY", "EURAUD", "EURGBP", "EURJPY",
+    "GBPAUD", "GBPJPY", "GBPNZD", "NZDJPY",
+})
+_IDX_SYMBOLS = frozenset({
+    "SPX500", "NAS100", "US30", "UK100", "FRA40", "ESP35", "EUSTX50",
+    "GER40", "JPN225", "AUS200",
+})
+_CC_SYMBOLS = frozenset({"XAUUSD", "BTCUSD", "ETHUSD"})
+
+
+def classify_pair(sym_a: str, sym_b: str) -> str:
+    """Bucket a pair-pair into FX / IDX / CROSS."""
+    a_fx = sym_a in _FX_SYMBOLS
+    b_fx = sym_b in _FX_SYMBOLS
+    a_idx = sym_a in _IDX_SYMBOLS
+    b_idx = sym_b in _IDX_SYMBOLS
+    if a_fx and b_fx:
+        return "FX"
+    if a_idx and b_idx:
+        return "IDX"
+    return "CROSS"
 
 # Hysteresis classifier constants (spec §7).
 P_COINTEGRATED = 0.05
@@ -174,6 +209,36 @@ def create_tables(conn: sqlite3.Connection) -> None:
             ON {SINGLES_TABLE_NAME} (as_of, regime);
         CREATE INDEX IF NOT EXISTS idx_singles_history
             ON {SINGLES_TABLE_NAME} (symbol, lookback_days, as_of DESC);
+
+        -- Trigger ledger (added 2026-05-23) — explicit log of every
+        -- screener event where regime == 'cointegrated' AND |z| >= 1.5
+        -- (TRIGGER_Z_FLOOR). One row per (as_of, pair, lookback). The
+        -- backtest replay tool reads this to enumerate "things the
+        -- screener flagged in real time" without having to recompute
+        -- from cointegration_daily on every backtest run.
+        CREATE TABLE IF NOT EXISTS {TRIGGERS_TABLE_NAME} (
+            as_of           TEXT    NOT NULL,
+            pair_a          TEXT    NOT NULL,
+            pair_b          TEXT    NOT NULL,
+            tf              TEXT    NOT NULL,
+            lookback_days   INTEGER NOT NULL,
+            pair_class      TEXT    NOT NULL,    -- FX / IDX / CROSS
+            direction       TEXT    NOT NULL,    -- LONG_SPREAD (z<0) or SHORT_SPREAD (z>0)
+            z_at_trigger    REAL    NOT NULL,    -- signed z at trigger time
+            z_floor         REAL    NOT NULL,    -- TRIGGER_Z_FLOOR at write time (for audit)
+            beta_at_trigger REAL,
+            hl_at_trigger   REAL,
+            regime_at_trigger TEXT  NOT NULL,
+            adf_pvalue_at_trigger REAL NOT NULL,
+            inserted_at     TEXT    NOT NULL,
+            PRIMARY KEY (as_of, pair_a, pair_b, tf, lookback_days)
+        );
+        CREATE INDEX IF NOT EXISTS idx_trigger_pair
+            ON {TRIGGERS_TABLE_NAME} (pair_a, pair_b);
+        CREATE INDEX IF NOT EXISTS idx_trigger_class_date
+            ON {TRIGGERS_TABLE_NAME} (pair_class, as_of DESC);
+        CREATE INDEX IF NOT EXISTS idx_trigger_z
+            ON {TRIGGERS_TABLE_NAME} (as_of, z_at_trigger);
     """)
     conn.commit()
 
@@ -375,7 +440,109 @@ def upsert_from_parquet(conn: sqlite3.Connection,
         rows_to_insert,
     )
     conn.commit()
+
+    # Trigger ledger population — runs AFTER the pair-pair upsert above
+    # so the rows we just wrote are the source. Idempotent: re-running
+    # the same as_of just refreshes the existing trigger rows (same PK).
+    _upsert_triggers_from_rows(conn, rows_to_insert)
+
     return len(rows_to_insert)
+
+
+# ---------------------------------------------------------------------------
+# Trigger ledger
+# ---------------------------------------------------------------------------
+
+
+def _upsert_triggers_from_rows(conn: sqlite3.Connection,
+                                 rows: list[tuple]) -> int:
+    """Scan a batch of just-upserted cointegration_daily rows for trigger
+    events and insert into cointegration_triggers.
+
+    A trigger event = regime == 'cointegrated' AND |current_zscore| >=
+    TRIGGER_Z_FLOOR. The signed z determines direction:
+        z < 0 → LONG_SPREAD  (spread below mean, expect rise back)
+        z > 0 → SHORT_SPREAD (spread above mean, expect fall back)
+
+    Rows come in the same tuple shape as the cointegration_daily upsert,
+    in DB_COLUMNS order — see upsert_from_parquet above.
+    """
+    # Column indices in the rows tuples (matches DB_COLUMNS order)
+    IDX_AS_OF       = DB_COLUMNS.index("as_of")
+    IDX_PAIR_A      = DB_COLUMNS.index("pair_a")
+    IDX_PAIR_B      = DB_COLUMNS.index("pair_b")
+    IDX_TF          = DB_COLUMNS.index("tf")
+    IDX_LB          = DB_COLUMNS.index("lookback_days")
+    IDX_ADF_P       = DB_COLUMNS.index("adf_pvalue")
+    IDX_HL          = DB_COLUMNS.index("half_life_days")
+    IDX_HEDGE       = DB_COLUMNS.index("hedge_ratio")
+    IDX_Z           = DB_COLUMNS.index("current_zscore")
+    IDX_REGIME      = DB_COLUMNS.index("regime")
+    IDX_INSERTED_AT = DB_COLUMNS.index("inserted_at")
+
+    triggers: list[tuple] = []
+    for r in rows:
+        regime = r[IDX_REGIME]
+        z = r[IDX_Z]
+        if regime != "cointegrated":
+            continue
+        if z is None:
+            continue
+        if abs(z) < TRIGGER_Z_FLOOR:
+            continue
+        pa, pb = r[IDX_PAIR_A], r[IDX_PAIR_B]
+        triggers.append((
+            r[IDX_AS_OF],
+            pa, pb,
+            r[IDX_TF], r[IDX_LB],
+            classify_pair(pa, pb),
+            "SHORT_SPREAD" if z > 0 else "LONG_SPREAD",
+            float(z),
+            float(TRIGGER_Z_FLOOR),
+            float(r[IDX_HEDGE]) if r[IDX_HEDGE] is not None else None,
+            float(r[IDX_HL]) if r[IDX_HL] is not None else None,
+            regime,
+            float(r[IDX_ADF_P]),
+            r[IDX_INSERTED_AT],
+        ))
+
+    if not triggers:
+        return 0
+
+    conn.executemany(f"""
+        INSERT OR REPLACE INTO {TRIGGERS_TABLE_NAME} (
+            as_of, pair_a, pair_b, tf, lookback_days, pair_class,
+            direction, z_at_trigger, z_floor, beta_at_trigger,
+            hl_at_trigger, regime_at_trigger, adf_pvalue_at_trigger,
+            inserted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, triggers)
+    conn.commit()
+    return len(triggers)
+
+
+def rebuild_triggers_from_history(conn: sqlite3.Connection) -> int:
+    """One-shot rebuild of cointegration_triggers from the full
+    cointegration_daily table. Useful after backfilling historical
+    as_ofs that pre-date the trigger ledger's introduction.
+
+    Truncates the existing triggers table first to avoid stale rows
+    surviving from a previous run with different TRIGGER_Z_FLOOR.
+    """
+    conn.execute(f"DELETE FROM {TRIGGERS_TABLE_NAME}")
+    conn.commit()
+
+    rows = conn.execute(f"""
+        SELECT {', '.join(DB_COLUMNS)} FROM {TABLE_NAME}
+        WHERE regime = 'cointegrated'
+          AND ABS(current_zscore) >= ?
+        ORDER BY as_of, pair_a, pair_b, lookback_days
+    """, (TRIGGER_Z_FLOOR,)).fetchall()
+
+    # sqlite3.Row → tuple in DB_COLUMNS order
+    row_tuples = [tuple(r) for r in rows]
+    n = _upsert_triggers_from_rows(conn, row_tuples)
+    return n
 
 
 def _to_iso_or_null(v) -> str | None:
