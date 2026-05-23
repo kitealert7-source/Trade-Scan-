@@ -196,9 +196,11 @@ plotshape(show_signals and reverted,           'Reversion exit',
      color = color.new(color.green, 0),  size = size.tiny)
 
 // === Background tint when |z| beyond entry / extreme ====================
-bg = show_bgtint ?
-       (math.abs(z) >= z_extreme ? color.new(color.red,    92) :
-        math.abs(z) >= z_entry   ? color.new(color.orange, 94) : na) : na
+// Single-line ternary: Pine v6 forbids continuation lines indented at a
+// multiple of 4 spaces (reserved for local blocks), so multi-line ternaries
+// here would either need 5/6/7-space continuation or wrap in parens — but
+// single line is unambiguous and keeps the logic compact.
+bg = not show_bgtint ? na : math.abs(z) >= z_extreme ? color.new(color.red, 92) : math.abs(z) >= z_entry ? color.new(color.orange, 94) : na
 bgcolor(bg, title = 'Z-zone tint')
 
 // === Status table (top right, last bar only) ============================
@@ -224,8 +226,8 @@ if barstate.islast and show_table
          text_color = color.white)
 
     rho_color = na(rho) ? color.gray :
-                math.abs(rho) >= 0.60 ? color.green :
-                math.abs(rho) >= 0.30 ? color.yellow : color.red
+              math.abs(rho) >= 0.60 ? color.green :
+              math.abs(rho) >= 0.30 ? color.yellow : color.red
     table.cell(info, 0, 2, 'ρ (corr)',     text_color = color.white)
     table.cell(info, 1, 2, na(rho) ? '—' : str.tostring(rho, '#.####'),
          text_color = rho_color)
