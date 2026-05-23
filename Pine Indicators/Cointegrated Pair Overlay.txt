@@ -204,9 +204,16 @@ bg = not show_bgtint ? na : math.abs(z) >= z_extreme ? color.new(color.red, 92) 
 bgcolor(bg, title = 'Z-zone tint')
 
 // === Status table (top right, last bar only) ============================
+// Light theme: solid white background, dark frame, black text — gives best
+// readability on both light and dark TradingView chart themes.
 var table info = table.new(position.top_right, 2, 9,
-     bgcolor = color.new(color.black, 70),
-     frame_color = color.new(color.white, 70), frame_width = 1)
+     bgcolor     = color.white,
+     frame_color = color.new(color.black, 50),
+     frame_width = 1)
+
+// Darker amber used in place of color.yellow for value cells — pure yellow
+// has poor contrast on a white background.
+AMBER = color.rgb(180, 130, 0)
 
 heuristic_regime() =>
     na(z) or na(rho) ? 'no data' :
@@ -217,49 +224,50 @@ heuristic_regime() =>
                               'normal'
 
 if barstate.islast and show_table
-    table.cell(info, 0, 0, 'Pair',         text_color = color.white, bgcolor = color.new(color.blue, 30))
+    // Header row — soft blue highlight, black bold-ish text via dark color
+    table.cell(info, 0, 0, 'Pair',         text_color = color.black, bgcolor = color.new(color.blue, 80))
     table.cell(info, 1, 0, ticker_only(sym_a) + ' / ' + ticker_only(sym_b),
-         text_color = color.white, bgcolor = color.new(color.blue, 30))
+         text_color = color.black, bgcolor = color.new(color.blue, 80))
 
-    table.cell(info, 0, 1, 'Window',       text_color = color.white)
+    table.cell(info, 0, 1, 'Window',       text_color = color.black)
     table.cell(info, 1, 1, str.tostring(N) + ' bars (' + timeframe.period + ')',
-         text_color = color.white)
+         text_color = color.black)
 
     rho_color = na(rho) ? color.gray :
               math.abs(rho) >= 0.60 ? color.green :
-              math.abs(rho) >= 0.30 ? color.yellow : color.red
-    table.cell(info, 0, 2, 'ρ (corr)',     text_color = color.white)
+              math.abs(rho) >= 0.30 ? AMBER : color.red
+    table.cell(info, 0, 2, 'ρ (corr)',     text_color = color.black)
     table.cell(info, 1, 2, na(rho) ? '—' : str.tostring(rho, '#.####'),
          text_color = rho_color)
 
-    table.cell(info, 0, 3, 'β (hedge)',    text_color = color.white)
+    table.cell(info, 0, 3, 'β (hedge)',    text_color = color.black)
     table.cell(info, 1, 3, na(beta) ? '—' : str.tostring(beta, '#.####'),
-         text_color = color.white)
+         text_color = color.black)
 
     z_color = na(z) ? color.gray :
               math.abs(z) >= z_extreme ? color.red :
               math.abs(z) >= z_entry   ? color.orange : color.green
-    table.cell(info, 0, 4, 'Spread z',     text_color = color.white)
+    table.cell(info, 0, 4, 'Spread z',     text_color = color.black)
     table.cell(info, 1, 4, na(z) ? '—' : str.tostring(z, '#.##'),
          text_color = z_color)
 
-    table.cell(info, 0, 5, 'Spread (raw)', text_color = color.white)
+    table.cell(info, 0, 5, 'Spread (raw)', text_color = color.black)
     table.cell(info, 1, 5, na(spread) ? '—' : str.tostring(spread, '#.####'),
-         text_color = color.white)
+         text_color = color.black)
 
     hl_color = na(half_life) ? color.gray :
                half_life >= 5 and half_life <= 30 ? color.green :
-               half_life > 30 and half_life <= 60 ? color.yellow : color.red
-    table.cell(info, 0, 6, 'Half-life',    text_color = color.white)
+               half_life > 30 and half_life <= 60 ? AMBER : color.red
+    table.cell(info, 0, 6, 'Half-life',    text_color = color.black)
     table.cell(info, 1, 6, na(half_life) ? '—' : str.tostring(half_life, '#.#') + ' bars',
          text_color = hl_color)
 
-    table.cell(info, 0, 7, 'Regime',       text_color = color.white)
+    table.cell(info, 0, 7, 'Regime',       text_color = color.black)
     table.cell(info, 1, 7, heuristic_regime(),
          text_color = z_color)
 
-    table.cell(info, 0, 8, 'A / B close',  text_color = color.white)
+    table.cell(info, 0, 8, 'A / B close',  text_color = color.black)
     table.cell(info, 1, 8,
          (na(a_close) ? '—' : str.tostring(a_close, '#.####')) + ' / ' +
          (na(b_close) ? '—' : str.tostring(b_close, '#.####')),
-         text_color = color.white)
+         text_color = color.black)
