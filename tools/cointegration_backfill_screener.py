@@ -190,9 +190,16 @@ def main(argv: list[str] | None = None) -> int:
                    help="Skip the backup-tables step (advanced; loses rollback).")
     args = p.parse_args(argv)
 
-    end_date = pd.Timestamp(args.end) if args.end else pd.Timestamp.utcnow().normalize()
+    # Tz-naive throughout — MASTER_DATA index is tz-naive datetime64[ns], so
+    # the as_of passed to _load_native_closes must also be tz-naive to avoid
+    # a TypeError on the `full.index <= end` comparison.
+    end_date = (pd.Timestamp(args.end) if args.end
+                else pd.Timestamp.now().normalize())
+    end_date = end_date.tz_localize(None) if end_date.tzinfo else end_date
     if args.start:
         start_date = pd.Timestamp(args.start)
+        start_date = (start_date.tz_localize(None)
+                      if start_date.tzinfo else start_date)
     else:
         start_date = end_date - pd.Timedelta(days=int(args.years * 365))
 
