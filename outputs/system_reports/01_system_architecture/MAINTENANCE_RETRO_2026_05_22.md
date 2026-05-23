@@ -53,7 +53,7 @@ First time the four-skill weekly maintenance cycle (`/pipeline-state-cleanup` �
 
 **F9 — RED preflight for a single orphan run feels disproportionate.** System_preflight returned "Execution must halt" for a 1-run drift; the structural-vs-noise distinction collapses at the bottom severity.
 
-- **Open for next pass:** `system_preflight.py` severity tiering — single-orphan should be YELLOW, not RED.
+- **Resolved 2026-05-23 (commit `9812cd3`):** `_check_registry()` now tiers — 1 orphan → YELLOW, ≥2 → RED. Aligns with `run_pipeline.py`'s existing "[DRIFT] auto-recovered" posture; the `_hint_for` lineage_pruner suggestion still surfaces on YELLOW so cleanup nudging is preserved.
 
 **F10 — DRY scan gave name matches, not body matches.** `/repo-cleanup-refactor` Phase 3 surfaced "duplicate" function definitions by grep; required manual body comparison to filter out false positives.
 
@@ -82,7 +82,7 @@ First time the four-skill weekly maintenance cycle (`/pipeline-state-cleanup` �
 | `/system-health-maintenance` | §4 — acknowledge smoke fixture rot as a separate maintenance lane; don't block close on fixture failure | F2 |
 | `/system-health-maintenance` | New §X — smoke fixture freshness check (manual quarterly invocation) | F2 |
 | `/session-start` | Phase 1.7 — detect unstaged residue from prior session/chip; flag any unstaged file >50 LOC | F7 |
-| `system_preflight.py` | Severity tiering — single-orphan = YELLOW, not RED | F9 |
+| ~~`system_preflight.py`~~ | ~~Severity tiering — single-orphan = YELLOW, not RED~~ — **landed 2026-05-23 (`9812cd3`)** | F9 |
 | `tools/check_broader_pytest_baseline.py` | Suppress "Resolution" footer on exit 0 (only print on exit 1) | O3 |
 | `outputs/system_reports/INTENT_INDEX.yaml` | Investigate `pine_*` cluster if MISS pattern persists across sessions | O1 |
 
