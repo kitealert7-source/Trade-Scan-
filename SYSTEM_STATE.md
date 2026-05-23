@@ -65,7 +65,14 @@
 - No entry/exit re-exploration — single-variable axes exhausted (see "All entry-side and exit-side single-variable axes for h3_spread are now EXHAUSTED" entry below)
 
 **Active hypothesis:**
-H1: a composite gate on (20-day return corr < −0.45) AND (5m intra-macro coherence ratio > 0.75) AND (macro flip frequency < 1 per 30 days) predicts Window-A/B-like behavior with ≥70% precision and is absent in ≥60% of Window-C months.
+H1 (revised 2026-05-23): cross-side flip count in a rolling N-bar lookback separates Window C from Windows A/B with ≥70% precision and ≥60% recall on per-quarter classification, for at least one of N ∈ {1000, 2000, 4000} 15m bars (≈ 15 / 30 / 60 calendar days). Halting new cycle initiation AND new pyramid orders when `flips_in_lookback > N_threshold` reduces Window-C Net% bleed below −50% without sacrificing >15pp Net% on Windows A/B.
+
+**Stop/restart spec (locked 2026-05-23):**
+- **Stop:** `flips_in_lookback > N_threshold` → block new cycle initiations AND new pyramid orders
+- **Restart (R1 pure symmetric):** `flips_in_lookback ≤ N_threshold` → resume both
+- **Open cycles during halt:** continue normally (REVERSE_CROSS / EXTREME_Z / ADVERSE_STOP / HARVEST exits all permitted)
+- **Cold start:** gate INACTIVE until lookback window is filled (first N bars behave as baseline)
+- **Test baseline:** 15m + d=8 + @3 (`e=5.0` / `r=1.0`) — locked cross-window winner; 5m+d=4+@3 disqualified (Window-B catastrophic)
 
 **Measurement:**
 - Primary: per-quarter detector flag precision/recall on Windows A, B, C
