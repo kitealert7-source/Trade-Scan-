@@ -388,6 +388,7 @@ def load_basket_leg_data(
     macro_sma_window: int = _MACRO_SMA_WINDOW,
     macro_correlation_window: int | None = None,
     macro_correlation_threshold: float = -0.5,
+    regime_gate_lookback_bars: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Load per-symbol OHLC + a USD_SYNTH regime factor for a basket.
 
@@ -518,6 +519,36 @@ def load_basket_leg_data(
                 out[sym]["diff"] = cross_df["diff"].reindex(
                     out[sym].index, method="ffill", fill_value=0.0
                 ).astype(float)
+
+            # Regime-gate signal (added 2026-05-23 for the
+            # h3_spread_window_c_regime_detector charter): rolling count of
+            # cross_side sign changes over a configurable lookback window.
+            # Default regime_gate_lookback_bars=None preserves legacy
+            # behavior — no column is added, no schema change for callers
+            # that do not opt in. When set, the h3_spread_v3 rule reads
+            # this column to gate cycle_init and pyramid_add when count
+            # exceeds regime_gate_flip_threshold (charter H1 revised).
+            #
+            # Cold-start contract: the first regime_gate_lookback_bars-1
+            # bars are NaN (min_periods=full window). The consuming rule
+            # treats NaN as "gate inactive" so the strategy behaves as
+            # baseline until the lookback is filled.
+            if regime_gate_lookback_bars is not None:
+                lookback_n = int(regime_gate_lookback_bars)
+                for sym in symbols:
+                    cs = out[sym]["cross_side"]
+                    # fillna(0): the shift-by-1 produces NaN at position 0;
+                    # in pandas, (NaN != 0) evaluates to True, which would
+                    # phantom-count the first bar as a flip. Treating NaN as
+                    # 0 (the same value the warmup bars carry) suppresses
+                    # that without affecting any real flip detection.
+                    prev_cs = cs.shift(1).fillna(0)
+                    is_flip = (
+                        (cs != prev_cs) & (cs != 0) & (prev_cs != 0)
+                    ).astype(int)
+                    out[sym]["flips_in_lookback"] = is_flip.rolling(
+                        lookback_n, min_periods=lookback_n
+                    ).sum()
 
             # Macro-direction filter (2026-05-19). When configured, compute
             # the SAME SMA-of-z cross signal on a HIGHER native broker
