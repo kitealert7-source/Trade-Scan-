@@ -1,0 +1,263 @@
+//@version=6
+indicator('Cointegrated Pair Overlay', overlay = true, max_lines_count = 50, max_labels_count = 100)
+
+// =============================================================================
+// COINTEGRATED PAIR OVERLAY — observe two assets' co-movement and the spread
+// between them on the price chart.
+//
+// Purpose
+//   Take any two assets the screener flags as cointegrated (CHFJPY/UK100,
+//   EURJPY/US30, AUDNZD/US30, etc.), overlay both on the chart in z-score
+//   normalized form, and continuously compute the rolling hedge ratio (β),
+//   spread, spread z-score, half-life, and rolling correlation.
+//
+//   Visual goals:
+//     1. See whether the two assets co-move historically (the two normalized
+//        lines should track each other when cointegrated).
+//     2. See when the spread between them detaches (spread z-line breaks
+//        away from the chart, entry/exit shapes mark threshold crossings).
+//     3. Cross-check against the screener's static daily snapshot — the
+//        Pine indicator updates intrabar as new data arrives.
+//
+// Pairs to try (today's BOTH-window cointegrated FX-equity set from the
+// screener — see Indices & Stocks tab of Cointegration_Screener.xlsx):
+//   * OANDA:CHFJPY   vs  TVC:UKX           (UK100, strongest cointegration)
+//   * OANDA:CHFJPY   vs  TVC:SX5E          (EUSTX50 — Euro Stoxx 50)
+//   * OANDA:EURJPY   vs  TVC:US30          (DJI — Dow Jones)
+//   * OANDA:GBPJPY   vs  TVC:UKX
+//   * OANDA:AUDJPY   vs  TVC:CAC           (FRA40 — CAC 40)
+//   * OANDA:EURUSD   vs  TVC:CAC
+//   Watchlist (historical reverters, currently broken — wait for re-coint):
+//   * OANDA:AUDNZD   vs  TVC:US30          (event study: 100% reversion)
+//   * OANDA:AUDNZD   vs  TVC:NDX           (NAS100 — event study: 75%)
+//
+// Setup
+//   1. Open a TradingView chart on EITHER leg of the pair you want to study.
+//   2. Add this indicator. Defaults are CHFJPY / UK100.
+//   3. Adjust Asset A and Asset B to match the pair you want.
+//   4. Optional: increase Rolling Window to match the screener (252 or 504
+//      daily bars; on intraday TFs scale accordingly, e.g. 100 on 4H).
+//
+// What the visualization shows
+//   * Asset A (blue, normalized)   — leg one rescaled to chart's price range
+//   * Asset B (red, normalized)    — leg two rescaled to chart's price range
+//     → when they overlap tightly = cointegrated; when they diverge = spread
+//       has opened up. Both lines are continuous; you can scrub history.
+//   * Spread z (purple)            — the spread's z-score, rescaled to plot
+//       at chart price level so it stays on-screen. Crosses dotted yellow
+//       (z=±2 entry zone) and dotted red (z=±3 extreme) reference lines.
+//   * Triangles                    — z entry threshold crossings (orange).
+//   * Crosses                      — z extreme threshold crossings (red).
+//   * Background tint              — orange when |z|≥2, red when |z|≥3.
+//   * Top-right table              — current β, ρ, z, half-life, regime tag.
+// =============================================================================
+
+// === Pair selection =====================================================
+sym_a = input.symbol('OANDA:CHFJPY',       'Asset A',
+     group = 'Pair',
+     tooltip = 'First leg of the cointegrated pair. Use the TradingView symbol picker. Default: OANDA:CHFJPY (matches the screener\'s strongest cointegration today, CHFJPY/UK100).')
+sym_b = input.symbol('TVC:UKX',            'Asset B',
+     group = 'Pair',
+     tooltip = 'Second leg. Default: TVC:UKX (UK100 / FTSE 100). For US indices try TVC:US30, TVC:SPX, TVC:NDX. For European: TVC:CAC, TVC:DAX, TVC:SX5E. For Japan: TVC:NI225.')
+
+// === Compute settings ===================================================
+N = input.int(252, 'Rolling window (bars)',
+     minval = 30, maxval = 2000,
+     group = 'Compute',
+     tooltip = 'Lookback for β, ρ, spread mean/std, and OU half-life. Matches the screener\'s 252 (1y of daily bars) at default. For 4H charts, ~200 ≈ 1y. For 1H, ~1200 ≈ 1y. Don\'t exceed 1y of actual time — older relationships rarely transfer.')
+
+// === Thresholds =========================================================
+z_entry   = input.float(2.0, 'Z entry threshold (|z| ≥ this = displaced)',
+     minval = 0.5, step = 0.1, group = 'Thresholds',
+     tooltip = 'Z-score magnitude at which the spread is considered "displaced enough to enter". Screener event study used 2.0, 2.5, 3.0. v2.1 evidence: lift over baseline appears at 2.5+ in FX-equity cohort.')
+z_extreme = input.float(3.0, 'Z extreme threshold',
+     minval = 1.0, step = 0.1, group = 'Thresholds',
+     tooltip = '|z| ≥ this = large displacement. p90 adverse excursion in the event study was ≈1.4-1.7 z-units past entry, so |z|≥4 is the practical hard-stop zone.')
+z_exit    = input.float(1.0, 'Z exit threshold (mean reversion target)',
+     minval = 0.1, step = 0.1, group = 'Thresholds',
+     tooltip = 'Reversion exit when |z| returns to within this. Event study\'s "reverted" definition.')
+
+// === Display ============================================================
+show_a       = input.bool(true,  'Plot Asset A (normalized)', group = 'Display')
+show_b       = input.bool(true,  'Plot Asset B (normalized)', group = 'Display')
+show_spread  = input.bool(true,  'Plot spread z-line (scaled to chart range)', group = 'Display')
+show_zlines  = input.bool(true,  'Plot reference z lines (±entry, ±extreme)', group = 'Display')
+show_signals = input.bool(true,  'Plot entry/exit signal shapes', group = 'Display')
+show_bgtint  = input.bool(true,  'Background tint when |z| ≥ entry', group = 'Display')
+show_table   = input.bool(true,  'Show stats table (top right)', group = 'Display')
+hide_self    = input.bool(true,  'Hide normalized line for the leg matching chart symbol',
+     group = 'Display',
+     tooltip = 'Avoids drawing the duplicate line on top of the chart\'s actual price. Compares "OANDA:CHFJPY" vs "CHFJPY" by ticker tail only, so broker prefix doesn\'t matter.')
+col_a      = input.color(color.blue,   'Asset A color',   group = 'Display', inline = 'cA')
+col_b      = input.color(color.red,    'Asset B color',   group = 'Display', inline = 'cB')
+col_spread = input.color(color.purple, 'Spread z color',  group = 'Display', inline = 'cS')
+
+// === Fetch series =======================================================
+// One request.security per leg. Each call returns close + rolling mean +
+// rolling stdev computed IN that leg's context, so the rolling math uses
+// the leg's own bar series (not chart-bar repeated).
+[a_close, a_mean, a_std] = request.security(sym_a, timeframe.period,
+     [close, ta.sma(close, N), ta.stdev(close, N)])
+[b_close, b_mean, b_std] = request.security(sym_b, timeframe.period,
+     [close, ta.sma(close, N), ta.stdev(close, N)])
+
+// === Hedge ratio β, spread, spread z ====================================
+// β via Pearson identity: cov(B,A)/var(A) = ρ(B,A) * σ_B / σ_A
+rho   = ta.correlation(b_close, a_close, N)
+beta  = a_std == 0 or na(a_std) ? na : rho * (b_std / a_std)
+
+// Spread = B - β·A, with rolling mean + stdev for z-score
+spread       = na(beta) ? na : b_close - beta * a_close
+spread_mean  = ta.sma(spread, N)
+spread_std   = ta.stdev(spread, N)
+z            = spread_std == 0 or na(spread_std) ? na : (spread - spread_mean) / spread_std
+
+// === Half-life (OU regression: Δspread on lag(spread)) ==================
+// dx_t = λ·x_{t-1}·dt + ε  →  λ_hat from the slope, half-life = ln(2)/(-λ).
+// Mean-reverting iff λ < 0.
+dspread        = spread - spread[1]
+lag_spread     = spread[1]
+dspread_std    = ta.stdev(dspread, N)
+lagspread_std  = ta.stdev(lag_spread, N)
+ou_corr        = ta.correlation(dspread, lag_spread, N)
+lambda_hat     = lagspread_std == 0 or na(lagspread_std) ? na :
+                 ou_corr * (dspread_std / lagspread_std)
+half_life      = na(lambda_hat) or lambda_hat >= 0 ? na : -math.log(2) / lambda_hat
+
+// === Chart-symbol detection (for hide_self) =============================
+ticker_only(_sym) =>
+    parts = str.split(_sym, ":")
+    array.size(parts) > 1 ? array.get(parts, 1) : _sym
+is_chart_symbol(_sym) => ticker_only(_sym) == syminfo.ticker
+hide_a = hide_self and is_chart_symbol(sym_a)
+hide_b = hide_self and is_chart_symbol(sym_b)
+
+// === Normalize to chart price range =====================================
+// z-score each leg in its own scale, then re-anchor at chart's rolling
+// mean ± stdev. Result: both legs visually overlay the chart's price
+// range without distorting their co-movement structure.
+chart_mean = ta.sma(close, N)
+chart_std  = ta.stdev(close, N)
+
+normalize_to_chart(c, mn, sd) =>
+    sd == 0 or na(sd) ? na : chart_mean + (c - mn) / sd * chart_std
+
+a_norm      = normalize_to_chart(a_close, a_mean, a_std)
+b_norm      = normalize_to_chart(b_close, b_mean, b_std)
+// Spread is already mean-zero in spread space; just scale z into chart range
+spread_norm = na(z) ? na : chart_mean + z * chart_std
+
+// === Plots ==============================================================
+plot(show_a and not hide_a ? a_norm : na,    'Asset A (normalized)',
+     color = col_a,      linewidth = 2)
+plot(show_b and not hide_b ? b_norm : na,    'Asset B (normalized)',
+     color = col_b,      linewidth = 2)
+plot(show_spread ? spread_norm : na,         'Spread z (chart-scaled)',
+     color = col_spread, linewidth = 1, style = plot.style_line)
+
+// Reference z lines plotted in chart space
+plot(show_zlines and show_spread ? chart_mean + z_entry   * chart_std : na,
+     'Z = +entry',   color = color.new(color.yellow, 40), style = plot.style_circles)
+plot(show_zlines and show_spread ? chart_mean - z_entry   * chart_std : na,
+     'Z = -entry',   color = color.new(color.yellow, 40), style = plot.style_circles)
+plot(show_zlines and show_spread ? chart_mean + z_extreme * chart_std : na,
+     'Z = +extreme', color = color.new(color.red,    40), style = plot.style_circles)
+plot(show_zlines and show_spread ? chart_mean - z_extreme * chart_std : na,
+     'Z = -extreme', color = color.new(color.red,    40), style = plot.style_circles)
+plot(show_zlines and show_spread ? chart_mean : na,
+     'Z = 0',        color = color.new(color.gray,   60), style = plot.style_circles)
+
+// === Entry / exit signal shapes =========================================
+// z crossing +entry from below   = spread over-extended UP   = short spread
+// z crossing -entry from above   = spread over-extended DOWN = long  spread
+crossed_up_entry   = ta.cross(z,  z_entry)
+crossed_dn_entry   = ta.cross(z, -z_entry)
+crossed_up_extreme = ta.cross(z,  z_extreme)
+crossed_dn_extreme = ta.cross(z, -z_extreme)
+// Mean-reversion exit when |z| returns inside the exit band
+abs_z_prev         = nz(math.abs(z[1]), 99.0)
+abs_z_now          = math.abs(z)
+reverted           = abs_z_prev > z_exit and abs_z_now <= z_exit
+
+plotshape(show_signals and crossed_up_entry,   '↓ Entry SHORT spread',
+     style = shape.triangledown, location = location.abovebar,
+     color = color.new(color.orange, 0), size = size.small)
+plotshape(show_signals and crossed_dn_entry,   '↑ Entry LONG spread',
+     style = shape.triangleup,   location = location.belowbar,
+     color = color.new(color.orange, 0), size = size.small)
+plotshape(show_signals and crossed_up_extreme, 'Extreme +z',
+     style = shape.xcross,       location = location.abovebar,
+     color = color.new(color.red, 0),    size = size.tiny)
+plotshape(show_signals and crossed_dn_extreme, 'Extreme -z',
+     style = shape.xcross,       location = location.belowbar,
+     color = color.new(color.red, 0),    size = size.tiny)
+plotshape(show_signals and reverted,           'Reversion exit',
+     style = shape.diamond,      location = location.bottom,
+     color = color.new(color.green, 0),  size = size.tiny)
+
+// === Background tint when |z| beyond entry / extreme ====================
+bg = show_bgtint ?
+       (math.abs(z) >= z_extreme ? color.new(color.red,    92) :
+        math.abs(z) >= z_entry   ? color.new(color.orange, 94) : na) : na
+bgcolor(bg, title = 'Z-zone tint')
+
+// === Status table (top right, last bar only) ============================
+var table info = table.new(position.top_right, 2, 9,
+     bgcolor = color.new(color.black, 70),
+     frame_color = color.new(color.white, 70), frame_width = 1)
+
+heuristic_regime() =>
+    na(z) or na(rho) ? 'no data' :
+     math.abs(rho) < 0.30 ? 'broken (low ρ)' :
+     math.abs(z)   > z_extreme ? 'displaced (|z|>' + str.tostring(z_extreme) + ')' :
+     math.abs(z)   > z_entry   ? 'displaced (|z|>' + str.tostring(z_entry) + ')' :
+     math.abs(rho) >= 0.60 ? 'tight (ρ≥0.6)' :
+                              'normal'
+
+if barstate.islast and show_table
+    table.cell(info, 0, 0, 'Pair',         text_color = color.white, bgcolor = color.new(color.blue, 30))
+    table.cell(info, 1, 0, ticker_only(sym_a) + ' / ' + ticker_only(sym_b),
+         text_color = color.white, bgcolor = color.new(color.blue, 30))
+
+    table.cell(info, 0, 1, 'Window',       text_color = color.white)
+    table.cell(info, 1, 1, str.tostring(N) + ' bars (' + timeframe.period + ')',
+         text_color = color.white)
+
+    rho_color = na(rho) ? color.gray :
+                math.abs(rho) >= 0.60 ? color.green :
+                math.abs(rho) >= 0.30 ? color.yellow : color.red
+    table.cell(info, 0, 2, 'ρ (corr)',     text_color = color.white)
+    table.cell(info, 1, 2, na(rho) ? '—' : str.tostring(rho, '#.####'),
+         text_color = rho_color)
+
+    table.cell(info, 0, 3, 'β (hedge)',    text_color = color.white)
+    table.cell(info, 1, 3, na(beta) ? '—' : str.tostring(beta, '#.####'),
+         text_color = color.white)
+
+    z_color = na(z) ? color.gray :
+              math.abs(z) >= z_extreme ? color.red :
+              math.abs(z) >= z_entry   ? color.orange : color.green
+    table.cell(info, 0, 4, 'Spread z',     text_color = color.white)
+    table.cell(info, 1, 4, na(z) ? '—' : str.tostring(z, '#.##'),
+         text_color = z_color)
+
+    table.cell(info, 0, 5, 'Spread (raw)', text_color = color.white)
+    table.cell(info, 1, 5, na(spread) ? '—' : str.tostring(spread, '#.####'),
+         text_color = color.white)
+
+    hl_color = na(half_life) ? color.gray :
+               half_life >= 5 and half_life <= 30 ? color.green :
+               half_life > 30 and half_life <= 60 ? color.yellow : color.red
+    table.cell(info, 0, 6, 'Half-life',    text_color = color.white)
+    table.cell(info, 1, 6, na(half_life) ? '—' : str.tostring(half_life, '#.#') + ' bars',
+         text_color = hl_color)
+
+    table.cell(info, 0, 7, 'Regime',       text_color = color.white)
+    table.cell(info, 1, 7, heuristic_regime(),
+         text_color = z_color)
+
+    table.cell(info, 0, 8, 'A / B close',  text_color = color.white)
+    table.cell(info, 1, 8,
+         (na(a_close) ? '—' : str.tostring(a_close, '#.####')) + ' / ' +
+         (na(b_close) ? '—' : str.tostring(b_close, '#.####')),
+         text_color = color.white)
