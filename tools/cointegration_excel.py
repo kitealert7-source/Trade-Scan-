@@ -641,6 +641,16 @@ def _write_asset_class_tab(
     widths = [22, 16, 22, 14, 22, 12, 12, 9, 9, 9, 9, 9, 9, 70]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
+
+    # Auto-hide `canonical` column (col E) when no candidate uses route=
+    # redundant_with on this tab. Cross-asset tabs without triangular
+    # restatements (e.g. Indices & Stocks, where FX-equity pairs have no
+    # shared token to cancel) get a cleaner view. Column un-hides
+    # automatically the moment a redundant_with entry is added to this
+    # class in the yaml.
+    if not any(c.get("canonical") for c in candidates):
+        ws.column_dimensions[get_column_letter(5)].hidden = True
+
     ws.freeze_panes = "F5"
 
 
