@@ -453,15 +453,15 @@ def _query_candidate_rows(
 
 
 # Asset-class membership for the pair_class column on the All Pairs
-# (Diagnostic) sheet. Lets the operator filter the 465-row firehose down
-# to "FX pairs only" / "Index pairs only" / "Cross-asset only" via the
-# auto-filter dropdown without typing pair_a/pair_b filters manually.
+# (Diagnostic) + History sheets. Lets the operator filter the row firehose
+# down to "FX pairs only" / "Index pairs only" / "Cross-asset only" via
+# the auto-filter dropdown without typing pair_a/pair_b filters manually.
 _FX_SYMBOLS = frozenset({
     "AUDUSD", "EURUSD", "GBPUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY",
     "AUDJPY", "AUDNZD", "CADJPY", "CHFJPY", "EURAUD", "EURGBP", "EURJPY",
     "GBPAUD", "GBPJPY", "GBPNZD", "NZDJPY",
 })
-_IX_SYMBOLS = frozenset({
+_IDX_SYMBOLS = frozenset({
     "SPX500", "NAS100", "US30", "UK100", "FRA40", "ESP35", "EUSTX50",
     "GER40", "JPN225", "AUS200",
 })
@@ -469,22 +469,22 @@ _CC_SYMBOLS = frozenset({"XAUUSD", "BTCUSD", "ETHUSD"})
 
 
 def _classify_pair(sym_a: str, sym_b: str) -> str:
-    """Bucket a pair-pair into FX / IX / CROSS for filter UX.
+    """Bucket a pair-pair into FX / IDX / CROSS for filter UX.
 
     FX    — both legs are FX pairs (18-symbol FX_UNIVERSE)
-    IX    — both legs are equity indices (10-symbol set)
-    CROSS — anything else: FX × IX, FX × commodity/crypto, IX × CC, CC × CC.
-            All cross-asset combinations bucket together since their
-            economic mechanisms differ from pure within-class spreads.
+    IDX   — both legs are equity indices (10-symbol set)
+    CROSS — anything else: FX × IDX, FX × commodity/crypto, IDX × CC,
+            CC × CC. All cross-asset combinations bucket together since
+            their economic mechanisms differ from pure within-class spreads.
     """
     a_fx = sym_a in _FX_SYMBOLS
     b_fx = sym_b in _FX_SYMBOLS
-    a_ix = sym_a in _IX_SYMBOLS
-    b_ix = sym_b in _IX_SYMBOLS
+    a_idx = sym_a in _IDX_SYMBOLS
+    b_idx = sym_b in _IDX_SYMBOLS
     if a_fx and b_fx:
         return "FX"
-    if a_ix and b_ix:
-        return "IX"
+    if a_idx and b_idx:
+        return "IDX"
     return "CROSS"
 
 
@@ -976,6 +976,13 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection,
             ORDER BY pair_a, pair_b, lookback_days, as_of DESC""",
         conn,
     )
+    # Insert pair_class as col D (between pair_b and lookback_days) so the
+    # operator can filter the 90-day-history firehose to a single asset
+    # class via the dropdown, same UX as the All Pairs (Diagnostic) sheet.
+    if not df.empty:
+        df.insert(3, "pair_class",
+                   df.apply(lambda r: _classify_pair(r["pair_a"], r["pair_b"]),
+                            axis=1))
     columns = list(df.columns)
     for c, h in enumerate(columns, start=1):
         _header_style(ws.cell(row=1, column=c, value=h))
@@ -994,11 +1001,14 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection,
             if col == "regime" and v in _REGIME_FILL:
                 cell.fill, cell.font = _REGIME_FILL[v]
     ws.freeze_panes = "A2"
-    for c, w in enumerate([12, 10, 10, 10, 14, 12, 14, 14, 12, 12, 12], start=1):
+    #          as_of pa pb cls lb  reg p   pmed hl  hr  z   hd
+    widths = [12,   10, 10, 10, 10, 14, 12, 14,  14, 12, 12, 12]
+    for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
-    # History: pre-apply cointegrated filter on regime (col E = 5)
-    _apply_default_filter_cointegrated(ws, header_row=1, regime_col_idx=5)
+    # Pre-apply cointegrated filter on regime — column F = 6 after
+    # pair_class was inserted at col D (was col E = 5 before that insertion).
+    _apply_default_filter_cointegrated(ws, header_row=1, regime_col_idx=6)
 
 
 def _write_notes(wb: Workbook) -> None:
