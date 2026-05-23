@@ -47,6 +47,9 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.filters import (
+    CustomFilter, CustomFilters, FilterColumn, Filters,
+)
 
 import yaml
 
@@ -204,6 +207,71 @@ def _section_header(ws, row: int, text: str, span: int = 4) -> int:
     ws.cell(row=row, column=1).fill = PatternFill("solid", fgColor=COLOR_SECTION_BG)
     ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=span)
     return row + 1
+
+
+def _apply_all_pairs_default_filter(ws) -> None:
+    """Multi-column synchronized default filter for the All Pairs (Diagnostic)
+    sheet. Header at row 1, data at rows 2+. Columns laid out as:
+
+        A pair_a | B pair_b | C agreement | D reg_252 | E reg_504 |
+        F p_252  | G p_504  | H hl_252    | I hl_504  | J z_252   | ...
+
+    Pre-applies four filters that together restrict the visible set to
+    "both-window cointegrated pairs with operationally tradable half-life":
+
+        C = "BOTH"
+        D = "cointegrated"
+        E = "cointegrated"
+        I ∈ [5, 30]   (custom range filter via greaterThanOrEqual + lessThanOrEqual)
+
+    Each filter renders as an independent dropdown so the operator can
+    relax any one criterion without touching the others.
+    """
+    last_row = ws.max_row
+    if last_row <= 1:
+        return
+    last_col = get_column_letter(ws.max_column)
+    ws.auto_filter.ref = f"A1:{last_col}{last_row}"
+
+    # Value-list filters on C / D / E (colIds are 0-indexed from ref start)
+    fc_c = FilterColumn(colId=2)
+    fc_c.filters = Filters(filter=["BOTH"])
+    ws.auto_filter.filterColumn.append(fc_c)
+
+    fc_d = FilterColumn(colId=3)
+    fc_d.filters = Filters(filter=["cointegrated"])
+    ws.auto_filter.filterColumn.append(fc_d)
+
+    fc_e = FilterColumn(colId=4)
+    fc_e.filters = Filters(filter=["cointegrated"])
+    ws.auto_filter.filterColumn.append(fc_e)
+
+    # Numeric range filter on I (half_life_days_504) ∈ [5, 30]
+    cfs = CustomFilters(_and=True)
+    cfs.customFilter = [
+        CustomFilter(operator="greaterThanOrEqual", val="5"),
+        CustomFilter(operator="lessThanOrEqual", val="30"),
+    ]
+    fc_i = FilterColumn(colId=8, customFilters=cfs)
+    ws.auto_filter.filterColumn.append(fc_i)
+
+    # Hide every row that doesn't pass ALL four filters. Without this,
+    # Excel renders the filter UI as "applied" but every row is still
+    # visible until the user clicks any dropdown.
+    for r in range(2, last_row + 1):
+        c_val = ws.cell(row=r, column=3).value
+        d_val = ws.cell(row=r, column=4).value
+        e_val = ws.cell(row=r, column=5).value
+        i_val = ws.cell(row=r, column=9).value
+        passes = (
+            c_val == "BOTH"
+            and d_val == "cointegrated"
+            and e_val == "cointegrated"
+            and isinstance(i_val, (int, float))
+            and 5 <= i_val <= 30
+        )
+        if not passes:
+            ws.row_dimensions[r].hidden = True
 
 
 def _apply_default_filter_cointegrated(
@@ -574,8 +642,17 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
-    # All Pairs (Diagnostic): pre-apply cointegrated filter on regime_252 (col D = 4)
-    _apply_default_filter_cointegrated(ws, header_row=1, regime_col_idx=4)
+    # All Pairs (Diagnostic) — 4-column synchronized default filter
+    # designed to narrow ~465 pair-pairs to a hand-studyable subset:
+    #   C (agreement)      = "BOTH"          ← both windows cointegrated
+    #   D (regime_252)     = "cointegrated"  ← redundant with C but
+    #   E (regime_504)     = "cointegrated"    ← independently adjustable
+    #   I (hl_504)         ∈ [5, 30]         ← operational sweet spot
+    #
+    # Operator can clear/change any of the four dropdowns to widen the
+    # view (e.g. set C = "252-only" to see fresh formations, or set I
+    # filter dropdown → Number Filters → custom range).
+    _apply_all_pairs_default_filter(ws)
 
 
 _ROUTE_FILL = {
