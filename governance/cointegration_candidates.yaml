@@ -152,9 +152,131 @@ asset_classes:
   indices_stocks:
     label: "Indices & Stocks"
     description: >
-      Deferred — equity universe not yet ingested into MASTER_DATA;
-      cointegration on equity pairs is conceptually the strongest case
-      (share-class arbitrage, same-sector revenue drivers) but requires
-      separate data + execution path. Reactivate when stocks pipeline lands.
-    deferred: true
-    candidates: []
+      Reactivated 2026-05-23. Universe now includes 10 equity indices
+      (SPX500, NAS100, US30 / UK100, FRA40, ESP35, EUSTX50, GER40 /
+      JPN225, AUS200). The strongest thesis class is FX-equity cross-asset
+      cointegration where a macro factor drives both legs (safe-haven
+      yen-cross vs European equity; commodity-bloc currency vs US equity
+      risk). Equity-equity within-region pairs are NOT curated here: the
+      v2.1 event study found that IX+IX qualified events fail to revert
+      (0% at τ=1.5 and τ=2.0) — qualification selects indices that
+      diverge, not converge. FX-equity is the surface that the v2.1 event
+      study documented carries the qualification edge: +13.5pp lift at
+      τ=2.5 and +14.1pp at τ=3.0 over baseline.
+    candidates:
+      - key: CHFJPY_vs_UK100
+        type: pair
+        pair_a: CHFJPY
+        pair_b: UK100
+        rationale: >
+          Strongest current cointegration in the FX-equity surface. CHF
+          and JPY both safe-haven; UK100 falls during European/global
+          risk-off. Disjoint tokens (no shared currency leg).
+        route: synthesize
+        notes: >
+          BOTH-window cointegrated 2026-05-23 (p252=0.0008, p504=0.0063,
+          hl≈5-14d). Strongest p-values in the curated list today.
+
+      - key: CHFJPY_vs_EUSTX50
+        type: pair
+        pair_a: CHFJPY
+        pair_b: EUSTX50
+        rationale: >
+          Same safe-haven thesis as CHFJPY/UK100, but EUSTX50 is the
+          5-country Eurozone composite (broader European factor than UK
+          alone). Disjoint tokens.
+        route: synthesize
+        notes: >
+          BOTH-window cointegrated 2026-05-23 (p252=0.0034, p504=0.0341,
+          hl≈5-16d). EUSTX50 has shorter OctaFx history than UK100, so
+          the 504d window p-value is more borderline — watch for
+          re-breaking.
+
+      - key: EURJPY_vs_US30
+        type: pair
+        pair_a: EURJPY
+        pair_b: US30
+        rationale: >
+          Cross-region yen-cross vs US large-cap equity. Mechanism:
+          JPY strengthens / risk-off → EURJPY falls AND US30 falls
+          (same global risk factor). Disjoint tokens.
+        route: synthesize
+        notes: >
+          BOTH-window cointegrated 2026-05-23 (p252=0.0085, p504=0.0235,
+          hl≈7-22d). Current z slightly elevated (1.18-1.70) — watch
+          for re-convergence opportunity.
+
+      - key: GBPJPY_vs_UK100
+        type: pair
+        pair_a: GBPJPY
+        pair_b: UK100
+        rationale: >
+          Yen safe-haven vs UK domestic equity. GBP-JPY captures UK
+          rate-differential + global risk; UK100 captures UK earnings +
+          global risk. The shared risk factor drives the spread.
+          Disjoint tokens.
+        route: synthesize
+        notes: >
+          BOTH-window cointegrated 2026-05-23 (p252=0.0063, p504=0.0320,
+          hl≈7-21d).
+
+      - key: AUDJPY_vs_FRA40
+        type: pair
+        pair_a: AUDJPY
+        pair_b: FRA40
+        rationale: >
+          Three-way mechanism: AUD risk-on commodity bloc + JPY
+          safe-haven + French equity earnings cycle. AUDJPY captures
+          the risk-on/off axis; FRA40 captures European cyclical
+          earnings exposed to the same global risk regime. Disjoint
+          tokens.
+        route: synthesize
+        notes: >
+          BOTH-window cointegrated 2026-05-23 (p252=0.0079, p504=0.0289,
+          hl≈7-19d). Currently near-mean (z≈-0.32/0.19) so no displacement
+          to trade on today.
+
+      - key: EURUSD_vs_FRA40
+        type: pair
+        pair_a: EURUSD
+        pair_b: FRA40
+        rationale: >
+          Broad Eurozone factor: EUR/USD captures Eurozone-vs-US monetary
+          stance; FRA40 captures French (~30% of Eurozone GDP) equity
+          earnings driven by same monetary cycle. Tighter correlation
+          than CAC vs other European currencies.
+        route: synthesize
+        notes: >
+          BOTH-window cointegrated 2026-05-23 (p252=0.0264, p504=0.0049,
+          hl≈9-14d).
+
+      - key: AUDNZD_vs_US30
+        type: pair
+        pair_a: AUDNZD
+        pair_b: US30
+        rationale: >
+          Watchlist (NOT currently cointegrated). v2.1 event study
+          showed 4/4 = 100% reversion on qualified τ≥2.0 events
+          historically. Thesis: AUDNZD captures relative commodity
+          demand (iron-ore-driven AUD vs dairy/agriculture-driven NZD);
+          US30 captures US large-cap risk sentiment.
+        route: synthesize
+        notes: >
+          Currently broken (p252=0.21, p504=0.057 BREAKING on 504d).
+          Re-flagging if BOTH-window cointegration returns. Sample size
+          on the 100% reversion claim is small (4 events / decade); treat
+          as candidate-for-monitoring, not validated edge.
+
+      - key: AUDNZD_vs_NAS100
+        type: pair
+        pair_a: AUDNZD
+        pair_b: NAS100
+        rationale: >
+          Watchlist (NOT currently cointegrated). v2.1 event study
+          showed 3/4 = 75% reversion on qualified τ≥2.0 events.
+          Same AUDNZD commodity-relative-demand thesis as
+          AUDNZD/US30, with US tech (NAS100) substituted for blue-chips.
+        route: synthesize
+        notes: >
+          Currently broken on both windows (p252=0.57, p504=0.32).
+          Wait for re-qualification before any action.
