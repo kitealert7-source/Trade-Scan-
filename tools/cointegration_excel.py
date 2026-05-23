@@ -51,6 +51,8 @@ from openpyxl.worksheet.filters import (
     CustomFilter, CustomFilters, FilterColumn, Filters,
 )
 
+from tools.capital.capital_broker_spec import load_broker_spec
+
 import yaml
 
 from config.path_authority import DATA_ROOT
@@ -209,6 +211,56 @@ def _section_header(ws, row: int, text: str, span: int = 4) -> int:
     return row + 1
 
 
+def _compute_neutral_basket(sym_a: str, sym_b: str,
+                              beta: float | None) -> tuple[float | None, float | None]:
+    """Return (lot_a, lot_b) for the minimum OctaFX β-neutral basket.
+
+    Derivation: spread = B - β·A. To hold a position with no sensitivity to
+    outright moves in A (β-neutral), the dollar P&L from the β·A "expected"
+    component must cancel the dollar P&L from the B leg. With L_A lots of A
+    and L_B lots of B, and `usd_per_pu_per_lot` from each broker spec
+    (MT5-verified USD P&L per 1 price unit per 1.0 lot), this gives:
+
+        L_A / L_B  =  |β|  ×  (usd_per_pu_per_lot_B  /  usd_per_pu_per_lot_A)
+
+    The minimum tradable basket is constructed by setting the smaller-lot
+    side to its broker min_lot, computing the other side, and rounding it
+    to lot_step. Returns (None, None) if either broker spec is missing,
+    β is invalid, or either usd_per_pu_per_lot is zero/missing.
+    """
+    if beta is None or not isinstance(beta, (int, float)) or beta == 0:
+        return (None, None)
+    if not math.isfinite(beta):
+        return (None, None)
+    try:
+        spec_a = load_broker_spec(sym_a)
+        spec_b = load_broker_spec(sym_b)
+    except FileNotFoundError:
+        return (None, None)
+    cal_a = spec_a.get("calibration", {}) or {}
+    cal_b = spec_b.get("calibration", {}) or {}
+    usd_a = float(cal_a.get("usd_per_pu_per_lot", 0) or 0)
+    usd_b = float(cal_b.get("usd_per_pu_per_lot", 0) or 0)
+    if usd_a <= 0 or usd_b <= 0:
+        return (None, None)
+    min_a  = float(spec_a.get("min_lot",  0.01))
+    min_b  = float(spec_b.get("min_lot",  0.01))
+    step_a = float(spec_a.get("lot_step", 0.01))
+    step_b = float(spec_b.get("lot_step", 0.01))
+    ratio = abs(beta) * (usd_b / usd_a)   # = lots_A / lots_B
+    if ratio <= 0 or not math.isfinite(ratio):
+        return (None, None)
+    if ratio >= 1.0:
+        # A needs more lots than B per basket — set B at minimum, scale A up
+        l_b = min_b
+        l_a = max(min_a, round(ratio * l_b / step_a) * step_a)
+    else:
+        # B needs more lots than A per basket — set A at minimum, scale B up
+        l_a = min_a
+        l_b = max(min_b, round(l_a / ratio / step_b) * step_b)
+    return (round(l_a, 4), round(l_b, 4))
+
+
 def _apply_all_pairs_default_filter(ws) -> None:
     """Multi-column synchronized default filter for the All Pairs (Diagnostic)
     sheet. Header at row 1, data at rows 2+. Columns laid out as:
@@ -355,6 +407,9 @@ def _query_candidate_rows(
                     rr["current_zscore"]) else None
         return out
 
+    lot_a: float | None = None
+    lot_b: float | None = None
+
     if ctype == "single":
         sym = candidate["symbol"]
         sub = df_singles[df_singles.symbol == sym]
@@ -368,6 +423,15 @@ def _query_candidate_rows(
         a, b = sorted([candidate["pair_a"], candidate["pair_b"]])
         sub = df_pairs[(df_pairs.pair_a == a) & (df_pairs.pair_b == b)]
         subject = f"{a}/{b}"
+        # β-neutral lot basket via OctaFX broker specs. Use the 252d β
+        # (shorter window, more responsive to current market structure)
+        # to drive the sizing — the 504d β is an alternative the operator
+        # can compute manually from the table if needed.
+        beta_row = sub[sub.lookback_days == 252]
+        if not beta_row.empty:
+            beta = beta_row.iloc[0]["hedge_ratio"]
+            beta = float(beta) if pd.notna(beta) else None
+            lot_a, lot_b = _compute_neutral_basket(a, b, beta)
     else:
         sub = pd.DataFrame()
         subject = candidate.get("key", "?")
@@ -379,6 +443,8 @@ def _query_candidate_rows(
         "subject":   subject,
         "route":     candidate.get("route", "—"),
         "canonical": candidate.get("canonical"),
+        "lot_a":     lot_a,
+        "lot_b":     lot_b,
         "rationale": candidate.get("rationale", "").strip(),
     })
     return cells
@@ -696,7 +762,9 @@ def _write_asset_class_tab(
     headers = [
         "key", "type", "subject", "route", "canonical",
         "reg252", "reg504", "p252", "p504", "hl252", "hl504",
-        "z252", "z504", "rationale",
+        "z252", "z504",
+        "lot_a", "lot_b",
+        "rationale",
     ]
     for c, h in enumerate(headers, start=1):
         _header_style(ws.cell(row=4, column=c, value=h))
@@ -707,9 +775,9 @@ def _write_asset_class_tab(
 
         def put(col_idx, value):
             cell = ws.cell(row=row, column=col_idx, value=value)
-            cell.alignment = Alignment(horizontal="center" if col_idx <= 13 else "left",
+            cell.alignment = Alignment(horizontal="center" if col_idx <= 15 else "left",
                                        vertical="top",
-                                       wrap_text=col_idx == 14)
+                                       wrap_text=col_idx == 16)
             cell.border = BORDER
             return cell
 
@@ -744,12 +812,17 @@ def _write_asset_class_tab(
             if zc:
                 z_cell.fill, z_cell.font = zc
 
+        # β-neutral lot basket (OctaFX, 252d β-driven)
+        put(14, cells.get("lot_a"))
+        put(15, cells.get("lot_b"))
+
         # Rationale — wrapped
-        put(14, cells["rationale"])
+        put(16, cells["rationale"])
         ws.row_dimensions[row].height = 50
 
     # Column widths
-    widths = [22, 16, 22, 14, 22, 12, 12, 9, 9, 9, 9, 9, 9, 70]
+    #          key  type subj route can  reg2 reg5 p25 p50 hl2 hl5 z25 z50 ltA ltB ratio
+    widths = [22,  16,  22,  14,  22,  12,  12,  9,  9,  9,  9,  9,  9,  9,  9, 70]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
