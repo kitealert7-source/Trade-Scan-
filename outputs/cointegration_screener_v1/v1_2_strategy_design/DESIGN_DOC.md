@@ -9,6 +9,41 @@
 
 ---
 
+## 0. Framework evolution — what changed today
+
+The earlier research generation (through v2.1 event study, retired COINTREV v1)
+operated as **heuristic experimentation**: hand-crafted strategies, ad-hoc
+historical reconstructions, results not directly auditable against the
+screener's live operation. The retired v1 disaster — equal-lot sizing
+disguised by a correlation filter — was a direct symptom of that mode: each
+strategy invented its own entry/exit/sizing path, with no shared signal layer
+to cross-check against.
+
+The infrastructure built 2026-05-23 elevates the methodology to **three
+qualitatively new properties**:
+
+| Property | What it means | Implementation |
+|---|---|---|
+| **Immutable signal ledger** | Every signal the screener fires is recorded once and never re-derived | `cointegration_triggers` table; auto-populated daily; never deleted |
+| **Deterministic event replay** | A backtest is reproducible to the exact trade list given the same ledger + price data | strategy reads triggers as event stream; same SQLite + MASTER_DATA produces same trades |
+| **Layered hypothesis testing** | Each variant adds ONE knob; deltas are attributable | v1.2 base → v1.2.x extensions, one knob per step |
+
+This is a different kind of research artifact. It means:
+
+1. Today's v2.1 event-study findings and Phase 3 realized-replay findings
+   can BOTH be re-derived from the ledger going forward; they're not
+   one-shot reports.
+2. The COINTREV v1 sizing bug could not recur in this framework — sizing
+   is a separate concern from signal generation, and the trigger ledger
+   doesn't carry sizing assumptions.
+3. The "1 knob per variant" rule (locked in §4 below) gives us a real
+   mechanism to attribute P&L deltas, not just observe them.
+
+Carry this framing forward — the per-variant discipline matters MORE
+than the specific v1.2 results.
+
+---
+
 ## 1. The problem this design solves
 
 The 2026-05-21 retirement of COINTREV v1 left a known gap: we had no β-weighted strategy actually trading the screener's signals. The 2026-05-23 v2.1 event study predicted negative edge for FX-FX; the realized-backtest tool (Phase 3, same day) measured 80-95% reversion on real triggers. The v2.1 reconstruction-based and the realized-replay analyses disagree by ~55-65 percentage points.
@@ -45,15 +80,28 @@ Avg ~3 trades per pair, median probably 2-3, top pair (NZDUSD/USDCAD) = 19 trade
 
 Per operator direction 2026-05-23: base run captures the **pure cointegration
 mean-reversion thesis** without mixing in stop-loss tail truncation. The
-regime-break exit IS the de facto stop loss for a spread trade — when the
-screener says regime is broken, qualification is gone, position closes. No
-separate z-based hard stop in base run.
+regime-degradation exit IS the de facto stop loss for a spread trade — the
+moment the screener's classifier signals weakening of the cointegrating
+equilibrium, position closes. No separate z-based hard stop in base run.
+
+**Regime-exit definition (LOCKED 2026-05-23):**
+
+The screener's regime classifier outputs one of three states per pair-window:
+`cointegrated`, `breaking`, `broken`. Base run treats **both `breaking` and
+`broken` as exit signals** — the rationale: if the screener has already
+detected degradation of the equilibrium test (`breaking`), continuing to
+hold is implicitly betting on a weakened thesis state. We exit on the first
+non-`cointegrated` reading.
+
+This is locked here, not implicit, because the choice materially affects:
+holding time, drawdown profile, apparent Sharpe, and tail truncation. If
+the rule changes later, comparisons against the base run become contaminated.
 
 | Scenario | Decision |
 |---|---|
 | Trigger arrives while position is already open | **SKIP** — same direction, already covered. Don't pyramid. |
 | `|z|` returns inside ±exit_z band | **MEAN-REVERSION EXIT** — primary success path. Bar of exit recorded for bars-to-reversion stat. |
-| Regime breaks (broken/breaking) during open position | **REGIME-BREAK EXIT** — close at next bar. This IS the de facto stop loss for a cointegration trade; qualification is gone so the thesis is invalid. Per v2.1 event study `qual_break_rate` was 95-100%, so this exit fires reliably. |
+| Regime flips from `cointegrated` to `breaking` OR `broken` during open position | **REGIME-DEGRADATION EXIT** — close at next bar. Both `breaking` and `broken` qualify; the thesis is weakened either way. This IS the de facto stop loss. Per v2.1 event study `qual_break_rate` was 95-100%, so this exit fires reliably across the cohort. |
 | Reversion not reached within FORWARD_BARS (default 60) | **TIME-STOP EXIT** — close at bar 60 regardless of z. Thesis unresolved. |
 | Adverse z excursion past entry | **NOT EXITED in base run** — recorded as an output metric per trade (max adverse \|z\| during position), but no explicit hard stop. v1.2.1 may add this after base results are evaluated. |
 
@@ -73,11 +121,14 @@ SQLite cointegration_triggers (865 first-crossing events)
          date_range: 2025-05-23 → 2026-05-22
          params:
              entry_source: cointegration_triggers
-             lookback_filter: 252  (or 504 — separate directive per window?)
+             lookback_filter: 252  (or 504 — separate directive per window)
              exit_z: 1.0
              time_stop_bars: 60
-             hard_stop_z_above_entry: 2.0
+             regime_exit_states: ["breaking", "broken"]   # LOCKED
+             regime_exit_timing: exit_at_next_bar
+             min_gap_days_between_triggers: 5
              lot_sizing: octafx_beta_neutral
+             # NOTE: NO hard_stop_z_above_entry in base run — v1.2.1 only
         │
         ▼
 tools/basket_pipeline.py runs each directive
@@ -117,7 +168,8 @@ Total: ~650-700 new LOC + 5-line yaml/registry edits.
 | `lookback_filter` | `252` | Only trigger if matching lookback row exists; one directive per lookback (avoid double-counting) |
 | `exit_z` | `1.0` | Spread z that triggers mean-reversion exit |
 | `time_stop_bars` | `60` | Time stop — close at this bar regardless of z |
-| `regime_break_action` | `"exit_at_next_bar"` | Mandatory; serves as the de facto stop loss for the trade |
+| `regime_exit_states` | `["breaking", "broken"]` | LOCKED — exit on the first non-`cointegrated` regime reading. Serves as the de facto stop loss. Do NOT change between v1.2 base and any v1.2.x variant — would contaminate comparison. |
+| `regime_exit_timing` | `"exit_at_next_bar"` | Close on the bar following the regime flip (canonical risk-off). |
 | `min_gap_days_between_triggers` | `5` | Dedupe consecutive triggers (matches Phase 3 default) |
 | ~~`hard_stop_z_above_entry`~~ | ~~`2.0`~~ | **REMOVED for base run.** No z-based hard stop. v1.2.1 may add this after base results are evaluated. |
 
@@ -131,36 +183,59 @@ effect on top of the base. Don't include in v1.2 base directives.
 | `hard_stop_z_above_entry` | `2.0` | Z-based hard stop (cuts adverse tail); v1.2.1 |
 | `enable_pyramid` | `false` | Add to position on new trigger if already in; v1.2.2 |
 | `harvest_scale_out` | `false` | Partial close at intermediate z levels; v1.2.3 |
-| `pre_break_exit` | `false` | Exit when regime flips to "breaking" (one step before "broken"); v1.2.4 |
+| `preemptive_pvalue_exit_threshold` | `0.04` | Exit pre-emptively when `pvalue_rolling_median_5d` rises above this (degradation in the p-value trajectory) BEFORE the formal regime classifier flips to `breaking`. v1.2.4 — measures whether catching degradation earlier than the regime classifier improves edge. NOT "exit on breaking instead of broken" — that path is already baked into base. |
 
-Doctrine: each v1.2.x adds **one knob**. Compare against base (and previous
+**Doctrine: each v1.2.x adds ONE knob.** Compare against base (and previous
 x) to attribute the delta. Don't bundle 3 changes in one variant or you
-can't tell which helped.
+can't tell which helped. Don't change a base parameter in a v1.2.x —
+introducing new knobs is the only allowed move.
+
+**Specifically locked: the base run's regime-exit rule** (`regime_exit_states
+= ["breaking", "broken"]`) is NOT a tunable knob in any v1.2.x variant.
+Changing it would invalidate the apples-to-apples comparison for every
+subsequent variant. If you want to test "exit on broken only", that requires
+re-running base under a v1.2-strict variant and treating IT as the new
+baseline — explicit, separate, with its own designation.
 
 ### Bar-by-bar logic
 
 ```python
 def on_bar(self, bar):
-    # 1. If we have an open position, check exits FIRST
+    # 1. If we have an open position, check exits FIRST.
+    #    Exit priority: mean_rev → regime_degradation → time_stop.
     if self.position_open:
-        if self.regime_at(bar) != 'cointegrated':
-            self.close_position(reason='regime_break')
-        elif abs(self.spread_z_at(bar)) <= self.params.exit_z:
+        # 1a. Target: spread mean-reverted into the exit band
+        if abs(self.spread_z_at(bar)) <= self.params.exit_z:
             self.close_position(reason='mean_reversion')
-        elif self.bars_in_position >= self.params.time_stop_bars:
+            return
+
+        # 1b. Risk-off: regime classifier no longer says 'cointegrated'.
+        #     LOCKED in v1.2: exit on BOTH 'breaking' AND 'broken' — the
+        #     screener has detected degradation, thesis is weakened.
+        regime = self.regime_at(bar)  # 'cointegrated' / 'breaking' / 'broken'
+        if regime in self.params.regime_exit_states:   # ['breaking', 'broken']
+            self.close_position(reason='regime_degradation')
+            return
+
+        # 1c. Time stop
+        if self.bars_in_position >= self.params.time_stop_bars:
             self.close_position(reason='time_stop')
-        elif self.spread_z_at(bar)_breached_hard_stop():
-            self.close_position(reason='hard_stop')
+            return
+
+        # NB: no hard z-stop in base — would mix tail truncation with the
+        # mean-reversion thesis. v1.2.1 adds this as a separate variant.
         return
 
-    # 2. No position: check for new trigger
+    # 2. No position: check for new trigger from cointegration_triggers
     trigger = self.lookup_trigger(bar.as_of, self.pair_a, self.pair_b,
                                     lookback=self.params.lookback_filter)
     if trigger is None:
         return
 
     # 3. Skip if within min_gap_days of last entry on this pair
-    if self.last_entry_date and (bar.as_of - self.last_entry_date).days < self.params.min_gap_days_between_triggers:
+    if (self.last_entry_date
+        and (bar.as_of - self.last_entry_date).days
+            < self.params.min_gap_days_between_triggers):
         return
 
     # 4. Open β-weighted position
@@ -236,15 +311,17 @@ Key metrics to report:
 
 1. **One directive per lookback or one combined?** Start with 252-only (286 directives). If results encouraging, run 504 as separate cohort. Don't mix — entry semantics differ between windows.
 
-2. **Hard stop magnitude?** Defaulted to z_entry+2.0; could also use the p90 adverse excursion empirical value (1.4-1.7) from the v2.1 event study. The empirical stop is tighter (~3.5 hard stop on 2.0 entry vs 4.0 default).
+2. **~~Hard stop magnitude?~~** **RESOLVED (locked 2026-05-23):** no hard z-stop in base run. The regime-degradation exit (`breaking` OR `broken`) is the de facto stop. v1.2.1 may introduce a z-stop as a separate variant; magnitude TBD then (candidates: z_entry+2.0 round, or p90-empirical 1.4-1.7).
 
-3. **Should we allow re-entry after a stop-out?** Default: yes, on the NEXT trigger after a 5-day gap. Could also lock out a pair for longer after a stop.
+3. **~~Regime-exit threshold (breaking vs broken)?~~** **RESOLVED (locked 2026-05-23):** base exits on EITHER `breaking` or `broken`. Locked in `regime_exit_states = ["breaking", "broken"]`. Not a knob in any v1.2.x variant — changing it requires a separate "v1.2-strict" baseline, not a v1.2.x extension.
 
-4. **Concurrent positions across pairs?** YES — different pair-pairs are independent. The basket pipeline already handles this. Portfolio-level risk caps (max concurrent positions, max $ at risk) would need a separate wrapper.
+4. **Should we allow re-entry after a regime-degradation exit?** Default: yes, on the NEXT trigger after the 5-day gap (since the trigger ledger itself enforces this gap via dedupe). Could also lock out a pair for longer (e.g., 30 days) after an exit. Open question — measure under base; if specific pairs cycle into bad re-entries, add as v1.2.5.
 
-5. **Do we need a survivor-bias check?** The trigger ledger was backfilled using TODAY's COINT_UNIVERSE — if a pair didn't exist in MASTER_DATA a year ago, it doesn't appear in triggers. That's fine for the strategy (the screener wouldn't have flagged it either) but the result population is asymmetric vs a pair-pair that existed throughout.
+5. **Concurrent positions across pairs?** YES — different pair-pairs are independent. The basket pipeline already handles this. Portfolio-level risk caps (max concurrent positions, max $ at risk) would need a separate wrapper (out of scope for v1.2 base).
 
-6. **What's "success"?** Define explicitly before running, to avoid post-hoc rationalization:
+6. **Do we need a survivor-bias check?** The trigger ledger was backfilled using TODAY's COINT_UNIVERSE — if a pair didn't exist in MASTER_DATA a year ago, it doesn't appear in triggers. That's fine for the strategy (the screener wouldn't have flagged it either) but the result population is asymmetric vs a pair-pair that existed throughout.
+
+7. **What's "success"?** Define explicitly before running, to avoid post-hoc rationalization:
    - **Strong:** Sharpe ≥ 1.5 per class on net-of-cost basis, MaxDD ≤ 20%
    - **Moderate:** Sharpe ≥ 1.0, edge positive after costs, MaxDD ≤ 30%
    - **Weak (no-go):** Sharpe < 0.8 OR negative net after costs OR MaxDD > 40%
