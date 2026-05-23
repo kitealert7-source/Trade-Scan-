@@ -120,6 +120,24 @@ class H3SpreadV3Rule(H3SpreadV2Rule):
     # reentry thresholds.
     reentry_max_per_regime: int = 3
 
+    # --- Regime gate (2026-05-23 charter h3_spread_window_c_regime_detector) ---
+    # When BOTH params are set, the rule suppresses new pyramid orders
+    # (and new ARMED-for-reentry re-entries) on bars where
+    # flips_in_lookback > regime_gate_flip_threshold. Cycle-init
+    # suppression is handled at the data layer via cross_event zeroing
+    # (see tools/basket_data_loader.py).
+    #
+    # Default None on either param preserves byte-equivalence with @3
+    # before this charter -- the entire gate code path is bypassed.
+    #
+    # `regime_gate_lookback_bars` is informational on the rule side
+    # (the actual rolling-count column is computed by the loader using
+    # the matching param at that layer). Keeping it on the rule makes
+    # the directive's intent fully visible in the rule construction
+    # and prevents silent param drift between the two layers.
+    regime_gate_lookback_bars: Optional[int] = None
+    regime_gate_flip_threshold: Optional[float] = None
+
     # --- Name/version overrides ---
     name: str = _RULE_NAME
     version: int = _RULE_VERSION
@@ -200,6 +218,41 @@ class H3SpreadV3Rule(H3SpreadV2Rule):
                 f"H3SpreadV3Rule.reentry_max_per_regime must be a positive "
                 f"int; got {self.reentry_max_per_regime!r}."
             )
+
+        # Regime-gate validation. Both params must be either both None or
+        # both set. A partial setting is almost certainly a directive bug
+        # (forgot to set the other half) and would silently behave as if
+        # the gate were disabled -- fail closed instead.
+        if (self.regime_gate_lookback_bars is None) != (
+            self.regime_gate_flip_threshold is None
+        ):
+            raise ValueError(
+                "H3SpreadV3Rule.regime_gate_lookback_bars and "
+                "regime_gate_flip_threshold must be either BOTH None or "
+                "BOTH set. Partial setting (one None, one not) is almost "
+                "always a directive bug. Got: lookback="
+                f"{self.regime_gate_lookback_bars!r}, threshold="
+                f"{self.regime_gate_flip_threshold!r}."
+            )
+        if self.regime_gate_lookback_bars is not None:
+            if (not isinstance(self.regime_gate_lookback_bars, int)
+                    or self.regime_gate_lookback_bars < 1):
+                raise ValueError(
+                    "H3SpreadV3Rule.regime_gate_lookback_bars must be a "
+                    f"positive int; got {self.regime_gate_lookback_bars!r}."
+                )
+        if self.regime_gate_flip_threshold is not None:
+            if not isinstance(self.regime_gate_flip_threshold, (int, float)):
+                raise ValueError(
+                    "H3SpreadV3Rule.regime_gate_flip_threshold must be "
+                    "None or numeric; got "
+                    f"{self.regime_gate_flip_threshold!r}."
+                )
+            if self.regime_gate_flip_threshold <= 0.0:
+                raise ValueError(
+                    "H3SpreadV3Rule.regime_gate_flip_threshold must be "
+                    f"> 0; got {self.regime_gate_flip_threshold!r}."
+                )
 
     # ---- _liquidate override ---
     # @2 clears its own state flags (_in_harvest_phase, _in_hold_phase,
@@ -294,6 +347,82 @@ class H3SpreadV3Rule(H3SpreadV2Rule):
     # The decision to always fall through to super().apply() keeps per-bar
     # record emission consistent regardless of state.
 
+    # ---- Regime gate helper (charter 2026-05-23) -------------------------
+    # Returns True iff BOTH gate params are set AND the leg's
+    # flips_in_lookback at this bar exceeds the threshold. Cold-start
+    # (NaN flips) and missing-column cases are both treated as "gate
+    # inactive" so the strategy behaves as baseline until the lookback
+    # fills.
+    #
+    # Cycle-init suppression already happens at the data layer via
+    # cross_event zeroing (see tools/basket_data_loader.py). This helper
+    # exists to suppress the two ENTRY-CLASS events that bypass
+    # cross_event:
+    #   - new pyramid orders on already-open cycles (_commit_pyramid_v2)
+    #   - ARMED-for-reentry re-entries (_step_armed_state)
+    # Exits and bookkeeping (harvest, hold, core_hold, extreme_z,
+    # reverse_cross, adverse, time) are intentionally NOT gated --
+    # already-open exposure must be allowed to drain naturally.
+
+    def _regime_gate_tripped(self, legs, bar_ts) -> bool:
+        if (self.regime_gate_lookback_bars is None
+                or self.regime_gate_flip_threshold is None):
+            return False
+        try:
+            flips = float(legs[0].df.loc[bar_ts, "flips_in_lookback"])
+        except (KeyError, ValueError, TypeError):
+            # Column not present (loader didn't compute it) or row
+            # missing -- treat as inactive so we never gate by accident.
+            return False
+        # NaN flips (cold-start): math.isnan covers float-NaN; pandas
+        # may also surface NaN as float('nan'). isnan handles both.
+        import math
+        if math.isnan(flips):
+            return False
+        return flips > float(self.regime_gate_flip_threshold)
+
+    # ---- Pyramid override (charter 2026-05-23) ---------------------------
+    # When the gate is tripped, suppress the v2 ACCUMULATE-phase pyramid
+    # add. _next_pyramid_level is intentionally NOT advanced -- if the
+    # gate releases while floating_total is still over threshold,
+    # the same level will re-fire on a subsequent bar (auto-restart per
+    # charter R1 pure symmetric reset).
+    #
+    # Override is on _commit_pyramid_v2 (the @2 dispatch's ACCUMULATE
+    # branch), NOT _commit_pyramid (the legacy @1 method @2 no longer
+    # uses). Other v2 dispatch branches (_commit_hold_at_cap,
+    # _commit_core_hold, _commit_harvest) are NOT gated: hold/core_hold
+    # are bookkeeping with no lot change, and harvest REDUCES exposure
+    # -- both should run regardless of regime state.
+
+    def _commit_pyramid_v2(
+        self, legs, i, bar_ts, bar_closes, leg_float,
+        floating_total, level, threshold_usd,
+    ) -> None:
+        if self._regime_gate_tripped(legs, bar_ts):
+            # Suppress this add. Emit an auditable per-bar record so the
+            # suppression is visible in basket telemetry.
+            self.recycle_events.append({
+                "bar_index": i,
+                "bar_ts": bar_ts,
+                "action": "PYRAMID_GATED",
+                "level": level + 1,
+                "threshold_usd": threshold_usd,
+                "floating_total": floating_total,
+                "reason": "REGIME_GATE_TRIPPED",
+            })
+            self._emit_record(
+                legs, i, bar_ts, bar_closes, leg_float, floating_total,
+                skip_reason="PYRAMID_GATED",
+                recycle_attempted=True,
+                recycle_executed=False,
+            )
+            return
+        super()._commit_pyramid_v2(
+            legs, i, bar_ts, bar_closes, leg_float,
+            floating_total, level, threshold_usd,
+        )
+
     def apply(self, legs, i, bar_ts):  # noqa: D401
         if self._armed_for_reentry:
             self._step_armed_state(legs, i, bar_ts)
@@ -303,6 +432,15 @@ class H3SpreadV3Rule(H3SpreadV2Rule):
         """Step the ARMED-for-reentry state machine on this bar. Returns
         one of 'ABORTED', 'REENTERED', 'WAITING' (mainly for testing /
         telemetry; the outer apply() always falls through to super())."""
+        # Regime gate check (charter 2026-05-23, R1 pure symmetric reset):
+        # if the gate is tripped, the armed state continues but re-entry
+        # cannot fire this bar. Stay in WAITING. Subsequent bars where
+        # the gate releases AND the z-condition is met will fire the
+        # re-entry. The armed state is NOT aborted by a gate trip --
+        # only by cross/macro flip or per-regime cap.
+        if self._regime_gate_tripped(legs, bar_ts):
+            return "WAITING"
+
         cycle_dir = self._cycle_direction
 
         # Read diff and cross_side on this bar.

@@ -391,6 +391,10 @@ def _instantiate_rule(
         # Optional @3 params: None when not set (preserves byte-equivalence)
         extreme_z_param = params.get("extreme_z_threshold")
         reentry_z_param = params.get("reentry_z_threshold")
+        # Regime-gate params (2026-05-23 charter): both must be either
+        # None or set. v3's __post_init__ raises if partial.
+        regime_gate_lookback_param = params.get("regime_gate_lookback_bars")
+        regime_gate_threshold_param = params.get("regime_gate_flip_threshold")
         return H3SpreadV3Rule(
             # @3 additions
             extreme_z_threshold=(
@@ -402,6 +406,14 @@ def _instantiate_rule(
             reentry_macro_check=bool(params.get("reentry_macro_check", True)),
             reentry_cross_check=bool(params.get("reentry_cross_check", True)),
             reentry_max_per_regime=int(params.get("reentry_max_per_regime", 3)),
+            regime_gate_lookback_bars=(
+                int(regime_gate_lookback_param)
+                if regime_gate_lookback_param is not None else None
+            ),
+            regime_gate_flip_threshold=(
+                float(regime_gate_threshold_param)
+                if regime_gate_threshold_param is not None else None
+            ),
             # @2 inheritance
             max_exposure_multiple=float(params.get("max_exposure_multiple", 3.0)),
             pyramid_threshold_step_pct=float(params.get("pyramid_threshold_step_pct", 0.15)),
