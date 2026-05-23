@@ -300,6 +300,34 @@ weekly reminder: [`reference/design_notes.md`](./reference/design_notes.md#39-we
 
 If neither group applies, skip. Document in Phase 4 summary which (if any) ran.
 
+### 3.C Active Charter sync [conditional: charter exists]
+
+If `SYSTEM_STATE.md` contains a `#### Active Charter — ` heading inside `### Manual`, append today's contribution before the closing snapshot regen at 3.10. The regen at 3.10 preserves the Manual block verbatim (see [`tools/system_introspection.py:_preserve_manual_section`](../../../tools/system_introspection.py)), so the edit rides along in the closing snapshot commit — no separate commit needed.
+
+1. Detect:
+   ```bash
+   grep -n "^#### Active Charter — " SYSTEM_STATE.md
+   ```
+   No match → skip this step entirely.
+
+2. Prompt the operator (single free-text prompt):
+   > "Did this session advance the active charter? One-line summary
+   > (≤120 chars), Enter to skip, or type `manual` to pivot/supersede/park."
+
+3. Branch on the response:
+   - **Empty (Enter):** no edit, no log entry. Charter remains as-is.
+   - **`manual`:** halt this step and instruct the operator:
+     > "Charter pivots stay human-authored. Open `SYSTEM_STATE.md`, demote
+     > the current `#### Active Charter` block to a regular bulleted dated
+     > entry below, then (optionally) write a new
+     > `#### Active Charter — <today> — <new-slug>` block at the top of
+     > the Manual section. Re-run /session-close once the file is saved."
+   - **Anything else (the summary):** edit `SYSTEM_STATE.md` to log the contribution under the charter's `**Sessions on this charter:**` list.
+     - Format: `  - YYYY-MM-DD: <summary>`
+     - If the only existing entry is the `(none yet — ...)` placeholder, **REPLACE** it with the new entry. Otherwise **APPEND** below the last existing entry.
+
+4. Do not commit separately. The edit will be captured in 3.10's `session: closing SYSTEM_STATE snapshot` commit because the regen preserves the Manual block.
+
 ### 3.10 Regenerate SYSTEM_STATE.md — FINAL [ALWAYS]
 
 ```bash
@@ -503,6 +531,12 @@ git log --oneline origin/main..HEAD   # should be empty
 #       /pipeline-state-cleanup      # if MPS ≳ 10 OR backtests ≳ 20 OR runs ≳ 50 OR stale folders
 #       /anthropic-skills:consolidate-memory  # if MEMORY.md > 40KB / 200L OR stale facts
 #     If neither group applies: skip. Document in Phase 4 summary which (if any) ran.
+
+# 3.C Active Charter sync (CONDITIONAL: charter exists in SYSTEM_STATE.md ### Manual)
+#     If `#### Active Charter — ` heading present, prompt operator for one-line
+#     summary (Enter = skip, `manual` = pivot/supersede/park). Edit "Sessions on
+#     this charter:" list in place; 3.10 regen preserves the Manual block.
+grep -n "^#### Active Charter — " SYSTEM_STATE.md || true
 
 # 3.12 Broader-pytest baseline — exit 1 blocks close (NEW failure since baseline) (NON-NEGOTIABLE)
 #      Auto-populator only checks the gate suite; this catches broader regressions.
