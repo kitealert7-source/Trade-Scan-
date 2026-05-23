@@ -1,6 +1,6 @@
 ---
 name: session-start
-description: Session preparation — reads SYSTEM_STATE, RESEARCH_MEMORY, git log, and pending directives to surface the top 3 infra and top 3 research priorities. Read-only; no commits, no pipeline runs.
+description: Session preparation — reads SYSTEM_STATE (incl. Active Charter), RESEARCH_MEMORY, git log, and pending directives to surface the active research charter and the top 3 infra + top 3 research priorities. Read-only; no commits, no pipeline runs.
 ---
 
 # session-start
@@ -29,11 +29,16 @@ git log --oneline -10 && echo "---" && git status --short
 ```
 Extract: date of last session-close commit, any uncommitted changes.
 
-### 1.3 Known issues
+### 1.3 Known issues + Active Charter
 
 Read `SYSTEM_STATE.md` — extract:
 - The `SESSION STATUS` banner (first ~10 lines)
 - The full `### Manual` block under `## Known Issues`
+- **Active Charter (if present):** locate the `#### Active Charter — ` heading inside `### Manual`. If found, extract:
+  - **Slug** (the trailing `<yyyy-mm-dd> — <short-slug>` portion of the heading)
+  - **Focus** (the paragraph under `**Focus:**`) — first sentence is enough for the brief
+  - **Last session entry** (the last bullet under `**Sessions on this charter:**`) — used for staleness check
+  - **Stale flag:** if the latest session date is >14 days behind today (or the only entry is the `(none yet — ...)` placeholder >14 days old), mark the charter STALE.
 
 ### 1.4 Research pulse
 
@@ -107,6 +112,10 @@ System : <OK | WARNING | BROKEN>
 Branch : <current-branch>  (<N commits ahead/behind origin/main>)
 Last close : <date + short-hash of last session-close commit>
 
+── ACTIVE CHARTER (emit only if present in SYSTEM_STATE.md) ──
+  <slug>  [last update: <yyyy-mm-dd> — <FRESH | STALE (>14d)>]
+  Focus: <first sentence of the Focus paragraph>
+
 ── INFRA PRIORITIES (top 3) ────────────────────────────
 1. [<BLOCKER|ACTION|WATCH>] <description>  →  <action or command>
 2. [<tier>] <description>  →  <action or command>
@@ -120,10 +129,11 @@ Last close : <date + short-hash of last session-close commit>
 ── MAINTENANCE REMINDERS (emit only if triggered) ──────
   • MEMORY.md <N> lines  →  consolidate before next session-close
   • RESEARCH_MEMORY.md <N> KB  →  compact_research_memory.py before infra work
+  • Active Charter STALE (>14d)  →  update sessions log or supersede
   • Weekend  →  /repo-cleanup-refactor and /pipeline-state-cleanup eligible
 
 =========================================================
-Suggested first task: <Infra #1 if BLOCKER; else Research #1>
+Suggested first task: <Infra #1 if BLOCKER; else Active Charter focus if present and FRESH; else Research #1>
 ```
 
 ---
