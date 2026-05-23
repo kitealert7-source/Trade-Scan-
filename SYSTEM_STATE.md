@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 3 uncommitted
 
-> Generated: 2026-05-22T15:57:31Z
+> Generated: 2026-05-23T06:05:33Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 0 directives
+- Completed: 6 directives
 
 ## Ledgers
 
@@ -31,19 +32,19 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-22** | Symbols: 221
+- Latest bar: **2026-05-23** | Symbols: 221
 
 ## Artifacts
-- Run directories: 939
+- Run directories: 945
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `e6fdca5 chore(sync): auto-regen sweep_registry + tools_manifest after chip work`
+- Working tree: 3 uncommitted
+- Last substantive commit: `dbfa9c1 research(regime_gate): V1 NEGATIVE â€” pipeline run + diagnosis + V2-V5 variations`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Broader-pytest baseline:** clean (0 acknowledged failures). Last refreshed 2026-05-21T14:12:37+00:00 @ 71d49d99.
+- **Broader-pytest baseline:** 13 acknowledged failure(s) (last refreshed 2026-05-23 @ dbfa9c1a). Tests: test_directive_basket_block_parses, test_directive_file_exists, test_directive_legs_match_h2_spec (+10 more). Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->

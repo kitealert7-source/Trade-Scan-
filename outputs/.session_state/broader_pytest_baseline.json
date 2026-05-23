@@ -1,8 +1,22 @@
 {
   "schema_version": 1,
-  "failed": [],
-  "count": 0,
-  "sha": "71d49d9966596670f6a6fd0746e1e473c711338b",
-  "updated_at": "2026-05-21T14:12:37+00:00",
-  "rationale": "fixed: Phase 5b.3 carry-overs \u2014 fixture .txt restored from git; _build_row emits verdict_status+enrichment_status; dispatch tests asserted on ledger.db.basket_sheet (the new Phase 5b.3 sink); test isolation: pre-cleanup of deterministic run_id state; directive_reconciler hardened with tests/_fixtures/directives.yaml protection list"
+  "failed": [
+    "tests/test_basket_directive_phase5.py::test_directive_basket_block_parses",
+    "tests/test_basket_directive_phase5.py::test_directive_file_exists",
+    "tests/test_basket_directive_phase5.py::test_directive_legs_match_h2_spec",
+    "tests/test_basket_directive_phase5.py::test_directive_namespace_validates",
+    "tests/test_basket_directive_phase5.py::test_directive_runs_through_basket_pipeline_with_synthetic_data",
+    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_emits_basket_sheet_row",
+    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_returns_false_for_provision_only",
+    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_returns_true_for_recycle_directive",
+    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_writes_vault",
+    "tests/test_basket_path_b_phase5b2.py::test_dispatch_produces_all_four_artifact_paths",
+    "tests/test_basket_phase5c_real_data.py::test_dispatch_against_h2_directive_with_real_data",
+    "tests/test_basket_phase5c_real_data.py::test_load_basket_leg_inputs_returns_real_mode_for_h2_directive",
+    "tests/test_cointegration_screen.py::TestCandidatesRegistry::test_candidates_yaml_parses"
+  ],
+  "count": 13,
+  "sha": "dbfa9c1a9b68d700b751c2ad9f30ebac4389f981",
+  "updated_at": "2026-05-23T06:03:48+00:00",
+  "rationale": "Pre-existing failures since 2026-05-21 baseline refresh: 12 basket pipeline tests (test_basket_directive_phase5, test_basket_dispatch_phase5b, test_basket_path_b_phase5b2, test_basket_phase5c_real_data) + 1 cointegration test (test_candidates_yaml_parses). Verified at 2026-05-23 session-start via git stash that ALL 13 predate this session's work. Surfaced in session-start brief and documented in 2026-05-22 retro O2 as deferred. Candidate for dedicated investigation session \u2014 not fixable in scope of charter h3_spread_window_c_regime_detector work. Re-baselining to unblock close; next session should diagnose root cause."
 }
