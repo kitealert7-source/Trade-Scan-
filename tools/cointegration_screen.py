@@ -1,7 +1,8 @@
 """cointegration_screen.py — Phase 1: compute → parquet.
 
-Daily-cadence cointegration screener for the 21-symbol cross-asset
-universe (18 FX pairs + XAU/BTC/ETH added 2026-05-21).
+Daily-cadence cointegration screener for the 31-symbol cross-asset
+universe (18 FX pairs + XAU/BTC/ETH added 2026-05-21 + 10 equity
+indices added 2026-05-23).
 Reads native daily closes from MASTER_DATA, computes ADF / half-life /
 hedge-ratio / z-score per unordered pair-pair × lookback window, and
 writes a single parquet snapshot.
@@ -54,15 +55,22 @@ from config.path_authority import DATA_ROOT
 from tools.factors.fx_correlation_matrix import _load_native_closes, FX_UNIVERSE
 
 
-# Cross-asset cointegration universe (2026-05-21).
-# Starts from the 18-pair FX universe + adds XAUUSD/BTCUSD/ETHUSD so the
-# screener can detect cross-asset cointegrations (e.g., commodity-currency
-# blocks, USD-anchored crypto, gold/risk-asset spreads). The cointegration
-# math is symbol-agnostic — same OLS+ADF compute applies. ETHUSD has only
-# ~2.5 years of daily history; the 504d window will yield reduced sample
-# size on ETH pairings (screener already handles via the
-# `sample_size < lookback // 2` reject path).
-COINT_UNIVERSE: list[str] = list(FX_UNIVERSE) + ["XAUUSD", "BTCUSD", "ETHUSD"]
+# Cross-asset cointegration universe.
+#   * 2026-05-21: added XAUUSD/BTCUSD/ETHUSD (commodity + crypto).
+#   * 2026-05-23: added 10 equity indices (US: SPX500, NAS100, US30;
+#     EU: UK100, FRA40, ESP35, EUSTX50, GER40; APAC: JPN225, AUS200) so the
+#     screener can detect FX-equity, equity-equity, and equity-commodity
+#     cointegrations. Most indices carry ~10y of OctaFX history from 2016;
+#     GER40 is the outlier at ~3y from 2022 (will yield reduced sample size
+#     on 504d-window pairings; screener handles via the
+#     `sample_size < lookback // 2` reject path).
+# The cointegration math is symbol-agnostic — same OLS+ADF compute applies.
+COINT_UNIVERSE: list[str] = list(FX_UNIVERSE) + [
+    "XAUUSD", "BTCUSD", "ETHUSD",
+    "SPX500", "NAS100", "US30",
+    "UK100", "FRA40", "ESP35", "EUSTX50", "GER40",
+    "JPN225", "AUS200",
+]
 
 
 SCHEMA_VERSION = "1.0.0"
