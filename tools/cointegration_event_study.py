@@ -56,6 +56,7 @@ from statsmodels.tsa.stattools import adfuller
 
 from config.path_authority import DATA_ROOT
 from tools.factors.fx_correlation_matrix import FX_UNIVERSE, _load_native_closes
+from tools.cointegration_screen import COINT_UNIVERSE
 
 
 # --- Study parameters --------------------------------------------------
@@ -83,11 +84,19 @@ def _log(msg: str) -> None:
 
 
 def load_aligned_closes() -> pd.DataFrame:
-    """Load all 18 FX daily closes, intersect indexes, return wide DataFrame."""
+    """Load all symbols in COINT_UNIVERSE; UNION-align dates so per-pair history is preserved.
+
+    Pre-2026-05-23 used `join="inner"` + `dropna()`, which collapsed the
+    universe to the intersection of all symbols' date ranges. After XAU/BTC/ETH
+    joined the universe (2026-05-21), that would crush 14 years of FX history
+    down to ~2.5y (ETHUSD's lifetime). Pair-wise compute is fine with NaNs in
+    the wide frame — `.rolling(...)` skips them and `dropna()` inside
+    detect_events filters bars where either leg is missing.
+    """
     closes: dict[str, pd.Series] = {}
-    for sym in FX_UNIVERSE:
+    for sym in COINT_UNIVERSE:
         closes[sym] = _load_native_closes(sym, "1d", None, None)
-    df = pd.concat(closes, axis=1, join="inner").dropna()
+    df = pd.concat(closes, axis=1, join="outer")
     df.columns = list(closes.keys())
     return df
 
@@ -217,7 +226,14 @@ def run_study(closes: pd.DataFrame) -> pd.DataFrame:
     t0 = time.time()
 
     for i, (sa, sb) in enumerate(pairs):
-        beta, spread, z = compute_pair_series(closes[sa], closes[sb])
+        # Pair-wise dropna so this pair's rolling math runs on contiguous
+        # weekdays for FX-FX pairs (was a hidden inner-join effect before
+        # 2026-05-23; now that ETHUSD weekends are in the union index,
+        # FX pairs need this explicit dropna to keep their full 14y history).
+        pair_df = closes[[sa, sb]].dropna()
+        if len(pair_df) < HEDGE_WINDOW + ADF_WINDOW_LONG:
+            continue   # ETHUSD pairings + any short-history symbol skipped here
+        beta, spread, z = compute_pair_series(pair_df[sa], pair_df[sb])
 
         adf_short = compute_adf_anchors(spread, ADF_WINDOW_SHORT)
         adf_long = compute_adf_anchors(spread, ADF_WINDOW_LONG)
@@ -305,8 +321,10 @@ def write_report(events_df: pd.DataFrame, summary_df: pd.DataFrame,
                  "spread displacement, before structural regime degradation?\n")
 
     lines.append("## Methodology\n")
-    lines.append(f"- **Universe:** {len(FX_UNIVERSE)} FX pairs, {len(list(itertools.combinations(FX_UNIVERSE, 2)))} unordered pair-pairs")
-    lines.append(f"- **Date range:** {universe_start} → {universe_end} ({len(closes)} daily bars, intersection of all 18 pairs)")
+    lines.append(f"- **Universe:** {len(COINT_UNIVERSE)} symbols ({', '.join(COINT_UNIVERSE)}), "
+                 f"{len(list(itertools.combinations(COINT_UNIVERSE, 2)))} unordered pair-pairs")
+    lines.append(f"- **Date range:** {universe_start} → {universe_end} ({len(closes)} calendar bars, "
+                 f"UNION-aligned; per-pair sample = intersection of that pair's two legs)")
     lines.append(f"- **Qualification:** ADF p < {P_QUALIFY} at nearest **monthly anchor** ≤ event_bar−1 in **BOTH** {ADF_WINDOW_SHORT}d AND {ADF_WINDOW_LONG}d windows")
     lines.append(f"- **Hedge ratio:** rolling OLS over {HEDGE_WINDOW} bars (β_t = cov(b,a)/var(a))")
     lines.append(f"- **Spread:** b_t − β_t·a_t")

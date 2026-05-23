@@ -1,44 +1,97 @@
-> ⚠ **CAVEAT — REGIME-CLASSIFICATION-TRUST NOT INDEPENDENTLY VERIFIED (2026-05-21).**
+> ⚠ **v2 RE-VALIDATION — the v1 37% headline finding does NOT survive (2026-05-23).**
 >
-> The methodology described below uses pure cointegration math (ADF on
-> OLS residual spread, no correlation involvement). Internally it is
-> consistent. The 37% qualified-reversion rate at τ=2.0 is a property of
-> the screener's regime classifier acting on the 18-pair FX universe.
+> This report is the **v2 re-run** mandated by the 2026-05-21 COINTREV strategy
+> retirement (RESEARCH_MEMORY 2026-05-21 entry). Two methodology changes vs v1:
 >
-> But the chain of inference this report set up — "qualified pairs revert
-> 37% of the time → therefore a strategy on them is worth backtesting" —
-> was tested with `tools/recycle_rules/cointegration_meanrev_v1.py`,
-> which used equal-lot sizing and never constructed the cointegrating
-> portfolio. So the actionable claim ("worth backtesting") has NOT been
-> validated; the strategy that supposedly tested it was a different
-> strategy. Until a properly β-weighted strategy actually trades on these
-> signals, the 37% number is a statistical curiosity of the classifier,
-> not a validated edge signal.
+> 1. **Universe expanded** to 21 symbols (18 FX + XAUUSD + BTCUSD + ETHUSD) to
+>    match the post-2026-05-21 screener. ETHUSD pair-pairs are auto-skipped:
+>    insufficient history for the 504-bar long-window ADF.
+> 2. **Per-pair alignment** instead of universe-wide intersection. v1 collapsed
+>    all 18 FX to their common date range (2010-05 → 2026-05, 4074 bars). v2
+>    aligns each pair-pair independently, so AUDUSD/EURUSD gets ~6500 bars from
+>    1992, AUDUSD/XAUUSD gets ~6500 bars from 1992, AUDUSD/BTCUSD gets ~2200
+>    bars from 2017. This is more honest but makes v1 and v2 NOT a controlled
+>    comparison — the qualified-event populations differ in size AND vintage.
 >
-> Specific items that need re-validation before this report is used to
-> motivate a new strategy build:
+> ### Headline: the 37%-at-τ=2.0 reversion rate from v1 does NOT replicate
 >
->   1. The regime classifier itself is correct math but operates on a
->      monthly anchor (qualification can be over/under-stated by up to
->      21 days, per the existing Caveats section).
->   2. The 92-100% `qual_break_rate` may partly reflect mechanical
->      perturbation by the extreme spread (already flagged below).
->   3. Universe was 18 FX pairs only. The 2026-05-21 universe expansion
->      adds XAUUSD/BTCUSD/ETHUSD, which may reveal cross-asset
->      cointegrations not captured here.
->   4. P-value < 0.05 in BOTH 252d AND 504d windows is a strong filter
->      that selects very few pair-pairs; the surviving universe may
->      not be economically meaningful for trading at any β-weighting.
+> | metric                              | v1 (18 FX, inner-join)  | v2 (21 sym, per-pair)  |
+> |---                                  |---:                     |---:                    |
+> | τ=2.0 qualified events              | 54                      | **83**                 |
+> | τ=2.0 qualified reversion rate      | **37.0%**               | **26.5%**              |
+> | τ=2.0 baseline reversion rate       | 26.9%                   | 28.4%                  |
+> | τ=2.0 **lift over baseline**        | **+10.1pp**             | **−1.9pp**             |
+> | τ=2.0 median bars-to-reversion (q)  | 45                      | 39                     |
+> | filter retention                    | 1.9%                    | 2.0%                   |
 >
-> The companion `COHORT_REPORT.md` was POLLUTED (strategy bug). This
-> report (`EVENT_STUDY_REPORT.md`) is methodology-clean but its actionable
-> implication for any future strategy must be re-tested.
+> The qualified cohort at τ=2.0 now reverts LESS than the unfiltered baseline.
+> Whatever edge the v1 study seemed to demonstrate, the methodology fix +
+> universe expansion neutralizes it.
+>
+> ### Decomposition — it is NOT the cross-asset additions
+>
+> Cross-asset events (any pair-pair where XAUUSD or BTCUSD is a leg) at τ=2.0:
+> 8 qualified events out of 83. Their reversion rate is 50%, slightly above
+> the cohort average. FX-FX alone shows the same collapse:
+>
+> | τ=2.0 cohort        | n   | reversion rate |
+> |---                  |---: |---:            |
+> | v1 FX-FX (54 evts)  | 54  | 37.0%          |
+> | v2 FX-FX (75 evts)  | 75  | **24.0%**      |
+> | v2 cross-asset      | 8   | 50.0% (small N)|
+>
+> v2's FX-FX cohort generated 75 qualified events (vs v1's 54) by virtue of
+> extending the per-pair history back to ~1992. The +21 marginal FX-FX events
+> revert at much lower rates, dragging the FX-FX average to 24%. The
+> implication: the 37% v1 number was specific to the 2010-2026 window. The
+> pre-2010 era — different FX regime, different vol structure — does not
+> sustain the same qualification edge.
+>
+> ### What this means for downstream work
+>
+> 1. **The deferred β-weighted COINTREV v1.2 strategy build should NOT target
+>    the 37% reversion rate as its edge assumption.** A realistic target is
+>    ≤25%, baseline-consistent — meaning a β-weighted strategy must extract
+>    its edge from sources OTHER than qualification (e.g., hedge-ratio
+>    construction itself, exit timing, position sizing). If a backtest of a
+>    β-weighted strategy on these events shows reversion approaching 37%, it
+>    is almost certainly fitting noise specific to one window.
+>
+> 2. **The screener's infra remains correct** — ADF and OLS on per-pair
+>    spreads continue to do clean math. The screener identifies relationships
+>    that statistically test cointegrated; whether those relationships have
+>    operational edge after qualification is a separate question that v2
+>    answers negatively at the universe level.
+>
+> 3. **Cross-asset cointegration is plausibly real but under-powered to
+>    confirm.** 8 events at τ=2.0 reverting at 50% is too small to lean on.
+>    The screener's most-cointegrated cross-asset pairs (BTCUSD/NZDJPY,
+>    GBPJPY/XAUUSD, EURJPY/XAUUSD per 2026-05-21 entry) warrant per-pair
+>    sanity checks before any strategy build, not blanket inclusion.
+>
+> ### Caveats preserved from v1 (still apply)
+>
+> - Monthly ADF sampling (every 21 bars) — qualification can be off by up to
+>   21 days on either side of a true regime transition.
+> - In-sample β and z-score windows — no out-of-sample hedge ratio validation.
+> - 60-bar forward window is arbitrary — longer windows would raise both
+>   reversion rate and mean-time-to-reversion proportionally.
+> - `qual_break_rate` 95-100% across thresholds — qualification almost always
+>   degrades during the forward window; the entry shock IS the regime shock.
+> - Per-pair history start dates differ; comparing reversion rates across
+>   different vintages is not strictly apples-to-apples.
+>
+> ### v1 archive
+>
+> The original 18-FX inner-join report is preserved at
+> [`EVENT_STUDY_REPORT_v1_18fx_inner.md`](EVENT_STUDY_REPORT_v1_18fx_inner.md)
+> including its own caveat block from the 2026-05-21 COINTREV retirement.
 >
 > ---
 
-# Cointegration Event Study — Concept Validation
+# Cointegration Event Study — Concept Validation (v2, 2026-05-23)
 
-**Generated:** 2026-05-20T09:13:33.688251+00:00  
+**Generated:** 2026-05-23T04:23:55.432122+00:00  
 **Spec reference:** [`COINTEGRATION_SCREENER_V1_SPEC.md`](../../system_reports/06_strategy_research/COINTEGRATION_SCREENER_V1_SPEC.md)
 
 ## Hypothesis under test
@@ -47,8 +100,8 @@
 
 ## Methodology
 
-- **Universe:** 18 FX pairs, 153 unordered pair-pairs
-- **Date range:** 2010-05-10 → 2026-05-20 (4074 daily bars, intersection of all 18 pairs)
+- **Universe:** 21 symbols (AUDUSD, EURUSD, GBPUSD, NZDUSD, USDCAD, USDCHF, USDJPY, AUDJPY, AUDNZD, CADJPY, CHFJPY, EURAUD, EURGBP, EURJPY, GBPAUD, GBPJPY, GBPNZD, NZDJPY, XAUUSD, BTCUSD, ETHUSD), 210 unordered pair-pairs
+- **Date range:** 1992-02-19 → 2026-05-23 (9343 calendar bars, UNION-aligned; per-pair sample = intersection of that pair's two legs)
 - **Qualification:** ADF p < 0.05 at nearest **monthly anchor** ≤ event_bar−1 in **BOTH** 252d AND 504d windows
 - **Hedge ratio:** rolling OLS over 252 bars (β_t = cov(b,a)/var(a))
 - **Spread:** b_t − β_t·a_t
@@ -63,108 +116,50 @@
 
 ## Cohort sizes
 
-- Qualified-cohort events: **166** across all thresholds + pairs
-- All-cohort events:        **8,878** (baseline)
-- Filter retention:         **1.9%** (cointegration qualification removes 98.1% of events)
+- Qualified-cohort events: **275** across all thresholds + pairs
+- All-cohort events:        **13,554** (baseline)
+- Filter retention:         **2.0%** (cointegration qualification removes 98.0% of events)
 
 ## Summary by threshold — QUALIFIED cohort
 
 |   threshold |   n_events |   reversion_rate |   median_bars_to_reversion |   median_max_z_in_window |   median_adverse_excursion |   p90_adverse_excursion |   qual_break_rate |
 |------------:|-----------:|-----------------:|---------------------------:|-------------------------:|---------------------------:|------------------------:|------------------:|
-|         1.5 |         72 |            0.319 |                       31   |                    2.747 |                      1.149 |                   2.76  |             0.917 |
-|         2   |         54 |            0.37  |                       45   |                    2.915 |                      0.885 |                   2.374 |             0.981 |
-|         2.5 |         29 |            0.241 |                       45   |                    3.711 |                      1.188 |                   2.358 |             1     |
-|         3   |         11 |            0.182 |                       38.5 |                    3.849 |                      0.845 |                   1.444 |             1     |
+|         1.5 |        116 |            0.267 |                       36   |                    2.678 |                      1.138 |                   2.462 |             0.957 |
+|         2   |         83 |            0.265 |                       39   |                    2.947 |                      0.859 |                   2.133 |             0.964 |
+|         2.5 |         57 |            0.211 |                       35   |                    3.143 |                      0.602 |                   1.713 |             1     |
+|         3   |         19 |            0.211 |                       38.5 |                    3.966 |                      0.797 |                   1.404 |             1     |
 
 ## Summary by threshold — ALL (baseline) cohort
 
 |   threshold |   n_events |   reversion_rate |   median_bars_to_reversion |   median_max_z_in_window |   median_adverse_excursion |   p90_adverse_excursion |   qual_break_rate |
 |------------:|-----------:|-----------------:|---------------------------:|-------------------------:|---------------------------:|------------------------:|------------------:|
-|         1.5 |       3652 |            0.349 |                         35 |                    2.243 |                      0.699 |                   2.014 |                 0 |
-|         2   |       2678 |            0.269 |                         40 |                    2.586 |                      0.538 |                   1.692 |                 0 |
-|         2.5 |       1690 |            0.238 |                         43 |                    2.952 |                      0.399 |                   1.475 |                 0 |
-|         3   |        858 |            0.228 |                         43 |                    3.459 |                      0.404 |                   1.422 |                 0 |
+|         1.5 |       5498 |            0.365 |                         34 |                    2.216 |                      0.673 |                   1.967 |                 0 |
+|         2   |       4097 |            0.284 |                         40 |                    2.546 |                      0.505 |                   1.661 |                 0 |
+|         2.5 |       2553 |            0.259 |                         42 |                    2.979 |                      0.414 |                   1.441 |                 0 |
+|         3   |       1406 |            0.245 |                         42 |                    3.414 |                      0.353 |                   1.273 |                 0 |
 
 ## Reversion lift over baseline
 
 |   threshold |   qualified_reversion_rate |   baseline_reversion_rate |   lift_percentage_points |
 |------------:|---------------------------:|--------------------------:|-------------------------:|
-|         1.5 |                      0.319 |                     0.349 |                   -2.968 |
-|         2   |                      0.37  |                     0.269 |                   10.114 |
-|         2.5 |                      0.241 |                     0.238 |                    0.292 |
-|         3   |                      0.182 |                     0.228 |                   -4.662 |
+|         1.5 |                      0.267 |                     0.365 |                   -9.798 |
+|         2   |                      0.265 |                     0.284 |                   -1.856 |
+|         2.5 |                      0.211 |                     0.259 |                   -4.799 |
+|         3   |                      0.211 |                     0.245 |                   -3.485 |
 
 ## Interpretation
 
-### Three findings — corrected exit rule (target=1.0) vs original (target=0.5)
+- **Suggested threshold (qualified cohort):** τ = **2.0**
+  - reversion rate 26.5% over 83 events
+  - median bars-to-reversion 39
+  - p90 adverse excursion 2.13 z-units past entry
 
-The first run of this study used `|z| ≤ 0.5` as the reversion target, which is the textbook "fully reverted to mean" definition. Operator feedback (2026-05-20): that's too strict — a real pair trader exits when `|z|` returns to the **"normal" zone (~1.0)**, not when it crosses all the way back through zero. This re-run uses **target = 1.0**. The picture changes meaningfully.
-
-**1. The cointegration filter provides REAL lift at τ=2.0 — about 10 percentage points.**
-
-| τ | qualified reversion | baseline reversion | lift |
-|---|---|---|---|
-| 1.5 | 31.9% | 34.9% | **−3.0pp** (filter HURTS) |
-| 2.0 | **37.0%** | 26.9% | **+10.1pp** ← largest |
-| 2.5 | 24.1% | 23.8% | +0.3pp |
-| 3.0 | 18.2% | 22.8% | −4.7pp (small N=11, noise) |
-
-The +10.1pp lift at τ=2.0 is a **38% relative improvement** in win rate vs the unfiltered cohort. This is the first empirical evidence that cointegration filtering does meaningful work at a specific threshold.
-
-At τ=1.5 the filter slightly hurts — at low thresholds you're catching normal noise that everything wiggles through regardless of cointegration state. At τ=3.0 the small-N estimate is noise.
-
-**2. At τ=2.0, the strategy starts to look operationally tradable.**
-
-- **37% reversion rate** on 54 events over 14 years (~4 events/year per universe pass)
-- Median bars-to-reversion = 45 (≈ 2 trading months average hold when it works)
-- p90 adverse excursion 2.37 z-units past entry → **hard stop at `|z| ≈ 4.4`** catches 90% of failure modes
-- Median max-z-in-window 2.92 vs entry at 2.0 → trades typically see further dislocation before reverting; **expect to "hurt" before "heal"**
-
-A 37% win rate is not by itself a tradable edge — but it's high enough that **with average winner > 2× average loser**, the expectancy turns positive. The exit-target change moved this from "uninvestable" (24% at target=0.5) to "worth a serious follow-up backtest".
-
-**3. The qualification-break problem persists.**
-
-`qual_break_rate` = 92-100% across thresholds — the spread shock that triggers entry still almost always coincides with regime degradation during the forward window. The shorter exit (target=1.0) just means **more trades successfully exit BEFORE the regime fully breaks**, but the regime IS breaking under most of them.
-
-This means the trade-side risk-management lever matters more than the entry-side filter. Specifically:
-- The shorter exit target works precisely because it gets you out before the regime degradation finishes manifesting in price
-- Holding for `|z|≤0.5` (target=0.5) waits until regime degradation is complete — hence the lower reversion rate
-- The "right" exit is empirically validated to be in the `|z|≈1.0` zone
-
-### Honest threshold pick: **τ = 2.0 with exit at |z| ≤ 1.0**
-
-| Metric | Value |
-|---|---|
-| Reversion rate (qualified cohort) | **37.0%** |
-| Lift over baseline | **+10.1pp** (38% relative) |
-| Events per year (universe-wide) | ~4 |
-| Median holding period | 45 trading days |
-| Suggested hard stop | `|z| ≈ 4.4` (p90 adverse) |
-| Typical winner spread move | ~1.0 z-unit (from 2.0 → 1.0) |
-| Typical loser spread move | ~2.4 z-units further (from 2.0 → 4.4) |
-
-For positive expectancy, average winner gain × 0.37 > average loser loss × 0.63 → roughly need winner-to-loser ratio > 1.7. With the median move of 1.0 z-units on winners and ~2.4 on losers (in z-space), expectancy depends on how those z-moves translate to actual P/L — which depends on the hedge ratio and the chosen position size per leg.
-
-**This is now a strategy worth a proper backtest** (with the basket-engine machinery in `tools/basket_runner.py`), not just an event study.
-
-### What changed vs the target=0.5 run
-
-| Threshold | target=0.5 reversion (qualified) | target=1.0 reversion (qualified) | Δ |
-|---|---|---|---|
-| 1.5 | 22.2% | 31.9% | +9.7pp |
-| 2.0 | 24.1% | **37.0%** | **+12.9pp** |
-| 2.5 | 20.7% | 24.1% | +3.4pp |
-| 3.0 | 18.2% | 18.2% | 0pp |
-
-The operator's intuition — "exit shouldn't wait for full reversion to zero" — was correct. At τ=2.0 the reversion rate jumps from 24% to 37% just by exiting at the "back to normal" zone instead of the "fully reverted" zone.
-
-### Caveats (unchanged from prior interpretation)
-
-- In-sample β and z-score windows — no out-of-sample validation of the hedge ratio
-- Monthly ADF sampling — qualification could be over/under-stated by up to 21 days
-- 60-bar forward window is arbitrary — longer windows raise reversion rate AND time-to-reversion
-- No trading-cost model — z-score reversion ≠ tradable P/L
-- The 92-100% `qual_break_rate` may partly reflect mechanical perturbation of the rolling β/ADF computation by the extreme spread observation itself; disentangling true regime change from qualification artifact would require a v1.1 study with separate observation and qualification windows
+- **Caveats:**
+  - In-sample β and z-score windows — no out-of-sample validation of the hedge ratio
+  - Monthly ADF sampling — qualification could be over/under-stated by up to 21 days
+  - 60-bar forward window is arbitrary — longer windows would raise reversion rate AND mean-time-to-reversion
+  - No trading-cost model — z-score reversion ≠ tradable P/L
+  - Failure-mode skew: pairs that broke during the forward window are counted in `qual_break_rate`
 
 ## Files
 

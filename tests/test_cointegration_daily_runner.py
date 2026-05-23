@@ -23,6 +23,18 @@ class _Tracker:
         self.calls: list[str] = []
 
 
+@pytest.fixture(autouse=True)
+def _patch_log_file(monkeypatch, tmp_path):
+    # Without this, every test invocation of cointegration_daily_runner.main()
+    # appends to the real production log at tmp/cointegration_daily.log,
+    # polluting the v1 stability-burn-in record with synthetic
+    # "compute failure" / "render failure" tracebacks emitted by the mocks
+    # below. autouse so every test in this module is covered, including
+    # the TestArgvPropagation tests that bypass the `tracker` fixture.
+    monkeypatch.setattr(cointegration_daily_runner, "LOG_FILE",
+                         tmp_path / "cointegration_daily.log")
+
+
 @pytest.fixture
 def tracker(monkeypatch):
     t = _Tracker()
