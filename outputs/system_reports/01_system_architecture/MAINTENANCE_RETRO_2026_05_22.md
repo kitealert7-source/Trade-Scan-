@@ -97,9 +97,14 @@ Four new feedback entries written to `C:\Users\faraw\.claude\projects\C--Users-f
 - `feedback_smoke_fixture_decay.md` (F2)
 - `feedback_autoregen_files.md` (F8)
 
-Plus the chip-authored `feedback_audit_checker_before_ledger.md` (F1) lands separately as part of the chip's commit aftermath.
+Plus the chip-authored `feedback_audit_checker_before_ledger.md` (F1) which landed separately as part of the chip's commit aftermath (already linked in `MEMORY.md` Build Workflow).
 
-These should be linked from `MEMORY.md` on the next `/anthropic-skills:consolidate-memory` pass.
+**Links already added to `MEMORY.md` this session:**
+
+- Build Workflow section — `feedback_cross_repo_preflight.md`, `feedback_chip_task_handoff.md`, `feedback_smoke_fixture_decay.md` (positioned after the chip's `feedback_audit_checker_before_ledger.md` line)
+- Tooling Papercuts section — `feedback_autoregen_files.md`
+
+A future `/anthropic-skills:consolidate-memory` pass may re-organize section placement or trim duplication, but no manual indexing action is pending.
 
 ---
 
