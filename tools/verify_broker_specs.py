@@ -21,9 +21,17 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-from config.path_authority import TS_EXECUTION as _TS_EXECUTION
+from config.path_authority import ANTI_GRAVITY_DATA_ROOT, TS_EXECUTION as _TS_EXECUTION
 BROKER_SPECS_DIR = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
-DEFAULT_MT5_JSON = _TS_EXECUTION / "outputs" / "symbol_specs_mt5.json"
+
+# Canonical 2026-05-23+ location — written by DATA_INGRESS's daily post-hook
+# (engines/ops/extract_broker_specs.py). Shared sibling-accessible path.
+_NEW_MT5_JSON = ANTI_GRAVITY_DATA_ROOT / "SYSTEM_FACTORS" / "BROKER_SPECS" / "symbol_specs_mt5.json"
+# Legacy location — TS_Execution/tools/extract_symbol_specs.py output, kept as
+# fallback during the migration window so existing snapshots remain readable.
+_LEGACY_MT5_JSON = _TS_EXECUTION / "outputs" / "symbol_specs_mt5.json"
+# Prefer the new location if it exists; otherwise fall back to the legacy one.
+DEFAULT_MT5_JSON = _NEW_MT5_JSON if _NEW_MT5_JSON.exists() else _LEGACY_MT5_JSON
 import yaml
 
 
