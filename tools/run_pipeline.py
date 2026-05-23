@@ -1115,6 +1115,18 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     macro_correlation_threshold = float(
         _rule_params.get("macro_correlation_threshold", -0.5)
     )
+    # Regime gate (2026-05-23, charter h3_spread_window_c_regime_detector).
+    # When both lookback and threshold are set, the loader computes a rolling
+    # count of cross_side flips and zeros out cross_event where the count
+    # exceeds the threshold (cycle-init suppression). Pyramid suppression on
+    # already-open cycles is the v3 rule's responsibility. Default None on
+    # either param preserves byte-equivalence with pre-2026-05-23 behavior.
+    regime_gate_lookback_bars = _rule_params.get("regime_gate_lookback_bars", None)
+    if regime_gate_lookback_bars is not None:
+        regime_gate_lookback_bars = int(regime_gate_lookback_bars)
+    regime_gate_flip_threshold = _rule_params.get("regime_gate_flip_threshold", None)
+    if regime_gate_flip_threshold is not None:
+        regime_gate_flip_threshold = float(regime_gate_flip_threshold)
     try:
         from tools.basket_data_loader import load_basket_leg_data
         from tools.recycle_strategies import (
@@ -1131,6 +1143,8 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             macro_sma_window=macro_sma_window,
             macro_correlation_window=macro_correlation_window,
             macro_correlation_threshold=macro_correlation_threshold,
+            regime_gate_lookback_bars=regime_gate_lookback_bars,
+            regime_gate_flip_threshold=regime_gate_flip_threshold,
         )
         # Leg-strategy dispatch by recycle rule name (2026-05-18 — H3_spread@1):
         # different rules require different leg-entry semantics. ContinuousHold

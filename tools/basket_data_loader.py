@@ -389,6 +389,7 @@ def load_basket_leg_data(
     macro_correlation_window: int | None = None,
     macro_correlation_threshold: float = -0.5,
     regime_gate_lookback_bars: int | None = None,
+    regime_gate_flip_threshold: float | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Load per-symbol OHLC + a USD_SYNTH regime factor for a basket.
 
@@ -549,6 +550,28 @@ def load_basket_leg_data(
                     out[sym]["flips_in_lookback"] = is_flip.rolling(
                         lookback_n, min_periods=lookback_n
                     ).sum()
+
+                # Cycle-init suppression: zero out cross_event on bars where
+                # the gate trips. Same precedent as the macro-direction
+                # entry-only filter (block above) — cross_side (the exit
+                # signal) is intentionally left untouched so cycles that
+                # opened pre-trip can exit normally on a subsequent flip.
+                # Pyramid suppression on already-open cycles is the v3
+                # rule's responsibility (it reads flips_in_lookback +
+                # regime_gate_flip_threshold from its own params).
+                #
+                # NaN flips (cold-start) compare False against any finite
+                # threshold, so the gate is naturally inactive until the
+                # lookback fills (= the charter's cold-start contract).
+                if regime_gate_flip_threshold is not None:
+                    threshold = float(regime_gate_flip_threshold)
+                    for sym in symbols:
+                        ce = out[sym]["cross_event"]
+                        flips = out[sym]["flips_in_lookback"]
+                        tripped = flips > threshold  # NaN > T -> False
+                        out[sym]["cross_event"] = ce.where(
+                            ~tripped, 0
+                        ).astype(int)
 
             # Macro-direction filter (2026-05-19). When configured, compute
             # the SAME SMA-of-z cross signal on a HIGHER native broker

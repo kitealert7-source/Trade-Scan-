@@ -129,6 +129,80 @@ def test_regime_gate_count_matches_handcomputed_reference():
     pd.testing.assert_series_equal(col, expected, check_names=False)
 
 
+@_REQUIRES_DATA
+def test_regime_gate_threshold_zeroes_cross_event_when_tripped():
+    """When BOTH regime_gate_lookback_bars and regime_gate_flip_threshold
+    are set, cross_event is zeroed on bars where flips_in_lookback >
+    threshold. This is cycle-init suppression — same precedent as the
+    macro-direction entry-only filter. cross_side (exit signal) is
+    intentionally left untouched."""
+    lookback = 1000
+    threshold = 18.0  # from probe report — N=1000 recommended T=18
+    data_gated = load_basket_leg_data(
+        ["EURUSD", "USDJPY"],
+        "2018-05-11", "2018-12-31",  # Window C slice — gate expected to trip
+        timeframe="15m",
+        regime_gate_lookback_bars=lookback,
+        regime_gate_flip_threshold=threshold,
+    )
+    data_ungated = load_basket_leg_data(
+        ["EURUSD", "USDJPY"],
+        "2018-05-11", "2018-12-31",
+        timeframe="15m",
+        regime_gate_lookback_bars=lookback,
+        # threshold omitted -> no cross_event zeroing
+    )
+
+    eur_gated = data_gated["EURUSD"]
+    eur_ungated = data_ungated["EURUSD"]
+
+    # cross_side is NEVER touched by the regime gate (exit signal stays
+    # operational even during a trip).
+    pd.testing.assert_series_equal(
+        eur_gated["cross_side"], eur_ungated["cross_side"],
+        check_names=False,
+    )
+
+    # cross_event differs ONLY on rows where flips_in_lookback > threshold.
+    # Cold-start (NaN) rows must NOT be touched (NaN > T is False).
+    flips = eur_gated["flips_in_lookback"]
+    tripped_mask = (flips > threshold).fillna(False)
+    # On tripped rows, gated cross_event must be 0.
+    assert (eur_gated["cross_event"][tripped_mask] == 0).all(), (
+        "gated rows must have cross_event == 0"
+    )
+    # On un-tripped rows (including cold-start NaN), gated == ungated.
+    pd.testing.assert_series_equal(
+        eur_gated["cross_event"][~tripped_mask],
+        eur_ungated["cross_event"][~tripped_mask],
+        check_names=False,
+    )
+
+    # Sanity: at least SOME bars should have tripped in Window C, otherwise
+    # the test isn't exercising the gate behavior.
+    assert tripped_mask.sum() > 0, (
+        f"expected some trips in Window C with N={lookback}, T={threshold}; "
+        f"got zero. Either probe recommendations changed or window selection "
+        f"no longer exercises the gate."
+    )
+
+
+@_REQUIRES_DATA
+def test_regime_gate_threshold_without_lookback_is_noop():
+    """Setting only the threshold (without lookback) must not produce
+    any column or modify cross_event — the column is the gate's required
+    input, so threshold without it is meaningless and must be a no-op."""
+    data = load_basket_leg_data(
+        ["EURUSD", "USDJPY"],
+        "2024-05-18", "2024-06-18",
+        timeframe="15m",
+        regime_gate_lookback_bars=None,
+        regime_gate_flip_threshold=18.0,
+    )
+    eur = data["EURUSD"]
+    assert "flips_in_lookback" not in eur.columns
+
+
 def test_synthetic_known_flips_count():
     """Pure unit test (no data dependency) on the flip-counting logic.
 
