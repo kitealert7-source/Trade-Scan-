@@ -867,16 +867,30 @@ def export_excel(db_path: Path | str = SQLITE_DB,
 
     conn = connect(db_path)
     try:
+        # PER-PAIR latest as_of (not global MAX). Different symbols have
+        # different trading calendars: FX + most indices stop trading Friday,
+        # but BTC/ETH trade weekends. A naive `MAX(as_of)` query on a Saturday
+        # or Sunday returns only the crypto rows under today's date, leaving
+        # FX/index pairs absent from `df_today` and blanking out their cells
+        # in the curated asset-class tabs.
         df_today = pd.read_sql_query(
-            f"""SELECT * FROM {TABLE_NAME}
-                WHERE as_of = (SELECT MAX(as_of) FROM {TABLE_NAME})
-                ORDER BY pair_a, pair_b, lookback_days""",
+            f"""SELECT t.* FROM {TABLE_NAME} t
+                WHERE t.as_of = (
+                    SELECT MAX(as_of) FROM {TABLE_NAME}
+                    WHERE pair_a = t.pair_a AND pair_b = t.pair_b
+                      AND tf = t.tf AND lookback_days = t.lookback_days
+                )
+                ORDER BY t.pair_a, t.pair_b, t.lookback_days""",
             conn,
         )
         df_singles = pd.read_sql_query(
-            f"""SELECT * FROM {SINGLES_TABLE_NAME}
-                WHERE as_of = (SELECT MAX(as_of) FROM {SINGLES_TABLE_NAME})
-                ORDER BY symbol, lookback_days""",
+            f"""SELECT t.* FROM {SINGLES_TABLE_NAME} t
+                WHERE t.as_of = (
+                    SELECT MAX(as_of) FROM {SINGLES_TABLE_NAME}
+                    WHERE symbol = t.symbol AND tf = t.tf
+                      AND lookback_days = t.lookback_days
+                )
+                ORDER BY t.symbol, t.lookback_days""",
             conn,
         ) if _table_exists(conn, SINGLES_TABLE_NAME) else pd.DataFrame()
         candidates = load_candidates()
