@@ -265,19 +265,21 @@ def _apply_all_pairs_default_filter(ws) -> None:
     """Multi-column synchronized default filter for the All Pairs (Diagnostic)
     sheet. Header at row 1, data at rows 2+. Columns laid out as:
 
-        A pair_a | B pair_b | C agreement | D reg_252 | E reg_504 |
-        F p_252  | G p_504  | H hl_252    | I hl_504  | J z_252   | ...
+        A pair_a | B pair_b | C pair_class | D agreement | E reg_252 |
+        F reg_504 | G p_252 | H p_504 | I hl_252 | J hl_504 | ...
 
     Pre-applies four filters that together restrict the visible set to
     "both-window cointegrated pairs with operationally tradable half-life":
 
-        C = "BOTH"
-        D = "cointegrated"
-        E = "cointegrated"
-        I ∈ [5, 30]   (custom range filter via greaterThanOrEqual + lessThanOrEqual)
+        D (agreement)     = "BOTH"
+        E (regime_252)    = "cointegrated"
+        F (regime_504)    = "cointegrated"
+        J (hl_504)        ∈ [5, 30]   (custom range filter)
 
-    Each filter renders as an independent dropdown so the operator can
-    relax any one criterion without touching the others.
+    Column C (pair_class) is intentionally NOT pre-filtered — operator
+    clicks its dropdown to switch between FX / IX / CROSS / (all). Each
+    other filter renders as an independent dropdown so any one criterion
+    can be relaxed without touching the others.
     """
     last_row = ws.max_row
     if last_row <= 1:
@@ -285,42 +287,42 @@ def _apply_all_pairs_default_filter(ws) -> None:
     last_col = get_column_letter(ws.max_column)
     ws.auto_filter.ref = f"A1:{last_col}{last_row}"
 
-    # Value-list filters on C / D / E (colIds are 0-indexed from ref start)
-    fc_c = FilterColumn(colId=2)
-    fc_c.filters = Filters(filter=["BOTH"])
-    ws.auto_filter.filterColumn.append(fc_c)
-
+    # Value-list filters on D / E / F (colIds are 0-indexed from ref start)
     fc_d = FilterColumn(colId=3)
-    fc_d.filters = Filters(filter=["cointegrated"])
+    fc_d.filters = Filters(filter=["BOTH"])
     ws.auto_filter.filterColumn.append(fc_d)
 
     fc_e = FilterColumn(colId=4)
     fc_e.filters = Filters(filter=["cointegrated"])
     ws.auto_filter.filterColumn.append(fc_e)
 
-    # Numeric range filter on I (half_life_days_504) ∈ [5, 30]
+    fc_f = FilterColumn(colId=5)
+    fc_f.filters = Filters(filter=["cointegrated"])
+    ws.auto_filter.filterColumn.append(fc_f)
+
+    # Numeric range filter on J (half_life_days_504) ∈ [5, 30]
     cfs = CustomFilters(_and=True)
     cfs.customFilter = [
         CustomFilter(operator="greaterThanOrEqual", val="5"),
         CustomFilter(operator="lessThanOrEqual", val="30"),
     ]
-    fc_i = FilterColumn(colId=8, customFilters=cfs)
-    ws.auto_filter.filterColumn.append(fc_i)
+    fc_j = FilterColumn(colId=9, customFilters=cfs)
+    ws.auto_filter.filterColumn.append(fc_j)
 
-    # Hide every row that doesn't pass ALL four filters. Without this,
-    # Excel renders the filter UI as "applied" but every row is still
-    # visible until the user clicks any dropdown.
+    # Hide every row that doesn't pass ALL four filters. Cell column
+    # indices are 1-based: D=4, E=5, F=6, J=10 — all shifted right by 1
+    # from the pre-pair_class layout.
     for r in range(2, last_row + 1):
-        c_val = ws.cell(row=r, column=3).value
         d_val = ws.cell(row=r, column=4).value
         e_val = ws.cell(row=r, column=5).value
-        i_val = ws.cell(row=r, column=9).value
+        f_val = ws.cell(row=r, column=6).value
+        j_val = ws.cell(row=r, column=10).value
         passes = (
-            c_val == "BOTH"
-            and d_val == "cointegrated"
+            d_val == "BOTH"
             and e_val == "cointegrated"
-            and isinstance(i_val, (int, float))
-            and 5 <= i_val <= 30
+            and f_val == "cointegrated"
+            and isinstance(j_val, (int, float))
+            and 5 <= j_val <= 30
         )
         if not passes:
             ws.row_dimensions[r].hidden = True
@@ -450,6 +452,42 @@ def _query_candidate_rows(
     return cells
 
 
+# Asset-class membership for the pair_class column on the All Pairs
+# (Diagnostic) sheet. Lets the operator filter the 465-row firehose down
+# to "FX pairs only" / "Index pairs only" / "Cross-asset only" via the
+# auto-filter dropdown without typing pair_a/pair_b filters manually.
+_FX_SYMBOLS = frozenset({
+    "AUDUSD", "EURUSD", "GBPUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY",
+    "AUDJPY", "AUDNZD", "CADJPY", "CHFJPY", "EURAUD", "EURGBP", "EURJPY",
+    "GBPAUD", "GBPJPY", "GBPNZD", "NZDJPY",
+})
+_IX_SYMBOLS = frozenset({
+    "SPX500", "NAS100", "US30", "UK100", "FRA40", "ESP35", "EUSTX50",
+    "GER40", "JPN225", "AUS200",
+})
+_CC_SYMBOLS = frozenset({"XAUUSD", "BTCUSD", "ETHUSD"})
+
+
+def _classify_pair(sym_a: str, sym_b: str) -> str:
+    """Bucket a pair-pair into FX / IX / CROSS for filter UX.
+
+    FX    — both legs are FX pairs (18-symbol FX_UNIVERSE)
+    IX    — both legs are equity indices (10-symbol set)
+    CROSS — anything else: FX × IX, FX × commodity/crypto, IX × CC, CC × CC.
+            All cross-asset combinations bucket together since their
+            economic mechanisms differ from pure within-class spreads.
+    """
+    a_fx = sym_a in _FX_SYMBOLS
+    b_fx = sym_b in _FX_SYMBOLS
+    a_ix = sym_a in _IX_SYMBOLS
+    b_ix = sym_b in _IX_SYMBOLS
+    if a_fx and b_fx:
+        return "FX"
+    if a_ix and b_ix:
+        return "IX"
+    return "CROSS"
+
+
 def _pivot_today(df: pd.DataFrame) -> pd.DataFrame:
     """Pivot from (pair, window) rows to (pair) rows with window columns."""
     if df.empty:
@@ -474,6 +512,7 @@ def _pivot_today(df: pd.DataFrame) -> pd.DataFrame:
             agreement = "NEITHER"
         pivoted.append({
             "pair_a": a, "pair_b": b,
+            "pair_class": _classify_pair(a, b),
             "agreement": agreement,
             "regime_252": regime_252, "regime_504": regime_504,
             "adf_pvalue_252": r252["adf_pvalue"], "adf_pvalue_504": r504["adf_pvalue"],
@@ -662,7 +701,9 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
     pivoted = pivoted.sort_values("score", ascending=False).reset_index(drop=True)
 
     columns = [
-        "pair_a", "pair_b", "agreement",
+        "pair_a", "pair_b",
+        "pair_class",                   # NEW 2026-05-23 — FX / IX / CROSS
+        "agreement",
         "regime_252", "regime_504",
         "adf_pvalue_252", "adf_pvalue_504",
         "half_life_days_252", "half_life_days_504",
@@ -704,7 +745,8 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
                     cell.fill, cell.font = _fill(COLOR_BOOTSTRAP_BG, "000000")
 
     ws.freeze_panes = "D2"
-    widths = [10, 10, 11, 13, 13, 14, 14, 18, 18, 18, 18, 14, 14, 14, 10]
+    #         pair_a pair_b cls  agr  reg2 reg5 p25 p50 hl2 hl5 z25 z50 he2 he5 hd score
+    widths = [10,    10,    10,  11,  13,  13,  14, 14, 18, 18, 18, 18, 14, 14, 14, 10]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
