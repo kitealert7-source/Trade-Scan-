@@ -26,6 +26,8 @@ __all__ = [
     "CointTriggerArmedState",
     "CointTriggerLegStrategy",
     "ContinuousHoldStrategy",
+    "PineZRevArmedState",
+    "PineZRevLegStrategy",
     "SpreadCrossArmedState",
     "SpreadCrossLegStrategy",
 ]
@@ -369,6 +371,173 @@ class SpreadCrossLegStrategy:
             else:
                 # Legacy uni-directional: position_direction is the signal.
                 signal = int(self.position_direction)
+            return {"signal": signal}
+        return None
+
+    def check_exit(self, ctx) -> bool:
+        """Never close via signal. Recycle rule handles all exits."""
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Pine port — z_r reversal, always-in-market (pine_ratio_zrev_v1)
+# ---------------------------------------------------------------------------
+
+
+class PineZRevArmedState:
+    """Shared coordinator state for Pine z_r reversal baskets.
+
+    Mirrors the PROPOSED/APPROVED phases of CointTriggerArmedState but is
+    driven by per-bar z_r crosses computed in the rule (not screener ledger).
+
+    State machine per cycle:
+        IDLE      → no signal cross seen (all fields cleared)
+        PROPOSED  → leg saw pine_zrev_signal != 0 on bar N; pending_trigger_ts=N
+        APPROVED  → rule accepted on bar N; approved_fire_ts = next aligned bar
+        FIRED     → leg returned signal at approved_fire_ts; rule clears on next apply
+        CLEARED   → IDLE again
+
+    Always-in-market reversal: when basket is OPEN and a cross in the opposite
+    direction fires, the rule LIQUIDATEs the current basket AND sets a fresh
+    proposal (with reversed direction) in the same apply() pass — no idle gap.
+
+    Field ownership (writes):
+        leg.check_entry  : pending_trigger_ts, proposed_direction, last_processed_ts
+        rule.apply       : approved_fire_ts, approved, reset() after fire
+
+    A fresh instance must be created per directive (BasketRunner construction).
+    Shared across both legs of the basket by reference.
+    """
+
+    def __init__(self) -> None:
+        self.last_processed_ts: pd.Timestamp | None = None
+        # PROPOSED phase
+        self.pending_trigger_ts: pd.Timestamp | None = None
+        self.proposed_direction: int = 0   # +1 LONG_SPREAD / -1 SHORT_SPREAD
+        # APPROVED phase
+        self.approved_fire_ts: pd.Timestamp | None = None
+        self.approved: bool = False
+
+    def reset(self) -> None:
+        """Return to IDLE. Called by the rule after fire/rejection."""
+        self.pending_trigger_ts = None
+        self.proposed_direction = 0
+        self.approved_fire_ts = None
+        self.approved = False
+
+
+class PineZRevLegStrategy:
+    """Pine port leg strategy — z_r reversal, always-in-market.
+
+    Reads `pine_zrev_signal` column on leg.df. The column is attached by the
+    pine_ratio_zrev_v1 rule on its first apply() call (computed from both legs'
+    close prices via the ratio_hedged_spread_zscore indicator).
+
+    Signal semantics on the column:
+        +1 = z_r crossed -z_entry from above  → LONG SPREAD (long A, short r̄·B)
+        -1 = z_r crossed +z_entry from below  → SHORT SPREAD (short A, long r̄·B)
+         0 = no cross this bar
+
+    Two-bar protocol (identical to CointTriggerLegStrategy):
+        Bar N    : leg sees signal != 0, sets pending in shared state
+        Bar N    : rule.apply inspects pending, locks r̄_entry, sets approved_fire_ts = N+1
+        Bar N+1  : leg sees approved_fire_ts == N+1, returns signal
+        Bar N+1  : engine queues open at N+2 open
+
+    Always-in-market reversal: when basket is open in direction X and an
+    opposite-direction signal fires, the rule liquidates AND re-proposes the
+    new direction in the same bar. The leg's check_entry on the next bar
+    will then return the reversed signal.
+
+    STRATEGY_SIGNATURE: same boilerplate as CointTriggerLegStrategy — engine
+    ATR-fallback stop effectively disabled (atr_multiplier 100000) so that
+    exits are owned entirely by the recycle rule.
+    """
+
+    timeframe = "1d"
+
+    # Not fast-path eligible — fires conditionally based on z_r crosses.
+
+    # --- STRATEGY SIGNATURE START ---
+    STRATEGY_SIGNATURE = {
+        "execution_rules": {
+            "entry_logic":           {"type": "pine_zrev_reversal_proposal"},
+            "entry_when_flat_only":  True,
+            "exit_logic":            {"type": "basket_rule_owned"},
+            "pyramiding":            False,
+            "reset_on_exit":         False,
+            "stop_loss":             {"type": "atr_multiple", "atr_multiplier": 100000.0},
+            "take_profit":           {"enabled": False},
+            "trailing_stop":         {"enabled": False},
+        },
+        "indicators": [],
+        "order_placement":           {"type": "market", "execution_timing": "next_bar_open"},
+        "position_management":       {"lots": 0.01},
+        "signal_version":            1,
+        "signature_version":         2,
+        "trade_management":          {"direction": "basket_leg", "reentry": {"allowed": True}, "session_reset": "none"},
+        "version":                   1,
+    }
+    # --- STRATEGY SIGNATURE END ---
+
+    def __init__(
+        self,
+        symbol: str,
+        position_direction: int = +1,
+        *,
+        armed_state: PineZRevArmedState | None = None,
+        signal_column: str = "pine_zrev_signal",
+    ) -> None:
+        """Init.
+
+        Args:
+            symbol: leg symbol (e.g. CHFJPY).
+            position_direction: +1 long leg, -1 short leg (declared in directive).
+                The returned engine signal at fire time is
+                position_direction * proposed_direction; LONG_SPREAD preserves
+                the directive's base orientation, SHORT_SPREAD inverts it.
+            armed_state: SHARED PineZRevArmedState across both legs. Required
+                for production multi-leg flow.
+            signal_column: leg.df column carrying the z_r cross signal.
+                Default matches the column attached by PineRatioZRevRule.
+        """
+        if position_direction not in (+1, -1):
+            raise ValueError(
+                f"PineZRevLegStrategy: position_direction must be +1 or -1, "
+                f"got {position_direction!r}."
+            )
+        self.symbol = symbol
+        self.position_direction = position_direction
+        self.armed_state = armed_state if armed_state is not None else PineZRevArmedState()
+        self.signal_column = signal_column
+        self.name = f"pine_zrev_{symbol}_pos{'+' if position_direction > 0 else '-'}"
+
+    def prepare_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """No upstream join validation — signal column is attached by the rule
+        at first apply() (the column doesn't exist at prepare time)."""
+        return df
+
+    def check_entry(self, ctx) -> dict[str, Any] | None:
+        """Two-bar protocol — proposal on signal bar, fire on approved bar."""
+        bar_ts = pd.Timestamp(ctx.row.name)
+        state = self.armed_state
+
+        # PROPOSAL phase: only first leg per bar updates shared state
+        if state.last_processed_ts != bar_ts:
+            state.last_processed_ts = bar_ts
+
+            # Only propose if no cycle in flight
+            if state.pending_trigger_ts is None and state.approved_fire_ts is None:
+                signal_value = int(ctx.get(self.signal_column, 0) or 0)
+                if signal_value in (+1, -1):
+                    state.pending_trigger_ts = bar_ts
+                    state.proposed_direction = signal_value
+
+        # FIRE phase: rule approved on prior bar
+        if state.approved and state.approved_fire_ts == bar_ts:
+            if state.proposed_direction == 0:
+                return None
+            signal = int(self.position_direction) * int(state.proposed_direction)
             return {"signal": signal}
         return None
 

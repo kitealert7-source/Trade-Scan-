@@ -1143,6 +1143,8 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             CointTriggerArmedState,
             CointTriggerLegStrategy,
             ContinuousHoldStrategy,
+            PineZRevArmedState,
+            PineZRevLegStrategy,
             SpreadCrossArmedState,
             SpreadCrossLegStrategy,
         )
@@ -1205,6 +1207,22 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             shared_armed_state = CointTriggerArmedState()
             leg_strategies = {
                 leg["symbol"]: CointTriggerLegStrategy(
+                    symbol=leg["symbol"],
+                    position_direction=+1 if leg["direction"] == "long" else -1,
+                    armed_state=shared_armed_state,
+                )
+                for leg in parsed["basket"]["legs"]
+            }
+        elif rule_name == "pine_ratio_zrev_v1":
+            # Pine port (2026-05-24): ratio-hedged z_r reversal, always-in-market.
+            # Preserved follow-on arc #2 from cointegration_meanrev_v1_2 retirement.
+            # Leg strategy proposes on `pine_zrev_signal` column crosses (column
+            # is attached by PineRatioZRevRule.apply() on first bar). Same
+            # shared-state auto-discovery pattern as cointegration_meanrev_v1_2.
+            # ONE shared PineZRevArmedState instance for both legs.
+            shared_armed_state = PineZRevArmedState()
+            leg_strategies = {
+                leg["symbol"]: PineZRevLegStrategy(
                     symbol=leg["symbol"],
                     position_direction=+1 if leg["direction"] == "long" else -1,
                     armed_state=shared_armed_state,

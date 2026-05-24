@@ -82,8 +82,12 @@ governance_updates:
     date: '2026-05-20'
     changes:
     - 'indicator_registry_sync: 1 stub entries added.'
-registry_version: 12
-generated_at: '2026-05-20T11:50:51+00:00'
+  version_13:
+    date: '2026-05-24'
+    changes:
+    - 'indicator_registry_sync: 1 stub entries added.'
+registry_version: 13
+generated_at: '2026-05-24T12:47:14+00:00'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -2600,7 +2604,7 @@ indicators:
     - target_index: pd.DatetimeIndex (timestamps to forward-fill onto)
     parameters:
       ffill: bool — forward-fill daily values onto target_index (no-look-ahead)
-      matrix_hash: 'str | None — pin specific matrix build (None = LATEST)'
+      matrix_hash: str | None — pin specific matrix build (None = LATEST)
     default_parameters:
       ffill: true
       matrix_hash: null
@@ -2621,13 +2625,21 @@ indicators:
     vectorized: false
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: Runtime cointegration-feature lookup for COINTREV mean-reversion baskets. Joins daily regime + spread z-score onto intraday leg DataFrames; daily-cadence values forward-filled to sub-daily bars without look-ahead.
+    typical_use_case: Runtime cointegration-feature lookup for COINTREV mean-reversion baskets. Joins daily regime + spread
+      z-score onto intraday leg DataFrames; daily-cadence values forward-filled to sub-daily bars without look-ahead.
     compatibility:
       suitable_for_intraday: true
       suitable_for_daily: true
       suitable_for_HTF: true
     registered_at: '2026-05-20'
-    notes: Daily-cadence cointegration regime (ADF p<0.05 in BOTH 252d AND 504d windows) + spread statistics, looked up from coint_1d_history_matrix parquet. SIGNAL_PRIMITIVE='regime'.
+    notes: Daily-cadence cointegration regime (ADF p<0.05 in BOTH 252d AND 504d windows) + spread statistics, looked up from
+      coint_1d_history_matrix parquet. SIGNAL_PRIMITIVE='regime'.
+  ratio_hedged_spread_zscore:
+    module_path: indicators.stats.ratio_hedged_spread_zscore
+    category: stats
+    registered_at: '2026-05-24'
+    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
+      output_columns, etc.) to be backfilled.
 registry_summary:
   total_indicators: 70
   by_category:

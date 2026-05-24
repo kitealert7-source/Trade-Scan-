@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 dispatch)
+from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule, PineRatioZRevRule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 + pine_ratio_zrev_v1 dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +456,28 @@ def _instantiate_rule(
             zscore_column=str(params.get("zscore_column", "coint_current_zscore")),
             beta_column=str(params.get("beta_column", "coint_beta_at_trigger")),
             direction_column=str(params.get("direction_column", "coint_direction")),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1" and version == 1:
+        # Pine port (2026-05-24): ratio-hedged z_r reversal, always-in-market.
+        # Preserved follow-on arc #2 from cointegration_meanrev_v1_2 retirement.
+        # Computes z_r per-bar from both legs' close prices via
+        # indicators.stats.ratio_hedged_spread_zscore (does NOT read the
+        # cointegration_triggers ledger). The rule attaches signal columns
+        # to both legs' DataFrames on first apply(). Same shared-state
+        # auto-discovery pattern as cointegration_meanrev_v1_2.
+        return PineRatioZRevRule(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(params.get("z_entry", 2.0)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,

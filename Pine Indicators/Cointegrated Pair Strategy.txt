@@ -1,0 +1,251 @@
+//@version=6
+strategy('Cointegrated Pair Spread Strategy (z_r reversal)',
+     overlay              = false,
+     initial_capital      = 100000,
+     default_qty_type     = strategy.fixed,
+     default_qty_value    = 1,
+     calc_on_every_tick   = false,
+     process_orders_on_close = true,
+     pyramiding           = 0)
+
+// =============================================================================
+// COINTEGRATED PAIR SPREAD STRATEGY — z_r reversal, always-in-market
+//
+// Companion test for the "Cointegrated Pair Overlay" indicator. Tests whether
+// the ratio-hedged spread z_r genuinely mean-reverts on the chosen pair / TF
+// by trading the simplest possible spread-reversal rule:
+//
+//   * z_r crosses below -z_entry  →  flip to LONG spread (buy A, sell r̄·B)
+//   * z_r crosses above +z_entry  →  flip to SHORT spread (sell A, buy r̄·B)
+//   * Always in market — every signal is a reversal, no flat periods
+//
+// Position sizing: fixed notional in A's price units. The B leg is sized
+// at r̄_entry × units_a so dollar exposures are balanced at entry. Hedge
+// ratio r̄ is LOCKED at entry and does not re-hedge during the trade —
+// this is what makes the trade P&L equal to the spread's price change at
+// fixed hedge.
+//
+// =============================================================================
+// IMPORTANT — TradingView's built-in Strategy Tester is MISLEADING here:
+//
+// A TradingView strategy trades ONE symbol — the chart's symbol. A pairs
+// trade has TWO legs. The built-in Strategy Tester P&L only reflects the
+// chart leg's price movement, completely missing the hedge leg. That P&L
+// is wrong for a pairs trade.
+//
+// This script computes the CORRECT pairs-trade P&L itself (both legs,
+// proper sizing, fixed hedge ratio at entry) and reports it in the stats
+// table at top right. Built-in strategy.entry() calls only exist to draw
+// trade markers on the chart for visual reference.
+//
+// → Read the "Total return" / "Max drawdown" rows in the table.
+// → IGNORE the numbers in TradingView's Strategy Tester panel.
+// =============================================================================
+// SETUP
+//   1. Apply this strategy to a chart of ONE of the two legs (default:
+//      OANDA:CHFJPY chart with sym_a=CHFJPY, sym_b=TVC:UKX).
+//   2. Use the same N as the indicator (default 252) so signals match.
+//   3. Choose a TF and scroll history — watch trades_closed grow and
+//      Total return / Max drawdown update.
+//   4. Equity curve is available in the Data Window (right-click → "Move
+//      to" → "New pane" if you want it visible).
+// =============================================================================
+
+// === Pair selection =======================================================
+sym_a = input.symbol('OANDA:CHFJPY', 'Asset A', group = 'Pair',
+     tooltip = 'First leg. Same default as the indicator.')
+sym_b = input.symbol('TVC:UKX',      'Asset B', group = 'Pair',
+     tooltip = 'Second leg. Same default as the indicator.')
+
+// === Compute settings =====================================================
+N = input.int(252, 'Rolling window (bars)', minval = 30, maxval = 2000, group = 'Compute',
+     tooltip = 'Same lookback as the Cointegrated Pair Overlay indicator. Match it so z_r values seen here equal what the indicator shows.')
+
+// === Strategy =============================================================
+z_entry = input.float(2.0, 'Reversal threshold |z_r|', minval = 0.5, step = 0.1, group = 'Strategy',
+     tooltip = 'Strategy flips position when z_r crosses the threshold. In Absolute mode that''s ±this value from zero. In Centered mode it''s ±this value from z_r''s rolling mean.')
+
+entry_mode = input.string('Absolute', 'Entry mode', options = ['Absolute', 'Centered'], group = 'Strategy',
+     tooltip = 'Absolute (default): trigger when z_r crosses ±z_entry from zero. Reproduces the original strategy. Centered: trigger when z_r crosses ±z_entry from its own rolling mean — symmetrizes signals when z_r has a structural bias away from zero. Useful when the chart shows z_r oscillating around a non-zero baseline.')
+
+n_meta = input.int(100, 'Centering window (bars)', minval = 20, maxval = 1000, group = 'Strategy',
+     tooltip = 'Lookback for z_r''s own rolling mean. Only used in Centered mode. Short → centering chases noise. Long → behaves like Absolute. Default 100 is a reasonable starting point on any TF.')
+
+notional = input.float(10000, 'Notional per trade (A price units)', group = 'Strategy', minval = 100,
+     tooltip = 'Quote-currency amount allocated to leg A. The B leg is sized to r̄_entry × units_a so dollar exposures are balanced at entry.')
+
+// === Fetch series =========================================================
+a_close = request.security(sym_a, timeframe.period, close)
+b_close = request.security(sym_b, timeframe.period, close)
+
+// === Ratio-hedged spread z_r (same compute as indicator) ==================
+ratio        = na(b_close) or b_close == 0 ? na : a_close / b_close
+r_bar        = ta.sma(ratio, N)
+spread_r     = na(r_bar) ? na : a_close - r_bar * b_close
+spread_r_mu  = ta.sma(spread_r, N)
+spread_r_sd  = ta.stdev(spread_r, N)
+z_r          = spread_r_sd == 0 or na(spread_r_sd) ? na : (spread_r - spread_r_mu) / spread_r_sd
+
+// === Dynamic centering of z_r (for "Centered" entry mode) =================
+// Even though z_r is standardized over its inner 252-bar window, multi-year
+// trends in B (and the lag of r̄) can leave z_r oscillating around a non-zero
+// value rather than zero. Centered mode shifts the entry thresholds onto
+// z_r's own rolling mean so triggers fire from "current normal", not from
+// absolute zero. n_meta controls how long that rolling mean looks back.
+mean_zr         = ta.sma(z_r, n_meta)
+threshold_upper = entry_mode == 'Centered' and not na(mean_zr) ? mean_zr + z_entry :  z_entry
+threshold_lower = entry_mode == 'Centered' and not na(mean_zr) ? mean_zr - z_entry : -z_entry
+center_ref      = entry_mode == 'Centered' and not na(mean_zr) ? mean_zr : 0.0
+
+// === Signal generation ====================================================
+// ta.cross fires ONCE per crossing event, not every bar past the threshold.
+go_long  = not na(z_r) and not na(threshold_lower) and ta.cross(z_r, threshold_lower) and z_r < center_ref
+go_short = not na(z_r) and not na(threshold_upper) and ta.cross(z_r, threshold_upper) and z_r > center_ref
+
+// === TradingView built-in trades (chart markers only — P&L is wrong) ======
+if go_long
+    strategy.entry('LONG spread',  strategy.long)
+if go_short
+    strategy.entry('SHORT spread', strategy.short)
+
+// === CORRECT pairs-trade P&L tracker ======================================
+// State: pos_dir in {-1, 0, +1}; entry book-keeping for fixed-hedge P&L.
+var float pos_dir         = 0.0
+var float entry_a         = na
+var float entry_b         = na
+var float entry_r         = na
+var float entry_units_a   = na     // units of A at entry
+var float entry_units_b   = na     // units of B = entry_units_a × r̄_entry
+var float realized_equity = 100000.0
+var int   trades_total    = 0
+var int   trades_won      = 0
+var float peak_equity     = 100000.0
+var float max_dd_pct      = 0.0
+
+// MTM P&L of the OPEN position (zero if flat or before first entry)
+// Long spread:  pnl = +units_a·ΔA − units_b·ΔB
+// Short spread: pnl = −units_a·ΔA + units_b·ΔB  =  −(long_pnl)
+// Both forms collapse to: pos_dir × (units_a·ΔA − units_b·ΔB)
+open_pnl = (pos_dir == 0.0 or na(entry_a)) ? 0.0 : pos_dir * (entry_units_a * (a_close - entry_a) - entry_units_b * (b_close - entry_b))
+
+do_flip = (go_long and pos_dir != 1.0) or (go_short and pos_dir != -1.0)
+
+if do_flip
+    // Step 1: realize P&L on the position being closed (if any)
+    if pos_dir != 0.0 and not na(entry_a)
+        closed_pnl = pos_dir * (entry_units_a * (a_close - entry_a) - entry_units_b * (b_close - entry_b))
+        realized_equity := realized_equity + closed_pnl
+        trades_total := trades_total + 1
+        if closed_pnl > 0
+            trades_won := trades_won + 1
+
+    // Step 2: open new position with fresh hedge ratio locked at entry
+    entry_a       := a_close
+    entry_b       := b_close
+    entry_r       := r_bar
+    entry_units_a := notional / a_close
+    entry_units_b := entry_units_a * r_bar
+    pos_dir       := go_long ? 1.0 : -1.0
+
+// Total equity + drawdown tracking (includes unrealized MTM)
+total_equity   = realized_equity + open_pnl
+peak_equity   := math.max(peak_equity, total_equity)
+current_dd_pct = peak_equity == 0 ? 0.0 : (peak_equity - total_equity) / peak_equity * 100
+max_dd_pct    := math.max(max_dd_pct, current_dd_pct)
+
+// === Plots ================================================================
+plot(z_r,    'z_r',                                        color = color.teal,                                linewidth = 2)
+hline( z_entry, '+entry (SHORT trigger)',                  color = color.new(color.yellow, 40),               linestyle = hline.style_dashed)
+hline(-z_entry, '-entry (LONG trigger)',                   color = color.new(color.yellow, 40),               linestyle = hline.style_dashed)
+hline(0,        'zero',                                    color = color.new(color.gray, 60))
+
+// z_r's own rolling mean (always visible — shows the centering reference)
+plot(mean_zr,                                       'z_r rolling mean (centering ref)',
+     color = color.new(color.red, 30),    linewidth = 1, style = plot.style_line)
+
+// Dynamic entry/exit bands (visible only in Centered mode — show where the
+// active triggers actually sit when entry_mode = 'Centered')
+plot(entry_mode == 'Centered' ? threshold_upper : na, 'Active +entry (Centered mode)',
+     color = color.new(color.orange, 20), linewidth = 1, style = plot.style_line)
+plot(entry_mode == 'Centered' ? threshold_lower : na, 'Active -entry (Centered mode)',
+     color = color.new(color.orange, 20), linewidth = 1, style = plot.style_line)
+
+// Equity available in Data Window — right-click on the indicator pane and
+// "Move to → New pane" if you want to see it as a chart line.
+plot(total_equity,    'Total equity (correct pairs P&L)', color = color.blue,  display = display.data_window)
+plot(realized_equity, 'Realized equity',                  color = color.navy,  display = display.data_window)
+plot(max_dd_pct,      'Max drawdown %',                   color = color.red,   display = display.data_window)
+
+// === Stats table ==========================================================
+var table stats = table.new(position.top_right, 2, 13,
+     bgcolor     = color.white,
+     frame_color = color.new(color.black, 50),
+     frame_width = 1)
+
+AMBER = color.rgb(180, 130, 0)
+
+ticker_only(_sym) =>
+    parts = str.split(_sym, ':')
+    array.size(parts) > 1 ? array.get(parts, 1) : _sym
+
+if barstate.islast
+    table.cell(stats, 0,  0, 'Pair',           text_color = color.black, bgcolor = color.new(color.blue, 80))
+    table.cell(stats, 1,  0, ticker_only(sym_a) + ' / ' + ticker_only(sym_b),
+         text_color = color.black, bgcolor = color.new(color.blue, 80))
+
+    table.cell(stats, 0,  1, 'TF / Window',    text_color = color.black)
+    table.cell(stats, 1,  1, timeframe.period + ' × ' + str.tostring(N) + ' bars',
+         text_color = color.black)
+
+    table.cell(stats, 0,  2, 'Reversal at',    text_color = color.black)
+    table.cell(stats, 1,  2, '|z_r| ≥ ' + str.tostring(z_entry),
+         text_color = color.black)
+
+    table.cell(stats, 0,  3, 'Trades closed',  text_color = color.black)
+    table.cell(stats, 1,  3, str.tostring(trades_total),
+         text_color = color.black)
+
+    win_rate = trades_total > 0 ? trades_won / trades_total * 100.0 : 0.0
+    win_color = trades_total < 5 ? color.gray : win_rate >= 55 ? color.green : win_rate >= 45 ? AMBER : color.red
+    table.cell(stats, 0,  4, 'Win rate',       text_color = color.black)
+    table.cell(stats, 1,  4, str.tostring(win_rate, '#.#') + '%  (' + str.tostring(trades_won) + '/' + str.tostring(trades_total) + ')',
+         text_color = win_color)
+
+    total_return = (total_equity - 100000.0) / 100000.0 * 100.0
+    ret_color = total_return > 5 ? color.green : total_return > -5 ? AMBER : color.red
+    table.cell(stats, 0,  5, 'Total return',   text_color = color.black, bgcolor = color.new(color.teal, 90))
+    table.cell(stats, 1,  5, str.tostring(total_return, '#.##') + '%',
+         text_color = ret_color, bgcolor = color.new(color.teal, 90))
+
+    dd_color = max_dd_pct < 10 ? color.green : max_dd_pct < 25 ? AMBER : color.red
+    table.cell(stats, 0,  6, 'Max drawdown',   text_color = color.black, bgcolor = color.new(color.teal, 90))
+    table.cell(stats, 1,  6, str.tostring(max_dd_pct, '#.##') + '%',
+         text_color = dd_color, bgcolor = color.new(color.teal, 90))
+
+    table.cell(stats, 0,  7, 'Equity (now)',   text_color = color.black, bgcolor = color.new(color.teal, 90))
+    table.cell(stats, 1,  7, str.tostring(total_equity, '#'),
+         text_color = color.black, bgcolor = color.new(color.teal, 90))
+
+    pos_text  = pos_dir == 1.0 ? 'LONG spread' : pos_dir == -1.0 ? 'SHORT spread' : 'flat (warmup)'
+    pos_color = pos_dir == 1.0 ? color.green   : pos_dir == -1.0 ? color.red      : color.gray
+    table.cell(stats, 0,  8, 'Position',       text_color = color.black)
+    table.cell(stats, 1,  8, pos_text,         text_color = pos_color)
+
+    z_r_color = na(z_r) ? color.gray : math.abs(z_r) >= z_entry ? color.orange : color.black
+    table.cell(stats, 0,  9, 'Current z_r',    text_color = color.black)
+    table.cell(stats, 1,  9, na(z_r) ? '—' : str.tostring(z_r, '#.##'),
+         text_color = z_r_color)
+
+    table.cell(stats, 0, 10, 'Entry r̄ (locked)', text_color = color.black)
+    table.cell(stats, 1, 10, na(entry_r) ? '—' : str.tostring(entry_r, '#.######'),
+         text_color = color.black)
+
+    // --- Centering-mode diagnostics (always shown so user can see effect) --
+    mode_color = entry_mode == 'Centered' ? color.new(color.orange, 0) : color.gray
+    table.cell(stats, 0, 11, 'Entry mode', text_color = color.black, bgcolor = color.new(color.orange, 92))
+    table.cell(stats, 1, 11, entry_mode == 'Centered' ? 'Centered (' + str.tostring(n_meta) + 'b)' : 'Absolute',
+         text_color = mode_color, bgcolor = color.new(color.orange, 92))
+
+    table.cell(stats, 0, 12, 'Active −/+ entry', text_color = color.black, bgcolor = color.new(color.orange, 92))
+    bands_text = na(threshold_lower) or na(threshold_upper) ? '— / —' : str.tostring(threshold_lower, '#.##') + ' / ' + str.tostring(threshold_upper, '#.##')
+    table.cell(stats, 1, 12, bands_text, text_color = color.black, bgcolor = color.new(color.orange, 92))

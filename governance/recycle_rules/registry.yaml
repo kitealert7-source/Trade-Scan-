@@ -657,6 +657,69 @@ rules:
       - cointegration.coint_direction
     initial_consumer: tools/basket_runner.py
 
+  - name: pine_ratio_zrev_v1
+    version: 1
+    description: >
+      Pine port of ratio-hedged z_r reversal (2026-05-24). Preserved follow-on
+      arc #2 from COINTREV v1.2 retirement (see
+      outputs/cointegration_screener_v1/v1_2_backtest/REPORT_pilot_2026-05-24.md
+      addendum 5). Material delta vs retired v1.2:
+        (1) Hedge = SMA(A/B, N), not Pearson β from _compute_neutral_basket.
+        (2) Signal = per-bar z_r computed in rule from close prices via
+            indicators.stats.ratio_hedged_spread_zscore — does NOT read the
+            cointegration_triggers ledger.
+        (3) Exit logic = always-in-market reversal at |z_r| >= z_entry (Centered
+            mode subtracts z_r's own rolling mean before threshold check); does
+            NOT use three-exit (mean-rev / regime / time-stop).
+        (4) Hedge ratio LOCKED at entry per CLAUDE.md invariant 4
+            (snapshot-immutable).
+
+      Two-bar leg ↔ rule protocol same as cointegration_meanrev_v1_2 (proposal
+      bar N → approval bar N → leg fires bar N+1 → engine opens at next_bar_open).
+      Z_r series computed once on first apply() call and attached to BOTH legs'
+      DataFrames as `pine_zrev_signal` (+1/-1/0 cross events), `pine_zrev_z`,
+      `pine_zrev_r_bar`, and (Centered mode only) `pine_zrev_z_centered` +
+      `pine_zrev_mean_zr`.
+
+      Reversal mechanic: when basket is OPEN in direction X and a z_r cross
+      in the OPPOSITE direction fires, the rule LIQUIDATEs the current basket
+      AND sets a fresh proposal (with reversed direction) in the SAME apply()
+      pass. No idle gap between cycles (always_in_market=true).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1.py. Inherits
+      H2RecycleRule for parquet/events machinery (same pattern as
+      cointegration_meanrev_v1_2 and H3_spread). Reuses v1.2's
+      _leg_pnl_usd_universal / _leg_margin_usd_universal helpers for FX-IDX
+      cross-asset PnL accounting. Sizing is default_initial_lot for both legs
+      in v1 (vol-equivalent sizing deferred to v1.1+ if pilot shows edge).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: centered
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+    required_factors: []
+    initial_consumer: tools/basket_runner.py
+
   - name: H3_spread
     version: 3
     description: >

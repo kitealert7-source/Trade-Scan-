@@ -81,6 +81,8 @@ z_exit    = input.float(1.0, 'Z exit threshold (mean reversion target)',
 show_a       = input.bool(true,  'Plot Asset A (normalized)', group = 'Display')
 show_b       = input.bool(true,  'Plot Asset B (normalized)', group = 'Display')
 show_spread  = input.bool(true,  'Plot spread z-line (scaled to chart range)', group = 'Display')
+show_spread_r = input.bool(true, 'Plot ratio-hedged spread z (study line)',    group = 'Display',
+     tooltip = 'Second spread using hedge ratio r̄ = SMA(A/B, N) instead of Pearson β. Lets you study agreement/divergence between OLS-style and constant-ratio hedging on the same chart. NOTE: z_r has OPPOSITE sign to the main z because spread_r = A−r̄·B vs spread = B−β·A — same dislocation, mirrored frame.')
 show_zlines  = input.bool(true,  'Plot reference z lines (±entry, ±extreme)', group = 'Display')
 show_signals = input.bool(true,  'Plot entry/exit signal shapes', group = 'Display')
 show_bgtint  = input.bool(true,  'Background tint when |z| ≥ entry', group = 'Display')
@@ -91,6 +93,7 @@ hide_self    = input.bool(true,  'Hide normalized line for the leg matching char
 col_a      = input.color(color.blue,   'Asset A color',   group = 'Display', inline = 'cA')
 col_b      = input.color(color.red,    'Asset B color',   group = 'Display', inline = 'cB')
 col_spread = input.color(color.purple, 'Spread z color',  group = 'Display', inline = 'cS')
+col_spread_r = input.color(color.teal, 'Ratio spread z color', group = 'Display', inline = 'cR')
 
 // === Fetch series =======================================================
 // One request.security per leg. Each call returns close + rolling mean +
@@ -124,6 +127,33 @@ lambda_hat     = lagspread_std == 0 or na(lagspread_std) ? na :
                  ou_corr * (dspread_std / lagspread_std)
 half_life      = na(lambda_hat) or lambda_hat >= 0 ? na : -math.log(2) / lambda_hat
 
+// === Ratio-hedged alternative spread (STUDY line) =======================
+// User-proposed second spread for visual comparison vs the OLS-equivalent
+// Pearson-β spread above. Hedge ratio is the rolling mean of price ratio
+// A/B over N bars — simpler than ρ·σ_B/σ_A, statistically less optimal,
+// operationally more stable. Same N as main spread for direct comparability.
+//
+// Sign convention: spread_r = A − r̄·B (mirror of existing spread = B − β·A).
+// When the main z prints +displaced, z_r prints −displaced for the SAME
+// dislocation. Compare magnitudes, mentally flip signs. The study question
+// is whether the two z-series move together (both hedges agree) or diverge
+// (one method catches dislocations the other misses).
+ratio        = na(b_close) or b_close == 0 ? na : a_close / b_close
+r_bar        = ta.sma(ratio, N)
+spread_r     = na(r_bar) ? na : a_close - r_bar * b_close
+spread_r_mu  = ta.sma(spread_r, N)
+spread_r_sd  = ta.stdev(spread_r, N)
+z_r          = spread_r_sd == 0 or na(spread_r_sd) ? na : (spread_r - spread_r_mu) / spread_r_sd
+
+// Half-life of the ratio-hedged spread — same OU regression as main spread
+dspread_r        = spread_r - spread_r[1]
+lag_spread_r     = spread_r[1]
+dspread_r_std    = ta.stdev(dspread_r, N)
+lagspread_r_std  = ta.stdev(lag_spread_r, N)
+ou_corr_r        = ta.correlation(dspread_r, lag_spread_r, N)
+lambda_hat_r     = lagspread_r_std == 0 or na(lagspread_r_std) ? na : ou_corr_r * (dspread_r_std / lagspread_r_std)
+half_life_r      = na(lambda_hat_r) or lambda_hat_r >= 0 ? na : -math.log(2) / lambda_hat_r
+
 // === Chart-symbol detection (for hide_self) =============================
 ticker_only(_sym) =>
     parts = str.split(_sym, ":")
@@ -146,6 +176,9 @@ a_norm      = normalize_to_chart(a_close, a_mean, a_std)
 b_norm      = normalize_to_chart(b_close, b_mean, b_std)
 // Spread is already mean-zero in spread space; just scale z into chart range
 spread_norm = na(z) ? na : chart_mean + z * chart_std
+// Same chart-scaling trick applied to the ratio-hedged study spread, so
+// both lines live on the same y-axis and are directly comparable visually.
+spread_r_norm = na(z_r) ? na : chart_mean + z_r * chart_std
 
 // === Plots ==============================================================
 plot(show_a and not hide_a ? a_norm : na,    'Asset A (normalized)',
@@ -154,6 +187,8 @@ plot(show_b and not hide_b ? b_norm : na,    'Asset B (normalized)',
      color = col_b,      linewidth = 2)
 plot(show_spread ? spread_norm : na,         'Spread z (chart-scaled)',
      color = col_spread, linewidth = 1, style = plot.style_line)
+plot(show_spread_r ? spread_r_norm : na,     'Ratio spread z (chart-scaled, study)',
+     color = col_spread_r, linewidth = 1, style = plot.style_line)
 
 // Reference z lines plotted in chart space
 plot(show_zlines and show_spread ? chart_mean + z_entry   * chart_std : na,
@@ -206,7 +241,7 @@ bgcolor(bg, title = 'Z-zone tint')
 // === Status table (top right, last bar only) ============================
 // Light theme: solid white background, dark frame, black text — gives best
 // readability on both light and dark TradingView chart themes.
-var table info = table.new(position.top_right, 2, 9,
+var table info = table.new(position.top_right, 2, 12,
      bgcolor     = color.white,
      frame_color = color.new(color.black, 50),
      frame_width = 1)
@@ -271,3 +306,18 @@ if barstate.islast and show_table
          (na(a_close) ? '—' : str.tostring(a_close, '#.####')) + ' / ' +
          (na(b_close) ? '—' : str.tostring(b_close, '#.####')),
          text_color = color.black)
+
+    // --- Ratio-hedged study block (teal tint for visual grouping) -----------
+    table.cell(info, 0, 9, 'r̄ (ratio hedge)', text_color = color.black, bgcolor = color.new(color.teal, 90))
+    table.cell(info, 1, 9, na(r_bar) ? '—' : str.tostring(r_bar, '#.######'),
+         text_color = color.black, bgcolor = color.new(color.teal, 90))
+
+    z_r_color = na(z_r) ? color.gray : math.abs(z_r) >= z_extreme ? color.red : math.abs(z_r) >= z_entry ? color.orange : color.green
+    table.cell(info, 0, 10, 'z_r (opp. sign)', text_color = color.black, bgcolor = color.new(color.teal, 90))
+    table.cell(info, 1, 10, na(z_r) ? '—' : str.tostring(z_r, '#.##'),
+         text_color = z_r_color, bgcolor = color.new(color.teal, 90))
+
+    hl_r_color = na(half_life_r) ? color.gray : half_life_r >= 5 and half_life_r <= 30 ? color.green : half_life_r > 30 and half_life_r <= 60 ? AMBER : color.red
+    table.cell(info, 0, 11, 'Half-life (r̄)',  text_color = color.black, bgcolor = color.new(color.teal, 90))
+    table.cell(info, 1, 11, na(half_life_r) ? '—' : str.tostring(half_life_r, '#.#') + ' bars',
+         text_color = hl_r_color, bgcolor = color.new(color.teal, 90))
