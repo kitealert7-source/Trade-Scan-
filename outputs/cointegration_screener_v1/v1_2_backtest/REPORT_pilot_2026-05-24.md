@@ -151,6 +151,87 @@ The first-pass pilot (BTCUSD, JPN225, XAUUSD, etc.) failed at `H2RecycleRuleV3._
 
 ---
 
+## Addendum (2026-05-24, post-review) — clarifying a misleading basket-report metric
+
+The per-directive `BASKET_REPORT_*.md` files show a "Days to exit" field that reads **220 – 350 days** for most pilot runs. This was correctly flagged on review as suspicious. The number is real but **does NOT measure trade hold time** — it's a single-cycle artifact inherited from H3_spread's reporting template.
+
+### What "Days to exit" actually measures
+
+In `tools/basket_report.py:_basket_telemetry`, `days_to_exit = (last_exit_timestamp − test.start_date).days`. For an H3_spread basket (typically one cycle per basket, opened on a cross signal and held until reverse-cross / adverse / time stop), this is the cycle's lifetime, which is the metric the designer wanted.
+
+For COINTREV v1.2, the basket runs **many sequential cycles** over the full directive window (one cycle per accepted trigger). So `last_exit_timestamp` is the timestamp of the *last cycle's* liquidation — which approaches `end_date` for any pair whose triggers span the year. Result: "Days to exit" ≈ window length minus the wait until the first trigger fires.
+
+This metric should be suppressed or relabeled for multi-cycle baskets. Filed as a follow-up.
+
+### What trade hold time actually is
+
+Direct measurement from `results_tradelevel.csv` across all 15 pilots:
+
+| Directive | Trades | Cycles | Mean hold (hours) | Median cycle gap (days) | Awaiting-entry % |
+|---|---:|---:|---:|---:|---:|
+| AUDJPYAUDNZD | 2 | 1 | 15.0 | — | 99.8 |
+| AUDJPYCADJPY | 28 | 14 | 15.2 | 17.0 | 96.5 |
+| AUDUSDGBPJPY | 22 | 11 | 46.7 | 10.4 | 97.2 |
+| AUDUSDNZDJPY | 18 | 9 | 26.8 | 8.0 | 97.8 |
+| CADJPYCHFJPY | 2 | 1 | 15.5 | — | 99.8 |
+| CADJPYNZDJPY | 18 | 9 | 15.0 | 7.5 | 97.8 |
+| CHFJPYGBPJPY | 16 | 8 | 40.1 | 7.0 | 98.0 |
+| EURGBPEURJPY | 26 | 13 | 15.0 | 7.0 | 96.8 |
+| EURGBPGBPJPY | 22 | 11 | 44.5 | 7.0 | 97.3 |
+| EURGBPGBPNZD | 18 | 9 | 17.7 | 6.5 | 97.8 |
+| EURGBPNZDJPY | 16 | 8 | 15.0 | 7.0 | 98.0 |
+| EURUSDUSDCHF | 14 | 7 | 44.6 | 6.2 | 98.3 |
+| GBPAUDUSDJPY | 24 | 12 | 50.0 | 7.0 | 97.0 |
+| GBPUSDUSDCHF | 16 | 8 | 15.0 | 7.0 | 98.0 |
+
+**Confirmed:**
+
+- **`bars_held = 60` for every trade in every run** (universal — confirmed by full-CSV scan)
+- Calendar hold time is 15.0h baseline (no weekend) up to ~50h when cycles cross weekends (bars_held stays 60 — 15min × 60 bars × 5 wall-hours-per-trading-hour ≈ ~50h)
+- 96.5 – 99.8% of bars are AWAITING_ENTRY — the basket sits idle waiting for the next trigger most of the time
+- Median *cycle gap* (entry-to-next-entry per leg) is 6.5 – 17 days, dominated by `min_gap_days_between_triggers = 5` and the screener's natural trigger arrival rate
+
+### Trigger-density correction to the original report
+
+The pilot's headline-density pairs vs. low-density pairs:
+
+| Pair | Triggers in ledger (252d) | Cycles run | Rejected by min_gap |
+|---|---:|---:|---:|
+| NZDUSD/USDCAD | 80 | 27 | 53 |
+| EURGBP/EURJPY | 40 | 13 | 27 |
+| EURGBP/GBPJPY | 40 | 11 | 29 |
+| GBPAUD/USDJPY | 34 | 12 | 22 |
+| AUDUSD/GBPJPY | 32 | 11 | 21 |
+| AUDUSD/NZDJPY | 30 | 9 | 21 |
+| CADJPY/NZDJPY | 31 | 9 | 22 |
+| AUDJPY/CADJPY | 29 | 14 | 15 |
+| EURGBP/NZDJPY | 27 | 8 | 19 |
+| GBPUSD/USDCHF | 27 | 8 | 19 |
+| EURUSD/USDCHF | 25 | 7 | 18 |
+| CHFJPY/GBPJPY | 24 | 8 | 16 |
+| EURGBP/GBPNZD | 24 | 9 | 15 |
+| **AUDJPY/AUDNZD** | **1** | **1** | **0** |
+| **CADJPY/CHFJPY** | **1** | **1** | **0** |
+
+**Two of the 15 pilot pairs (AUDJPY/AUDNZD, CADJPY/CHFJPY) had only ONE trigger in the entire year.** Their n=1 outcomes (`AUDJPY/AUDNZD +2.78% / CADJPY/CHFJPY ≈ 0`) are not statistically meaningful — they fired once, time-stopped 15 hours later, then the basket waited 290+ days for a second trigger that never came. These should be excluded from any aggregate inference.
+
+### Re-stating the headline finding
+
+After excluding the n=1 pairs, the 13-pair cohort:
+
+- Net % distribution: **3 winners (AUDJPY/CADJPY +2.17, EURGBP/GBPNZD +1.77, EURUSD/USDCHF +1.24) / 3 neutral / 6 losers / 1 blow-up**
+- Net % mean shifts from −2.51 to ≈ −2.9 (n=1 pairs were the only two positive outliers)
+
+The conclusion is unchanged — **WEAK / NO-GO at v1.2 base params** — but the original report's `4 winners` count was inflated by two pairs that had insufficient sample size to verdict at all.
+
+### Follow-up items added
+
+- **basket_report.py**: suppress `days_to_exit` for multi-cycle baskets, or relabel as "Basket activity span". Currently misleads any consumer who reads the per-window report.
+- **cointrev_v1_2_aggregator.py**: surface trigger-density, mean hold (bars + hours), and awaiting-entry % as standard outputs; flag n<3 pairs as low-evidence.
+- **DESIGN_DOC §6 reconciliation table** now has a fourth column: trigger-density bucket. Pairs with <5 triggers/year should not enter the v1.2.x test cohort.
+
+---
+
 ## Three-way comparison
 
 (Per `DESIGN_DOC §6`: reconciliation across v2.1 reconstruction, Phase 3 realized replay, v1.2 strategy backtest.)
