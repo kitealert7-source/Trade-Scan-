@@ -2637,11 +2637,49 @@ indicators:
   ratio_hedged_spread_zscore:
     module_path: indicators.stats.ratio_hedged_spread_zscore
     category: stats
+    function_name: ratio_hedged_spread_zscore
+    classification: Statistical
+    input_requirements:
+    - a_close: pd.Series (numeric) — leg A close prices
+    - b_close: pd.Series (numeric) — leg B close prices (same index as a_close)
+    parameters:
+      n: int — rolling window for r_bar and z-score normalization
+      n_meta: int | None — centering window (None = no centering)
+    default_parameters:
+      n: 100
+      n_meta: 100
+    output_type: DataFrame
+    output_columns:
+    - r_bar: float — rolling mean of A/B over n bars (hedge ratio)
+    - spread_r: float — A - r_bar*B (ratio-hedged spread)
+    - z_r: float — (spread_r - SMA) / STDEV — Pine-equivalent reversal signal
+    - mean_zr: float — SMA(z_r, n_meta) — only if n_meta set
+    - z_r_centered: float — z_r - mean_zr — only if n_meta set
+    output_scale: unbounded float (z_r target mean=0, std=1)
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Cross-symbol utility for cointegration basket strategies. Invoked
+      from recycle rule code (not strategy prepare_indicators) since it needs both legs''
+      close series. Inf-safe; divide-by-zero collapses to NaN.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      suitable_for_HTF: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: n
+    warmup: 2*n
+    input_columns:
+    - close
     registered_at: '2026-05-24'
-    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
-      output_columns, etc.) to be backfilled.
+    notes: Pine z_r port — companion to pine_ratio_zrev_v1 recycle rule. See indicators/stats/ratio_hedged_spread_zscore.py.
 registry_summary:
-  total_indicators: 70
+  total_indicators: 71
   by_category:
     momentum_count: 11
     trend_count: 8
