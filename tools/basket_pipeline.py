@@ -478,6 +478,7 @@ def _instantiate_rule(
             always_in_market=bool(params.get("always_in_market", True)),
             initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
             default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,

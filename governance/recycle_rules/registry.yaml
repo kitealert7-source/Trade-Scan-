@@ -717,6 +717,9 @@ rules:
       default_initial_lot:
         type: float
         default: 0.01
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
     required_factors: []
     initial_consumer: tools/basket_runner.py
 

@@ -50,6 +50,7 @@ import numpy as np
 import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
+from tools.capital.capital_broker_spec import load_broker_spec
 from tools.recycle_rules.cointegration_meanrev_v1_2 import (
     _leg_pnl_usd_universal,
     _leg_margin_usd_universal,
@@ -81,6 +82,12 @@ class PineRatioZRevRule(H2RecycleRule):
     hedge_lock_at_entry: bool = True  # snapshot r_bar at entry (always True for now)
     always_in_market: bool = True     # liquidate+reverse on opposite cross
     initial_notional_usd: float = 1000.0
+    # Notional-balanced sizing (v1.1 fix for v1.0's lot-equal blowup pathology).
+    # Each leg gets lot such that $-notional == target_notional_per_leg_usd at
+    # entry, computed from broker's usd_per_pu_per_lot. Matches Pine's approach
+    # (notional in A's price units → both legs hold equal dollar exposure).
+    # Default 10000 matches Pine Strategy's `notional = 10000` default.
+    target_notional_per_leg_usd: float = 10000.0
 
     # Leg column the rule will attach
     signal_column: str = "pine_zrev_signal"
@@ -392,13 +399,45 @@ class PineRatioZRevRule(H2RecycleRule):
             return
         next_bar_ts = aligned_after_now[0]
 
-        # Sizing: default_initial_lot for both legs. Hedge directionality comes
-        # from the directive's leg.direction (+1 long / -1 short). The r_bar
-        # is locked for telemetry; actual lot sizing for vol-equivalence is a
-        # potential v1.1+ extension (see retired v1.2's _compute_neutral_basket
-        # for the more sophisticated β-weighted approach).
+        # Notional-balanced sizing (v1.1 fix). Each leg's lot is computed so
+        # that $-notional at entry equals target_notional_per_leg_usd. Matches
+        # Pine's approach (notional in A's price units, hedge leg sized to
+        # the same dollar notional via r̄).
+        #
+        # Formula: notional_usd ≈ lot × price × usd_per_pu_per_lot
+        # Solving: lot = target_notional_per_leg_usd / (price × usd_per_pu_per_lot)
+        # Floor to broker's min_lot (rounded down to lot_step), reject if
+        # broker spec missing.
+        #
+        # Distinct from v1.2's β-neutral _compute_neutral_basket (which
+        # produces 1:15,000 lot ratios for small-r̄ pairs — see v1.2 addendum 3
+        # for why that backfires on outright moves).
+        lots_by_sym: dict[str, float] = {}
+        sizing_failed = False
         for leg in legs:
-            leg.lot = self.default_initial_lot
+            try:
+                spec = load_broker_spec(leg.symbol)
+            except FileNotFoundError:
+                sizing_failed = True
+                break
+            usd_per_pu = float((spec.get("calibration", {}) or {}).get("usd_per_pu_per_lot", 0) or 0)
+            min_lot = float(spec.get("min_lot", 0.01) or 0.01)
+            lot_step = float(spec.get("lot_step", 0.01) or 0.01)
+            if usd_per_pu <= 0 or lot_step <= 0:
+                sizing_failed = True
+                break
+            price_now = float(legs[0].df.loc[bar_ts, "close"]) if leg.symbol == legs[0].symbol else float(legs[1].df.loc[bar_ts, "close"])
+            raw_lot = self.target_notional_per_leg_usd / (price_now * usd_per_pu)
+            # Round down to lot_step, floor at min_lot
+            lot = max(min_lot, int(raw_lot / lot_step) * lot_step)
+            lots_by_sym[leg.symbol] = lot
+        if sizing_failed:
+            # Broker spec missing or calibration invalid — reject this signal
+            # rather than fall back to vol-mismatched lots.
+            state.reset()
+            return
+        for leg in legs:
+            leg.lot = lots_by_sym[leg.symbol]
 
         # Lock entry-bar hedge ratio
         self._entry_r_bar = r_bar_now
