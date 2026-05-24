@@ -1,0 +1,76 @@
+test:
+  name: 90_PORT_NAS100USDCHF_15M_COINTREV_V2_L252
+  family: PORT
+  strategy: 90_PORT_NAS100USDCHF_15M_COINTREV_V2_L252
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2025-05-23'
+  end_date: '2026-05-22'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: COINTREV_V1_2_BASE
+  hypothesis_variant: COINTREV_V1_2_L252_NAS100_USDCHF
+  description: 'COINTREV v1.2 base run: beta-weighted spread on (NAS100, USDCHF) at
+    lookback=252. Reads cointegration_triggers ledger via auto-join (basket.cointegration_join.lookback_days
+    = 252). Base run: no hard z-stop, no pyramid; exits = mean-reversion (|z| <= exit_z)
+    > regime-degradation (coint_regime in [''breaking'', ''broken'']) > time-stop
+    (elapsed >= time_stop_bars). Locked per DESIGN_DOC.md section 4. Date range =
+    full trigger-history extent: 2025-05-23 -> 2026-05-22.'
+symbols:
+- NAS100
+- USDCHF
+indicators:
+- indicators.volatility.atr
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: coint_trigger_proposal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.01
+basket:
+  basket_id: NAS100USDCHF
+  legs:
+  - symbol: NAS100
+    lot: 0.01
+    direction: long
+  - symbol: USDCHF
+    lot: 0.01
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  cointegration_join:
+    lookback_days: 252
+  recycle_rule:
+    name: cointegration_meanrev_v1_2
+    version: 1
+    params:
+      min_gap_days_between_triggers: 5
+      exit_z: 1.0
+      time_stop_bars: 60
+      regime_exit_states:
+      - breaking
+      - broken
+      initial_notional_usd: 1000.0
+      default_initial_lot: 0.01
