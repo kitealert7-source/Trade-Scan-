@@ -308,16 +308,9 @@ class PineRatioZRevRule(H2RecycleRule):
                 self._basket_direction = state.proposed_direction
             else:
                 # Defensive: derive from leg state.direction (cycle-aware) if
-                # shared state missing. Was legs[0].direction historically, but
-                # leg.direction holds YAML BASE which mis-signs SHORT cycles.
+                # shared state missing. Reading leg.direction would give YAML
+                # BASE and mis-sign SHORT cycles.
                 self._basket_direction = int(legs[0].state.direction or 0)
-            # Sync leg.direction = leg.state.direction so the inherited PnL
-            # math (_leg_pnl_usd_universal reads leg.direction) sees the
-            # correct per-cycle direction. Mirrors h3_spread_v2's workaround
-            # for the same architectural quirk.
-            for leg in legs:
-                if leg.state.direction in (-1, +1):
-                    leg.direction = int(leg.state.direction)
             entry_lots = {leg.symbol: leg.lot for leg in legs}
             self._entry_lots = entry_lots
             self.recycle_events.append({
@@ -327,6 +320,7 @@ class PineRatioZRevRule(H2RecycleRule):
                 "direction":     self._basket_direction,
                 "entry_r_bar":   self._entry_r_bar,
                 "entry_lots":    entry_lots,
+                "leg_directions": {l.symbol: l.effective_direction for l in legs},
             })
             if state is not None:
                 state.reset()
@@ -499,7 +493,7 @@ class PineRatioZRevRule(H2RecycleRule):
                 "entry_price":    leg.state.entry_price,
                 "exit_index":     i,
                 "exit_price":     bar_closes[leg.symbol],
-                "direction":      leg.direction,
+                "direction":      leg.effective_direction,
                 "lot":            leg.lot,
                 "exit_source":    f"PINE_ZREV_{reason}",
                 "exit_timestamp": bar_ts,
@@ -627,7 +621,7 @@ class PineRatioZRevRule(H2RecycleRule):
         for idx, leg in enumerate(legs):
             bc = bar_closes.get(leg.symbol, float("nan"))
             record[f"leg_{idx}_symbol"]       = leg.symbol
-            record[f"leg_{idx}_side"]         = leg.direction
+            record[f"leg_{idx}_side"]         = leg.effective_direction
             record[f"leg_{idx}_lot"]          = leg.lot
             record[f"leg_{idx}_avg_entry"]    = leg.state.entry_price
             record[f"leg_{idx}_mark"]         = bc

@@ -250,11 +250,10 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
                     self._initial_lot_per_leg * self.max_exposure_multiple
                 )
             # Bidirectional mode: capture cycle direction from cross_side at
-            # the entry bar. Also mutate leg.direction = leg.state.direction
-            # so the inherited PnL math (which reads leg.direction) sees the
-            # correct per-cycle direction. In uni-directional mode the param
-            # entry_direction governs and leg.direction stays at its YAML-
-            # configured value.
+            # the entry bar (with state.direction fallback). In uni-directional
+            # mode the param entry_direction governs. Per-cycle PnL accounting
+            # reads leg.effective_direction (which derives from state.direction),
+            # so no mutation of leg.direction is needed.
             if self.bidirectional:
                 try:
                     cross_side_at_entry = int(
@@ -269,9 +268,6 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
                 if cross_side_at_entry not in (-1, +1):
                     cross_side_at_entry = int(legs[0].state.direction or 0)
                 self._cycle_direction = cross_side_at_entry
-                for leg in legs:
-                    if leg.state.direction in (-1, +1):
-                        leg.direction = int(leg.state.direction)
             else:
                 self._cycle_direction = int(self.entry_direction)
             self.recycle_events.append({
@@ -282,7 +278,7 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
                 "bidirectional": self.bidirectional,
                 "initial_lots": dict(self.basket_runner._initial_lots)
                 if self.basket_runner is not None else {},
-                "leg_directions": {l.symbol: l.direction for l in legs},
+                "leg_directions": {l.symbol: l.effective_direction for l in legs},
                 "max_lot_per_leg": self._max_lot_per_leg,
             })
 
@@ -650,7 +646,7 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
                     "entry_price": leg.state.entry_price,
                     "exit_index": i,
                     "exit_price": bar_closes[leg.symbol],
-                    "direction": leg.direction,
+                    "direction": leg.effective_direction,
                     "lot": 0.0,
                     "exit_source": "BASKET_RULE_HARVEST_COMPLETE",
                     "exit_timestamp": bar_ts,

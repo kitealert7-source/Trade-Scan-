@@ -60,15 +60,49 @@ class BasketLeg:
     `df` is the per-symbol OHLC DataFrame. It is mutated in place by
     `strategy.prepare_indicators` and `apply_regime_model` during _prepare(),
     so the caller must pass a copy if it intends to reuse the source frame.
+
+    Direction model — IMPORTANT
+    ---------------------------
+    `leg.direction` is the **YAML BASE** orientation declared in the directive
+    (+1 long, -1 short). It is set once at __init__ and is NOT cycle-aware.
+    For leg strategies that produce variable-sign signals (PineZRev,
+    CointTrigger, H3 bidirectional), the per-cycle direction lives on
+    `leg.state.direction` after the engine fills.
+
+    P&L / margin / trade-emit / per-bar-record code MUST read
+    `leg.effective_direction` (cycle-aware property below), not
+    `leg.direction` (which would sign-flip P&L on SHORT_SPREAD cycles).
+    This was the root of the 2026-05-24 leg_direction_flip_bug — see
+    RESEARCH_MEMORY entry of that date and commits 92fb187 / e0a1d8c for
+    forensic context.
     """
     symbol:    str
     lot:       float
-    direction: int                                  # +1 long, -1 short
+    direction: int                                  # +1 long, -1 short (YAML BASE; immutable post-init)
     df:        pd.DataFrame
     strategy:  StrategyProtocol
     state:     BarState           = field(default_factory=BarState)
     config:    EngineConfig | None = None
     trades:    list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def effective_direction(self) -> int:
+        """Cycle-aware direction. Use this everywhere P&L / margin /
+        trade-emit / per-bar-record code needs the position's actual sign.
+
+        Returns `state.direction` (set by the engine from check_entry's
+        signal sign on open) when the leg is in-position with a signed
+        direction; falls back to `self.direction` (YAML BASE) otherwise.
+
+        Why this exists: leg strategies like PineZRevLegStrategy and
+        CointTriggerLegStrategy emit `signal = position_direction *
+        proposed_direction`, so SHORT_SPREAD cycles open with
+        `state.direction == -direction`. Reading `leg.direction` directly
+        in PnL math would sign-flip the accounting on those cycles.
+        """
+        if self.state.in_pos and self.state.direction in (-1, +1):
+            return self.state.direction
+        return self.direction
 
 
 class BasketRule(Protocol):

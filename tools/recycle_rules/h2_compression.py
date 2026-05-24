@@ -8,7 +8,7 @@ Validated parameters (MEMORY.md project_usd_basket_recycle_research.md):
 
 Behavior (V7 spec, replicated verbatim from tools/research/basket_sim.py):
   Per bar (after per-leg evaluate_bar advances):
-    1. compute floating PnL = sum over legs of leg.lot * leg.direction * pnl_per_unit
+    1. compute floating PnL = sum over legs of leg.lot * leg.effective_direction * pnl_per_unit
     2. read regime factor for this bar; gate_open = factor >= threshold
     3. if gate_open AND floating_pnl >= harvest_threshold_usd:
          - close BOTH legs (write exit trades into leg.trades, clear BarState)
@@ -55,11 +55,11 @@ def _leg_pnl_usd(leg: BasketLeg, current_price: float) -> float:
         return 0.0
     entry = leg.state.entry_price
     if leg.symbol in _USD_QUOTE:
-        return leg.direction * leg.lot * _LOT_UNITS * (current_price - entry)
+        return leg.effective_direction * leg.lot * _LOT_UNITS * (current_price - entry)
     if leg.symbol in _USD_BASE:
         if current_price <= 0:
             return 0.0
-        return leg.direction * leg.lot * _LOT_UNITS * (current_price - entry) / current_price
+        return leg.effective_direction * leg.lot * _LOT_UNITS * (current_price - entry) / current_price
     raise ValueError(
         f"H2CompressionRecycleRule: symbol {leg.symbol!r} convention unknown. "
         f"H2 supports {_USD_QUOTE | _USD_BASE} only."
@@ -154,7 +154,7 @@ class H2CompressionRecycleRule:
                 exit_trade = {
                     "entry_index": leg.state.entry_index,
                     "exit_index":  i,
-                    "direction":   leg.direction,
+                    "direction":   leg.effective_direction,
                     "entry_price": leg.state.entry_price,
                     "exit_price":  bc,
                     "exit_source": "BASKET_RECYCLE",

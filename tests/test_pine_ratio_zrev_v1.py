@@ -103,18 +103,11 @@ def _fake_check_entries(legs: list[BasketLeg], bar_ts: pd.Timestamp) -> None:
         leg.strategy.check_entry(ctx)
 
 
-def test_basket_open_syncs_leg_direction_to_state_direction():
+def test_basket_open_effective_direction_short_spread():
     """SHORT_SPREAD cycle: state.direction is OPPOSITE of leg.direction.
-    BASKET_OPEN must sync leg.direction = leg.state.direction so the
-    inherited _leg_pnl_usd_universal (reads leg.direction) sees the
-    correct per-cycle direction. Without this sync, the +270%/-352%
-    pipeline results we saw before the fix were sign-flipped accounting,
-    not real edge measurements.
-    """
-    # SHORT_SPREAD signal at bar 2 → leg-side proposal → rule approves on
-    # bar 2 (approved_fire_ts = bar 3). On bar 3, leg returns signal with
-    # sign = position_direction * -1 = (+1, -1) * -1 = (-1, +1). Engine
-    # opens at bar 4 with state.direction = -1 / +1 (flipped from BASE).
+    leg.effective_direction must return state.direction (cycle-aware) so
+    that inherited _leg_pnl_usd_universal accounts for the correct sign.
+    leg.direction itself MUST stay at YAML BASE (immutable invariant)."""
     leg_a, leg_b, idx, shared = _build_legs_with_signal(
         n_bars=10, signal_bar_idx=2, signal_value=-1,
     )
@@ -141,23 +134,30 @@ def test_basket_open_syncs_leg_direction_to_state_direction():
         leg.state.entry_market_state = {"initial_stop_price": 0.0}
     rule.apply([leg_a, leg_b], 4, idx[4])
 
-    # BASKET_OPEN must have synced leg.direction to leg.state.direction.
-    assert leg_a.direction == -1, (
-        f"expected leg_a.direction synced to -1 (state); initial was "
-        f"{initial_a}, got {leg_a.direction} — sign-flips SHORT_SPREAD PnL"
+    # Invariant: leg.direction stays at YAML BASE (no mutation).
+    assert leg_a.direction == initial_a, (
+        f"leg_a.direction was mutated from {initial_a} to {leg_a.direction}"
     )
-    assert leg_b.direction == +1, (
-        f"expected leg_b.direction synced to +1 (state); initial was "
-        f"{initial_b}, got {leg_b.direction} — sign-flips SHORT_SPREAD PnL"
+    assert leg_b.direction == initial_b, (
+        f"leg_b.direction was mutated from {initial_b} to {leg_b.direction}"
     )
+    # Cycle-aware accessor returns state.direction during cycle.
+    assert leg_a.effective_direction == -1, (
+        f"effective_direction must reflect cycle: state.direction=-1, got "
+        f"{leg_a.effective_direction}"
+    )
+    assert leg_b.effective_direction == +1
     # _basket_direction tracker reflects the cycle direction.
     assert rule._basket_direction == -1
+    # BASKET_OPEN event records cycle-aware leg_directions.
+    open_evt = next(e for e in rule.recycle_events if e.get("action") == "BASKET_OPEN")
+    assert open_evt["leg_directions"][SYM_A] == -1
+    assert open_evt["leg_directions"][SYM_B] == +1
 
 
-def test_basket_open_long_spread_keeps_leg_direction_unchanged():
-    """LONG_SPREAD cycle: state.direction == leg.direction. BASKET_OPEN's
-    sync is a no-op in this case — confirms the fix doesn't accidentally
-    invert the BASE-aligned cycle."""
+def test_basket_open_long_spread_effective_matches_base():
+    """LONG_SPREAD cycle: state.direction == leg.direction →
+    effective_direction == leg.direction. Bug-class-irrelevant happy path."""
     leg_a, leg_b, idx, shared = _build_legs_with_signal(
         n_bars=10, signal_bar_idx=2, signal_value=+1,
     )
@@ -176,6 +176,6 @@ def test_basket_open_long_spread_keeps_leg_direction_unchanged():
         leg.state.entry_market_state = {"initial_stop_price": 0.0}
     rule.apply([leg_a, leg_b], 4, idx[4])
 
-    assert leg_a.direction == +1
-    assert leg_b.direction == -1
+    assert leg_a.direction == +1 and leg_a.effective_direction == +1
+    assert leg_b.direction == -1 and leg_b.effective_direction == -1
     assert rule._basket_direction == +1

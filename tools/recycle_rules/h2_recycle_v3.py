@@ -131,7 +131,7 @@ def _leg_pnl_usd(leg: BasketLeg, current_price: float,
     if not leg.state.in_pos:
         return 0.0
     _, quote_ccy = _split_pair(leg.symbol)
-    pnl_in_quote = leg.direction * leg.lot * _LOT_UNITS * (current_price - leg.state.entry_price)
+    pnl_in_quote = leg.effective_direction * leg.lot * _LOT_UNITS * (current_price - leg.state.entry_price)
     usd_per_quote = _usd_value_of_ccy(quote_ccy, ref_closes)
     return pnl_in_quote * usd_per_quote
 
@@ -747,7 +747,7 @@ class H2RecycleRuleV3:
                 leg_margin = 0.0
                 leg_notional = 0.0
             record[f"leg_{idx}_symbol"]       = leg.symbol
-            record[f"leg_{idx}_side"]         = "long" if leg.direction == 1 else "short"
+            record[f"leg_{idx}_side"]         = "long" if leg.effective_direction == 1 else "short"
             record[f"leg_{idx}_lot"]          = leg.lot
             record[f"leg_{idx}_avg_entry"]    = leg.state.entry_price
             record[f"leg_{idx}_mark"]         = bc
@@ -856,7 +856,7 @@ class H2RecycleRuleV3:
                 leg.trades.append({
                     "entry_index": leg.state.entry_index,
                     "exit_index":  i,
-                    "direction":   leg.direction,
+                    "direction":   leg.effective_direction,
                     "entry_price": leg.state.entry_price,
                     "exit_price":  bc,
                     "exit_source": f"BASKET_HARVEST_{reason}",

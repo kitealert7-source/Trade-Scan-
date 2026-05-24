@@ -454,7 +454,7 @@ class H3SpreadV1Rule(H2RecycleRule):
                 "entry_price": leg.state.entry_price,
                 "exit_index": i,
                 "exit_price": bar_closes[leg.symbol],
-                "direction": leg.direction,
+                "direction": leg.effective_direction,
                 "lot": leg.lot,
                 "exit_source": f"BASKET_RULE_{reason}",
                 "exit_timestamp": bar_ts,
@@ -609,7 +609,7 @@ class H3SpreadV1Rule(H2RecycleRule):
         for idx, leg in enumerate(legs):
             bc = bar_closes.get(leg.symbol, float("nan"))
             record[f"leg_{idx}_symbol"]       = leg.symbol
-            record[f"leg_{idx}_side"]         = "long" if leg.direction == 1 else "short"
+            record[f"leg_{idx}_side"]         = "long" if leg.effective_direction == 1 else "short"
             record[f"leg_{idx}_lot"]          = leg.lot
             record[f"leg_{idx}_avg_entry"]    = leg.state.entry_price
             record[f"leg_{idx}_mark"]         = bc

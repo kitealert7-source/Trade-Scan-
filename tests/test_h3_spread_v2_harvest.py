@@ -610,10 +610,12 @@ def test_v2_bidirectional_reverse_cross_uses_cycle_direction():
     assert len(rev) >= 1, "expected reverse-cross liquidation when cross flips against cycle"
 
 
-def test_v2_bidirectional_mutates_leg_direction_on_open():
-    """In bidirectional mode, the rule syncs leg.direction = leg.state.direction
-    at basket-open so the inherited PnL math (reads leg.direction) sees the
-    correct per-cycle direction."""
+def test_v2_bidirectional_effective_direction_on_open():
+    """In bidirectional mode, leg.state.direction can be opposite of
+    leg.direction (SHORT-spread cycle). The cycle-aware accessor
+    leg.effective_direction must return state.direction; leg.direction
+    itself MUST stay at YAML BASE (immutable invariant — was the source
+    of the 2026-05-24 leg_direction_flip_bug pre-Option-B-fix)."""
     n = 5
     eur = np.array([1.1000, 1.1000, 1.0995, 1.0990, 1.0985])
     jpy = np.array([150.0, 150.0, 150.1, 150.2, 150.3])
@@ -628,15 +630,15 @@ def test_v2_bidirectional_mutates_leg_direction_on_open():
     rule = _make_rule(bidirectional=True, entry_direction=+1, adverse_stop_pct=0.5)
     for i in range(n):
         rule.apply([eur_leg, jpy_leg], i, idx[i])
-    # After basket-open, leg.direction should have been synced to leg.state.direction
-    assert eur_leg.direction == -1, (
-        f"expected eur_leg.direction synced to -1 (state); "
-        f"initial was {initial_eur_direction}, got {eur_leg.direction}"
+    # Invariant: leg.direction unchanged (immutable post-init).
+    assert eur_leg.direction == initial_eur_direction, (
+        f"eur_leg.direction was mutated: initial={initial_eur_direction}, "
+        f"got {eur_leg.direction}"
     )
-    assert jpy_leg.direction == +1, (
-        f"expected jpy_leg.direction synced to +1 (state); "
-        f"initial was {initial_jpy_direction}, got {jpy_leg.direction}"
-    )
+    assert jpy_leg.direction == initial_jpy_direction
+    # Cycle-aware accessor returns state.direction.
+    assert eur_leg.effective_direction == -1
+    assert jpy_leg.effective_direction == +1
 
 
 def test_v2_delay_increases_max_mfe_vs_no_delay():

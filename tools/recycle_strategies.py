@@ -228,8 +228,11 @@ class SpreadCrossLegStrategy:
 
         Args:
             symbol: leg symbol (e.g. EURUSD).
-            position_direction: +1 for long leg, -1 for short leg. Returned
-                as the engine signal value on entry. Determines leg.direction.
+            position_direction: +1 for long leg, -1 for short leg. Multiplied
+                with the cycle's proposed direction to produce the engine
+                signal value on entry. The resulting cycle-aware direction
+                lives on leg.state.direction (read via leg.effective_direction
+                in P&L code); leg.direction stays at this YAML BASE value.
             cross_watch_direction: +1 to enter on UP-cross (cross_event=+1),
                 -1 to enter on DN-cross (cross_event=-1). For a USD-BEAR
                 basket (long EURUSD + short USDJPY), BOTH legs watch UP-cross

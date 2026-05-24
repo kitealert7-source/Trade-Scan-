@@ -73,11 +73,11 @@ def _leg_pnl_usd(leg: BasketLeg, current_price: float) -> float:
         return 0.0
     entry = leg.state.entry_price
     if leg.symbol in _USD_QUOTE:
-        return leg.direction * leg.lot * _LOT_UNITS * (current_price - entry)
+        return leg.effective_direction * leg.lot * _LOT_UNITS * (current_price - entry)
     if leg.symbol in _USD_BASE:
         if current_price <= 0:
             return 0.0
-        return leg.direction * leg.lot * _LOT_UNITS * (current_price - entry) / current_price
+        return leg.effective_direction * leg.lot * _LOT_UNITS * (current_price - entry) / current_price
     raise ValueError(
         f"H2RecycleRule: symbol {leg.symbol!r} convention unknown. "
         f"H2 supports {_USD_QUOTE | _USD_BASE} only."
@@ -628,7 +628,7 @@ class H2RecycleRule:
                 leg_margin = 0.0
                 leg_notional = 0.0
             record[f"leg_{idx}_symbol"]       = leg.symbol
-            record[f"leg_{idx}_side"]         = "long" if leg.direction == 1 else "short"
+            record[f"leg_{idx}_side"]         = "long" if leg.effective_direction == 1 else "short"
             record[f"leg_{idx}_lot"]          = leg.lot
             record[f"leg_{idx}_avg_entry"]    = leg.state.entry_price
             record[f"leg_{idx}_mark"]         = bc
@@ -732,7 +732,7 @@ class H2RecycleRule:
                 leg.trades.append({
                     "entry_index": leg.state.entry_index,
                     "exit_index":  i,
-                    "direction":   leg.direction,
+                    "direction":   leg.effective_direction,
                     "entry_price": leg.state.entry_price,
                     "exit_price":  bc,
                     "exit_source": f"BASKET_HARVEST_{reason}",

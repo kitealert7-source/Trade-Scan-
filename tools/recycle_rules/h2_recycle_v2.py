@@ -321,7 +321,7 @@ class H2RecycleRuleV2:
                 leg.trades.append({
                     "entry_index": leg.state.entry_index,
                     "exit_index":  i,
-                    "direction":   leg.direction,
+                    "direction":   leg.effective_direction,
                     "entry_price": leg.state.entry_price,
                     "exit_price":  bc,
                     "exit_source": f"BASKET_HARVEST_{reason}",

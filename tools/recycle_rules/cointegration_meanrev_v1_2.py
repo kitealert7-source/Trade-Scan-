@@ -109,7 +109,7 @@ def _leg_pnl_usd_universal(leg: BasketLeg, current_price: float,
     usd_per_pu = float((spec.get("calibration", {}) or {}).get("usd_per_pu_per_lot", 0) or 0)
     if usd_per_pu <= 0:
         return 0.0
-    return leg.direction * leg.lot * (current_price - leg.state.entry_price) * usd_per_pu
+    return leg.effective_direction * leg.lot * (current_price - leg.state.entry_price) * usd_per_pu
 
 
 def _leg_margin_usd_universal(leg: BasketLeg, current_price: float,
@@ -332,17 +332,7 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
                 self._last_entry_as_of = state.pending_trigger_as_of
             else:
                 self._last_entry_as_of = pd.Timestamp(bar_ts).normalize()
-            # Sync leg.direction = leg.state.direction so the inherited PnL
-            # math (_leg_pnl_usd_universal reads leg.direction) sees the
-            # correct per-cycle direction. Mirrors h3_spread_v2's workaround
-            # for the same architectural quirk: SHORT_SPREAD cycles open
-            # at state.direction = -position_direction, but leg.direction
-            # carries YAML BASE, so PnL would sign-flip without this sync.
-            for leg in legs:
-                if leg.state.direction in (-1, +1):
-                    leg.direction = int(leg.state.direction)
-            # Snapshot β-sized lots for the audit event (captured BEFORE
-            # any subsequent mutations).
+            # Snapshot β-sized lots for the audit event.
             entry_lots = {leg.symbol: leg.lot for leg in legs}
             self._entry_lots = entry_lots
             self.recycle_events.append({
@@ -351,7 +341,7 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
                 "action":              "BASKET_OPEN",
                 "entry_beta":          self._entry_beta,
                 "entry_lots":          entry_lots,
-                "leg_directions":      {l.symbol: l.direction for l in legs},
+                "leg_directions":      {l.symbol: l.effective_direction for l in legs},
                 "approved_as_of":      self._last_entry_as_of,
             })
             # Reset shared coordinator — cycle is in flight now.
@@ -589,7 +579,7 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
                 "entry_price":    leg.state.entry_price,
                 "exit_index":     i,
                 "exit_price":     bar_closes[leg.symbol],
-                "direction":      leg.direction,
+                "direction":      leg.effective_direction,
                 "lot":            leg.lot,
                 "exit_source":    f"COINTREV_{reason}",
                 "exit_timestamp": bar_ts,
@@ -728,7 +718,7 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
         for idx, leg in enumerate(legs):
             bc = bar_closes.get(leg.symbol, float("nan"))
             record[f"leg_{idx}_symbol"]       = leg.symbol
-            record[f"leg_{idx}_side"]         = leg.direction
+            record[f"leg_{idx}_side"]         = leg.effective_direction
             record[f"leg_{idx}_lot"]          = leg.lot
             record[f"leg_{idx}_avg_entry"]    = leg.state.entry_price
             record[f"leg_{idx}_mark"]         = bc
