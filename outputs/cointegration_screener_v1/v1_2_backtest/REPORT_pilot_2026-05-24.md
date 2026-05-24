@@ -292,6 +292,62 @@ Re-stated incorporating both addenda:
 
 ---
 
+## Addendum 3 (post-third-review) — framing correction: it's per-cycle risk variance, not "leverage cap"
+
+Addendum 2 framed the AUDUSDGBPJPY result as "β-sizing produces unbounded notional → 43.69× leverage → blow-up". That framing is **incorrect** and needs to be retracted. On reflection (and per operator correction):
+
+- **Forex micro-lot convention:** Octa's "Monetary equivalent: AUD 1000" for a 0.01 AUDUSD lot means **1000 units of the base currency** (≈ USD 713 at quote), not "USD 1000". That's 0.01 × 100,000-contract = 1000 base-ccy units — standard.
+- **FX leverage is a feature, not a bug.** With 1:1000 broker leverage on a $1000 capital account, controlling $49,832 notional is ≈5% of theoretical capacity. 43.69× notional/equity is well within normal Forex strategy operating range and is the design intent of leveraged FX trading.
+- **`initial_notional_usd: 1000` is correctly named as a capital/stake field**, not a notional cap. The framing in addendum 2 ("$1000 stake → bug if notional exceeds it") conflated capital with notional — there's no invariant requiring notional ≤ capital in any leveraged-FX rule, and inventing one would forbid every working FX strategy in the system.
+
+### The actual outlier (re-stated)
+
+The real anomaly is **per-cycle PnL volatility variance**, not leverage. Sorted by stddev of per-cycle PnL across pilots:
+
+| Pair | n cycles | Cycle stddev | Worst cycle | Worst as % of stake |
+|---|---:|---:|---:|---:|
+| **AUDUSDGBPJPY** | 11 | **$64.38** | **−$213.75** | **−21.4%** |
+| EURGBPNZDJPY | 8 | $9.94 | −$11.67 | −1.2% |
+| EURUSDUSDCHF | 7 | $9.88 | −$8.44 | −0.8% |
+| CHFJPYGBPJPY | 8 | $9.40 | −$15.29 | −1.5% |
+| AUDUSDNZDJPY | 9 | $8.70 | −$25.24 | −2.5% |
+| GBPUSDUSDCHF | 8 | $6.84 | −$15.17 | −1.5% |
+| EURGBPGBPJPY | 11 | $6.65 | −$10.88 | −1.1% |
+| EURGBPEURJPY | 13 | $6.61 | −$18.76 | −1.9% |
+| EURGBPGBPNZD | 9 | $6.45 | −$4.98 | −0.5% |
+| GBPAUDUSDJPY | 12 | $6.28 | −$12.90 | −1.3% |
+| AUDJPYCADJPY | 14 | $4.32 | −$4.80 | −0.5% |
+| CADJPYNZDJPY | 9 | $3.89 | −$3.81 | −0.4% |
+
+AUDUSDGBPJPY's cycle-PnL stddev is **6.5× the next-highest pair**. The worst-cycle loss is **17× greater** than the cohort median. Forex leverage is the same across all pairs (broker offers a flat 1:1000); what differs is **per-cycle realized risk**, and that varies enormously across pair-pairs because β-neutral sizing optimizes the *wrong objective* for risk-equivalence.
+
+### What β-sizing actually does (and why it doesn't equalize risk)
+
+`tools.cointegration_excel._compute_neutral_basket(sym_a, sym_b, β)` solves for: "what lot ratio makes the basket's $-P&L insensitive to outright moves in either leg, given the broker's `usd_per_pu_per_lot` table?". The objective is **statistical β-neutrality**, not **per-cycle PnL volatility**.
+
+For pairs where the cointegration relationship is tight (β close to 1, similar price scales), β-neutral happens to also be roughly volatility-equivalent. For pairs where β is small (cross-rate vs USD-anchored — e.g., AUDUSD ≈ 0.66 vs GBPJPY ≈ 195), β-neutrality requires very different lot magnitudes per leg, and the resulting basket happens to have a much wider spread-volatility distribution. The strategy is fine on the β-neutral axis; the realized P&L distribution is the issue.
+
+### Re-prioritized v1.2.x sequence (replacing addendum 2's sequence)
+
+1. **v1.2.0c (risk-equivalent sizing):** size lots so that each pair's **historical per-cycle PnL stddev** targets a constant fraction of stake (e.g., 0.5%). Implementation options:
+   - **(a)** Volatility-targeted sizing: pre-compute per-pair historical cycle-PnL stddev (from screener-derived backtest or simulator), then scale lots so realized stddev ≈ target.
+   - **(b)** Pre-trade ATR-based scaling: at trigger time, multiply the β-neutral basket's lots by `target_atr_usd / current_basket_atr_usd`, where `current_basket_atr_usd` is the basket's recent realized USD volatility.
+   - **(c)** Hybrid: use β-neutral as the *direction* (which leg long vs short) but determine *magnitudes* from a vol-target, not β.
+2. **v1.2.0d (directive-cohort prefilter):** at directive-generator time, simulate or estimate per-pair cycle-PnL stddev; flag/reject pairs whose stddev exceeds a threshold OR whose worst-historical-cycle exceeds X% of stake. Removes pathological pairs from the cohort entirely.
+3. **v1.2.1 (time-stop calibration — still valid):** AFTER (1) and (2). The time-stop dominance finding holds across the cohort, but its interpretation is cleaner once per-pair PnL distributions are vol-equalized.
+
+### Headline verdict (final)
+
+- **Infrastructure** ✅ works end-to-end across 15 pilot pairs
+- **β-neutral sizing** is correctly implemented per `_compute_neutral_basket` spec, BUT optimizes for β-neutrality not risk-equivalence — produces per-cycle volatility variance of 17× across pairs in the pilot
+- **Base economics:** Net % mean −2.51 is dominated by AUDUSDGBPJPY (≈ −1.5pp single-pair drag); the per-pair stddev of cycle PnL is the actionable diagnostic, not the cohort net %
+- **Base exit logic:** TIME_STOP dominance (100% of cycles) is real but secondary; only interpretable cleanly after sizing is vol-normalized
+- **Verdict: WEAK at base; PRE-WEAK pending v1.2.0c** — i.e., the pilot doesn't say "the strategy has no edge". It says "the strategy has not been measured under a sizing regime that allows clean per-pair comparison". The screener IS producing signals; some of them DO trade profitably (3 winners in the 12-pair n>1 cohort); the v1.2.0c question is whether equalizing per-pair risk allows the winners to dominate or whether the losers genuinely have negative edge
+
+**My addendum 2 framing of "unbounded leverage = bug" was incorrect and is hereby retracted.** The correct frame: β-sizing produces correctly-β-neutral baskets whose realized cycle-PnL volatility varies enormously across pairs because β-neutrality and vol-equivalence are orthogonal objectives. Forex leverage is a feature being used as designed.
+
+---
+
 ## Three-way comparison
 
 (Per `DESIGN_DOC §6`: reconciliation across v2.1 reconstruction, Phase 3 realized replay, v1.2 strategy backtest.)
