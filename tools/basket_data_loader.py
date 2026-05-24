@@ -39,10 +39,18 @@ __all__ = [
     "load_usd_synth_factor",
     "load_fx_correlation_factor",
     "load_cointegration_factor",
+    "load_cointegration_factors_from_db",
     "compute_spread_sma_cross_5m",
     "compute_intra_z",
     "clear_year_file_cache",
 ]
+
+
+# Path constant for the cointegration SQLite DB (design-doc v1.2 source-of-truth).
+# Mirrors tools/cointegration_db.py SQLITE_DB to avoid an import-time circular
+# dependency (cointegration_db imports from tools.cointegration_screen which
+# transitively pulls heavy modules).
+_COINT_DB_PATH = DATA_ROOT / "SYSTEM_FACTORS" / "FX_COINTEGRATION" / "cointegration.db"
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +398,7 @@ def load_basket_leg_data(
     macro_correlation_threshold: float = -0.5,
     regime_gate_lookback_bars: int | None = None,
     regime_gate_flip_threshold: float | None = None,
+    cointegration_join_lookback_days: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Load per-symbol OHLC + a USD_SYNTH regime factor for a basket.
 
@@ -729,11 +738,72 @@ def load_basket_leg_data(
                         f"that TF before start_date)."
                     )
 
-    # Cointegration factor auto-join was retired 2026-05-21 with the COINTREV
-    # v1 strategy chain. The screener infrastructure (load_cointegration_factor
-    # below, indicators/stats/cointegration_state, tools/cointegration_*) is
-    # retained. Any future β-weighted cointegration strategy should re-add a
-    # deliberate auto-join here, with explicit opt-in via directive params.
+    # ---- Cointegration factor auto-join (re-added 2026-05-24 for v1.2) ----
+    # Opt-in via `cointegration_join_lookback_days` (252 or 504). When set
+    # AND the basket has exactly 2 legs, joins daily cointegration features
+    # (regime, zscore, hedge_ratio) + trigger flags from cointegration.db
+    # onto every leg's DataFrame. State columns ffill to the intraday grid;
+    # trigger columns are point-in-time at the first intraday bar of each
+    # trigger's as_of date (the strategy's min_gap_days dedupe operates on
+    # as_of, not bar count, so multiple intraday bars per trigger-day would
+    # break the contract).
+    #
+    # Replaces the COINTREV-v1 auto-join (retired 2026-05-21, commit 605317c).
+    # The v1.2 strategy is β-weighted and reads triggers from this SQLite DB,
+    # not the older cointegration_history_matrix that load_cointegration_factor
+    # above still serves.
+    if cointegration_join_lookback_days is not None and len(symbols) == 2:
+        try:
+            coint_daily = load_cointegration_factors_from_db(
+                symbols[0], symbols[1],
+                lookback_days=cointegration_join_lookback_days,
+                start_date=start_date, end_date=end_date,
+            )
+        except FileNotFoundError as exc:
+            raise ValueError(
+                f"cointegration_join_lookback_days="
+                f"{cointegration_join_lookback_days} requested but "
+                f"cointegration.db is missing: {exc}"
+            ) from exc
+        except KeyError:
+            # Pair-pair not in DB universe — strategy will produce zero trades.
+            print(
+                f"[BASKET_DATA] WARN: pair ({symbols[0]}, {symbols[1]}) not in "
+                f"cointegration.db at lookback={cointegration_join_lookback_days}; "
+                f"cointegration columns will be missing -> strategy fires no trades."
+            )
+            coint_daily = pd.DataFrame()
+
+        if not coint_daily.empty:
+            ffill_cols = ["coint_regime", "coint_current_zscore",
+                          "coint_hedge_ratio", "coint_adf_pvalue"]
+            trigger_dates = coint_daily.index[coint_daily["coint_trigger"]]
+            for sym in symbols:
+                intraday_idx = out[sym].index
+                # Forward-fill state columns onto intraday grid.
+                ff = coint_daily[ffill_cols].reindex(intraday_idx, method="ffill")
+                for col in ffill_cols:
+                    out[sym][col] = ff[col]
+                # Trigger columns: point-in-time at first intraday bar of as_of.
+                trigger_col   = pd.Series(False, index=intraday_idx)
+                direction_col = pd.Series(pd.NA, index=intraday_idx, dtype="object")
+                z_trig_col    = pd.Series(float("nan"), index=intraday_idx)
+                beta_trig_col = pd.Series(float("nan"), index=intraday_idx)
+                for trig_date in trigger_dates:
+                    day_bars = intraday_idx[
+                        intraday_idx.normalize() == trig_date.normalize()
+                    ]
+                    if len(day_bars) == 0:
+                        continue
+                    ts0 = day_bars[0]
+                    trigger_col.loc[ts0]   = True
+                    direction_col.loc[ts0] = coint_daily.loc[trig_date, "coint_direction"]
+                    z_trig_col.loc[ts0]    = coint_daily.loc[trig_date, "coint_z_at_trigger"]
+                    beta_trig_col.loc[ts0] = coint_daily.loc[trig_date, "coint_beta_at_trigger"]
+                out[sym]["coint_trigger"]         = trigger_col
+                out[sym]["coint_direction"]       = direction_col
+                out[sym]["coint_z_at_trigger"]    = z_trig_col
+                out[sym]["coint_beta_at_trigger"] = beta_trig_col
 
     return out
 
@@ -784,6 +854,105 @@ def load_cointegration_factor(
     if end_date is not None:
         sub = sub.loc[sub.index <= pd.Timestamp(end_date)]
     return sub
+
+
+def load_cointegration_factors_from_db(
+    sym_a: str,
+    sym_b: str,
+    lookback_days: int,
+    *,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    db_path: Path | None = None,
+) -> pd.DataFrame:
+    """Load daily cointegration features + trigger flags from cointegration.db.
+
+    This is the v1.2 source-of-truth (per DESIGN_DOC.md), distinct from the
+    older load_cointegration_factor() which reads from the matrix parquet.
+    The SQLite DB is the only source that carries the regime classifier
+    output ('cointegrated' / 'breaking' / 'broken') the v1.2 strategy needs
+    for its regime-degradation exit.
+
+    Pair order is canonicalized alphabetically internally — caller order
+    doesn't matter. `lookback_days` must match a value populated in the DB
+    (typically 252 or 504).
+
+    Returns a DataFrame indexed by date (DatetimeIndex, normalised to midnight)
+    with columns:
+        coint_regime          : str ('cointegrated' / 'breaking' / 'broken')
+        coint_current_zscore  : float (signed z; +ve = SHORT_SPREAD bias)
+        coint_hedge_ratio     : float (β; OLS regression coefficient)
+        coint_adf_pvalue      : float
+        coint_trigger         : bool (True on the as_of of a trigger event)
+        coint_direction       : str | None ('LONG_SPREAD' / 'SHORT_SPREAD')
+        coint_z_at_trigger    : float | NaN (signed z captured at trigger)
+        coint_beta_at_trigger : float | NaN (β captured at trigger time)
+
+    Raises FileNotFoundError if cointegration.db is missing.
+    Returns an empty DataFrame if the pair is in the universe but has no
+    daily rows in the requested lookback (caller should treat as "no data").
+    """
+    import sqlite3
+
+    p = db_path or _COINT_DB_PATH
+    if not p.exists():
+        raise FileNotFoundError(
+            f"cointegration.db not found at {p}. Run "
+            f"`python tools/cointegration_db.py --upsert` or "
+            f"`rebuild_triggers_from_history`."
+        )
+    a, b = sorted([sym_a.upper(), sym_b.upper()])
+
+    conn = sqlite3.connect(p)
+    try:
+        daily = pd.read_sql_query(
+            "SELECT as_of, regime, current_zscore, hedge_ratio, adf_pvalue "
+            "  FROM cointegration_daily "
+            " WHERE pair_a = ? AND pair_b = ? AND lookback_days = ? "
+            " ORDER BY as_of",
+            conn, params=(a, b, lookback_days),
+        )
+        triggers = pd.read_sql_query(
+            "SELECT as_of, direction, z_at_trigger, beta_at_trigger "
+            "  FROM cointegration_triggers "
+            " WHERE pair_a = ? AND pair_b = ? AND lookback_days = ? "
+            " ORDER BY as_of",
+            conn, params=(a, b, lookback_days),
+        )
+    finally:
+        conn.close()
+
+    if daily.empty:
+        return pd.DataFrame()
+
+    daily["as_of"] = pd.to_datetime(daily["as_of"])
+    daily = daily.set_index("as_of").rename(columns={
+        "regime":         "coint_regime",
+        "current_zscore": "coint_current_zscore",
+        "hedge_ratio":    "coint_hedge_ratio",
+        "adf_pvalue":     "coint_adf_pvalue",
+    })
+
+    daily["coint_trigger"]         = False
+    daily["coint_direction"]       = pd.Series(index=daily.index, dtype="object")
+    daily["coint_z_at_trigger"]    = float("nan")
+    daily["coint_beta_at_trigger"] = float("nan")
+
+    if not triggers.empty:
+        triggers["as_of"] = pd.to_datetime(triggers["as_of"])
+        triggers = triggers.set_index("as_of")
+        overlap = daily.index.intersection(triggers.index)
+        daily.loc[overlap, "coint_trigger"]         = True
+        daily.loc[overlap, "coint_direction"]       = triggers.loc[overlap, "direction"]
+        daily.loc[overlap, "coint_z_at_trigger"]    = triggers.loc[overlap, "z_at_trigger"]
+        daily.loc[overlap, "coint_beta_at_trigger"] = triggers.loc[overlap, "beta_at_trigger"]
+
+    if start_date is not None:
+        daily = daily[daily.index >= pd.Timestamp(start_date)]
+    if end_date is not None:
+        daily = daily[daily.index <= pd.Timestamp(end_date)]
+
+    return daily
 
 
 def compute_intra_z(
