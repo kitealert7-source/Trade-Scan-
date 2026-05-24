@@ -627,3 +627,53 @@ def test_approval_rejects_no_next_bar_when_one_leg_truncated_after_trigger():
     assert shared.pending_trigger_ts is None
     assert shared.approved_fire_ts is None
 
+
+def test_basket_open_syncs_leg_direction_to_state_direction():
+    """SHORT_SPREAD cycle: leg.state.direction is OPPOSITE of leg.direction
+    (set by the engine from check_entry's sign-flipped signal). BASKET_OPEN
+    must sync leg.direction = leg.state.direction so the inherited PnL math
+    (_leg_pnl_usd_universal reads leg.direction) accounts for the cycle in
+    the correct direction.
+
+    Regression: without this sync, SHORT_SPREAD cycles have sign-flipped
+    floating PnL feeding realized_total — the leg_direction_flip_bug
+    documented in RESEARCH_MEMORY 2026-05-24. Mirrors h3_spread_v2's
+    test_v2_bidirectional_mutates_leg_direction_on_open.
+    """
+    leg_a, leg_b, idx, shared = _build_legs(
+        n_bars=10, trigger_bar_idx=2, direction="SHORT_SPREAD",
+        beta_at_trigger=0.75,
+    )
+    rule = _make_rule(shared_armed_state=shared)
+    # Reach approval bar (proposal + rule approves; engine queues fire).
+    _step_leg_check_entries([leg_a, leg_b], idx[2])
+    rule.apply([leg_a, leg_b], 2, idx[2])
+    # Fire bar — leg returns signal sign = position_direction * -1 (SHORT_SPREAD).
+    _step_leg_check_entries([leg_a, leg_b], idx[3])
+    rule.apply([leg_a, leg_b], 3, idx[3])
+
+    # Engine fill at bar 4: SHORT_SPREAD inverts state.direction vs leg.direction.
+    initial_a = leg_a.direction   # +1 from _build_legs (LONG-leg)
+    initial_b = leg_b.direction   # -1 from _build_legs (SHORT-leg)
+    for leg in (leg_a, leg_b):
+        leg.state.in_pos = True
+        leg.state.direction = -leg.direction   # SHORT_SPREAD inversion
+        leg.state.entry_index = 4
+        leg.state.entry_price = float(leg.df.iloc[4]["close"])
+        leg.state.entry_market_state = {"initial_stop_price": 0.0}
+    rule.apply([leg_a, leg_b], 4, idx[4])
+
+    # After BASKET_OPEN, leg.direction must mirror leg.state.direction so the
+    # inherited PnL helpers read the cycle-aware sign.
+    assert leg_a.direction == -1, (
+        f"expected leg_a.direction synced to -1 (state); initial was "
+        f"{initial_a}, got {leg_a.direction} — sign-flips SHORT_SPREAD PnL"
+    )
+    assert leg_b.direction == +1, (
+        f"expected leg_b.direction synced to +1 (state); initial was "
+        f"{initial_b}, got {leg_b.direction} — sign-flips SHORT_SPREAD PnL"
+    )
+    # BASKET_OPEN event's leg_directions records the cycle-aware values.
+    open_ev = _find_event(rule.recycle_events, "BASKET_OPEN")
+    assert open_ev["leg_directions"] == {SYM_A: -1, SYM_B: +1}
+

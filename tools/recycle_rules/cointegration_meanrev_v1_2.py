@@ -332,6 +332,15 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
                 self._last_entry_as_of = state.pending_trigger_as_of
             else:
                 self._last_entry_as_of = pd.Timestamp(bar_ts).normalize()
+            # Sync leg.direction = leg.state.direction so the inherited PnL
+            # math (_leg_pnl_usd_universal reads leg.direction) sees the
+            # correct per-cycle direction. Mirrors h3_spread_v2's workaround
+            # for the same architectural quirk: SHORT_SPREAD cycles open
+            # at state.direction = -position_direction, but leg.direction
+            # carries YAML BASE, so PnL would sign-flip without this sync.
+            for leg in legs:
+                if leg.state.direction in (-1, +1):
+                    leg.direction = int(leg.state.direction)
             # Snapshot β-sized lots for the audit event (captured BEFORE
             # any subsequent mutations).
             entry_lots = {leg.symbol: leg.lot for leg in legs}

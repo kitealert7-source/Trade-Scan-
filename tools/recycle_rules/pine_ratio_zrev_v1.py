@@ -307,8 +307,17 @@ class PineRatioZRevRule(H2RecycleRule):
             if state is not None and state.proposed_direction != 0:
                 self._basket_direction = state.proposed_direction
             else:
-                # Defensive: derive from leg directions if state missing
-                self._basket_direction = legs[0].direction
+                # Defensive: derive from leg state.direction (cycle-aware) if
+                # shared state missing. Was legs[0].direction historically, but
+                # leg.direction holds YAML BASE which mis-signs SHORT cycles.
+                self._basket_direction = int(legs[0].state.direction or 0)
+            # Sync leg.direction = leg.state.direction so the inherited PnL
+            # math (_leg_pnl_usd_universal reads leg.direction) sees the
+            # correct per-cycle direction. Mirrors h3_spread_v2's workaround
+            # for the same architectural quirk.
+            for leg in legs:
+                if leg.state.direction in (-1, +1):
+                    leg.direction = int(leg.state.direction)
             entry_lots = {leg.symbol: leg.lot for leg in legs}
             self._entry_lots = entry_lots
             self.recycle_events.append({
