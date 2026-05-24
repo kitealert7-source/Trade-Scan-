@@ -87,9 +87,15 @@ def _query_date_range(db_path: Path, lookback: int) -> tuple[str, str]:
     return str(earliest)[:10], str(latest)[:10]
 
 
-def _directive_name(pair_a: str, pair_b: str, lookback: int) -> str:
-    """Per DESIGN_DOC §5: 90_PORT_{PAIR_A}{PAIR_B}_15M_COINTREV_V2_L{LOOKBACK}."""
-    return f"90_PORT_{pair_a}{pair_b}_15M_COINTREV_V2_L{lookback}"
+def _tf_slug(timeframe: str) -> str:
+    """Filename slug for a TF: '15m' -> '15M', '1d' -> '1D', '1h' -> '1H'."""
+    return timeframe.upper()
+
+
+def _directive_name(pair_a: str, pair_b: str, lookback: int,
+                    timeframe: str = _DEFAULT_TIMEFRAME) -> str:
+    """Per DESIGN_DOC §5: 90_PORT_{PAIR_A}{PAIR_B}_{TF}_COINTREV_V2_L{LOOKBACK}."""
+    return f"90_PORT_{pair_a}{pair_b}_{_tf_slug(timeframe)}_COINTREV_V2_L{lookback}"
 
 
 def _basket_id(pair_a: str, pair_b: str) -> str:
@@ -98,7 +104,8 @@ def _basket_id(pair_a: str, pair_b: str) -> str:
 
 
 def _build_directive(pair_a: str, pair_b: str, *, lookback: int,
-                     start_date: str, end_date: str) -> dict[str, Any]:
+                     start_date: str, end_date: str,
+                     timeframe: str = _DEFAULT_TIMEFRAME) -> dict[str, Any]:
     """Build one COINTREV v1.2 directive payload.
 
     Both legs declared `direction: long` is a placeholder. The
@@ -109,7 +116,7 @@ def _build_directive(pair_a: str, pair_b: str, *, lookback: int,
     we use long/short here so leg_a is +1 (long) and leg_b is -1 (short),
     consistent with the alphabetical canonical β-pair convention.
     """
-    name = _directive_name(pair_a, pair_b, lookback)
+    name = _directive_name(pair_a, pair_b, lookback, timeframe)
     return {
         "test": {
             "name": name,
@@ -118,7 +125,7 @@ def _build_directive(pair_a: str, pair_b: str, *, lookback: int,
             "version": 1,
             "signal_version": 1,
             "broker": _DEFAULT_BROKER,
-            "timeframe": _DEFAULT_TIMEFRAME,
+            "timeframe": timeframe,
             "start_date": start_date,
             "end_date": end_date,
             "research_mode": True,
@@ -207,6 +214,12 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"Cointegration lookback window (default: {_DEFAULT_LOOKBACK})")
     parser.add_argument("--target-dir", type=Path, default=_DEFAULT_TARGET_DIR,
                         help=f"Output directory (default: {_DEFAULT_TARGET_DIR.relative_to(REAL_REPO_ROOT)})")
+    parser.add_argument("--timeframe", type=str, default=_DEFAULT_TIMEFRAME,
+                        help=f"Execution TF for directives (default: {_DEFAULT_TIMEFRAME}). "
+                             f"Valid: 5m, 15m, 30m, 1h, 4h, 1d (must match run_pipeline._BAR_SECONDS_MAP).")
+    parser.add_argument("--pair-filter", type=str, default=None,
+                        help="Comma-separated list of pair concatenations (e.g. 'EUSTX50UK100,JPN225SPX500'). "
+                             "When set, generator emits only these pairs.")
     parser.add_argument("--limit", type=int, default=None,
                         help="Write only the first N directives (alphabetical order). "
                              "Use for pilot subset selection.")
@@ -231,6 +244,13 @@ def main(argv: list[str] | None = None) -> int:
     earliest, latest = _query_date_range(args.db_path, args.lookback_days)
     print(f"[gen-cointrev] {len(pairs)} pair-pairs in ledger; "
           f"date range {earliest} -> {latest}")
+    print(f"[gen-cointrev] Timeframe: {args.timeframe}")
+
+    if args.pair_filter:
+        allowed = set(p.strip().upper() for p in args.pair_filter.split(","))
+        before = len(pairs)
+        pairs = [(a, b) for a, b in pairs if (a + b) in allowed]
+        print(f"[gen-cointrev] Filtered {before} -> {len(pairs)} pair-pairs via --pair-filter.")
 
     if args.limit is not None:
         pairs = pairs[: args.limit]
@@ -241,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[gen-cointrev] Target dir would be: {args.target_dir}")
         print(f"[gen-cointrev] First 5 directive names:")
         for pa, pb in pairs[:5]:
-            print(f"    {_directive_name(pa, pb, args.lookback_days)}")
+            print(f"    {_directive_name(pa, pb, args.lookback_days, args.timeframe)}")
         if len(pairs) > 5:
             print(f"    ... and {len(pairs) - 5} more.")
         return 0
@@ -253,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
             lookback=args.lookback_days,
             start_date=earliest,
             end_date=latest,
+            timeframe=args.timeframe,
         )
         path = _write_directive(directive, args.target_dir)
         written += 1

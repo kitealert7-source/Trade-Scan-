@@ -485,20 +485,23 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
             return
 
         # Resolve the next bar timestamp for approved_fire_ts.
-        # Uses legs[0]'s full index; data gaps on legs[1] at N+1 are rare
-        # and would manifest as the leg's check_entry not seeing fire_at_ts.
-        df_index = legs[0].df.index
-        try:
-            loc = df_index.get_loc(bar_ts)
-        except KeyError:
+        # MUST use the INTERSECTED index of all legs (= BasketRunner's aligned
+        # iteration), not legs[0]'s full index. Daily-TF cross-region pairs
+        # diverge on market holidays (e.g., UK bank holidays leave UK100 with
+        # gaps that EU indices don't have). Using only legs[0]'s next bar
+        # would set approved_fire_ts to a bar that BasketRunner never visits
+        # — leg's check_entry never sees the matching ts → state stays stuck
+        # → no further triggers fire (silent stall observed 2026-05-24).
+        aligned_after_now = legs[0].df.index[legs[0].df.index > bar_ts]
+        for other_leg in legs[1:]:
+            aligned_after_now = aligned_after_now.intersection(
+                other_leg.df.index[other_leg.df.index > bar_ts]
+            )
+        if len(aligned_after_now) == 0:
             self._n_rejected_no_next_bar += 1
             self._reject(state, i, bar_ts, reason="NO_NEXT_BAR")
             return
-        if not isinstance(loc, int) or (loc + 1) >= len(df_index):
-            self._n_rejected_no_next_bar += 1
-            self._reject(state, i, bar_ts, reason="NO_NEXT_BAR")
-            return
-        next_bar_ts = df_index[loc + 1]
+        next_bar_ts = aligned_after_now[0]
 
         # Mutate leg.lot — pre-open sizing (engine reads leg.lot at fire bar
         # to size the open at next_bar_open of that fire bar).

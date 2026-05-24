@@ -1089,7 +1089,8 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     # scaling. Default "5m" matches the historical default; 15m / 30m / 1h
     # are supported per the 2026-05 DATA_INGRESS ingest.
     bar_timeframe = str(parsed.get("test", {}).get("timeframe", "5m"))
-    _BAR_SECONDS_MAP = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
+    _BAR_SECONDS_MAP = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+                         "4h": 14400, "1d": 86400}
     bar_seconds = _BAR_SECONDS_MAP.get(bar_timeframe, 300)
     # Macro-direction filter (2026-05-19). When set, the loader computes
     # the spread cross at this higher native broker timeframe and uses it

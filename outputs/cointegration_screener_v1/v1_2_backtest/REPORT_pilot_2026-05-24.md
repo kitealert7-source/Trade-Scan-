@@ -442,6 +442,107 @@ EUSTX50/UK100 — the highest-trigger IDX-IDX pair (43 triggers, 13 cycles) — 
 
 ---
 
+## Addendum 5 — daily-TF retest of 5 best IDX-IDX pairs (decisive negative)
+
+**Operator hypothesis (continued):** the 15m TF was the wrong calendar — daily z forward-filled to 15m made the mean-reversion exit mathematically unreachable. **Switching execution to daily TF should let mean-rev fire** and reveal whether the strategy actually has edge.
+
+**Test:** same 5 IDX-IDX pairs the user selected as candidates, regenerated at `timeframe: 1d`, all other params unchanged (`exit_z=1.0`, `time_stop_bars=60`, `min_gap_days_between_triggers=5`). No vol-target sizing yet (per the operator's "skip vol-target — daily TF only first" choice; cleanest one-knob test).
+
+**A real bug was caught during the test** that's worth noting before the results: my rule's `_maybe_approve` used `legs[0].df.index` to compute `approved_fire_ts`. On daily TF, cross-region pairs have divergent market holidays — UK100 is missing 2025-05-26 (UK bank holiday) but EUSTX50 has it. The rule set `approved_fire_ts=2025-05-26` from EUSTX50's index, but BasketRunner's aligned iteration (intersection of leg indices) jumps from 2025-05-23 to 2025-05-27. Leg's check_entry never sees a matching bar → state stays stuck → only the FIRST trigger of the year is ever approved, then the strategy silently stalls forever. **Patched** to intersect all legs' indices in `_maybe_approve`. All 25 unit tests still pass. The bug is daily-TF-specific (15m grid is dense enough that intra-leg gaps are rare); a follow-up should add a unit test fixture with divergent leg indices.
+
+### Daily-TF results
+
+| Pair | Cycles | Mean-rev exits | Regime exits | Time-stop exits | Net % | Max DD % |
+|---|---:|---:|---:|---:|---:|---:|
+| EUSTX50/UK100 | 4 | 0 | 4 | 0 | **−6.59** | −9.01 |
+| JPN225/SPX500 | 4 | 2 | 2 | 0 | **+1.26** | −0.79 |
+| AUS200/SPX500 | 7 | 4 | 3 | 0 | −0.39 | −3.27 |
+| FRA40/JPN225 | 3 | 0 | 3 | 0 | −0.61 | −3.74 |
+| EUSTX50/FRA40 | 4 | 2 | 2 | 0 | −1.15 | −3.51 |
+
+**Cohort: 1 winner / 1 small loser / 3 losers. Mean: −1.50%. No blow-ups.**
+
+### 15m vs 1d side-by-side (same 5 pairs)
+
+| Pair | 15m Net % | 1d Net % | Δ | 15m exits | 1d exits |
+|---|---:|---:|---:|---|---|
+| EUSTX50/UK100 | **+1.73** | **−6.59** | **−8.3** | 13 / 0 / 0 / 13 | 0 / 4 / 0 / 4 |
+| JPN225/SPX500 | +0.45 | +1.26 | +0.8 | 0 / 0 / 0 / 8 | 2 / 2 / 0 / 4 |
+| AUS200/SPX500 | +0.28 | −0.39 | −0.7 | 0 / 0 / 0 / 8 | 4 / 3 / 0 / 7 |
+| FRA40/JPN225 | +0.32 | −0.61 | −0.9 | 0 / 0 / 0 / 6 | 0 / 3 / 0 / 3 |
+| EUSTX50/FRA40 | +0.22 | −1.15 | −1.4 | 0 / 0 / 0 / 9 | 2 / 2 / 0 / 4 |
+| Cohort mean | **+0.60** | **−1.50** | **−2.1** | | |
+
+(exits = mean-rev / regime / time-stop / total cycles)
+
+### What this tells us
+
+1. **The daily-TF hypothesis is correct mechanically** — mean-reversion exits DO fire on daily TF (8 of 22 cycles), and time-stop NEVER fires (median cycle ~12 days, well under the 60-day stop). This proves the 15m calendar mismatch was real.
+
+2. **But the economic conclusion is the opposite of what the hypothesis predicted.** Daily TF makes the strategy **worse**, not better. 4 of 5 pairs flip from positive (15m) to negative (1d). The 15m "wins" weren't the mean-reversion thesis working — they were the time-stop truncating noise at 15 hours and accidentally capturing small intraday drift.
+
+3. **Regime-degradation dominates the exit mix** on daily TF (14 of 22 cycles). The cointegration relationships are too unstable to hold long enough for full mean-reversion. The screener's regime classifier flips from `cointegrated` to `breaking`/`broken` mid-position, exiting at adverse points more often than not.
+
+4. **EUSTX50/UK100 — the headline 15m winner (+1.73%) — is the worst daily-TF loser (−6.59%).** All 4 of its daily-TF cycles exited via regime degradation. This is a strong signal that its 15m win was sizing+truncation noise, not real cointegration edge.
+
+5. **Only JPN225/SPX500 is positive on both timeframes.** It's also the only pair where mean-rev exits (n=2) are at least as common as regime-degradation exits (n=2). Possibly genuine — economically intuitive (US equity vs. Asia-Pacific equity, similar risk-on/off factors). But n=4 cycles is too thin to draw conclusions.
+
+### What about the v1.2.0c sizing fix?
+
+The operator's earlier decision: "skip vol-target for now — daily TF only first". The daily-TF result now allows us to update that decision:
+
+- **Daily-TF baseline shows no aggregate edge** — vol-target sizing would normalize per-pair distributions but can't manufacture edge that doesn't exist in the underlying signal
+- **Per-cycle volatility is well-behaved on daily TF** — max DD 9% on the worst pair (vs 73% on ESP35/FRA40 at 15m). No blow-ups. Sizing variance isn't the dominant problem here
+- **The regime-degradation exit absorbs the volatility risk** at daily TF — cycles exit cleanly before drawdowns explode
+
+So the next experiment would have to address either:
+- **Signal selection** (filter triggers by some pre-condition that predicts which will mean-revert vs. degrade)
+- **Asymmetric exits** (e.g., let mean-rev exits run further; cut regime-degraded ones at first sign of breakdown)
+- **Cohort restriction** (e.g., same-region only, or top-N by stable-regime-history)
+
+But each of these is a research arc, not a parameter tweak.
+
+### Recommendation
+
+**Retire COINTREV v1.2 as a tradeable strategy.** The thesis (cointegration mean-reversion produces tradeable edge) doesn't survive realistic exit mechanics. The 15m results were sizing+truncation artifacts; the daily-TF results show the underlying signal weakly negative.
+
+This places COINTREV v1.2 alongside v1 (retired 2026-05-21 for the equal-lot bug). Both versions tried to extract edge from the screener's cointegration signal; neither succeeded — for different reasons.
+
+**What survives this exercise (worth keeping):**
+- The `cointegration_triggers` ledger and screener infrastructure (good for monitoring, regime research, statistical study)
+- The `CointTriggerLegStrategy` + universal cross-asset PnL helpers (reusable for any future cross-asset basket strategy)
+- The two-bar leg-rule protocol (clean abstraction; reusable)
+- The cross-region market-holiday bug fix (general improvement to the rule)
+
+**What to deprioritize:**
+- Further parameter sweeps on v1.2.x (v1.2.0c sizing, v1.2.1 calibration, IDX-IDX same-region cohort) — none of these will fix a fundamentally weak signal
+- The 263-pair-cohort framing — the screener emits too many low-edge triggers per year for blanket cohort backtesting to find anything
+
+**Suggested follow-on research arcs (outside v1.2.x):**
+1. **Signal-side study:** what FEATURES of the screener's triggers predict mean-reversion vs regime-degradation? Build a classifier; gate trades on it. Quite different research arc.
+2. **Same-region intuitive pair-selection study:** does manually curating ~5 economically-tight pairs (EUSTX50/UK100, JPN225/SPX500, AUS200/NAS100, etc.) and running them through a v1.2.x with longer min_gap (e.g., 30 days) and earlier mean-rev exit (e.g., z<=1.5 instead of 1.0) produce edge? Specific hypothesis, small cohort, fast to test — could be one session.
+3. **Other use of the screener signal:** the trigger ledger is a high-quality "spread is extreme today" signal. Could feed into a different strategy class (e.g., trend-following on the spread breakdown, rather than mean-reversion). Independent from v1.2.
+
+### Final commits this session
+
+| Hash | Subject |
+|---|---|
+| (next) | addendum 5 — daily-TF retest is decisive negative for v1.2 thesis |
+| (next) | aligned-bar fix in rule's `_maybe_approve` |
+| d9a999d | addendum 4 — IDX-IDX cohort vs operator hypothesis |
+| c5c1eef | addendum 3 — retract 'unbounded leverage' framing |
+| 708015e | addendum 2 (since retracted) |
+| 7d9e7c8 | addendum 1 — 'Days to exit' clarification |
+| 7da746a | pilot directive artifacts |
+| 34c764a | aggregator + REPORT_pilot |
+| 8cd4934 | basket_data_loader pyarrow KeyError fix |
+| 09a2fee | _emit_record 3-col schema completion |
+| 12aeff7 | directive generator + cointegration_join plumbing |
+| 2d6b2ca | unit tests + time-stop bug fix |
+| ad73a9b | leg strategy + rule + dispatch wiring |
+
+---
+
 ## Three-way comparison
 
 (Per `DESIGN_DOC §6`: reconciliation across v2.1 reconstruction, Phase 3 realized replay, v1.2 strategy backtest.)
