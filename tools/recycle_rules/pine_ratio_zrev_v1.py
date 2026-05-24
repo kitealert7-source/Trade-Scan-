@@ -192,21 +192,29 @@ class PineRatioZRevRule(H2RecycleRule):
     def _attach_z_r(self, legs: list[BasketLeg]) -> None:
         """Compute z_r from both legs and attach signal columns to leg.df.
 
-        Both legs must share an aligned index (BasketRunner intersects upstream).
+        Cross-region pairs (e.g. CHFJPY/UK100) have divergent market holidays;
+        each leg's df can have a different index length. We compute z_r on the
+        INTERSECTED index (= bars where BOTH legs have data) and reindex back
+        to each leg's full index, leaving signal=0 (no fire) on holiday bars
+        the partner leg is missing. This mirrors v1.2's daily-TF cross-region
+        holiday fix (REPORT_pilot_2026-05-24.md addendum 5).
+
         Cross events are derived from the active z series (centered or raw)
         per the Pine reference (Pine Indicators/Cointegrated Pair Overlay.txt
         line 173-176): cross from below +z_entry → short spread (-1);
         cross from above -z_entry → long spread (+1).
         """
-        if not legs[0].df.index.equals(legs[1].df.index):
+        common_idx = legs[0].df.index.intersection(legs[1].df.index)
+        if len(common_idx) < self.n_window * 2:
             raise RuntimeError(
-                f"PineRatioZRevRule._attach_z_r: legs[0] index does not match "
-                f"legs[1] index (len_a={len(legs[0].df)}, len_b={len(legs[1].df)}). "
-                f"BasketRunner should have intersected upstream."
+                f"PineRatioZRevRule._attach_z_r: intersected leg index has "
+                f"only {len(common_idx)} bars; need at least 2 * n_window "
+                f"({2 * self.n_window}) for valid z_r warmup. "
+                f"len_a={len(legs[0].df)}, len_b={len(legs[1].df)}."
             )
 
-        a_close = legs[0].df["close"]
-        b_close = legs[1].df["close"]
+        a_close = legs[0].df["close"].reindex(common_idx)
+        b_close = legs[1].df["close"].reindex(common_idx)
 
         n_meta = self.n_meta if self.entry_mode == "centered" else None
         z_data = ratio_hedged_spread_zscore(
@@ -228,18 +236,19 @@ class PineRatioZRevRule(H2RecycleRule):
         crossed_up = (prev_z <= self.z_entry) & (z_active > self.z_entry)
         crossed_dn = (prev_z >= -self.z_entry) & (z_active < -self.z_entry)
 
-        signal = pd.Series(0, index=z_active.index, dtype="int64")
-        signal[crossed_dn] = +1   # LONG_SPREAD
-        signal[crossed_up] = -1   # SHORT_SPREAD
+        signal_aligned = pd.Series(0, index=z_active.index, dtype="int64")
+        signal_aligned[crossed_dn] = +1   # LONG_SPREAD
+        signal_aligned[crossed_up] = -1   # SHORT_SPREAD
 
-        # Attach to BOTH legs' dfs
+        # Attach to BOTH legs' dfs — reindex to each leg's full index, fill
+        # missing-partner-bars with 0 signal / NaN values (won't fire)
         for leg in legs:
-            leg.df[self.signal_column] = signal
-            leg.df[self.r_bar_column] = z_data["r_bar"]
-            leg.df["pine_zrev_z"] = z_data["z_r"]
+            leg.df[self.signal_column] = signal_aligned.reindex(leg.df.index, fill_value=0)
+            leg.df[self.r_bar_column] = z_data["r_bar"].reindex(leg.df.index)
+            leg.df["pine_zrev_z"] = z_data["z_r"].reindex(leg.df.index)
             if self.entry_mode == "centered":
-                leg.df["pine_zrev_z_centered"] = z_data["z_r_centered"]
-                leg.df["pine_zrev_mean_zr"] = z_data["mean_zr"]
+                leg.df["pine_zrev_z_centered"] = z_data["z_r_centered"].reindex(leg.df.index)
+                leg.df["pine_zrev_mean_zr"] = z_data["mean_zr"].reindex(leg.df.index)
 
         self._z_r_attached = True
 
