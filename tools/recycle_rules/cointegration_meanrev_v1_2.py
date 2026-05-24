@@ -54,14 +54,93 @@ from typing import Any, Optional
 import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
+from tools.capital.capital_broker_spec import load_broker_spec
 from tools.cointegration_excel import _compute_neutral_basket
 from tools.recycle_rules.h2_recycle import H2RecycleRule
 from tools.recycle_rules.h2_recycle_v3 import (
     _build_ref_closes,
-    _leg_pnl_usd,
-    _leg_margin_usd,
+    _leg_pnl_usd as _leg_pnl_usd_fx,
+    _leg_margin_usd as _leg_margin_usd_fx,
 )
 from tools.recycle_strategies import CointTriggerArmedState
+
+
+# ---------------------------------------------------------------------------
+# Cross-asset PnL helpers (2026-05-24, v1.2 addendum 4 follow-up)
+#
+# h2_recycle_v3's _leg_pnl_usd / _leg_margin_usd assume 6-char FX symbols
+# (split into base+quote currencies). Indices (UK100, JPN225, etc.) and
+# commodities (XAUUSD, BTCUSD) violate that assumption and raise
+# ValueError("must be 6 chars") at the first apply() call.
+#
+# Universal path: for 6-char alphabetic FX symbols, delegate to v3 (which
+# uses current-bar USD reference rates for cross-rate accuracy). For non-FX,
+# use the OctaFX broker spec's `usd_per_pu_per_lot` calibration field
+# (recorded at MT5_VERIFIED status, snapshot at calibration time — accurate
+# enough for backtest research; future precision pass would re-scale by
+# current local-ccy/USD rate).
+#
+# FX behavior is byte-equivalent — same symbols, same code path, same result.
+# ---------------------------------------------------------------------------
+
+
+def _is_fx_symbol(symbol: str) -> bool:
+    """6-character alphabetic symbol = FX pair. Indices/commodities are not."""
+    return len(symbol) == 6 and symbol.isalpha()
+
+
+def _leg_pnl_usd_universal(leg: BasketLeg, current_price: float,
+                            ref_closes: dict[str, float]) -> float:
+    """USD floating PnL for any symbol (FX or non-FX).
+
+    FX (6-char alphabetic): delegate to h2_recycle_v3._leg_pnl_usd —
+    uses current-bar USD reference rates for cross-rate FX accuracy.
+
+    Non-FX (indices, commodities): use broker spec usd_per_pu_per_lot.
+    """
+    if not leg.state.in_pos:
+        return 0.0
+    if _is_fx_symbol(leg.symbol):
+        return _leg_pnl_usd_fx(leg, current_price, ref_closes)
+    try:
+        spec = load_broker_spec(leg.symbol)
+    except FileNotFoundError:
+        return 0.0
+    usd_per_pu = float((spec.get("calibration", {}) or {}).get("usd_per_pu_per_lot", 0) or 0)
+    if usd_per_pu <= 0:
+        return 0.0
+    return leg.direction * leg.lot * (current_price - leg.state.entry_price) * usd_per_pu
+
+
+def _leg_margin_usd_universal(leg: BasketLeg, current_price: float,
+                                leverage: float,
+                                ref_closes: dict[str, float]) -> float:
+    """USD margin requirement for any symbol.
+
+    FX: delegate to v3.
+    Non-FX: notional_usd ≈ lot × contract_size × current_price × ccy_to_usd;
+    margin = notional / leverage. For indices priced in non-USD currencies
+    (UK100 in GBP, JPN225 in JPY) the ccy_to_usd factor is approximated via
+    usd_per_pu_per_lot / contract_size (calibration-time approximation).
+    """
+    if not leg.state.in_pos or leg.lot <= 0:
+        return 0.0
+    if _is_fx_symbol(leg.symbol):
+        return _leg_margin_usd_fx(leg, current_price, leverage, ref_closes)
+    try:
+        spec = load_broker_spec(leg.symbol)
+    except FileNotFoundError:
+        return 0.0
+    contract_size = float(spec.get("contract_size", 0) or 0)
+    usd_per_pu = float((spec.get("calibration", {}) or {}).get("usd_per_pu_per_lot", 0) or 0)
+    if contract_size <= 0 or usd_per_pu <= 0:
+        return 0.0
+    # usd_per_pu_per_lot already encodes (contract_size × ccy_to_usd) since
+    # 1 price unit move × 1 lot = contract_size local-ccy = usd_per_pu USD.
+    # → ccy_to_usd ≈ usd_per_pu / contract_size.
+    ccy_to_usd = usd_per_pu / contract_size
+    notional_usd = leg.lot * contract_size * current_price * ccy_to_usd
+    return notional_usd / leverage if leverage > 0 else 0.0
 
 _RULE_NAME = "cointegration_meanrev_v1_2"
 _RULE_VERSION = 1
@@ -227,10 +306,11 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
         except (KeyError, ValueError):
             return  # data gap; skip silently
 
-        # Per-leg floating P&L via V3 cross-pair helpers (same as H3).
+        # Per-leg floating P&L via universal helper (FX delegates to v3;
+        # non-FX indices/commodities use broker spec usd_per_pu_per_lot).
         ref_closes = _build_ref_closes(legs, bar_ts)
         leg_float = {
-            leg.symbol: (_leg_pnl_usd(leg, bar_closes[leg.symbol], ref_closes)
+            leg.symbol: (_leg_pnl_usd_universal(leg, bar_closes[leg.symbol], ref_closes)
                          if leg.state.in_pos else 0.0)
             for leg in legs
         }
@@ -575,7 +655,7 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
                 per_leg_margin[leg.symbol] = 0.0
                 per_leg_notional[leg.symbol] = 0.0
                 continue
-            m = _leg_margin_usd(leg, bc, self.leverage, ref_closes)
+            m = _leg_margin_usd_universal(leg, bc, self.leverage, ref_closes)
             per_leg_margin[leg.symbol] = m
             margin_used += m
             n = m * self.leverage
