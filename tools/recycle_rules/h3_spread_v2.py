@@ -51,12 +51,15 @@ verbatim above.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 
 from tools.basket_runner import BasketLeg
+from tools.capital.capital_broker_spec import load_broker_spec
 from tools.recycle_rules.h2_recycle_v3 import (
     _build_ref_closes,
     _leg_margin_usd,
@@ -112,6 +115,22 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
     # Default False = uni-directional behavior driven by entry_direction
     # (byte-equivalent to original @2 / S01-S05 directives).
     bidirectional: bool = False
+    # Vol-neutral sizing extension (2026-05-24, structural-bias fix). The
+    # spread_sma_cross indicator computes the SIGNAL on z-normalized prices
+    # (vol-neutral by construction). But the directive defaults to equal lot
+    # per leg, so EXECUTION captures a $-vol-weighted spread, not the z-
+    # normalized one. The mismatch creates directional bias if leg vols
+    # differ — the more-volatile leg dominates cycle P&L, and any drift in
+    # that leg's price asymmetrically biases LONG vs SHORT cycles. This is
+    # the same architectural defect COINTREV v1 had (fixed in v1.2 via
+    # `_compute_neutral_basket`). When True, on the bar a signal queues but
+    # before the engine fills, each leg's lot is rescaled so all legs have
+    # equal $-vol per std (using rolling std over `vol_neutral_window` bars
+    # and the broker spec's `usd_per_pu_per_lot`). Geometric-mean target
+    # preserves the total $-vol budget vs the directive's base lots.
+    # Default False = byte-equivalent to original equal-lot behavior.
+    vol_neutral_sizing: bool = False
+    vol_neutral_window: int = 200  # matches spread_sma_cross z_window default
 
     # --- Name/version overrides ---
     name: str = _RULE_NAME
@@ -181,6 +200,16 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
                 f"H3SpreadV2Rule.bidirectional must be a bool; "
                 f"got {self.bidirectional!r}."
             )
+        if not isinstance(self.vol_neutral_sizing, bool):
+            raise ValueError(
+                f"H3SpreadV2Rule.vol_neutral_sizing must be a bool; "
+                f"got {self.vol_neutral_sizing!r}."
+            )
+        if self.vol_neutral_window < 2 or not isinstance(self.vol_neutral_window, int):
+            raise ValueError(
+                f"H3SpreadV2Rule.vol_neutral_window must be int >= 2; "
+                f"got {self.vol_neutral_window!r}."
+            )
 
     # ---- _liquidate override ---
     # Parent @1 resets _basket_open, _entry_bar_idx, _next_pyramid_level,
@@ -209,6 +238,63 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
     ) -> bool:
         return False
 
+    # ---- Vol-neutral sizing helper --------------------------------------
+    # When `vol_neutral_sizing` is True, on the bar a leg signal queues but
+    # before the engine fills, rescale each leg's lot so all legs contribute
+    # equal $-vol per std. Geometric-mean target preserves the total $-vol
+    # budget vs the directive's base lots. No-op when feature is off, when
+    # basket is already open, or when no pending entry is queued. Returns
+    # True if lots were rebalanced (telemetry), False otherwise.
+
+    def _maybe_apply_vol_neutral_sizing(
+        self, legs: list[BasketLeg], bar_ts: pd.Timestamp,
+    ) -> bool:
+        if not self.vol_neutral_sizing:
+            return False
+        if any(leg.state.in_pos for leg in legs):
+            return False  # already in cycle; don't resize mid-cycle
+        if not all(leg.state.pending_entry is not None for leg in legs):
+            return False  # not all legs have queued entries yet
+        # Compute per-leg $-vol per unit lot from rolling std and broker spec.
+        leg_dv: dict[str, float] = {}
+        base_lot = (
+            self._initial_lot_per_leg
+            if self._initial_lot_per_leg is not None
+            else max(leg.lot for leg in legs)
+        )
+        for leg in legs:
+            if bar_ts not in leg.df.index:
+                return False
+            iloc = leg.df.index.get_loc(bar_ts)
+            if iloc < self.vol_neutral_window:
+                return False  # warmup not satisfied
+            recent = leg.df.iloc[iloc - self.vol_neutral_window : iloc]["close"]
+            std_price = float(recent.std())
+            if std_price <= 0 or not np.isfinite(std_price):
+                return False
+            try:
+                spec = load_broker_spec(leg.symbol)
+            except Exception:
+                return False
+            usd_per_pu = float(
+                (spec.get("calibration", {}) or {}).get("usd_per_pu_per_lot", 0) or 0
+            )
+            if usd_per_pu <= 0:
+                return False
+            # $-vol per unit lot per std = std_price (in price-units) × usd_per_pu_per_lot
+            leg_dv[leg.symbol] = std_price * usd_per_pu
+        # Geometric-mean target preserves total $-vol budget at base_lot.
+        target_dv = math.exp(sum(math.log(v) for v in leg_dv.values()) / len(leg_dv))
+        # Apply per-leg rescale, respecting broker lot_step and min_lot.
+        for leg in legs:
+            spec = load_broker_spec(leg.symbol)
+            min_lot = float(spec.get("min_lot", 0.01) or 0.01)
+            lot_step = float(spec.get("lot_step", 0.01) or 0.01)
+            raw_lot = base_lot * target_dv / leg_dv[leg.symbol]
+            lot = max(min_lot, round(raw_lot / lot_step) * lot_step)
+            leg.lot = lot
+        return True
+
     # ---- core mechanic --------------------------------------------------
 
     def apply(self, legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp) -> None:
@@ -235,6 +321,13 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
             for leg in legs
         }
         floating_total = sum(leg_float.values())
+
+        # Vol-neutral sizing hook: on a bar where signal is queued but
+        # basket not yet open, rescale leg lots so each leg contributes
+        # equal $-vol per std. No-op when feature is off or basket already
+        # open. The engine reads leg.lot at the next-bar fill, so resizing
+        # here propagates into the actual position size.
+        self._maybe_apply_vol_neutral_sizing(legs, bar_ts)
 
         # Snapshot initial lot on first bar both legs are open. The basket
         # runner sets leg.lot to the initial value before any pyramid fires,

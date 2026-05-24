@@ -1,0 +1,111 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_15M_PAIRX_S21_V1_P08__E003
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_15M_PAIRX_S21_V1_P08
+  version: 1
+  signal_version: 4
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2018-05-18'
+  end_date: '2020-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V3
+  hypothesis_variant: H3_PAIR_SPREAD_V3_EXTREME_Z_5p0_REENTRY_1p0_15M_DELAY8_WINDOW_C
+  description: 'S21 V1 P08 = Window C validation of the new cross-window
+    deployment baseline candidate: 15m + entry_delay_bars=8 + @3 (e=5.0,
+    r=1.0).
+    Closes the 3-window matrix for the new winner. Prior Window C results
+    on this strategy family (all catastrophic):
+      S10 V1 P02 (5m @2, d=12)          -> -129.98% / -124.36% DD
+      S08 V1 P02 (5m @2 1d macro)       -> -123.40% / -119.38% DD
+      S13 V1 P02 (5m @2 corr<-0.5)      -> -34.00%  / -61.35% DD
+      S18 V1 P01 (5m @3 e=5.0, d=12)    -> -148.74% / -136.49% DD
+      S21 V1 P08 (15m @3 e=5.0, d=8)    -> ???   (this probe)
+    Hypothesis: at higher TF + shorter delay (calendar 120min), Window C''s
+    chop is filtered more aggressively, so the basket spends fewer bars
+    in losing wrong-direction cycles. Possible outcomes:
+      (a) Less catastrophic (-60% to -100% Net%): 15m filters out enough
+          noise to reduce damage. Strategy becomes "regime-tolerant"
+          (still loses on C, but bounded damage compatible with
+          portfolio-level DD constraints).
+      (b) Same magnitude (-120% to -150%): 15m doesn''t help; Window C
+          fundamentally lacks edge for this architecture regardless of
+          TF/delay. Same deployment posture (regime gate required).
+      (c) Significantly worse (-180%+): higher TF makes losing cycles
+          BIGGER (per-cycle PnL scales with bar size); catastrophic
+          window becomes even more so. Unlikely but possible.
+    Either way, this is the final cell in the 12-cell sweep (3 delays x
+    2 TFs x 2 favorable windows + this Window C confirmation).
+    '
+  repeat_override_reason: 'VOL_NEUTRAL_TEST: enabled vol_neutral_sizing param on H3SpreadV2Rule. Hypothesis: equal-lot execution mismatched the z-normalized signal, creating directional bias in cycle PnL. Vol-neutral lots should restore symmetric mean-reversion behavior.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 3
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      vol_neutral_sizing: true
+      vol_neutral_window: 200
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 8
+      extreme_z_threshold: 5.0
+      reentry_z_threshold: 1.0
+      reentry_macro_check: true
+      reentry_cross_check: true
+      reentry_max_per_regime: 3

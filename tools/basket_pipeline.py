@@ -81,6 +81,118 @@ class BasketRunResult:
         }
 
 
+# ---------------------------------------------------------------------------
+# Strict param validation
+# ---------------------------------------------------------------------------
+#
+# `basket.recycle_rule.params` in a directive YAML is consumed by THREE
+# surfaces: the rule constructor here (_instantiate_rule), the leg-strategy
+# construction in run_pipeline.py, and the data loader in basket_data_loader.py.
+# Each consumer reads only the params it knows about; unknown params are
+# silently dropped.
+#
+# This caused a real silent-no-op on 2026-05-24: `vol_neutral_sizing: true` was
+# added to a directive, the dispatcher didn't forward it to the rule, and the
+# experiment APPEARED to run with the new param but actually used the equal-lot
+# default. We only caught it because the per-leg lots in the output parquet
+# were still 0.10/0.10.
+#
+# Strict validation here catches:
+#   1. Typos in directive YAML (e.g., `vol_neutral_seizing`)
+#   2. Params that exist on the rule dataclass but aren't wired through this
+#      dispatcher (same class as the bug above)
+#   3. Stale params left in directives after a rule schema change
+#
+# Update protocol:
+#   - Add a new param on a rule dataclass -> add it to _instantiate_rule's
+#     constructor call AND it will auto-be-accepted by the validator.
+#   - Add a new param read by run_pipeline.py / basket_data_loader.py (e.g.,
+#     a new macro filter knob) -> add the param name to _EXTERNAL_CONSUMER_PARAMS
+#     under the affected (rule_name, version) entries.
+#   - Add a backward-compat alias for a renamed param -> add to _RULE_PARAM_ALIASES.
+
+# Runtime-only fields on rule dataclasses (NOT settable from directive YAML).
+_RUNTIME_ONLY_FIELDS = frozenset({"run_id", "directive_id", "basket_id"})
+
+# Documented backward-compat aliases for renamed params, per (rule_name, version).
+# Each alias is silently accepted by the validator (the dispatcher itself
+# handles the alias-to-canonical mapping in its kwargs construction).
+_RULE_PARAM_ALIASES: dict[tuple[str, int], frozenset[str]] = {
+    ("H3_spread", 2): frozenset({"harvest_delay_levels"}),
+    ("H3_spread", 3): frozenset({"harvest_delay_levels"}),
+}
+
+# Params read by external consumers (run_pipeline.py / basket_data_loader.py)
+# that don't appear on the rule's own dataclass. These get forwarded to the
+# leg strategy or data loader, not to the rule constructor. Per (rule_name,
+# version) since not all rules use all external consumers.
+_EXTERNAL_CONSUMER_PARAMS: dict[tuple[str, int], frozenset[str]] = {
+    # H3_spread family: leg strategy reads entry_delay_bars; data loader reads
+    # all macro_* params (macro_direction_timeframe is the gate, the rest are
+    # window overrides for the cross-signal computation).
+    ("H3_spread", 1): frozenset({
+        "entry_delay_bars",
+        "macro_direction_timeframe", "macro_warmup_days",
+        "macro_z_window", "macro_sma_window",
+        "macro_correlation_window", "macro_correlation_threshold",
+    }),
+    ("H3_spread", 2): frozenset({
+        "entry_delay_bars",
+        "macro_direction_timeframe", "macro_warmup_days",
+        "macro_z_window", "macro_sma_window",
+        "macro_correlation_window", "macro_correlation_threshold",
+    }),
+    ("H3_spread", 3): frozenset({
+        "entry_delay_bars",
+        "macro_direction_timeframe", "macro_warmup_days",
+        "macro_z_window", "macro_sma_window",
+        "macro_correlation_window", "macro_correlation_threshold",
+    }),
+}
+
+
+def _validate_recycle_rule_params(
+    rule_class: type, params: dict, rule_name: str, version: int,
+) -> None:
+    """Fail-loud on any key in `params` not recognized by SOME consumer.
+
+    Accepted = (public, non-runtime fields on the rule dataclass) UNION
+               (documented aliases for (rule_name, version)) UNION
+               (external-consumer params for (rule_name, version)).
+
+    Raises ValueError with a diagnostic listing of valid params if anything
+    unknown appears. Catches the silent-no-op bug class — see module
+    docstring above.
+    """
+    import dataclasses
+    rule_fields = {
+        f.name for f in dataclasses.fields(rule_class)
+        if not f.name.startswith("_") and f.name not in _RUNTIME_ONLY_FIELDS
+    }
+    aliases = _RULE_PARAM_ALIASES.get((rule_name, version), frozenset())
+    external = _EXTERNAL_CONSUMER_PARAMS.get((rule_name, version), frozenset())
+    accepted = rule_fields | aliases | external
+    unknown = set(params.keys()) - accepted
+    if unknown:
+        raise ValueError(
+            f"recycle_rule.params validation failed for {rule_name}@{version} "
+            f"({rule_class.__name__}):\n"
+            f"  Unknown params in directive YAML: {sorted(unknown)}\n"
+            f"  Rule dataclass fields (user-settable):\n"
+            f"    {sorted(rule_fields)}\n"
+            f"  External-consumer params (leg strategy / data loader):\n"
+            f"    {sorted(external) if external else '(none)'}\n"
+            f"  Documented aliases: "
+            f"{sorted(aliases) if aliases else '(none)'}\n"
+            f"  If this is a NEW param: add it to the rule's dataclass + the "
+            f"dispatcher branch below, OR add it to _EXTERNAL_CONSUMER_PARAMS "
+            f"if it's read by run_pipeline.py / basket_data_loader.py.\n"
+            f"  If this is a TYPO: fix the directive YAML.\n"
+            f"  (Strict validation added 2026-05-24 after a silent-no-op "
+            f"experiment confused the vol_neutral_sizing test.)"
+        )
+
+
 def _instantiate_rule(
     rule_cfg: dict[str, Any],
     factor_column: str | None = None,
@@ -141,6 +253,7 @@ def _instantiate_rule(
     params = rule_cfg.get("params", {}) or {}
 
     if name == "H2_recycle" and version == 1:
+        _validate_recycle_rule_params(H2RecycleRule, params, name, version)
         # Pull params with sensible defaults matching the registry entry.
         return H2RecycleRule(
             trigger_usd=float(params.get("trigger_usd", 10.0)),
@@ -167,6 +280,7 @@ def _instantiate_rule(
         )
 
     if name == "H2_recycle" and version == 5:
+        _validate_recycle_rule_params(H2RecycleRuleV5, params, name, version)
         # v5 = trend-follow pyramid (inverse-H2; H3 design). Pyramids
         # WINNER each $10 of new loss on LOSER; loser held at 0.01 as
         # tripwire. Exits on loser recovery from trough via
@@ -214,6 +328,7 @@ def _instantiate_rule(
         )
 
     if name == "H2_recycle" and version == 4:
+        _validate_recycle_rule_params(H2RecycleRuleV4, params, name, version)
         # v4 = v1 + bump-and-liquidate mechanic. New params: switch_n,
         # retrace_pct. Consumes BasketRunner.soft_reset_basket (Phase B
         # primitive). The rule's `basket_runner` attribute is populated
@@ -248,6 +363,7 @@ def _instantiate_rule(
         )
 
     if name == "H2_recycle" and version == 3:
+        _validate_recycle_rule_params(H2RecycleRuleV3, params, name, version)
         # v3 = v2 + generalized cross-pair PnL math. Supports any FX pair
         # whose currencies are in {USD, EUR, GBP, AUD, NZD, JPY, CHF, CAD}.
         # Requires basket_data_loader to populate usd_ref_<PAIR>_close columns.
@@ -283,6 +399,7 @@ def _instantiate_rule(
         )
 
     if name == "H2_recycle" and version == 2:
+        _validate_recycle_rule_params(H2RecycleRuleV2, params, name, version)
         # v2 = v1 + loser-leg lot cap. New param: max_leg_lot (None = disabled).
         return H2RecycleRuleV2(
             trigger_usd=float(params.get("trigger_usd", 10.0)),
@@ -310,6 +427,7 @@ def _instantiate_rule(
         )
 
     if name == "H3_spread" and version == 1:
+        _validate_recycle_rule_params(H3SpreadV1Rule, params, name, version)
         # H3_spread@1 (2026-05-18): LONG-SHORT pair-spread basket rule.
         # Manages a USD-directional spread (one leg long, other short) with
         # signal-triggered entry (via SpreadCrossLegStrategy), basket-level
@@ -332,6 +450,7 @@ def _instantiate_rule(
         )
 
     if name == "H3_spread" and version == 2:
+        _validate_recycle_rule_params(H3SpreadV2Rule, params, name, version)
         # H3_spread@2 (2026-05-19): bounded-exposure + harvest scale-out
         # with optional delayed-harvest window. @1 with three-phase pyramid
         # lifecycle: ACCUMULATE up to max_exposure_multiple * initial_lot,
@@ -356,6 +475,8 @@ def _instantiate_rule(
             harvest_start_after_extra_pyramids=int(delay_param),
             harvest_keeps_core=bool(params.get("harvest_keeps_core", False)),
             bidirectional=bool(params.get("bidirectional", False)),
+            vol_neutral_sizing=bool(params.get("vol_neutral_sizing", False)),
+            vol_neutral_window=int(params.get("vol_neutral_window", 200)),
             pyramid_add_lot=float(params.get("pyramid_add_lot", 0.05)),
             adverse_stop_pct=float(params.get("adverse_stop_pct", 0.0020)),
             time_stop_bars=int(params.get("time_stop_bars", 288)),
@@ -370,6 +491,7 @@ def _instantiate_rule(
         )
 
     if name == "H3_spread" and version == 3:
+        _validate_recycle_rule_params(H3SpreadV3Rule, params, name, version)
         # H3_spread@3 (2026-05-22): @2 + extreme-z take-profit exit +
         # ARMED-for-reentry phase for multi-leg trend capture within a
         # single macro regime. Inherits ALL @2 mechanics (harvest,
@@ -420,6 +542,8 @@ def _instantiate_rule(
             harvest_start_after_extra_pyramids=int(delay_param),
             harvest_keeps_core=bool(params.get("harvest_keeps_core", False)),
             bidirectional=bool(params.get("bidirectional", False)),
+            vol_neutral_sizing=bool(params.get("vol_neutral_sizing", False)),
+            vol_neutral_window=int(params.get("vol_neutral_window", 200)),
             # @1 inheritance
             pyramid_add_lot=float(params.get("pyramid_add_lot", 0.05)),
             adverse_stop_pct=float(params.get("adverse_stop_pct", 0.0020)),
@@ -435,6 +559,7 @@ def _instantiate_rule(
         )
 
     if name == "cointegration_meanrev_v1_2" and version == 1:
+        _validate_recycle_rule_params(CointegrationMeanRevV1_2Rule, params, name, version)
         # COINTREV v1.2 (2026-05-24): trigger-driven β-weighted spread.
         # Reads cointegration_triggers (auto-joined onto leg.df by
         # basket_data_loader when basket.cointegration_join.lookback_days
@@ -462,6 +587,7 @@ def _instantiate_rule(
         )
 
     if name == "pine_ratio_zrev_v1" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRule, params, name, version)
         # Pine port (2026-05-24): ratio-hedged z_r reversal, always-in-market.
         # Preserved follow-on arc #2 from cointegration_meanrev_v1_2 retirement.
         # Computes z_r per-bar from both legs' close prices via
@@ -485,6 +611,7 @@ def _instantiate_rule(
         )
 
     if name == "H2_v7_compression" and version == 1:
+        _validate_recycle_rule_params(H2CompressionRecycleRule, params, name, version)
         raise NotImplementedError(
             "basket_pipeline: rule H2_v7_compression@1 is DEPRECATED — it "
             "misimplemented the H2 mechanic and produced zero recycle events "
