@@ -232,6 +232,66 @@ The conclusion is unchanged — **WEAK / NO-GO at v1.2 base params** — but the
 
 ---
 
+## Addendum 2 (post-second-review) — β-sizing produces unbounded notional, root cause of the AUDUSDGBPJPY blow-up
+
+A second-pass review of the per-directive `BASKET_REPORT_*.md` files surfaced the **actual root cause** of the AUDUSDGBPJPY blow-up. It's NOT a strategy/regime issue — it's a sizing bug.
+
+### The finding
+
+Peak notional + leverage from the basket reports vary by **23×** across the 14 pilot pairs:
+
+| Pair | Peak notional | Leverage | Per-leg peak lots | Net % | Verdict |
+|---|---:|---:|---|---:|---|
+| CADJPYNZDJPY | $1,926 | 1.88× | (small) | +0.92 | OK |
+| AUDJPYCADJPY | $2,189 | 2.12× | 0.01 / 0.02 | **+2.17** | winner |
+| EURUSDUSDCHF | $2,197 | 2.11× | (small) | +1.24 | winner |
+| GBPAUDUSDJPY | $2,374 | 2.35× | — | −0.50 | neutral |
+| GBPUSDUSDCHF | $2,375 | 2.37× | — | −3.08 | loser |
+| EURGBPGBPNZD | $2,561 | 2.50× | — | +1.77 | winner |
+| CADJPYCHFJPY | $2,761 | 2.74× | — | ~0 | n=1 |
+| AUDUSDNZDJPY | $2,948 | 2.95× | — | −4.24 | loser |
+| CHFJPYGBPJPY | $3,978 | 3.89× | — | −2.44 | loser |
+| EURGBPGBPJPY | $3,921 | 3.89× | — | −4.36 | loser |
+| EURGBPEURJPY | $4,651 | 4.65× | — | −5.09 | loser |
+| AUDJPYAUDNZD | $7,744 | 7.34× | — | +2.78 | n=1 |
+| EURGBPNZDJPY | $8,038 | 7.95× | — | −2.41 | loser |
+| **AUDUSDGBPJPY** | **$49,832** | **43.69×** | **0.02 / 0.36** | **−21.90** | **BLOW-UP** |
+
+`initial_notional_usd: 1000.0` (in the directive's `recycle_rule.params`) is a **telemetry-only field** for v1.2 base. It does NOT cap actual lot sizes. The actual lots come from `tools.cointegration_excel._compute_neutral_basket(sym_a, sym_b, β)` which solves for β-neutrality on OctaFX broker specs (using `min_lot` as the smaller leg's floor + scaling the other leg to maintain β-neutral USD-P&L) — and that solver has no notional cap.
+
+For AUDUSDGBPJPY the cointegration regression `spread = GBPJPY − β × AUDUSD` produces a small β (because AUDUSD price ≈ 0.66 and GBPJPY price ≈ 195 are on completely different scales). Combined with broker `usd_per_pu_per_lot` ratios, the β-neutral solver returns `(lot_AUDUSD, lot_GBPJPY) = (0.020, 0.360)` — an 18:1 lot ratio. Lifted into actual price-times-contract notional, that's ~$50k peak exposure on a $1000 nominal stake. A 1% adverse spread move blows ~50% of equity in one cycle. The worst observed cycle in that run was −$213.75 (= −21.4% of stake) — consistent with this leverage profile.
+
+### Confirmation via per-cycle deltas
+
+AUDUSDGBPJPY's cycle PnL distribution: best +$8.27, worst **−$213.75**, p05 −$109.78. The mean cycle PnL of −$19.91 with a stddev of $64.38 (= 3.2× the mean) is structurally inconsistent with a 1.0× leveraged β-neutral spread on a $1000 stake. It IS consistent with a 40× leveraged position. The leverage isn't masking edge — it's amplifying both tails of an already-mediocre signal.
+
+### Re-prioritized v1.2.x sequence
+
+The previous addendum proposed `time_stop_bars` calibration as the highest-priority v1.2.x. **That is no longer correct.** Sizing fix MUST come first:
+
+1. **v1.2.0a (sizing patch — pre-v1.2.x):** cap total notional at `initial_notional_usd` by scaling both legs proportionally when `_compute_neutral_basket` returns lots whose combined notional exceeds the cap. The rule already exposes `initial_notional_usd: 1000.0` as a param; just enforce it as a constraint rather than reporting label. Mechanically: compute β-neutral `(lot_a, lot_b)`, compute peak notional at trigger-bar prices, if exceeds cap then multiply both lots by `cap / notional`, round to lot_step.
+2. **v1.2.0b (directive-generation filter):** at generator time, compute β-implied leverage for each pair-pair. Reject pair-pairs whose β-neutral basket would require >5× leverage at any historical trigger bar (or some sensible cap). Removes pathological pairs from the directive cohort entirely.
+3. **v1.2.1 (time-stop calibration — original plan):** valid follow-up but only meaningful AFTER (1) and (2). At 43.69× leverage the time-stop dominance finding is misleading — most cycles don't reach the exit_z band because the leverage profile doesn't tolerate the holding period, not because the signal doesn't revert.
+
+### What the AUDUSDGBPJPY case proves about v2.1 / Phase 3 reconciliation
+
+The three-way table in DESIGN_DOC §6 (v2.1 event-study reconstruction, Phase 3 realized replay, v1.2 strategy backtest) implicitly assumed all three measure the same thing modulo realization mechanics. AUDUSDGBPJPY shows they don't, in a specific way: **v2.1 and Phase 3 are sizing-agnostic** (event-driven / statistical), while v1.2's $ P&L is **sizing-dominated** when β produces extreme leverage. A pair-pair can have a clean Phase 3 reversion rate (e.g. 85% return-to-band) AND be a v1.2 blow-up — they're not contradictory, they're measuring orthogonal properties.
+
+Going forward, any v1.2 cohort report should include the leverage column as a first-class metric; pairs above a leverage threshold should be reported separately because their P&L distribution is not comparable to the rest of the cohort.
+
+### Updated headline verdict
+
+Re-stated incorporating both addenda:
+
+- **Infrastructure** ✅ works end-to-end across 15 pilot pairs
+- **Base sizing** ❌ unbounded; produces 1.88× to 43.69× leverage variance across pairs; root cause of AUDUSDGBPJPY blow-up
+- **Base economics** ❌ Net % mean −2.51, but partly an artifact of (a) the unbounded-leverage AUDUSDGBPJPY pulling the mean down −1.5pp and (b) two n=1 low-trigger pairs inflating the winner count. After excluding both, the 12-pair cohort is **3 winners / 3 neutral / 6 losers** — closer to coin-flip than the original "4 winners / 6 losers" framing
+- **Base exit logic** — TIME_STOP dominance still holds (100% of cycles in every pair), but **its impact is hard to assess until sizing is bounded**. A 40× leveraged time-stop is a different bug class than a 2× leveraged time-stop
+
+**Recommendation:** patch the sizing constraint (v1.2.0a) BEFORE any time-stop / regime-exit calibration work. Single-pair re-run AUDUSDGBPJPY post-patch as the canary; if leverage caps at ~3×, the run's PnL distribution should normalize toward the rest of the cohort.
+
+---
+
 ## Three-way comparison
 
 (Per `DESIGN_DOC §6`: reconciliation across v2.1 reconstruction, Phase 3 realized replay, v1.2 strategy backtest.)
