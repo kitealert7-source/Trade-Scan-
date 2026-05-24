@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 6 uncommitted
 
-> Generated: 2026-05-24T07:39:36Z
+> Generated: 2026-05-24T14:02:34Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 36 directives
+- Completed: 41 directives
 
 ## Ledgers
 
@@ -31,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-23** | Symbols: 221
+- Latest bar: **2026-05-24** | Symbols: 221
 
 ## Artifacts
-- Run directories: 975
+- Run directories: 980
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `7d5b7e8 COINTREV v1.2: regression test for cross-region holiday bug + retire governance`
+- Working tree: 6 uncommitted
+- Last substantive commit: `0fffd85 indicators/INDICATOR_REGISTRY: backfill ratio_hedged_spread_zscore metadata`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -54,8 +55,10 @@
 
 - **Deployment baseline:** H3_spread@3 EUR/USDJPY 15m d=8 e=5.0 r=1.0 (locked 2026-05-22). Pareto over @2 on Windows A/B; Window C still −112% — deployment is regime-conditional, awaiting the detector above. Closed exploration axes (do NOT re-explore): macro filter, correlation filter, adverse-stop, reverse-cross timing, TF, entry-delay. Remaining axes: (a) the active-charter detector, (b) β-weighted cointegration → see next item, (c) different basket pair.
 
-- **COINTREV v1.2 RETIRED (2026-05-24):** daily-TF retest on 5 best IDX-IDX pairs decisive negative — 4/5 flip from positive (15m) to negative (1d); regime-degradation dominates exits (14/22 cycles); 15m wins were sizing+truncation artifacts, not signal edge. Do NOT re-explore v1.2.x parameter sweeps. Reusable: screener infra, `CointTriggerLegStrategy`, universal cross-asset PnL helpers, two-bar leg-rule protocol. See [`REPORT_pilot_2026-05-24.md`](outputs/cointegration_screener_v1/v1_2_backtest/REPORT_pilot_2026-05-24.md) addenda 1-5.
+- **COINTREV v1.2 retirement UNDER REVIEW (2026-05-24 late):** today's pine_ratio_zrev_v1 + v1.2 forensic shows basket leg directions DO NOT FLIP across reversals — every observed cycle opens in BASE direction in both v1.2 and Pine port. v1.2 was effectively testing always-long-BASE-spread, NOT mean-reversion. Retirement's "regime_degradation_dominates" verdict drawn from broken data. See RESEARCH_MEMORY 2026-05-24 `leg_direction_flip_bug` entry. Pending: engine-flow investigation + fix + v1.2 re-test.
+
+- **Pine z_r reversal port LANDED (2026-05-24):** `pine_ratio_zrev_v1` rule + `indicators/stats/ratio_hedged_spread_zscore` + `PineZRevLegStrategy` + dispatch + registry — committed in `d4237c7` + `1a6eda8` + `4de1f7a`. Infrastructure end-to-end-validated; today's pipeline results (CHFJPY/UK100 +270%, EURJPY/US30 -352%) are BASE-direction artifacts not edge measurements (see leg_direction_flip_bug above). Next session: fix engine, re-run.
 
 - **Daily broker-spec refresh chained** (2026-05-23): TS_Execution `extract_symbol_specs.py` migrated to DATA_INGRESS post-hook (`engines/ops/extract_broker_specs.py`). Daily run writes a JSON snapshot to `Anti_Gravity_DATA_ROOT/SYSTEM_FACTORS/BROKER_SPECS/symbol_specs_mt5.json`; the chained `tools/verify_broker_specs.py --patch` step then patches `data_access/broker_specs/OctaFx/*.yaml` in place — review with `git diff` and commit when ready. (DATA_INGRESS fc1e706 fixed a PS 5.1 BOM-less parse bug introduced by the migration; first clean run expected 2026-05-25 05:45 IST.)
 
-- **`system_introspection.py` Manual-block preservation BROKEN (2026-05-24):** regen wiped the Manual section instead of preserving — apparently `_preserve_manual_section` only matches the old "deferred TDs, operational context" subheading and clobbers the "next-session orientation only" form (now-canonical, used since 2026-05-22 prune cycle). Restored by hand in this session-close. Followup: fix the preserver to match either subheading form. Filed.
+- **`system_introspection.py` Manual-block preservation BROKEN (2026-05-24):** regen wiped the Manual section instead of preserving — apparently `_preserve_manual_section` only matches the old "deferred TDs, operational context" subheading and clobbers the "next-session orientation only" form (now-canonical, used since 2026-05-22 prune cycle). Restored by hand AGAIN in this session-close (2nd occurrence in 24h). Followup: fix the preserver to match either subheading form, OR revert to the old subheading. Filed.
