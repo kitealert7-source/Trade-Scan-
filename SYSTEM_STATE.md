@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-23T14:46:55Z
+> Generated: 2026-05-24T07:39:36Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 6 directives
+- Completed: 36 directives
 
 ## Ledgers
 
@@ -35,12 +34,12 @@
 - Latest bar: **2026-05-23** | Symbols: 221
 
 ## Artifacts
-- Run directories: 945
+- Run directories: 975
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `7168f68 session: idea-gate refresh â€” tools_manifest regen for 5 changed tools`
+- Working tree: clean
+- Last substantive commit: `7d5b7e8 COINTREV v1.2: regression test for cross-region holiday bug + retire governance`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -58,3 +57,5 @@
 - **COINTREV v1.2 RETIRED (2026-05-24):** daily-TF retest on 5 best IDX-IDX pairs decisive negative — 4/5 flip from positive (15m) to negative (1d); regime-degradation dominates exits (14/22 cycles); 15m wins were sizing+truncation artifacts, not signal edge. Do NOT re-explore v1.2.x parameter sweeps. Reusable: screener infra, `CointTriggerLegStrategy`, universal cross-asset PnL helpers, two-bar leg-rule protocol. See [`REPORT_pilot_2026-05-24.md`](outputs/cointegration_screener_v1/v1_2_backtest/REPORT_pilot_2026-05-24.md) addenda 1-5.
 
 - **Daily broker-spec refresh chained** (2026-05-23): TS_Execution `extract_symbol_specs.py` migrated to DATA_INGRESS post-hook (`engines/ops/extract_broker_specs.py`). Daily run writes a JSON snapshot to `Anti_Gravity_DATA_ROOT/SYSTEM_FACTORS/BROKER_SPECS/symbol_specs_mt5.json`; the chained `tools/verify_broker_specs.py --patch` step then patches `data_access/broker_specs/OctaFx/*.yaml` in place — review with `git diff` and commit when ready. (DATA_INGRESS fc1e706 fixed a PS 5.1 BOM-less parse bug introduced by the migration; first clean run expected 2026-05-25 05:45 IST.)
+
+- **`system_introspection.py` Manual-block preservation BROKEN (2026-05-24):** regen wiped the Manual section instead of preserving — apparently `_preserve_manual_section` only matches the old "deferred TDs, operational context" subheading and clobbers the "next-session orientation only" form (now-canonical, used since 2026-05-22 prune cycle). Restored by hand in this session-close. Followup: fix the preserver to match either subheading form. Filed.
