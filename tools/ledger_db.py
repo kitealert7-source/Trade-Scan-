@@ -117,6 +117,33 @@ MPS_ALL_COLUMNS = _MPS_BASE + [
 ]
 
 
+# Audit columns — operator-added xlsx-only columns preserved across
+# export_mps() regenerations by re-reading the existing workbook and
+# joining them back onto the DB-sourced DataFrame via the sheet's
+# natural key. These columns live ONLY in the xlsx; the DB schema does
+# not know about them, so without this carry-over they get wiped every
+# time a pipeline run rewrites the file.
+#
+# Whitelist (not pass-through) so the carry-over is intentional and
+# auditable — random columns operators might accidentally add elsewhere
+# don't get silently persisted. Add new entries here when a new audit
+# workflow needs to mark rows.
+#
+# 2026-05-24: introduced for leg_direction_flip_bug cleanup, which
+# annotated superseded Baskets rows with quarantine metadata that
+# survived only until the next basket pipeline run.
+_MPS_AUDIT_COLUMNS: dict[str, dict[str, Any]] = {
+    "Baskets": {
+        "key": "run_id",
+        "columns": [
+            "quarantine_status",      # 'SUPERSEDED' | other operator-defined values
+            "superseded_by_run_id",   # run_id of the replacement run
+            "quarantine_reason",      # free-text rationale
+        ],
+    },
+}
+
+
 # Basket sheet — Phase 5b.3 schema (promoted from Excel-direct to DB).
 # Mirrors BASKETS_SHEET_COLUMNS in tools/portfolio/basket_ledger_writer.py
 # (the 35 writer-emitted columns) plus DB-only bookkeeping:
@@ -756,7 +783,7 @@ def read_analysis_selection(
     """Return the set of run_ids currently flagged for the next analysis run."""
     _conn = conn or _connect()
     try:
-        if not LEDGER_DB_PATH.exists():
+        if not _resolve_db_path().exists():
             return set()
         rows = _conn.execute(
             'SELECT "run_id" FROM master_filter WHERE "Analysis_selection" = 1'
@@ -822,7 +849,7 @@ def query_baskets(
     """
     _conn = conn or _connect()
     try:
-        if not LEDGER_DB_PATH.exists():
+        if not _resolve_db_path().exists():
             return pd.DataFrame(columns=BASKET_SHEET_COLUMNS)
         sql = "SELECT * FROM basket_sheet"
         if current_only:
@@ -845,7 +872,7 @@ def read_master_filter() -> pd.DataFrame:
     If the DB does not exist yet (fresh install), returns empty DataFrame.
     If the DB exists but the read fails, raises — never silently falls back.
     """
-    if not LEDGER_DB_PATH.exists():
+    if not _resolve_db_path().exists():
         return pd.DataFrame()
     return query_master_filter()
 
@@ -859,7 +886,7 @@ def read_mps(sheet: str | None = None) -> pd.DataFrame:
     If the DB does not exist yet (fresh install), returns empty DataFrame.
     If the DB exists but the read fails, raises — never silently falls back.
     """
-    if not LEDGER_DB_PATH.exists():
+    if not _resolve_db_path().exists():
         return pd.DataFrame()
     df = query_mps(sheet=sheet)
     if "sheet" in df.columns:
@@ -869,7 +896,7 @@ def read_mps(sheet: str | None = None) -> pd.DataFrame:
 
 def read_baskets(current_only: bool = True) -> pd.DataFrame:
     """Read basket_sheet from DB. Fails hard — no Excel fallback."""
-    if not LEDGER_DB_PATH.exists():
+    if not _resolve_db_path().exists():
         return pd.DataFrame(columns=BASKET_SHEET_COLUMNS)
     return query_baskets(current_only=current_only)
 
@@ -894,6 +921,46 @@ def export_master_filter(
     finally:
         if conn is None:
             _conn.close()
+
+
+def _merge_audit_columns(
+    df: pd.DataFrame,
+    sheet_name: str,
+    xlsx_path: Path,
+) -> pd.DataFrame:
+    """Carry over operator-added audit columns from the existing xlsx.
+
+    Reads the named sheet from the workbook already on disk, picks the
+    columns listed in _MPS_AUDIT_COLUMNS[sheet_name]["columns"] that are
+    actually present, and left-joins them onto `df` via the configured
+    natural key. New rows (no match) get NaN; existing rows keep their
+    operator annotations.
+
+    Returns `df` unchanged when the workbook doesn't exist, the sheet
+    isn't in it, the join key is missing on either side, or none of the
+    whitelisted columns are present in the workbook.
+    """
+    spec = _MPS_AUDIT_COLUMNS.get(sheet_name)
+    if spec is None or df.empty or not xlsx_path.exists():
+        return df
+    try:
+        existing = pd.read_excel(xlsx_path, sheet_name=sheet_name)
+    except (ValueError, KeyError, FileNotFoundError):
+        return df
+    key = spec["key"]
+    if key not in existing.columns or key not in df.columns:
+        return df
+    # Skip any audit column that is already in df — if it ever migrates
+    # into the DB schema, the DB becomes authoritative and the merge
+    # would otherwise create _x/_y suffixed duplicates.
+    present = [c for c in spec["columns"]
+               if c in existing.columns and c not in df.columns]
+    if not present:
+        return df
+    audit = existing[[key] + present].drop_duplicates(subset=[key], keep="last")
+    merged = df.merge(audit, on=key, how="left")
+    print(f"  [PRESERVE] {sheet_name} audit columns: {present}")
+    return merged
 
 
 def export_mps(
@@ -947,6 +1014,11 @@ def export_mps(
 
         out = output_path or _resolve_mps_path()
         out.parent.mkdir(parents=True, exist_ok=True)
+
+        # Carry over operator-added audit columns from the existing xlsx
+        # before the ExcelWriter(mode='w') below truncates it. Whitelisted
+        # in _MPS_AUDIT_COLUMNS; joined by the sheet's natural key.
+        df_baskets = _merge_audit_columns(df_baskets, "Baskets", out)
 
         with pd.ExcelWriter(str(out), engine="openpyxl") as writer:
             df_port.to_excel(writer, sheet_name="Portfolios", index=False)
