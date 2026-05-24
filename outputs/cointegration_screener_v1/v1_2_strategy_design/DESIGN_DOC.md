@@ -364,3 +364,44 @@ If any of these is stale, fix it first; otherwise jump to step 1.
 **Does NOT replace:** the screener itself. The screener is the monitoring + signal-generation layer; v1.2 is the strategy that ACTS on those signals. Both run in parallel.
 
 **Does NOT replace:** the v2.1 event study or the Phase 3 realized-backtest. Those are statistical / regime-replay analyses. v1.2 will be the THIRD data point — full strategy backtest with real P&L mechanics. The three-way comparison is the deliverable.
+
+---
+
+## 11. Build progress + resume notes (2026-05-24, in-flight)
+
+**Session 2026-05-24 partial build (committed):**
+
+| Step | Status | Commit | Notes |
+|---|---|---|---|
+| §9 Pre-flight | ✓ done | — | All green. Actual scope: 4,690 raw triggers / 263 pair-pairs @ lookback=252 (doc said 865 / 286 — the 865 was the dedup'd realized-backtest stat; 263 is the real first-pass directive count) |
+| SQLite loader | ✓ done | `464e4a6` | `load_cointegration_factors_from_db()` in `tools/basket_data_loader.py` — reads cointegration_daily + cointegration_triggers, returns the per-date DataFrame shape consumed by the auto-join. Pair-order canonicalized; unknown pair returns empty. |
+| Auto-join wiring | ✓ done | `464e4a6` | New opt-in param `cointegration_join_lookback_days: int \| None` on `load_basket_leg_data`. State columns ffill to intraday; trigger flags are point-in-time on first intraday bar of each as_of. Smoke-tested against NZDUSD/USDCAD @ 252 (259 daily rows, 80 triggers, all 3 regimes). |
+| Strategy class | ⏸ deferred | — | NEXT — see "Architectural fork" below before drafting. |
+| Tests | ⏸ deferred | — | |
+| Registry + dispatch | ⏸ deferred | — | |
+| Directive generator | ⏸ deferred | — | Target ~263 directives @ lookback=252 (down from doc's 286). |
+| Pilot run | ⏸ deferred | — | Plan: 10-20 representative pair-pairs across FX/IDX/CROSS classes before scaling to full 263. |
+
+**Architectural fork to resolve before drafting `cointegration_meanrev_v1_2.py`:**
+
+H2/H3 basket rules manage legs that the engine has *already opened* — they don't open them from scratch. H3_spread uses a separate leg-level strategy (`SpreadCrossLegStrategy`) to fire per-leg entries on cross signals; the basket rule only manages exits + resets via `BasketRunner.soft_reset_basket`.
+
+For COINTREV v1.2, two viable patterns:
+
+1. **New leg strategy** `CointTriggerLegStrategy` (~100-150 LOC) that fires per-leg entry signal when `leg.df[bar_ts, 'coint_trigger'] == True`. Basket rule (`cointegration_meanrev_v1_2`) reads `coint_regime` + `coint_current_zscore` per bar and applies the three locked exits. **Recommended** — matches existing infra; no new BasketRunner primitives needed.
+
+2. **Zero-lot waiting state** — directive opens both legs at `lot=0.0`; basket rule mutates `leg.lot` + `leg.state.entry_price` directly on trigger; closes by zeroing lots. Unprecedented in the codebase; needs verification that `lot=0` is a supported BasketRunner state.
+
+**Resume sequence next session:**
+1. Pick the leg-strategy pattern (#1 above) unless evidence emerges that `lot=0` is supported and preferred.
+2. Write `tools/recycle_strategies.py::CointTriggerLegStrategy` mirroring `SpreadCrossLegStrategy` shape.
+3. Write `tools/recycle_rules/cointegration_meanrev_v1_2.py` per §4 spec — reads from leg.df columns (no SQLite touching; the auto-join already provides them).
+4. Add registry entry (governance/recycle_rules/registry.yaml) + dispatch branch in basket_pipeline._build_recycle_rule.
+5. Tests: fixture trigger ledger + price data, verify 3-exit logic, β-weighting via `tools.cointegration_excel._compute_neutral_basket`, min_gap_days dedupe.
+6. Write `tools/generate_cointrev_v1_2_directives.py` (~100 LOC). Directives MUST set `basket.cointegration_join.lookback_days: 252` to trigger the auto-join.
+7. Generate 263 directives @ lookback=252; pick 10-20 representative for pilot.
+8. Run pilot through `tools/run_pipeline.py` (sequential, 15s cooldown — ~30-60 min wall-clock).
+9. Mini-aggregator + report at `outputs/cointegration_screener_v1/v1_2_backtest/REPORT_pilot_<date>.md`.
+10. Check in with operator before scaling to full 263.
+
+**Estimated remaining work:** 4-6h focused (matches original §8 estimate now that infra is in place).
