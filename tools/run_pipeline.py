@@ -1127,6 +1127,15 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     regime_gate_flip_threshold = _rule_params.get("regime_gate_flip_threshold", None)
     if regime_gate_flip_threshold is not None:
         regime_gate_flip_threshold = float(regime_gate_flip_threshold)
+    # Cointegration auto-join (COINTREV v1.2, 2026-05-24). When the directive
+    # declares `basket.cointegration_join.lookback_days`, the loader joins
+    # cointegration_daily + cointegration_triggers onto each 2-leg basket
+    # from cointegration.db. Default None preserves byte-equivalence with
+    # pre-v1.2 directives that don't reference cointegration columns.
+    _coint_join = parsed.get("basket", {}).get("cointegration_join", {}) or {}
+    cointegration_join_lookback_days = _coint_join.get("lookback_days", None)
+    if cointegration_join_lookback_days is not None:
+        cointegration_join_lookback_days = int(cointegration_join_lookback_days)
     try:
         from tools.basket_data_loader import load_basket_leg_data
         from tools.recycle_strategies import (
@@ -1147,6 +1156,7 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             macro_correlation_threshold=macro_correlation_threshold,
             regime_gate_lookback_bars=regime_gate_lookback_bars,
             regime_gate_flip_threshold=regime_gate_flip_threshold,
+            cointegration_join_lookback_days=cointegration_join_lookback_days,
         )
         # Leg-strategy dispatch by recycle rule name (2026-05-18 — H3_spread@1):
         # different rules require different leg-entry semantics. ContinuousHold
