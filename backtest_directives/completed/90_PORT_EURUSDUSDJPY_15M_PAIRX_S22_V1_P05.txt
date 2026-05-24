@@ -1,0 +1,112 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P05
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P05
+  version: 1
+  signal_version: 1
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2018-05-18'
+  end_date: '2020-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V3_REGIME_GATE
+  hypothesis_variant: H3_PAIR_SPREAD_V3_REGIME_GATE_N2000_T37_WINDOW_C
+  description: 'S22 P05 -- Regime gate (charter
+    h3_spread_window_c_regime_detector). Adds two new recycle_rule
+    params on top of S21 P06/P07/P08 (locked 15m+d=8+@3 e=5.0 r=1.0
+    cross-window baseline):
+
+      regime_gate_lookback_bars: 2000  (~= 29 calendar days)
+      regime_gate_flip_threshold: 37
+
+    Stop: block new cycle initiation (cross_event zeroed at loader)
+    AND new pyramid orders (gated at v3 rule) when flips_in_lookback
+    > 37 in the trailing 2000 15m bars.
+    Restart: R1 pure symmetric -- as soon as flips_in_lookback <= 37.
+    Open cycles continue normally; exits (adverse / extreme-z /
+    reverse-cross / harvest / time) NOT gated. Cold-start: gate
+    inactive until lookback fills.
+
+    Probe (tmp/regime_crossover_probe.py): N=2000 T=37 hit
+    75% precision / 66.7% recall on per-quarter classification across
+    A/B/C windows -- charter target (>=70% / >=60%) cleared.
+    Pyramid suppression on already-open cycles is the v3 rule''s
+    responsibility (default-off byte-equivalent when params None).
+
+    Window C: 2018-05-18 -> 2020-05-18.
+    '
+  repeat_override_reason: '[REGIME-GATE-N2000-T37@2026-05-23 origin=H3_SPREAD_V3_PROBE
+    target=90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P05] Charter probe
+    validated separability at N=2000 T=37; pipeline run for
+    authentic gated-Net% figures across Windows A/B/C.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 3
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.020
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 8
+      extreme_z_threshold: 5.0
+      reentry_z_threshold: 1.0
+      reentry_macro_check: true
+      reentry_cross_check: true
+      reentry_max_per_regime: 3
+      regime_gate_lookback_bars: 2000
+      regime_gate_flip_threshold: 37
