@@ -311,7 +311,10 @@ class CointegrationMeanRevV1_2Rule(H2RecycleRule):
             return
 
         # 3. TIME_STOP — elapsed bars >= time_stop_bars
-        elapsed = i - (self._entry_bar_idx or i)
+        # NB: `is not None` check (not `or`) — _entry_bar_idx can be 0 on
+        # the first bar of a window, and `0 or i` would evaluate to `i`.
+        entry_idx = self._entry_bar_idx if self._entry_bar_idx is not None else i
+        elapsed = i - entry_idx
         if elapsed >= self.time_stop_bars:
             self._n_time_stops += 1
             self._liquidate(legs, i, bar_ts, bar_closes, leg_float,
