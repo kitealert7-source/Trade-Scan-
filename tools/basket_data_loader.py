@@ -279,6 +279,21 @@ def load_fx_correlation_factor(
         )
     a, b = sorted([sym_a.upper(), sym_b.upper()])
     col = f"corr_{a}_{b}"
+    # Probe column existence BEFORE pyarrow read — when col is absent,
+    # pd.read_parquet(..., columns=[col]) raises pyarrow.lib.ArrowInvalid
+    # ('No match for FieldRef.Name(<col>)'), which is NOT a KeyError and
+    # bypasses caller try/except blocks looking for KeyError. Promoting to
+    # KeyError here makes the failure mode contract-stable across callers
+    # (2026-05-24: surfaced during COINTREV v1.2 pilot — IDX/CMD legs
+    # outside the FX-only correlation matrix triggered the bypass).
+    import pyarrow.parquet as _pq
+    available_cols = _pq.read_metadata(path).schema.names
+    if col not in available_cols:
+        raise KeyError(
+            f"FX_CORRELATION_MATRIX: pair {col!r} not present in {path}. "
+            f"Confirm both symbols are in tools.factors.fx_correlation_matrix.FX_UNIVERSE "
+            f"and regenerate."
+        )
     df = pd.read_parquet(path, columns=[col])
     if col not in df.columns:
         raise KeyError(
