@@ -49,6 +49,7 @@ Available rules:
                                referenced H2_v7_compression@1. Do not use
                                for new vaults.
 """
+from tools.recycle_rules.cointegration_meanrev_v1_2 import CointegrationMeanRevV1_2Rule
 from tools.recycle_rules.h2_compression import H2CompressionRecycleRule
 from tools.recycle_rules.h2_recycle import H2RecycleRule
 from tools.recycle_rules.h2_recycle_v2 import H2RecycleRuleV2
@@ -60,6 +61,7 @@ from tools.recycle_rules.h3_spread_v2 import H3SpreadV2Rule
 from tools.recycle_rules.h3_spread_v3 import H3SpreadV3Rule
 
 __all__ = [
+    "CointegrationMeanRevV1_2Rule",
     "H2RecycleRule",
     "H2RecycleRuleV2",
     "H2RecycleRuleV3",

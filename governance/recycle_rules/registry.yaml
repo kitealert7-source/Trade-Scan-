@@ -564,6 +564,99 @@ rules:
       - USD_SYNTH.compression_5d
     initial_consumer: tools/basket_runner.py
 
+  - name: cointegration_meanrev_v1_2
+    version: 1
+    description: >
+      COINTREV v1.2 trigger-driven β-weighted spread strategy (2026-05-24).
+      Replaces the retired equal-lot COINTREV v1 (commit 605317c, 2026-05-21).
+      Reads the cointegration_triggers ledger (SQLite, populated by the
+      screener) via basket_data_loader auto-join (opt-in via
+      basket.cointegration_join.lookback_days on the directive — typically
+      252 or 504). Each trigger row carries the β at trigger time; the rule
+      uses tools.cointegration_excel._compute_neutral_basket(sym_a, sym_b,
+      β) to size both legs to a β-neutral minimum-tradeable basket on
+      OctaFX broker specs.
+
+      Two-bar leg ↔ rule protocol (avoids open-then-mutate lot adjustment):
+        Bar N    : CointTriggerLegStrategy detects coint_trigger=True and
+                   writes a proposal (pending_trigger_ts, proposed_direction,
+                   pending_trigger_as_of) into shared CointTriggerArmedState.
+                   Returns None (no fire).
+        Bar N    : This rule's apply() inspects the proposal, enforces
+                   min_gap_days_between_triggers + no-open-position policy,
+                   reads coint_beta_at_trigger, computes β-sized lots,
+                   MUTATES leg.lot, sets approved_fire_ts to next aligned
+                   bar (STRICTLY > pending_trigger_ts — asserted).
+        Bar N+1  : Leg returns signal; engine queues open at next_bar_open
+                   (Bar N+2) with already-correct β-sized lot.
+        Bar N+2  : Both legs in_pos → BASKET_OPEN event recorded;
+                   _last_entry_as_of committed for next cycle's min-gap;
+                   shared state cleared.
+
+      Exits per bar (priority order — BASE RUN, no hard z-stop):
+        1. MEAN_REVERSION       : abs(coint_current_zscore) <= exit_z
+        2. REGIME_DEGRADATION   : coint_regime in regime_exit_states
+                                  (default ['breaking', 'broken'] — LOCKED
+                                  per DESIGN_DOC.md §4. Changing this rule
+                                  requires a separate v1.2-strict baseline,
+                                  NOT a v1.2.x knob — would invalidate
+                                  apples-to-apples variant comparison).
+        3. TIME_STOP            : elapsed bars in position >= time_stop_bars
+
+      Restores leg.lot to default_initial_lot on liquidation; next cycle's
+      β-sized lots are computed at the next approval bar.
+
+      Future v1.2.x extensions (NOT in base run; one knob per variant):
+        v1.2.1: hard_stop_z_above_entry — z-based hard stop
+        v1.2.2: enable_pyramid          — pyramid on new trigger
+        v1.2.3: harvest_scale_out       — partial close at intermediate z
+        v1.2.4: preemptive_pvalue_exit_threshold — pre-empt regime classifier
+
+      Implementation: tools/recycle_rules/cointegration_meanrev_v1_2.py.
+      Inherits H2RecycleRule for parquet/events machinery (same pattern as
+      H3_spread); inherited harvest/freeze params are unused.
+    params:
+      min_gap_days_between_triggers:
+        type: int
+        default: 5
+      exit_z:
+        type: float
+        default: 1.0
+      time_stop_bars:
+        type: int
+        default: 60
+      regime_exit_states:
+        type: list[str]
+        default: ["breaking", "broken"]
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+      trigger_column:
+        type: str
+        default: coint_trigger
+      regime_column:
+        type: str
+        default: coint_regime
+      zscore_column:
+        type: str
+        default: coint_current_zscore
+      beta_column:
+        type: str
+        default: coint_beta_at_trigger
+      direction_column:
+        type: str
+        default: coint_direction
+    required_factors:
+      - cointegration.coint_trigger
+      - cointegration.coint_regime
+      - cointegration.coint_current_zscore
+      - cointegration.coint_beta_at_trigger
+      - cointegration.coint_direction
+    initial_consumer: tools/basket_runner.py
+
   - name: H3_spread
     version: 3
     description: >

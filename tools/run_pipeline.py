@@ -1130,6 +1130,8 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
     try:
         from tools.basket_data_loader import load_basket_leg_data
         from tools.recycle_strategies import (
+            CointTriggerArmedState,
+            CointTriggerLegStrategy,
             ContinuousHoldStrategy,
             SpreadCrossArmedState,
             SpreadCrossLegStrategy,
@@ -1178,6 +1180,23 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
                     armed_state=shared_armed_state,
                     delay_bars=delay_bars,
                     bar_seconds=bar_seconds,
+                )
+                for leg in parsed["basket"]["legs"]
+            }
+        elif rule_name == "cointegration_meanrev_v1_2":
+            # COINTREV v1.2 (2026-05-24): trigger-driven β-weighted spread.
+            # Leg strategy proposes triggers via shared CointTriggerArmedState;
+            # the rule (CointegrationMeanRevV1_2Rule, dispatched in
+            # basket_pipeline._instantiate_rule) discovers the same state via
+            # leg.strategy.armed_state on first apply() and uses it for the
+            # APPROVAL phase + β-weighted lot mutation. ONE shared instance
+            # for both legs — required for per-bar atomicity.
+            shared_armed_state = CointTriggerArmedState()
+            leg_strategies = {
+                leg["symbol"]: CointTriggerLegStrategy(
+                    symbol=leg["symbol"],
+                    position_direction=+1 if leg["direction"] == "long" else -1,
+                    armed_state=shared_armed_state,
                 )
                 for leg in parsed["basket"]["legs"]
             }

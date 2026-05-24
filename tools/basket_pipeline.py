@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 dispatch)
+from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +429,33 @@ def _instantiate_rule(
             initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
             trail_arm_floating_usd=float(params.get("trail_arm_floating_usd", 0.0)),
             trail_retrace_pct=float(params.get("trail_retrace_pct", 0.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "cointegration_meanrev_v1_2" and version == 1:
+        # COINTREV v1.2 (2026-05-24): trigger-driven β-weighted spread.
+        # Reads cointegration_triggers (auto-joined onto leg.df by
+        # basket_data_loader when basket.cointegration_join.lookback_days
+        # is set on the directive). Two-bar leg ↔ rule protocol approves
+        # each proposal, β-sizes lots via _compute_neutral_basket, and
+        # exits on mean-reversion / regime-degradation / time-stop.
+        # The rule discovers its shared CointTriggerArmedState from the
+        # leg strategies at first apply() — basket_pipeline doesn't
+        # construct the state itself (run_pipeline owns leg construction).
+        return CointegrationMeanRevV1_2Rule(
+            min_gap_days_between_triggers=int(params.get("min_gap_days_between_triggers", 5)),
+            exit_z=float(params.get("exit_z", 1.0)),
+            time_stop_bars=int(params.get("time_stop_bars", 60)),
+            regime_exit_states=tuple(params.get("regime_exit_states", ("breaking", "broken"))),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            trigger_column=str(params.get("trigger_column", "coint_trigger")),
+            regime_column=str(params.get("regime_column", "coint_regime")),
+            zscore_column=str(params.get("zscore_column", "coint_current_zscore")),
+            beta_column=str(params.get("beta_column", "coint_beta_at_trigger")),
+            direction_column=str(params.get("direction_column", "coint_direction")),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,

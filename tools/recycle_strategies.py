@@ -23,6 +23,8 @@ import pandas as pd
 
 
 __all__ = [
+    "CointTriggerArmedState",
+    "CointTriggerLegStrategy",
     "ContinuousHoldStrategy",
     "SpreadCrossArmedState",
     "SpreadCrossLegStrategy",
@@ -367,6 +369,231 @@ class SpreadCrossLegStrategy:
             else:
                 # Legacy uni-directional: position_direction is the signal.
                 signal = int(self.position_direction)
+            return {"signal": signal}
+        return None
+
+    def check_exit(self, ctx) -> bool:
+        """Never close via signal. Recycle rule handles all exits."""
+        return False
+
+
+# ---------------------------------------------------------------------------
+# COINTREV v1.2 — trigger-driven β-weighted spread (cointegration_meanrev_v1_2)
+# ---------------------------------------------------------------------------
+
+
+class CointTriggerArmedState:
+    """Shared coordinator state for COINTREV v1.2 baskets.
+
+    Two-bar leg ↔ rule protocol — state machine per cycle:
+
+        IDLE      → no trigger observed (all fields cleared)
+        PROPOSED  → leg saw coint_trigger=True on bar N; pending_trigger_ts=N;
+                    rule has not yet inspected
+        APPROVED  → rule accepted on bar N; approved_fire_ts=<next bar>;
+                    β-sized lots already mutated on legs by the rule
+        FIRED     → leg returned signal at approved_fire_ts; engine will open
+                    at next_bar_open; rule clears state on subsequent apply
+        CLEARED   → back to IDLE; waiting for next coint_trigger
+
+    Field ownership (writes):
+        leg.check_entry          : pending_trigger_ts, pending_trigger_as_of,
+                                   proposed_direction, last_processed_ts
+        rule.apply (approval)    : approved_fire_ts, approved
+        rule.apply (clear)       : reset() — back to IDLE
+
+    Invariants:
+        - approved_fire_ts is STRICTLY GREATER than pending_trigger_ts
+          (rule must assert this on approval — same-bar fire would defeat
+          the pre-open sizing guarantee).
+        - At most one in-flight cycle: leg refuses to propose while
+          pending_trigger_ts or approved_fire_ts is non-None.
+        - approved=True implies leg.lot was mutated to β-sized values BEFORE
+          this state was set.
+
+    A fresh instance must be created per directive (BasketRunner construction
+    in run_pipeline). Shared across both legs of the basket by reference.
+    """
+
+    def __init__(self) -> None:
+        self.last_processed_ts: pd.Timestamp | None = None
+        # PROPOSED phase
+        self.pending_trigger_ts: pd.Timestamp | None = None
+        self.pending_trigger_as_of: pd.Timestamp | None = None
+        self.proposed_direction: int = 0   # +1 LONG_SPREAD / -1 SHORT_SPREAD
+        # APPROVED phase
+        self.approved_fire_ts: pd.Timestamp | None = None
+        self.approved: bool = False
+
+    def reset(self) -> None:
+        """Return to IDLE. Called by the rule after fire/rejection."""
+        self.pending_trigger_ts = None
+        self.pending_trigger_as_of = None
+        self.proposed_direction = 0
+        self.approved_fire_ts = None
+        self.approved = False
+
+
+class CointTriggerLegStrategy:
+    """Signal-proposal leg strategy for COINTREV v1.2 β-weighted spread baskets.
+
+    Pure signal-proposal surface — does NOT decide trade-lifecycle policy. The
+    leg detects `coint_trigger==True` on a bar, exposes the proposal in shared
+    state, and waits. The basket rule (`cointegration_meanrev_v1_2`) inspects
+    the proposal, enforces min-gap + open-position policy, computes β-weighted
+    lots from `coint_beta_at_trigger`, mutates `leg.lot` to the sized values,
+    and signs off via `approved_fire_ts` (strictly LATER than the proposal
+    bar). The leg returns the engine entry signal on the approved fire bar.
+
+    The two-bar protocol avoids "open-then-mutate" lot adjustment: by the
+    time the engine actually opens the position (next_bar_open after fire),
+    `leg.lot` is already at the correct β-sized value.
+
+    Required leg.df columns (joined upstream by basket_data_loader when
+    the directive sets `basket.cointegration_join.lookback_days`):
+        coint_trigger        : bool                            (this strategy)
+        coint_direction      : str ('LONG_SPREAD'/'SHORT_SPREAD')  (this strategy)
+        coint_beta_at_trigger: float                           (rule reads)
+        coint_z_at_trigger   : float                           (rule may read)
+        coint_regime         : str                             (rule reads)
+        coint_current_zscore : float                           (rule reads)
+
+    Architectural boundary:
+        leg responsibilities = synchronize legs, expose fire signal, expose
+            direction, expose trigger timestamp.
+        rule responsibilities = consume/reject trigger, enforce min-gap,
+            enforce open-position policy, apply lot sizing, manage exits,
+            track replay state.
+
+    NOT fast-path eligible — fires conditionally, not on bar 1.
+
+    STRATEGY_SIGNATURE: same boilerplate as SpreadCrossLegStrategy — engine
+    ATR-fallback stop effectively disabled (atr_multiplier 100000) so that
+    exits are owned entirely by the recycle rule. `position_management.lots`
+    is a placeholder; the rule mutates `leg.lot` to β-sized values BEFORE
+    the engine opens the position (two-bar protocol).
+    """
+
+    timeframe = "15m"
+
+    # --- STRATEGY SIGNATURE START ---
+    STRATEGY_SIGNATURE = {
+        "execution_rules": {
+            "entry_logic":           {"type": "coint_trigger_proposal"},
+            "entry_when_flat_only":  True,
+            "exit_logic":            {"type": "basket_rule_owned"},
+            "pyramiding":            False,
+            "reset_on_exit":         False,
+            "stop_loss":             {"type": "atr_multiple", "atr_multiplier": 100000.0},
+            "take_profit":           {"enabled": False},
+            "trailing_stop":         {"enabled": False},
+        },
+        "indicators": [],
+        "order_placement":           {"type": "market", "execution_timing": "next_bar_open"},
+        "position_management":       {"lots": 0.01},
+        "signal_version":            1,
+        "signature_version":         2,
+        "trade_management":          {"direction": "basket_leg", "reentry": {"allowed": True}, "session_reset": "none"},
+        "version":                   1,
+    }
+    # --- STRATEGY SIGNATURE END ---
+
+    def __init__(
+        self,
+        symbol: str,
+        position_direction: int = +1,
+        *,
+        armed_state: CointTriggerArmedState | None = None,
+        trigger_column: str = "coint_trigger",
+        direction_column: str = "coint_direction",
+    ) -> None:
+        """Init.
+
+        Args:
+            symbol: leg symbol (e.g. NZDUSD).
+            position_direction: +1 long leg, -1 short leg (declared in directive).
+                The returned engine signal at fire time is
+                position_direction * proposed_direction; LONG_SPREAD preserves
+                the directive's base orientation, SHORT_SPREAD inverts it.
+            armed_state: SHARED CointTriggerArmedState across both legs of the
+                basket. Required for production multi-leg flow; per-leg
+                instantiation (default fallback) is unit-test convenience only.
+            trigger_column / direction_column: leg.df column names. Defaults
+                match the basket_data_loader auto-join contract.
+        """
+        if position_direction not in (+1, -1):
+            raise ValueError(
+                f"CointTriggerLegStrategy: position_direction must be +1 or -1, "
+                f"got {position_direction!r}."
+            )
+        self.symbol = symbol
+        self.position_direction = position_direction
+        self.armed_state = armed_state if armed_state is not None else CointTriggerArmedState()
+        self.trigger_column = trigger_column
+        self.direction_column = direction_column
+        self.name = (
+            f"coint_trigger_{symbol}_pos{'+' if position_direction > 0 else '-'}"
+        )
+
+    def prepare_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Cointegration columns are joined upstream by basket_data_loader
+        when the directive sets `basket.cointegration_join.lookback_days`.
+
+        Fail-fast on missing columns (Inv 1 — no silent missing-column
+        handling). `coint_beta_at_trigger` etc. are the rule's concern; we
+        only verify what the LEG needs.
+        """
+        missing = [c for c in (self.trigger_column, self.direction_column)
+                   if c not in df.columns]
+        if missing:
+            raise RuntimeError(
+                f"CointTriggerLegStrategy({self.symbol}): leg.df missing required "
+                f"columns {missing}. Expected upstream join from basket_data_loader "
+                f"(directive must set basket.cointegration_join.lookback_days)."
+            )
+        return df
+
+    def check_entry(self, ctx) -> dict[str, Any] | None:
+        """Two-bar protocol — proposal on trigger bar, fire on approved bar.
+
+        Per-bar atomic update: only the first leg processed on a given bar_ts
+        runs the proposal logic; both legs read shared state for fire-decision.
+        State machine guarded by ownership rules (see CointTriggerArmedState
+        docstring); leg only writes PROPOSED-phase fields.
+        """
+        bar_ts = pd.Timestamp(ctx.row.name)
+        state = self.armed_state
+
+        # PROPOSAL phase (Bar N): single-leg-side per-bar atomicity.
+        if state.last_processed_ts != bar_ts:
+            state.last_processed_ts = bar_ts
+
+            # Refuse to propose while a cycle is already in flight (one
+            # in-flight proposal at a time — base-run invariant; pyramid
+            # variants would lift this in a future v1.2.x).
+            if state.pending_trigger_ts is None and state.approved_fire_ts is None:
+                coint_trigger = bool(ctx.get(self.trigger_column, False))
+                if coint_trigger:
+                    direction_str = ctx.get(self.direction_column, "")
+                    if direction_str == "LONG_SPREAD":
+                        proposed_dir = +1
+                    elif direction_str == "SHORT_SPREAD":
+                        proposed_dir = -1
+                    else:
+                        # Malformed direction → leave proposal at 0; rule
+                        # will reject. Defensive — auto-join contract
+                        # guarantees a valid string on trigger=True bars.
+                        proposed_dir = 0
+                    state.pending_trigger_ts = bar_ts
+                    state.pending_trigger_as_of = bar_ts.normalize()
+                    state.proposed_direction = proposed_dir
+
+        # FIRE phase (Bar N+1): rule approved on prior bar.
+        if state.approved and state.approved_fire_ts == bar_ts:
+            if state.proposed_direction == 0:
+                # Should never happen post-approval, but guard anyway.
+                return None
+            signal = int(self.position_direction) * int(state.proposed_direction)
             return {"signal": signal}
         return None
 
