@@ -564,3 +564,66 @@ def test_auto_discovery_resolves_shared_state_from_leg_strategy():
     assert rule.shared_armed_state is None
     rule.apply([leg_a, leg_b], 0, idx[0])
     assert rule.shared_armed_state is shared
+
+
+# ---------------------------------------------------------------------------
+# Cross-region market-holiday divergence (regression test for 2026-05-24 bug)
+# ---------------------------------------------------------------------------
+
+
+def test_approval_uses_intersected_leg_indices_skips_holiday_bar():
+    """Daily-TF cross-region pairs diverge on market holidays (e.g., UK100
+    misses 2025-05-26 UK Spring Bank Holiday but EUSTX50 has it).
+
+    Bug (fixed 2026-05-24): _maybe_approve set approved_fire_ts from
+    legs[0].df.index alone — picking a bar BasketRunner's intersection
+    iteration never visits. Leg's check_entry never saw a matching ts,
+    state stuck, only the FIRST trigger of the year ever approved.
+
+    Fix: intersect all legs' indices when resolving next_bar_ts.
+
+    Regression: ensure approved_fire_ts skips the gap to the next
+    bar present in BOTH legs.
+    """
+    leg_a, leg_b, idx, shared = _build_legs(
+        n_bars=10, trigger_bar_idx=2, beta_at_trigger=0.75,
+    )
+    # Simulate leg_b missing the bar immediately after the trigger.
+    # In production this models a cross-region market holiday.
+    leg_b.df = leg_b.df.drop(idx[3])
+
+    rule = _make_rule(shared_armed_state=shared)
+    _step_leg_check_entries([leg_a, leg_b], idx[2])
+    rule.apply([leg_a, leg_b], 2, idx[2])
+
+    # Pre-fix behavior would have set approved_fire_ts = idx[3]
+    # (which leg_b is missing) → leg's check_entry never matches → stall.
+    # Post-fix: skip idx[3], land on idx[4] which BOTH legs have.
+    assert shared.approved is True
+    assert shared.approved_fire_ts == idx[4]
+    # Strict-greater invariant still holds.
+    assert shared.approved_fire_ts > shared.pending_trigger_ts
+
+
+def test_approval_rejects_no_next_bar_when_one_leg_truncated_after_trigger():
+    """When ONE leg has no bars after the trigger bar, the intersection
+    of post-trigger indices is empty → NO_NEXT_BAR rejection (not a stall).
+
+    Catches the worst-case end-of-data + divergent-leg scenario.
+    """
+    leg_a, leg_b, idx, shared = _build_legs(
+        n_bars=10, trigger_bar_idx=5, beta_at_trigger=0.75,
+    )
+    # leg_b has no bars after the trigger bar (idx[5]).
+    leg_b.df = leg_b.df.loc[:idx[5]]
+
+    rule = _make_rule(shared_armed_state=shared)
+    _step_leg_check_entries([leg_a, leg_b], idx[5])
+    rule.apply([leg_a, leg_b], 5, idx[5])
+
+    _find_event(rule.recycle_events, "REJECTED", reason="NO_NEXT_BAR")
+    assert rule._n_rejected_no_next_bar == 1
+    # State must be reset after rejection (no lingering pending proposal).
+    assert shared.pending_trigger_ts is None
+    assert shared.approved_fire_ts is None
+
