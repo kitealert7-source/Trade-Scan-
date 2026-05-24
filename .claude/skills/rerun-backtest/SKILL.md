@@ -78,16 +78,17 @@ If the category is ambiguous ("I changed the indicator AND bumped a parameter"),
 2. **Locate source directive** — searches `completed/` → `active_backup/` → `active/` → `archive/`, most-recent-mtime wins.
 3. **Parse YAML**, validate `test:` block shape.
 4. **Extend `test.end_date`** to today (or `--end-date` override) for all categories that benefit from fresh data.
-5. **Bump `signal_version` by 1** for `SIGNAL` and `BUG_FIX` categories — the Classifier Gate (Stage -0.21) requires a strict increment when it classifies the diff as SIGNAL.
+5. **Bump `test.signal_version` by 1** for `SIGNAL` and `BUG_FIX` categories — the Classifier Gate (Stage -0.21) requires a strict increment when it classifies the diff as SIGNAL. The bump lands **inside the `test:` block** per `canonical_schema.ALLOWED_NESTED_KEYS["test"]`; any stray root-level `signal_version` from a legacy bad-prepare is defensively stripped.
 6. **Inject `test.repeat_override_reason`** with a machine-scannable prefix:
    ```
    [RERUN:<CATEGORY>@<date> origin=<run_id_or_directive-clone> strategy=<name>] <user reason>
    ```
    Guaranteed ≥50 chars so the Idea-Evaluation Gate accepts the override. The user reason lands verbatim after the prefix.
 7. **Inject `test.rerun_of`** breadcrumb (originating run_id, if target was a run_id).
-8. **Write to `backtest_directives/INBOX/<strategy>.txt`**.
-9. **Audit-log** the event to `outputs/logs/rerun_audit.jsonl`.
-10. **Print next-step commands** (pipeline dispatch + finalize invocation template).
+8. **Rotate the `__E###` suffix** on filename + `test.name`. The next free integer is allocated by scanning `completed/`, `active_backup/`, `active/`, `archive/`, and `INBOX/` for any existing `<base>__E###.txt`. `test.strategy` always stays at the base stem (family root); only `test.name` and the filename carry the suffix.
+9. **Write to `backtest_directives/INBOX/<base>__E###.txt`**.
+10. **Audit-log** the event to `outputs/logs/rerun_audit.jsonl`.
+11. **Print next-step commands** (pipeline dispatch + finalize invocation template).
 
 ---
 
@@ -152,24 +153,29 @@ After `finalize`:
 
 ## Common Pitfalls
 
-1. **Running `prepare` twice without dispatching the pipeline in between** — the second `prepare` will refuse because the INBOX file exists. Use `--force` only if you intend to discard the first prepare.
+1. **Running `prepare` twice without dispatching the pipeline in between** — both runs succeed because each allocates a distinct `__E###` (the second sees the first sitting in INBOX and picks the next free number). The earlier variant in INBOX still has to be dealt with manually — either dispatch it or delete it before re-running `prepare`, otherwise you have two competing queued reruns.
 2. **Forgetting `finalize`** — the new run_id will sit alongside the old one in `master_filter` with no supersession link. Downstream analytics will see both and may double-count. Always finalize once the new run_id is visible.
 3. **Wrong category picked** — a `DATA_FRESH` label on what's actually a SIGNAL change will be caught by the Classifier Gate's content-hash check when it goes into production. If you hit a Stage -0.21 block, re-run `prepare` with `--category SIGNAL`.
 4. **Using `--quarantine` for non-BUG_FIX** — this permanently excludes the row from promotion. Only use when the prior result is provably wrong (not just "suboptimal").
 
 ---
 
-## Same-Stem Rerun Rule
+## Variant Naming Rule (__E### rotation)
 
-A rerun uses the **same directive filename** as the original (`strategy_id` unchanged). The pipeline differentiates original from rerun **only** via `test.repeat_override_reason`. Without it the Idea Gate returns `REPEAT_FAILED`.
+A rerun lands as a **new directive variant** of the same family — same `test.strategy` (the base stem), but a freshly allocated `__E###` suffix on the filename and `test.name`. The Idea Gate (-0.20) still bypasses on `test.repeat_override_reason`; the suffix is what satisfies `verify_directive_uniqueness_guard` at `run_pipeline.py:483`, which refuses to re-execute a directive_id already in the registry.
 
-Key constraint: if the directive is currently in `completed/` with state PORTFOLIO_COMPLETE, `reset_directive.py` is required before the pipeline will re-admit it. State is keyed by the directive filename stem — PORTFOLIO_COMPLETE blocks re-admission even if the file is in INBOX.
+Example:
 
-```bash
-# Reset before placing in INBOX
-python tools/reset_directive.py <STRATEGY_ID> --reason "<why>"
-# If state is IDLE (no state file), reset is not needed — proceed directly to run.
 ```
+Source:        90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E002.txt
+                 test.strategy: 90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100   (base, no suffix)
+                 test.name:     90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E002
+Rerun output:  INBOX/90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E003.txt
+                 test.strategy: 90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100   (unchanged)
+                 test.name:     90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E003
+```
+
+`reset_directive.py` is **not** required for `__E###`-rotated reruns — the new variant has a distinct directive_id, so PORTFOLIO_COMPLETE on the prior variant doesn't block it. The state file is keyed by filename stem, and the stem now differs.
 
 ---
 
@@ -271,12 +277,13 @@ Keys that DO trigger hash change (require registry update):
 
 ---
 
-## Rerun Contract (LOCKED — 2026-04-17)
+## Rerun Contract (LOCKED — 2026-04-17, amended 2026-05-24)
 
-- **Same-stem baseline enforced** — classifier requires same directive filename; `repeat_override_reason` is the only Idea-Gate bypass.
+- **Variant-rotated reruns** — every rerun gets a fresh `__E###` suffix on filename + `test.name`. `test.strategy` stays at the base stem. `repeat_override_reason` is still the only Idea-Gate bypass.
 - **Stage-3 non-idempotent** — compiler appends by `run_id`; old rows must be removed before rerun or Stage-3 silently no-ops.
 - **Stage-4 supersedence required** — old `run_id` must be marked `is_current=0` via `finalize`; no row deletion, no auto-overwrite.
 - **Directive = execution window** — `start_date`/`end_date` in the directive are the authority; no silent clamping by the engine.
+- **signal_version lives in test:** — `signal_version` is a child of the `test:` block per `canonical_schema.ALLOWED_NESTED_KEYS["test"]`. Root-level writes collide at the test→root mirror in `pipeline_utils.parse_directive_with_canonical_test` and are also rejected by Stage -0.25 canonicalization. The tool defensively strips any stray root-level key.
 
 ---
 
@@ -296,4 +303,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| 2026-05-24 | Basket rerun failed: tool wrote `signal_version` at YAML root (KEY COLLISION at test→root mirror, UNKNOWN_STRUCTURE at -0.25), and same-stem filename was refused by `verify_directive_uniqueness_guard`. | `rerun_backtest.py` now (a) bumps `test.signal_version` only and strips stray root key, (b) auto-rotates `__E###` on filename + `test.name`. Same fix applies to non-basket reruns. Regression test: `tests/test_rerun_backtest.py::test_basket_signal_rerun_no_root_collision`. |

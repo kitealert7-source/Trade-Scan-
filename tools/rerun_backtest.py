@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -89,6 +90,14 @@ _SEARCH_DIRS: tuple[Path, ...] = (
 )
 
 AUDIT_LOG_PATH = PROJECT_ROOT / "outputs" / "logs" / "rerun_audit.jsonl"
+
+# ── __E### suffix rotation ─────────────────────────────────────────────────
+# Reruns get a fresh ``__E###`` suffix on filename + ``test.name`` so the
+# uniqueness guard at ``run_pipeline.verify_directive_uniqueness_guard`` lets
+# them through. ``test.strategy`` always stays at the base stem (the family
+# root identifier — matches the convention in completed/ where every variant
+# of a strategy carries the same ``test.strategy`` but a unique ``test.name``).
+_E_SUFFIX_RE = re.compile(r"__E(\d{3})$")
 
 # ── Category taxonomy ───────────────────────────────────────────────────────
 # Maps 1:1 to what admission_controller + classifier_gate expect. The rerun
@@ -145,6 +154,35 @@ def _find_directive(strategy_name: str) -> Path:
     # rerun once already and both old and new copies exist).
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
+
+
+def _strip_e_suffix(name: str) -> str:
+    """Return ``name`` with any trailing ``__E###`` removed."""
+    return _E_SUFFIX_RE.sub("", name)
+
+
+def _next_e_index(base_stem: str) -> int:
+    """Return the smallest unused ``__E###`` integer for ``base_stem``.
+
+    Scans every directive search dir plus INBOX. The unsuffixed base file
+    (``<stem>.txt``) reserves index 0 — the first rerun lands on E001. If
+    the base has no file and no E variants, returns 1.
+    """
+    used: set[int] = set()
+    dirs = list(_SEARCH_DIRS) + [INBOX_DIR]
+    for d in dirs:
+        if not d.exists():
+            continue
+        if (d / f"{base_stem}.txt").exists():
+            used.add(0)
+        for p in d.glob(f"{base_stem}__E*.txt"):
+            m = _E_SUFFIX_RE.search(p.stem)
+            if m and p.stem == f"{base_stem}__E{m.group(1)}":
+                used.add(int(m.group(1)))
+    n = 1
+    while n in used:
+        n += 1
+    return n
 
 
 def _resolve_target(target: str) -> tuple[str, str | None]:
@@ -272,11 +310,14 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     else:
         new_end = old_end
 
-    # 4b. signal_version bump.
-    old_sv = int(data.get("signal_version") or 1)
+    # 4b. signal_version bump — lives inside test: per canonical_schema.
+    # Defensively strip any root-level signal_version (always wrong by schema;
+    # produces a KEY COLLISION at the test->root mirror in pipeline_utils).
+    root_sv = data.pop("signal_version", None)
+    old_sv = int(test_block.get("signal_version") or root_sv or 1)
     if cfg["bump_signal_version"]:
         new_sv = old_sv + 1
-        data["signal_version"] = new_sv
+        test_block["signal_version"] = new_sv
     else:
         new_sv = old_sv
 
@@ -289,8 +330,19 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     if orig_run_id:
         test_block["rerun_of"] = orig_run_id
 
-    # 5. Destination: INBOX with original filename.
-    dest_path = INBOX_DIR / f"{strategy}.txt"
+    # 4e. __E### suffix rotation — uniqueness guard at run_pipeline.py:483
+    # refuses any directive_id already in the registry. Allocate the next
+    # free E suffix so the rerun lands as a distinct directive_id. The
+    # ``test.strategy`` field stays at the base stem (family root); only
+    # filename + ``test.name`` carry the suffix.
+    base_stem = _strip_e_suffix(strategy)
+    test_block["strategy"] = base_stem
+    next_e = _next_e_index(base_stem)
+    new_variant_name = f"{base_stem}__E{next_e:03d}"
+    test_block["name"] = new_variant_name
+
+    # 5. Destination: INBOX with the rotated variant name.
+    dest_path = INBOX_DIR / f"{new_variant_name}.txt"
     if dest_path.exists() and not args.force:
         print(f"ERROR: {dest_path.relative_to(PROJECT_ROOT)} already exists. "
               f"Remove it or pass --force to overwrite.")
@@ -299,10 +351,12 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     # 6. Summary.
     print()
     print(f"  Strategy:       {strategy}")
+    print(f"  Variant:        {new_variant_name}  (auto __E### rotation)")
     print(f"  Category:       {category}  ({cfg['description']})")
     print(f"  end_date:       {old_end}  -->  {new_end}")
     print(f"  signal_version: {old_sv}  -->  {new_sv}"
-          + ("  (classifier gate requires bump)" if cfg["bump_signal_version"] else ""))
+          + ("  (classifier gate requires bump)" if cfg["bump_signal_version"] else "")
+          + ("  [stripped stray root-level key]" if root_sv is not None else ""))
     print(f"  override (first 120):  {override[:120]}"
           + ("..." if len(override) > 120 else ""))
     print(f"  Destination:    {dest_path.relative_to(PROJECT_ROOT)}")
@@ -320,6 +374,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     _audit_entry({
         "action": "prepare",
         "strategy": strategy,
+        "base_stem": base_stem,
+        "variant_name": new_variant_name,
         "originating_run_id": orig_run_id,
         "category": category,
         "user_reason": user_reason,
