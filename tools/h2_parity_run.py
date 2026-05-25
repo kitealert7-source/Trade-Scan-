@@ -174,19 +174,26 @@ def _bucket_outcome(row: dict) -> str:
     return "NONE"  # window ended without rule-driven exit (chop)
 
 
-def aggregate_baskets_sheet() -> pd.DataFrame:
+def aggregate_baskets_sheet(include_quarantined: bool = False) -> pd.DataFrame:
     """Read MPS::Baskets, filter to H2 rows, dedupe to latest per directive.
 
     The Baskets sheet is append-only (Invariant #2): re-running the matrix
     against an already-populated sheet leaves the prior rows in place and
     appends new ones. For the parity report we want one row per pass, so
     we keep only the latest row per `directive_id` (by `completed_at_utc`).
+
+    By default, rows tagged with any `quarantine_status` (e.g. SUPERSEDED
+    pre-fix runs, RETIRED rule cohorts) are excluded — parity numbers
+    drawn from sign-flipped or otherwise invalid data are misleading.
+    Pass `include_quarantined=True` for forensic review.
     """
     mps = TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
     if not mps.is_file():
         raise FileNotFoundError(f"MPS not found at {mps}")
     df = pd.read_excel(mps, sheet_name="Baskets")
     h2 = df[df["basket_id"] == "H2"].copy()
+    if not include_quarantined and "quarantine_status" in h2.columns:
+        h2 = h2[h2["quarantine_status"].isna() | (h2["quarantine_status"].astype(str).str.strip() == "")].copy()
     h2["completed_at_utc_dt"] = pd.to_datetime(h2["completed_at_utc"], errors="coerce", utc=True)
     h2 = (
         h2.sort_values("completed_at_utc_dt")
@@ -313,6 +320,8 @@ def main() -> int:
                    help="skip the dispatch loop; only build the report from existing Baskets rows")
     p.add_argument("--report-out", default="outputs/h2_10_window_parity_report.md",
                    help="path for the comparison report")
+    p.add_argument("--include-quarantined", action="store_true",
+                   help="Include rows tagged with quarantine_status (e.g. SUPERSEDED pre-fix runs). Default: hide.")
     args = p.parse_args()
 
     if args.only and args.all:
@@ -348,7 +357,7 @@ def main() -> int:
 
     # Aggregate the Baskets sheet + write comparison report
     print(f"\n[H2_PARITY] Aggregating Baskets sheet → comparison report")
-    h2 = aggregate_baskets_sheet()
+    h2 = aggregate_baskets_sheet(include_quarantined=args.include_quarantined)
     out_path = (PROJECT_ROOT / args.report_out).resolve()
     build_parity_report(h2, out_path)
     print(f"[H2_PARITY] Report: {out_path}")

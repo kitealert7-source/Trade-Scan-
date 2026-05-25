@@ -32,11 +32,18 @@ def _load_baskets_sheet() -> pd.DataFrame:
     return pd.read_excel(mps_path, sheet_name="Baskets")
 
 
-def _filter_cointrev_real(df: pd.DataFrame, lookback: int) -> pd.DataFrame:
+def _filter_cointrev_real(
+    df: pd.DataFrame, lookback: int, include_superseded: bool = False
+) -> pd.DataFrame:
     pattern = f"COINTREV_V2_L{lookback}"
     mask = df["directive_id"].str.contains(pattern, na=False)
     sub = df[mask].copy()
     sub = sub[sub["trades_total"] > 0].copy()
+    # By default, hide rows tagged with any quarantine_status (e.g. SUPERSEDED
+    # pre-fix runs from leg_direction_flip_bug). Append-only invariant keeps
+    # them in MPS; they only confuse interpretation of post-fix cohort metrics.
+    if not include_superseded and "quarantine_status" in sub.columns:
+        sub = sub[sub["quarantine_status"].isna() | (sub["quarantine_status"].astype(str).str.strip() == "")].copy()
     return sub.sort_values("trades_total", ascending=False).reset_index(drop=True)
 
 
@@ -148,10 +155,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-csv", type=Path, default=None,
                         help="Optional: write per-directive table as CSV")
     parser.add_argument("--print-report", action="store_true", default=True)
+    parser.add_argument("--include-superseded", action="store_true",
+                        help="Include rows tagged with quarantine_status (e.g. SUPERSEDED pre-fix runs). Default: hide.")
     args = parser.parse_args(argv)
 
     df = _load_baskets_sheet()
-    sub = _filter_cointrev_real(df, args.lookback)
+    sub = _filter_cointrev_real(df, args.lookback, include_superseded=args.include_superseded)
     if sub.empty:
         print(f"[aggregator] No COINTREV_V2_L{args.lookback} real-mode runs found.",
               file=sys.stderr)

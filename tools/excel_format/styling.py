@@ -377,13 +377,29 @@ def _style_portfolio_sheet(ws, path, col_map, max_col, max_row):
             _fc.filters = Filters(filter=["CORE", "WATCH"])
             ws.auto_filter.filterColumn.append(_fc)
             _ps_col = _ps_idx + 1  # 1-based
+            # Optional: also hide quarantined rows (e.g. SUPERSEDED entries left
+            # behind by the append-only invariant). Filter spec stays on status;
+            # quarantine hiding is enforced row-by-row via row_dimensions.
+            _quar_col = None
+            if "quarantine_status" in _headers_lower:
+                _quar_col = _headers_lower.index("quarantine_status") + 1
             _hidden_count = 0
+            _hidden_quar = 0
             for _r in range(2, max_row + 1):
                 _val = str(ws.cell(row=_r, column=_ps_col).value or "")
+                _quar_val = ""
+                if _quar_col is not None:
+                    _raw = ws.cell(row=_r, column=_quar_col).value
+                    _quar_val = "" if _raw is None else str(_raw).strip()
                 if _val not in ("CORE", "WATCH"):
                     ws.row_dimensions[_r].hidden = True
                     _hidden_count += 1
+                elif _quar_val:
+                    ws.row_dimensions[_r].hidden = True
+                    _hidden_quar += 1
             print(f"    [FILTER] Pre-selected {_status_col_name}=CORE/WATCH (hidden {_hidden_count} non-CORE/WATCH rows)")
+            if _quar_col is not None:
+                print(f"    [FILTER] Hid {_hidden_quar} additional CORE/WATCH rows with quarantine_status set")
 
 
 def _style_strategy_sheet(ws, path, max_col, max_row):
