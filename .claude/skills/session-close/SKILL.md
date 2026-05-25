@@ -35,27 +35,34 @@ Run all checks; act on none yet.
 # Pipeline activity this session (signal for 3.A, 3.B)
 git log origin/main..HEAD --oneline 2>/dev/null | grep -E "(stage|pipeline|backtest|run_id)" | head -5
 
-# Drift signals (signals for 3.9)
+# Skill-doctrine modifications this session (narrow signal for 3.6)
+git diff --name-only origin/main..HEAD 2>/dev/null | grep -E "^\.claude/skills/.+/SKILL\.md$"
+
+# Drift signals (signals for 3.9 Deferred Maintenance)
 git status --short
 git log origin/main..HEAD --oneline | wc -l                  # unpushed commits
 wc -l MEMORY.md RESEARCH_MEMORY.md 2>/dev/null
 
-# Day of week (signal for 3.9)
-date +%A                                                      # Saturday/Sunday → weekend
+# Day of week (informational; no longer auto-fires weekly skills)
+date +%A
 ```
 
-Skills-invoked count comes from conversation memory — no shell signal.
-The MPS / backtests / runs drift counts come from comparing
-`TradeScan_State/` against the previous close (or visual scan if
-counters aren't persisted).
+Skill-doctrine signal for 3.6 is the **narrow** trigger: only fires when
+this session's commits actually modified one or more `SKILL.md` files.
+Skills being *invoked* during the session does NOT trigger 3.6 — invoking
+`/format-excel-ledgers` ten times doesn't change skill doctrine, so it
+shouldn't fire a 20-skill audit. The MPS / backtests / runs drift counts
+come from comparing `TradeScan_State/` against the previous close (or
+visual scan if counters aren't persisted).
 
 Print the detection summary:
 
 ```
 PHASE 1 — DETECT (<UTC>)
   Pipeline runs completed   : YES / NO     (N new run_ids)
-  Skills invoked            : YES / NO     (list: <names>)
-  Day of week               : <day>         (weekend = YES/NO)
+  SKILL.md modified         : YES / NO     (list: <slugs>)        ← signal for 3.6
+  Skills invoked            : YES / NO     (list: <names>; informational only)
+  Day of week               : <day>         (informational; weekend prompts in 3.9 backlog)
   Drift signals:
     MPS delta               : N             (threshold ≥10 → trigger /pipeline-state-cleanup)
     backtests/ new dirs     : N             (threshold ≥20 → trigger /pipeline-state-cleanup)
@@ -246,10 +253,23 @@ python tools/indicator_registry_sync.py --check
 | `0` | Disk ↔ registry in sync | Proceed |
 | `1` | Drift detected | **Block session close.** Either: (a) `python tools/indicator_registry_sync.py --add-stubs` then `git add indicators/INDICATOR_REGISTRY.yaml` and commit, OR (b) restore the missing `.py` files / remove the orphan registry entries. Re-run `--check` until it exits 0. |
 
-### 3.6 Skill-maintenance audit [conditional: skills invoked = YES]
+### 3.6 Skill-maintenance audit [conditional: SKILL.md modified this session]
 
 Run the governed audit of all SKILL.md files BEFORE the pre-push gate
 so any audit commit goes through 3.7's clean-tree check.
+
+**Trigger:** any `SKILL.md` file appears in
+`git diff --name-only origin/main..HEAD` for this session — i.e., this
+session's commits actually modified skill doctrine. Skills being
+*invoked* during the session does NOT fire this audit; invoking a skill
+doesn't change its `SKILL.md` content, so a 20-skill format audit is
+wasted work. Narrowed from "skills invoked = YES" to "SKILL.md
+modified" on 2026-05-25 to remove the trigger over-firing.
+
+Fallback paths (still fire even without SKILL.md modification):
+- **Manual demand:** operator explicitly invokes `/skill-maintenance`
+- **Once-monthly cadence:** if `outputs/.session_state/last_skill_audit.txt`
+  is older than 30 days, auto-fire as a slow-creep catch
 
 > Invoke [`/skill-maintenance`](../skill-maintenance/SKILL.md) — produces a report;
 > on `apply` lands at most one commit, on `skip` exits cleanly.
@@ -257,8 +277,6 @@ so any audit commit goes through 3.7's clean-tree check.
 Hard findings the audit can't auto-fix (pending friction rows without
 landed edits, missing reference files) require operator decision —
 either resolve in the same close, or note in Phase 4 summary and defer.
-
-Skip if a previous session-close in the same calendar day already ran it.
 
 ### 3.7 Pre-push gate — strict clean working tree [NON-NEGOTIABLE]
 
@@ -526,9 +544,11 @@ python tools/audit_intent_index.py --all
 # 3.5 Indicator registry drift — exit 1 blocks (ALWAYS)
 python tools/indicator_registry_sync.py --check
 
-# 3.6 Skill-maintenance audit (CONDITIONAL: skills invoked)
+# 3.6 Skill-maintenance audit (CONDITIONAL: SKILL.md modified in session commits)
+#     git diff --name-only origin/main..HEAD | grep -E "\.claude/skills/.+/SKILL\.md$"
 #     /skill-maintenance — produces a report; on `apply` lands at most one commit
 #     that must pass the same pre-push gate (3.7) as any other work.
+#     Fallback: monthly cadence + manual demand still fire even without SKILL.md mods.
 
 # 3.7 Pre-push gate — MUST be empty (excl. untracked, excl. SYSTEM_STATE.md) (NON-NEGOTIABLE)
 git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$" || true
