@@ -1,0 +1,101 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P00__E001
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P00
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-18'
+  end_date: '2026-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V3
+  hypothesis_variant: H3_PAIR_SPREAD_V3_EXTREME_Z_4p0_REENTRY_1p0_WINDOW_A
+  description: 'S19 = e=4.0 / e=6.0 fine-grain bracket around the S17 P03 winning
+    calibration (e=5.0). P00 = e=4.0 on Window A.
+
+    Tests whether e=5.0 is the local optimum or whether e=4.0 / e=6.0 are at-least-equal.
+    The 1.5sigma bracket (vs the rejected 0.5sigma 4.5/5.5 bracket) gives genuine
+    distinguishability — each adjacent point should produce a detectably different
+    EXTREME_Z event count.
+
+    Compare to: S10 V1 P00 (Window A @2)        -> +198.36% / 23.22% DD / RetDD 8.54
+    S17 V1 P01 (e=3.5, A)           -> +93.10%  / 27.73% DD / RetDD 3.36 S19 V1 P00
+    (e=4.0, A)           -> ???   (this probe) S17 V1 P03 (e=5.0, A) WINNER    ->
+    +205.67% / 20.68% DD / RetDD 9.95 S19 V1 P02 (e=6.0, A)           -> ???   (sibling
+    probe) S17 V1 P04 (e=7.0, A)           -> +193.64% / 23.30% DD / RetDD 8.31
+
+    '
+  repeat_override_reason: 'BUG_FIX: leg_direction_flip_bug Option-B architectural
+    fix (effective_direction property); h3_spread bidirectional rerun under correct
+    entry-bar PnL accounting (commit ac14d1e, 2026-05-24). Phase 2 rehabilitation
+    batch for WATCH + near-threshold FAIL rows.'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 3
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.02
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12
+      extreme_z_threshold: 4.0
+      reentry_z_threshold: 1.0
+      reentry_macro_check: true
+      reentry_cross_check: true
+      reentry_max_per_regime: 3

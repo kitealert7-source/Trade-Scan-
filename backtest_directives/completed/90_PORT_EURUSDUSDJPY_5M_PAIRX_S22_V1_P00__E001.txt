@@ -1,0 +1,107 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S22_V1_P00__E001
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S22_V1_P00
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-18'
+  end_date: '2026-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V3
+  hypothesis_variant: H3_PAIR_SPREAD_V3_EXTREME_Z_5p0_REENTRY_1p0_5M_DELAY6_WINDOW_A
+  description: 'S22 = entry-delay fine-grain: d=6 on 5m, Window A. Fills the gap between
+    d=4 (S21 P00: +230.54%) and d=8 (S21 P02: +191.27%) on Window A.
+
+    Non-monotonic d-sweep on 5m Window A: d=4   -> +230.54% / 20.99 DD / RetDD 10.99
+    d=6   -> ???    (this probe; calendar = 30 min wait) d=8   -> +191.27% / 27.01
+    DD / RetDD 7.08 d=12  -> +205.67% / 20.68 DD / RetDD 9.95
+
+    The d=8 dip is structurally unexplained. Either: (a) Noise — d=6 falls between
+    d=4 and d=8 (~+210 Net%), confirming d=4 is the local optimum on 5m Window A.
+    (b) d=8 is the dip — d=6 lies on the falling edge from d=4 (peak) toward the d=8
+    trough. Implication: stick with d=4 as 5m optimum. (c) d=6 is HIGHER than d=4
+    — surprising; would suggest a peak in the 4-6 range we missed.
+
+    Single Window A probe; if d=6 is competitive (matches or beats d=4), then cross-window
+    validation on Window B follows. If d=6 is below d=4, the 5m optimum stays at d=4
+    (Window A) / d=12 (Window B).
+
+    Note: 5m+d=4 Window B was BAD (+144 / 43 DD). So shorter delays are window-conditional
+    on 5m. The 15m+d=8 cross-window winner remains the deployment candidate regardless
+    of this 5m fine-grain.
+
+    '
+  repeat_override_reason: 'BUG_FIX: leg_direction_flip_bug Option-B architectural
+    fix (effective_direction property); h3_spread@3 bidirectional rerun under correct
+    entry-bar PnL accounting (commit ac14d1e, 2026-05-24).'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 3
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.02
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 6
+      extreme_z_threshold: 5.0
+      reentry_z_threshold: 1.0
+      reentry_macro_check: true
+      reentry_cross_check: true
+      reentry_max_per_regime: 3

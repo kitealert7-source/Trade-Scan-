@@ -1,0 +1,118 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S16_V1_P00__E001
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S16_V1_P00
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-18'
+  end_date: '2026-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V2
+  hypothesis_variant: H3_PAIR_SPREAD_V2_BIDIR_MACRO4H_SCALED_EXIT_UNSMOOTHED_WINDOW_A
+  description: 'H3 PAIR SPREAD V2 z=0 exit probe -- S16 group, P00 = S10 V1 P00 with
+    reverse_cross_column switched from cross_side (SMA(z_a, 15) - SMA(z_b, 15) sign)
+    to cross_side_raw (z_a - z_b sign, no SMA). The unsmoothed signal fires the reverse-cross
+    exit roughly sma_window/2 = 7-8 bars earlier in any retrace, which the S10 baseline
+    gives back as $49 per cycle on 114 reverse-cross exits ($5,660 total give-back).
+
+    Entry side UNCHANGED: cross_event (smoothed) is still the entry trigger, macro
+    filter still gates entries via htf_direction. Only the EXIT signal uses the faster
+    column.
+
+    Bidirectional entry-direction capture in h3_spread_v2.py:250 also reads reverse_cross_column.
+    At entry-bar (where smoothed cross_event fires), the unsmoothed cross has typically
+    been on the new side for some bars already, so cross_side_raw at entry-bar equals
+    cross_side at entry-bar. The fallback to legs[0].state.direction handles any marginal
+    edge case where they disagree.
+
+    All other params identical to S10 V1 P00: bidirectional=true, macro_direction_timeframe=4h,
+    macro_sma_window=30, macro_z_window=360, cap_mult=3.0, pyramid_step=0.15, pyramid_lot=0.05,
+    adverse_stop_pct=0.020, time_stop=864, entry_delay_bars=12.
+
+    Window A only (USD-weakening regime where S10 baseline reached +198.36% / -23.22%
+    DD / RetDD 8.54 / cycle PF 1.44 / WR 28.7%).
+
+    Test goal: measure the change in REVERSE_CROSS exit capture rate (S10 baseline:
+    34.0% capture, $25.76 mean exit floating on 114 reverse-cross exits, $49.65 mean
+    give-back per cycle).
+
+    Possible outcomes: (a) Higher capture rate, higher Net% -> unsmoothed wins, lock
+    as new baseline for h3_spread@2 deployment. Design @3 from here. (b) Higher capture
+    but lower Net% -> faster exit cut some healthy cycles too early; deadband variant
+    (S17) needed to find sweet spot. (c) Lower capture, lower Net% -> false-positive
+    noise dominates, unsmoothed loses; abandon this direction, look at deadband or
+    high-z exit instead.
+
+    Direct A/B vs S10 V1 P00 (same rule + window + params, only reverse_cross_column
+    differs).
+
+    '
+  repeat_override_reason: 'BUG_FIX: leg_direction_flip_bug Option-B architectural
+    fix (effective_direction property); h3_spread@3 bidirectional rerun under correct
+    entry-bar PnL accounting (commit ac14d1e, 2026-05-24).'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 2
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 4h
+      macro_warmup_days: 120
+      macro_z_window: 360
+      macro_sma_window: 30
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.02
+      time_stop_bars: 864
+      reverse_cross_column: cross_side_raw
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12

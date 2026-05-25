@@ -1,0 +1,108 @@
+test:
+  name: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S08_V1_P00__E001
+  family: PORT
+  strategy: 90_PORT_EURUSDUSDJPY_5M_PAIRX_S08_V1_P00
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 5m
+  start_date: '2024-05-18'
+  end_date: '2026-05-18'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: H3_PAIR_SPREAD_V2
+  hypothesis_variant: H3_PAIR_SPREAD_V2_BIDIR_MACRO1D_WINDOW_A
+  description: 'H3 PAIR SPREAD V2, BIDIRECTIONAL + DAILY MACRO-DIRECTION FILTER on
+    Window A (2024-05 -> 2026-05). Adds the missing macro brain that prior bidirectional
+    runs (S06 V1 P00) lacked.
+
+    Mechanic: - Entry-TF (5m): existing spread_sma_cross indicator computes cross_event
+    and cross_side (z_window=600, sma_window=15). - Macro-TF (1d): SAME indicator
+    computed on native broker daily bars with z_window=60, sma_window=5. Result cross_side
+    shifted by 1 daily bar (look-ahead protection), forward-filled onto the 5m grid
+    as `htf_direction`. - Entry gate: 5m cross_event ZEROED OUT unless it matches
+    the prevailing daily htf_direction at that bar. Countertrend 5m crosses are silently
+    suppressed before reaching the leg strategy. - Exit signal: 5m cross_side LEFT
+    UNTOUCHED. Reverse-cross exits still fire on every 5m flip — cycles take the small
+    reverse- cross loss rather than sitting in losers waiting for the daily macro
+    to flip.
+
+    Same rule + same mechanics as S06 V1 P00 (bidirectional, cap=3x, keeps_core=true).
+    The ONLY change is the upstream entry filtering.
+
+    macro_warmup_days=120 ensures the daily indicator is fully warmed up (60-bar z
+    + 5-bar sma + safety margin) by 2024-05-18 — the loader has data back to 2007
+    so warmup is trivial.
+
+    Test goal: verify whether macro-aligned entry selection (combined with keep-core
+    trend participation and 5m responsive exits) delivers risk-adjusted edge that
+    bidirectional-no-filter S06 sacrificed to countertrend cycles.
+
+    Direct A/B vs S06 V1 P00 (same rule + window + params, macro filter is the only
+    diff). Cross-window counterpart is S08 V1 P01.
+
+    '
+  repeat_override_reason: 'BUG_FIX: leg_direction_flip_bug Option-B architectural
+    fix (effective_direction property); h3_spread@3 bidirectional rerun under correct
+    entry-bar PnL accounting (commit ac14d1e, 2026-05-24).'
+symbols:
+- EURUSD
+- USDJPY
+indicators:
+- indicators.volatility.atr
+- indicators.stats.spread_sma_cross
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: spread_sma_cross_signal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.1
+basket:
+  basket_id: EURUSDUSDJPYBIDIR
+  legs:
+  - symbol: EURUSD
+    lot: 0.1
+    direction: long
+  - symbol: USDJPY
+    lot: 0.1
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: H3_spread
+    version: 2
+    params:
+      max_exposure_multiple: 3.0
+      pyramid_threshold_step_pct: 0.15
+      harvest_start_after_extra_pyramids: 0
+      harvest_keeps_core: true
+      bidirectional: true
+      macro_direction_timeframe: 1d
+      macro_warmup_days: 120
+      pyramid_add_lot: 0.05
+      adverse_stop_pct: 0.02
+      time_stop_bars: 864
+      reverse_cross_column: cross_side
+      entry_direction: 1
+      initial_notional_usd: 1000.0
+      entry_delay_bars: 12
