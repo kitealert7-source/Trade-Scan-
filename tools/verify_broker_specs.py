@@ -281,7 +281,22 @@ def main():
                         help="Apply corrections to YAML files")
     parser.add_argument("--force-all", action="store_true",
                         help="Force-patch ALL symbols to MT5 values (not just drifted ones)")
+    parser.add_argument("--target-dir", type=str, default=None,
+                        help="Override broker_specs YAMLs directory. Default: Trade_Scan local "
+                             "(data_access/broker_specs/OctaFx). The DATA_INGRESS pipeline wrapper "
+                             "passes the canonical DATA_INGRESS path here so the patch writes to "
+                             "the new source-of-truth location (2026-05-25 migration).")
     args = parser.parse_args()
+
+    if args.target_dir:
+        # Override module-global so all downstream functions see the new dir.
+        # Explicit cross-repo path via CLI is intentional — keeps the coupling
+        # visible at orchestration time instead of hiding it in script defaults.
+        global BROKER_SPECS_DIR
+        BROKER_SPECS_DIR = Path(args.target_dir)
+        if not BROKER_SPECS_DIR.exists() or not BROKER_SPECS_DIR.is_dir():
+            print(f"ERROR: --target-dir does not exist or is not a directory: {BROKER_SPECS_DIR}")
+            sys.exit(1)
 
     mt5_path = Path(args.mt5_json)
     if not mt5_path.exists():
