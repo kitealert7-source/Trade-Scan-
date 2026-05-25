@@ -193,6 +193,55 @@ def _validate_recycle_rule_params(
         )
 
 
+def _validate_basket_id_convention(
+    basket_id: str, params: dict, rule_name: str, version: int,
+) -> None:
+    """Enforce H3_spread basket_id direction-suffix convention.
+
+    For H3_spread (any version):
+      - If params.bidirectional is True  -> basket_id MUST end with 'BIDIR'.
+      - Otherwise (False/absent)         -> basket_id MUST end with 'BEAR' or 'BULL'.
+
+    Formalizes the convention observed in the 2026-05-25 H3 rehabilitation
+    batch where basket_id suffix served as in-band evidence of direction
+    mode but was not actually enforced — leaving the door open to silent
+    BIDIR/BEAR/BULL mislabeling. Other rule families (H2_recycle, cointegration_*,
+    pine_ratio_zrev_v1) do not use this convention and are skipped.
+
+    Skipped entirely when basket_id is empty (test-mode invocation of
+    _instantiate_rule that doesn't supply basket_id).
+    """
+    if rule_name != "H3_spread":
+        return
+    if not basket_id:
+        # Test-mode invocation. Real pipeline calls always supply basket_id.
+        return
+    is_bidir = bool(params.get("bidirectional", False))
+    bid = str(basket_id)
+    if is_bidir:
+        if not bid.endswith("BIDIR"):
+            raise ValueError(
+                f"basket_id convention violation: {rule_name}@{version} directive "
+                f"declares bidirectional=true but basket_id={bid!r} does not end "
+                f"with 'BIDIR'. Required for in-band direction-mode identification "
+                f"(formalized 2026-05-25 from H3 rehabilitation batch). "
+                f"Fix: rename basket_id to end with 'BIDIR' (e.g., '{bid}BIDIR'), "
+                f"or set bidirectional=false."
+            )
+    else:
+        if not (bid.endswith("BEAR") or bid.endswith("BULL")):
+            present = "false" if "bidirectional" in params else "absent (default false)"
+            raise ValueError(
+                f"basket_id convention violation: {rule_name}@{version} directive "
+                f"has bidirectional={present} (unidirectional) but basket_id={bid!r} "
+                f"does not end with 'BEAR' or 'BULL'. Required for in-band "
+                f"direction-mode identification (formalized 2026-05-25 from H3 "
+                f"rehabilitation batch). Fix: rename basket_id to end with 'BEAR' "
+                f"(USD-bear spread) or 'BULL' (USD-bull spread), or set "
+                f"bidirectional=true and use 'BIDIR' suffix."
+            )
+
+
 def _instantiate_rule(
     rule_cfg: dict[str, Any],
     factor_column: str | None = None,
@@ -428,6 +477,7 @@ def _instantiate_rule(
 
     if name == "H3_spread" and version == 1:
         _validate_recycle_rule_params(H3SpreadV1Rule, params, name, version)
+        _validate_basket_id_convention(basket_id, params, name, version)
         # H3_spread@1 (2026-05-18): LONG-SHORT pair-spread basket rule.
         # Manages a USD-directional spread (one leg long, other short) with
         # signal-triggered entry (via SpreadCrossLegStrategy), basket-level
@@ -451,6 +501,7 @@ def _instantiate_rule(
 
     if name == "H3_spread" and version == 2:
         _validate_recycle_rule_params(H3SpreadV2Rule, params, name, version)
+        _validate_basket_id_convention(basket_id, params, name, version)
         # H3_spread@2 (2026-05-19): bounded-exposure + harvest scale-out
         # with optional delayed-harvest window. @1 with three-phase pyramid
         # lifecycle: ACCUMULATE up to max_exposure_multiple * initial_lot,
@@ -492,6 +543,7 @@ def _instantiate_rule(
 
     if name == "H3_spread" and version == 3:
         _validate_recycle_rule_params(H3SpreadV3Rule, params, name, version)
+        _validate_basket_id_convention(basket_id, params, name, version)
         # H3_spread@3 (2026-05-22): @2 + extreme-z take-profit exit +
         # ARMED-for-reentry phase for multi-leg trend capture within a
         # single macro regime. Inherits ALL @2 mechanics (harvest,
