@@ -105,6 +105,14 @@ DEFAULT_OUTPUT = PROJECT_ROOT / "SYSTEM_STATE.md"
 # See outputs/SYSTEM_STATE_MANUAL_PERSIST_AUDIT.md.
 _MANUAL_SECTION_HEADER = "### Manual (deferred TDs, operational context)"
 
+# Canonical anchor for the operator-editable Manual subsection under
+# `## Deferred Maintenance`. Same preservation contract as the Known
+# Issues Manual block. Semantically DISTINCT from Known Issues: this
+# section holds *consciously deferred maintenance opportunities*, not
+# unresolved problems. Future operators reading SYSTEM_STATE.md should
+# see these as available work, not as fires to fight.
+_DEFERRED_MAINT_MANUAL_HEADER = "### Manual (operator-deferred items)"
+
 
 def _preserve_manual_section(target_path: Path, regenerated_markdown: str) -> str:
     """Inject the prior file's Manual section into the regenerated markdown.
@@ -184,6 +192,57 @@ def _find_manual_blocks(markdown: str) -> list[str]:
         else:
             i += 1
     return blocks
+
+
+def _find_deferred_maint_manual_blocks(markdown: str) -> list[str]:
+    """Same extractor as `_find_manual_blocks`, but anchored on the
+    Deferred Maintenance Manual subsection header. Kept as a parallel
+    function (not parameterized) so the Known Issues invariants stay
+    explicit and the two preservation paths can diverge independently
+    if their semantics ever need to."""
+    lines = markdown.splitlines(keepends=True)
+    blocks: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith(_DEFERRED_MAINT_MANUAL_HEADER):
+            block_start = i
+            j = i + 1
+            while j < len(lines):
+                if lines[j].startswith("## ") or lines[j].startswith("### "):
+                    break
+                j += 1
+            blocks.append("".join(lines[block_start:j]).rstrip("\n"))
+            i = j
+        else:
+            i += 1
+    return blocks
+
+
+def _preserve_deferred_maint_manual_section(target_path: Path, regenerated_markdown: str) -> str:
+    """Same contract as `_preserve_manual_section`, but for the Deferred
+    Maintenance Manual subsection. Operator-curated entries in the
+    Deferred Maintenance Manual block persist across regen."""
+    if not target_path.exists():
+        return regenerated_markdown
+
+    prior = target_path.read_text(encoding="utf-8")
+    prior_manuals = _find_deferred_maint_manual_blocks(prior)
+    if len(prior_manuals) == 0:
+        return regenerated_markdown
+    if len(prior_manuals) > 1:
+        raise RuntimeError(
+            f"SYSTEM_STATE.md has {len(prior_manuals)} Deferred Maintenance "
+            f"`### Manual` sections (expected 0 or 1). Resolve manually before "
+            f"regenerating — the script will not silently pick one. "
+            f"Path: {target_path}"
+        )
+
+    prior_block = prior_manuals[0]
+    regen_manuals = _find_deferred_maint_manual_blocks(regenerated_markdown)
+    if len(regen_manuals) != 1:
+        return regenerated_markdown
+    return regenerated_markdown.replace(regen_manuals[0], prior_block, 1)
 
 
 def _now_utc() -> str:
@@ -598,6 +657,71 @@ _GATE_TEST_SUITE = (
 )
 
 
+def collect_deferred_maintenance() -> list[dict[str, str]]:
+    """Auto-detected Deferred Maintenance signals.
+
+    Semantically distinct from `collect_known_issues`: items here are
+    CONSCIOUSLY DEFERRED hygiene opportunities, not unresolved problems.
+    Each entry carries a `[CATEGORY]` prefix so operators reading
+    SYSTEM_STATE.md don't psychologically conflate them with fires.
+
+    Categories emitted:
+      [SIZE]     — file size approaching/exceeding a cleanup threshold
+      [CALENDAR] — calendar slot for periodic skills (weekend cadence)
+
+    Future categories (not yet implemented; require sidecar persistence
+    or git-log scanning):
+      [DRIFT]    — pipeline-state delta exceeds threshold since last close
+      [PERIODIC] — elapsed days since last invocation of a periodic skill
+
+    Returns: list of {"category": "SIZE|CALENDAR|...", "text": "..."}
+             dicts. Cap at 5 entries (drop tail). Empty list is normal.
+    """
+    items: list[dict[str, str]] = []
+
+    # [SIZE] RESEARCH_MEMORY.md
+    rm_path = PROJECT_ROOT / "RESEARCH_MEMORY.md"
+    if rm_path.is_file():
+        rm_bytes = rm_path.stat().st_size
+        rm_kb = rm_bytes // 1024
+        try:
+            rm_lines = sum(1 for _ in rm_path.open("r", encoding="utf-8"))
+        except Exception:
+            rm_lines = 0
+        # Hard cap is 40 KB / 600 lines (per project memory). Early warning
+        # at 32 KB / 500 lines so compaction can be scheduled, not forced.
+        if rm_kb >= 40 or rm_lines >= 600:
+            items.append({
+                "category": "SIZE",
+                "text": f"RESEARCH_MEMORY.md {rm_kb} KB / {rm_lines} lines "
+                        f"(EXCEEDS 40 KB / 600 line cap) — run "
+                        f"`python tools/compact_research_memory.py --dry-run` "
+                        f"then `--apply`",
+            })
+        elif rm_kb >= 32 or rm_lines >= 500:
+            items.append({
+                "category": "SIZE",
+                "text": f"RESEARCH_MEMORY.md {rm_kb} KB / {rm_lines} lines "
+                        f"(approaching 40 KB / 600 line cap) — compaction "
+                        f"available via `python tools/compact_research_memory.py`",
+            })
+
+    # [CALENDAR] weekend cadence prompt
+    weekday = datetime.now(timezone.utc).strftime("%A")
+    if weekday in ("Saturday", "Sunday"):
+        items.append({
+            "category": "CALENDAR",
+            "text": f"{weekday} — weekly cadence slot for "
+                    f"`/repo-cleanup-refactor` + `/system-health-maintenance` "
+                    f"Phase 1 (run before close to land in the closing snapshot)",
+        })
+
+    # Cap at 5 to keep the section scannable. If more signals materialize,
+    # the top 5 stay; the rest get dropped silently. Operators can use the
+    # Manual section for items they want to track that aren't auto-detected.
+    return items[:5]
+
+
 def collect_known_issues() -> dict[str, Any]:
     """Auto-populate Known Issues from runtime signals.
 
@@ -810,6 +934,7 @@ def render_markdown(
     git: dict,
     session_status: tuple[str, list[str]],
     known_issues: dict | None = None,
+    deferred_maintenance: list[dict[str, str]] | None = None,
 ) -> str:
     lines: list[str] = []
     status, status_reasons = session_status
@@ -936,6 +1061,35 @@ def render_markdown(
         lines.append(f"- Working tree: {tree}")
         if git.get("last_commit"):
             lines.append(f"- Last substantive commit: `{git['last_commit']}`")
+    lines.append("")
+
+    # ── Deferred Maintenance (sibling, NOT under Known Issues —
+    # semantically distinct: hygiene opportunities, not problems)
+    lines.append("## Deferred Maintenance")
+    lines.append("")
+    lines.append("> Hygiene tasks deliberately not done this session. NOT problems "
+                 "— see `## Known Issues` below for actual problems. Available to "
+                 "address whenever convenient; nothing here is blocking.")
+    lines.append("")
+
+    deferred = deferred_maintenance or []
+    if deferred:
+        lines.append("### Auto-detected (regenerated each run)")
+        for item in deferred:
+            lines.append(f"- [{item['category']}] {item['text']}")
+        lines.append("")
+    else:
+        lines.append("### Auto-detected (regenerated each run)")
+        lines.append("- (none — no drift signals exceed threshold this session)")
+        lines.append("")
+
+    lines.append(_DEFERRED_MAINT_MANUAL_HEADER)
+    lines.append("<!-- Operator-deferred items persist across regen. Use this for "
+                 "deferral decisions that lack an auto-signal (e.g., 'deferred "
+                 "performance test until post-Phase-7b'). Distinct from Known "
+                 "Issues Manual: this section is for *deferred opportunities*, "
+                 "not unresolved problems. -->")
+    lines.append("- (none)")
     lines.append("")
 
     # ── Known Issues / Pending
@@ -1092,9 +1246,13 @@ def main() -> None:
     runs = collect_runs()
     git = collect_git()
     known_issues = collect_known_issues()
+    deferred_maintenance = collect_deferred_maintenance()
 
     session_status = compute_session_status(engine, freshness, git)
-    markdown = render_markdown(engine, directives, ledgers, portfolio, vault, freshness, runs, git, session_status, known_issues)
+    markdown = render_markdown(
+        engine, directives, ledgers, portfolio, vault, freshness, runs, git,
+        session_status, known_issues, deferred_maintenance,
+    )
 
     # Preserve operator-edited Manual section across regen. Doc/code
     # contract: SKILL.md says "entries here persist" and the
@@ -1102,6 +1260,9 @@ def main() -> None:
     # (2026-05-12), the file was unconditionally overwritten. See
     # outputs/SYSTEM_STATE_MANUAL_PERSIST_AUDIT.md.
     markdown = _preserve_manual_section(output_path, markdown)
+    # Same preservation contract for the Deferred Maintenance Manual
+    # subsection. Operator deferrals there persist across regen.
+    markdown = _preserve_deferred_maint_manual_section(output_path, markdown)
 
     output_path.write_text(markdown, encoding="utf-8")
 

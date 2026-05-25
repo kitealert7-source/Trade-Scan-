@@ -306,31 +306,49 @@ git push origin main
 All work commits MUST be pushed BEFORE the SYSTEM_STATE snapshot is
 taken, so the snapshot's "unpushed count" reflects reality (0).
 
-### 3.9 Weekend periodic skills [conditional: weekend = YES]
+### 3.9 Deferred Maintenance emission [always; emits to SYSTEM_STATE]
 
-Soft prompt — does not gate session-close. If today is Sat/Sun,
-consider the periodic skills below BEFORE the SYSTEM_STATE regen
-(3.10) so any commits land in the closing snapshot. Why a structural
-weekly reminder: [`reference/design_notes.md`](./reference/design_notes.md#39-weekend-periodic-skills--why-a-structural-reminder).
+Replaces the previous "execute weekend periodic skills inline" model.
+**No skills are invoked at session-close.** Instead, drift signals are
+emitted as entries in the `## Deferred Maintenance` section of
+SYSTEM_STATE.md by `tools/system_introspection.py` (which runs at
+3.10). The operator addresses entries manually next session — or now
+if they choose — by invoking the relevant cleanup skill directly.
 
-**3.9.i — Calendar-weekly (run if not done in the last 7 days):**
-- `/repo-cleanup-refactor` — repo hygiene (worktrees, branches, root
-  untracked, code DRY). One commit per phase.
-- `/system-health-maintenance` (Phase 1 health audit only —
-  `python tools/system_preflight.py`). ~5 min integrity check.
+**Why this changed (2026-05-25):** auto-firing 4 cleanup skills at
+session-close inflated wall-clock by 10-30 min and confused the
+transactional/maintenance boundary. The new model treats session-close
+as transactional finalization only; maintenance is surfaced for
+operator awareness, not executed. See the design principle at the top
+of this file and the step taxonomy in
+[`reference/design_notes.md#step-taxonomy`](./reference/design_notes.md#step-taxonomy).
 
-**3.9.ii — Drift-triggered (run only if a condition holds — gate on Phase 1 signals):**
-- `/pipeline-state-cleanup` if ANY of:
-    * MPS delta ≳ 10 new entries
-    * backtests/ ≳ 20 new dirs
-    * runs/ ≳ 50 new dirs
-    * Stale strategy folders noticed during work
-- `/anthropic-skills:consolidate-memory` if ANY of:
-    * `MEMORY.md` > 40KB or > 200 lines
-    * Stale facts (commit hashes that no longer exist; retired-phase refs)
-    * Index entries pointing to removed topic files
+**Semantic distinction (NON-NEGOTIABLE):** the section is named
+`## Deferred Maintenance` — explicitly distinct from `## Known Issues`.
+Future operators reading SYSTEM_STATE.md must NOT psychologically
+conflate these entries with unresolved problems. Each entry carries a
+`[CATEGORY]` prefix (`[SIZE]`, `[CALENDAR]`, `[DRIFT]`, `[PERIODIC]`)
+that reinforces it is a *deferral decision*, not a fire.
 
-If neither group applies, skip. Document in Phase 4 summary which (if any) ran.
+**Auto-detected signals (emitted by `collect_deferred_maintenance`):**
+| Category | Threshold | Suggested action |
+|---|---|---|
+| `[SIZE]` | RESEARCH_MEMORY.md ≥ 32 KB or ≥ 500 lines | `python tools/compact_research_memory.py --dry-run` |
+| `[CALENDAR]` | Sat/Sun | `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 |
+| `[DRIFT]` (future) | MPS Δ ≥ 10, backtests/ Δ ≥ 20, runs/ Δ ≥ 50 | `/pipeline-state-cleanup` (needs sidecar; not yet implemented) |
+| `[PERIODIC]` (future) | Last `/repo-cleanup-refactor` > 14 days ago | `/repo-cleanup-refactor` (needs git-log scan; not yet implemented) |
+
+**Manual section:** `### Manual (operator-deferred items)` under
+`## Deferred Maintenance` persists across regen. Use it for deferrals
+that lack an auto-signal (e.g., "deferred performance test until
+post-Phase-7b"). Entries here are NOT problems; they are tracked
+opportunities.
+
+**Cap:** auto-detected entries capped at 5 (top by signal strength).
+The Manual section is uncapped.
+
+No action required at 3.9 itself — the emission happens during 3.10.
+This step exists in the routing table for visibility only.
 
 ### 3.C Active Charter sync [conditional: charter exists]
 
@@ -557,14 +575,15 @@ git status --porcelain | grep -v "^??" | grep -v " SYSTEM_STATE.md$" || true
 git push origin main
 git log --oneline origin/main..HEAD   # should be empty
 
-# 3.9 Weekend periodic skills (CONDITIONAL: day = Sat/Sun)
-#     3.9.i  Calendar-weekly:
-#       /repo-cleanup-refactor       # repo hygiene + DRY
-#       /system-health-maintenance   # Phase 1 health audit only (~5 min)
-#     3.9.ii Drift-triggered (only if condition holds — see longhand):
-#       /pipeline-state-cleanup      # if MPS ≳ 10 OR backtests ≳ 20 OR runs ≳ 50 OR stale folders
-#       /anthropic-skills:consolidate-memory  # if MEMORY.md > 40KB / 200L OR stale facts
-#     If neither group applies: skip. Document in Phase 4 summary which (if any) ran.
+# 3.9 Deferred Maintenance emission (ALWAYS — no skills invoked at close)
+#     Drift signals are emitted as entries in SYSTEM_STATE.md
+#     ## Deferred Maintenance section by tools/system_introspection.py
+#     (which runs at 3.10). Operator addresses them manually next session
+#     by invoking /repo-cleanup-refactor, /pipeline-state-cleanup, etc.
+#     directly. No execution at close.
+#     Semantic: ## Deferred Maintenance is DISTINCT from ## Known Issues
+#     — entries are deferral decisions, NOT problems. Each carries a
+#     [CATEGORY] prefix ([SIZE], [CALENDAR], [DRIFT], [PERIODIC]).
 
 # 3.C Active Charter sync (CONDITIONAL: charter exists in SYSTEM_STATE.md ### Manual)
 #     If `#### Active Charter — ` heading present, prompt operator for one-line

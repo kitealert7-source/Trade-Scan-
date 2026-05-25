@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: BROKEN
+- BROKEN: 2 commits not pushed to origin
 
-> Generated: 2026-05-25T13:23:07Z
+> Generated: 2026-05-25T13:45:05Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,9 +38,20 @@
 - Run directories: 1064
 
 ## Git Sync
-- Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `b6c35cf session: idea gate refresh â€” tools_manifest regen`
+- Remote: **2 commits ahead of origin**
+- Working tree: 2 uncommitted
+- Last substantive commit: `0704c1e session-close: narrow skill-maintenance trigger to SKILL.md modifications`
+
+## Deferred Maintenance
+
+> Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
+
+### Auto-detected (regenerated each run)
+- [SIZE] RESEARCH_MEMORY.md 37 KB / 129 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+
+### Manual (operator-deferred items)
+<!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
+- (none)
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
