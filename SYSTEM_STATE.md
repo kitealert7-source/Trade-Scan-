@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-25T09:09:39Z
+> Generated: 2026-05-25T13:23:07Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 87 directives
+- Completed: 125 directives
 
 ## Ledgers
 
@@ -21,7 +22,7 @@
   - **Portfolios:** 131 rows — CORE: 4, FAIL: 122, WATCH: 5
   - **Single-Asset Composites:** 81 rows — CORE: 11, FAIL: 65, WATCH: 5
 
-- **Candidates (FPS):** 381 rows — CORE: 14, FAIL: 241, LIVE: 13, RESERVE: 17, WATCH: 96
+- **Candidates (FPS):** 381 rows — CORE: 15, FAIL: 242, RESERVE: 26, WATCH: 98
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 9 | **Enabled:** 9
@@ -34,12 +35,12 @@
 - Latest bar: **2026-05-25** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1026
+- Run directories: 1064
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `e2e5789 data_access: routine OctaFx mt5_tick_value refresh (21 symbols)`
+- Working tree: 1 uncommitted
+- Last substantive commit: `b6c35cf session: idea gate refresh â€” tools_manifest regen`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
