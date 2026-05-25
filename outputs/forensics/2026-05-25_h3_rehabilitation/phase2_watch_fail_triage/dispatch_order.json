@@ -1,0 +1,140 @@
+{
+  "batch_id": "h3_bidir_phase2_rehab_20260525",
+  "order_principle": "alphabetical by directive_id",
+  "failure_policy": "stop-on-failure",
+  "cooldown_seconds_between_runs": 15,
+  "generated_at_utc": "2026-05-25T12:28:48.728261+00:00",
+  "evaluator_frozen_sha256": "124f42978b92d78c776d1810f1165a1e288c239d844c3684916e7fc3e2944943",
+  "restoration_manifest_sha256": "6a26edcc22108f7738725cb8dd818c7858629a5330ff5d69b89865d9918ea126",
+  "n_directives": 16,
+  "dispatch_order": [
+    {
+      "ordinal": 1,
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S07_V1_P00",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S07_V1_P00__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_15M_PAIRX_S07_V1_P00__E001.txt",
+      "rerun_blob_sha256": "06b577c4e56aa6e8b24a7cb2b956f9a57bdb806a0d604c800fc23b1ed7b682ea",
+      "original_run_id": "746efba6574e0c5c20dea60b"
+    },
+    {
+      "ordinal": 2,
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S20_V1_P00",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S20_V1_P00__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_15M_PAIRX_S20_V1_P00__E001.txt",
+      "rerun_blob_sha256": "fe9e5645e004b919dbd8121a88052047aec8b075df2681e2275f39073da50e2e",
+      "original_run_id": "3c394e0697c628f585f93af3"
+    },
+    {
+      "ordinal": 3,
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S21_V1_P05",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S21_V1_P05__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_15M_PAIRX_S21_V1_P05__E001.txt",
+      "rerun_blob_sha256": "c0664bb1a188c3a81ba513bfee120f50a68b6280264ca143ecd8111e45930789",
+      "original_run_id": "74ef784c0e6750b65c3022e0"
+    },
+    {
+      "ordinal": 4,
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P00",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P00__E002",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P00__E002.txt",
+      "rerun_blob_sha256": "1f654b98f20c69a386ab436e40fe7bcd08b17a82d5121812d9c2294bb9267537",
+      "original_run_id": "c70b30f4dd483942d44bb404"
+    },
+    {
+      "ordinal": 5,
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P03",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P03__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P03__E001.txt",
+      "rerun_blob_sha256": "8eb38d9e422b6bf5e581281a81da3cb8348e151b2b2dd7d3aa33504bc4a86bec",
+      "original_run_id": "a924f583ad49ee26c6e5ed55"
+    },
+    {
+      "ordinal": 6,
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P04",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P04__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P04__E001.txt",
+      "rerun_blob_sha256": "1a66f469b084687b75230f9187976f71b94ce26e0c854de44db1b1da775681f7",
+      "original_run_id": "8df20236de13970b71ede3a3"
+    },
+    {
+      "ordinal": 7,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S09_V1_P01",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S09_V1_P01__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S09_V1_P01__E001.txt",
+      "rerun_blob_sha256": "e320bc62a4aa5396d80eda33554accd2ff8738f934ef576b79452cc35d2319bc",
+      "original_run_id": "c05716bb177de639d17d8cff"
+    },
+    {
+      "ordinal": 8,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S13_V1_P00",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S13_V1_P00__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S13_V1_P00__E001.txt",
+      "rerun_blob_sha256": "acf0214c14aa7b6e1c56766c7f45c2d1da87b407f71fe36c4b45f4cbe855560e",
+      "original_run_id": "69a39b24a4e324d05ef54f02"
+    },
+    {
+      "ordinal": 9,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S13_V1_P01",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S13_V1_P01__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S13_V1_P01__E001.txt",
+      "rerun_blob_sha256": "2df069fee1030a94c1b5ad34acfe6139567e5f31399df97cba5790d1c6b98b51",
+      "original_run_id": "f54771cd13f87626125ec983"
+    },
+    {
+      "ordinal": 10,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S14_V1_P01",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S14_V1_P01__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S14_V1_P01__E001.txt",
+      "rerun_blob_sha256": "57501bdc3daecb229ebf4e61e691d969191c625714f7b917bd8800d54ba6eb70",
+      "original_run_id": "0be11813f703b25c0bd80b97"
+    },
+    {
+      "ordinal": 11,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P00",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P00__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P00__E001.txt",
+      "rerun_blob_sha256": "15bdadb8248e1cf5876b8087271115fceaf34e505bd002db3bf3aa81fd848cfe",
+      "original_run_id": "ccfc77af9f77e6618fcf1f7e"
+    },
+    {
+      "ordinal": 12,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P01",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P01__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P01__E001.txt",
+      "rerun_blob_sha256": "9b371d28347543a9ed7e874e4c6c3af24b075723cc9fff41d4d60333e0351754",
+      "original_run_id": "96e02d24fbdd872da763fbdf"
+    },
+    {
+      "ordinal": 13,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P02",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P02__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S17_V1_P02__E001.txt",
+      "rerun_blob_sha256": "943d377da4f2e196182fd2514b4b7c3f87f057ded7f1a23cfe24c533a8eac15f",
+      "original_run_id": "489091ff38a122af2f676cf2"
+    },
+    {
+      "ordinal": 14,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P00",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P00__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P00__E001.txt",
+      "rerun_blob_sha256": "75a93e6bc938b2114072d6815e24e91206d3408d9551c75020ae7dec8495fd63",
+      "original_run_id": "e3b3da6cd91f3501768183b7"
+    },
+    {
+      "ordinal": 15,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P01",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P01__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S19_V1_P01__E001.txt",
+      "rerun_blob_sha256": "c316b1f6fe3d5e16bb14a37212ceaee87109b7cf8c5b4f034315d6c53a192cfc",
+      "original_run_id": "4eab180890807883a1295969"
+    },
+    {
+      "ordinal": 16,
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S21_V1_P01",
+      "rerun_directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S21_V1_P01__E001",
+      "rerun_workspace_path": "tmp\\rehabilitation_batch_20260525_phase2\\rerun_directives\\90_PORT_EURUSDUSDJPY_5M_PAIRX_S21_V1_P01__E001.txt",
+      "rerun_blob_sha256": "1c6f7d17d29472114164dc9066424e2c20fb2bfbf5557351b3c814bad943000a",
+      "original_run_id": "df2dabd30026624db95587a9"
+    }
+  ]
+}

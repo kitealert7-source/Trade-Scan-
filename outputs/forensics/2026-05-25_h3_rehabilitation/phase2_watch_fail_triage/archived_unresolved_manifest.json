@@ -1,0 +1,157 @@
+{
+  "batch_id": "h3_bidir_phase2_archived_unresolved_20260525",
+  "generated_at_utc": "2026-05-25T12:54:56.146885+00:00",
+  "evaluator_source": "tmp\\h3_supersession_dryrun_FROZEN_20260525.py",
+  "evaluator_frozen_sha256": "124f42978b92d78c776d1810f1165a1e288c239d844c3684916e7fc3e2944943",
+  "policy_reference": "Operator directive 2026-05-25: transition triage-skipped FAIL rows into terminal ARCHIVED_UNRESOLVED state. No replacement lineage. Preserve append-only, hide from active views, explicit metadata.",
+  "archive_status_value": "ARCHIVED_UNRESOLVED",
+  "n_triage_skipped_originally": 13,
+  "n_tagged_archive": 13,
+  "n_drift_skipped_tagging": 0,
+  "tagged": [
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S06_V1_P01",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": 3.964723542894717,
+      "canonical_max_dd_pct": 94.91393885259428,
+      "original_run_id": "e992b1d34e4c8233d47b656f",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with positive Net% (3.96) but catastrophic DD (94.91) - re-accounting cannot recover DD",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "catastrophic_dd"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S13_V1_P02",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -34.00307205615534,
+      "canonical_max_dd_pct": 61.35169800802881,
+      "original_run_id": "b0acc8646660c264cd6559b4",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with modest loss (-34.00) - bounded re-accounting magnitude insufficient to lift above gate",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "modest_loss"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S09_V1_P00",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -47.92808350530598,
+      "canonical_max_dd_pct": 77.23436599214683,
+      "original_run_id": "aa9e6a0d01aa353bdc1da4a8",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with modest loss (-47.93) - bounded re-accounting magnitude insufficient to lift above gate",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "modest_loss"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S07_V1_P01",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -144.9383709814282,
+      "canonical_max_dd_pct": 220.6121194409538,
+      "original_run_id": "ad6f56adf655ff96847429c5",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with catastrophic loss (-144.94) - re-accounting cannot lift below-threshold-by-far",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "catastrophic_loss"
+    },
+    {
+      "directive_id": "90_PORT_GBPUSDUSDJPY_5M_PAIRX_S11_V1_P00",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -71.98486621006992,
+      "canonical_max_dd_pct": 102.9567324026017,
+      "original_run_id": "01483062d9ba0fd2cba7cad8",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with modest loss (-71.98) - bounded re-accounting magnitude insufficient to lift above gate",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "modest_loss"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_15M_PAIRX_S22_V1_P05",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -48.90666454587846,
+      "canonical_max_dd_pct": 68.88967398020829,
+      "original_run_id": "5dd1cfa32ed4e0949954efee",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with modest loss (-48.91) - bounded re-accounting magnitude insufficient to lift above gate",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "modest_loss"
+    },
+    {
+      "directive_id": "90_PORT_AUDUSDUSDCAD_5M_PAIRX_S12_V1_P01",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -80.30019595902316,
+      "canonical_max_dd_pct": 88.90209827261589,
+      "original_run_id": "4e63b1c16b1f6fd5a7dc954b",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with modest loss (-80.30) - bounded re-accounting magnitude insufficient to lift above gate",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "modest_loss"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S14_V1_P02",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -91.38048135472123,
+      "canonical_max_dd_pct": 97.32542241325855,
+      "original_run_id": "3a2ad2978131ab7695321d28",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with modest loss (-91.38) - bounded re-accounting magnitude insufficient to lift above gate",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "modest_loss"
+    },
+    {
+      "directive_id": "90_PORT_GBPUSDUSDJPY_5M_PAIRX_S11_V1_P01",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -152.3487582816754,
+      "canonical_max_dd_pct": 157.3721302961767,
+      "original_run_id": "eda28493e9668900bef85e18",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with catastrophic loss (-152.35) - re-accounting cannot lift below-threshold-by-far",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "catastrophic_loss"
+    },
+    {
+      "directive_id": "90_PORT_AUDUSDUSDCAD_5M_PAIRX_S12_V1_P00",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -145.7502819305227,
+      "canonical_max_dd_pct": 144.8098715139537,
+      "original_run_id": "ace4f745e555fb9e7e05cb87",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with catastrophic loss (-145.75) - re-accounting cannot lift below-threshold-by-far",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "catastrophic_loss"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S08_V1_P02",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -123.4025956699794,
+      "canonical_max_dd_pct": 119.378430228237,
+      "original_run_id": "1d6446e60b29566fa810229a",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with catastrophic loss (-123.40) - re-accounting cannot lift below-threshold-by-far",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "catastrophic_loss"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S10_V1_P02",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -129.9812642965018,
+      "canonical_max_dd_pct": 124.3551772252864,
+      "original_run_id": "00c4442bdfdc9dce783ed9bd",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with catastrophic loss (-129.98) - re-accounting cannot lift below-threshold-by-far",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "catastrophic_loss"
+    },
+    {
+      "directive_id": "90_PORT_EURUSDUSDJPY_5M_PAIRX_S18_V1_P01",
+      "verdict_status": "FAIL",
+      "canonical_net_pct": -148.7385932486247,
+      "canonical_max_dd_pct": 136.4880933777365,
+      "original_run_id": "77ad36be2b5b880b638c72b1",
+      "applied_quarantine_status": "ARCHIVED_UNRESOLVED",
+      "applied_quarantine_reason": "Terminal closure of triage-skipped FAIL row (leg_direction_flip_bug Phase-2 rehabilitation, 2026-05-25). No replacement lineage exists because corrected entry-bar PnL accounting cannot realistically cross any governance threshold. Closed as low-value rehabilitation candidate, NOT forgotten debt. Triage rationale: FAIL with catastrophic loss (-148.74) - re-accounting cannot lift below-threshold-by-far",
+      "superseded_by_run_id": null,
+      "triage_rationale_class": "catastrophic_loss"
+    }
+  ],
+  "drift": []
+}
