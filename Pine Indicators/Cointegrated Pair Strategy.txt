@@ -1,7 +1,7 @@
 //@version=6
 strategy('Cointegrated Pair Spread Strategy (z_r reversal)',
      overlay              = false,
-     initial_capital      = 100000,
+     initial_capital      = 1000,
      default_qty_type     = strategy.fixed,
      default_qty_value    = 1,
      calc_on_every_tick   = false,
@@ -58,20 +58,20 @@ sym_b = input.symbol('TVC:UKX',      'Asset B', group = 'Pair',
      tooltip = 'Second leg. Same default as the indicator.')
 
 // === Compute settings =====================================================
-N = input.int(252, 'Rolling window (bars)', minval = 30, maxval = 2000, group = 'Compute',
+N = input.int(30, 'Rolling window (bars)', minval = 20, maxval = 2000, group = 'Compute',
      tooltip = 'Same lookback as the Cointegrated Pair Overlay indicator. Match it so z_r values seen here equal what the indicator shows.')
 
 // === Strategy =============================================================
 z_entry = input.float(2.0, 'Reversal threshold |z_r|', minval = 0.5, step = 0.1, group = 'Strategy',
-     tooltip = 'Strategy flips position when z_r crosses the threshold. In Absolute mode that''s ±this value from zero. In Centered mode it''s ±this value from z_r''s rolling mean.')
+     tooltip = 'Strategy flips position when z_r crosses the threshold. In Absolute mode that\'s ±this value from zero. In Centered mode it\'s ±this value from z_r\'s rolling mean.')
 
 entry_mode = input.string('Absolute', 'Entry mode', options = ['Absolute', 'Centered'], group = 'Strategy',
      tooltip = 'Absolute (default): trigger when z_r crosses ±z_entry from zero. Reproduces the original strategy. Centered: trigger when z_r crosses ±z_entry from its own rolling mean — symmetrizes signals when z_r has a structural bias away from zero. Useful when the chart shows z_r oscillating around a non-zero baseline.')
 
 n_meta = input.int(100, 'Centering window (bars)', minval = 20, maxval = 1000, group = 'Strategy',
-     tooltip = 'Lookback for z_r''s own rolling mean. Only used in Centered mode. Short → centering chases noise. Long → behaves like Absolute. Default 100 is a reasonable starting point on any TF.')
+     tooltip = 'Lookback for z_r\'s own rolling mean. Only used in Centered mode. Short → centering chases noise. Long → behaves like Absolute. Default 100 is a reasonable starting point on any TF.')
 
-notional = input.float(10000, 'Notional per trade (A price units)', group = 'Strategy', minval = 100,
+notional = input.float(1000, 'Notional per trade (A price units)', group = 'Strategy', minval = 100,
      tooltip = 'Quote-currency amount allocated to leg A. The B leg is sized to r̄_entry × units_a so dollar exposures are balanced at entry.')
 
 // === Fetch series =========================================================
@@ -92,15 +92,26 @@ z_r          = spread_r_sd == 0 or na(spread_r_sd) ? na : (spread_r - spread_r_m
 // value rather than zero. Centered mode shifts the entry thresholds onto
 // z_r's own rolling mean so triggers fire from "current normal", not from
 // absolute zero. n_meta controls how long that rolling mean looks back.
-mean_zr         = ta.sma(z_r, n_meta)
-threshold_upper = entry_mode == 'Centered' and not na(mean_zr) ? mean_zr + z_entry :  z_entry
-threshold_lower = entry_mode == 'Centered' and not na(mean_zr) ? mean_zr - z_entry : -z_entry
-center_ref      = entry_mode == 'Centered' and not na(mean_zr) ? mean_zr : 0.0
+//
+// Performance: SMA only computed in Centered mode. In Absolute mode (default),
+// mean_zr stays na and the threshold ternaries short-circuit to the static
+// ±z_entry — saving one rolling SMA per bar across the whole chart history.
+is_centered     = entry_mode == 'Centered'
+mean_zr         = is_centered ? ta.sma(z_r, n_meta) : na
+threshold_upper = is_centered and not na(mean_zr) ? mean_zr + z_entry :  z_entry
+threshold_lower = is_centered and not na(mean_zr) ? mean_zr - z_entry : -z_entry
+center_ref      = is_centered and not na(mean_zr) ? mean_zr : 0.0
 
 // === Signal generation ====================================================
 // ta.cross fires ONCE per crossing event, not every bar past the threshold.
-go_long  = not na(z_r) and not na(threshold_lower) and ta.cross(z_r, threshold_lower) and z_r < center_ref
-go_short = not na(z_r) and not na(threshold_upper) and ta.cross(z_r, threshold_upper) and z_r > center_ref
+// Direction-explicit crosses: only fire on the doctrinal direction (LONG on
+// z_r dropping below the negative threshold, SHORT on z_r rising above the
+// positive threshold). Earlier code used bidirectional ta.cross + a sign
+// guard (z_r < center_ref / z_r > center_ref) — that protected subsequent
+// flips via the do_flip guard but allowed wrong-direction first-entry from
+// flat. crossunder / crossover make the intent unambiguous.
+go_long  = not na(z_r) and not na(threshold_lower) and ta.crossunder(z_r, threshold_lower)
+go_short = not na(z_r) and not na(threshold_upper) and ta.crossover( z_r, threshold_upper)
 
 // === TradingView built-in trades (chart markers only — P&L is wrong) ======
 if go_long
@@ -116,17 +127,22 @@ var float entry_b         = na
 var float entry_r         = na
 var float entry_units_a   = na     // units of A at entry
 var float entry_units_b   = na     // units of B = entry_units_a × r̄_entry
-var float realized_equity = 100000.0
+var float realized_equity = strategy.initial_capital
 var int   trades_total    = 0
 var int   trades_won      = 0
-var float peak_equity     = 100000.0
+var float peak_equity     = strategy.initial_capital
 var float max_dd_pct      = 0.0
 
 // MTM P&L of the OPEN position (zero if flat or before first entry)
 // Long spread:  pnl = +units_a·ΔA − units_b·ΔB
 // Short spread: pnl = −units_a·ΔA + units_b·ΔB  =  −(long_pnl)
 // Both forms collapse to: pos_dir × (units_a·ΔA − units_b·ΔB)
-open_pnl = (pos_dir == 0.0 or na(entry_a)) ? 0.0 : pos_dir * (entry_units_a * (a_close - entry_a) - entry_units_b * (b_close - entry_b))
+// NA-safe: guard against a_close / b_close gaps on the hedge leg. A single
+// holiday/feed-gap bar mid-trade would otherwise propagate NA into open_pnl
+// -> total_equity -> math.max(peak_equity, NA) = NA, permanently poisoning
+// peak_equity and max_dd_pct so the table renders NaN for the rest of the
+// session.
+open_pnl = (pos_dir == 0.0 or na(entry_a) or na(a_close) or na(b_close)) ? 0.0 : pos_dir * (entry_units_a * (a_close - entry_a) - entry_units_b * (b_close - entry_b))
 
 do_flip = (go_long and pos_dir != 1.0) or (go_short and pos_dir != -1.0)
 
@@ -205,13 +221,13 @@ if barstate.islast
     table.cell(stats, 1,  3, str.tostring(trades_total),
          text_color = color.black)
 
-    win_rate = trades_total > 0 ? trades_won / trades_total * 100.0 : 0.0
+    win_rate = trades_total > 0 ? (trades_won * 100.0) / trades_total : 0.0
     win_color = trades_total < 5 ? color.gray : win_rate >= 55 ? color.green : win_rate >= 45 ? AMBER : color.red
     table.cell(stats, 0,  4, 'Win rate',       text_color = color.black)
     table.cell(stats, 1,  4, str.tostring(win_rate, '#.#') + '%  (' + str.tostring(trades_won) + '/' + str.tostring(trades_total) + ')',
          text_color = win_color)
 
-    total_return = (total_equity - 100000.0) / 100000.0 * 100.0
+    total_return = (total_equity - strategy.initial_capital) / strategy.initial_capital * 100.0
     ret_color = total_return > 5 ? color.green : total_return > -5 ? AMBER : color.red
     table.cell(stats, 0,  5, 'Total return',   text_color = color.black, bgcolor = color.new(color.teal, 90))
     table.cell(stats, 1,  5, str.tostring(total_return, '#.##') + '%',
