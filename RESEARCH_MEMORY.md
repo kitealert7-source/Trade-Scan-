@@ -105,3 +105,25 @@ Admission code was never the bug. The actual defect was the cleanup tool's sidec
 
 Implication:
 (1) Configurable DIRECTIVE_SIDECAR_SUFFIXES tuple in lineage_pruner: adding future sidecars is one line, plumbed through scan + quarantine automatically. (2) Manifest schema (orig_path, quarantine_destination, size_bytes, mtime_utc, sha256) makes state-changing sweeps deterministically reconstructable — replicate in other cleanup tools. (3) recover_admitted_directive --json mode makes governance automation possible; no more manual git log walking for routine recoveries. (4) When investigating any 'missing' directive: ALWAYS run python tools/recover_admitted_directive.py <ID> before assuming data loss. (5) Dead defensive branches that hint at non-canonical sources should be removed, not left as 'no harm' — they perpetuate misconceptions that surface as expensive rehab batches later.
+2026-05-25
+Tags:
+terminal_closure
+archived_unresolved_governance_state
+triage_skip_classification
+no_replacement_lineage_policy
+H3_phase2_closure
+
+Strategy: 90_PORT_EURUSDUSDJPY_*M_PAIRX_S*_V1_P* (+GBPUSDUSDJPY +AUDUSDUSDCAD subset)
+Run IDs: batch=h3_bidir_phase2_archived_unresolved_20260525; 13 directives; evaluator_sha256=124f42978b92
+
+Finding:
+Closed 13 triage-skipped FAIL rows from the leg_direction_flip_bug Phase-2 rehabilitation as terminal ARCHIVED_UNRESOLVED governance state. Distinct from SUPERSEDED (no replacement lineage exists). Rows remain visible-as-FAIL internally but are excluded from all active research/ranking views by default via the existing quarantine_status.notna() filter that the formatter, cointrev_v1_2_aggregator, and h2_parity_run already enforce. Frozen evaluator re-verified each row was still unresolved (no sibling appeared since phase-2 close) before tagging; 13/13 confirmed, 0 drift.
+
+Evidence:
+Triage class distribution: 1 catastrophic_dd (S06 P01: Net% +3.96 but DD 94.91), 6 modest_loss (Net% -34 to -91, DD 61-103: S13 P02, S09 P00, GBPJPY S11 P00, S22 P05, AUDCAD S12 P01, S14 P02), 6 catastrophic_loss (Net% -123 to -152, DD 119-220: S07 P01, S11 P01, AUDCAD S12 P00, S08 P02, S10 P02, S18 P01). Per-row metadata in MPS: quarantine_status=ARCHIVED_UNRESOLVED, quarantine_reason carries verbatim triage rationale + closure preamble, superseded_by_run_id=NULL (explicitly distinguishing from SUPERSEDED). Forensic manifest at tmp/rehabilitation_batch_20260525_phase2/archived_unresolved_manifest.json records the closure transaction with timestamps and class assignments.
+
+Conclusion:
+These 13 rows are consciously closed as low-value rehabilitation candidates, not forgotten debt. The corrected entry-bar PnL accounting magnitude (small per-cycle, bounded by pyramid mechanic) cannot realistically cross any governance threshold given their initial state: catastrophic DD already 90+%, large structurally-negative expectancy, or both. Brute-force replay would consume compute without producing actionable lineage changes. The ARCHIVED_UNRESOLVED governance state preserves append-only semantics, makes the closure rationale discoverable from MPS row metadata itself (quarantine_reason field), and integrates with existing view/aggregator hide-passes that filter on quarantine_status.notna().
+
+Implication:
+(1) Future operators inspecting these directives should treat the ARCHIVED_UNRESOLVED tag as terminal CLOSURE, not pending work. (2) Reruns are NOT authorized unless a future methodological change materially alters the expected outcome space (e.g., a new quality-gate weighting that could lift catastrophic-DD rows, or a structural rule fix that changes loss characteristics). (3) When introducing a NEW quarantine_status value in future cleanups, follow the same pattern: distinct from SUPERSEDED (replacement) and RETIRED (rule-level), carry a quarantine_reason that documents the rationale verbatim, and confirm the existing aggregator/formatter notna() filter is sufficient (or extend it if needed). (4) Combined Phase-1 + Phase-2 + Phase-2-closure totals: 49 H3 bidirectional pre-fix rows superseded (with replacement lineage) + 13 archived (terminal, no replacement) = 62 total governance-finalized rows under the leg_direction_flip_bug correction. (5) The CI guard test_quarantine_integrity.py PASSes with ARCHIVED_UNRESOLVED tagging — same column, same notna() filter contract; no test update needed.
