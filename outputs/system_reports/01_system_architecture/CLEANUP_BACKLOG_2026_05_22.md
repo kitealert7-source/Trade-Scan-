@@ -70,59 +70,42 @@ Each entry needs an operator decision before action can be taken.
 
 ---
 
-## 3. Cross-repo `outputs/` cleanup (TS_SignalValidator + TS_Execution)
+## 3. RESOLVED (2026-05-25) — Cross-repo `outputs/` cleanup (TS_SignalValidator + TS_Execution)
 
-**Update 2026-05-22 (post-followup pass):** TS_Execution archive move
-attempted, then DEFERRED. The sibling repo is in a state that needs an
-operator-side cleanup first:
+**Resolution by sibling:**
 
-  - 7 uncommitted modifications (`harness/replay.py`, `portfolio.yaml`,
-    multiple `src/*.py`)
-  - 1 untracked file (`src/phase0_validation.py`)
-  - 5 `claude/*` feature branches outstanding, including
-    `claude/upbeat-merkle-716d98` (28 commits behind origin/main) and
-    `claude/nifty-meninsky-e46a9f` whose commit *message* references
-    archiving operational outputs but whose diff is a 100-file /
-    +13k-line code restructure unrelated to the archive task
+**TS_SignalValidator side — closed 2026-05-15 by separate operator decision.** Per `PHASE_7A_PROGRESS_AUDIT.md` §6.6 Item 2: the 4 output files (`shadow_journal_port_output.jsonl`, `stage2_*.jsonl/log/json`) are **kept indefinitely as Phase 7a audit evidence** — sha256 cited in commit messages, ~4 MB total cost. Backlog was written before this decision landed.
 
-Touching TS_Execution to move the pre-retirement shadow files in this
-state would tangle the move with pending operator work. Re-attempt
-after TS_Execution's branches and uncommitted changes are resolved.
+**TS_Execution side — completed 2026-05-25 in a coordinated sequence** after the operator unblocked the dirty working tree and confirmed all `claude/*` branches were safe:
 
-**Question:** should stale Stage-2 outputs and pre-retirement shadow_trades backups be culled?
+| Step | Commit | Outcome |
+|---|---|---|
+| Unblock: TS_Execution Phase 0a Step 5 ABI migration finalized (12-day uncommitted WIP) | TS_Execution `165ad14` | 11 files: ABI migration code + boot assertion + golden-fixture refresh. Plan v11 §0a Step 5 closed. |
+| Branch prune | (local) | 6 `claude/*` branches (all `ahead=0 behind=29-65` vs main) tagged as `archive/claude/<name>` then deleted. Only `main` remains. |
+| Archive shadow_trades pre-retirement backups | TS_Execution `b9268f2` | 5 files (`shadow_trades.jsonl.bak_20260413`, `shadow_trades_archive_*.xlsx`, `shadow_trades_before_*.xlsx`) moved to `archive/shadow_pre_retirement_2026_05/`. Canonical 26 MB `shadow_trades.jsonl` stays in `outputs/`. |
+| Archive single BURNIN .md report | TS_Execution `aef1538` | `outputs/burnin/BURNIN_15_*.md` moved to `archive/burnin_pre_retirement_2026_05/`. |
 
-**TS_SignalValidator/outputs/ (4 files, 4.3 MB):**
-- `shadow_journal_port_output.jsonl` (4.2 MB, 2026-05-15)
-- `stage2_1h_validator.log` (830 B, 2026-05-14)
-- `stage2_metrics.jsonl` (117 KB, 2026-05-14)
-- `stage2_summary.json` (2026-05-14)
+**NOT done in this pass — separate workstream deferred:**
 
-Active validator (PID 7596) is using `config.shadow_journal.example.yaml` (vault SHADOW_JOURNAL_REPLAY) and writes to `TS_SIGNAL_STATE/decisions/SHADOW_JOURNAL_REPLAY/`, not these files. These appear to be prior Stage-2 run outputs.
+- **BURN_IN tooling retirement.** `tools/audit_log.py` still writes `outputs/burnin_audit_log.jsonl` as live code; `tools/disable_burnin.py` still references it. Culling the .jsonl would just regenerate. Surfaces three coupled gaps:
+  - `tools/audit_log.py` — live BURN_IN-shaped audit writer
+  - `tools/disable_burnin.py` — references the audit log
+  - `src/portfolio_loader.py:174` — hardcodes `if promo_src != "promote_to_burnin":` as the only accepted value; rejects post-BURN_IN substitutes
+- **portfolio.yaml `promote_to_burnin → promote_to_live` label flip.** Attempted as commit 2 of the cleanup, abandoned. Two reasons: (a) the validator at `portfolio_loader.py:174` rejects the new value; (b) `promotion_source` semantics record *what tool created the entry* — retro-rewriting to a tool that doesn't exist (post-BURN_IN-retirement) damages audit-trail meaning. Existing `promote_to_burnin` values stay as historical truth. Designing a post-BURN_IN audit semantic is part of the tooling-retirement workstream above.
 
-**TS_Execution/outputs/ (multiple shadow_trades_* backups):**
-- `shadow_trades.jsonl` (26 MB, 2026-05-08) — historical journal, MEMORY says preserved
-- `shadow_trades.jsonl.bak_20260413` (24 KB)
-- `shadow_trades_archive_20260406.xlsx` (64 KB)
-- `shadow_trades_archive_v2_20260406.xlsx` (7 KB)
-- `shadow_trades_before_cull_20260408_053814.xlsx` (79 KB)
-- `shadow_trades_before_gate_cleanup_20260409_223844.xlsx` (14 KB)
-- `burnin_audit_log.jsonl`, `burnin/` (BURN_IN retired per MEMORY 2026-05-10)
-
-**Recommendation:** Move pre-retirement backups to `TS_Execution/archive/shadow_pre_retirement_2026_05/` rather than delete. Keep `shadow_trades.jsonl` (the canonical journal) and `run_registry.json`. Cull `burnin/` + `burnin_audit_log.jsonl` if BURN_IN retirement is permanent (per MEMORY it is).
-
-**Cost of delay:** low — disk is not the bottleneck; risk of premature deletion outweighs.
+**Audit:** TSSV side stayed clean (1 untracked `tools/stage5_setup/*.local.xml` pair, intentionally local — operator-machine-specific Task Scheduler XMLs). TS_Execution working tree clean after the sequence.
 
 ---
 
-## 4. Skill friction — `/pipeline-state-cleanup` Phase 1
+## 4. RESOLVED (2026-05-22) — Skill friction `/pipeline-state-cleanup` Phase 1
 
-`tmp/hydrate_sandbox.py` referenced by the skill does not exist in `tmp/`. Phase 1 is currently a hard error. Either:
-- (a) re-create the hydrate script if it's still needed for the workflow
-- (b) remove Phase 1 from `.claude/skills/pipeline-state-cleanup/SKILL.md` if it's vestigial
+**Original framing (now retracted):** `tmp/hydrate_sandbox.py` referenced by the skill did not exist; Phase 1 was a hard error.
 
-**Recommendation:** check if Stage-0 hydrate is genuinely needed (was probably a one-time bootstrap during pipeline restructure); if not, prune the Phase 1 block + add a friction-log entry.
+**What landed:** option (b) — Phase 1 was removed entirely from `.claude/skills/pipeline-state-cleanup/SKILL.md`; Phases 2–5 renumbered to 1–4. The hydrate step was confirmed as a one-time pipeline-restructure bootstrap (not recurring infra), so re-creating the script was the wrong path.
 
-**Cost of delay:** low — Phase 1 is currently being skipped without consequence.
+**Evidence:** friction-log entry in `.claude/skills/pipeline-state-cleanup/SKILL.md:60`. Verified 2026-05-25 — current Phase 1 ("Diagnose & Repair Structural Decay") runs `tools/state_lifecycle/repair_integrity.py`; no `hydrate_sandbox.py` reference remains anywhere in the skill or `tools/`. Only stale reference is `archive/agents_workflows_pre_skills_consolidation_2026_04_20/state-lifecycle-cleanup.md:18` (intentionally frozen archive — leave alone).
+
+**Captured in retro:** `MAINTENANCE_RETRO_2026_05_22.md` §F4 ("Resolved: Skill SKILL.md updated, friction-logged").
 
 ---
 
