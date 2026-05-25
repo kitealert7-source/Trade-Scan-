@@ -27,6 +27,12 @@ SANDBOX_DIR = STATE_ROOT / "sandbox"
 QUARANTINE_DIR = STATE_ROOT / "quarantine"
 REGISTRY_PATH = STATE_ROOT / "registry" / "run_registry.json"
 
+# Sidecar markers appended to <id>.txt that share the directive's lifecycle —
+# orphaning them in completed/ produces the false appearance of "truncated"
+# directives. Adding a new entry here plumbs the suffix through the scan and
+# the quarantine move automatically.
+DIRECTIVE_SIDECAR_SUFFIXES = (".admitted",)
+
 def execution_pid_exists() -> bool:
     """Returns True if TS_Execution appears to be running.
 
@@ -271,6 +277,27 @@ def verify_referential_integrity(keep_runs: set, active_portfolios: set):
     print(f"[PASS] Exact referential integrity validated for {total_keep} base runs and {len(active_portfolios)} portfolios.")
 
 
+def _collect_directive_targets(directives_dir: Path, keep_runs: set) -> list:
+    """Return unmapped directive .txt files paired with their sidecar markers.
+
+    Each <id>.txt outside keep_runs is followed by every existing
+    <id>.txt<suffix> sentinel listed in DIRECTIVE_SIDECAR_SUFFIXES, so the
+    quarantine sweep moves them atomically.
+    """
+    out: list = []
+    for d in directives_dir.rglob("*.txt"):
+        if not d.is_file():
+            continue
+        if d.stem in keep_runs:
+            continue
+        out.append(d)
+        for suffix in DIRECTIVE_SIDECAR_SUFFIXES:
+            sidecar = d.with_name(d.name + suffix)
+            if sidecar.exists():
+                out.append(sidecar)
+    return out
+
+
 def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
     """Map the filesystem strictly to identify quaratine candidates."""
     execution_set = build_execution_shield()
@@ -320,26 +347,7 @@ def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
                 targets["backtests"].append(f)
 
     # 3. Scan Directives Directory
-    for d in DIRECTIVES_DIR.rglob("*.txt"):
-        if d.is_file():
-            # Directive mapping: Only map if we can prove identity is completely isolated.
-            # Example heuristic: if the stem maps directly to an active ID, drop it.
-            # If the stem maps directly to a missing ID, append it.
-            # If identity cannot be strictly extracted, skip it safely.
-            file_id = d.stem
-            # Attempting strict equality mapping extraction. If exactly matching KEEP_RUNS, do not touch.
-            if file_id in keep_runs:
-                # Connected directive. Safe.
-                continue
-            
-            # Since user indicated: "Only delete directive if run_id can be extracted with certainty AND NOT in KEEP_RUNS."
-            # We look dynamically to confirm the filename is exactly matching an established UUID formatting layout
-            # (e.g. 02_VOL_IDX_..._P00). We check if it is explicitly formed.
-            # Easiest way is to define it conservatively.
-            target_str = file_id.strip()
-            # Let's say it must be exactly formatting or we skip.
-            # Here we tentatively append it for quarantine ONLY IF we reliably assume it describes a run.
-            targets["directives"].append(d)
+    targets["directives"].extend(_collect_directive_targets(DIRECTIVES_DIR, keep_runs))
 
     # 4. Scan Portfolios
     for f in STRATEGIES_DIR.iterdir():
