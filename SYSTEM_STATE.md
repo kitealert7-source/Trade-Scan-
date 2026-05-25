@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-05-24T17:10:38Z
+> Generated: 2026-05-25T09:09:39Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -31,7 +31,7 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-24** | Symbols: 221
+- Latest bar: **2026-05-25** | Symbols: 221
 
 ## Artifacts
 - Run directories: 1026
@@ -39,7 +39,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `6d6e88b session: idea gate refresh â€” tools_manifest regen`
+- Last substantive commit: `e2e5789 data_access: routine OctaFx mt5_tick_value refresh (21 symbols)`
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
