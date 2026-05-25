@@ -6,6 +6,46 @@ commands and gates; this file owns the WHY.
 
 ---
 
+## Design principle: transactional finalization, not maximum cleanliness
+
+Session-close optimizes for **deterministic transactional finalization**
+— commit, gate, push, snapshot — and explicitly NOT for *maximizing
+system cleanliness*. Hygiene, refactoring, audits, and periodic
+maintenance live in other skills or in Deferred Maintenance, not here.
+
+The principle exists because operational gravity is a one-way ratchet:
+every step added to session-close survives forever, makes the close
+longer, and (worse) trains future contributors to add more. Resisting
+that ratchet requires an explicit gate before any new step lands.
+
+### Step taxonomy
+
+When considering whether a new step belongs in session-close, classify
+it against the table below. Only the first two categories live here.
+
+| Category | Test | Goes in |
+|---|---|---|
+| **CORE** | Skipping fails a transactional or integrity guarantee (commit, push, hard gate, snapshot consistency) | session-close §3 CORE block |
+| **EPILOGUE** | Skipping degrades next session's correctness, but no guarantee fails immediately (e.g., stale idea-gate joins, missing ledger export) | session-close §3 EPILOGUE block |
+| **Deferred Maintenance** | Skipping accrues cleanliness debt over time; nothing breaks | `SYSTEM_STATE.md ## Deferred Maintenance` (emitted by §3.9) |
+| **Manual/operator-curated** | Operator-specific; no automation possible | `SYSTEM_STATE.md ## Known Issues ### Manual` (operational caveats) or `## Deferred Maintenance ### Manual` (deferred hygiene) |
+
+### Anti-pattern to resist
+
+The natural tendency when a problem surfaces during a session is to add
+"a quick check at session-close to catch this next time." That check
+then runs every session forever, even when no signal is present. The
+right response in 90% of cases:
+
+- If the problem has a **detectable signal** → emit a Deferred Maintenance
+  entry (§3.9), not a new step
+- If the problem **already has a skill that handles it** → reference that
+  skill, don't duplicate
+- If the problem is **truly transactional or integrity-critical** → CORE
+  or EPILOGUE, with explicit justification in this file
+
+---
+
 ## Ordering principle: SYSTEM_STATE regen is FINAL
 
 `SYSTEM_STATE.md` is regenerated as the LAST step of Phase 3, *after*

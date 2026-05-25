@@ -5,13 +5,24 @@ description: End-of-session orchestrator — Detect signals, Route conditional w
 
 # /session-close — End-of-Session Orchestrator
 
+> **Design principle:** session-close optimizes for **deterministic
+> transactional finalization**, NOT for **maximizing system cleanliness**.
+> Maintenance accretes elsewhere; new steps must earn their slot. Before
+> adding work here, ask: *if I skip this step, does the next session start
+> in a degraded state?* If no → it belongs in Deferred Maintenance, not here.
+
 Authoritative conductor for end-of-session governance. Runs in four
 phases: **Detect → Route → Execute → Summarize**. Specialist skills
 (`skill-maintenance`, `repo-cleanup-refactor`, `pipeline-state-cleanup`,
 `system-health-maintenance`) are the implementation units; this skill
 decides which run and in what order.
 
+Phase 3 splits into two blocks:
+- **CORE** — always runs; hard transactional + integrity gates
+- **EPILOGUE** — conditional; only fires when its signal is present
+
 Design rationale for non-obvious ordering / gate choices: [`reference/design_notes.md`](./reference/design_notes.md).
+Step taxonomy (CORE vs EPILOGUE vs Deferred Maintenance): [`reference/design_notes.md#step-taxonomy`](./reference/design_notes.md#step-taxonomy).
 
 ---
 
@@ -66,25 +77,28 @@ before anything runs.
 ```
 PHASE 2 — ROUTE
 
-ALWAYS:
-  3.1  Commit pending tracked changes
-  3.2  Document audit (manual review)
-  3.3  Artifact cleanup (/tmp, root)
-  3.4  Enforcement system health             [HARD: exit 2 blocks]
-  3.5  Indicator registry drift              [HARD: exit 1 blocks]
-  3.7  Pre-push gate (clean working tree)    [NON-NEGOTIABLE]
-  3.8  Push to origin/main
-  3.10 SYSTEM_STATE.md regen (FINAL)
-  3.11 HEAD consistency check
-  3.12 Known Issues Truthfulness Gate        [NON-NEGOTIABLE]
-  3.13 Sync main checkout
+CORE — always runs (HARD-TXN + HARD-GATE):
+  3.1  Commit pending tracked changes        [HARD-TXN]
+  3.4  Enforcement system health             [HARD-GATE: exit 2 blocks]
+  3.5  Indicator registry drift              [HARD-GATE: exit 1 blocks]
+  3.7  Pre-push gate (clean working tree)    [HARD-TXN: NON-NEGOTIABLE]
+  3.8  Push to origin/main                   [HARD-TXN]
+  3.12 Known Issues Truthfulness Gate        [HARD-GATE: NON-NEGOTIABLE]
+  3.10 SYSTEM_STATE.md regen (FINAL)         [HARD-TXN]
+  3.11 HEAD consistency check                [HARD-TXN]
+  3.13 Sync main checkout (worktree path)    [HARD-TXN if worktree]
 
-CONDITIONAL (gated by Phase 1):
+EPILOGUE — conditional (signal-gated):
   3.A  Idea-gate sources refresh             ← pipeline runs = YES
   3.B  Ledger DB export                       ← pipeline runs = YES
-  3.6  Skill-maintenance audit                ← skills invoked = YES
-  3.9  Weekend periodic skills (8b.i + 8b.ii) ← day = weekend
+  3.6  Skill-maintenance audit                ← SKILL.md modified in session commits
+  3.9  Deferred Maintenance emission          ← always (writes Deferred Maintenance section)
+  3.C  Active Charter sync                    ← charter heading present in SYSTEM_STATE
+  3.2  Document audit (manual review)         ← legacy; no auto-signal (Change C eligible)
+  3.3  Artifact cleanup (/tmp, root)          ← legacy; partial overlap with /repo-cleanup-refactor (Change D eligible)
 ```
+
+**CORE failure blocks close.** EPILOGUE skips emit `[SKIP] reason: <signal>` and do not block.
 
 Numeric substeps are always-on; letter substeps are conditional. The
 ordering within Phase 3 interleaves them as shown above (3.1 → 3.A →
