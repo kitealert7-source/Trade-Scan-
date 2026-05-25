@@ -178,3 +178,44 @@ This field can be used to tier cleanup priority: legacy runs with no provenance 
 
 ### Backfill Note
 `tools/backfill_run_index.py` populated the index with 167 legacy rows on 2026-03-24. Re-running it is safe — the duplicate guard (run_id match) prevents double-writes. `tools/run_index.py` handles all new runs automatically at `STAGE_1_COMPLETE`.
+
+---
+
+## 4. Directive Admission Sentinels & Recovery (added 2026-05-25)
+
+### Sentinel design
+
+At admission, `tools/run_pipeline.py:admit_directive` atomically moves the directive `.txt` through `INBOX → active_backup → completed` via `os.replace` and creates a sibling `<id>.txt.admitted` as a **zero-byte sentinel** via `marker_path.touch()`. The sentinel carries no content — its only role is to mark that the directive has been admitted. The canonical content lives in `<id>.txt` only.
+
+Sentinels are gitignored (`.gitignore:91`: `*.admitted`) — they exist purely on the filesystem.
+
+### The sidecar invariant
+
+When any cleanup or archive operation moves the directive `.txt`, it must also move (or delete) the `.admitted` sibling. Leaving a sentinel without its `.txt` produces an **orphan marker** that confuses future readers into thinking content was truncated. Historically, the 2026-05-22 cleanup (commit `1317fba`) quarantined 274 directive `.txt` files without their sidecars; combined with other cleanups, this left 433 orphan markers in `completed/`.
+
+The fix landed in `tools/state_lifecycle/lineage_pruner.py` (commit `0933560`):
+- `DIRECTIVE_SIDECAR_SUFFIXES = (".admitted",)` — extensible tuple; add a new suffix here to plumb a future sidecar through automatically.
+- `_collect_directive_targets(directives_dir, keep_runs)` — each unmapped `<id>.txt` drags its sentinels along before the quarantine move.
+
+### Recovery precedence
+
+Use `tools/recover_admitted_directive.py <ID>` (commit `4a26c4a`) to resolve a directive's canonical content. Lookup order:
+
+1. **Live** — any of `backtest_directives/{INBOX, active, active_backup, completed, archive}/<id>.txt` (non-empty).
+2. **Quarantine** — `../TradeScan_State/quarantine/*/directives/<id>.txt`. Multiple hits → pick the sweep dir with the lexicographically latest name (timestamp prefix).
+3. **Git history** — walks `git log --all` across every plausible historical path; picks the newest non-empty blob.
+
+The tool emits per-recovery provenance (source type, sha256, size, line count; for git-backed recoveries also commit_sha + blob_sha + commit_timestamp_utc). `--json` makes it consumable by governance automation. `--write` commits the recovered bytes back to `completed/<id>.txt`, refusing to overwrite a non-empty destination unless `--force`.
+
+### The one-shot orphan sweep
+
+`tools/state_lifecycle/sweep_orphaned_admitted_markers.py` (commit `fad4695`) scans `backtest_directives/completed/` for `.admitted` files whose `.txt` sibling is missing and quarantines them to `../TradeScan_State/quarantine/<ts>_admitted_orphan_sweep/markers/` with a JSON manifest carrying per-marker `original_path`, `quarantine_destination`, `size_bytes`, `mtime_utc`, `sha256`. Dry-run by default; `--execute` to commit. Idempotent on retry.
+
+Executed once on 2026-05-25 (commit `081dbbc`): 433 markers moved, manifest copied to `outputs/system_reports/10_State Lifecycle Management/2026-05-25_admitted_orphan_sweep_manifest.json` for immutable audit.
+
+### Operational rules
+
+- **Do not** treat `<id>.txt.admitted` as canonical content. It is always 0 bytes by design.
+- **Do not** read `.admitted` files in downstream tooling. Removed the `.txt.admitted` fallback + `size > 10` guard from `tools/generate_strategy_card.py:_find_directive` (commit `f75462a`) for exactly this reason — defensive code that perpetuates the ambiguity is harmful.
+- **When writing a new cleanup tool that moves directive `.txt` files**, add `DIRECTIVE_SIDECAR_SUFFIXES` plumbing or call `lineage_pruner._collect_directive_targets()`.
+- **When investigating a "missing" directive**, run `python tools/recover_admitted_directive.py <ID>` before assuming data loss.
