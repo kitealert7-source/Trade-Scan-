@@ -203,13 +203,9 @@ def _find_directive(directive_name):
     """Locate the directive .txt file for a strategy across all directive subdirs."""
     base = PROJECT_ROOT / "backtest_directives"
     for sub in _DIRECTIVE_SUBDIRS:
-        d = base / sub
-        if not d.exists():
-            continue
-        for suffix in [".txt", ".txt.admitted"]:
-            f = d / f"{directive_name}{suffix}"
-            if f.exists() and f.stat().st_size > 10:
-                return f
+        f = base / sub / f"{directive_name}.txt"
+        if f.is_file():
+            return f
     return None
 
 
