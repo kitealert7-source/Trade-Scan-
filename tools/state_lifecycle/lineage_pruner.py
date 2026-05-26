@@ -175,40 +175,81 @@ def _collect_portfolio_complete_runs() -> tuple[set, set]:
     return protected_runs, protected_directives
 
 
+def _row_is_quarantined(row, *, bool_col: str | None = None, status_col: str | None = None) -> bool:
+    """Return True if a ledger row is tagged to skip referential checks.
+
+    Rows tagged this way are honored as "intentionally orphaned" by past
+    cleanups — the lineage they reference is no longer expected on disk.
+    Two conventions in use:
+      * FSP: boolean `quarantined` column (True/False).
+      * MPS Portfolios + SAC: `quarantine_status` column set to any non-null
+        string (ARCHIVED_DEPENDENCY_LOST, SUPERSEDED, ARCHIVED_UNRESOLVED, ...).
+    """
+    if bool_col and bool_col in row.index:
+        v = row[bool_col]
+        if isinstance(v, bool) and v:
+            return True
+        s = str(v).strip().lower()
+        if s in ("true", "1", "yes"):
+            return True
+    if status_col and status_col in row.index:
+        v = row[status_col]
+        if v is None:
+            return False
+        s = str(v).strip()
+        if s and s.lower() not in ("nan", "none", ""):
+            return True
+    return False
+
+
 def build_keep_runs() -> tuple[set, set]:
-    """Build union index from candidates and active portfolio subsets."""
+    """Build union index from candidates and active portfolio subsets.
+
+    Rows tagged `quarantined=True` (FSP) or `quarantine_status` set (MPS
+    Portfolios / Single-Asset Composites) are skipped — they declare that
+    the referenced run_ids are NOT expected to exist on disk, which is the
+    operator-honored way to record dependency loss without violating the
+    append-only invariant.
+    """
     keep_runs = set()
     active_portfolios = set()
 
-    # 1. Extract from Filtered_Strategies_Passed
+    # 1. Extract from Filtered_Strategies_Passed (skip quarantined rows)
     if not FILTERED_SHEET_PATH.exists():
         print(f"[FAIL] Missing {FILTERED_SHEET_PATH}")
         sys.exit(1)
 
     df_filtered = pd.read_excel(FILTERED_SHEET_PATH)
-    for run_id in df_filtered.get("run_id", []):
-        r_str = str(run_id).strip()
+    for _, row in df_filtered.iterrows():
+        if _row_is_quarantined(row, bool_col="quarantined"):
+            continue
+        r_str = str(row.get("run_id", "")).strip()
         if r_str and r_str.lower() != "nan":
             keep_runs.add(r_str)
 
-    # 2. Extract from Master_Portfolio_Sheet
+    # 2. Extract from Master_Portfolio_Sheet (Portfolios + SAC sheets,
+    #    skip rows tagged with quarantine_status).
     if not MASTER_SHEET_PATH.exists():
         print(f"[FAIL] Missing {MASTER_SHEET_PATH}")
         sys.exit(1)
 
-    df_master = pd.read_excel(MASTER_SHEET_PATH)
-    for _, row in df_master.iterrows():
-        port_id = str(row.get("portfolio_id", "")).strip()
-        constituents = str(row.get("constituent_run_ids", "")).strip()
-
-        if port_id and port_id.lower() != "nan":
-            active_portfolios.add(port_id)
-            if constituents and constituents.lower() != "nan":
-                # Split by comma and add exactly
-                for r_id in constituents.split(","):
-                    p_str = r_id.strip()
-                    if p_str:
-                        keep_runs.add(p_str)
+    for sheet_name in ("Portfolios", "Single-Asset Composites"):
+        try:
+            df_sheet = pd.read_excel(MASTER_SHEET_PATH, sheet_name=sheet_name)
+        except (ValueError, KeyError):
+            continue
+        for _, row in df_sheet.iterrows():
+            if _row_is_quarantined(row, status_col="quarantine_status"):
+                continue
+            port_id = str(row.get("portfolio_id", "")).strip()
+            constituents = str(row.get("constituent_run_ids", "")).strip()
+            if port_id and port_id.lower() != "nan":
+                active_portfolios.add(port_id)
+                if constituents and constituents.lower() != "nan":
+                    for r_id in constituents.split(","):
+                        p_str = r_id.strip()
+                        if p_str:
+                            keep_runs.add(p_str)
 
     # 3. Protect PORTFOLIO_COMPLETE directives (promotion-eligible, not yet in spreadsheets)
     pc_runs, pc_directives = _collect_portfolio_complete_runs()
