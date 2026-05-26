@@ -4,7 +4,7 @@
 - WARNING: 2 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-26T11:00:31Z
+> Generated: 2026-05-26T15:18:19Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -41,14 +41,14 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `9020490 session: idea gate refresh â€” tools_manifest regen`
+- Last substantive commit: `cde0620 broader_pytest_baseline: acknowledge 3 TestRenderer failures (pre-Â§3.9-redesign drift)`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 37 KB / 91 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
@@ -59,14 +59,8 @@
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Broader-pytest baseline:** 13 acknowledged failure(s) (last refreshed 2026-05-23 @ dbfa9c1a). Tests: test_directive_basket_block_parses, test_directive_file_exists, test_directive_legs_match_h2_spec (+10 more). Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
+- **Broader-pytest baseline:** 16 acknowledged failure(s) (last refreshed 2026-05-26 @ 255f2d84). Tests: test_directive_basket_block_parses, test_directive_file_exists, test_directive_legs_match_h2_spec (+13 more). Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
-- [MPS_LINEAGE_DRIFT — 2026-05-26 weekend-maintenance — RESOLVED 2026-05-26 via drop] 35 MPS rows (5 Portfolios + 30 SAC) referencing missing disk artifacts were *dropped* via `tools/state_lifecycle/repair_integrity.py --action drop --execute`. Pruner now passes cleanly. Sheet preservation verified: only Portfolios (131→126) and SAC (81→51) row counts changed; Baskets (433, all 140 quarantine_status tags preserved) and Notes (60) untouched; FSP (381 + 55 Notes) untouched. Lineage trail of this session: commit `2363ef9` lineage_pruner skip-quarantined filter + `08ead58` rewrite (mark-only mistake — broke operator-driven cleanup workflow) + `2df26ba` missing-folder scan + `5e16a16` restore `--action drop` as default (operator-cleanup is the documented exception per pipeline-state-cleanup skill Critical Authority Note) + drop-application this commit. Net: tool is now multi-sheet-safe + dry-run-default + two-action `drop`/`mark` with `drop` as default; legacy single-sheet `to_excel()` data-loss bug closed; LINEAGE_PROTECTED_TAGS = {SUPERSEDED, ARCHIVED_UNRESOLVED} survive drop (audit-trail decisions); ARCHIVED_DEPENDENCY_LOST is a soft tombstone that drop can re-resolve.
-- [BACKGROUND_PROCESSES_RUNNING — 2026-05-26 close, updated 2026-05-26 weekend-maintenance] Cointegration history backfills:
-  - **A (1d backfill 2024-01-01 → 2025-05-22): ~~COMPLETE~~** as of 2026-05-26 weekend-maintenance check. DB now spans 2023-12-29 → 2026-05-26 with 563,068 1d rows; process not in PID list.
-  - **B (4h backfill 2024-01-01 → today): STILL RUNNING** (PID 32516, age 167min at check time). 4h coverage now 2023-12-28 → 2024-08-08 (~7 months of ~17 backfilled, ~137K rows). At ~85 sec/date the remaining ~9 months ≈ ~6-8h more. ETA still consistent with original ~14h projection.
-  - Writes to `Anti_Gravity_DATA_ROOT/SYSTEM_FACTORS/FX_COINTEGRATION/cointegration.db` table `cointegration_daily` (tf column distinguishes rows). Verify via `python -c "import sqlite3; db = sqlite3.connect(r'...cointegration.db'); print(db.execute('SELECT tf, COUNT(*) FROM cointegration_daily GROUP BY tf').fetchall())"`. Expect 4h rows ~480K when fully done.
-  - Unblocks: out-of-sample verification on Tier-A Pine pairs (Priority 1 from `PHASE2_PINE_PORT_CONSOLIDATED_2026-05-26.md`).
-  - If process B dies (server reboot etc.): re-run same command; `INSERT OR REPLACE` makes it idempotent.
+- [BACKGROUND_PROCESS_RUNNING — 2026-05-26 close] 4h cointegration history backfill: `tmp/backfill_4h_history.py --tf 4h --start 2024-01-01` (PID 32516, alive ~3.8h at close). Coverage at check: 2023-12-28 → 2024-10-17 (33% of target range; 182K rows of expected ~480K). Observed rate ~47 sec/date; remaining ~586 days → ETA ~7-8h. Writes `Anti_Gravity_DATA_ROOT/SYSTEM_FACTORS/FX_COINTEGRATION/cointegration.db` table `cointegration_daily` (tf=4h). Verify via `python -c "import sqlite3; db = sqlite3.connect(r'...cointegration.db'); print(db.execute('SELECT tf, COUNT(*) FROM cointegration_daily GROUP BY tf').fetchall())"`. Unblocks: out-of-sample verification on Tier-A Pine pairs. If killed (reboot etc.): re-run same command; `INSERT OR REPLACE` makes it idempotent.
