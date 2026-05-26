@@ -15,7 +15,7 @@ calibration:
   price_unit: INDEX_POINT
   status: MT5_VERIFIED
   currency_profit: GBP
-  mt5_tick_value: 1.3484600000000002
+  mt5_tick_value: 1.3483000000000003
   mt5_tick_size: 0.1
-  usd_per_pu_per_lot: 13.4846
+  usd_per_pu_per_lot: 13.483
   digits: 1
