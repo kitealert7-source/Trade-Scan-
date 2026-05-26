@@ -49,25 +49,33 @@ def staged(tmp_path, monkeypatch):
 
     `RID_A` is "valid" (we plant its disk artifacts under tmp_path/runs and
     tmp_path/backtests). `RID_X` is "orphan" — never planted.
+
+    `PF_LIVE` / `PF_DEAD` portfolio_ids: PF_LIVE has a folder under
+    strategies_dir; PF_DEAD does not.
     """
     fsp = tmp_path / "fsp.xlsx"
     mps = tmp_path / "mps.xlsx"
     runs = tmp_path / "runs"
     backtests = tmp_path / "backtests"
     sandbox = tmp_path / "sandbox"
+    strategies = tmp_path / "strategies"
     runs.mkdir()
     backtests.mkdir()
     sandbox.mkdir()
+    strategies.mkdir()
 
     # Plant RID_A as valid: folder + JSON
     (runs / "RID_A").mkdir()
     (backtests / "RID_A.json").write_text("{}", encoding="utf-8")
+    # Plant PF_LIVE as a deployed portfolio (folder exists)
+    (strategies / "PF_LIVE").mkdir()
 
     monkeypatch.setattr(ri, "FILTERED_SHEET_PATH", fsp)
     monkeypatch.setattr(ri, "MASTER_SHEET_PATH", mps)
     monkeypatch.setattr(ri, "RUNS_DIR", runs)
     monkeypatch.setattr(ri, "BACKTESTS_DIR", backtests)
     monkeypatch.setattr(ri, "SANDBOX_DIR", sandbox)
+    monkeypatch.setattr(ri, "STRATEGIES_DIR", strategies)
     # Neutralize the formatter subprocess — irrelevant for unit tests, and
     # the worktree's tools/format_excel_artifact.py would touch real paths.
     monkeypatch.setattr(ri, "_reformat", lambda path, profile: None)
@@ -189,6 +197,30 @@ def test_idempotent_second_run_is_noop(staged):
     # be byte-equivalent.
     pd.testing.assert_frame_equal(fsp_1, fsp_2)
     pd.testing.assert_frame_equal(mps_1, mps_2)
+
+
+def test_missing_portfolio_folder_is_tagged(staged):
+    fsp, mps = staged
+    _write_fsp(fsp, [{"run_id": "RID_A"}])
+    _write_mps(
+        mps,
+        portfolios=[
+            {"portfolio_id": "PF_LIVE", "constituent_run_ids": "RID_A"},
+            {"portfolio_id": "PF_NO_FOLDER", "constituent_run_ids": "RID_A"},
+        ],
+        sac=[],
+    )
+
+    rc = ri.main_via_args(["--execute"])
+    assert rc == 0
+
+    mps_p = pd.read_excel(mps, sheet_name="Portfolios")
+    live = mps_p[mps_p.portfolio_id == "PF_LIVE"].iloc[0]
+    dead = mps_p[mps_p.portfolio_id == "PF_NO_FOLDER"].iloc[0]
+    assert dead["quarantine_status"] == "ARCHIVED_DEPENDENCY_LOST"
+    assert "deployed portfolio folder missing" in str(dead["quarantine_reason"])
+    qstat_live = live.get("quarantine_status")
+    assert pd.isna(qstat_live) or qstat_live in (None, "")
 
 
 def test_legacy_action_flag_is_rejected(staged, capsys):

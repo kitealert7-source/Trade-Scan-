@@ -50,6 +50,7 @@ FILTERED_SHEET_PATH = STATE_ROOT / "candidates" / "Filtered_Strategies_Passed.xl
 RUNS_DIR = STATE_ROOT / "runs"
 BACKTESTS_DIR = STATE_ROOT / "backtests"
 SANDBOX_DIR = STATE_ROOT / "sandbox"
+STRATEGIES_DIR = STATE_ROOT / "strategies"
 
 # Sheets read + rewritten in MPS. Baskets is excluded — H3 rehab governs it
 # separately and its rows already use quarantine_status.
@@ -59,6 +60,7 @@ MPS_TAGGED_SHEETS = ("Portfolios", "Single-Asset Composites")
 _REASON_MAX_CHARS = 200
 
 QUARANTINE_REASON_PREFIX = "constituent_run_ids reference orphan run(s) on disk: "
+QUARANTINE_REASON_FOLDER = "deployed portfolio folder missing from TradeScan_State/strategies/"
 
 
 def _check_file_writable(path: Path) -> None:
@@ -151,6 +153,27 @@ def scan_mps_sheet(df: pd.DataFrame) -> list[tuple[int, list[str]]]:
     return targets
 
 
+def scan_mps_missing_portfolio_folder(df: pd.DataFrame) -> list[int]:
+    """Return row indices for MPS rows whose portfolio_id has no deployed folder.
+
+    The lineage_pruner expects every active_portfolios entry to have a
+    `TradeScan_State/strategies/<portfolio_id>/` folder (Phase 1B Check 4).
+    Rows that pre-date promotion OR whose folders were removed by past
+    cleanup violate this — same dependency-loss class as missing run_ids,
+    distinct reason text so audits can tell the two apart.
+    """
+    targets = []
+    for idx, row in df.iterrows():
+        if _is_already_quarantined_mps(row):
+            continue
+        pid = str(row.get("portfolio_id", "")).strip()
+        if not pid or pid.lower() == "nan":
+            continue
+        if not (STRATEGIES_DIR / pid).is_dir():
+            targets.append(idx)
+    return targets
+
+
 def _build_reason(orphans: list[str]) -> str:
     body = QUARANTINE_REASON_PREFIX + ", ".join(orphans)
     if len(body) > _REASON_MAX_CHARS:
@@ -175,6 +198,19 @@ def apply_mps_tags(df: pd.DataFrame, targets: list[tuple[int, list[str]]]) -> pd
     for idx, orphans in targets:
         df.at[idx, "quarantine_status"] = "ARCHIVED_DEPENDENCY_LOST"
         df.at[idx, "quarantine_reason"] = _build_reason(orphans)
+    return df
+
+
+def apply_mps_folder_tags(df: pd.DataFrame, targets: list[int]) -> pd.DataFrame:
+    """Set quarantine_status + quarantine_reason for missing-folder rows."""
+    df = _ensure_columns(df, (
+        ("quarantine_status", None),
+        ("quarantine_reason", None),
+    ))
+    for idx in targets:
+        pid = str(df.at[idx, "portfolio_id"])
+        df.at[idx, "quarantine_status"] = "ARCHIVED_DEPENDENCY_LOST"
+        df.at[idx, "quarantine_reason"] = QUARANTINE_REASON_FOLDER + pid
     return df
 
 
@@ -270,7 +306,8 @@ def main() -> int:
     fsp_targets = scan_fsp(fsp_df)
 
     mps_sheets: dict[str, pd.DataFrame] = {}
-    mps_targets: dict[str, list[tuple[int, list[str]]]] = {}
+    mps_constituent_targets: dict[str, list[tuple[int, list[str]]]] = {}
+    mps_folder_targets: dict[str, list[int]] = {}
     for sheet in MPS_TAGGED_SHEETS:
         try:
             df = pd.read_excel(MASTER_SHEET_PATH, sheet_name=sheet)
@@ -278,20 +315,32 @@ def main() -> int:
             print(f"[INFO] MPS sheet {sheet!r} not present; skipping.")
             continue
         mps_sheets[sheet] = df
-        mps_targets[sheet] = scan_mps_sheet(df)
+        mps_constituent_targets[sheet] = scan_mps_sheet(df)
+        mps_folder_targets[sheet] = scan_mps_missing_portfolio_folder(df)
 
     # --- Report ---
     print()
     print(f"FSP rows to tag (quarantined=True): {len(fsp_targets)}")
-    for sheet, targets in mps_targets.items():
-        print(f"MPS::{sheet} rows to tag (ARCHIVED_DEPENDENCY_LOST): {len(targets)}")
-        for idx, orphans in targets[:10]:
+    for sheet, targets in mps_constituent_targets.items():
+        print(f"MPS::{sheet} rows w/ orphan constituents: {len(targets)}")
+        for idx, orphans in targets[:5]:
             pid = str(mps_sheets[sheet].at[idx, "portfolio_id"])
             print(f"  -> {pid}  orphans={orphans}")
-        if len(targets) > 10:
-            print(f"  ... and {len(targets) - 10} more.")
+        if len(targets) > 5:
+            print(f"  ... and {len(targets) - 5} more.")
+    for sheet, targets in mps_folder_targets.items():
+        print(f"MPS::{sheet} rows w/ missing deployed folder: {len(targets)}")
+        for idx in targets[:5]:
+            pid = str(mps_sheets[sheet].at[idx, "portfolio_id"])
+            print(f"  -> {pid}")
+        if len(targets) > 5:
+            print(f"  ... and {len(targets) - 5} more.")
 
-    total = len(fsp_targets) + sum(len(t) for t in mps_targets.values())
+    total = (
+        len(fsp_targets)
+        + sum(len(t) for t in mps_constituent_targets.values())
+        + sum(len(t) for t in mps_folder_targets.values())
+    )
     if total == 0:
         print("\n[INFO] No integrity issues found. Spreadsheets unchanged.")
         return 0
@@ -311,18 +360,35 @@ def main() -> int:
         print(f"-> Tagged {len(fsp_targets)} FSP row(s) as quarantined.")
 
     mps_to_write = {}
-    for sheet, targets in mps_targets.items():
-        if not targets:
+    for sheet in MPS_TAGGED_SHEETS:
+        if sheet not in mps_sheets:
             continue
-        mps_sheets[sheet] = apply_mps_tags(mps_sheets[sheet], targets)
+        c_targets = mps_constituent_targets.get(sheet, [])
+        f_targets_raw = mps_folder_targets.get(sheet, [])
+        # When a row has BOTH orphan constituents AND a missing folder, the
+        # constituent reason is more specific (names the missing run_ids) —
+        # keep it. Strip folder-tag candidates that overlap.
+        already_indexes = {idx for idx, _ in c_targets}
+        f_targets = [idx for idx in f_targets_raw if idx not in already_indexes]
+        mps_folder_targets[sheet] = f_targets
+        if not c_targets and not f_targets:
+            continue
+        if c_targets:
+            mps_sheets[sheet] = apply_mps_tags(mps_sheets[sheet], c_targets)
+        if f_targets:
+            mps_sheets[sheet] = apply_mps_folder_tags(mps_sheets[sheet], f_targets)
         mps_to_write[sheet] = mps_sheets[sheet]
 
     if mps_to_write:
         safe_rewrite_mps(MASTER_SHEET_PATH, mps_to_write)
         _reformat(MASTER_SHEET_PATH, "portfolio")
-        for sheet, targets in mps_targets.items():
-            if targets:
-                print(f"-> Tagged {len(targets)} {sheet!r} row(s) as ARCHIVED_DEPENDENCY_LOST.")
+        for sheet in MPS_TAGGED_SHEETS:
+            n_c = len(mps_constituent_targets.get(sheet, []))
+            n_f = len(mps_folder_targets.get(sheet, []))
+            if n_c:
+                print(f"-> Tagged {n_c} {sheet!r} row(s) w/ orphan constituents as ARCHIVED_DEPENDENCY_LOST.")
+            if n_f:
+                print(f"-> Tagged {n_f} {sheet!r} row(s) w/ missing folder as ARCHIVED_DEPENDENCY_LOST.")
 
     print("\n[SUCCESS] Referential integrity tagging complete. Lineage preserved (append-only).")
     return 0
