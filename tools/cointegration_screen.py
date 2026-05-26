@@ -1,27 +1,32 @@
 """cointegration_screen.py — Phase 1: compute → parquet.
 
-Daily-cadence cointegration screener for the 31-symbol cross-asset
-universe (18 FX pairs + XAU/BTC/ETH added 2026-05-21 + 10 equity
-indices added 2026-05-23).
-Reads native daily closes from MASTER_DATA, computes ADF / half-life /
-hedge-ratio / z-score per unordered pair-pair × lookback window, and
-writes a single parquet snapshot.
+Cointegration screener for the cross-asset universe. Supports two
+timeframes per locked decision 2026-05-26:
+  * 1d (default): full 31-symbol universe — 18 FX + XAU/BTC/ETH + 10 indices
+  * 4h: FX-only (18 pairs) — indices excluded due to session-gap alignment;
+    research-validation tier only, not scheduled by default.
+
+Reads native closes from MASTER_DATA at the requested TF, computes
+ADF / half-life / hedge-ratio / z-score per unordered pair-pair ×
+lookback window, and writes a single parquet snapshot (one per TF).
 
 Per COINTEGRATION_SCREENER_V1_SPEC.md §6. Phase 1 scope is ONLY the
 parquet write — SQLite + Excel + scheduled task come in later phases.
 
-Outputs:
-    DATA_ROOT / SYSTEM_FACTORS / FX_COINTEGRATION / coint_1d_latest.parquet
-    DATA_ROOT / SYSTEM_FACTORS / FX_COINTEGRATION / metadata.json
+Outputs (under DATA_ROOT / SYSTEM_FACTORS / FX_COINTEGRATION /):
+    coint_1d_latest.parquet   + metadata.json         (tf=1d, default)
+    coint_4h_latest.parquet   + metadata_4h.json      (tf=4h, opt-in)
+    singles_<tf>_latest.parquet + singles_metadata*
 
 CLI:
-    python tools/cointegration_screen.py                  # use latest data
+    python tools/cointegration_screen.py                  # tf=1d, latest data
+    python tools/cointegration_screen.py --tf 4h
     python tools/cointegration_screen.py --as-of 2026-05-19
 
 Reproducibility:
-    Running with the same MASTER_DATA snapshot and the same code commit
-    produces a bit-identical parquet (modulo the `generated_at` column).
-    The `data_version` column captures input identity for audit.
+    Running with the same MASTER_DATA snapshot, code commit, and tf
+    produces a bit-identical parquet (modulo `generated_at`).
+    `data_version` captures input identity (including tf) for audit.
 
 Phase 1 simplifications (lifted in later phases):
   * `pvalue_rolling_median_5d` is always NaN — needs SQLite history (P2).
@@ -74,8 +79,17 @@ COINT_UNIVERSE: list[str] = list(FX_UNIVERSE) + [
 
 
 SCHEMA_VERSION = "1.0.0"
-TF = "1d"
-LOOKBACK_WINDOWS = (252, 504)  # 1y, 2y
+TF = "1d"  # default; per-call override via `tf=...` argument or `--tf` CLI flag
+
+# Lookback windows per TF, in *bars of that TF*. Calendar-time-matched:
+#   1d: 252/504 = ~1y/~2y
+#   4h: 1500/3000 = ~1y/~2y (FX is 24/5 → 6 4h bars/day × 250 trading days ≈ 1500)
+LOOKBACK_BY_TF: dict[str, tuple[int, ...]] = {
+    "1d": (252, 504),
+    "4h": (1500, 3000),
+}
+LOOKBACK_WINDOWS = LOOKBACK_BY_TF[TF]  # backward-compat default
+SUPPORTED_TFS: tuple[str, ...] = ("1d", "4h")
 BETA_METHOD = "ols_static"
 TEST_METHOD = "adf"
 
@@ -84,6 +98,45 @@ PARQUET_PATH = OUTPUT_DIR / "coint_1d_latest.parquet"
 METADATA_PATH = OUTPUT_DIR / "metadata.json"
 SINGLES_PARQUET_PATH = OUTPUT_DIR / "singles_1d_latest.parquet"
 SINGLES_METADATA_PATH = OUTPUT_DIR / "singles_metadata.json"
+
+
+def universe_for(tf: str) -> list[str]:
+    """Universe per TF. Locked decision 2026-05-26:
+      * 1d: full 31-symbol cross-asset universe (FX + commodity + crypto + indices)
+      * 4h: FX-only (18 pairs / 153 pair-pairs) — indices have session gaps
+        that complicate intraday alignment; crypto excluded for symmetry.
+    """
+    if tf == "1d":
+        return list(COINT_UNIVERSE)
+    if tf == "4h":
+        return list(FX_UNIVERSE)
+    raise ValueError(f"Unsupported tf: {tf!r}; allowed: {SUPPORTED_TFS}")
+
+
+def lookback_for(tf: str) -> tuple[int, ...]:
+    if tf not in LOOKBACK_BY_TF:
+        raise ValueError(f"Unsupported tf: {tf!r}; allowed: {SUPPORTED_TFS}")
+    return LOOKBACK_BY_TF[tf]
+
+
+def parquet_path_for(tf: str) -> Path:
+    """Per-TF parquet path. 1d keeps the existing filename for backward compat."""
+    return OUTPUT_DIR / f"coint_{tf}_latest.parquet"
+
+
+def metadata_path_for(tf: str) -> Path:
+    """Per-TF metadata path. 1d keeps the un-namespaced filename for backward compat;
+    other TFs get a `_{tf}` suffix."""
+    return METADATA_PATH if tf == "1d" else OUTPUT_DIR / f"metadata_{tf}.json"
+
+
+def singles_parquet_path_for(tf: str) -> Path:
+    return OUTPUT_DIR / f"singles_{tf}_latest.parquet"
+
+
+def singles_metadata_path_for(tf: str) -> Path:
+    return (SINGLES_METADATA_PATH if tf == "1d"
+            else OUTPUT_DIR / f"singles_metadata_{tf}.json")
 
 # Columns in canonical order (matches spec §5a). Locked here so any
 # accidental reorder fails the byte-identity test in Phase 1.
@@ -302,17 +355,22 @@ def compute_synthetic_log_ratio(
 # ---------------------------------------------------------------------------
 
 
-def compute_data_version(universe: list[str], as_of: pd.Timestamp | None) -> str:
-    """Hash of the input MASTER_DATA state (file paths + mtimes + as_of).
+def compute_data_version(universe: list[str], as_of: pd.Timestamp | None,
+                         tf: str = TF) -> str:
+    """Hash of the input MASTER_DATA state (file paths + mtimes + as_of + tf).
 
     12-char SHA-256 prefix; collisions are functionally impossible for
     this universe size. Lets us detect silent historical rewrites: same
-    code + same data_version => bit-identical compute.
+    code + same data_version => bit-identical compute. `tf` is part of
+    the hash so 1d and 4h artifacts have distinct provenance.
     """
-    parts: list[str] = [f"as_of={as_of.isoformat() if as_of is not None else 'latest'}"]
+    parts: list[str] = [
+        f"tf={tf}",
+        f"as_of={as_of.isoformat() if as_of is not None else 'latest'}",
+    ]
     for sym in sorted(universe):
         research = DATA_ROOT / "MASTER_DATA" / f"{sym}_OCTAFX_MASTER" / "RESEARCH"
-        for f in sorted(research.glob(f"{sym}_OCTAFX_{TF}_*_RESEARCH.csv")):
+        for f in sorted(research.glob(f"{sym}_OCTAFX_{tf}_*_RESEARCH.csv")):
             parts.append(f"{f.name}={int(f.stat().st_mtime)}")
     digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
     return digest[:12]
@@ -325,22 +383,31 @@ def compute_data_version(universe: list[str], as_of: pd.Timestamp | None) -> str
 
 def run(as_of: pd.Timestamp | None = None,
         universe: list[str] | None = None,
-        windows: tuple[int, ...] = LOOKBACK_WINDOWS,
+        windows: tuple[int, ...] | None = None,
+        tf: str = TF,
         ) -> pd.DataFrame:
-    """Compute the full 153 × len(windows) matrix and return DataFrame.
+    """Compute the full N_pair_pairs × len(windows) matrix and return DataFrame.
 
     Does NOT write to disk; caller writes via `write_parquet()`. This
     split is intentional so unit tests can verify compute without
     needing write access.
-    """
-    universe = list(universe) if universe is not None else list(COINT_UNIVERSE)
 
-    # Load all daily closes once (much faster than reloading per pair).
+    `tf` selects the timeframe; `universe` and `windows` default to the
+    per-TF locked values (`universe_for(tf)`, `lookback_for(tf)`).
+    """
+    if universe is None:
+        universe = universe_for(tf)
+    else:
+        universe = list(universe)
+    if windows is None:
+        windows = lookback_for(tf)
+
+    # Load all closes for this TF once (much faster than reloading per pair).
     closes: dict[str, pd.Series] = {}
     for sym in universe:
-        closes[sym] = _load_native_closes(sym, TF, start=None, end=as_of)
+        closes[sym] = _load_native_closes(sym, tf, start=None, end=as_of)
 
-    data_version = compute_data_version(universe, as_of)
+    data_version = compute_data_version(universe, as_of, tf=tf)
     generated_at = pd.Timestamp.now(tz="UTC")
 
     rows: list[dict] = []
@@ -352,7 +419,7 @@ def run(as_of: pd.Timestamp | None = None,
                 # complete in the snapshot even when alignment fails.
                 rows.append({
                     "pair_a": sym_a, "pair_b": sym_b,
-                    "tf": TF, "lookback_days": lookback,
+                    "tf": tf, "lookback_days": lookback,
                     "window_start": pd.NaT, "window_end": pd.NaT,
                     "sample_size": 0,
                     "adf_pvalue": 1.0,
@@ -370,7 +437,7 @@ def run(as_of: pd.Timestamp | None = None,
                 continue
             rows.append({
                 "pair_a": sym_a, "pair_b": sym_b,
-                "tf": TF, "lookback_days": lookback,
+                "tf": tf, "lookback_days": lookback,
                 "window_start": stats["window_start"],
                 "window_end": stats["window_end"],
                 "sample_size": stats["sample_size"],
@@ -402,18 +469,27 @@ def run(as_of: pd.Timestamp | None = None,
     return df
 
 
-def write_parquet(df: pd.DataFrame, path: Path = PARQUET_PATH) -> None:
-    """Write the compute result and a metadata.json companion."""
+def write_parquet(df: pd.DataFrame, path: Path | None = None,
+                  tf: str = TF) -> None:
+    """Write the compute result and a metadata json companion.
+
+    Path defaults to `parquet_path_for(tf)`; metadata companion to
+    `metadata_path_for(tf)`. Both derive from `tf` so 4h artifacts
+    cohabit alongside 1d artifacts.
+    """
+    if path is None:
+        path = parquet_path_for(tf)
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
 
+    universe = universe_for(tf)
     meta = {
         "schema_version": SCHEMA_VERSION,
-        "tf": TF,
-        "lookback_windows": list(LOOKBACK_WINDOWS),
-        "universe": list(COINT_UNIVERSE),
-        "n_pairs": len(COINT_UNIVERSE),
-        "n_pair_pairs": len(list(itertools.combinations(COINT_UNIVERSE, 2))),
+        "tf": tf,
+        "lookback_windows": list(lookback_for(tf)),
+        "universe": universe,
+        "n_pairs": len(universe),
+        "n_pair_pairs": len(list(itertools.combinations(universe, 2))),
         "rows_written": len(df),
         "data_version": df["data_version"].iloc[0] if len(df) else None,
         "generated_at": (
@@ -425,7 +501,7 @@ def write_parquet(df: pd.DataFrame, path: Path = PARQUET_PATH) -> None:
             "pvalue_rolling_median_5d is NaN until Phase 2 (SQLite history)."
         ),
     }
-    METADATA_PATH.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    metadata_path_for(tf).write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -436,8 +512,9 @@ def write_parquet(df: pd.DataFrame, path: Path = PARQUET_PATH) -> None:
 def run_singles(
     as_of: pd.Timestamp | None = None,
     universe: list[str] | None = None,
-    windows: tuple[int, ...] = LOOKBACK_WINDOWS,
+    windows: tuple[int, ...] | None = None,
     synthetic_specs: list[tuple[str, str]] | None = None,
+    tf: str = TF,
 ) -> pd.DataFrame:
     """Compute single-series ADF for each symbol in `universe`, plus optional
     synthetic ratio series.
@@ -446,9 +523,17 @@ def run_singles(
     row with `symbol=f"RATIO:{sym_a}/{sym_b}"` for each, computed via
     `compute_synthetic_log_ratio` (ADF on close_a / close_b ratio, β=1 fixed).
 
+    `tf` selects the timeframe; `universe` and `windows` default to the
+    per-TF locked values.
+
     Returns DataFrame in canonical column order, with float32/int32 dtypes.
     """
-    universe = list(universe) if universe is not None else list(COINT_UNIVERSE)
+    if universe is None:
+        universe = universe_for(tf)
+    else:
+        universe = list(universe)
+    if windows is None:
+        windows = lookback_for(tf)
     synthetic_specs = list(synthetic_specs) if synthetic_specs else []
 
     closes: dict[str, pd.Series] = {}
@@ -457,14 +542,14 @@ def run_singles(
         needed.add(a)
         needed.add(b)
     for sym in sorted(needed):
-        closes[sym] = _load_native_closes(sym, TF, start=None, end=as_of)
+        closes[sym] = _load_native_closes(sym, tf, start=None, end=as_of)
 
-    data_version = compute_data_version(sorted(needed), as_of)
+    data_version = compute_data_version(sorted(needed), as_of, tf=tf)
     generated_at = pd.Timestamp.now(tz="UTC")
 
     rows: list[dict] = []
     placeholder_template = {
-        "tf": TF,
+        "tf": tf,
         "window_start": pd.NaT, "window_end": pd.NaT,
         "sample_size": 0,
         "adf_pvalue": 1.0,
@@ -487,7 +572,7 @@ def run_singles(
                 continue
             rows.append({
                 "symbol": sym, "lookback_days": lookback,
-                "tf": TF,
+                "tf": tf,
                 "window_start": stats["window_start"],
                 "window_end": stats["window_end"],
                 "sample_size": stats["sample_size"],
@@ -512,7 +597,7 @@ def run_singles(
                 continue
             rows.append({
                 "symbol": tag, "lookback_days": lookback,
-                "tf": TF,
+                "tf": tf,
                 "window_start": stats["window_start"],
                 "window_end": stats["window_end"],
                 "sample_size": stats["sample_size"],
@@ -539,14 +624,21 @@ def run_singles(
     return df
 
 
-def write_singles_parquet(df: pd.DataFrame, path: Path = SINGLES_PARQUET_PATH) -> None:
-    """Write singles compute result + companion metadata json."""
+def write_singles_parquet(df: pd.DataFrame, path: Path | None = None,
+                          tf: str = TF) -> None:
+    """Write singles compute result + companion metadata json.
+
+    Path defaults to `singles_parquet_path_for(tf)`; metadata companion
+    to `singles_metadata_path_for(tf)`.
+    """
+    if path is None:
+        path = singles_parquet_path_for(tf)
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
     meta = {
         "schema_version": SCHEMA_VERSION,
-        "tf": TF,
-        "lookback_windows": list(LOOKBACK_WINDOWS),
+        "tf": tf,
+        "lookback_windows": list(lookback_for(tf)),
         "rows_written": len(df),
         "n_distinct_symbols": int(df["symbol"].nunique()) if len(df) else 0,
         "data_version": df["data_version"].iloc[0] if len(df) else None,
@@ -560,7 +652,9 @@ def write_singles_parquet(df: pd.DataFrame, path: Path = SINGLES_PARQUET_PATH) -
             "not data-mined."
         ),
     }
-    SINGLES_METADATA_PATH.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    singles_metadata_path_for(tf).write_text(
+        json.dumps(meta, indent=2), encoding="utf-8"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -574,6 +668,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--as-of", type=str, default=None,
                    help="ISO date (YYYY-MM-DD) cutoff. Default: latest data.")
+    p.add_argument("--tf", type=str, default=TF, choices=list(SUPPORTED_TFS),
+                   help=f"Timeframe to compute. Default {TF!r}. "
+                        f"Allowed: {SUPPORTED_TFS}. At 4h, universe is FX-only "
+                        "(indices have session gaps).")
     p.add_argument("--no-write", action="store_true",
                    help="Compute only; do not write parquet (debug).")
     return p
@@ -582,30 +680,33 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     as_of = pd.Timestamp(args.as_of) if args.as_of else None
+    tf = args.tf
+    tf_universe = universe_for(tf)
+    tf_windows = lookback_for(tf)
 
-    print(f"[cointegration_screen] universe={len(COINT_UNIVERSE)} symbols "
-          f"windows={LOOKBACK_WINDOWS} as_of={as_of}")
+    print(f"[cointegration_screen] tf={tf} universe={len(tf_universe)} symbols "
+          f"windows={tf_windows} as_of={as_of}")
     t0 = datetime.now(timezone.utc)
-    df = run(as_of=as_of)
+    df = run(as_of=as_of, tf=tf)
     elapsed = (datetime.now(timezone.utc) - t0).total_seconds()
     print(f"[cointegration_screen] pair-pair: {len(df)} rows in {elapsed:.1f}s")
 
-    # Singles: ADF on each symbol's log-price + the BTC/ETH synthetic ratio.
-    # Synthetic specs are explicit here (matches the curated candidates list);
-    # the daily runner picks these up via the same main() invocation.
+    # Singles: ADF on each symbol's log-price + (at 1d only) the BTC/ETH
+    # synthetic ratio. Crypto is excluded from the 4h universe, so the
+    # synthetic-spec list is empty there.
     t1 = datetime.now(timezone.utc)
-    synthetic_specs = [("BTCUSD", "ETHUSD")]
-    df_singles = run_singles(as_of=as_of, synthetic_specs=synthetic_specs)
+    synthetic_specs = [("BTCUSD", "ETHUSD")] if tf == "1d" else []
+    df_singles = run_singles(as_of=as_of, synthetic_specs=synthetic_specs, tf=tf)
     elapsed_singles = (datetime.now(timezone.utc) - t1).total_seconds()
     print(f"[cointegration_screen] singles : {len(df_singles)} rows in {elapsed_singles:.1f}s")
 
     if args.no_write:
         print("[cointegration_screen] --no-write: skipping parquet writes")
     else:
-        write_parquet(df)
-        write_singles_parquet(df_singles)
-        print(f"[cointegration_screen] wrote {PARQUET_PATH}")
-        print(f"[cointegration_screen] wrote {SINGLES_PARQUET_PATH}")
+        write_parquet(df, tf=tf)
+        write_singles_parquet(df_singles, tf=tf)
+        print(f"[cointegration_screen] wrote {parquet_path_for(tf)}")
+        print(f"[cointegration_screen] wrote {singles_parquet_path_for(tf)}")
 
     # Quick summary
     regime_counts = df["regime"].value_counts().to_dict()

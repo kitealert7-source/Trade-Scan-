@@ -25,6 +25,7 @@ from tools.cointegration_history_matrix import (
     SCHEMA_VERSION,
     _compute_pair_history,
     build_manifest,
+    compute_version_hash as mod_compute_version_hash,
     current_params,
     update_latest_pointer,
     write_artifact,
@@ -244,3 +245,122 @@ class TestManifest:
         assert manifest["matrix_stats"]["total_rows"] == len(matrix)
         assert manifest["matrix_stats"]["qualified_rows"] >= 0
         assert 0.0 <= manifest["matrix_stats"]["qualified_pct"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Multi-TF parameterization (Phase 1, locked decision 2026-05-26)
+# ---------------------------------------------------------------------------
+
+
+class TestMultiTFParameterization:
+    """Phase-1 parameterization: 1d defaults preserve legacy behavior;
+    4h opt-in produces sibling artifacts with calendar-matched windows."""
+
+    def test_current_params_defaults_to_1d_legacy_values(self):
+        params = current_params()
+        assert params["tf"] == "1d"
+        assert params["hedge_window"] == 252
+        assert params["adf_window_short"] == 252
+        assert params["adf_window_long"] == 504
+        assert params["adf_sample_every"] == 21
+
+    def test_current_params_4h_uses_calendar_matched_windows(self):
+        params = current_params("4h")
+        assert params["tf"] == "4h"
+        assert params["hedge_window"] == 1500     # ~1y at 4H FX
+        assert params["adf_window_short"] == 1500
+        assert params["adf_window_long"] == 3000  # ~2y at 4H FX
+        assert params["adf_sample_every"] == 30   # ~weekly resample
+
+    def test_current_params_unsupported_tf_raises(self):
+        with pytest.raises(ValueError, match="Unsupported tf"):
+            current_params("1h")
+        with pytest.raises(ValueError, match="Unsupported tf"):
+            current_params("15m")
+
+    def test_4h_write_artifact_uses_4h_filename(self, tmp_path, monkeypatch):
+        import tools.cointegration_history_matrix as mod
+        monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path)
+        m = pd.DataFrame({
+            "date": [pd.Timestamp("2025-01-01")],
+            "pair_a": ["EURUSD"], "pair_b": ["USDJPY"],
+            "beta": [1.5], "spread_mean": [0.0], "spread_std": [1.0],
+            "daily_z": [0.5], "adf_p_1500": [0.04], "adf_p_3000": [0.03],
+            "qualified": [True],
+        }).astype({
+            "beta": "float32", "spread_mean": "float32", "spread_std": "float32",
+            "daily_z": "float32", "adf_p_1500": "float32", "adf_p_3000": "float32",
+        })
+        mf = {"schema_version": SCHEMA_VERSION, "matrix_hash": "4habcdef1234",
+              "params": current_params("4h"), "tf": "4h"}
+        parquet_path, manifest_path = mod.write_artifact(
+            m, mf, "4habcdef1234", tf="4h",
+        )
+        assert parquet_path.name == "coint_4h_history_matrix_4habcdef1234.parquet"
+        assert manifest_path.name == "coint_4h_history_matrix_4habcdef1234.manifest.json"
+        assert parquet_path.exists()
+
+    def test_1d_and_4h_artifacts_coexist(self, tmp_path, monkeypatch):
+        """Locked-decision invariant: different TFs produce distinct
+        artifact filenames and can coexist in OUTPUT_DIR."""
+        import tools.cointegration_history_matrix as mod
+        monkeypatch.setattr(mod, "OUTPUT_DIR", tmp_path)
+        # 1d artifact
+        m_1d = pd.DataFrame({
+            "date": [pd.Timestamp("2025-01-01")],
+            "pair_a": ["EURUSD"], "pair_b": ["USDJPY"],
+            "beta": [1.5], "spread_mean": [0.0], "spread_std": [1.0],
+            "daily_z": [0.5], "adf_p_252": [0.04], "adf_p_504": [0.03],
+            "qualified": [True],
+        }).astype({
+            "beta": "float32", "spread_mean": "float32", "spread_std": "float32",
+            "daily_z": "float32", "adf_p_252": "float32", "adf_p_504": "float32",
+        })
+        # 4h artifact (same hash literal, different tf — must still coexist)
+        m_4h = m_1d.rename(columns={"adf_p_252": "adf_p_1500",
+                                     "adf_p_504": "adf_p_3000"})
+        mf_1d = {"schema_version": SCHEMA_VERSION, "matrix_hash": "samehashvalue",
+                 "params": current_params("1d")}
+        mf_4h = {"schema_version": SCHEMA_VERSION, "matrix_hash": "samehashvalue",
+                 "params": current_params("4h")}
+        mod.write_artifact(m_1d, mf_1d, "samehashvalue", tf="1d")
+        mod.write_artifact(m_4h, mf_4h, "samehashvalue", tf="4h")
+        assert (tmp_path / "coint_1d_history_matrix_samehashvalue.parquet").exists()
+        assert (tmp_path / "coint_4h_history_matrix_samehashvalue.parquet").exists()
+
+    def test_compute_pair_history_4h_columns_use_bar_count_naming(self, synthetic_pair):
+        """4h-params compute should emit adf_p_1500 / adf_p_3000 columns,
+        not adf_p_252 / adf_p_504. Schema must encode the lookback so
+        consumers can read the right TF unambiguously."""
+        a, b = synthetic_pair
+        # synthetic_pair has n=2000 — adequate for 1500-bar window short test.
+        # Use a tweaked params dict with a smaller long window so the fixture
+        # data length is sufficient.
+        params = dict(current_params("4h"))
+        params["adf_window_long"] = 1800  # fit within n=2000 fixture
+        ph = _compute_pair_history(a, b, params=params)
+        assert "adf_p_1500" in ph.columns
+        assert "adf_p_1800" in ph.columns
+        assert "adf_p_252" not in ph.columns
+        assert "adf_p_504" not in ph.columns
+
+    def test_4h_latest_pointer_is_separate_from_1d(self, tmp_path):
+        """latest_pointer_for(tf) must return distinct paths per TF."""
+        import tools.cointegration_history_matrix as mod
+        p_1d = mod.latest_pointer_for("1d")
+        p_4h = mod.latest_pointer_for("4h")
+        assert p_1d != p_4h
+        assert p_1d.name == "coint_1d_history_matrix_LATEST.json"
+        assert p_4h.name == "coint_4h_history_matrix_LATEST.json"
+
+    def test_compute_version_hash_differs_by_tf(self):
+        """Same universe + same code, different tf → different hash.
+        Ensures 1d and 4h artifacts have distinct provenance even if
+        the source CSV files share names across TFs."""
+        # Use a universe that doesn't actually exist on disk so glob
+        # returns empty — the hash then depends only on params + tf.
+        params_1d = current_params("1d")
+        params_4h = current_params("4h")
+        h_1d = mod_compute_version_hash(["NONEXISTENT_SYMBOL_FOR_TEST"], params_1d, tf="1d")
+        h_4h = mod_compute_version_hash(["NONEXISTENT_SYMBOL_FOR_TEST"], params_4h, tf="4h")
+        assert h_1d != h_4h

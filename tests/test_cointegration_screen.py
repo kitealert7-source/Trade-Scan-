@@ -26,12 +26,20 @@ from tools.cointegration_screen import (
     COINT_UNIVERSE,
     PARQUET_COLUMNS,
     SINGLES_PARQUET_COLUMNS,
+    SUPPORTED_TFS,
     compute_pair_stats,
     compute_single_series_adf,
     compute_synthetic_log_ratio,
+    lookback_for,
+    metadata_path_for,
+    parquet_path_for,
+    singles_metadata_path_for,
+    singles_parquet_path_for,
+    universe_for,
     BETA_METHOD,
     TEST_METHOD,
 )
+from tools.factors.fx_correlation_matrix import FX_UNIVERSE
 
 
 # ---------------------------------------------------------------------------
@@ -307,3 +315,87 @@ class TestCandidatesRegistry:
                         f"{c['key']}: marked redundant_with but has disjoint "
                         f"tokens"
                     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-TF parameterization (Phase 1, locked decision 2026-05-26)
+# ---------------------------------------------------------------------------
+
+
+class TestMultiTFParameterization:
+    """Phase-1 parameterization for the screener: 1d is the default and
+    preserves all legacy paths; 4h is the opt-in research tier with
+    calendar-matched windows + FX-only universe."""
+
+    def test_supported_tfs_locked(self):
+        """Scope-discipline guard: only 1d and 4h are supported in Phase 1.
+        Adding 1h or 15m requires the operator decision gate
+        (see feedback_infra_build_to_falsify)."""
+        assert set(SUPPORTED_TFS) == {"1d", "4h"}
+
+    def test_universe_1d_is_full_cross_asset(self):
+        u = universe_for("1d")
+        assert len(u) == len(COINT_UNIVERSE)
+        # Spot-check: indices + crypto present at 1d
+        assert "SPX500" in u
+        assert "BTCUSD" in u
+        assert "EURUSD" in u
+
+    def test_universe_4h_is_fx_only(self):
+        """Locked decision: indices have session gaps that complicate
+        intraday alignment; crypto excluded for symmetry. FX-only."""
+        u = universe_for("4h")
+        assert set(u) == set(FX_UNIVERSE)
+        assert len(u) == 18
+        # Negative assertions — these must NOT appear at 4h
+        for excluded in ["SPX500", "NAS100", "BTCUSD", "ETHUSD",
+                         "XAUUSD", "GER40", "JPN225"]:
+            assert excluded not in u, f"{excluded} should be excluded at 4h"
+
+    def test_universe_unsupported_tf_raises(self):
+        with pytest.raises(ValueError, match="Unsupported tf"):
+            universe_for("1h")
+        with pytest.raises(ValueError, match="Unsupported tf"):
+            universe_for("15m")
+
+    def test_lookback_1d_is_legacy_windows(self):
+        assert lookback_for("1d") == (252, 504)
+
+    def test_lookback_4h_is_calendar_matched(self):
+        """4h windows preserve calendar time (~1y / ~2y) so the ADF test
+        retains its cointegration interpretation — not microstructure MR."""
+        assert lookback_for("4h") == (1500, 3000)
+
+    def test_parquet_path_namespaced_per_tf(self):
+        p_1d = parquet_path_for("1d")
+        p_4h = parquet_path_for("4h")
+        assert p_1d.name == "coint_1d_latest.parquet"
+        assert p_4h.name == "coint_4h_latest.parquet"
+        assert p_1d != p_4h
+
+    def test_metadata_path_1d_keeps_legacy_filename(self):
+        """1d metadata stays at the un-namespaced `metadata.json` filename
+        for backward compat. 4h gets the namespaced sibling."""
+        assert metadata_path_for("1d").name == "metadata.json"
+        assert metadata_path_for("4h").name == "metadata_4h.json"
+
+    def test_singles_paths_namespaced_per_tf(self):
+        assert singles_parquet_path_for("1d").name == "singles_1d_latest.parquet"
+        assert singles_parquet_path_for("4h").name == "singles_4h_latest.parquet"
+        # singles_metadata: 1d keeps legacy, 4h namespaced
+        assert singles_metadata_path_for("1d").name == "singles_metadata.json"
+        assert singles_metadata_path_for("4h").name == "singles_metadata_4h.json"
+
+    def test_cli_accepts_tf_4h_choice(self):
+        """The argparse spec must accept --tf 4h (and reject 1h to
+        prevent scope creep before Phase-4 validation gate)."""
+        from tools.cointegration_screen import _parser
+        parser = _parser()
+        args = parser.parse_args(["--tf", "4h"])
+        assert args.tf == "4h"
+        # Default is 1d
+        args = parser.parse_args([])
+        assert args.tf == "1d"
+        # 1h must be rejected (out of scope per locked decision)
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--tf", "1h"])
