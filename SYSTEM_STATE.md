@@ -1,9 +1,10 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 2 commits not pushed to origin
+## SESSION STATUS: WARNING
+- WARNING: 2 symbol(s) stale (>3 days behind)
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-25T13:45:05Z
+> Generated: 2026-05-26T11:00:31Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +13,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 125 directives
+- Completed: 214 directives
 
 ## Ledgers
 
@@ -32,22 +33,22 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-25** | Symbols: 221
+- Latest bar: **2026-05-26** | Symbols: 221 | **Stale (>3d): 2**
 
 ## Artifacts
-- Run directories: 1064
+- Run directories: 1170
 
 ## Git Sync
-- Remote: **2 commits ahead of origin**
-- Working tree: 2 uncommitted
-- Last substantive commit: `0704c1e session-close: narrow skill-maintenance trigger to SKILL.md modifications`
+- Remote: IN SYNC
+- Working tree: 1 uncommitted
+- Last substantive commit: `9020490 session: idea gate refresh â€” tools_manifest regen`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 37 KB / 129 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [SIZE] RESEARCH_MEMORY.md 37 KB / 91 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
@@ -61,3 +62,9 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
+- [BACKGROUND_PROCESSES_RUNNING — 2026-05-26 close] Two long-running cointegration history backfills launched mid-session and continue past session close:
+  - **A (1d backfill 2024-01-01 → 2025-05-22):** `tmp/backfill_4h_history.py --tf 1d`. ETA ~83 min from launch at 10:49 UTC. ~25 sec/date. Additive (INSERT OR REPLACE) — safe to interrupt and resume.
+  - **B (4h backfill 2024-01-01 → today):** `tmp/backfill_4h_history.py --tf 4h`. ETA ~14 hours from launch at 10:49 UTC. ~85 sec/date. Same idempotent pattern.
+  - Both write to `Anti_Gravity_DATA_ROOT/SYSTEM_FACTORS/FX_COINTEGRATION/cointegration.db` table `cointegration_daily` (tf column distinguishes rows). On next session start: verify completion via `python -c "import sqlite3; db = sqlite3.connect(r'...cointegration.db'); print(db.execute('SELECT tf, COUNT(*) FROM cointegration_daily GROUP BY tf').fetchall())"`. Expect 1d rows ≥ 240K + 1d backfill, 4h rows ~480K when fully done.
+  - Unblocks: out-of-sample verification on Tier-A Pine pairs (Priority 1 from `PHASE2_PINE_PORT_CONSOLIDATED_2026-05-26.md`).
+  - If processes died (server reboot etc.): re-run same commands; `INSERT OR REPLACE` makes them idempotent.
