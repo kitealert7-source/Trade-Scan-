@@ -1,15 +1,20 @@
-"""Regression: repair_integrity.py must (1) tag, never delete; (2) preserve
-every sheet in MPS on write; (3) be idempotent; (4) refuse the legacy
---action flag with a clear error.
+"""Regression: repair_integrity.py contract.
 
-Anti-bug: the pre-2026-05-26 version read MPS as a single sheet and wrote
-back with to_excel() — silently deleting SAC + Baskets + Notes on every
-run. After the H3 rehab batch (2026-05-25) that's ~514 rows of irreplaceable
-audit history per run. This test guards the fix at the unit level.
+Two actions:
+  * --action drop (default): rows whose disk artifacts are gone are dropped.
+    Operator-driven cleanup is the documented exception to the append-only
+    ledger invariant (CLAUDE.md #2). LINEAGE_PROTECTED_TAGS rows (SUPERSEDED
+    / ARCHIVED_UNRESOLVED from H3 rehab batches) are preserved on drop.
+  * --action mark: rows are tagged ARCHIVED_DEPENDENCY_LOST instead. Mark
+    mode is idempotent and never overwrites an existing tag.
+
+Both actions share the multi-sheet-safe writer (Portfolios + SAC + Baskets +
+Notes all survive) and the dry-run default. The pre-2026-05-26 implementation
+had a critical data-loss bug here (single-sheet write would delete SAC +
+Baskets + Notes on every run); this test file guards that fix.
 """
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -45,13 +50,11 @@ def _write_mps(path: Path, portfolios: list[dict], sac: list[dict],
 
 @pytest.fixture
 def staged(tmp_path, monkeypatch):
-    """Create FSP + MPS with a mix of valid and orphan run_ids.
-
-    `RID_A` is "valid" (we plant its disk artifacts under tmp_path/runs and
-    tmp_path/backtests). `RID_X` is "orphan" — never planted.
-
-    `PF_LIVE` / `PF_DEAD` portfolio_ids: PF_LIVE has a folder under
-    strategies_dir; PF_DEAD does not.
+    """Stage a tmp workspace with planted valid artifacts:
+       - RID_A: valid (folder + JSON planted)
+       - RID_X: orphan
+       - PF_LIVE: deployed folder planted
+       - PF_DEAD / SAC_DEAD: no folder
     """
     fsp = tmp_path / "fsp.xlsx"
     mps = tmp_path / "mps.xlsx"
@@ -59,15 +62,10 @@ def staged(tmp_path, monkeypatch):
     backtests = tmp_path / "backtests"
     sandbox = tmp_path / "sandbox"
     strategies = tmp_path / "strategies"
-    runs.mkdir()
-    backtests.mkdir()
-    sandbox.mkdir()
-    strategies.mkdir()
+    runs.mkdir(); backtests.mkdir(); sandbox.mkdir(); strategies.mkdir()
 
-    # Plant RID_A as valid: folder + JSON
     (runs / "RID_A").mkdir()
     (backtests / "RID_A.json").write_text("{}", encoding="utf-8")
-    # Plant PF_LIVE as a deployed portfolio (folder exists)
     (strategies / "PF_LIVE").mkdir()
 
     monkeypatch.setattr(ri, "FILTERED_SHEET_PATH", fsp)
@@ -76,76 +74,35 @@ def staged(tmp_path, monkeypatch):
     monkeypatch.setattr(ri, "BACKTESTS_DIR", backtests)
     monkeypatch.setattr(ri, "SANDBOX_DIR", sandbox)
     monkeypatch.setattr(ri, "STRATEGIES_DIR", strategies)
-    # Neutralize the formatter subprocess — irrelevant for unit tests, and
-    # the worktree's tools/format_excel_artifact.py would touch real paths.
     monkeypatch.setattr(ri, "_reformat", lambda path, profile: None)
     return fsp, mps
 
 
+# ---------------------------------------------------------------------------
+# Shared invariants (both actions)
+# ---------------------------------------------------------------------------
+
+
 def test_dry_run_does_not_mutate(staged):
     fsp, mps = staged
-    _write_fsp(fsp, [
-        {"run_id": "RID_A"},
-        {"run_id": "RID_X"},
-    ])
+    _write_fsp(fsp, [{"run_id": "RID_A"}, {"run_id": "RID_X"}])
     _write_mps(mps,
-        portfolios=[{"portfolio_id": "PF_DEAD",
-                     "constituent_run_ids": "RID_X"}],
+        portfolios=[{"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X"}],
         sac=[],
     )
     before_fsp = pd.read_excel(fsp)
-    before_mps_p = pd.read_excel(mps, sheet_name="Portfolios")
+    before_mps = pd.read_excel(mps, sheet_name="Portfolios")
 
-    rc = ri.main_via_args([])  # dry-run is default; main() returns 0
-    # see helper below — main is invoked via argparse, so we use a wrapper.
+    rc_drop = ri.main_via_args([])  # default drop, dry-run
+    rc_mark = ri.main_via_args(["--action", "mark"])  # mark, dry-run
 
-    after_fsp = pd.read_excel(fsp)
-    after_mps_p = pd.read_excel(mps, sheet_name="Portfolios")
-    # Frame equality — nothing changed
-    pd.testing.assert_frame_equal(before_fsp, after_fsp)
-    pd.testing.assert_frame_equal(before_mps_p, after_mps_p)
-
-
-def test_execute_tags_fsp_and_mps(staged):
-    fsp, mps = staged
-    _write_fsp(fsp, [
-        {"run_id": "RID_A"},
-        {"run_id": "RID_X"},
-    ])
-    _write_mps(mps,
-        portfolios=[
-            {"portfolio_id": "PF_LIVE", "constituent_run_ids": "RID_A"},
-            {"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X"},
-        ],
-        sac=[{"portfolio_id": "SAC_DEAD", "constituent_run_ids": "RID_X"}],
-    )
-
-    rc = ri.main_via_args(["--execute"])
-    assert rc == 0
-
-    fsp_after = pd.read_excel(fsp)
-    # RID_X row gets quarantined=True; RID_A stays alive
-    a_row = fsp_after[fsp_after.run_id == "RID_A"].iloc[0]
-    x_row = fsp_after[fsp_after.run_id == "RID_X"].iloc[0]
-    assert bool(x_row["quarantined"]) is True
-    # RID_A may have a quarantined column added with default False — that's fine
-    assert bool(a_row.get("quarantined", False)) is False
-
-    mps_p = pd.read_excel(mps, sheet_name="Portfolios")
-    live = mps_p[mps_p.portfolio_id == "PF_LIVE"].iloc[0]
-    dead = mps_p[mps_p.portfolio_id == "PF_DEAD"].iloc[0]
-    assert dead["quarantine_status"] == "ARCHIVED_DEPENDENCY_LOST"
-    assert "RID_X" in str(dead["quarantine_reason"])
-    qstat_live = live.get("quarantine_status")
-    assert pd.isna(qstat_live) or qstat_live in (None, "")
-
-    mps_sac = pd.read_excel(mps, sheet_name="Single-Asset Composites")
-    sac_dead = mps_sac[mps_sac.portfolio_id == "SAC_DEAD"].iloc[0]
-    assert sac_dead["quarantine_status"] == "ARCHIVED_DEPENDENCY_LOST"
+    assert rc_drop == 0 and rc_mark == 0
+    pd.testing.assert_frame_equal(before_fsp, pd.read_excel(fsp))
+    pd.testing.assert_frame_equal(before_mps, pd.read_excel(mps, sheet_name="Portfolios"))
 
 
 def test_all_sheets_preserved_after_execute(staged):
-    """The bug we set out to fix: pre-2026-05-26 to_excel() deleted SAC + Baskets + Notes."""
+    """The headline data-loss guard. Pre-rewrite to_excel() deleted SAC + Baskets + Notes."""
     fsp, mps = staged
     _write_fsp(fsp, [{"run_id": "RID_X"}])
     _write_mps(mps,
@@ -156,54 +113,74 @@ def test_all_sheets_preserved_after_execute(staged):
         notes=[{"note": "MUST_NOT_BE_LOST"}],
     )
 
-    rc = ri.main_via_args(["--execute"])
+    rc = ri.main_via_args(["--execute"])  # drop, execute
     assert rc == 0
 
     post_sheets = pd.ExcelFile(mps).sheet_names
-    assert "Portfolios" in post_sheets
-    assert "Single-Asset Composites" in post_sheets
-    assert "Baskets" in post_sheets
-    assert "Notes" in post_sheets
-
-    # Content preserved verbatim on untouched sheets
-    baskets_after = pd.read_excel(mps, sheet_name="Baskets")
-    assert "PRESERVED_DIR" in baskets_after["directive_id"].values
-    notes_after = pd.read_excel(mps, sheet_name="Notes")
-    assert "MUST_NOT_BE_LOST" in notes_after["note"].values
-
-    # FSP Notes preserved
-    fsp_sheets = pd.ExcelFile(fsp).sheet_names
-    assert "Notes" in fsp_sheets
+    assert {"Portfolios", "Single-Asset Composites", "Baskets", "Notes"} <= set(post_sheets)
+    assert "PRESERVED_DIR" in pd.read_excel(mps, sheet_name="Baskets")["directive_id"].values
+    assert "MUST_NOT_BE_LOST" in pd.read_excel(mps, sheet_name="Notes")["note"].values
+    assert "Notes" in pd.ExcelFile(fsp).sheet_names
 
 
-def test_idempotent_second_run_is_noop(staged):
+# ---------------------------------------------------------------------------
+# Drop mode (default)
+# ---------------------------------------------------------------------------
+
+
+def test_drop_removes_orphan_rows(staged):
     fsp, mps = staged
-    _write_fsp(fsp, [{"run_id": "RID_X"}])
+    _write_fsp(fsp, [{"run_id": "RID_A"}, {"run_id": "RID_X"}])
     _write_mps(mps,
-        portfolios=[{"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X"}],
+        portfolios=[
+            {"portfolio_id": "PF_LIVE", "constituent_run_ids": "RID_A"},
+            {"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X"},
+        ],
+        sac=[{"portfolio_id": "SAC_DEAD", "constituent_run_ids": "RID_X"}],
+    )
+
+    rc = ri.main_via_args(["--execute"])  # default drop
+    assert rc == 0
+
+    fsp_after = pd.read_excel(fsp)
+    assert list(fsp_after["run_id"]) == ["RID_A"]
+    assert list(pd.read_excel(mps, sheet_name="Portfolios")["portfolio_id"]) == ["PF_LIVE"]
+    assert pd.read_excel(mps, sheet_name="Single-Asset Composites").empty
+
+
+def test_drop_preserves_lineage_protected_tags(staged):
+    """SUPERSEDED / ARCHIVED_UNRESOLVED rows survive drop — those are explicit
+    audit decisions from the H3 rehab pattern."""
+    fsp, mps = staged
+    _write_fsp(fsp, [])
+    _write_mps(mps,
+        portfolios=[
+            {"portfolio_id": "PF_SUPERSEDED", "constituent_run_ids": "RID_X",
+             "quarantine_status": "SUPERSEDED"},
+            {"portfolio_id": "PF_UNRESOLVED", "constituent_run_ids": "RID_X",
+             "quarantine_status": "ARCHIVED_UNRESOLVED"},
+            {"portfolio_id": "PF_TOMBSTONE", "constituent_run_ids": "RID_X",
+             "quarantine_status": "ARCHIVED_DEPENDENCY_LOST"},
+            {"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X",
+             "quarantine_status": None},
+        ],
         sac=[],
     )
 
-    rc1 = ri.main_via_args(["--execute"])
-    fsp_1 = pd.read_excel(fsp)
-    mps_1 = pd.read_excel(mps, sheet_name="Portfolios")
+    rc = ri.main_via_args(["--execute"])
+    assert rc == 0
 
-    rc2 = ri.main_via_args(["--execute"])
-    fsp_2 = pd.read_excel(fsp)
-    mps_2 = pd.read_excel(mps, sheet_name="Portfolios")
-
-    assert rc1 == 0 and rc2 == 0
-    # Already-tagged rows are skipped on the second pass — DataFrames must
-    # be byte-equivalent.
-    pd.testing.assert_frame_equal(fsp_1, fsp_2)
-    pd.testing.assert_frame_equal(mps_1, mps_2)
+    survivors = list(pd.read_excel(mps, sheet_name="Portfolios")["portfolio_id"])
+    assert "PF_SUPERSEDED" in survivors
+    assert "PF_UNRESOLVED" in survivors
+    assert "PF_TOMBSTONE" not in survivors  # soft tombstone — drop removes
+    assert "PF_DEAD" not in survivors
 
 
-def test_missing_portfolio_folder_is_tagged(staged):
+def test_drop_handles_missing_folder_orphans(staged):
     fsp, mps = staged
     _write_fsp(fsp, [{"run_id": "RID_A"}])
-    _write_mps(
-        mps,
+    _write_mps(mps,
         portfolios=[
             {"portfolio_id": "PF_LIVE", "constituent_run_ids": "RID_A"},
             {"portfolio_id": "PF_NO_FOLDER", "constituent_run_ids": "RID_A"},
@@ -214,37 +191,89 @@ def test_missing_portfolio_folder_is_tagged(staged):
     rc = ri.main_via_args(["--execute"])
     assert rc == 0
 
+    survivors = list(pd.read_excel(mps, sheet_name="Portfolios")["portfolio_id"])
+    assert survivors == ["PF_LIVE"]
+
+
+# ---------------------------------------------------------------------------
+# Mark mode
+# ---------------------------------------------------------------------------
+
+
+def test_mark_tags_orphan_rows_without_dropping(staged):
+    fsp, mps = staged
+    _write_fsp(fsp, [{"run_id": "RID_A"}, {"run_id": "RID_X"}])
+    _write_mps(mps,
+        portfolios=[
+            {"portfolio_id": "PF_LIVE", "constituent_run_ids": "RID_A"},
+            {"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X"},
+        ],
+        sac=[{"portfolio_id": "SAC_DEAD", "constituent_run_ids": "RID_X"}],
+    )
+
+    rc = ri.main_via_args(["--action", "mark", "--execute"])
+    assert rc == 0
+
+    fsp_after = pd.read_excel(fsp)
+    assert set(fsp_after["run_id"]) == {"RID_A", "RID_X"}
+    x_row = fsp_after[fsp_after.run_id == "RID_X"].iloc[0]
+    assert bool(x_row["quarantined"]) is True
+
     mps_p = pd.read_excel(mps, sheet_name="Portfolios")
-    live = mps_p[mps_p.portfolio_id == "PF_LIVE"].iloc[0]
-    dead = mps_p[mps_p.portfolio_id == "PF_NO_FOLDER"].iloc[0]
+    dead = mps_p[mps_p.portfolio_id == "PF_DEAD"].iloc[0]
     assert dead["quarantine_status"] == "ARCHIVED_DEPENDENCY_LOST"
-    assert "deployed portfolio folder missing" in str(dead["quarantine_reason"])
+    assert "RID_X" in str(dead["quarantine_reason"])
+    live = mps_p[mps_p.portfolio_id == "PF_LIVE"].iloc[0]
     qstat_live = live.get("quarantine_status")
     assert pd.isna(qstat_live) or qstat_live in (None, "")
 
 
-def test_legacy_action_flag_is_rejected(staged, capsys):
+def test_mark_does_not_overwrite_existing_tag(staged):
     fsp, mps = staged
     _write_fsp(fsp, [])
-    _write_mps(mps, portfolios=[], sac=[])
+    _write_mps(mps,
+        portfolios=[
+            {"portfolio_id": "PF_SUPER", "constituent_run_ids": "RID_X",
+             "quarantine_status": "SUPERSEDED", "quarantine_reason": "from H3 rehab"},
+        ],
+        sac=[],
+    )
 
-    rc = ri.main_via_args(["--action", "drop"])
-    assert rc == 2
-    captured = capsys.readouterr()
-    assert "--action removed" in captured.out
-    assert "append-only invariant" in captured.out
+    rc = ri.main_via_args(["--action", "mark", "--execute"])
+    assert rc == 0
+    row = pd.read_excel(mps, sheet_name="Portfolios").iloc[0]
+    assert row["quarantine_status"] == "SUPERSEDED"
+    assert row["quarantine_reason"] == "from H3 rehab"
+
+
+def test_idempotent_second_run_is_noop(staged):
+    """Both modes should produce identical state on a second --execute pass."""
+    fsp, mps = staged
+    _write_fsp(fsp, [{"run_id": "RID_X"}])
+    _write_mps(mps,
+        portfolios=[{"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X"}],
+        sac=[],
+    )
+
+    rc1 = ri.main_via_args(["--action", "mark", "--execute"])
+    state_1 = pd.read_excel(mps, sheet_name="Portfolios")
+
+    rc2 = ri.main_via_args(["--action", "mark", "--execute"])
+    state_2 = pd.read_excel(mps, sheet_name="Portfolios")
+
+    assert rc1 == 0 and rc2 == 0
+    pd.testing.assert_frame_equal(state_1, state_2)
 
 
 # ---------------------------------------------------------------------------
-# Helper — argparse uses sys.argv; route via a wrapper for testability.
+# argparse wrapper for tests
 # ---------------------------------------------------------------------------
+
 
 def _install_main_via_args():
-    import argparse as _argparse
     real_main = ri.main
 
     def main_via_args(argv):
-        # Patch sys.argv around the real main; restore after.
         old = sys.argv
         sys.argv = ["repair_integrity.py", *argv]
         try:

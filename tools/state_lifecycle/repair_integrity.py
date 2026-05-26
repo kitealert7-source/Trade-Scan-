@@ -1,14 +1,26 @@
-"""repair_integrity.py — tag ledger rows whose lineage is missing on disk.
+"""repair_integrity.py — reconcile FSP + MPS ledgers against disk artifacts.
 
-Reconciles `Filtered_Strategies_Passed.xlsx` and `Master_Portfolio_Sheet.xlsx`
-against the physical artifact set under `TradeScan_State/{runs,sandbox,backtests}`.
-Rows referencing run_ids that no longer exist on disk are *tagged*, not deleted —
-honoring the append-only ledger invariant (CLAUDE.md #2).
+Two actions for the operator-driven cleanup workflow defined in
+`.claude/skills/pipeline-state-cleanup/SKILL.md` (Critical Authority Note):
 
-Tagging conventions (same as the H3 rehab batch, 2026-05-25):
-  * FSP rows: boolean `quarantined = True`
-  * MPS Portfolios + Single-Asset Composites rows: string `quarantine_status =
-    "ARCHIVED_DEPENDENCY_LOST"` + diagnostic `quarantine_reason`
+  * `--action drop` (default) — operator-driven cleanup. The operator
+    deleted disk artifacts (`runs/<id>/`, `backtests/<id>.json`, or
+    `strategies/<portfolio_id>/`); the matching ledger rows are dropped to
+    bring the spreadsheets in line with the now-authoritative disk state.
+    This is the documented exception to CLAUDE.md invariant #2 — the
+    operator's `rm -rf` is the signal of intent, not an automated tool.
+
+  * `--action mark` — lineage-preserving alternative. Tags rows
+    `quarantine_status=ARCHIVED_DEPENDENCY_LOST` so they stay visible-as-
+    archived in the workbook. Use when the audit trail for the row matters
+    even though the artifacts are gone (rare; SUPERSEDED / ARCHIVED_UNRESOLVED
+    from the H3 rehab batch is a related pattern but for different reasons).
+
+Drop mode honors LINEAGE_PROTECTED_TAGS = {SUPERSEDED, ARCHIVED_UNRESOLVED}.
+Rows carrying either tag are preserved on drop because those tags are
+explicit audit decisions (from the H3 leg_direction_flip_bug rehab batch).
+ARCHIVED_DEPENDENCY_LOST is *not* protected — it's a soft tombstone that
+drop can re-resolve.
 
 Writes preserve every sheet in MPS (Portfolios + Single-Asset Composites +
 Baskets + Notes) via the `ExcelWriter(mode="a", if_sheet_exists="replace")`
@@ -18,17 +30,14 @@ run. Anyone who ran the old tool against a populated workbook would have
 silently lost the entire H3 rehabilitation history.
 
 CLI:
-    python tools/state_lifecycle/repair_integrity.py             # dry-run (default)
-    python tools/state_lifecycle/repair_integrity.py --execute   # actually write
-
-The `--action drop` argument has been removed. Row deletion violates the
-append-only invariant and is no longer supported. If you need the legacy
-behavior, pull from git history — the recovery cost was the original sin
-this rewrite addresses.
+    python tools/state_lifecycle/repair_integrity.py                       # dry-run, drop
+    python tools/state_lifecycle/repair_integrity.py --execute             # drop, write
+    python tools/state_lifecycle/repair_integrity.py --action mark         # dry-run, mark
+    python tools/state_lifecycle/repair_integrity.py --action mark --execute
 
 Companion to:
-    - lineage_pruner.py — must run AFTER tagging; honors quarantine_status
-      to skip these rows in the integrity check.
+    - lineage_pruner.py — must run AFTER any --action mark; the pruner's
+      integrity check honors quarantine_status to skip tagged rows.
 """
 from __future__ import annotations
 
@@ -107,12 +116,28 @@ def _ensure_columns(df: pd.DataFrame, columns: tuple[tuple[str, object], ...]) -
     return df
 
 
-def _is_already_quarantined_mps(row: pd.Series) -> bool:
+# Tags that an explicit human decision flagged for *lineage preservation*
+# (the row's history must survive cleanup). Drop mode honors these as
+# "do not delete." Mark mode also leaves them alone to avoid overwriting
+# a more-specific tag with the generic ARCHIVED_DEPENDENCY_LOST one.
+LINEAGE_PROTECTED_TAGS = {"SUPERSEDED", "ARCHIVED_UNRESOLVED"}
+
+# Tag the mark-mode applier writes. Distinct from LINEAGE_PROTECTED_TAGS:
+# drop mode WILL remove rows carrying this tag (it's a "should have been
+# dropped but the operator chose to preserve the row as a soft tombstone"
+# marker, not an audit-immutable record). Documented in the skill preamble.
+TAG_ARCHIVED_DEPENDENCY_LOST = "ARCHIVED_DEPENDENCY_LOST"
+
+
+def _mps_quarantine_tag(row: pd.Series) -> str | None:
+    """Return the row's quarantine_status string if set, else None."""
     v = row.get("quarantine_status")
     if v is None:
-        return False
+        return None
     s = str(v).strip()
-    return bool(s) and s.lower() not in ("nan", "none")
+    if not s or s.lower() in ("nan", "none"):
+        return None
+    return s
 
 
 def _is_already_quarantined_fsp(row: pd.Series) -> bool:
@@ -124,11 +149,12 @@ def _is_already_quarantined_fsp(row: pd.Series) -> bool:
 
 
 def scan_fsp(df: pd.DataFrame) -> list[int]:
-    """Return row indices in FSP whose run_id is orphan AND not already quarantined."""
+    """Return row indices in FSP whose run_id is orphan.
+
+    No tag-based skip — the applier decides what to do with each target.
+    """
     targets = []
     for idx, row in df.iterrows():
-        if _is_already_quarantined_fsp(row):
-            continue
         rid = str(row.get("run_id", "")).strip()
         if not rid or rid.lower() == "nan":
             continue
@@ -138,11 +164,12 @@ def scan_fsp(df: pd.DataFrame) -> list[int]:
 
 
 def scan_mps_sheet(df: pd.DataFrame) -> list[tuple[int, list[str]]]:
-    """Return [(row_idx, [orphan_run_ids])] for MPS rows where any constituent is missing."""
+    """Return [(row_idx, [orphan_run_ids])] for MPS rows where any constituent is missing.
+
+    No tag-based skip — the applier decides what to do.
+    """
     targets = []
     for idx, row in df.iterrows():
-        if _is_already_quarantined_mps(row):
-            continue
         cons_str = str(row.get("constituent_run_ids", "")).strip()
         if not cons_str or cons_str.lower() == "nan":
             continue
@@ -154,18 +181,9 @@ def scan_mps_sheet(df: pd.DataFrame) -> list[tuple[int, list[str]]]:
 
 
 def scan_mps_missing_portfolio_folder(df: pd.DataFrame) -> list[int]:
-    """Return row indices for MPS rows whose portfolio_id has no deployed folder.
-
-    The lineage_pruner expects every active_portfolios entry to have a
-    `TradeScan_State/strategies/<portfolio_id>/` folder (Phase 1B Check 4).
-    Rows that pre-date promotion OR whose folders were removed by past
-    cleanup violate this — same dependency-loss class as missing run_ids,
-    distinct reason text so audits can tell the two apart.
-    """
+    """Return row indices for MPS rows whose portfolio_id has no deployed folder."""
     targets = []
     for idx, row in df.iterrows():
-        if _is_already_quarantined_mps(row):
-            continue
         pid = str(row.get("portfolio_id", "")).strip()
         if not pid or pid.lower() == "nan":
             continue
@@ -181,37 +199,92 @@ def _build_reason(orphans: list[str]) -> str:
     return body
 
 
-def apply_fsp_tags(df: pd.DataFrame, targets: list[int]) -> pd.DataFrame:
-    """Set `quarantined = True` for the indicated rows. Column added if missing."""
+def apply_fsp_mark(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int]:
+    """Mark mode: set `quarantined = True` for orphan rows not already tagged.
+
+    Returns (df, count_actually_tagged).
+    """
     df = _ensure_columns(df, (("quarantined", False),))
+    n = 0
     for idx in targets:
+        if _is_already_quarantined_fsp(df.iloc[idx]):
+            continue
         df.at[idx, "quarantined"] = True
-    return df
+        n += 1
+    return df, n
 
 
-def apply_mps_tags(df: pd.DataFrame, targets: list[tuple[int, list[str]]]) -> pd.DataFrame:
-    """Set quarantine_status + quarantine_reason for orphan-parent rows."""
+def apply_mps_mark(df: pd.DataFrame, constituent_targets: list[tuple[int, list[str]]],
+                   folder_targets: list[int]) -> tuple[pd.DataFrame, int]:
+    """Mark mode: tag MPS orphan-parent rows with ARCHIVED_DEPENDENCY_LOST.
+
+    Rows already carrying any quarantine_status are left alone (idempotent +
+    don't overwrite SUPERSEDED / ARCHIVED_UNRESOLVED with a less-specific tag).
+    Constituent-tagging takes precedence over folder-tagging (more-specific
+    reason wins) when both apply to the same row.
+    """
     df = _ensure_columns(df, (
         ("quarantine_status", None),
         ("quarantine_reason", None),
     ))
-    for idx, orphans in targets:
-        df.at[idx, "quarantine_status"] = "ARCHIVED_DEPENDENCY_LOST"
+    constituent_indexes = {idx for idx, _ in constituent_targets}
+    n = 0
+    for idx, orphans in constituent_targets:
+        if _mps_quarantine_tag(df.iloc[idx]) is not None:
+            continue
+        df.at[idx, "quarantine_status"] = TAG_ARCHIVED_DEPENDENCY_LOST
         df.at[idx, "quarantine_reason"] = _build_reason(orphans)
-    return df
-
-
-def apply_mps_folder_tags(df: pd.DataFrame, targets: list[int]) -> pd.DataFrame:
-    """Set quarantine_status + quarantine_reason for missing-folder rows."""
-    df = _ensure_columns(df, (
-        ("quarantine_status", None),
-        ("quarantine_reason", None),
-    ))
-    for idx in targets:
+        n += 1
+    for idx in folder_targets:
+        if idx in constituent_indexes:
+            continue
+        if _mps_quarantine_tag(df.iloc[idx]) is not None:
+            continue
         pid = str(df.at[idx, "portfolio_id"])
-        df.at[idx, "quarantine_status"] = "ARCHIVED_DEPENDENCY_LOST"
+        df.at[idx, "quarantine_status"] = TAG_ARCHIVED_DEPENDENCY_LOST
         df.at[idx, "quarantine_reason"] = QUARANTINE_REASON_FOLDER + pid
-    return df
+        n += 1
+    return df, n
+
+
+def apply_fsp_drop(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int]:
+    """Drop mode: remove orphan rows from FSP.
+
+    FSP `quarantined=True` rows are *not* in LINEAGE_PROTECTED_TAGS — they're
+    a soft-flag the operator can re-resolve. Drop still removes them; the
+    operator's disk-deletion was the explicit "this is dead" signal.
+    """
+    if not targets:
+        return df, 0
+    n = len(targets)
+    df = df.drop(index=targets).reset_index(drop=True)
+    return df, n
+
+
+def apply_mps_drop(df: pd.DataFrame, constituent_targets: list[tuple[int, list[str]]],
+                   folder_targets: list[int]) -> tuple[pd.DataFrame, int]:
+    """Drop mode: remove MPS orphan-parent rows.
+
+    Rows tagged with LINEAGE_PROTECTED_TAGS (SUPERSEDED / ARCHIVED_UNRESOLVED)
+    are preserved — those tags are explicit audit-trail decisions that drop
+    must honor. ARCHIVED_DEPENDENCY_LOST and untagged rows are dropped.
+    """
+    drop_indexes: set[int] = set()
+    for idx, _ in constituent_targets:
+        tag = _mps_quarantine_tag(df.iloc[idx])
+        if tag in LINEAGE_PROTECTED_TAGS:
+            continue
+        drop_indexes.add(idx)
+    for idx in folder_targets:
+        tag = _mps_quarantine_tag(df.iloc[idx])
+        if tag in LINEAGE_PROTECTED_TAGS:
+            continue
+        drop_indexes.add(idx)
+    if not drop_indexes:
+        return df, 0
+    n = len(drop_indexes)
+    df = df.drop(index=list(drop_indexes)).reset_index(drop=True)
+    return df, n
 
 
 def safe_rewrite_mps(mps_path: Path, modified: dict[str, pd.DataFrame]) -> None:
@@ -275,24 +348,20 @@ def _reformat(path: Path, profile: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Tag ledger rows whose lineage is missing on disk (append-only).",
+        description="Reconcile FSP + MPS ledgers against disk artifacts.",
     )
+    parser.add_argument("--action", choices=["drop", "mark"], default="drop",
+                        help="drop: remove rows whose disk artifacts are gone "
+                             "(operator-driven cleanup; default). "
+                             "mark: tag rows ARCHIVED_DEPENDENCY_LOST (lineage-"
+                             "preserving alternative).")
     parser.add_argument("--execute", action="store_true",
                         help="Apply changes. Default is dry-run.")
-    # Refuse the legacy --action argument loudly. If we silently dropped it,
-    # operators with stale habits would think their drops landed.
-    parser.add_argument("--action", default=None,
-                        help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    if args.action is not None:
-        print("[FAIL] --action removed in the 2026-05-26 rewrite.")
-        print("       Row deletion violates the append-only invariant (CLAUDE.md #2).")
-        print("       This tool now ONLY tags rows. Re-run without --action.")
-        return 2
-
+    action = args.action
     mode = "EXECUTE" if args.execute else "DRY-RUN"
-    print(f"--- repair_integrity ({mode}) ---")
+    print(f"--- repair_integrity (action={action.upper()}, {mode}) ---")
 
     if not MASTER_SHEET_PATH.exists():
         print(f"[FAIL] Missing {MASTER_SHEET_PATH}")
@@ -301,7 +370,7 @@ def main() -> int:
         print(f"[FAIL] Missing {FILTERED_SHEET_PATH}")
         return 1
 
-    # --- Scan ---
+    # --- Scan (action-agnostic) ---
     fsp_df = pd.read_excel(FILTERED_SHEET_PATH)
     fsp_targets = scan_fsp(fsp_df)
 
@@ -320,7 +389,7 @@ def main() -> int:
 
     # --- Report ---
     print()
-    print(f"FSP rows to tag (quarantined=True): {len(fsp_targets)}")
+    print(f"FSP orphan rows: {len(fsp_targets)}")
     for sheet, targets in mps_constituent_targets.items():
         print(f"MPS::{sheet} rows w/ orphan constituents: {len(targets)}")
         for idx, orphans in targets[:5]:
@@ -346,51 +415,59 @@ def main() -> int:
         return 0
 
     if not args.execute:
-        print(f"\n[DRY-RUN] {total} row(s) WOULD be tagged. Re-run with --execute to apply.")
+        verb = "dropped" if action == "drop" else "tagged"
+        print(f"\n[DRY-RUN] up to {total} row(s) WOULD be {verb} (action={action}). "
+              f"Re-run with --execute to apply.")
         return 0
 
     # --- Apply ---
     _check_file_writable(FILTERED_SHEET_PATH)
     _check_file_writable(MASTER_SHEET_PATH)
 
+    fsp_applied = 0
     if fsp_targets:
-        fsp_df = apply_fsp_tags(fsp_df, fsp_targets)
-        safe_rewrite_fsp(FILTERED_SHEET_PATH, fsp_df)
-        _reformat(FILTERED_SHEET_PATH, "strategy")
-        print(f"-> Tagged {len(fsp_targets)} FSP row(s) as quarantined.")
+        if action == "drop":
+            fsp_df, fsp_applied = apply_fsp_drop(fsp_df, fsp_targets)
+        else:
+            fsp_df, fsp_applied = apply_fsp_mark(fsp_df, fsp_targets)
+        if fsp_applied:
+            safe_rewrite_fsp(FILTERED_SHEET_PATH, fsp_df)
+            _reformat(FILTERED_SHEET_PATH, "strategy")
+            verb = "Dropped" if action == "drop" else "Tagged"
+            print(f"-> {verb} {fsp_applied} FSP row(s).")
 
     mps_to_write = {}
+    mps_applied: dict[str, int] = {}
     for sheet in MPS_TAGGED_SHEETS:
         if sheet not in mps_sheets:
             continue
         c_targets = mps_constituent_targets.get(sheet, [])
-        f_targets_raw = mps_folder_targets.get(sheet, [])
-        # When a row has BOTH orphan constituents AND a missing folder, the
-        # constituent reason is more specific (names the missing run_ids) —
-        # keep it. Strip folder-tag candidates that overlap.
-        already_indexes = {idx for idx, _ in c_targets}
-        f_targets = [idx for idx in f_targets_raw if idx not in already_indexes]
-        mps_folder_targets[sheet] = f_targets
+        f_targets = mps_folder_targets.get(sheet, [])
         if not c_targets and not f_targets:
             continue
-        if c_targets:
-            mps_sheets[sheet] = apply_mps_tags(mps_sheets[sheet], c_targets)
-        if f_targets:
-            mps_sheets[sheet] = apply_mps_folder_tags(mps_sheets[sheet], f_targets)
-        mps_to_write[sheet] = mps_sheets[sheet]
+        if action == "drop":
+            mps_sheets[sheet], n = apply_mps_drop(mps_sheets[sheet], c_targets, f_targets)
+        else:
+            mps_sheets[sheet], n = apply_mps_mark(mps_sheets[sheet], c_targets, f_targets)
+        mps_applied[sheet] = n
+        if n:
+            mps_to_write[sheet] = mps_sheets[sheet]
 
     if mps_to_write:
         safe_rewrite_mps(MASTER_SHEET_PATH, mps_to_write)
         _reformat(MASTER_SHEET_PATH, "portfolio")
-        for sheet in MPS_TAGGED_SHEETS:
-            n_c = len(mps_constituent_targets.get(sheet, []))
-            n_f = len(mps_folder_targets.get(sheet, []))
-            if n_c:
-                print(f"-> Tagged {n_c} {sheet!r} row(s) w/ orphan constituents as ARCHIVED_DEPENDENCY_LOST.")
-            if n_f:
-                print(f"-> Tagged {n_f} {sheet!r} row(s) w/ missing folder as ARCHIVED_DEPENDENCY_LOST.")
+        for sheet, n in mps_applied.items():
+            if n:
+                verb = "Dropped" if action == "drop" else "Tagged"
+                print(f"-> {verb} {n} {sheet!r} row(s).")
 
-    print("\n[SUCCESS] Referential integrity tagging complete. Lineage preserved (append-only).")
+    if action == "drop":
+        print("\n[SUCCESS] Orphan rows dropped. Append-only invariant honored — "
+              "operator-driven cleanup is the documented exception "
+              "(see .claude/skills/pipeline-state-cleanup Critical Authority Note).")
+    else:
+        print("\n[SUCCESS] Orphan rows tagged ARCHIVED_DEPENDENCY_LOST. "
+              "Lineage preserved; rows hidden from active views by the formatter.")
     return 0
 
 
