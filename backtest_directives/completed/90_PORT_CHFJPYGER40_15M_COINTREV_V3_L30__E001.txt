@@ -1,0 +1,76 @@
+test:
+  name: 90_PORT_CHFJPYGER40_15M_COINTREV_V3_L30__E001
+  family: PORT
+  strategy: 90_PORT_CHFJPYGER40_15M_COINTREV_V3_L30
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2025-12-23'
+  end_date: '2026-03-05'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: COINTREV_V3_PINE_RATIOZ
+  hypothesis_variant: COINTREV_V3_PINE_RATIOZ_CHFJPY_GER40_FULL_ALIGNMENT
+  description: 'Tier-A verification on FULL 252-only continuous aligned period
+    from SQLite DB (12-month history; NOT Excel-90-day truncation). Window
+    duration 73d. Tests edge robustness vs the cohort window result.
+    L=504 lifetime alignment: 0% (caveat).
+    '
+  repeat_override_reason: 'TIER_A_VERIFICATION: extending test from cohort
+    (Excel-truncated) window to the actual longest 252-only continuous
+    alignment window. Same strategy params. Methodologically-cleaner window.'
+symbols:
+- CHFJPY
+- GER40
+indicators:
+- indicators.volatility.atr
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: pine_zrev_reversal_proposal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.01
+basket:
+  basket_id: CHFJPYGER40
+  legs:
+  - symbol: CHFJPY
+    lot: 0.01
+    direction: long
+  - symbol: GER40
+    lot: 0.01
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: pine_ratio_zrev_v1
+    version: 1
+    params:
+      n_window: 30
+      n_meta: 100
+      z_entry: 2.0
+      entry_mode: absolute
+      hedge_lock_at_entry: true
+      always_in_market: true
+      initial_notional_usd: 1000.0
+      default_initial_lot: 0.01

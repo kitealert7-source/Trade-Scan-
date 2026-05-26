@@ -1,0 +1,77 @@
+test:
+  name: 90_PORT_NZDUSDUSDCAD_15M_COINTREV_V3_L30__E001
+  family: PORT
+  strategy: 90_PORT_NZDUSDUSDCAD_15M_COINTREV_V3_L30
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2025-06-13'
+  end_date: '2025-11-06'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: COINTREV_V3_PINE_RATIOZ
+  hypothesis_variant: COINTREV_V3_PINE_RATIOZ_NZDUSD_USDCAD_HISTORICAL_ALIGN
+  description: 'N=30 Pine port — historical alignment regime test.
+    Pair was 252-aligned for 147d in Jun-Nov 2025, prior to the Excel
+    90-day display window. Prior cohort test used the recent 91d window
+    (2026-02-25 -> 2026-05-26) which returned Ret/DD 0.63. This tests
+    the longer earlier regime as a cross-regime robustness check.
+    '
+  repeat_override_reason: 'HISTORICAL_REGIME_TEST: cohort test used the
+    recent Excel-window regime; this E001 tests the prior 2025 aligned
+    regime (independent from the cohort window). Cross-regime evidence.'
+symbols:
+- NZDUSD
+- USDCAD
+indicators:
+- indicators.volatility.atr
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: pine_zrev_reversal_proposal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.01
+basket:
+  basket_id: NZDUSDUSDCAD
+  legs:
+  - symbol: NZDUSD
+    lot: 0.01
+    direction: long
+  - symbol: USDCAD
+    lot: 0.01
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: pine_ratio_zrev_v1
+    version: 1
+    params:
+      n_window: 30
+      n_meta: 100
+      z_entry: 2.0
+      entry_mode: absolute
+      hedge_lock_at_entry: true
+      always_in_market: true
+      initial_notional_usd: 1000.0
+      default_initial_lot: 0.01

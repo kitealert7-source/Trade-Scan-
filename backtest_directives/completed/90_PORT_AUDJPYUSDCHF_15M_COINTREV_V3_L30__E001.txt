@@ -1,0 +1,82 @@
+test:
+  name: 90_PORT_AUDJPYUSDCHF_15M_COINTREV_V3_L30__E001
+  family: PORT
+  strategy: 90_PORT_AUDJPYUSDCHF_15M_COINTREV_V3_L30
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: '2026-01-29'
+  end_date: '2026-05-26'
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  hypothesis_ref: COINTREV_V3_PINE_RATIOZ
+  hypothesis_variant: COINTREV_V3_PINE_RATIOZ_AUDJPY_USDCHF_FULL_ALIGNMENT
+  description: 'Outlier deep-dive — AUDJPY/USDCHF on its FULL 252-only continuous
+    aligned period from the SQLite cointegration DB (12-month history), NOT
+    the Excel-truncated 90-day window. Prior 91-day window result Ret/DD
+    9.12, Net% +145, DD% 16. Testing 118-day window (27 extra days at
+    front: 2026-01-29 -> 2026-05-26). If Ret/DD stays ~9 -> edge real and
+    consistent on this aligned period. If it shifts materially -> 91-day
+    result was window-specific noise. Caveat: pair has 0% L=504 alignment
+    over full year, so macro structure does not support sustained
+    cointegration -- this is a single 4-month cointegrated phase.
+    '
+  repeat_override_reason: 'OUTLIER_VERIFICATION: extend test window from
+    Excel-truncated 91 days to the actual 252-only continuous alignment
+    period (118 days) using the full SQLite history. Same strategy params,
+    same pair, methodologically-cleaner window.'
+symbols:
+- AUDJPY
+- USDCHF
+indicators:
+- indicators.volatility.atr
+execution_rules:
+  pyramiding: false
+  entry_when_flat_only: true
+  reset_on_exit: false
+  entry_logic:
+    type: pine_zrev_reversal_proposal
+  exit_logic:
+    type: basket_recycle_rule
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 100000.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+trade_management:
+  direction: basket_mixed
+  reentry:
+    allowed: true
+  session_reset: none
+position_management:
+  lots: 0.01
+basket:
+  basket_id: AUDJPYUSDCHF
+  legs:
+  - symbol: AUDJPY
+    lot: 0.01
+    direction: long
+  - symbol: USDCHF
+    lot: 0.01
+    direction: short
+  initial_stake_usd: 1000.0
+  harvest_threshold_usd: 1000000.0
+  recycle_rule:
+    name: pine_ratio_zrev_v1
+    version: 1
+    params:
+      n_window: 30
+      n_meta: 100
+      z_entry: 2.0
+      entry_mode: absolute
+      hedge_lock_at_entry: true
+      always_in_market: true
+      initial_notional_usd: 1000.0
+      default_initial_lot: 0.01
