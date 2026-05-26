@@ -341,16 +341,19 @@ class TestMultiTFParameterization:
         assert "BTCUSD" in u
         assert "EURUSD" in u
 
-    def test_universe_4h_is_fx_only(self):
-        """Locked decision: indices have session gaps that complicate
-        intraday alignment; crypto excluded for symmetry. FX-only."""
+    def test_universe_4h_matches_full_cross_asset(self):
+        """Decision 2026-05-26 (revised): 4h universe matches 1d
+        cross-asset (31 symbols). OctaFX synthesizes index 4h bars to
+        24-hour cadence (verified: SPX500 has ~1545 4h bars in 2025
+        vs EURUSD's 1567), so inner-join with FX works. Cross-asset
+        pair-pairs are the most research-productive surface per
+        RESEARCH_MEMORY 2026-05-21."""
         u = universe_for("4h")
-        assert set(u) == set(FX_UNIVERSE)
-        assert len(u) == 18
-        # Negative assertions — these must NOT appear at 4h
-        for excluded in ["SPX500", "NAS100", "BTCUSD", "ETHUSD",
-                         "XAUUSD", "GER40", "JPN225"]:
-            assert excluded not in u, f"{excluded} should be excluded at 4h"
+        assert set(u) == set(COINT_UNIVERSE)
+        assert len(u) == 31
+        # FX, commodity, crypto, and indices must all appear at 4h
+        for required in ["EURUSD", "XAUUSD", "BTCUSD", "SPX500", "JPN225"]:
+            assert required in u, f"{required} should be in 4h universe"
 
     def test_universe_unsupported_tf_raises(self):
         with pytest.raises(ValueError, match="Unsupported tf"):

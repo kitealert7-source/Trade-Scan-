@@ -1,10 +1,13 @@
 """cointegration_screen.py — Phase 1: compute → parquet.
 
 Cointegration screener for the cross-asset universe. Supports two
-timeframes per locked decision 2026-05-26:
+timeframes per decision 2026-05-26:
   * 1d (default): full 31-symbol universe — 18 FX + XAU/BTC/ETH + 10 indices
-  * 4h: FX-only (18 pairs) — indices excluded due to session-gap alignment;
-    research-validation tier only, not scheduled by default.
+  * 4h: same 31-symbol universe — OctaFX synthesizes index/commodity
+    bars to 24-hour cadence so inner-join alignment with FX works.
+    Symbols with short history (ETHUSD ~2y, GER40 ~4y) are handled
+    by the existing sample_size reject path. Research-validation tier
+    only, not scheduled by default.
 
 Reads native closes from MASTER_DATA at the requested TF, computes
 ADF / half-life / hedge-ratio / z-score per unordered pair-pair ×
@@ -101,15 +104,25 @@ SINGLES_METADATA_PATH = OUTPUT_DIR / "singles_metadata.json"
 
 
 def universe_for(tf: str) -> list[str]:
-    """Universe per TF. Locked decision 2026-05-26:
-      * 1d: full 31-symbol cross-asset universe (FX + commodity + crypto + indices)
-      * 4h: FX-only (18 pairs / 153 pair-pairs) — indices have session gaps
-        that complicate intraday alignment; crypto excluded for symmetry.
+    """Universe per TF. Decision 2026-05-26 (revised after data check):
+    full 31-symbol cross-asset universe at BOTH 1d and 4h.
+
+    OctaFX synthesizes index 4h bars to 24-hour CFD cadence (verified
+    2026-05-26: SPX500 has ~1545 4h bars in 2025 vs EURUSD's 1567 —
+    nearly identical), so inner-join alignment with FX is not a problem.
+    Symbols with short 4h history (ETHUSD ~2y, GER40 ~4y) are kept in
+    the universe; the screener's existing
+    `sample_size < lookback // 2` reject path handles them gracefully
+    per pair-pair.
+
+    Cross-asset pair-pairs (FX-commodity, FX-equity, equity-equity) are
+    the most research-productive surface per RESEARCH_MEMORY 2026-05-21
+    (GBPJPY/XAUUSD, EURJPY/XAUUSD, BTCUSD/NZDJPY all BOTH-window
+    qualifiers); excluding them at 4h would put the experiment's answer
+    out of reach of the highest-value pairs.
     """
-    if tf == "1d":
+    if tf in SUPPORTED_TFS:
         return list(COINT_UNIVERSE)
-    if tf == "4h":
-        return list(FX_UNIVERSE)
     raise ValueError(f"Unsupported tf: {tf!r}; allowed: {SUPPORTED_TFS}")
 
 

@@ -286,16 +286,29 @@ def _compute_pair_history(close_a: pd.Series, close_b: pd.Series,
 
 
 def load_aligned_closes(universe: list[str], tf: str = TF) -> pd.DataFrame:
+    """Load each symbol's closes and outer-join into a wide DataFrame.
+
+    Note: this used to inner-join (gating the entire dataset to the
+    shortest-history symbol). At 1d FX-only that was fine because all
+    18 FX symbols share ~14y of history. At 4h cross-asset, ETHUSD's
+    2-year history would gate everything to 1763 bars (< 3000-bar
+    long ADF window) — so we now outer-join and let `build_matrix`
+    do per-pair-pair inner-alignment.
+    """
     closes = {sym: _load_native_closes(sym, tf, None, None) for sym in universe}
-    df = pd.concat(closes, axis=1, join="inner").dropna()
+    df = pd.concat(closes, axis=1, join="outer")
     df.columns = list(closes.keys())
-    return df
+    return df.sort_index()
 
 
 def build_matrix(closes: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
     """Compute the full history matrix. Pure compute, no I/O.
 
     `params` is the per-TF parameter dict; defaults to 1d for backward compat.
+
+    Each pair-pair is computed on its own A∩B intersection, so symbols
+    with short individual history (e.g. ETHUSD ~2y at 4h) only affect
+    pair-pairs that include them — they don't gate the whole matrix.
     """
     if params is None:
         params = current_params("1d")
@@ -305,9 +318,17 @@ def build_matrix(closes: pd.DataFrame, params: dict | None = None) -> pd.DataFra
     frames: list[pd.DataFrame] = []
     t0 = time.time()
     for i, (sa, sb) in enumerate(pairs):
-        ph = _compute_pair_history(closes[sa], closes[sb], params=params)
-        ph = ph.reset_index().rename(columns={"index": "date", closes.index.name or "index": "date"})
-        # The reset_index column name varies; force it to "date":
+        # Per-pair inner-join: preserves each pair-pair's full shared history.
+        pair_df = pd.concat(
+            [closes[sa].rename("a"), closes[sb].rename("b")],
+            axis=1, join="inner",
+        ).dropna()
+        if len(pair_df) == 0:
+            # No overlap; still emit placeholder rows so the matrix is
+            # complete (pair-pair × date schema is consumer-stable).
+            continue
+        ph = _compute_pair_history(pair_df["a"], pair_df["b"], params=params)
+        ph = ph.reset_index().rename(columns={"index": "date", pair_df.index.name or "index": "date"})
         if "date" not in ph.columns:
             first_col = ph.columns[0]
             ph = ph.rename(columns={first_col: "date"})
@@ -315,8 +336,8 @@ def build_matrix(closes: pd.DataFrame, params: dict | None = None) -> pd.DataFra
         ph["pair_b"] = sb
         frames.append(ph[columns])
         if (i + 1) % 20 == 0 or (i + 1) == len(pairs):
-            _log(f"  pair {i+1}/{len(pairs)}  ({sa}/{sb})  elapsed={time.time()-t0:.1f}s")
-    return pd.concat(frames, ignore_index=True)
+            _log(f"  pair {i+1}/{len(pairs)}  ({sa}/{sb})  bars={len(pair_df):,}  elapsed={time.time()-t0:.1f}s")
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
 
 
 # --- Artifact write (with versioning discipline) -----------------------
@@ -437,7 +458,14 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     tf = args.tf
 
-    universe = list(FX_UNIVERSE)
+    # Universe: 1d keeps the legacy FX-only set (preserves matrix hash +
+    # downstream consumer contract via basket_data_loader). 4h uses the
+    # full cross-asset universe (FX + commodity + crypto + indices) per
+    # 2026-05-26 decision — cross-asset pair-pairs are the most research-
+    # productive surface and OctaFX synthesizes index 4h bars to 24-hour
+    # cadence so inner-join with FX works.
+    from tools.cointegration_screen import COINT_UNIVERSE
+    universe = list(FX_UNIVERSE) if tf == "1d" else list(COINT_UNIVERSE)
     params = current_params(tf)
     matrix_hash = compute_version_hash(universe, params, tf=tf)
 
