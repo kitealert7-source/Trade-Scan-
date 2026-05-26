@@ -389,8 +389,11 @@ def upsert_from_parquet(conn: sqlite3.Connection,
     df = df.copy()
     df["window_end_dt"] = pd.to_datetime(df["window_end"], errors="coerce")
     # If window_end is NaT (placeholder row), fall back to generated_at.
+    # `generated_at` is tz-aware (UTC) but `window_end_dt` is tz-naive; the
+    # fillna would coerce the column to object dtype and break .dt access.
+    # Strip tz to keep the column as datetime64[ns]. strftime is tz-agnostic.
     df["window_end_dt"] = df["window_end_dt"].fillna(
-        pd.to_datetime(df["generated_at"]))
+        pd.to_datetime(df["generated_at"]).dt.tz_localize(None))
     df["as_of"] = df["window_end_dt"].dt.strftime("%Y-%m-%d")
 
     inserted_at = datetime.now(timezone.utc).isoformat()
@@ -613,8 +616,9 @@ def upsert_singles_from_parquet(
 
     df = df.copy()
     df["window_end_dt"] = pd.to_datetime(df["window_end"], errors="coerce")
+    # Same tz-naive fillna as the pair-pair path; see upsert_from_parquet for rationale.
     df["window_end_dt"] = df["window_end_dt"].fillna(
-        pd.to_datetime(df["generated_at"]))
+        pd.to_datetime(df["generated_at"]).dt.tz_localize(None))
     df["as_of"] = df["window_end_dt"].dt.strftime("%Y-%m-%d")
 
     inserted_at = datetime.now(timezone.utc).isoformat()
