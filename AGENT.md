@@ -36,7 +36,7 @@ NEVER manually edit sweep_registry.yaml hashes or clean run directories.
 
 Non-negotiable. The agent must never violate any of these.
 
-1. **Ledger Supremacy** — `Master_Portfolio_Sheet.xlsx` and `Strategy_Master_Filter.xlsx` are append-only. No deletion. No overwrite.
+1. **Ledger Supremacy (pipeline-driven)** — `Master_Portfolio_Sheet.xlsx` and `Strategy_Master_Filter.xlsx` are append-only under *automated* mutation: no Stage-N tool, evaluator, or pipeline step may delete or overwrite rows. **Exception:** operator-driven cleanup via `tools/state_lifecycle/repair_integrity.py --action drop` drops rows whose disk artifacts the operator has already removed. The operator's `rm -rf` on the disk artifact is the explicit signal of intent; the row deletion just brings the spreadsheet in line with the now-authoritative disk state. Documented workflow in `.claude/skills/pipeline-state-cleanup/SKILL.md` Critical Authority Note.
 2. **Fail-Fast** — Any failure at any stage aborts the entire pipeline. No partial progression.
 3. **Artifact Authority** — All gating decisions derive from physical artifact existence and content, not memory or cache.
 4. **Snapshot Immutability** — `TradeScan_State/runs/<RUN_ID>/strategy.py` and `STRATEGY_SNAPSHOT.manifest.json` are write-once.

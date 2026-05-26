@@ -53,7 +53,7 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 ## Critical Invariants (key 9 — full list of 29 in AGENT.md)
 
 1. **Fail-Fast** — any failure aborts the pipeline; never silently continue
-2. **Append-Only Ledgers** — `Strategy_Master_Filter.xlsx` and `Master_Portfolio_Sheet.xlsx` are append-only; no deletion, no overwrite
+2. **Append-Only Ledgers (pipeline-driven)** — `Strategy_Master_Filter.xlsx` and `Master_Portfolio_Sheet.xlsx` are append-only for *automated* mutation; no Stage-N tool or evaluator may delete or overwrite rows. **Exception:** operator-driven cleanup via `tools/state_lifecycle/repair_integrity.py --action drop` is authorized to drop rows whose disk artifacts the operator has already deleted — the operator's `rm -rf` is the signal of intent, not an automated decision. See `.claude/skills/pipeline-state-cleanup/SKILL.md` Critical Authority Note for the full workflow
 3. **Artifact Authority** — all gating decisions derive from physical artifact existence, not memory or assumptions
 4. **Snapshot Immutability** — `TradeScan_State/runs/<RUN_ID>/strategy.py` is write-once after creation
 5. **Human Gating** — no strategy enters TS_Execution without explicit human approval (PORTFOLIO_COMPLETE)
