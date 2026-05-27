@@ -1437,30 +1437,71 @@ def run_batch_mode(provision_only=False):
     # + IPC for zero parallelism). Fail-fast on first error. A 15s cooldown
     # between directives (Invariant #26) gives ledger writers, Excel file
     # handles, and sweep-registry flushes time to settle before the next run.
+    #
+    # Phase 1 (2026-05-27) — telemetry instrumentation. JSONL events land
+    # at outputs/.session_state/pipeline_telemetry/<batch_id>__pid_<pid>.jsonl
+    # so post-batch diagnostics + the upcoming parallelization (Phase 3) can
+    # measure per-directive throughput, Stage-4 lock contention, and worker
+    # failure modes. No behavior change at this phase — the sequential loop
+    # and 15s cooldown are unchanged.
     import time as _time
+    from tools.pipeline_telemetry import (
+        TelemetryWriter,
+        batch_summary,
+        generate_batch_id,
+    )
 
     INTER_DIRECTIVE_COOLDOWN_SECONDS = 15
-    for idx, d_id in enumerate(admitted):
-        if idx > 0:
-            print(
-                f"[BATCH] Cooldown: sleeping {INTER_DIRECTIVE_COOLDOWN_SECONDS}s "
-                f"before next directive (Invariant #26)..."
-            )
-            _time.sleep(INTER_DIRECTIVE_COOLDOWN_SECONDS)
+    _batch_id = generate_batch_id()
+    _telemetry = TelemetryWriter(batch_id=_batch_id)
+    _telemetry.emit(
+        directive_id=None, stage_id=None, event="batch_start",
+        n_directives=len(admitted),
+        cooldown_seconds=INTER_DIRECTIVE_COOLDOWN_SECONDS,
+    )
+    print(f"[BATCH] telemetry batch_id={_batch_id}")
+
+    try:
+        for idx, d_id in enumerate(admitted):
+            if idx > 0:
+                print(
+                    f"[BATCH] Cooldown: sleeping {INTER_DIRECTIVE_COOLDOWN_SECONDS}s "
+                    f"before next directive (Invariant #26)..."
+                )
+                _time.sleep(INTER_DIRECTIVE_COOLDOWN_SECONDS)
+            _telemetry.start_directive(d_id)
+            try:
+                run_single_directive(d_id, provision_only)
+                _telemetry.end_directive(d_id)
+                print(f"[BATCH] Completed: {d_id}")
+            except PipelineError as e:
+                _telemetry.end_directive(d_id, error=f"{type(e).__name__}: {e}")
+                print(f"[BATCH] FAILED: {d_id}")
+                print("[FAIL-FAST] Stopping batch execution.")
+                raise
+            except Exception as e:
+                _telemetry.end_directive(d_id, error=f"{type(e).__name__}: {e}")
+                print(f"[BATCH] FAILED: {d_id} - {e}")
+                print("[FAIL-FAST] Stopping batch execution.")
+                raise PipelineExecutionError(
+                    f"Batch directive failed: {d_id}: {e}",
+                    directive_id=d_id,
+                ) from e
+    finally:
+        _telemetry.emit(
+            directive_id=None, stage_id=None, event="batch_end",
+        )
         try:
-            run_single_directive(d_id, provision_only)
-            print(f"[BATCH] Completed: {d_id}")
-        except PipelineError:
-            print(f"[BATCH] FAILED: {d_id}")
-            print("[FAIL-FAST] Stopping batch execution.")
-            raise
-        except Exception as e:
-            print(f"[BATCH] FAILED: {d_id} - {e}")
-            print("[FAIL-FAST] Stopping batch execution.")
-            raise PipelineExecutionError(
-                f"Batch directive failed: {d_id}: {e}",
-                directive_id=d_id,
-            ) from e
+            _summary = batch_summary(_batch_id)
+            print(
+                f"[BATCH] telemetry summary: started={_summary['n_directives_started']}, "
+                f"completed={_summary['n_directives_completed']}, "
+                f"failed={_summary['n_directives_failed']}"
+            )
+        except Exception as _summary_err:
+            # Telemetry summary is diagnostic — never let a summary
+            # failure mask the actual batch outcome.
+            print(f"[BATCH] (telemetry summary unavailable: {_summary_err})")
 
     # --- PHASE 3: ARCHIVE (SEQUENTIAL) ---
     # Only reached if all futures succeeded.
