@@ -675,6 +675,70 @@ def _write_summary(wb: Workbook, conn: sqlite3.Connection,
         pct = (count / n_total * 100) if n_total else 0
         ws.cell(row=row, column=3, value=f"{pct:.1f}%").alignment = Alignment(horizontal="center")
         row += 1
+    row += 1
+
+    # --- Section 7: 4h × 1500 universe + dual-TF intersection
+    # Tier A of the 4h integration (per COINTEGRATION_FILTER_DESIGN_2026-05-26).
+    # Surfaces (a) the 4h × 1500 regime distribution alongside the 1d Section 1
+    # tally above and (b) the dual-TF intersection count at progressively
+    # tighter raw-p thresholds, the cohort-size table the design doc §4 used
+    # to size Thread A vs Thread B.
+    row = _section_header(
+        ws, row,
+        "7. 4h × 1500 universe + dual-TF intersection (1d × 252 ∩ 4h × 1500)",
+        span=5,
+    )
+    df_1d_252 = df_today[(df_today.tf == "1d") & (df_today.lookback_days == 252)]
+    df_4h_1500 = df_today[(df_today.tf == "4h") & (df_today.lookback_days == 1500)]
+
+    # Sub-table 7a — 4h × 1500 regime distribution (mirrors Section 1 layout)
+    headers = ["surface", "cointegrated", "breaking", "broken", "total"]
+    for c, h in enumerate(headers, start=1):
+        _header_style(ws.cell(row=row, column=c, value=h))
+    row += 1
+    c_co = df_4h_1500[df_4h_1500.regime == "cointegrated"].shape[0]
+    c_br = df_4h_1500[df_4h_1500.regime == "breaking"].shape[0]
+    c_bk = df_4h_1500[df_4h_1500.regime == "broken"].shape[0]
+    ws.cell(row=row, column=1, value="4h × 1500")
+    for col_i, (val, fill_key) in enumerate(
+        [(c_co, "cointegrated"), (c_br, "breaking"), (c_bk, "broken")], start=2):
+        cell = ws.cell(row=row, column=col_i, value=val)
+        cell.fill, cell.font = _REGIME_FILL[fill_key]
+        cell.alignment = Alignment(horizontal="center")
+    ws.cell(row=row, column=5, value=c_co + c_br + c_bk).alignment = Alignment(horizontal="center")
+    row += 2
+
+    # Sub-table 7b — cohort sizes by raw p-value threshold + dual-TF intersection
+    headers = ["threshold", "1d × 252 count", "4h × 1500 count", "BOTH (dual-TF)"]
+    for c, h in enumerate(headers, start=1):
+        _header_style(ws.cell(row=row, column=c, value=h))
+    row += 1
+    for thr in (0.05, 0.01, 0.001):
+        sub_1d = df_1d_252[df_1d_252.adf_pvalue < thr]
+        sub_4h = df_4h_1500[df_4h_1500.adf_pvalue < thr]
+        pairs_1d = set(zip(sub_1d.pair_a, sub_1d.pair_b))
+        pairs_4h = set(zip(sub_4h.pair_a, sub_4h.pair_b))
+        c_both = len(pairs_1d & pairs_4h)
+        ws.cell(row=row, column=1, value=f"p < {thr}").alignment = Alignment(horizontal="center")
+        ws.cell(row=row, column=2, value=len(sub_1d)).alignment = Alignment(horizontal="center")
+        ws.cell(row=row, column=3, value=len(sub_4h)).alignment = Alignment(horizontal="center")
+        ws.cell(row=row, column=4, value=c_both).alignment = Alignment(horizontal="center")
+        row += 1
+    row += 1
+
+    # Note: raw screener p-values carry the Engle-Granger bias documented in
+    # COINTEGRATION_FILTER_DESIGN_2026-05-26.md §3. The effective conventional
+    # cointegration threshold under correct math is p < 0.01 on the displayed
+    # values (≈ true p < 0.05 after the ~4-5× bias correction).
+    ws.cell(row=row, column=1, value=(
+        "Note: thresholds are raw screener p-values (Engle-Granger bias not "
+        "corrected). Treat displayed p < 0.01 as the effective conventional "
+        "cointegration threshold (≈ true p < 0.05). See "
+        "COINTEGRATION_FILTER_DESIGN_2026-05-26.md §3."))
+    ws.cell(row=row, column=1).font = Font(italic=True, size=9, color="9C5700")
+    ws.cell(row=row, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=row, end_row=row, start_column=1, end_column=5)
+    ws.row_dimensions[row].height = 30
 
     # Column widths
     for c, w in enumerate([26, 14, 14, 14, 14], start=1):
