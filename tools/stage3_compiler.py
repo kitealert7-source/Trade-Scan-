@@ -18,7 +18,6 @@ import subprocess
 from pathlib import Path
 import pandas as pd
 from datetime import datetime
-from filelock import FileLock
 
 # Config
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -26,6 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Governance Imports
 from tools.pipeline_utils import PipelineStateManager, ensure_xlsx_writable
+from tools.pipeline_locks import acquire_with_stale_warn
 from config.state_paths import POOL_DIR, BACKTESTS_DIR, RUNS_DIR
 
 BACKTESTS_ROOT = BACKTESTS_DIR
@@ -298,20 +298,57 @@ def discover_completed_runs():
     return runs, rejected
 
 def compile_stage3(strategy_filter=None):
+    """Stage-3 aggregation — TOCTOU-safe transactional wrapper.
+
+    Phase 2 Option B refactor (2026-05-27):
+        Acquires the Master Filter FileLock before invoking the locked
+        core. Previously the read-decide step happened in
+        stage_symbol_execution.py (outside any lock) and only the Excel
+        write was protected — a TOCTOU window where two concurrent
+        directives could both decide to write and silently lose rows.
+
+        Now stage3_compiler owns the entire transactional boundary.
+        Callers (stage_symbol_execution.py) invoke unconditionally; the
+        idempotency check ("are these run_ids already in MF?") happens
+        inside the lock against the locked state.
+
+        Lock path: `<master_filter_path>.lock` (unchanged from previous
+        inner-lock pattern; defaults: 15-min hard timeout, 60s stale-wait
+        warning). When telemetry plumbing reaches subprocess workers
+        (Phase 3+), pass the parent's TelemetryWriter through to
+        acquire_with_stale_warn for structured barrier events.
+    """
+    master_filter_path = POOL_DIR / "Strategy_Master_Filter.xlsx"
+    _lock_path = master_filter_path.with_suffix(".lock")
+
+    with acquire_with_stale_warn(
+        _lock_path, lock_name="stage3_master_filter",
+    ):
+        return _compile_stage3_locked(strategy_filter, master_filter_path)
+
+
+def _compile_stage3_locked(strategy_filter, master_filter_path):
+    """The transactional core — caller must hold the Master Filter lock.
+
+    Performs the entire read-decide-write cycle under the assumption that
+    no other writer can mutate Strategy_Master_Filter.xlsx during the call.
+    Extracted from compile_stage3 in the 2026-05-27 Option B refactor so
+    the lock acquisition is visibly bracketed in the outer function rather
+    than buried mid-body.
+    """
     print("Stage-3 Aggregation Engine (Clean Batch)")
     print("=" * 60)
-    
+
     runs, discovery_rejected = discover_completed_runs()
     if strategy_filter:
         runs = [r for r in runs if r["metadata"].get("strategy_name", "").startswith(strategy_filter)]
-    
+
     print(f"Discovered {len(runs)} valid runs")
     if discovery_rejected:
         print(f"Rejected at discovery: {len(discovery_rejected)}")
-    
-    master_filter_path = POOL_DIR / "Strategy_Master_Filter.xlsx"
+
     df_master = get_existing_master_df(master_filter_path)
-    
+
     # Ensure Analysis_selection exists (replaces retired IN_PORTFOLIO).
     if "Analysis_selection" not in df_master.columns:
         print("[MIGRATION] Adding Analysis_selection column")
@@ -398,34 +435,31 @@ def compile_stage3(strategy_filter=None):
         _db_conn.close()
         print(f"  [LEDGER_DB] Synced {len(df_master)} rows to ledger.db")
 
-        # EXCEL SECOND (derived view, best-effort)
-        _lock_path = master_filter_path.with_suffix(".lock")
+        # EXCEL SECOND (derived view, best-effort). The outer compile_stage3
+        # wrapper already holds the Master Filter FileLock — no nested
+        # lock acquisition needed. Excel failures don't roll back the DB
+        # commit; operator can regenerate via `tools/ledger_db.py --export-mf`.
         try:
-            with FileLock(str(_lock_path), timeout=120):
-                ensure_xlsx_writable(master_filter_path)
-                _tmp_filter = master_filter_path.with_suffix(".xlsx.tmp")
-                df_master.to_excel(_tmp_filter, index=False)
-                with open(_tmp_filter, "r+b") as _fh:
-                    os.fsync(_fh.fileno())
-                os.replace(str(_tmp_filter), str(master_filter_path))
+            ensure_xlsx_writable(master_filter_path)
+            _tmp_filter = master_filter_path.with_suffix(".xlsx.tmp")
+            df_master.to_excel(_tmp_filter, index=False)
+            with open(_tmp_filter, "r+b") as _fh:
+                os.fsync(_fh.fileno())
+            os.replace(str(_tmp_filter), str(master_filter_path))
 
-                project_root = Path(__file__).parent.parent
-                formatter = project_root / "tools" / "format_excel_artifact.py"
-                subprocess.run(
-                    [sys.executable, str(formatter), "--file", str(master_filter_path), "--profile", "strategy"],
-                    check=True,
-                )
-                subprocess.run(
-                    [sys.executable, str(formatter), "--file", str(master_filter_path), "--notes-type", "master_filter"],
-                    check=True,
-                )
+            project_root = Path(__file__).parent.parent
+            formatter = project_root / "tools" / "format_excel_artifact.py"
+            subprocess.run(
+                [sys.executable, str(formatter), "--file", str(master_filter_path), "--profile", "strategy"],
+                check=True,
+            )
+            subprocess.run(
+                [sys.executable, str(formatter), "--file", str(master_filter_path), "--notes-type", "master_filter"],
+                check=True,
+            )
             print("[SUCCESS] Master Filter updated and formatted.")
         except Exception as e:
-            msg = str(e)
-            if "XLSX_LOCK_TIMEOUT" in msg or e.__class__.__name__ == "Timeout":
-                print(f"[WARN] Excel export timed out ({msg}). DB is current. Run: python tools/ledger_db.py --export-mf")
-            else:
-                print(f"[WARN] Excel export failed ({e}). DB is current. Run: python tools/ledger_db.py --export-mf")
+            print(f"[WARN] Excel export failed ({e}). DB is current. Run: python tools/ledger_db.py --export-mf")
             
     else:
         print("No new runs to add.")

@@ -345,62 +345,15 @@ def run_stage3_aggregation(context: PipelineContext) -> None:
             run_ids=[r for _, r in _hard_failed],
         )
 
-    # --- IDEMPOTENCY PRE-CHECK ---
-    # Skip the stage3_compiler write only when the CURRENT run_ids are already
-    # present in Master Filter. Prevents duplicate writes on resume-after-Stage-4
-    # failure, while letting re-runs (which create FRESH run_ids for the same
-    # directive) reach stage3_compiler so their metrics land in MF.
-    #
-    # Bug fix (2026-05-11): the previous check matched MF rows by
-    # `strategy.startswith(clean_id)`. An older row from a prior run of the
-    # same directive trivially satisfied this, so every re-run silently
-    # skipped the write and Master Filter stayed pinned to the first run's
-    # numbers. Run_id-keyed comparison eliminates that conflation.
+    # Phase 2 Option B refactor (2026-05-27): the previous "check MF
+    # outside the lock, then conditionally invoke stage3_compiler" pattern
+    # carried a TOCTOU window where concurrent directives could each
+    # decide to write and lose rows. The decision now happens INSIDE
+    # stage3_compiler's transactional boundary (under the FileLock), so
+    # we always invoke the subprocess. Idempotency is preserved by the
+    # `if run_id in existing_ids` check inside _compile_stage3_locked.
     master_filter_path = MASTER_FILTER_PATH
-    _skip_write = False
-    if master_filter_path.exists():
-        # Expected run_id set: all current run_ids except those with NO_TRADES.
-        _expected_run_ids = {
-            rid for rid in run_ids
-            if not (RUNS_DIR / rid / "status_no_trades.json").exists()
-        }
-        if _expected_run_ids:
-            import openpyxl as _oxl
-            _wb = None
-            try:
-                _wb = _oxl.load_workbook(master_filter_path, read_only=True)
-            except Exception as _load_err:
-                print(f"[AGGREGATION] Master Filter unreadable ({_load_err}) — falling through to full write.")
-            if _wb is not None:
-                _ws = _wb.active
-                try:
-                    _headers = list(next(_ws.iter_rows(min_row=1, max_row=1, values_only=True)))
-                    _run_id_idx = _headers.index("run_id")
-                    _present_run_ids = {
-                        str(row[_run_id_idx])
-                        for row in _ws.iter_rows(min_row=2, values_only=True)
-                        if row and len(row) > _run_id_idx and row[_run_id_idx]
-                    }
-                    _missing_run_ids = _expected_run_ids - _present_run_ids
-                    if not _missing_run_ids:
-                        _skip_write = True
-                        print(
-                            f"[AGGREGATION] All current run_ids already in MF for {clean_id} "
-                            f"({len(_expected_run_ids)} run_id(s)) — skipping stage3_compiler write."
-                        )
-                    else:
-                        _short = sorted(rid[:8] for rid in _missing_run_ids)
-                        print(
-                            f"[AGGREGATION] {len(_missing_run_ids)} run_id(s) missing from MF "
-                            f"({_short}) — will write."
-                        )
-                except (StopIteration, ValueError):
-                    pass  # Malformed or empty file — fall through to full write
-                finally:
-                    _wb.close()
-
-    if not _skip_write:
-        run_command([python_exe, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
+    run_command([python_exe, "tools/stage3_compiler.py", clean_id], "Stage-3 Aggregation")
     if not master_filter_path.exists():
         raise PipelineExecutionError(
             f"Stage-3 artifact missing: {master_filter_path}",

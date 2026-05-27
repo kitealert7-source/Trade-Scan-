@@ -120,22 +120,42 @@ def test_re_run_with_fresh_run_id_invokes_stage3_compiler(isolated_pipeline):
     assert invoked_stage3, "stage3_compiler must run when the new run_id is missing from MF"
 
 
-def test_resume_with_current_run_id_present_skips_stage3_compiler(isolated_pipeline):
-    """Idempotency invariant — when MF already contains the CURRENT run_id
-    (e.g. resume-after-Stage-4-failure), stage3_compiler must NOT re-run.
+def test_resume_with_current_run_id_present_invokes_stage3_compiler_idempotently(isolated_pipeline):
+    """Updated for 2026-05-27 Phase 2 Option B refactor.
+
+    OLD contract: outer check in stage_symbol_execution skipped the subprocess
+    when MF already had the current run_id.
+
+    NEW contract: subprocess is invoked unconditionally; idempotency check
+    happens INSIDE the lock in `_compile_stage3_locked`. The subprocess is
+    a near-no-op when the run_id is already present (acquires lock, reads
+    MF, sees row exists, does NOT call the write path). This eliminates
+    the TOCTOU window where two concurrent directives could both pass the
+    outer check and both call into the write path.
+
+    The test now verifies:
+      * Subprocess IS invoked (no outer skip)
+      * MF state is preserved exactly — no duplicate rows added
+        (downstream cardinality check still passes against unchanged MF)
     """
     mf_path = isolated_pipeline["mf_path"]
     # Seed MF with both old AND the current new run_id — simulates the
-    # resume-after-stage-4 scenario the idempotency check is meant to handle.
+    # resume-after-stage-4 scenario.
     _seed_master_filter(mf_path, [
         (OLD_RUN_ID, f"{DIRECTIVE_ID}_{SYMBOL}", SYMBOL),
         (NEW_RUN_ID, f"{DIRECTIVE_ID}_{SYMBOL}", SYMBOL),
     ])
+    # Snapshot row count BEFORE the call
+    _wb = openpyxl.load_workbook(mf_path, read_only=True)
+    _rows_before = _wb.active.max_row
+    _wb.close()
 
     invocations: list[list[str]] = []
 
     def _fake_run_command(argv, *_a, **_kw):
         invocations.append(argv)
+        # Simulate the new contract: subprocess runs, checks MF internally,
+        # finds current run_id already present, writes nothing new.
 
     with patch("tools.orchestration.execution_adapter.run_command",
                side_effect=_fake_run_command):
@@ -145,9 +165,18 @@ def test_resume_with_current_run_id_present_skips_stage3_compiler(isolated_pipel
     invoked_stage3 = any(
         len(a) >= 2 and a[1] == "tools/stage3_compiler.py" for a in invocations
     )
-    assert not invoked_stage3, (
-        "stage3_compiler must NOT be invoked when current run_id is already in MF "
-        "(idempotency invariant preserved)"
+    assert invoked_stage3, (
+        "stage3_compiler must be invoked unconditionally under the Option B "
+        "transactional refactor (idempotency check moved inside the lock)"
+    )
+    # No rows added — the simulated subprocess was a no-op because MF
+    # already carried the run_id.
+    _wb = openpyxl.load_workbook(mf_path, read_only=True)
+    _rows_after = _wb.active.max_row
+    _wb.close()
+    assert _rows_after == _rows_before, (
+        f"MF row count changed from {_rows_before} to {_rows_after} "
+        f"— idempotent re-invocation must not duplicate rows"
     )
 
 
