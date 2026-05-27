@@ -61,5 +61,12 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
-<!-- (no current entries — 4h backfill gen-2 completed 2026-05-27;
+
+#### Active Charter — 2026-05-27 — advisory-to-enforced
+**Focus:** Today's session surfaced five separate cases where existing advisory tools (skills, memory entries, "MANDATORY FIRST STEP" notes) were bypassed during execution. The fix is structural — convert each advisory check into an enforced gate / hook / CI test. Full plan + acceptance criteria + priority order in [`outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md`](outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md). Start next session by reading that document, picking task A (directive-naming ↔ rule_name validator), and implementing per the acceptance criteria.
+
+**Sessions on this charter:**
+- 2026-05-27 — plan authored; commits 544c361 / 12455b9 / 478389b landed the retroactive fix for failure mode #5 (state_lifecycle Baskets blindness). Five gates A-E remain to build (8-10 hours estimated).
+
+<!-- (4h backfill gen-2 completed 2026-05-27;
      coverage 2023-12-28 → 2026-05-27, 561,685 rows in cointegration_daily) -->
