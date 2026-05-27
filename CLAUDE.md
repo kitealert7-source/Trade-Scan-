@@ -58,7 +58,7 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 4. **Snapshot Immutability** — `TradeScan_State/runs/<RUN_ID>/strategy.py` is write-once after creation
 5. **Human Gating** — no strategy enters TS_Execution without explicit human approval (PORTFOLIO_COMPLETE)
 6. **Protected Infrastructure** — `tools/`, `engines/`, `engine_dev/`, `governance/`, `.claude/skills/` require implementation plan + explicit human approval before modification
-7. **Sequential Execution Only** — one directive at a time; batch submission prohibited; minimum 15s cooldown between runs
+7. **Sequential by default; opt-in parallelism via FileLock barriers** — `run_pipeline.py --all` runs directives sequentially by default (`--max-parallel 1`, permanent first-class mode for debug / safe / reproducibility / emergency recovery). The legacy 15s cooldown was REMOVED 2026-05-27; Stage 3 + Stage 4 file locks (`Strategy_Master_Filter.xlsx.lock`, `Master_Portfolio_Sheet.xlsx.lock`) provide deterministic exclusivity around shared Excel ledger writes. Pass `--max-parallel N` for cross-directive `ProcessPoolExecutor` parallelism — opt-in, evidence-driven, default never silently flips. Telemetry JSONL lands at `outputs/.session_state/pipeline_telemetry/<batch_id>__pid_<pid>.jsonl` every run regardless of mode
 8. **Scratch Script Placement** — all ad-hoc/diagnostic scripts go to `/tmp/` exclusively; no transient scripts in the repo root
 9. **Indicator Separation** — all indicator logic must live in `indicators/` as importable modules; inline computation and external data loading in strategy.py is prohibited (enforced at Stage-0.5)
 
