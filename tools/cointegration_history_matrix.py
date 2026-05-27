@@ -161,20 +161,30 @@ def _log(msg: str) -> None:
 # --- Versioning --------------------------------------------------------
 
 
-def current_params(tf: str = TF) -> dict:
+def current_params(tf: str = TF, features_start_date: str | None = None) -> dict:
     """The parameter set baked into the matrix for `tf`.
 
     1d returns the legacy values (preserves existing hashes).
     4h returns the calendar-matched, weekly-resample tuning.
+
+    `features_start_date` (YYYY-MM-DD) — when set, the matrix only emits
+    rows for dates >= this value, and input closes are trimmed to a
+    3-year buffer before it so ADF lookback windows still have full
+    warmup. Hash includes this value when set (different cutoffs →
+    different artifacts), absent when not set (preserves legacy
+    full-history hashes).
     """
     if tf not in PARAMS_BY_TF:
         raise ValueError(f"Unsupported tf: {tf!r}; allowed: {SUPPORTED_TFS}")
     p = dict(PARAMS_BY_TF[tf])
-    return {
+    result = {
         "tf": tf,
         **p,
         "schema_version": SCHEMA_VERSION,
     }
+    if features_start_date is not None:
+        result["features_start_date"] = features_start_date
+    return result
 
 
 def compute_version_hash(universe: list[str], params: dict,
@@ -285,7 +295,9 @@ def _compute_pair_history(close_a: pd.Series, close_b: pd.Series,
 # --- Top-level matrix build --------------------------------------------
 
 
-def load_aligned_closes(universe: list[str], tf: str = TF) -> pd.DataFrame:
+def load_aligned_closes(universe: list[str], tf: str = TF,
+                         features_start_date: str | None = None,
+                         lookback_buffer_days: int = 1100) -> pd.DataFrame:
     """Load each symbol's closes and outer-join into a wide DataFrame.
 
     Note: this used to inner-join (gating the entire dataset to the
@@ -294,11 +306,27 @@ def load_aligned_closes(universe: list[str], tf: str = TF) -> pd.DataFrame:
     2-year history would gate everything to 1763 bars (< 3000-bar
     long ADF window) — so we now outer-join and let `build_matrix`
     do per-pair-pair inner-alignment.
+
+    If `features_start_date` is set, closes are trimmed to dates >=
+    (features_start_date - lookback_buffer_days). The 1100-day default
+    (~3 years) safely covers the 3000-bar 4h ADF window plus rolling-
+    stats warmup, even accounting for FX weekend gaps. Trimming the
+    input directly reduces ADF compute proportional to the bars dropped.
     """
     closes = {sym: _load_native_closes(sym, tf, None, None) for sym in universe}
     df = pd.concat(closes, axis=1, join="outer")
     df.columns = list(closes.keys())
-    return df.sort_index()
+    df = df.sort_index()
+    if features_start_date is not None:
+        cutoff = pd.Timestamp(features_start_date) - pd.Timedelta(days=lookback_buffer_days)
+        # Align tz: closes index may be tz-aware (UTC) while parsed
+        # features_start_date is naive. Localize to match the index.
+        if df.index.tz is not None and cutoff.tz is None:
+            cutoff = cutoff.tz_localize(df.index.tz)
+        elif df.index.tz is None and cutoff.tz is not None:
+            cutoff = cutoff.tz_localize(None)
+        df = df.loc[df.index >= cutoff]
+    return df
 
 
 def _compute_one_pair(args: tuple) -> pd.DataFrame | None:
@@ -460,6 +488,18 @@ def build_matrix(closes: pd.DataFrame, params: dict | None = None,
     if not frames:
         return pd.DataFrame(columns=columns)
     matrix = pd.concat(frames, ignore_index=True)
+    # Filter to features_start_date (if set). Input closes were already
+    # trimmed by load_aligned_closes with a buffer for ADF lookback; this
+    # second pass drops the warmup rows from the OUTPUT so the parquet
+    # only carries the requested feature window.
+    fsd_str = params.get("features_start_date") if params else None
+    if fsd_str is not None:
+        fsd = pd.Timestamp(fsd_str)
+        if matrix["date"].dt.tz is not None and fsd.tz is None:
+            fsd = fsd.tz_localize(matrix["date"].dt.tz)
+        elif matrix["date"].dt.tz is None and fsd.tz is not None:
+            fsd = fsd.tz_localize(None)
+        matrix = matrix.loc[matrix["date"] >= fsd]
     # Sort for deterministic output (parallel completion order is
     # non-deterministic, but the parquet content must be reproducible).
     return matrix.sort_values(["pair_a", "pair_b", "date"]).reset_index(drop=True)
@@ -585,6 +625,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="Parallel pair-pair workers. Default: physical cores − 2. "
                         "Pass 1 for sequential (debug / byte-identity comparisons). "
                         "Pass N>1 to override the auto-detected default.")
+    p.add_argument("--features-start-date", type=str, default=None,
+                   help="Restrict output matrix to dates >= YYYY-MM-DD. Input "
+                        "closes are trimmed to a 3-year buffer before this "
+                        "for ADF lookback warmup. Reduces compute proportionally "
+                        "to the time range kept. Hash includes the cutoff when "
+                        "set, so different cutoffs produce different artifacts. "
+                        "Default: no filter (full history).")
     args = p.parse_args(argv)
     tf = args.tf
 
@@ -596,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
     # cadence so inner-join with FX works.
     from tools.cointegration_screen import COINT_UNIVERSE
     universe = list(FX_UNIVERSE) if tf == "1d" else list(COINT_UNIVERSE)
-    params = current_params(tf)
+    params = current_params(tf, features_start_date=args.features_start_date)
     matrix_hash = compute_version_hash(universe, params, tf=tf)
 
     _log(f"tf:            {tf}")
@@ -622,8 +669,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     _log("loading closes...")
-    closes = load_aligned_closes(universe, tf=tf)
+    closes = load_aligned_closes(
+        universe, tf=tf, features_start_date=args.features_start_date,
+    )
     _log(f"closes: {len(closes)} bars  {closes.index[0].date()} → {closes.index[-1].date()}")
+    if args.features_start_date:
+        _log(f"  features_start_date filter active: output limited to dates >= {args.features_start_date}")
 
     if tf == "1d":
         _log("building matrix (≈4-5 min for full 14-yr sweep)...")
