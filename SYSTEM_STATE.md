@@ -1,10 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: 2 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-26T15:18:19Z
+> Generated: 2026-05-27T06:22:59Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -33,7 +32,7 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-26** | Symbols: 221 | **Stale (>3d): 2**
+- Latest bar: **2026-05-27** | Symbols: 221
 
 ## Artifacts
 - Run directories: 1170
@@ -41,7 +40,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `cde0620 broader_pytest_baseline: acknowledge 3 TestRenderer failures (pre-Â§3.9-redesign drift)`
+- Last substantive commit: `6a22844 doctrine: narrow Sequential Execution invariant for Phase 2/3 architecture`
 
 ## Deferred Maintenance
 
@@ -63,4 +62,5 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
-- [BACKGROUND_PROCESS_RUNNING — 2026-05-26 close, restarted 2026-05-27 01:24 UTC] 4h cointegration history backfill — **TWO PROCESS GENERATIONS**: original PID 32516 (launched 2026-05-26 10:49 UTC) exited prematurely at 89.8% — likely unhandled exception ~12h in (no log file written, stdout-only). Final coverage from gen-1: 2024-01-01 → 2026-02-26 (787 of 876 days). **Gen-2 restart PID 9476** launched 2026-05-27 01:24 UTC via PowerShell Start-Process (truly detached, survives parent shell death) with `--start 2026-02-26` to fill the 65-weekday gap. Script's own estimate: ~53 min. Log: `tmp/backfill_4h_resume.log` (gen-2) + `tmp/backfill_4h_resume.err`. Writes `Anti_Gravity_DATA_ROOT/SYSTEM_FACTORS/FX_COINTEGRATION/cointegration.db` table `cointegration_daily` (tf=4h). Verify completion: `python -c "import sqlite3; db = sqlite3.connect(r'...cointegration.db'); print(db.execute(\"SELECT MIN(window_end), MAX(window_end), COUNT(*) FROM cointegration_daily WHERE tf='4h'\").fetchall())"`. Expected post-completion: ~570K rows, coverage 2023-12-28 → 2026-05-26. Unblocks: out-of-sample verification on Tier-A Pine pairs + dual-TF cointegration filter analysis (see `outputs/system_reports/06_strategy_research/COINTEGRATION_FILTER_DESIGN_2026-05-26.md`). If gen-2 also dies: same command idempotent via INSERT OR REPLACE.
+<!-- (no current entries — 4h backfill gen-2 completed 2026-05-27;
+     coverage 2023-12-28 → 2026-05-27, 561,685 rows in cointegration_daily) -->
