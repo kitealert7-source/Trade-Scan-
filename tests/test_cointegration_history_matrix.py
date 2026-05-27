@@ -25,6 +25,7 @@ from tools.cointegration_history_matrix import (
     SCHEMA_VERSION,
     _compute_pair_history,
     build_manifest,
+    build_matrix,
     compute_version_hash as mod_compute_version_hash,
     current_params,
     update_latest_pointer,
@@ -364,3 +365,114 @@ class TestMultiTFParameterization:
         h_1d = mod_compute_version_hash(["NONEXISTENT_SYMBOL_FOR_TEST"], params_1d, tf="1d")
         h_4h = mod_compute_version_hash(["NONEXISTENT_SYMBOL_FOR_TEST"], params_4h, tf="4h")
         assert h_1d != h_4h
+
+
+# ---------------------------------------------------------------------------
+# Parallel-determinism regression guard (2026-05-27)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def synthetic_universe_closes():
+    """3 synthetic price series → 3 pair-pairs for the determinism check.
+
+    One pair (A, B) is designed to be cointegrated (B = 2·A + small noise)
+    so the qualified mask trips True for at least part of the series;
+    C is an independent random walk so pairs involving C have mixed
+    qualified phases. This produces a non-trivial qualified column
+    across the matrix — empty/all-True/all-False columns would
+    weaken the byte-equivalence check.
+
+    Series length n=1500 + production 1d params (hedge_window=252,
+    adf_window_long=504, adf_sample_every=21) keep the test under
+    ~15s while exercising the full production code path. Using
+    `current_params("1d")` ensures the column-name resolution in
+    matrix_columns_for() matches the per-pair output schema.
+    """
+    rng = np.random.default_rng(seed=42)
+    n = 1500
+    idx = pd.date_range("2020-01-01", periods=n, freq="D")
+    a_returns = rng.normal(0, 0.01, n)
+    a = 100 * np.exp(np.cumsum(a_returns))
+    b = 2.0 * a + rng.normal(0, 0.5, n)
+    c_returns = rng.normal(0, 0.01, n)
+    c = 50 * np.exp(np.cumsum(c_returns))
+    closes = pd.DataFrame({"A": a, "B": b, "C": c}, index=idx)
+    return closes
+
+
+class TestParallelDeterminism:
+    """Promoted from tmp/audit_parallel_determinism.py 2026-05-27.
+
+    Verifies that build_matrix produces byte-identical output regardless
+    of worker count. Without this guard, future refactors of the
+    parallel dispatch path could silently introduce floating-point
+    drift, row-ordering issues, or worker-completion-order artifacts.
+    The audit on the real 28-pair 4h subset confirmed byte equivalence
+    once; this synthetic-data version runs every CI to prevent
+    regression.
+    """
+
+    def test_workers_1_vs_2_byte_identical(
+        self, synthetic_universe_closes,
+    ):
+        params = current_params("1d")
+        m_seq = build_matrix(
+            synthetic_universe_closes, params=params, max_workers=1,
+        )
+        m_par = build_matrix(
+            synthetic_universe_closes, params=params, max_workers=2,
+        )
+
+        # Schema
+        assert list(m_seq.columns) == list(m_par.columns), \
+            "column order differs between workers=1 and workers=2"
+        for col in m_seq.columns:
+            assert m_seq[col].dtype == m_par[col].dtype, \
+                f"dtype differs for {col}: seq={m_seq[col].dtype} par={m_par[col].dtype}"
+
+        # Shape
+        assert m_seq.shape == m_par.shape, \
+            f"shape differs: seq={m_seq.shape} par={m_par.shape}"
+
+        # Pair set
+        pairs_seq = set(zip(m_seq.pair_a, m_seq.pair_b))
+        pairs_par = set(zip(m_par.pair_a, m_par.pair_b))
+        assert pairs_seq == pairs_par, \
+            f"pair set differs: seq-only={pairs_seq - pairs_par} par-only={pairs_par - pairs_seq}"
+
+        # Byte-level value equivalence — the strongest single check.
+        # Catches floating-point drift, row-ordering artifacts, dtype
+        # promotion, and NaN handling differences in one assertion.
+        assert m_seq.equals(m_par), \
+            "build_matrix output differs between workers=1 and workers=2 — non-determinism in parallel path"
+
+    def test_qualified_mask_matches(
+        self, synthetic_universe_closes,
+    ):
+        """Tier-2 check that targets the qualified column specifically —
+        the field downstream backtests read. df.equals() above already
+        covers this, but a dedicated assertion improves failure clarity
+        if a future regression flips a qualified bit.
+        """
+        params = current_params("1d")
+        m_seq = build_matrix(
+            synthetic_universe_closes, params=params, max_workers=1,
+        )
+        m_par = build_matrix(
+            synthetic_universe_closes, params=params, max_workers=2,
+        )
+        assert m_seq.qualified.sum() == m_par.qualified.sum(), \
+            "total qualified-bar count differs across worker counts"
+        for (a, b), s_seq in m_seq.groupby(["pair_a", "pair_b"]):
+            s_par = m_par[(m_par.pair_a == a) & (m_par.pair_b == b)]
+            assert s_seq.qualified.sum() == s_par.qualified.sum(), \
+                f"qualified count for {a}/{b} differs across worker counts"
+
+    def test_workers_default_resolves_to_int(self):
+        """The auto-default is a positive int and doesn't crash on
+        common CPU configurations."""
+        from tools.cointegration_history_matrix import _default_workers
+        w = _default_workers()
+        assert isinstance(w, int) and w >= 1
+        assert w <= 12, f"_default_workers exceeded the safety cap: {w}"
