@@ -328,21 +328,48 @@ def _compute_one_pair(args: tuple) -> pd.DataFrame | None:
     return ph[columns]
 
 
-def _worker_init() -> None:
-    """ProcessPoolExecutor initializer — pin each worker's BLAS to 1 thread.
+_BLAS_THREAD_ENV_VARS = (
+    "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+)
 
-    Without this, numpy/statsmodels/scipy will each spin up their own
-    BLAS thread pool inside every worker, oversubscribing the CPU
-    (workers × BLAS_threads ≫ physical cores) and yielding worse
-    throughput than single-threaded. With BLAS pinned to 1, each worker
-    is one Python+ADF stream and `max_workers` directly controls
-    parallelism.
+
+def _pin_blas_to_single_thread() -> None:
+    """Pin BLAS / OpenMP / MKL thread pools to 1 thread via env vars.
+
+    MUST be called in the PARENT process BEFORE the ProcessPoolExecutor
+    spawns workers. Workers on Windows spawn via fresh `python.exe`
+    interpreters; they inherit `os.environ` from the parent and read
+    OMP_NUM_THREADS / OPENBLAS_NUM_THREADS / MKL_NUM_THREADS at numpy's
+    import time. If we set these in a worker initializer instead,
+    numpy is already imported by then and the BLAS thread pool is
+    already sized.
+
+    The parent's own BLAS state is unchanged (numpy already imported
+    at module load), which is fine because the parent only does pandas
+    concat + sort at the end — BLAS-light work.
+
+    Without this pin, every worker spawns its own multi-thread BLAS
+    pool (~42 threads observed on i9-12900H), oversubscribing the CPU
+    (workers × BLAS_threads ≫ physical cores) and producing worse
+    throughput than the single-threaded build.
     """
     import os
-    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
-                "VECLIB_MAXIMUM_THREADS"):
+    for var in _BLAS_THREAD_ENV_VARS:
         os.environ[var] = "1"
+
+
+def _worker_init() -> None:
+    """ProcessPoolExecutor initializer — redundant safety net.
+
+    The actual BLAS pin happens in the parent via
+    `_pin_blas_to_single_thread()` before the executor is created.
+    This initializer re-sets the env vars in each worker for
+    documentation / fallback purposes — harmless if env is already set
+    correctly via inheritance.
+    """
+    _pin_blas_to_single_thread()
 
 
 def _default_workers() -> int:
@@ -408,6 +435,10 @@ def build_matrix(closes: pd.DataFrame, params: dict | None = None,
                 _log(f"  pair {i+1}/{len(worker_args)}  "
                      f"elapsed={time.time()-t0:.1f}s")
     else:
+        # Pin BLAS to 1 thread BEFORE workers spawn — they inherit env
+        # from this process at subprocess creation. See
+        # _pin_blas_to_single_thread docstring for the timing rationale.
+        _pin_blas_to_single_thread()
         from concurrent.futures import ProcessPoolExecutor, as_completed
         _log(f"  parallel build: {max_workers} workers "
              f"(BLAS pinned to 1 thread/worker)")
