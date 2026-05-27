@@ -170,6 +170,15 @@ _AGREEMENT_FILL = {
     "504-only": _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
     "NEITHER":  _fill(COLOR_RED_BG,    COLOR_RED_FG),
 }
+# Dual-TF agreement palette — 1d × 252 vs 4h × 1500. Same colors as
+# _AGREEMENT_FILL (cross-window 252/504), different key set since the
+# semantics are cross-timeframe rather than cross-window.
+_DUAL_TF_FILL = {
+    "BOTH":    _fill(COLOR_GREEN_BG,  COLOR_GREEN_FG),
+    "1d-only": _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
+    "4h-only": _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
+    "NEITHER": _fill(COLOR_RED_BG,    COLOR_RED_FG),
+}
 def _half_life_color(hl) -> tuple[PatternFill, Font] | None:
     if hl is None or pd.isna(hl):
         return _fill(COLOR_RED_BG, COLOR_RED_FG)
@@ -392,8 +401,10 @@ def _query_candidate_rows(
 
     def _cells(sub: pd.DataFrame) -> dict:
         out: dict[str, object] = {}
+        # 1d × {252, 504} — original two windows. Filter by tf for safety
+        # even though 252/504 lookbacks happen to be 1d-only in current data.
         for lb in (252, 504):
-            r = sub[sub.lookback_days == lb]
+            r = sub[(sub.tf == "1d") & (sub.lookback_days == lb)]
             if r.empty:
                 out[f"regime_{lb}"] = None
                 out[f"p_{lb}"] = None
@@ -407,6 +418,30 @@ def _query_candidate_rows(
                     rr["half_life_days"]) else None
                 out[f"z_{lb}"] = float(rr["current_zscore"]) if pd.notna(
                     rr["current_zscore"]) else None
+
+        # 4h × 1500 — Tier B dual-TF surface (design doc Thread B baseline).
+        r_4h = sub[(sub.tf == "4h") & (sub.lookback_days == 1500)]
+        if r_4h.empty:
+            out["regime_4h"] = None
+            out["p_4h"] = None
+        else:
+            rr = r_4h.iloc[0]
+            out["regime_4h"] = rr["regime"]
+            out["p_4h"] = float(rr["adf_pvalue"])
+
+        # Dual-TF agreement — 1d × 252 vs 4h × 1500. 252 is the canonical
+        # 1d window for the Pine pair-research baseline (15m × N=30) per
+        # COINTEGRATION_FILTER_DESIGN_2026-05-26.md §5.
+        reg_1d = out.get("regime_252")
+        reg_4h = out.get("regime_4h")
+        if reg_1d == "cointegrated" and reg_4h == "cointegrated":
+            out["dual_tf_agreement"] = "BOTH"
+        elif reg_1d == "cointegrated":
+            out["dual_tf_agreement"] = "1d-only"
+        elif reg_4h == "cointegrated":
+            out["dual_tf_agreement"] = "4h-only"
+        else:
+            out["dual_tf_agreement"] = "NEITHER"
         return out
 
     lot_a: float | None = None
@@ -848,10 +883,10 @@ def _write_asset_class_tab(
 
     # Header row + description
     ws.cell(row=1, column=1, value=label).font = Font(bold=True, size=14)
-    ws.merge_cells(start_row=1, end_row=1, start_column=1, end_column=10)
+    ws.merge_cells(start_row=1, end_row=1, start_column=1, end_column=19)
     ws.cell(row=2, column=1, value=description.replace("\n", " ").strip())
     ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
-    ws.merge_cells(start_row=2, end_row=2, start_column=1, end_column=10)
+    ws.merge_cells(start_row=2, end_row=2, start_column=1, end_column=19)
     ws.row_dimensions[2].height = 45
 
     if deferred:
@@ -865,9 +900,13 @@ def _write_asset_class_tab(
         ws.column_dimensions["A"].width = 80
         return
 
+    # Layout (Tier B 2026-05-27): dual-TF columns (reg4h, dualTF, p4h)
+    # interleaved with the existing 1d × {252, 504} cells.
     headers = [
         "key", "type", "subject", "route", "canonical",
-        "reg252", "reg504", "p252", "p504", "hl252", "hl504",
+        "reg252", "reg504", "reg4h", "dualTF",
+        "p252", "p504", "p4h",
+        "hl252", "hl504",
         "z252", "z504",
         "lot_a", "lot_b",
         "rationale",
@@ -881,9 +920,9 @@ def _write_asset_class_tab(
 
         def put(col_idx, value):
             cell = ws.cell(row=row, column=col_idx, value=value)
-            cell.alignment = Alignment(horizontal="center" if col_idx <= 15 else "left",
+            cell.alignment = Alignment(horizontal="center" if col_idx <= 18 else "left",
                                        vertical="top",
-                                       wrap_text=col_idx == 16)
+                                       wrap_text=col_idx == 19)
             cell.border = BORDER
             return cell
 
@@ -895,40 +934,58 @@ def _write_asset_class_tab(
             route_cell.fill, route_cell.font = _ROUTE_FILL[cells["route"]]
         put(5, cells.get("canonical") or "")
 
-        # regime + p-value cells, with regime-fill
+        # 1d regime cells (cols 6-7) — reg252 / reg504
         for col_offset, lb in enumerate((252, 504)):
             reg = cells.get(f"regime_{lb}")
             cell = put(6 + col_offset, reg)
             if reg in _REGIME_FILL:
                 cell.fill, cell.font = _REGIME_FILL[reg]
-            p = cells.get(f"p_{lb}")
-            put(8 + col_offset, round(p, 4) if p is not None else None)
 
+        # 4h regime (col 8) + dual-TF agreement (col 9)
+        reg_4h = cells.get("regime_4h")
+        cell_4h = put(8, reg_4h)
+        if reg_4h in _REGIME_FILL:
+            cell_4h.fill, cell_4h.font = _REGIME_FILL[reg_4h]
+        dual = cells.get("dual_tf_agreement")
+        cell_dual = put(9, dual)
+        if dual in _DUAL_TF_FILL:
+            cell_dual.fill, cell_dual.font = _DUAL_TF_FILL[dual]
+
+        # p-value cells (cols 10-12) — p252 / p504 / p4h
+        for col_offset, lb in enumerate((252, 504)):
+            p = cells.get(f"p_{lb}")
+            put(10 + col_offset, round(p, 4) if p is not None else None)
+        p_4h = cells.get("p_4h")
+        put(12, round(p_4h, 4) if p_4h is not None else None)
+
+        # Half-life cells (cols 13-14) — hl252 / hl504 (no 4h column;
+        # dual-TF judgment uses p + regime, not 4h half-life directly)
         for col_offset, lb in enumerate((252, 504)):
             hl = cells.get(f"hl_{lb}")
-            hl_cell = put(10 + col_offset, round(hl, 1) if hl is not None else None)
+            hl_cell = put(13 + col_offset, round(hl, 1) if hl is not None else None)
             fc = _half_life_color(hl)
             if fc:
                 hl_cell.fill, hl_cell.font = fc
 
+        # z-score cells (cols 15-16) — z252 / z504
         for col_offset, lb in enumerate((252, 504)):
             z = cells.get(f"z_{lb}")
-            z_cell = put(12 + col_offset, round(z, 2) if z is not None else None)
+            z_cell = put(15 + col_offset, round(z, 2) if z is not None else None)
             zc = _zscore_color(z)
             if zc:
                 z_cell.fill, z_cell.font = zc
 
-        # β-neutral lot basket (OctaFX, 252d β-driven)
-        put(14, cells.get("lot_a"))
-        put(15, cells.get("lot_b"))
+        # β-neutral lot basket (cols 17-18) — lot_a / lot_b
+        put(17, cells.get("lot_a"))
+        put(18, cells.get("lot_b"))
 
-        # Rationale — wrapped
-        put(16, cells["rationale"])
+        # Rationale (col 19) — wrapped
+        put(19, cells["rationale"])
         ws.row_dimensions[row].height = 50
 
     # Column widths
-    #          key  type subj route can  reg2 reg5 p25 p50 hl2 hl5 z25 z50 ltA ltB ratio
-    widths = [22,  16,  22,  14,  22,  12,  12,  9,  9,  9,  9,  9,  9,  9,  9, 70]
+    #          key  type subj route can  r252 r504 r4h  dTF  p252 p504 p4h  hl252 hl504 z252 z504 ltA ltB ratio
+    widths = [22,  16,  22,  14,  22,  12,  12,  12,  10,  9,   9,   9,   9,    9,    9,   9,   9,  9,  70]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
