@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-05-27T06:31:59Z
+> Generated: 2026-05-27T13:37:42Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 214 directives
+- Completed: 0 directives
 
 ## Ledgers
 
@@ -34,12 +35,12 @@
 - Latest bar: **2026-05-27** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1170
+- Run directories: 1057
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `cd4accc session: closing SYSTEM_STATE snapshot`
+- Working tree: 2 uncommitted
+- Last substantive commit: `5b178e3 tests: update lineage_pruner_quarantine_filter for build_keep_runs 3-tuple`
 
 ## Deferred Maintenance
 
@@ -67,6 +68,7 @@
 
 **Sessions on this charter:**
 - 2026-05-27 — plan authored; commits 544c361 / 12455b9 / 478389b landed the retroactive fix for failure mode #5 (state_lifecycle Baskets blindness). Five gates A-E remain to build (8-10 hours estimated).
+- 2026-05-27 (later) — appended refactoring backlog F1-F3 to plan (commit f4bfc3e); 1700-line `run_pipeline.py` and 422-line `load_basket_leg_data` flagged as decomposition targets. NEW deferred work surfaced at session-close: `ledger_db --export` reverted today's MPS row drops because cleanup tools (repair_integrity, custom Baskets drop) operate on Excel only; SQL is the source of truth. The whole pipeline-state-cleanup workflow needs SQL-side parity. Added as enforcement plan addendum candidate next session.
 
 <!-- (4h backfill gen-2 completed 2026-05-27;
      coverage 2023-12-28 → 2026-05-27, 561,685 rows in cointegration_daily) -->
