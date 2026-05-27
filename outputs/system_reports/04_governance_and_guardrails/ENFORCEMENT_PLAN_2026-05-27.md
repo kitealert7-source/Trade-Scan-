@@ -194,6 +194,102 @@ def test_repair_integrity_handles_all_mps_sheets():
 
 ---
 
+## Refactoring Backlog (F1-F3) — lower priority than A-E
+
+These are not enforcement gates. They're hygiene work surfaced during the same session's code-size investigation. Three files in `tools/` have monster functions that complicate every future change to them — including the enforcement work above. **Do A-E first**; F-series only after.
+
+Investigation findings (`tools/` total: 92,632 lines):
+
+| File | Lines | Worst function | Verdict |
+|---|---|---|---|
+| `run_pipeline.py` | 1,700 | `_try_basket_dispatch` (309) + 3 others >100 lines | Extract `tools/basket_dispatch.py` |
+| `run_stage1.py` | 1,399 | `main` (499) + `emit_result` (493) | Decompose in place |
+| `basket_data_loader.py` | 1,032 | `load_basket_leg_data` (422) | Decompose into stages |
+
+### F1 — Extract `tools/basket_dispatch.py` from `run_pipeline.py`
+
+**Why first in the F series**: Cleanest module boundary. Six basket-handling functions form a coherent subsystem already conceptually separate from admission / lifecycle / validation logic. Today's failure modes were all in basket territory — easier reasoning if the code lives together.
+
+**Functions to move:**
+- `_try_basket_dispatch` (309 lines)
+- `_load_basket_leg_inputs` (185 lines)
+- `_synthetic_leg_data`
+- `_PassthroughStrategy` class
+- `_announce_run_engine` (basket-side dispatch)
+- `_find_admitted_directive_path` (used by basket dispatch)
+
+Total extracted: ~600 lines. `run_pipeline.py` drops to ~1,100.
+
+**Mechanism**: byte-equivalent extraction. New module imported by `run_pipeline.py`. No behavior change.
+
+**Files to create / modify:**
+- New: `tools/basket_dispatch.py`
+- Modify: `tools/run_pipeline.py` (delete extracted functions, add import)
+- Modify: `tools/tools_manifest.json` (regenerate hash for run_pipeline.py)
+- Tests: existing gate test suite must continue to pass; add a smoke test that runs a single basket directive end-to-end
+
+**Acceptance criteria:**
+- ✅ All 70 gate tests pass at HEAD.
+- ✅ A smoke directive (one basket pair, small window) runs through `run_pipeline.py --all` and produces the same MPS row as before extraction (byte-equivalent metrics).
+- ✅ `tools_manifest.json` regenerated and committed in the same commit.
+- ✅ `run_pipeline.py` line count drops to ~1,100.
+
+**Estimated effort:** 2-3 hours.
+
+---
+
+### F2 — Decompose `basket_data_loader.load_basket_leg_data` (422 lines)
+
+**Why second**: 41% of the file is one function. Today's basket-aware fixes had to reason around it indirectly. Future changes to basket data flow would benefit from clearer stages.
+
+**Mechanism**: in-place decomposition into pipelined stages. No module split.
+
+**Suggested stage breakdown** (subject to actual code review):
+1. `_resolve_data_sources(parsed)` — symbol → CSV path lookup
+2. `_load_raw_bars(symbol, tf, range)` — single-symbol CSV → DataFrame
+3. `_align_legs(leg_dfs)` — intersect indices, handle holidays
+4. `_join_cointegration_columns(out, parsed)` — auto-join screener columns (the section we now know well)
+5. `_validate_loaded_data(out)` — sanity guards
+
+Top-level `load_basket_leg_data` becomes ~80 lines of orchestration.
+
+**Files to modify:**
+- `tools/basket_data_loader.py` only
+
+**Acceptance criteria:**
+- ✅ All gate tests pass.
+- ✅ A basket-runner smoke test produces identical per-bar parquet output before / after refactor (byte-equivalent).
+- ✅ `load_basket_leg_data` top-level function drops to ≤100 lines.
+
+**Estimated effort:** 2-3 hours.
+
+---
+
+### F3 — Decompose `run_stage1.py` `main` (499) + `emit_result` (493)
+
+**Why last**: Most entangled. Two functions account for 71% of file. No clean module boundary; the work is internal restructuring of a single stage runner. Higher risk per unit of payoff vs F1 + F2.
+
+**Mechanism**: in-place extraction of helpers. Same pattern as F2 but more extensive.
+
+**Acceptance criteria:**
+- ✅ All gate tests pass.
+- ✅ A stage-1 smoke test produces identical run_state.json output before / after refactor.
+- ✅ `main` and `emit_result` each drop to ≤150 lines.
+
+**Estimated effort:** 4-6 hours.
+
+---
+
+## Combined effort estimate
+
+| Phase | Tasks | Effort |
+|---|---|---|
+| Enforcement gates (priority) | A → E → C → B → D | 8-10 hours |
+| Refactoring backlog (after enforcement) | F1 → F2 → F3 | 8-12 hours |
+| **Total** | | **16-22 hours** (3-4 sessions) |
+
+---
+
 ## What NOT to do (this is enforced too)
 
 Per `feedback_enforceable_mechanisms_only`:
