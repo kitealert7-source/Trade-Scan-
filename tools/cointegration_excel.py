@@ -962,23 +962,65 @@ def _write_singles_diagnostic(wb: Workbook, conn: sqlite3.Connection,
     _apply_default_filter_cointegrated(ws, header_row=4, regime_col_idx=2)
 
 
+def _apply_history_default_filter(ws, header_row: int = 1) -> None:
+    """Multi-column synchronized default filter for the History sheet.
+
+    Layout after `tf` was added: A=as_of | B=pair_a | C=pair_b |
+    D=pair_class | E=tf | F=lookback_days | G=regime | H=adf_pvalue | ...
+
+    Default visible set: `tf='1d' AND lookback_days=252 AND regime='cointegrated'`.
+    Each filter renders as an independent dropdown the operator can adjust
+    (e.g. swap `tf` to `4h` to inspect the 4h × 1500 surface, or expand
+    `lookback_days` to also include 504).
+    """
+    last_row = ws.max_row
+    if last_row <= header_row:
+        return
+    last_col = get_column_letter(ws.max_column)
+    ws.auto_filter.ref = f"A{header_row}:{last_col}{last_row}"
+
+    fc_tf = FilterColumn(colId=4)        # E = tf
+    fc_tf.filters = Filters(filter=["1d"])
+    ws.auto_filter.filterColumn.append(fc_tf)
+
+    fc_lb = FilterColumn(colId=5)        # F = lookback_days
+    fc_lb.filters = Filters(filter=["252"])
+    ws.auto_filter.filterColumn.append(fc_lb)
+
+    fc_reg = FilterColumn(colId=6)       # G = regime
+    fc_reg.filters = Filters(filter=["cointegrated"])
+    ws.auto_filter.filterColumn.append(fc_reg)
+
+    for r in range(header_row + 1, last_row + 1):
+        tf_val = ws.cell(row=r, column=5).value
+        lb_val = ws.cell(row=r, column=6).value
+        reg_val = ws.cell(row=r, column=7).value
+        passes = (
+            tf_val == "1d"
+            and lb_val == 252
+            and reg_val == "cointegrated"
+        )
+        if not passes:
+            ws.row_dimensions[r].hidden = True
+
+
 def _write_history(wb: Workbook, conn: sqlite3.Connection,
                     position: int | None = None) -> None:
     if position is None:
         position = len(wb.sheetnames)
     ws = wb.create_sheet("History", position)
     df = pd.read_sql_query(
-        f"""SELECT as_of, pair_a, pair_b, lookback_days, regime,
+        f"""SELECT as_of, pair_a, pair_b, tf, lookback_days, regime,
                    adf_pvalue, pvalue_rolling_median_5d, half_life_days,
                    hedge_ratio, current_zscore, history_depth
             FROM {TABLE_NAME}
             WHERE as_of >= date('now', '-90 days')
-            ORDER BY pair_a, pair_b, lookback_days, as_of DESC""",
+            ORDER BY pair_a, pair_b, tf, lookback_days, as_of DESC""",
         conn,
     )
-    # Insert pair_class as col D (between pair_b and lookback_days) so the
-    # operator can filter the 90-day-history firehose to a single asset
-    # class via the dropdown, same UX as the All Pairs (Diagnostic) sheet.
+    # Insert pair_class as col D (between pair_b and tf) so the operator can
+    # filter the 90-day-history firehose to a single asset class via the
+    # dropdown, same UX as the All Pairs (Diagnostic) sheet.
     if not df.empty:
         df.insert(3, "pair_class",
                    df.apply(lambda r: _classify_pair(r["pair_a"], r["pair_b"]),
@@ -1001,14 +1043,12 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection,
             if col == "regime" and v in _REGIME_FILL:
                 cell.fill, cell.font = _REGIME_FILL[v]
     ws.freeze_panes = "A2"
-    #          as_of pa pb cls lb  reg p   pmed hl  hr  z   hd
-    widths = [12,   10, 10, 10, 10, 14, 12, 14,  14, 12, 12, 12]
+    #          as_of pa pb cls tf lb  reg p   pmed hl  hr  z   hd
+    widths = [12,   10, 10, 10,  6, 10, 14, 12, 14,  14, 12, 12, 12]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
-    # Pre-apply cointegrated filter on regime — column F = 6 after
-    # pair_class was inserted at col D (was col E = 5 before that insertion).
-    _apply_default_filter_cointegrated(ws, header_row=1, regime_col_idx=6)
+    _apply_history_default_filter(ws, header_row=1)
 
 
 def _write_notes(wb: Workbook) -> None:
