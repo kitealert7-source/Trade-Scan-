@@ -1373,7 +1373,7 @@ def _assert_pipeline_idle():
         raise PipelineExecutionError("PIPELINE_BUSY", directive_id="BATCH")
 
 
-def run_batch_mode(provision_only=False):
+def run_batch_mode(provision_only=False, max_parallel=1):
     """Sequential Batch Execution."""
     active_dir = PROJECT_ROOT / "backtest_directives" / "INBOX"
     completed_dir = PROJECT_ROOT / "backtest_directives" / "completed"
@@ -1430,71 +1430,49 @@ def run_batch_mode(provision_only=False):
         for d_id in admitted:
             admit_directive(d_id)
 
-    print(f"[BATCH] Admitted {len(admitted)} directive(s). Starting sequential execution...")
+    print(f"[BATCH] Admitted {len(admitted)} directive(s).")
 
-    # --- PHASE 2: EXECUTION (sequential — Invariant #26) ---
-    # Direct loop — ProcessPoolExecutor(1) was pure overhead (subprocess spawn
-    # + IPC for zero parallelism). Fail-fast on first error. A 15s cooldown
-    # between directives (Invariant #26) gives ledger writers, Excel file
-    # handles, and sweep-registry flushes time to settle before the next run.
+    # --- PHASE 2: EXECUTION via PipelineOrchestrator ---
+    # Phase 3b (2026-05-27) — directive-level dispatch refactored into
+    # PipelineOrchestrator. Default `max_parallel=1` keeps pre-Phase-3
+    # sequential semantics (direct loop, no subprocess overhead) and is
+    # permanently first-class — debugging / safe-mode / reproducibility /
+    # emergency recovery. `--max-parallel >=2` enables ProcessPoolExecutor
+    # parallelism; Stage 3 + Stage 4 FileLocks (Phase 2) provide
+    # cross-directive write coordination.
     #
-    # Phase 1 (2026-05-27) — telemetry instrumentation. JSONL events land
-    # at outputs/.session_state/pipeline_telemetry/<batch_id>__pid_<pid>.jsonl
-    # so post-batch diagnostics + the upcoming parallelization (Phase 3) can
-    # measure per-directive throughput, Stage-4 lock contention, and worker
-    # failure modes. No behavior change at this phase — the sequential loop
-    # and 15s cooldown are unchanged.
-    import time as _time
+    # The 15s inter-directive cooldown is REMOVED — Stage 4 file lock
+    # (Phase 2b) now provides deterministic exclusivity around the shared
+    # ledger writes. Lock acquire is fast under no contention; lock
+    # release is bounded by Stage 4 wall time (~1-2s typical).
     from tools.pipeline_telemetry import (
         TelemetryWriter,
         batch_summary,
         generate_batch_id,
     )
+    from tools.pipeline_orchestrator import PipelineOrchestrator
 
-    INTER_DIRECTIVE_COOLDOWN_SECONDS = 15
     _batch_id = generate_batch_id()
     _telemetry = TelemetryWriter(batch_id=_batch_id)
     _telemetry.emit(
         directive_id=None, stage_id=None, event="batch_start",
         n_directives=len(admitted),
-        cooldown_seconds=INTER_DIRECTIVE_COOLDOWN_SECONDS,
+        max_parallel=max_parallel,
     )
-    print(f"[BATCH] telemetry batch_id={_batch_id}")
+    print(f"[BATCH] telemetry batch_id={_batch_id} max_parallel={max_parallel}")
 
-    # Phase 3a: directive_queued events for every admitted directive,
-    # emitted upfront. Under sequential mode (Phase 1-2) queue_time ≈ 0
-    # for the first directive and ≈ (sum of prior directive wall-times)
-    # for later ones; under parallel mode (Phase 3+) the queue→started
-    # interval becomes the worker-pool wait time.
+    # Emit directive_queued for every admitted directive upfront — even
+    # in sequential mode, so the event stream shape is mode-invariant.
     for _d_id in admitted:
         _telemetry.queue_directive(_d_id)
 
+    _orchestrator = PipelineOrchestrator(
+        batch_id=_batch_id,
+        max_parallel=max_parallel,
+        telemetry=_telemetry,
+    )
     try:
-        for idx, d_id in enumerate(admitted):
-            if idx > 0:
-                print(
-                    f"[BATCH] Cooldown: sleeping {INTER_DIRECTIVE_COOLDOWN_SECONDS}s "
-                    f"before next directive (Invariant #26)..."
-                )
-                _time.sleep(INTER_DIRECTIVE_COOLDOWN_SECONDS)
-            _telemetry.start_directive(d_id)
-            try:
-                run_single_directive(d_id, provision_only)
-                _telemetry.end_directive(d_id)
-                print(f"[BATCH] Completed: {d_id}")
-            except PipelineError as e:
-                _telemetry.end_directive(d_id, error=f"{type(e).__name__}: {e}")
-                print(f"[BATCH] FAILED: {d_id}")
-                print("[FAIL-FAST] Stopping batch execution.")
-                raise
-            except Exception as e:
-                _telemetry.end_directive(d_id, error=f"{type(e).__name__}: {e}")
-                print(f"[BATCH] FAILED: {d_id} - {e}")
-                print("[FAIL-FAST] Stopping batch execution.")
-                raise PipelineExecutionError(
-                    f"Batch directive failed: {d_id}: {e}",
-                    directive_id=d_id,
-                ) from e
+        _orchestrator.run_batch(admitted, provision_only=provision_only)
     finally:
         _telemetry.emit(
             directive_id=None, stage_id=None, event="batch_end",
@@ -1563,13 +1541,36 @@ def run_batch_mode(provision_only=False):
 
     print("\n[BATCH] All directives processed successfully.")
 
+def _parse_max_parallel(argv: list[str]) -> int:
+    """Extract --max-parallel N from argv. Default 1 (sequential fast-path).
+
+    Permanent first-class operational mode per the Phase 3 plan: the
+    default keeps pre-Phase-3 sequential semantics for debugging /
+    safe-mode / reproducibility / emergency recovery. Operators opt in
+    to parallelism by passing `--max-parallel 2` (or 3, 5, etc.).
+    """
+    for i, a in enumerate(argv):
+        if a == "--max-parallel":
+            if i + 1 >= len(argv):
+                raise SystemExit("--max-parallel requires an integer argument")
+            try:
+                n = int(argv[i + 1])
+            except ValueError:
+                raise SystemExit(f"--max-parallel requires an integer, got {argv[i+1]!r}")
+            if n < 1:
+                raise SystemExit(f"--max-parallel must be >= 1, got {n}")
+            return n
+    return 1
+
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python tools/run_pipeline.py <DIRECTIVE_ID> | --all")
+        print("Usage: python tools/run_pipeline.py <DIRECTIVE_ID> | --all [--max-parallel N] [--provision-only]")
         sys.exit(1)
 
     arg = sys.argv[1]
     provision_only = "--provision-only" in sys.argv[2:]
+    max_parallel = _parse_max_parallel(sys.argv[2:])
 
     try:
         initialize_state_directories()
@@ -1595,7 +1596,7 @@ def main():
         reconcile_registry()
         
         if arg == "--all":
-            run_batch_mode(provision_only=provision_only)
+            run_batch_mode(provision_only=provision_only, max_parallel=max_parallel)
             _report_data_freshness()
             print("\n[SUCCESS] Batch Pipeline Completed Successfully.")
         else:
