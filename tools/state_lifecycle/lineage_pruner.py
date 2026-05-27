@@ -202,17 +202,24 @@ def _row_is_quarantined(row, *, bool_col: str | None = None, status_col: str | N
     return False
 
 
-def build_keep_runs() -> tuple[set, set]:
+def build_keep_runs() -> tuple[set, set, dict]:
     """Build union index from candidates and active portfolio subsets.
 
     Rows tagged `quarantined=True` (FSP) or `quarantine_status` set (MPS
-    Portfolios / Single-Asset Composites) are skipped — they declare that
-    the referenced run_ids are NOT expected to exist on disk, which is the
+    Portfolios / Single-Asset Composites / Baskets) are skipped — they declare
+    that the referenced run_ids are NOT expected to exist on disk, which is the
     operator-honored way to record dependency loss without violating the
     append-only invariant.
+
+    Returns (keep_runs, active_portfolios, basket_run_info) where
+    basket_run_info maps basket run_id -> (directive_id, basket_id) so the
+    integrity check can do basket-aware disk validation. Basket runs canonically
+    keep their research artifacts in backtests/<directive_id>_<basket_id>/
+    rather than runs/<run_id>/, so the standard run_dir+JSON check is too strict.
     """
     keep_runs = set()
     active_portfolios = set()
+    basket_run_info: dict[str, tuple[str, str]] = {}
 
     # 1. Extract from Filtered_Strategies_Passed (skip quarantined rows)
     if not FILTERED_SHEET_PATH.exists():
@@ -251,6 +258,27 @@ def build_keep_runs() -> tuple[set, set]:
                         if p_str:
                             keep_runs.add(p_str)
 
+    # 2b. Extract from Master_Portfolio_Sheet::Baskets (added 2026-05-27 — Baskets
+    #     is now a first-class managed sheet; matches repair_integrity.py's
+    #     scan_baskets extension. Single run_id per row, no constituent_run_ids.
+    #     Without this, the pruner treats basket disk as abandoned every run.
+    #     Also records (directive_id, basket_id) per run so the integrity
+    #     check can do basket-aware disk validation (backtest-dir is enough
+    #     even when runs/<run_id>/ is gone).
+    try:
+        df_baskets = pd.read_excel(MASTER_SHEET_PATH, sheet_name="Baskets")
+        for _, row in df_baskets.iterrows():
+            if _row_is_quarantined(row, status_col="quarantine_status"):
+                continue
+            rid = str(row.get("run_id", "")).strip()
+            if rid and rid.lower() != "nan":
+                keep_runs.add(rid)
+                did = str(row.get("directive_id", "")).strip()
+                bid = str(row.get("basket_id", "")).strip()
+                basket_run_info[rid] = (did, bid)
+    except (ValueError, KeyError):
+        pass
+
     # 3. Protect PORTFOLIO_COMPLETE directives (promotion-eligible, not yet in spreadsheets)
     pc_runs, pc_directives = _collect_portfolio_complete_runs()
     pre_count = len(keep_runs)
@@ -259,15 +287,25 @@ def build_keep_runs() -> tuple[set, set]:
     if added > 0:
         print(f"[INFO] Protected {added} additional run(s) from {len(pc_directives)} PORTFOLIO_COMPLETE directive(s)")
 
-    return keep_runs, active_portfolios
+    return keep_runs, active_portfolios, basket_run_info
 
 
-def verify_referential_integrity(keep_runs: set, active_portfolios: set):
-    """Enforce absolute referential safety invariants before mutation checks."""
+def verify_referential_integrity(keep_runs: set, active_portfolios: set,
+                                  basket_run_info: dict | None = None):
+    """Enforce absolute referential safety invariants before mutation checks.
+
+    Baskets get a relaxed check: the basket-canonical artifact is the per-bar
+    parquet at backtests/<directive_id>_<basket_id>/raw/results_basket_per_bar.parquet,
+    not runs/<run_id>/run_state.json. A basket row is valid if it has EITHER
+    the standard run_dir+JSON pair OR the basket backtest dir present.
+    """
     print("--- Phase 1B: Referential Integrity Check ---")
-    
+
+    if basket_run_info is None:
+        basket_run_info = {}
+
     missing_critical = []
-    
+
     # Check 1: Verify valid state dimensions
     total_keep = len(keep_runs)
     runs_count = len([d for d in RUNS_DIR.iterdir() if d.is_dir()]) if RUNS_DIR.exists() else 0
@@ -275,30 +313,46 @@ def verify_referential_integrity(keep_runs: set, active_portfolios: set):
     # sandbox/ is a valid run home — the per-run check below accepts it, so include both tiers in the global tally.
     total_disk_runs = runs_count + sandbox_count
 
-    # Mathematical sanity bound checking against total disk vs targets
-    if total_disk_runs < total_keep:
-        print(f"[FAIL] Integrity breached: Total disk runs ({total_disk_runs} = {runs_count} runs/ + {sandbox_count} sandbox/) is less than required active targets ({total_keep}).")
+    # Mathematical sanity bound checking against total disk vs targets.
+    # Subtract basket runs from total_keep — they may live in backtests/ only,
+    # which doesn't count toward the runs/+sandbox/ tally but is still valid.
+    non_basket_keep = total_keep - len(basket_run_info)
+    if total_disk_runs < non_basket_keep:
+        print(f"[FAIL] Integrity breached: Total disk runs ({total_disk_runs} = {runs_count} runs/ + {sandbox_count} sandbox/) is less than required non-basket targets ({non_basket_keep}).")
         sys.exit(1)
-    
+
     # Check 2 & 3: Deep check file linkages
     for r_id in keep_runs:
         target_run = RUNS_DIR / r_id
         target_sandbox = SANDBOX_DIR / r_id
-        
-        has_run = target_run.exists() and target_run.is_dir()
-        has_sandbox = target_sandbox.exists() and target_sandbox.is_dir()
-        
-        if not has_run and not has_sandbox:
-            missing_critical.append(f"Missing native run folder in both runs/ and sandbox/: {r_id}")
-            
         target_json = BACKTESTS_DIR / f"{r_id}.json"
-        
-        # Native Sandbox JSON handling
-        # Evaluators typically look at run_state.json directly inside the sandbox footprint.
         sandbox_state = target_sandbox / "run_state.json"
         run_state = target_run / "run_state.json"
-        
-        if not target_json.exists() and not sandbox_state.exists() and not run_state.exists():
+
+        has_run = target_run.exists() and target_run.is_dir()
+        has_sandbox = target_sandbox.exists() and target_sandbox.is_dir()
+        has_json = target_json.exists() or sandbox_state.exists() or run_state.exists()
+
+        # Standard run+JSON pair is valid for any run (basket or not).
+        if (has_run or has_sandbox) and has_json:
+            continue
+
+        # Basket fallback: accept basket backtest dir as proof of validity.
+        if r_id in basket_run_info:
+            did, bid = basket_run_info[r_id]
+            if did and bid:
+                bt_parquet = BACKTESTS_DIR / f"{did}_{bid}" / "raw" / "results_basket_per_bar.parquet"
+                if bt_parquet.exists():
+                    continue
+            missing_critical.append(
+                f"Missing basket disk (no runs/{r_id}/ AND no backtests/{did}_{bid}/raw/results_basket_per_bar.parquet)"
+            )
+            continue
+
+        # Standard (non-basket) failure reporting.
+        if not has_run and not has_sandbox:
+            missing_critical.append(f"Missing native run folder in both runs/ and sandbox/: {r_id}")
+        if not has_json:
             missing_critical.append(f"Missing backtest JSON artifact for: {r_id}")
 
     # Check 4: Portfolio Folder matching
@@ -559,9 +613,9 @@ def main():
         print("[BLOCK] TS_Execution is running")
         sys.exit(1)
 
-    keep_runs, active_portfolios = build_keep_runs()
-    
-    verify_referential_integrity(keep_runs, active_portfolios)
+    keep_runs, active_portfolios, basket_run_info = build_keep_runs()
+
+    verify_referential_integrity(keep_runs, active_portfolios, basket_run_info)
     
     targets = scan_and_map(keep_runs, active_portfolios)
     

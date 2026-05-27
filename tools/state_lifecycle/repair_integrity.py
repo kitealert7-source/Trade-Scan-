@@ -61,15 +61,20 @@ BACKTESTS_DIR = STATE_ROOT / "backtests"
 SANDBOX_DIR = STATE_ROOT / "sandbox"
 STRATEGIES_DIR = STATE_ROOT / "strategies"
 
-# Sheets read + rewritten in MPS. Baskets is excluded — H3 rehab governs it
-# separately and its rows already use quarantine_status.
+# Sheets read + rewritten in MPS. Baskets uses single run_id orphan detection
+# (like FSP, scan_baskets); Portfolios + SAC use constituent_run_ids +
+# portfolio_id folder checks (scan_mps_sheet + scan_mps_missing_portfolio_folder).
+# Extended 2026-05-27 to cover Baskets — the H3 rehab tag-only convention was
+# reversed by commit 5e16a16, and Baskets is now a first-class managed sheet.
 MPS_TAGGED_SHEETS = ("Portfolios", "Single-Asset Composites")
+MPS_BASKETS_SHEET = "Baskets"
 
 # Reason text cap — quarantine_reason is a single-line audit field, not a log.
 _REASON_MAX_CHARS = 200
 
 QUARANTINE_REASON_PREFIX = "constituent_run_ids reference orphan run(s) on disk: "
 QUARANTINE_REASON_FOLDER = "deployed portfolio folder missing from TradeScan_State/strategies/"
+QUARANTINE_REASON_BASKETS_RUN = "run_id directory missing from TradeScan_State/runs/: "
 
 
 def _check_file_writable(path: Path) -> None:
@@ -106,6 +111,26 @@ def is_valid_run(run_id: str) -> bool:
     json_valid = regular_json.exists() or local_run_json.exists() or sandbox_json.exists()
 
     return folder_valid and json_valid
+
+
+def is_valid_basket_run(run_id: str, directive_id: str, basket_id: str) -> bool:
+    """Basket-specific validity: accepts EITHER standard run_dir+JSON OR a
+    populated basket backtest dir (backtests/<directive_id>_<basket_id>/raw/
+    results_basket_per_bar.parquet).
+
+    Basket runs canonically write their research artifacts to backtests/, not
+    runs/. The standard is_valid_run is too strict for baskets — it would
+    flag rows as orphan whenever the runs/<run_id>/ metadata layer is gone
+    even though the actual research data is still on disk in backtests/.
+    """
+    if is_valid_run(run_id):
+        return True
+    d_str = str(directive_id).strip() if directive_id else ""
+    b_str = str(basket_id).strip() if basket_id else ""
+    if not d_str or not b_str or d_str.lower() == "nan" or b_str.lower() == "nan":
+        return False
+    bt_parquet = BACKTESTS_DIR / f"{d_str}_{b_str}" / "raw" / "results_basket_per_bar.parquet"
+    return bt_parquet.exists()
 
 
 def _ensure_columns(df: pd.DataFrame, columns: tuple[tuple[str, object], ...]) -> pd.DataFrame:
@@ -188,6 +213,25 @@ def scan_mps_missing_portfolio_folder(df: pd.DataFrame) -> list[int]:
         if not pid or pid.lower() == "nan":
             continue
         if not (STRATEGIES_DIR / pid).is_dir():
+            targets.append(idx)
+    return targets
+
+
+def scan_baskets(df: pd.DataFrame) -> list[int]:
+    """Return row indices in MPS::Baskets whose disk is gone.
+
+    Uses basket-aware validity: accepts either standard run_dir+JSON OR a
+    populated backtest dir (see is_valid_basket_run). A row is flagged
+    only when BOTH paths are missing — true orphan with no research data.
+    """
+    targets = []
+    for idx, row in df.iterrows():
+        rid = str(row.get("run_id", "")).strip()
+        did = str(row.get("directive_id", "")).strip()
+        bid = str(row.get("basket_id", "")).strip()
+        if not rid or rid.lower() == "nan":
+            continue
+        if not is_valid_basket_run(rid, did, bid):
             targets.append(idx)
     return targets
 
@@ -287,6 +331,51 @@ def apply_mps_drop(df: pd.DataFrame, constituent_targets: list[tuple[int, list[s
     return df, n
 
 
+def apply_baskets_drop(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int]:
+    """Drop mode: remove orphan rows from MPS::Baskets.
+
+    Honors LINEAGE_PROTECTED_TAGS — SUPERSEDED / ARCHIVED_UNRESOLVED rows are
+    preserved even when their disk is gone (those tags come from the H3 rehab
+    batch and represent explicit audit decisions). ARCHIVED_DEPENDENCY_LOST
+    and untagged rows are dropped.
+    """
+    drop_indexes: list[int] = []
+    for idx in targets:
+        tag = _mps_quarantine_tag(df.iloc[idx])
+        if tag in LINEAGE_PROTECTED_TAGS:
+            continue
+        drop_indexes.append(idx)
+    if not drop_indexes:
+        return df, 0
+    n = len(drop_indexes)
+    df = df.drop(index=drop_indexes).reset_index(drop=True)
+    return df, n
+
+
+def apply_baskets_mark(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int]:
+    """Mark mode: tag orphan Baskets rows ARCHIVED_DEPENDENCY_LOST.
+
+    Idempotent: rows already carrying any quarantine_status are left alone
+    (avoids overwriting SUPERSEDED / ARCHIVED_UNRESOLVED with the generic tag).
+    """
+    df = _ensure_columns(df, (
+        ("quarantine_status", None),
+        ("quarantine_reason", None),
+    ))
+    n = 0
+    for idx in targets:
+        if _mps_quarantine_tag(df.iloc[idx]) is not None:
+            continue
+        rid = str(df.at[idx, "run_id"])
+        df.at[idx, "quarantine_status"] = TAG_ARCHIVED_DEPENDENCY_LOST
+        reason = QUARANTINE_REASON_BASKETS_RUN + rid
+        if len(reason) > _REASON_MAX_CHARS:
+            reason = reason[: _REASON_MAX_CHARS - 1] + "…"
+        df.at[idx, "quarantine_reason"] = reason
+        n += 1
+    return df, n
+
+
 def safe_rewrite_mps(mps_path: Path, modified: dict[str, pd.DataFrame]) -> None:
     """Write back modified sheets while preserving every other sheet.
 
@@ -299,9 +388,10 @@ def safe_rewrite_mps(mps_path: Path, modified: dict[str, pd.DataFrame]) -> None:
     """
     # Sanity guard: confirm the file has the sub-sheets we expect BEFORE writing.
     # If something else already mutated the workbook into a single-sheet shape,
-    # refuse to make it worse.
+    # refuse to make it worse. Baskets is included because it's now a managed
+    # sheet (2026-05-27 extension).
     pre_sheets = set(pd.ExcelFile(mps_path).sheet_names)
-    expected = set(MPS_TAGGED_SHEETS)
+    expected = set(MPS_TAGGED_SHEETS) | {MPS_BASKETS_SHEET}
     missing = expected - pre_sheets
     if missing:
         print(f"[FAIL] MPS missing expected sheets {sorted(missing)}; refusing to write back.")
@@ -387,6 +477,15 @@ def main() -> int:
         mps_constituent_targets[sheet] = scan_mps_sheet(df)
         mps_folder_targets[sheet] = scan_mps_missing_portfolio_folder(df)
 
+    # Baskets — different structure (single run_id per row, no constituents).
+    try:
+        baskets_df: pd.DataFrame | None = pd.read_excel(MASTER_SHEET_PATH, sheet_name=MPS_BASKETS_SHEET)
+        baskets_targets = scan_baskets(baskets_df)
+    except (ValueError, KeyError):
+        print(f"[INFO] MPS sheet {MPS_BASKETS_SHEET!r} not present; skipping.")
+        baskets_df = None
+        baskets_targets = []
+
     # --- Report ---
     print()
     print(f"FSP orphan rows: {len(fsp_targets)}")
@@ -404,11 +503,20 @@ def main() -> int:
             print(f"  -> {pid}")
         if len(targets) > 5:
             print(f"  ... and {len(targets) - 5} more.")
+    if baskets_df is not None:
+        print(f"MPS::{MPS_BASKETS_SHEET} rows w/ orphan run_id: {len(baskets_targets)}")
+        for idx in baskets_targets[:5]:
+            rid = str(baskets_df.at[idx, "run_id"])
+            did = str(baskets_df.at[idx, "directive_id"])
+            print(f"  -> run_id={rid[:12]}...  {did}")
+        if len(baskets_targets) > 5:
+            print(f"  ... and {len(baskets_targets) - 5} more.")
 
     total = (
         len(fsp_targets)
         + sum(len(t) for t in mps_constituent_targets.values())
         + sum(len(t) for t in mps_folder_targets.values())
+        + len(baskets_targets)
     )
     if total == 0:
         print("\n[INFO] No integrity issues found. Spreadsheets unchanged.")
@@ -452,6 +560,16 @@ def main() -> int:
         mps_applied[sheet] = n
         if n:
             mps_to_write[sheet] = mps_sheets[sheet]
+
+    # Baskets apply (single run_id semantics, separate code path).
+    if baskets_df is not None and baskets_targets:
+        if action == "drop":
+            baskets_df, n = apply_baskets_drop(baskets_df, baskets_targets)
+        else:
+            baskets_df, n = apply_baskets_mark(baskets_df, baskets_targets)
+        mps_applied[MPS_BASKETS_SHEET] = n
+        if n:
+            mps_to_write[MPS_BASKETS_SHEET] = baskets_df
 
     if mps_to_write:
         safe_rewrite_mps(MASTER_SHEET_PATH, mps_to_write)
