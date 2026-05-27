@@ -18,7 +18,7 @@ calibration:
   price_unit: CHF
   status: MT5_VERIFIED
   currency_profit: CHF
-  mt5_tick_value: 1.2765034018815662
+  mt5_tick_value: 1.273658201085157
   mt5_tick_size: 1.0e-05
-  usd_per_pu_per_lot: 127650.340188
+  usd_per_pu_per_lot: 127365.820109
   digits: 5
