@@ -1007,6 +1007,119 @@ def _write_asset_class_tab(
     ws.freeze_panes = "F5"
 
 
+def _write_dual_tf_shortlist(wb: Workbook, df_today: pd.DataFrame,
+                              position: int) -> None:
+    """Pairs cointegrated on BOTH 1d × 252 AND 4h × 1500.
+
+    Tier C of the 4h integration — the Thread B per-pair deep-dive surface
+    from COINTEGRATION_FILTER_DESIGN_2026-05-26.md §5. Sorted by
+    min(adf_pvalue_1d, adf_pvalue_4h) ascending so the strongest dual-TF
+    candidates appear first. Distinct from the curated asset-class tabs
+    (which include human-rationale candidates regardless of dual-TF status)
+    and the All Pairs (Diagnostic) firehose (which carries every
+    pair-pair × tf × lookback combination unfiltered).
+
+    Sheet is empty when either surface has no cointegrated rows.
+    """
+    ws = wb.create_sheet("Dual-TF Shortlist", position)
+
+    ws.cell(row=1, column=1, value=(
+        "Dual-TF Shortlist — pairs cointegrated on BOTH 1d × 252 AND 4h × 1500"
+    )).font = Font(bold=True, size=12)
+    ws.merge_cells(start_row=1, end_row=1, start_column=1, end_column=12)
+    ws.cell(row=2, column=1, value=(
+        "Thread B per-pair deep-dive surface (design doc §5). Sorted by "
+        "min(p_1d, p_4h) ascending — strongest dual-TF first. Treat raw "
+        "p < 0.01 as the effective conventional threshold (≈ true p < 0.05)."
+    ))
+    ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=2, end_row=2, start_column=1, end_column=12)
+    ws.row_dimensions[2].height = 30
+
+    df_1d = df_today[
+        (df_today.tf == "1d") & (df_today.lookback_days == 252)
+        & (df_today.regime == "cointegrated")
+    ]
+    df_4h = df_today[
+        (df_today.tf == "4h") & (df_today.lookback_days == 1500)
+        & (df_today.regime == "cointegrated")
+    ]
+    if df_1d.empty or df_4h.empty:
+        ws.cell(row=4, column=1, value=(
+            "(no dual-TF pairs — either 1d × 252 or 4h × 1500 surface has "
+            "no cointegrated rows in the current data)"
+        ))
+        ws.cell(row=4, column=1).font = Font(italic=True, color="9C5700")
+        ws.column_dimensions["A"].width = 80
+        return
+
+    merged = df_1d.merge(
+        df_4h, on=["pair_a", "pair_b"], suffixes=("_1d", "_4h"),
+    )
+    if merged.empty:
+        ws.cell(row=4, column=1, value="(no pairs cointegrated on both 1d × 252 and 4h × 1500)")
+        ws.cell(row=4, column=1).font = Font(italic=True, color="9C5700")
+        ws.column_dimensions["A"].width = 80
+        return
+
+    merged["min_p"] = merged[["adf_pvalue_1d", "adf_pvalue_4h"]].min(axis=1)
+    merged = merged.sort_values("min_p").reset_index(drop=True)
+    merged["pair_class"] = merged.apply(
+        lambda r: _classify_pair(r["pair_a"], r["pair_b"]), axis=1,
+    )
+
+    headers = [
+        "pair_a", "pair_b", "pair_class",
+        "p_1d_252", "p_4h_1500",
+        "hl_1d_252", "hl_4h_1500",
+        "z_1d_252", "z_4h_1500",
+        "hedge_ratio_1d", "hedge_ratio_4h",
+        "history_depth",
+    ]
+    for c, h in enumerate(headers, start=1):
+        _header_style(ws.cell(row=4, column=c, value=h))
+
+    for i, r in merged.iterrows():
+        excel_row = 5 + i
+        cells_data = [
+            r["pair_a"], r["pair_b"], r["pair_class"],
+            r["adf_pvalue_1d"], r["adf_pvalue_4h"],
+            r["half_life_days_1d"], r["half_life_days_4h"],
+            r["current_zscore_1d"], r["current_zscore_4h"],
+            r["hedge_ratio_1d"], r["hedge_ratio_4h"],
+            max(r["history_depth_1d"], r["history_depth_4h"]),
+        ]
+        for c, v in enumerate(cells_data, start=1):
+            cell = ws.cell(row=excel_row, column=c)
+            if isinstance(v, float) and not pd.isna(v):
+                if c in (4, 5):              # p-values: 4 decimals
+                    cell.value = round(v, 4)
+                elif c in (6, 7):            # half-life: 1 decimal
+                    cell.value = round(v, 1)
+                else:
+                    cell.value = round(v, 2)
+            elif pd.isna(v):
+                cell.value = None
+            else:
+                cell.value = v
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = BORDER
+            if c in (6, 7):
+                fc = _half_life_color(v)
+                if fc:
+                    cell.fill, cell.font = fc
+            elif c in (8, 9):
+                zc = _zscore_color(v)
+                if zc:
+                    cell.fill, cell.font = zc
+
+    ws.freeze_panes = "D5"
+    #          pa pb cls p1d p4h hl1d hl4h z1d z4h hr1d hr4h hd
+    widths = [10, 10, 10, 10, 10, 10,  10,  10, 10, 14, 14,  12]
+    for c, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = w
+
+
 def _write_singles_diagnostic(wb: Workbook, conn: sqlite3.Connection,
                                 df_singles: pd.DataFrame, position: int) -> None:
     """Full singles output (diagnostic / audit). Not operator-actionable
@@ -1196,7 +1309,9 @@ def _write_notes(wb: Workbook) -> None:
         "TAB GUIDE",
         "  • Forex (incl. Metals)   : curated FX + XAU candidates only",
         "  • Crypto                 : curated BTC/ETH candidates only",
-        "  • Indices & Stocks       : deferred placeholder",
+        "  • Indices & Stocks       : curated FX-equity cross-asset candidates",
+        "  • Dual-TF Shortlist      : pairs cointegrated on BOTH 1d × 252 AND 4h × 1500",
+        "                             (Thread B per-pair deep-dive surface)",
         "  • All Pairs (Diagnostic) : full pair-pair output, audit-only",
         "  • Singles (Diagnostic)   : full single-symbol output, audit-only",
         "  • History                : last 90 days per pair-window",
@@ -1332,14 +1447,18 @@ def export_excel(db_path: Path | str = SQLITE_DB,
                 )
                 pos += 1
 
-        # 4 — All Pairs (Diagnostic)
+        # 4 — Dual-TF Shortlist (Thread B per-pair deep-dive surface)
+        _write_dual_tf_shortlist(wb, df_today, position=pos)
+        pos += 1
+
+        # 5 — All Pairs (Diagnostic)
         _write_today(wb, conn, df_today)
         wb["Today"].title = "All Pairs (Diagnostic)"
 
-        # 5 — Singles (Diagnostic)
+        # 6 — Singles (Diagnostic)
         _write_singles_diagnostic(wb, conn, df_singles, position=pos + 1)
 
-        # 6 — History; 7 — Notes
+        # 7 — History; 8 — Notes
         _write_history(wb, conn)
         _write_notes(wb)
         wb.save(str(output_path))
