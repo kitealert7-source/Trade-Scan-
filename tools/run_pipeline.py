@@ -1461,6 +1461,14 @@ def run_batch_mode(provision_only=False):
     )
     print(f"[BATCH] telemetry batch_id={_batch_id}")
 
+    # Phase 3a: directive_queued events for every admitted directive,
+    # emitted upfront. Under sequential mode (Phase 1-2) queue_time ≈ 0
+    # for the first directive and ≈ (sum of prior directive wall-times)
+    # for later ones; under parallel mode (Phase 3+) the queue→started
+    # interval becomes the worker-pool wait time.
+    for _d_id in admitted:
+        _telemetry.queue_directive(_d_id)
+
     try:
         for idx, d_id in enumerate(admitted):
             if idx > 0:

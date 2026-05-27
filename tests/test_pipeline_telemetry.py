@@ -155,14 +155,16 @@ class TestFileDurability:
 class TestStageContextManager:
 
     def test_emits_start_then_end_with_duration(self, tw):
+        # 30ms sleep + 20ms floor — Windows time.sleep granularity (~15ms)
+        # makes shorter intervals register as 0ms intermittently.
         with tw.stage("DIR_001", "PREFLIGHT"):
-            time.sleep(0.01)
+            time.sleep(0.030)
         rows = _read_rows(tw.path)
         assert len(rows) == 2
         assert rows[0]["event"] == "stage_start"
         assert rows[1]["event"] == "stage_end"
         assert isinstance(rows[1]["duration_ms"], int)
-        assert rows[1]["duration_ms"] >= 10
+        assert rows[1]["duration_ms"] >= 20
 
     def test_records_duration_even_on_exception(self, tw):
         # Sleep 30ms — comfortably above Windows time.sleep granularity
@@ -192,8 +194,8 @@ class TestDirectiveLifecycle:
         time.sleep(0.050)  # 50ms — well above Windows time.sleep granularity
         tw.end_directive("DIR_001")
         rows = _read_rows(tw.path)
-        assert rows[0]["event"] == "directive_start"
-        assert rows[1]["event"] == "directive_end"
+        assert rows[0]["event"] == "directive_started"
+        assert rows[1]["event"] == "directive_completed"
         assert isinstance(rows[1]["directive_wall_ms"], int)
         assert rows[1]["directive_wall_ms"] >= 30  # generous floor
 
@@ -203,6 +205,23 @@ class TestDirectiveLifecycle:
         rows = _read_rows(tw.path)
         assert rows[1]["event"] == "directive_failed"
         assert rows[1]["error"] == "PipelineError: stage 1 blew up"
+
+    def test_queued_started_completed_lifecycle(self, tw):
+        """Phase 3+ full lifecycle: orchestrator queues, worker starts,
+        worker completes. Queue time = started - queued; run time =
+        completed - started; total = directive_wall_ms (started→completed).
+        """
+        tw.queue_directive("DIR_001")
+        time.sleep(0.020)
+        tw.start_directive("DIR_001")
+        time.sleep(0.030)
+        tw.end_directive("DIR_001")
+        rows = _read_rows(tw.path)
+        events = [r["event"] for r in rows]
+        assert events == ["directive_queued", "directive_started", "directive_completed"]
+        # directive_wall_ms covers only started→completed, not queued→completed
+        assert isinstance(rows[2]["directive_wall_ms"], int)
+        assert rows[2]["directive_wall_ms"] >= 20  # ≥ the 30ms run sleep (with floor)
 
 
 # ---------------------------------------------------------------------------

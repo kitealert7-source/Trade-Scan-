@@ -32,10 +32,17 @@ Schema events (event field values):
   - barrier_acquired       — lock acquired (carries stage4_lock_wait_ms)
   - barrier_released       — lock released
   - barrier_wait_stale     — lock wait exceeded 60s warning threshold
-  - directive_start        — directive entered the pipeline
-  - directive_end          — directive completed (carries directive_wall_ms)
+  - directive_queued       — orchestrator submitted directive to work pool (Phase 3+)
+  - directive_started      — directive picked up and beginning execution
+  - directive_completed    — directive finished cleanly (carries directive_wall_ms)
   - directive_failed       — directive raised an exception (carries error)
   - worker_died            — worker process exited abnormally (Phase 3)
+
+Lifecycle decomposition (Phase 3+, derivable from these events):
+  queue_time_ms = directive_started.ts − directive_queued.ts
+  run_time_ms   = directive_completed.ts − directive_started.ts
+  total_time_ms = directive_completed.ts − directive_queued.ts
+                  (also recorded directly as directive_wall_ms)
 
 The 60s `barrier_wait_stale` and 15min `barrier_wait_timeout` thresholds
 are emitted by the lock-acquirer; this module just records what it's told.
@@ -155,22 +162,40 @@ class TelemetryWriter:
 
     # --- higher-level helpers ------------------------------------------
 
+    def queue_directive(self, directive_id: str) -> None:
+        """Emit directive_queued — the orchestrator has submitted the
+        directive to the work pool but a worker has not yet picked it up.
+
+        Phase 3+: only meaningful under parallel orchestration. In
+        sequential mode (--max-parallel 1) emit immediately followed by
+        `start_directive` for consistency, so queue_time_ms ≈ 0 but the
+        event stream shape is invariant across modes.
+        """
+        self.emit(directive_id, stage_id=None, event="directive_queued")
+
     def start_directive(self, directive_id: str) -> None:
+        """Emit directive_started — worker has picked up the directive
+        and is beginning execution. Records the monotonic timestamp so
+        end_directive can compute directive_wall_ms (= total_time_ms,
+        directive_started → directive_completed/failed).
+        """
         self._directive_started[directive_id] = time.monotonic()
-        self.emit(directive_id, stage_id=None, event="directive_start")
+        self.emit(directive_id, stage_id=None, event="directive_started")
 
     def end_directive(
         self,
         directive_id: str,
         error: str | None = None,
     ) -> None:
+        """Emit directive_completed (success) or directive_failed (error)
+        with directive_wall_ms = (now − directive_started)."""
         wall_ms = None
         start = self._directive_started.pop(directive_id, None)
         if start is not None:
             wall_ms = int((time.monotonic() - start) * 1000)
         if error is None:
             self.emit(
-                directive_id, stage_id=None, event="directive_end",
+                directive_id, stage_id=None, event="directive_completed",
                 directive_wall_ms=wall_ms,
             )
         else:
@@ -331,7 +356,7 @@ def batch_summary(batch_id: str, sink_dir: Path | None = None) -> dict:
             "stage4_lock_wait_ms": None,
         })
         ev = r.get("event")
-        if ev == "directive_end":
+        if ev == "directive_completed":
             slot["status"] = "completed"
             slot["wall_ms"] = r.get("directive_wall_ms")
         elif ev == "directive_failed":
@@ -341,7 +366,7 @@ def batch_summary(batch_id: str, sink_dir: Path | None = None) -> dict:
         elif ev == "barrier_acquired" and r.get("stage_id") == "PORTFOLIO":
             slot["stage4_lock_wait_ms"] = r.get("stage4_lock_wait_ms")
 
-    n_started = sum(1 for r in rows if r.get("event") == "directive_start")
+    n_started = sum(1 for r in rows if r.get("event") == "directive_started")
     n_completed = sum(1 for d in by_dir.values() if d["status"] == "completed")
     n_failed = sum(1 for d in by_dir.values() if d["status"] == "failed")
     return {
