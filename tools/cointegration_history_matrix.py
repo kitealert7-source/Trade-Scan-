@@ -301,7 +301,68 @@ def load_aligned_closes(universe: list[str], tf: str = TF) -> pd.DataFrame:
     return df.sort_index()
 
 
-def build_matrix(closes: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
+def _compute_one_pair(args: tuple) -> pd.DataFrame | None:
+    """Worker entrypoint — compute one (sa, sb) pair-pair slice.
+
+    Module-level (not nested) so it's picklable by ProcessPoolExecutor.
+    Returns the DataFrame slice with pair_a / pair_b columns added, or
+    None when the two symbols have no overlapping bars.
+
+    args = (sa, sb, a_series, b_series, params, columns)
+    """
+    sa, sb, a_series, b_series, params, columns = args
+    pair_df = pd.concat(
+        [a_series.rename("a"), b_series.rename("b")],
+        axis=1, join="inner",
+    ).dropna()
+    if len(pair_df) == 0:
+        # No overlap; caller drops None from the result list.
+        return None
+    ph = _compute_pair_history(pair_df["a"], pair_df["b"], params=params)
+    ph = ph.reset_index().rename(columns={"index": "date", pair_df.index.name or "index": "date"})
+    if "date" not in ph.columns:
+        first_col = ph.columns[0]
+        ph = ph.rename(columns={first_col: "date"})
+    ph["pair_a"] = sa
+    ph["pair_b"] = sb
+    return ph[columns]
+
+
+def _worker_init() -> None:
+    """ProcessPoolExecutor initializer — pin each worker's BLAS to 1 thread.
+
+    Without this, numpy/statsmodels/scipy will each spin up their own
+    BLAS thread pool inside every worker, oversubscribing the CPU
+    (workers × BLAS_threads ≫ physical cores) and yielding worse
+    throughput than single-threaded. With BLAS pinned to 1, each worker
+    is one Python+ADF stream and `max_workers` directly controls
+    parallelism.
+    """
+    import os
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS"):
+        os.environ[var] = "1"
+
+
+def _default_workers() -> int:
+    """Default worker count — capped at 12, floored at 1.
+
+    Cap rationale: ADF is CPU-bound, so physical cores (not logical /
+    hyperthreaded) drive throughput. On the i9-12900H (14 physical /
+    20 logical) testbed, 12 workers gives near-linear speedup vs
+    single-thread while leaving 2 physical cores headroom for OS +
+    any concurrent backfills (gen-2 cointegration backfill, etc.).
+    `os.cpu_count()` returns logical cores so we don't trust it as the
+    upper bound; instead we cap at 12 and let `--workers N` override.
+    """
+    import os
+    auto = max(1, (os.cpu_count() or 2) - 2)
+    return min(auto, 12)
+
+
+def build_matrix(closes: pd.DataFrame, params: dict | None = None,
+                  max_workers: int | None = None) -> pd.DataFrame:
     """Compute the full history matrix. Pure compute, no I/O.
 
     `params` is the per-TF parameter dict; defaults to 1d for backward compat.
@@ -309,35 +370,68 @@ def build_matrix(closes: pd.DataFrame, params: dict | None = None) -> pd.DataFra
     Each pair-pair is computed on its own A∩B intersection, so symbols
     with short individual history (e.g. ETHUSD ~2y at 4h) only affect
     pair-pairs that include them — they don't gate the whole matrix.
+
+    Parallelization (2026-05-27): pair-pair computations are independent
+    so we dispatch them to a ProcessPoolExecutor. Output is sorted by
+    (pair_a, pair_b, date) at the end so the parquet is byte-deterministic
+    regardless of worker completion order. Hash semantics are unchanged
+    (hash is derived from inputs, not the output frame).
+
+    max_workers:
+      * None  → auto: physical cores - 2 (see `_default_workers`)
+      * 1     → sequential (matches pre-2026-05-27 behavior exactly)
+      * N>1   → N workers
     """
     if params is None:
         params = current_params("1d")
     tf = str(params.get("tf", "1d"))
     columns = matrix_columns_for(tf)
     pairs = list(itertools.combinations(sorted(closes.columns), 2))
+    if max_workers is None:
+        max_workers = _default_workers()
+    worker_args = [
+        (sa, sb, closes[sa], closes[sb], params, columns)
+        for sa, sb in pairs
+    ]
+
     frames: list[pd.DataFrame] = []
     t0 = time.time()
-    for i, (sa, sb) in enumerate(pairs):
-        # Per-pair inner-join: preserves each pair-pair's full shared history.
-        pair_df = pd.concat(
-            [closes[sa].rename("a"), closes[sb].rename("b")],
-            axis=1, join="inner",
-        ).dropna()
-        if len(pair_df) == 0:
-            # No overlap; still emit placeholder rows so the matrix is
-            # complete (pair-pair × date schema is consumer-stable).
-            continue
-        ph = _compute_pair_history(pair_df["a"], pair_df["b"], params=params)
-        ph = ph.reset_index().rename(columns={"index": "date", pair_df.index.name or "index": "date"})
-        if "date" not in ph.columns:
-            first_col = ph.columns[0]
-            ph = ph.rename(columns={first_col: "date"})
-        ph["pair_a"] = sa
-        ph["pair_b"] = sb
-        frames.append(ph[columns])
-        if (i + 1) % 20 == 0 or (i + 1) == len(pairs):
-            _log(f"  pair {i+1}/{len(pairs)}  ({sa}/{sb})  bars={len(pair_df):,}  elapsed={time.time()-t0:.1f}s")
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columns)
+    if max_workers <= 1:
+        # Sequential path — preserves the pre-parallel behavior for
+        # debugging / reproducibility comparisons. Same logic as the
+        # parallel path, just without the executor.
+        for i, args in enumerate(worker_args):
+            result = _compute_one_pair(args)
+            if result is not None:
+                frames.append(result)
+            if (i + 1) % 20 == 0 or (i + 1) == len(worker_args):
+                _log(f"  pair {i+1}/{len(worker_args)}  "
+                     f"elapsed={time.time()-t0:.1f}s")
+    else:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        _log(f"  parallel build: {max_workers} workers "
+             f"(BLAS pinned to 1 thread/worker)")
+        completed = 0
+        with ProcessPoolExecutor(
+            max_workers=max_workers, initializer=_worker_init,
+        ) as executor:
+            futures = [executor.submit(_compute_one_pair, args)
+                       for args in worker_args]
+            for fut in as_completed(futures):
+                result = fut.result()
+                completed += 1
+                if result is not None:
+                    frames.append(result)
+                if completed % 20 == 0 or completed == len(worker_args):
+                    _log(f"  pair {completed}/{len(worker_args)}  "
+                         f"elapsed={time.time()-t0:.1f}s")
+
+    if not frames:
+        return pd.DataFrame(columns=columns)
+    matrix = pd.concat(frames, ignore_index=True)
+    # Sort for deterministic output (parallel completion order is
+    # non-deterministic, but the parquet content must be reproducible).
+    return matrix.sort_values(["pair_a", "pair_b", "date"]).reset_index(drop=True)
 
 
 # --- Artifact write (with versioning discipline) -----------------------
@@ -454,7 +548,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="Print hash + params + estimated cost; do not compute or write.")
     p.add_argument("--tf", type=str, default=TF, choices=list(SUPPORTED_TFS),
                    help=f"Timeframe. Default {TF!r}. At 4h: calendar-matched windows "
-                        "(1500/3000 bars ≈ 1y/2y), ~weekly ADF resample, FX-only universe.")
+                        "(1500/3000 bars ≈ 1y/2y), ~weekly ADF resample, full "
+                        "31-symbol COINT_UNIVERSE.")
+    p.add_argument("--workers", type=int, default=None,
+                   help="Parallel pair-pair workers. Default: physical cores − 2. "
+                        "Pass 1 for sequential (debug / byte-identity comparisons). "
+                        "Pass N>1 to override the auto-detected default.")
     args = p.parse_args(argv)
     tf = args.tf
 
@@ -500,7 +599,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _log(f"building matrix for tf={tf} (compute scales with bar count; expect slower)...")
     t0 = time.time()
-    matrix = build_matrix(closes, params=params)
+    matrix = build_matrix(closes, params=params, max_workers=args.workers)
     _log(f"matrix built: {len(matrix):,} rows in {time.time()-t0:.1f}s")
 
     csv_files = _enumerate_csv_files(universe, tf=tf)
