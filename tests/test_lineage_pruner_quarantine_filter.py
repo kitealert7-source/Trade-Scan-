@@ -55,7 +55,7 @@ def test_quarantined_fsp_rows_are_skipped(patched_sheets):
     ])
     _write_mps(mps, [], [])
 
-    keep_runs, _ = lp.build_keep_runs()
+    keep_runs, _, _ = lp.build_keep_runs()
 
     assert "ALIVE_RUN" in keep_runs
     assert "DEAD_RUN" not in keep_runs
@@ -75,7 +75,7 @@ def test_quarantined_portfolios_constituents_are_skipped(patched_sheets):
         sac=[],
     )
 
-    keep_runs, active_portfolios = lp.build_keep_runs()
+    keep_runs, active_portfolios, _ = lp.build_keep_runs()
 
     assert "RID_A" in keep_runs
     assert "RID_B" in keep_runs
@@ -99,7 +99,7 @@ def test_sac_sheet_is_scanned_and_filtered(patched_sheets):
         ],
     )
 
-    keep_runs, active_portfolios = lp.build_keep_runs()
+    keep_runs, active_portfolios, _ = lp.build_keep_runs()
 
     assert "SAC_RID_A" in keep_runs
     assert "SAC_RID_B" not in keep_runs
@@ -117,7 +117,7 @@ def test_missing_quarantine_columns_default_to_active(patched_sheets):
         sac=[],
     )
 
-    keep_runs, active_portfolios = lp.build_keep_runs()
+    keep_runs, active_portfolios, _ = lp.build_keep_runs()
 
     assert "LEGACY_RID" in keep_runs
     assert "LEGACY_C" in keep_runs
