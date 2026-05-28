@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-28T03:24:43Z
+> Generated: 2026-05-28T16:03:42Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 0 directives
+- Completed: 366 directives
 
 ## Ledgers
 
@@ -35,19 +35,19 @@
 - Latest bar: **2026-05-28** | Symbols: 221
 
 ## Artifacts
-- Run directories: 939
+- Run directories: 1265
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `2a28ee6 data_access: routine OctaFx mt5_tick_value refresh (21 symbols)`
+- Last substantive commit: `713c193 research: commit V3 cointegration episode corpus directives + ignore staging`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- (none — no drift signals exceed threshold this session)
+- [SIZE] RESEARCH_MEMORY.md 34 KB / 73 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
