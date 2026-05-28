@@ -68,6 +68,29 @@ REGISTRY_STATUS_VOCABULARY: dict[str, tuple[bool, str]] = {
         "drops the registry entry — the operator-driven purge is already "
         "audited via lineage_pruner's sweep manifest.",
     ),
+    "no_trades": (
+        True,
+        "Run executed cleanly but produced zero trades — a valid empty "
+        "result, not a failure. Written by stage_symbol_execution via "
+        "log_run_to_registry. Terminal: outside the reconcile transition "
+        "matrix (reconcile only acts on complete/invalid/quarantined), so "
+        "it is never auto-transitioned.",
+    ),
+    "failed": (
+        True,
+        "Run failed: an execution error, or a 'complete' run downgraded "
+        "because its core artifacts (manifest/results/equity) were absent. "
+        "Written by stage_symbol_execution and by log_run_to_registry's "
+        "artifact-completeness guard. Terminal: a re-run mints a new run_id, "
+        "so this entry is a permanent failure record.",
+    ),
+    "BASKET_COMPLETE": (
+        True,
+        "Basket-tier terminal state for a completed basket run. Written by "
+        "run_pipeline._try_basket_dispatch through record_run (the basket "
+        "short-circuit topology). Basket artifacts live in the vault, not "
+        "runs/, so these entries are never matched by reconcile's runs/ scan.",
+    ),
 }
 
 def _load_registry() -> dict:
@@ -171,6 +194,36 @@ def _write_run_shard(shard_dir: Path, entry: dict) -> None:
     os.replace(tmp, final)
 
 
+def record_run(entry: dict) -> None:
+    """THE single chokepoint for authoritative worker-side global run-state writes.
+
+    Every worker-side write of run_registry.json MUST route through here -- the
+    topology guard test (tests/test_registry_topology.py) fails CI if any other
+    worker path writes the registry directly. Two transports, one semantics:
+      - sequential (canonical): locked read-modify-merge of run_registry.json,
+        preserving an existing entry's created_at.
+      - parallel batch (TS_REGISTRY_SHARD_DIR set): write one immutable per-run
+        shard; the parent merges shards after the batch (registry_merge).
+
+    `entry` is the full run entry dict; it MUST carry a non-empty run_id.
+    """
+    run_id = entry.get("run_id")
+    if not run_id or not str(run_id).strip():
+        raise ValueError(f"record_run: entry missing run_id: {entry!r}")
+    shard_dir = os.environ.get(REGISTRY_SHARD_ENV)
+    if shard_dir:
+        _write_run_shard(Path(shard_dir), entry)
+        return
+    with FileLock(str(LOCK_PATH)):
+        reg = _load_registry()
+        prev = reg.get(run_id, {})
+        merged = {**prev, **entry}
+        if prev.get("created_at"):
+            merged["created_at"] = prev["created_at"]  # never overwrite original
+        reg[run_id] = merged
+        _save_registry_atomic(reg)
+
+
 def log_run_to_registry(run_id: str, status: str, directive_id: str):
     """
     Log a run into the master lifecycle ledger.
@@ -233,106 +286,66 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
         )
         directive_id = state_directive_id
 
-    # ---- SHARD MODE (parallel batch) ----
-    # log_run_to_registry is called exactly once per run (no_trades | failed |
-    # complete), so writing the shard here is naturally write-once. Bypasses the
-    # shared-file read-modify-write entirely; the parent merges shards post-batch.
-    _shard_dir = os.environ.get(REGISTRY_SHARD_ENV)
-    if _shard_dir:
-        # Same artifact-completeness downgrade the sequential path applies.
-        if status == "complete":
-            _run_dir = RUNS_DIR / run_id
-            _required = [
-                _run_dir / "manifest.json",
-                _run_dir / "data" / "results_tradelevel.csv",
-                _run_dir / "data" / "results_standard.csv",
-                _run_dir / "data" / "equity_curve.csv",
-            ]
-            if not all(p.exists() for p in _required):
-                print(f"[INTEGRITY] Run {run_id} missing core artifacts. Downgrading status to 'failed'.")
-                status = "failed"
-        _write_run_shard(Path(_shard_dir), {
+    # ---- artifact-completeness downgrade (status integrity) ----
+    # A 'complete' run whose core artifacts are missing is recorded as 'failed'.
+    if status == "complete":
+        run_dir = RUNS_DIR / run_id
+        required = [
+            run_dir / "manifest.json",
+            run_dir / "data" / "results_tradelevel.csv",
+            run_dir / "data" / "results_standard.csv",
+            run_dir / "data" / "equity_curve.csv",
+        ]
+        if not all(p.exists() for p in required):
+            print(f"[INTEGRITY] Run {run_id} missing core artifacts. Downgrading status to 'failed'.")
+            status = "failed"
+
+    # Build the terminal entry (create or update + back-heal), then persist via
+    # the SINGLE chokepoint record_run() -- which routes to a per-run shard in
+    # parallel-batch mode or a locked read-modify-merge sequentially. This is the
+    # single-run topology's writer; the basket topology calls the same chokepoint
+    # from run_pipeline. Nothing writes run_registry.json except record_run().
+    existing = _load_registry().get(run_id)
+    if existing:
+        entry = dict(existing)
+        _prev_status = entry.get("status")
+        entry["status"] = status
+        if artifact_hash and not entry.get("artifact_hash"):
+            entry["artifact_hash"] = artifact_hash
+        if entry.get("directive_hash") == "recovered" and directive_id != "recovered":
+            print(
+                f"[INVARIANT] log_run_to_registry: healing 'recovered' sentinel "
+                f"on existing entry {run_id} -> directive={directive_id}."
+            )
+            log_event(
+                action="REGISTRY_DIRECTIVE_HEAL", target=f"run_id:{run_id}",
+                actor="log_run_to_registry",
+                before={"directive_hash": "recovered"},
+                after={"directive_hash": directive_id},
+            )
+            entry["directive_hash"] = directive_id
+        log_event(
+            action="REGISTRY_STATUS_CHANGE", target=f"run_id:{run_id}",
+            actor="log_run_to_registry",
+            before={"status": _prev_status}, after={"status": status},
+            directive_hash=entry.get("directive_hash"),
+        )
+    else:
+        entry = {
             "run_id": run_id,
             "tier": "sandbox",
             "status": status,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "directive_hash": directive_id,
             "artifact_hash": artifact_hash,
-        })
-        return
+        }
+        log_event(
+            action="REGISTRY_UPSERT", target=f"run_id:{run_id}",
+            actor="log_run_to_registry",
+            after={"tier": "sandbox", "status": status, "directive_hash": directive_id},
+        )
 
-    with FileLock(str(LOCK_PATH)):
-        reg = _load_registry()
-
-        # If the run already exists, update status and possibly hash. Otherwise create new tier: sandbox.
-        if status == "complete":
-            # Verification Guard: Ensure core artifacts exist physically
-            run_dir = RUNS_DIR / run_id
-            required = [
-                run_dir / "manifest.json",
-                run_dir / "data" / "results_tradelevel.csv",
-                run_dir / "data" / "results_standard.csv",
-                run_dir / "data" / "equity_curve.csv"
-            ]
-            if not all(p.exists() for p in required):
-                print(f"[INTEGRITY] Run {run_id} missing core artifacts. Downgrading status to 'failed'.")
-                status = "failed"
-
-        if run_id in reg:
-            _prev_status = reg[run_id].get("status")
-            _prev_directive = reg[run_id].get("directive_hash")
-            reg[run_id]["status"] = status
-            if artifact_hash and not reg[run_id].get("artifact_hash"):
-                reg[run_id]["artifact_hash"] = artifact_hash
-            # Back-heal: if the existing entry carries the "recovered" sentinel
-            # and we now have a real directive_id, upgrade it. Symmetric to the
-            # reconcile_registry() back-heal pass — keeps both write paths in
-            # agreement so they cannot drift apart.
-            if (
-                reg[run_id].get("directive_hash") == "recovered"
-                and directive_id != "recovered"
-            ):
-                print(
-                    f"[INVARIANT] log_run_to_registry: healing 'recovered' "
-                    f"sentinel on existing entry {run_id} -> directive={directive_id}."
-                )
-                log_event(
-                    action="REGISTRY_DIRECTIVE_HEAL",
-                    target=f"run_id:{run_id}",
-                    actor="log_run_to_registry",
-                    before={"directive_hash": "recovered"},
-                    after={"directive_hash": directive_id},
-                )
-                reg[run_id]["directive_hash"] = directive_id
-            log_event(
-                action="REGISTRY_STATUS_CHANGE",
-                target=f"run_id:{run_id}",
-                actor="log_run_to_registry",
-                before={"status": _prev_status},
-                after={"status": status},
-                directive_hash=reg[run_id].get("directive_hash"),
-            )
-        else:
-            reg[run_id] = {
-                "run_id": run_id,
-                "tier": "sandbox",
-                "status": status,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "directive_hash": directive_id,
-                "artifact_hash": artifact_hash
-            }
-            log_event(
-                action="REGISTRY_UPSERT",
-                target=f"run_id:{run_id}",
-                actor="log_run_to_registry",
-                after={
-                    "tier": "sandbox",
-                    "status": status,
-                    "directive_hash": directive_id,
-                },
-            )
-
-        _save_registry_atomic(reg)
+    record_run(entry)
 
 def get_active_portfolio_runs() -> set:
     """Collect the set of run_ids that back deployed strategies.

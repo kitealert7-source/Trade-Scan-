@@ -918,25 +918,26 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         except Exception as exc:
             print(f"[BASKET] WARN per-window report emit failed: {exc}")
 
-        # run_registry.json entry (basket-flavored). Direct write avoids
-        # log_run_to_registry's run_state.json dependency, which doesn't
-        # apply to the basket short-circuit path.
-        from tools.system_registry import _load_registry, _save_registry_atomic
-        reg = _load_registry()
-        if run_id not in reg:
-            reg[run_id] = {
-                "run_id": run_id,
-                "tier": "basket",
-                "status": "BASKET_COMPLETE",
-                "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "directive_id": directive_id,
-                "directive_hash": _content_hash,
-                "artifact_hash": "",  # basket vault hash not yet schematized; Phase 5b.3
-                "basket_id": basket_id,
-                "execution_mode": "basket",
-            }
-            _save_registry_atomic(reg)
-            print(f"[BASKET] run_registry entry: {run_id}")
+        # run_registry.json entry (basket-flavored) via the SINGLE chokepoint
+        # record_run() -- shard in parallel-batch mode, locked merge sequentially.
+        # This is the BASKET topology's authoritative run-state write; it must go
+        # through record_run (topology guard enforces it). Previously an inline
+        # _load_registry + _save_registry_atomic here raced under --max-parallel,
+        # corrupting the registry AND (on WinError 5) aborting this block before
+        # the cointegration dispatch below ran.
+        from tools.system_registry import record_run
+        record_run({
+            "run_id": run_id,
+            "tier": "basket",
+            "status": "BASKET_COMPLETE",
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "directive_id": directive_id,
+            "directive_hash": _content_hash,
+            "artifact_hash": "",  # basket vault hash not yet schematized; Phase 5b.3
+            "basket_id": basket_id,
+            "execution_mode": "basket",
+        })
+        print(f"[BASKET] run_registry entry: {run_id}")
 
         # Append to MPS Baskets sheet (the actual MPS file users open).
         try:
