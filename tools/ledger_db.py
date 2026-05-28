@@ -1027,6 +1027,19 @@ def _merge_audit_columns(
     return merged
 
 
+def _read_cointegration_current(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Read current (is_current=1) cointegration_sheet rows. Empty DataFrame if
+    the table doesn't exist yet (fresh DB) -- mirrors the Baskets guard."""
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='cointegration_sheet'"
+    ).fetchone()
+    if not exists:
+        return pd.DataFrame()
+    return pd.read_sql_query(
+        "SELECT * FROM cointegration_sheet WHERE is_current = 1", conn
+    )
+
+
 def export_mps(
     conn: sqlite3.Connection | None = None,
     output_path: Path | None = None,
@@ -1041,6 +1054,7 @@ def export_mps(
         df_port = query_mps(_conn, sheet="Portfolios")
         df_single = query_mps(_conn, sheet="Single-Asset Composites")
         df_baskets = query_baskets(_conn, current_only=True)
+        df_coint = _read_cointegration_current(_conn)
 
         # Drop the 'sheet' discriminator and all-null columns from export.
         # NOTE: on an empty DataFrame, df[c].isna().all() is True for every
@@ -1084,13 +1098,25 @@ def export_mps(
         # in _MPS_AUDIT_COLUMNS; joined by the sheet's natural key.
         df_baskets = _merge_audit_columns(df_baskets, "Baskets", out)
 
+        # Cointegration research ledger -> its own tab as the lean human view
+        # (separate ontology). The DB keeps every column; the view projects to
+        # the ~16 a human scans (sorted, ranked, friendly-named).
+        df_coint_view = None
+        if not df_coint.empty:
+            from tools.portfolio.cointegration_view import build_cointegration_view_df
+            df_coint_view = build_cointegration_view_df(df_coint)
+
         with pd.ExcelWriter(str(out), engine="openpyxl") as writer:
             df_port.to_excel(writer, sheet_name="Portfolios", index=False)
             df_single.to_excel(writer, sheet_name="Single-Asset Composites", index=False)
             if not df_baskets.empty:
                 df_baskets.to_excel(writer, sheet_name="Baskets", index=False)
+            if df_coint_view is not None and not df_coint_view.empty:
+                df_coint_view.to_excel(writer, sheet_name="Cointegration", index=False)
 
         suffix = f", Baskets={len(df_baskets)}" if not df_baskets.empty else ""
+        if df_coint_view is not None and not df_coint_view.empty:
+            suffix += f", Cointegration={len(df_coint_view)}"
         print(f"  [EXPORT] MPS: Portfolios={len(df_port)}, "
               f"Single-Asset Composites={len(df_single)}{suffix} -> {out}")
         return out

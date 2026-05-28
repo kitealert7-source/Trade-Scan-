@@ -535,6 +535,28 @@ def _restore_hyperlinks(wb, path):
             if _count:
                 print(f"    [HYPERLINKS] Baskets / directive_id: {_count} links applied")
 
+    # Master_Portfolio_Sheet → Cointegration / backtest links to
+    # ../backtests/<backtest>/ (the run folder; the backtest column holds its name).
+    if _file_stem == "Master_Portfolio_Sheet" and "Cointegration" in wb.sheetnames:
+        _ws = wb["Cointegration"]
+        _max_row = _ws.max_row or 1
+        _max_col = _ws.max_column or 1
+        _hdr = {str(_ws.cell(row=1, column=c).value or "").strip(): c
+                for c in range(1, _max_col + 1)}
+        _bt_col = _hdr.get("backtest")
+        if _bt_col:
+            _count = 0
+            for _r in range(2, _max_row + 1):
+                _v = str(_ws.cell(row=_r, column=_bt_col).value or "").strip()
+                if not _v:
+                    continue
+                _cell = _ws.cell(row=_r, column=_bt_col)
+                _cell.hyperlink = f"../backtests/{_v}/"
+                _cell.font = _LINK_FONT
+                _count += 1
+            if _count:
+                print(f"    [HYPERLINKS] Cointegration / backtest: {_count} links applied")
+
 
 def apply_formatting(file_path, profile):
     path = Path(file_path)

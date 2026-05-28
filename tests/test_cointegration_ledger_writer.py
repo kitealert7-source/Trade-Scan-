@@ -110,3 +110,20 @@ def test_writer_is_sink_only_no_screener_reference():
     src = inspect.getsource(w)
     assert "cointegration_db" not in src
     assert "SYSTEM_FACTORS" not in src
+
+
+def test_export_mps_emits_cointegration_tab(patched_state):
+    """End-to-end: a written row surfaces as the curated Cointegration tab."""
+    import pandas as pd
+    from tools.ledger_db import export_mps
+    from tools.portfolio.cointegration_view import COINTEGRATION_VIEW_COLUMNS
+
+    append_cointegration_row(_good_row(patched_state))
+    out = export_mps()
+    xl = pd.ExcelFile(out)
+    assert "Cointegration" in xl.sheet_names
+    df = pd.read_excel(out, sheet_name="Cointegration")
+    assert list(df.columns) == COINTEGRATION_VIEW_COLUMNS
+    assert len(df) == 1
+    assert df.iloc[0]["pair"] == "EURUSD / GER40"
+    assert df.iloc[0]["backtest"] == "rundir"
