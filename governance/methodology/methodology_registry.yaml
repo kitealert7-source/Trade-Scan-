@@ -1,0 +1,30 @@
+# ════════════════════════════════════════════════════════════════════
+# METHODOLOGY CITATION REGISTRY
+#
+# Plan reference: ENFORCEMENT_PLAN_2026-05-27.md Task D.
+# Pattern family: namespace registry / rule-binding registry / registry
+# status vocabulary — a flat, repo-local, declarative allowlist.
+#
+# This is the CANONICAL SET OF ADMISSIBLE methodology-citation identifiers.
+# It is NOT a mirror of the memory system's contents — only the set of slugs
+# a directive may legitimately cite in its `methodology_citations:` field.
+#
+# Enforced by tools/methodology_citation_gate.py at admission:
+#   - directive has no `methodology_citations`          -> gate no-op
+#   - directive cites a slug present here               -> admit
+#   - directive cites a slug NOT present here           -> hard reject
+#
+# Deliberately repo-local: NO coupling to ~/.claude auto-memory, no
+# harness-derived paths, no filesystem traversal outside the repo. The slug
+# strings happen to match memory doctrine filenames, but the gate validates
+# against THIS file only — deterministic, CI-stable, worktree-safe.
+#
+# To make a new methodology doctrine citable: add a `- slug: <name>` line.
+# Keep it minimal — slug identifiers only, no semantic content, no ranking,
+# no dependency graph.
+# ════════════════════════════════════════════════════════════════════
+
+citations:
+  - slug: feedback_test_window_must_match_signal_class
+  - slug: feedback_screening_rules_for_research
+  - slug: feedback_prove_then_falsify

@@ -88,6 +88,15 @@ def admit_directive(directive_id: str) -> None:
     except WindowValidityGateError as exc:
         raise PipelineExecutionError(str(exc)) from exc
 
+    # Methodology-citation gate (Task D). Also pre-mutation. No-op unless the
+    # directive declares methodology_citations; rejects citations of slugs
+    # absent from the repo-local methodology registry.
+    from tools.methodology_citation_gate import check_methodology_citations, MethodologyCitationGateError
+    try:
+        check_methodology_citations(d_path)
+    except MethodologyCitationGateError as exc:
+        raise PipelineExecutionError(str(exc)) from exc
+
     ACTIVE_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     target_path = ACTIVE_BACKUP_DIR / d_path.name
 
