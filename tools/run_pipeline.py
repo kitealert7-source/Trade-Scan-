@@ -79,6 +79,15 @@ def admit_directive(directive_id: str) -> None:
     except RuleBindingGateError as exc:
         raise PipelineExecutionError(str(exc)) from exc
 
+    # Window-validity gate (Task B). Also pre-mutation. No-op unless the
+    # directive declares basket.cointegration_join.lookback_days; rejects a
+    # test window not fully inside a continuous cointegrated regime span.
+    from tools.window_validity_gate import check_window_validity, WindowValidityGateError
+    try:
+        check_window_validity(d_path)
+    except WindowValidityGateError as exc:
+        raise PipelineExecutionError(str(exc)) from exc
+
     ACTIVE_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     target_path = ACTIVE_BACKUP_DIR / d_path.name
 
