@@ -129,8 +129,19 @@ def _validate_intents(intents: list[dict]) -> tuple[list[dict], list[dict]]:
             except re.error as e:
                 errors.append({"intent": iid, "error": f"bad_regex:{e}",
                                "severity": enforcement})
-        # skill existence
+        # Injection target: must declare either must_skill OR memory_hint.
+        # Hard enforcement is skill-only by design (memory hints are advisory).
         skill = it.get("must_skill")
+        memory_hint = it.get("memory_hint")
+        if not skill and not memory_hint:
+            errors.append({"intent": iid,
+                           "error": "missing_target:declare must_skill or memory_hint",
+                           "severity": enforcement})
+        if enforcement == "hard" and not skill:
+            errors.append({"intent": iid,
+                           "error": "hard_intent_needs_must_skill",
+                           "severity": "hard"})
+        # skill existence
         if skill and skill_slugs and skill not in skill_slugs:
             errors.append({"intent": iid, "error": f"missing_skill:{skill}",
                            "severity": enforcement})
@@ -440,9 +451,12 @@ def _recent_hard_violations(intent_id: str) -> int:
 
 def _format_injection(intent: dict) -> str:
     skill = intent.get("must_skill", "")
+    memory_hint = intent.get("memory_hint", "")
     reason = intent.get("reason", "")
     enforcement = intent.get("enforcement", "soft")
     if enforcement == "hard":
+        # Hard enforcement is skill-only by design — memory hints are
+        # advisory and don't carry blocking semantics.
         prefix = ""
         recent = _recent_hard_violations(intent.get("id", ""))
         if recent >= ESCALATION_THRESHOLD:
@@ -465,8 +479,15 @@ def _format_injection(intent: dict) -> str:
             f"Reason: {reason}\n"
             f"(intent_id={intent.get('id')})\n\n"
         )
-    return (f"[Skill hint] Consider `/{skill}` for this request. "
-            f"Reason: {reason}\n\n")
+    # Soft enforcement: memory_hint wins if both present (memory entries
+    # are more specific advisory signals than skill suggestions).
+    if memory_hint:
+        return (f"[Memory hint] Re-read `[[{memory_hint}]]` before "
+                f"proceeding. Reason: {reason}\n\n")
+    if skill:
+        return (f"[Skill hint] Consider `/{skill}` for this request. "
+                f"Reason: {reason}\n\n")
+    return ""
 
 
 # ---------------- main ----------------

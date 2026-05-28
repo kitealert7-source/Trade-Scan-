@@ -8,9 +8,16 @@
 #   id             : unique slug (used in telemetry log)
 #   priority       : int, higher wins on overlap
 #   enforcement    : "hard" | "soft"
-#                    hard -> MANDATORY blocking directive
-#                    soft -> advisory skill hint
+#                    hard -> MANDATORY blocking directive (must_skill required)
+#                    soft -> advisory skill hint OR memory hint
 #   must_skill     : slug under .claude/skills/ (resolves to .claude/skills/<slug>/SKILL.md)
+#                    Required for hard enforcement.
+#   memory_hint    : optional memory entry slug. Soft enforcement only.
+#                    Emits a "[Memory hint] Re-read [[<slug>]]" banner.
+#                    Used for advisories tied to a specific feedback entry
+#                    rather than a workflow skill. Either must_skill or
+#                    memory_hint MUST be declared; memory_hint wins on emission
+#                    if both are present.
 #   threshold      : optional int (default 3) for fuzzy score
 #   regex_patterns : authoritative; any hit -> score 100
 #   semantic_tags  : fuzzy fallback, each has {tag, weight}
@@ -465,3 +472,44 @@ intents:
       - {tag: "skill_maintenance", weight: 3}
       - {tag: "skill_audit", weight: 3}
       - {tag: "friction_log", weight: 2}
+
+  # ---------- MEMORY HINTS (Task C, ENFORCEMENT_PLAN_2026-05-27.md) ----------
+  # Early-warning advisories that surface a specific memory entry before
+  # the operator authors a directive the admission gate would reject.
+  # Soft enforcement only — memory hints don't carry blocking semantics.
+
+  - id: test_window_signal_class
+    priority: 40
+    enforcement: soft
+    memory_hint: feedback_test_window_must_match_signal_class
+    suppress_on_infra: true
+    reason: "Calendar windows + cointegration signals must match the screener's per-pair window, not a fixed 2-year span. Failure mode #2 in the enforcement plan."
+    regex_patterns:
+      # Test-window phrasing co-occurring with cointegration/regime vocabulary.
+      - "(?i)\\b(test\\s+window|date\\s+range|backtest\\s+period|2[- ]year|calendar(\\s+window)?)\\b.{0,80}\\b(cointegrat|regime|aligned)\\w*"
+      - "(?i)\\b(cointegrat|regime|aligned)\\w*\\b.{0,80}\\b(test\\s+window|date\\s+range|backtest\\s+period|2[- ]year|calendar(\\s+window)?)\\b"
+    semantic_tags:
+      - {tag: "test_window", weight: 3}
+      - {tag: "backtest_period", weight: 2}
+      - {tag: "date_range", weight: 2}
+      - {tag: "cointegrated", weight: 3}
+      - {tag: "cointegration", weight: 3}
+      - {tag: "regime", weight: 1}
+
+  - id: governance_as_evaluator
+    priority: 40
+    enforcement: soft
+    memory_hint: feedback_screening_rules_for_research
+    suppress_on_infra: true
+    reason: "Governance verdicts (CORE/WATCH/FAIL) are deployment gates, not research evaluators. Using them as research signals near-retired a strategy with real edge. Failure mode #3 in the enforcement plan."
+    regex_patterns:
+      # Governance verdict tokens used as evaluation language.
+      - "(?i)\\b(CORE|WATCH|FAIL)\\b.{0,40}\\b(evaluator|rank|filter|screen|select|score)\\b"
+      - "(?i)\\b(evaluator|rank|filter|screen|select|score)\\b.{0,40}\\b(CORE|WATCH|FAIL)\\b"
+      - "(?i)\\bgovernance\\s+(verdict|metric|score|ranking)\\b"
+    semantic_tags:
+      - {tag: "governance", weight: 2}
+      - {tag: "evaluator", weight: 3}
+      - {tag: "verdict", weight: 2}
+      - {tag: "rank", weight: 1}
+      - {tag: "screen", weight: 1}
