@@ -2,7 +2,9 @@
 # DIRECTIVE -> recycle_rule.name BINDING REGISTRY
 #
 # Plan reference: ENFORCEMENT_PLAN_2026-05-27.md Task A.
-# Phase: A1 (warn-only on unknown patterns; mismatch + ambiguity hard reject).
+# Phase: A2 (strict — unknown patterns hard reject). Flipped 2026-05-28 after
+#        readiness review: 274 MPS corpus rows simulate 0 rejects; 4/5 canonical
+#        rules bound (5th = deprecated H2_v7_compression, correctly unbound).
 # Source of truth: this file. Comparison is exact, case-sensitive.
 #
 # Failure semantics (enforced by tools/rule_binding_gate.py at admission):
@@ -19,8 +21,9 @@
 # ════════════════════════════════════════════════════════════════════
 
 meta:
-  # Phase A1 -> A2 toggle. Flip to true after corpus audit completes.
-  strict_unknown: false
+  # Phase A1 -> A2 toggle. Flipped true 2026-05-28 (corpus audit complete).
+  # Unknown patterns now hard-reject at admission. legacy_patterns still warn.
+  strict_unknown: true
 
 # Canonical bindings: pattern must yield a single match against a directive_id;
 # the directive YAML's recycle_rule.name must equal rule_name exactly.
