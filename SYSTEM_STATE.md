@@ -63,12 +63,13 @@
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
-#### Active Charter — 2026-05-27 — advisory-to-enforced
-**Focus:** Today's session surfaced five separate cases where existing advisory tools (skills, memory entries, "MANDATORY FIRST STEP" notes) were bypassed during execution. The fix is structural — convert each advisory check into an enforced gate / hook / CI test. Full plan + acceptance criteria + priority order in [`outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md`](outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md). Start next session by reading that document, picking task A (directive-naming ↔ rule_name validator), and implementing per the acceptance criteria.
+#### Charter COMPLETE — 2026-05-27 — advisory-to-enforced (closed 2026-05-28)
+**Focus:** Convert five bypassed advisory checks into enforced gates / hooks / CI tests. Plan: [`outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md`](outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md). **STATUS: COMPLETE — all 7 enforcement units landed 2026-05-28.** The original "advisory bypass" failure mode is now solved structurally, not rhetorically. F-series refactor backlog (F1-F3 in the plan) may now begin.
 
 **Sessions on this charter:**
 - 2026-05-27 — plan authored; commits 544c361 / 12455b9 / 478389b landed the retroactive fix for failure mode #5 (state_lifecycle Baskets blindness). Five gates A-E remain to build (8-10 hours estimated).
-- 2026-05-27 (later) — appended refactoring backlog F1-F3 to plan (commit f4bfc3e); 1700-line `run_pipeline.py` and 422-line `load_basket_leg_data` flagged as decomposition targets. NEW deferred work surfaced at session-close: `ledger_db --export` reverted today's MPS row drops because cleanup tools (repair_integrity, custom Baskets drop) operate on Excel only; SQL is the source of truth. The whole pipeline-state-cleanup workflow needs SQL-side parity. Added as enforcement plan addendum candidate next session.
+- 2026-05-27 (later) — appended refactoring backlog F1-F3 to plan (commit f4bfc3e). NEW deferred work surfaced: `ledger_db --export` reverted MPS row drops because cleanup tools operate on Excel only; SQL is source of truth. Pipeline-state-cleanup needs SQL-side parity (addendum candidate).
+- 2026-05-28 — **CHARTER COMPLETE.** All units landed: A rule-binding gate (44b9506) + A2 strict flip (7f10de6); B window-validity continuous-span gate (5b954bc); C intent memory-hints (e65f0da); D methodology-citation gate (3eb6371); E1 sheet-coverage CI (692485f) + E2 registry state matrix + reconcile-authoritative cleanup (f4ceb51). MEMORY consolidated (enforcement-family entry + convention→mechanically-verified reframe). Key cross-cutting decision: every gate is repo-local + deterministic — D explicitly rejected ~/.claude auto-memory coupling in favor of an in-repo methodology_registry.yaml. Live preflight GREEN. Remaining (NOT part of this charter): pipeline-state-cleanup SQL-side parity addendum; F1-F3 decomposition backlog.
 
 <!-- (4h backfill gen-2 completed 2026-05-27;
      coverage 2023-12-28 → 2026-05-27, 561,685 rows in cointegration_daily) -->
