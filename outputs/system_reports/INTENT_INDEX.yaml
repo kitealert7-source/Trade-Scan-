@@ -473,7 +473,7 @@ intents:
       - {tag: "skill_audit", weight: 3}
       - {tag: "friction_log", weight: 2}
 
-  # ---------- MEMORY HINTS (Task C, ENFORCEMENT_PLAN_2026-05-27.md) ----------
+  # ---------- MEMORY HINTS (Task C, 09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md) ----------
   # Early-warning advisories that surface a specific memory entry before
   # the operator authors a directive the admission gate would reject.
   # Soft enforcement only — memory hints don't carry blocking semantics.

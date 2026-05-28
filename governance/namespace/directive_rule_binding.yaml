@@ -1,7 +1,7 @@
 # ════════════════════════════════════════════════════════════════════
 # DIRECTIVE -> recycle_rule.name BINDING REGISTRY
 #
-# Plan reference: ENFORCEMENT_PLAN_2026-05-27.md Task A.
+# Plan reference: 09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md Task A.
 # Phase: A2 (strict — unknown patterns hard reject). Flipped 2026-05-28 after
 #        readiness review: 274 MPS corpus rows simulate 0 rejects; 4/5 canonical
 #        rules bound (5th = deprecated H2_v7_compression, correctly unbound).

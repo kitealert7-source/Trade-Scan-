@@ -1,5 +1,16 @@
 # Enforcement Plan — Convert Advisory Conventions to Pipeline Gates
 
+> **STATUS: CLOSED — COMPLETE 2026-05-28.** All 7 enforcement units landed:
+> A rule-binding gate (44b9506) + A2 strict flip (7f10de6); B window-validity
+> continuous-span gate (5b954bc); C intent memory-hints (e65f0da); D
+> methodology-citation gate (3eb6371); E1 sheet-coverage CI (692485f) + E2
+> registry state matrix + reconcile-authoritative cleanup (f4ceb51). Charter
+> closed 2026-05-28 (0eb2021). Cross-cutting invariant: every gate is
+> repo-local + deterministic — no `~/.claude` / env-path / external-state
+> coupling. The advisory-bypass failure mode is solved structurally. The
+> F1-F3 refactor backlog below is now unblocked but explicitly NOT started
+> (next session = observe operational friction first).
+
 **Created:** 2026-05-27
 **Author context:** End of a long session that surfaced today's "all the tools but they're bypassed" failure mode.
 **Governing principle:** `[[feedback_enforceable_mechanisms_only]]` — optional docs/conventions decay. Every proposal here must reduce to a hook, gate, validator, or CI test. No new advisory layers.
