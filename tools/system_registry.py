@@ -141,6 +141,36 @@ def _save_registry_atomic(data: dict):
     else:
         tmp_path.rename(REGISTRY_PATH)
 
+
+# Parallel-batch shard mode. When run_batch_mode (max_parallel>=2) sets this env
+# var to a per-batch shard dir, log_run_to_registry writes each run's terminal
+# entry to its OWN immutable shard file instead of doing a read-modify-write of
+# the shared registry (which is not safe across processes). The parent merges
+# shards after the batch (tools/orchestration/registry_merge.merge_shards).
+# RECOVERY INVARIANT (SHARD_REGISTRY_PLAN.md §7): run_registry.json stays the
+# only authoritative registry; shards are consulted ONLY by the merge/recovery
+# path, never by normal runtime readers.
+REGISTRY_SHARD_ENV = "TS_REGISTRY_SHARD_DIR"
+
+
+def _write_run_shard(shard_dir: Path, entry: dict) -> None:
+    """Write one run's registry entry to its own immutable shard file.
+
+    Single writer per run_id => conflict-free. Write-once: refuse to overwrite an
+    existing shard (idempotent on a defensive double-call). Atomic (temp+replace).
+    """
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    final = shard_dir / f"{entry['run_id']}.json"
+    if final.exists():
+        return  # write-once / idempotent — terminal already recorded
+    tmp = shard_dir / f"{entry['run_id']}.json.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(entry, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, final)
+
+
 def log_run_to_registry(run_id: str, status: str, directive_id: str):
     """
     Log a run into the master lifecycle ledger.
@@ -202,6 +232,34 @@ def log_run_to_registry(run_id: str, status: str, directive_id: str):
             after={"directive_hash": state_directive_id},
         )
         directive_id = state_directive_id
+
+    # ---- SHARD MODE (parallel batch) ----
+    # log_run_to_registry is called exactly once per run (no_trades | failed |
+    # complete), so writing the shard here is naturally write-once. Bypasses the
+    # shared-file read-modify-write entirely; the parent merges shards post-batch.
+    _shard_dir = os.environ.get(REGISTRY_SHARD_ENV)
+    if _shard_dir:
+        # Same artifact-completeness downgrade the sequential path applies.
+        if status == "complete":
+            _run_dir = RUNS_DIR / run_id
+            _required = [
+                _run_dir / "manifest.json",
+                _run_dir / "data" / "results_tradelevel.csv",
+                _run_dir / "data" / "results_standard.csv",
+                _run_dir / "data" / "equity_curve.csv",
+            ]
+            if not all(p.exists() for p in _required):
+                print(f"[INTEGRITY] Run {run_id} missing core artifacts. Downgrading status to 'failed'.")
+                status = "failed"
+        _write_run_shard(Path(_shard_dir), {
+            "run_id": run_id,
+            "tier": "sandbox",
+            "status": status,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "directive_hash": directive_id,
+            "artifact_hash": artifact_hash,
+        })
+        return
 
     with FileLock(str(LOCK_PATH)):
         reg = _load_registry()

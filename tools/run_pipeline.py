@@ -1545,6 +1545,35 @@ def run_batch_mode(provision_only=False, max_parallel=1):
     # ONCE below, after all directives -- avoiding N redundant, concurrent renders
     # under --max-parallel. Set BEFORE workers spawn so they inherit the flag.
     os.environ["TS_DEFER_MPS_EXPORT"] = "1"
+
+    # Parallel batch: shard the run-registry per worker, merge once in the parent.
+    # run_registry.json is NOT safe under concurrent multi-process writes; sharding
+    # confines each run's write to its own immutable file (SHARD_REGISTRY_PLAN.md).
+    # Sequential (max_parallel==1) keeps the canonical direct-write path untouched.
+    _shard_dir = None
+    if max_parallel >= 2 and not provision_only:
+        import yaml as _yaml
+        from config.state_paths import REGISTRY_DIR as _REG_DIR
+        from tools.orchestration.registry_merge import write_batch_manifest
+        from tools.pipeline_utils import generate_run_id as _gen_rid
+        _shard_dir = _REG_DIR / "batch_shards" / _batch_id
+        _expected_run_ids = []
+        for _d_id in admitted:
+            _dpath = ACTIVE_BACKUP_DIR / f"{_d_id}.txt"
+            try:
+                _p = _yaml.safe_load(_dpath.read_text(encoding="utf-8")) or {}
+                _bid = (_p.get("basket", {}) or {}).get("basket_id")
+                if _bid:
+                    _rid, _ = _gen_rid(_dpath, symbol=_bid)
+                    _expected_run_ids.append(_rid)
+            except Exception:
+                pass
+        write_batch_manifest(_shard_dir, batch_id=_batch_id,
+                             expected_run_ids=_expected_run_ids,
+                             worker_count=max_parallel, max_parallel=max_parallel)
+        os.environ["TS_REGISTRY_SHARD_DIR"] = str(_shard_dir)
+        print(f"[BATCH] registry sharding enabled ({len(_expected_run_ids)} expected) -> {_shard_dir}")
+
     _orchestrator = PipelineOrchestrator(
         batch_id=_batch_id,
         max_parallel=max_parallel,
@@ -1567,6 +1596,19 @@ def run_batch_mode(provision_only=False, max_parallel=1):
             # Telemetry summary is diagnostic — never let a summary
             # failure mask the actual batch outcome.
             print(f"[BATCH] (telemetry summary unavailable: {_summary_err})")
+        # Merge per-worker registry shards into the authoritative run_registry.json
+        # (parent, single process). Idempotent + integrity-verified; shards are
+        # preserved until a successful, verified merge (SHARD_REGISTRY_PLAN.md).
+        os.environ.pop("TS_REGISTRY_SHARD_DIR", None)
+        if _shard_dir is not None:
+            try:
+                from tools.orchestration.registry_merge import merge_shards
+                _m = merge_shards(_shard_dir)
+                print(f"[BATCH] registry shards merged: {_m.get('merged_run_count')} runs "
+                      f"from {_m.get('shard_count')} shards.")
+            except Exception as _exc:
+                print(f"[BATCH] WARN registry shard merge failed — shards preserved at "
+                      f"{_shard_dir} for recovery (re-run registry_merge.merge_shards): {_exc}")
         # Deferred single MPS render (parent process, no contention). Runs even
         # on a partial/failed batch so the xlsx reflects whatever the DB now
         # holds. The DB is canonical — a render failure is logged, never fatal.
