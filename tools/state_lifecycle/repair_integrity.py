@@ -60,6 +60,10 @@ RUNS_DIR = STATE_ROOT / "runs"
 BACKTESTS_DIR = STATE_ROOT / "backtests"
 SANDBOX_DIR = STATE_ROOT / "sandbox"
 STRATEGIES_DIR = STATE_ROOT / "strategies"
+# Cointegration ledger is DB-canonical (the "Cointegration" MPS tab is a lossy
+# one-way view that drops run_id) — so the coint drop arm reads/deletes the DB
+# table, unlike the xlsx-driven Baskets arm. Module-level so tests can patch it.
+LEDGER_DB_PATH = STATE_ROOT / "ledger.db"
 
 # Sheets read + rewritten in MPS. Baskets uses single run_id orphan detection
 # (like FSP, scan_baskets); Portfolios + SAC use constituent_run_ids +
@@ -68,6 +72,12 @@ STRATEGIES_DIR = STATE_ROOT / "strategies"
 # reversed by commit 5e16a16, and Baskets is now a first-class managed sheet.
 MPS_TAGGED_SHEETS = ("Portfolios", "Single-Asset Composites")
 MPS_BASKETS_SHEET = "Baskets"
+# Cointegration is DB-canonical with a lossy projected "Cointegration" tab.
+# Orphan detection + drop run against the cointegration_sheet table; the tab is
+# re-rendered from the DB after a drop (see scan_cointegration / the apply path).
+# This constant also satisfies the sheet-coverage CI test, which literal-string-
+# searches this source for every live MPS data-sheet name.
+MPS_COINTEGRATION_SHEET = "Cointegration"
 
 # Reason text cap — quarantine_reason is a single-line audit field, not a log.
 _REASON_MAX_CHARS = 200
@@ -376,6 +386,109 @@ def apply_baskets_mark(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFra
     return df, n
 
 
+# ---------------------------------------------------------------------------
+# Cointegration arm — DB-canonical (the xlsx "Cointegration" tab is a lossy,
+# one-way projected view that drops run_id/directive_id, so orphan detection and
+# the drop must operate on the cointegration_sheet table, not the tab). This is
+# the mirror of scan_baskets / apply_baskets_drop adapted for that asymmetry.
+# Cointegration runs live in backtests/<directive_id>_<basket_id>/ like baskets,
+# so the same backtests-aware validity (is_valid_basket_run) applies. There is
+# no mark path: cointegration_sheet has no quarantine_status column by deliberate
+# schema design (tools/portfolio/cointegration_schema.py) — it uses DB-native
+# lineage (is_current). The operator's rm -rf of the substrate authorizes the
+# row drop (CLAUDE.md invariant #2 append-only exception), same as baskets.
+# ---------------------------------------------------------------------------
+
+
+def scan_cointegration() -> list[str]:
+    """Return run_ids of current (is_current=1) cointegration_sheet rows whose
+    disk artifacts are gone.
+
+    DB-sourced: mirrors lineage_pruner._cointegration_keep_info — reads run_id +
+    directive_id + backtests_path, recovers basket_id from the backtests_path
+    basename ("<directive_id>_<basket_id>"), and flags a row only when the
+    basket-aware check fails (no runs/<run_id>/+JSON AND no populated
+    backtests/<directive_id>_<basket_id>/ dir). Empty on any error / absent table
+    so a fresh DB or a read hiccup is a clean no-op, never a false orphan.
+    """
+    orphans: list[str] = []
+    try:
+        from tools.ledger_db import _connect
+        conn = _connect(LEDGER_DB_PATH)
+        try:
+            has = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='cointegration_sheet'"
+            ).fetchone()
+            if not has:
+                return orphans
+            rows = conn.execute(
+                "SELECT run_id, directive_id, backtests_path FROM cointegration_sheet "
+                "WHERE is_current = 1"
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[INFO] Cointegration scan skipped: {exc}")
+        return orphans
+
+    for rid, did, btp in rows:
+        rid = str(rid or "").strip()
+        if not rid:
+            continue
+        did = str(did or "").strip()
+        folder = Path(str(btp or "")).name
+        bid = folder[len(did) + 1:] if folder.startswith(did + "_") else ""
+        if not is_valid_basket_run(rid, did, bid):
+            orphans.append(rid)
+    return orphans
+
+
+def apply_cointegration_drop(orphans: list[str]) -> int:
+    """Drop mode: hard-DELETE orphan rows from cointegration_sheet.
+
+    Unlike the Baskets arm (which drops xlsx rows), this deletes from the DB
+    because the Cointegration tab carries no run_id to key on. The deletion is
+    the operator-driven cleanup exception to append-only (CLAUDE.md #2). Returns
+    the count of rows actually removed.
+    """
+    if not orphans:
+        return 0
+    from tools.ledger_db import _connect
+    conn = _connect(LEDGER_DB_PATH)
+    try:
+        n = 0
+        for rid in orphans:
+            cur = conn.execute(
+                'DELETE FROM cointegration_sheet WHERE run_id = ?', (rid,)
+            )
+            n += cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return n
+
+
+def _rebuild_cointegration_view() -> pd.DataFrame:
+    """Re-render the lean Cointegration human view from the post-drop DB rows so
+    the xlsx tab matches the table. Empty DataFrame on any error (the tab is then
+    written empty-but-present, which is the correct state once all coint rows are
+    gone). Reuses the canonical view builder so the projection never drifts.
+    """
+    try:
+        from tools.ledger_db import _connect, _read_cointegration_current
+        from tools.portfolio.cointegration_view import build_cointegration_view_df
+        conn = _connect(LEDGER_DB_PATH)
+        try:
+            df_cur = _read_cointegration_current(conn)
+        finally:
+            conn.close()
+        return build_cointegration_view_df(df_cur)
+    except Exception as exc:
+        print(f"[INFO] Cointegration view rebuild skipped: {exc}")
+        return pd.DataFrame()
+
+
 def safe_rewrite_mps(mps_path: Path, modified: dict[str, pd.DataFrame]) -> None:
     """Write back modified sheets while preserving every other sheet.
 
@@ -486,6 +599,10 @@ def main() -> int:
         baskets_df = None
         baskets_targets = []
 
+    # Cointegration — DB-canonical (the tab is a lossy projected view, so this
+    # reads the cointegration_sheet table directly, not the xlsx).
+    coint_targets = scan_cointegration()
+
     # --- Report ---
     print()
     print(f"FSP orphan rows: {len(fsp_targets)}")
@@ -512,11 +629,25 @@ def main() -> int:
         if len(baskets_targets) > 5:
             print(f"  ... and {len(baskets_targets) - 5} more.")
 
+    print(f"MPS::{MPS_COINTEGRATION_SHEET} rows w/ orphan run_id: {len(coint_targets)}"
+          + ("" if action == "drop" else "  (drop-only; mark not supported)"))
+    for rid in coint_targets[:5]:
+        print(f"  -> run_id={rid[:12]}...")
+    if len(coint_targets) > 5:
+        print(f"  ... and {len(coint_targets) - 5} more.")
+    if coint_targets and action == "mark":
+        print(f"[INFO] {MPS_COINTEGRATION_SHEET}: mark mode is a no-op here — "
+              f"cointegration_sheet has no quarantine_status column (DB-native "
+              f"lineage). Use --action drop to remove these orphan rows.")
+
     total = (
         len(fsp_targets)
         + sum(len(t) for t in mps_constituent_targets.values())
         + sum(len(t) for t in mps_folder_targets.values())
         + len(baskets_targets)
+        # Coint orphans are actionable only under drop (no mark path), so they
+        # count toward the "would change" total only then.
+        + (len(coint_targets) if action == "drop" else 0)
     )
     if total == 0:
         print("\n[INFO] No integrity issues found. Spreadsheets unchanged.")
@@ -570,6 +701,15 @@ def main() -> int:
         mps_applied[MPS_BASKETS_SHEET] = n
         if n:
             mps_to_write[MPS_BASKETS_SHEET] = baskets_df
+
+    # Cointegration apply — DB delete (drop only; mark already reported as a
+    # no-op above). The tab is re-rendered from the post-drop DB and queued for
+    # the multi-sheet-safe writer alongside any other modified sheets.
+    if coint_targets and action == "drop":
+        n = apply_cointegration_drop(coint_targets)
+        mps_applied[MPS_COINTEGRATION_SHEET] = n
+        if n:
+            mps_to_write[MPS_COINTEGRATION_SHEET] = _rebuild_cointegration_view()
 
     if mps_to_write:
         safe_rewrite_mps(MASTER_SHEET_PATH, mps_to_write)

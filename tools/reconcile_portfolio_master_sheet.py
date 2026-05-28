@@ -30,6 +30,13 @@ LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 # Sheet names in the canonical MPS workbook
 SHEET_PORTFOLIOS = "Portfolios"
 SHEET_SINGLE_ASSET = "Single-Asset Composites"
+# Sibling research/ops sheets that legitimately coexist in the MPS workbook but
+# are NOT reconciled here — they are DB-canonical and regenerated wholesale by
+# ledger_db.export_mps (Baskets from basket_sheet, Cointegration from
+# cointegration_sheet). The structural guard must tolerate them rather than
+# mistaking the multi-sheet book for a collapsed single-sheet one.
+SHEET_BASKETS = "Baskets"
+SHEET_COINTEGRATION = "Cointegration"
 
 LEDGER_PNL_COL = "realized_pnl"
 LEGACY_PNL_COL = "net_pnl_usd"
@@ -221,12 +228,20 @@ def _reorder_columns(df):
 
 
 def _guard_multi_sheet(path: Path) -> None:
-    """Refuse to proceed if the on-disk MPS workbook has collapsed to a single
-    unnamed 'Sheet1'. Historically a downstream df.to_excel() overwrote the
-    two-sheet MPS with one flat sheet; proceeding from that state would cause
-    the DB sync to fan out one sheet's rows into both sheet tags. See
-    feedback_db_discipline.md (DB is the source of truth; fail hard on
-    structural corruption rather than silently repairing)."""
+    """Refuse to proceed if the on-disk MPS workbook is structurally wrong.
+
+    The original failure this guards: a downstream df.to_excel() collapsed the
+    multi-sheet MPS into one flat 'Sheet1'; proceeding from that state would fan
+    out one sheet's rows into both reconciled sheet tags. See
+    feedback_db_discipline.md (DB is the source of truth; fail hard on structural
+    corruption rather than silently repairing).
+
+    Tolerance (2026-05-28): the workbook legitimately carries sibling data sheets
+    (Baskets, Cointegration) that this tool does not reconcile but export_mps
+    regenerates. The guard therefore requires the two CORE sheets to be present
+    and only KNOWN siblings alongside them — instead of demanding the data-sheet
+    set be exactly {Portfolios, Single-Asset Composites}, which FATAL-ed against
+    every post-Baskets workbook."""
     if not path.exists():
         return  # fresh install — DB is authoritative, nothing to guard against
     try:
@@ -237,13 +252,20 @@ def _guard_multi_sheet(path: Path) -> None:
     except Exception as e:
         print(f"[FATAL] Could not inspect {path.name} for sheet structure: {e}")
         sys.exit(1)
-    expected = {SHEET_PORTFOLIOS, SHEET_SINGLE_ASSET}
-    if set(data_sheets) != expected:
+    core = {SHEET_PORTFOLIOS, SHEET_SINGLE_ASSET}
+    allowed_siblings = {SHEET_BASKETS, SHEET_COINTEGRATION}
+    data_set = set(data_sheets)
+    missing_core = core - data_set
+    unknown = data_set - core - allowed_siblings
+    if missing_core or unknown:
         print(
-            f"[FATAL] {path.name} has data sheets {data_sheets!r}; expected "
-            f"{sorted(expected)!r}. Workbook appears collapsed — refusing DB "
-            f"sync to avoid duplicating rows across both sheet tags. "
-            f"Regenerate via `python -c \"from tools.ledger_db import export_mps; export_mps()\"` "
+            f"[FATAL] {path.name} has data sheets {sorted(data_set)!r}; require core "
+            f"{sorted(core)!r} present with only known siblings "
+            f"{sorted(allowed_siblings)!r} alongside "
+            f"(missing_core={sorted(missing_core)!r}, unknown={sorted(unknown)!r}). "
+            f"Workbook appears collapsed/misshapen — refusing DB sync to avoid "
+            f"duplicating rows across sheet tags. Regenerate via "
+            f"`python -c \"from tools.ledger_db import export_mps; export_mps()\"` "
             f"before re-running reconcile."
         )
         sys.exit(1)

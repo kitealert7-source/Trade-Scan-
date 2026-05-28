@@ -37,7 +37,8 @@ def _write_fsp(path: Path, rows: list[dict]) -> None:
 
 def _write_mps(path: Path, portfolios: list[dict], sac: list[dict],
                baskets: list[dict] | None = None,
-               notes: list[dict] | None = None) -> None:
+               notes: list[dict] | None = None,
+               cointegration: list[dict] | None = None) -> None:
     baskets = baskets or [{"basket_id": "H2", "directive_id": "X1",
                            "verdict_status": "CORE", "quarantine_status": None}]
     notes = notes or [{"note": "preserved baskets-Notes row"}]
@@ -45,6 +46,10 @@ def _write_mps(path: Path, portfolios: list[dict], sac: list[dict],
         pd.DataFrame(portfolios).to_excel(writer, sheet_name="Portfolios", index=False)
         pd.DataFrame(sac).to_excel(writer, sheet_name="Single-Asset Composites", index=False)
         pd.DataFrame(baskets).to_excel(writer, sheet_name="Baskets", index=False)
+        # Cointegration is a lossy projected view (no run_id). Written only when
+        # a coint test needs the tab present; the drop path re-renders it.
+        if cointegration is not None:
+            pd.DataFrame(cointegration).to_excel(writer, sheet_name="Cointegration", index=False)
         pd.DataFrame(notes).to_excel(writer, sheet_name="Notes", index=False)
 
 
@@ -74,6 +79,13 @@ def staged(tmp_path, monkeypatch):
     monkeypatch.setattr(ri, "BACKTESTS_DIR", backtests)
     monkeypatch.setattr(ri, "SANDBOX_DIR", sandbox)
     monkeypatch.setattr(ri, "STRATEGIES_DIR", strategies)
+    # CRITICAL isolation: point the cointegration arm at a tmp DB. Without this
+    # scan_cointegration()/apply_cointegration_drop() hit the REAL ledger.db and,
+    # because the disk dirs above are empty tmp dirs, flag every real is_current=1
+    # coint row as an orphan and DELETE it. (That exact gap deleted 15 production
+    # rows on 2026-05-28 before this line existed.) The tmp DB has no
+    # cointegration_sheet table, so the arm is a clean no-op for the legacy tests.
+    monkeypatch.setattr(ri, "LEDGER_DB_PATH", tmp_path / "ledger.db")
     monkeypatch.setattr(ri, "_reformat", lambda path, profile: None)
     return fsp, mps
 
@@ -263,6 +275,145 @@ def test_idempotent_second_run_is_noop(staged):
 
     assert rc1 == 0 and rc2 == 0
     pd.testing.assert_frame_equal(state_1, state_2)
+
+
+# ---------------------------------------------------------------------------
+# Cointegration arm (DB-canonical; the tab is a lossy projected view)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def staged_coint(tmp_path, monkeypatch):
+    """Stage a fully DB-isolated workspace for the cointegration drop arm.
+
+    Unlike `staged`, this also patches config.path_authority.TRADE_SCAN_STATE so
+    the writer (append_cointegration_row) and the tool resolve the SAME tmp
+    ledger.db — never the real one. (The real DB was wiped once by a test that
+    lacked exactly this isolation.)
+    """
+    import config.path_authority as pa
+    monkeypatch.setattr(pa, "TRADE_SCAN_STATE", tmp_path)
+
+    fsp = tmp_path / "fsp.xlsx"
+    mps = tmp_path / "mps.xlsx"
+    for sub in ("runs", "backtests", "sandbox", "strategies"):
+        (tmp_path / sub).mkdir()
+
+    monkeypatch.setattr(ri, "FILTERED_SHEET_PATH", fsp)
+    monkeypatch.setattr(ri, "MASTER_SHEET_PATH", mps)
+    monkeypatch.setattr(ri, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(ri, "BACKTESTS_DIR", tmp_path / "backtests")
+    monkeypatch.setattr(ri, "SANDBOX_DIR", tmp_path / "sandbox")
+    monkeypatch.setattr(ri, "STRATEGIES_DIR", tmp_path / "strategies")
+    monkeypatch.setattr(ri, "LEDGER_DB_PATH", tmp_path / "ledger.db")
+    monkeypatch.setattr(ri, "_reformat", lambda path, profile: None)
+
+    _write_fsp(fsp, [])
+    _write_mps(mps, portfolios=[], sac=[],
+               cointegration=[{"rank": 1, "pair": "seed/seed"}])
+    return tmp_path, fsp, mps
+
+
+def _seed_coint_row(tmp_path, run_id, directive_id, basket_id, *,
+                    make_valid, pair_a="EURUSD", pair_b="GER40"):
+    """Append one cointegration_sheet row to the tmp DB, then arrange disk to
+    make it valid (backtest parquet present) or orphan (substrate rm -rf'd).
+
+    The writer requires backtests_path to exist at write time, so the dir is
+    created first; for an orphan we delete it afterwards (the operator rm -rf).
+    """
+    from tools.portfolio.cointegration_ledger_writer import append_cointegration_row
+    bt_folder = f"{directive_id}_{basket_id}"
+    btdir = tmp_path / "backtests" / bt_folder
+    (btdir / "raw").mkdir(parents=True, exist_ok=True)
+    append_cointegration_row({
+        "run_id": run_id,
+        "directive_id": directive_id,
+        "pair_a": pair_a,
+        "pair_b": pair_b,
+        "timeframe": "1d",
+        "lookback_days": 252,
+        "test_start": "2025-01-01",
+        "test_end": "2025-06-01",
+        "completed_at_utc": "2026-05-28T12:00:00Z",
+        "backtests_path": f"backtests/{bt_folder}",
+        "canonical_net_pct": 12.5,
+        "canonical_max_dd_pct": 8.0,
+        "canonical_ret_dd": 1.56,
+        "canonical_final_equity_usd": 1125.0,
+        "trades_total": 42,
+    })
+    if make_valid:
+        # backtests-aware validity: parquet present even though runs/<id>/ is not.
+        (btdir / "raw" / "results_basket_per_bar.parquet").write_bytes(b"PAR1")
+    else:
+        import shutil
+        shutil.rmtree(btdir)  # operator rm -rf -> orphan
+
+
+def _coint_current_run_ids(tmp_path) -> set[str]:
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "ledger.db"))
+    try:
+        return {r[0] for r in conn.execute(
+            "SELECT run_id FROM cointegration_sheet WHERE is_current = 1"
+        )}
+    finally:
+        conn.close()
+
+
+def test_coint_drop_removes_orphan_keeps_valid(staged_coint):
+    """Drop deletes the orphan coint row from the DB and keeps the one whose
+    backtest substrate survives (basket-aware validity)."""
+    tmp, fsp, mps = staged_coint
+    _seed_coint_row(tmp, "RIDCOINTVALID", "90_PORT_VALID_1D", "EURUSDGER40",
+                    make_valid=True, pair_a="EURUSD", pair_b="GER40")
+    _seed_coint_row(tmp, "RIDCOINTORPH", "90_PORT_ORPH_1D", "CADJPYUK100",
+                    make_valid=False, pair_a="CADJPY", pair_b="UK100")
+    assert _coint_current_run_ids(tmp) == {"RIDCOINTVALID", "RIDCOINTORPH"}
+
+    rc = ri.main_via_args(["--execute"])  # default drop
+    assert rc == 0
+
+    assert _coint_current_run_ids(tmp) == {"RIDCOINTVALID"}
+    # xlsx tab re-rendered from the post-drop DB: only the valid row remains.
+    tab = pd.read_excel(mps, sheet_name="Cointegration")
+    assert len(tab) == 1
+    assert tab.iloc[0]["pair"] == "EURUSD / GER40"
+
+
+def test_coint_dry_run_does_not_delete(staged_coint):
+    tmp, fsp, mps = staged_coint
+    _seed_coint_row(tmp, "RIDCOINTORPH", "90_PORT_ORPH_1D", "CADJPYUK100",
+                    make_valid=False)
+    rc = ri.main_via_args([])  # dry-run, drop
+    assert rc == 0
+    assert _coint_current_run_ids(tmp) == {"RIDCOINTORPH"}  # untouched
+
+
+def test_coint_mark_is_noop(staged_coint):
+    """Mark mode must not touch cointegration rows (no quarantine_status column;
+    DB-native lineage). The orphan survives a mark --execute pass."""
+    tmp, fsp, mps = staged_coint
+    _seed_coint_row(tmp, "RIDCOINTORPH", "90_PORT_ORPH_1D", "CADJPYUK100",
+                    make_valid=False)
+    rc = ri.main_via_args(["--action", "mark", "--execute"])
+    assert rc == 0
+    assert _coint_current_run_ids(tmp) == {"RIDCOINTORPH"}  # mark left it alone
+
+
+def test_coint_drop_preserves_all_sheets(staged_coint):
+    """A coint drop re-renders the Cointegration tab without losing the other
+    MPS data sheets."""
+    tmp, fsp, mps = staged_coint
+    _seed_coint_row(tmp, "RIDCOINTORPH", "90_PORT_ORPH_1D", "CADJPYUK100",
+                    make_valid=False)
+    rc = ri.main_via_args(["--execute"])
+    assert rc == 0
+    post = set(pd.ExcelFile(mps).sheet_names)
+    assert {"Portfolios", "Single-Asset Composites", "Baskets",
+            "Cointegration", "Notes"} <= post
+    assert _coint_current_run_ids(tmp) == set()  # the only coint row was dropped
 
 
 # ---------------------------------------------------------------------------
