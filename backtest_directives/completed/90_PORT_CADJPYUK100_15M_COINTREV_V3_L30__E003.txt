@@ -1,23 +1,23 @@
 test:
-  name: 90_PORT_CADJPYUK100_1D_COINTREV_V2_L252
+  name: 90_PORT_CADJPYUK100_15M_COINTREV_V3_L30__E003
   family: PORT
-  strategy: 90_PORT_CADJPYUK100_1D_COINTREV_V2_L252
+  strategy: 90_PORT_CADJPYUK100_15M_COINTREV_V3_L30__E003
   version: 1
   signal_version: 1
   broker: OctaFx
-  timeframe: 1d
-  start_date: '2025-12-23'
-  end_date: '2026-05-28'
+  timeframe: 15m
+  start_date: '2024-01-01'
+  end_date: '2024-03-21'
   research_mode: true
   tuning_allowed: false
   parameter_mutation: false
-  hypothesis_ref: COINTREV_V1_2_BASE
-  hypothesis_variant: COINTREV_V1_2_L252_CADJPY_UK100
-  description: 'COINTREV v1.2 base run on (CADJPY, UK100) at lookback=252, scoped to
-    the LATEST CONTINUOUS cointegrated span (B-compliant window 2025-12-23 -> 2026-05-28,
-    106 aligned daily obs). Reads cointegration_triggers via basket.cointegration_join.lookback_days=252.
-    Exits = mean-reversion > regime-degradation (coint_regime in [breaking, broken])
-    > time-stop. Routes to the cointegration ledger.'
+  hypothesis_ref: COINTREV_V3_PINE_RATIOZ
+  hypothesis_variant: COINTREV_V3_PINE_RATIOZ_CADJPY_UK100_N30_15M_ABS_CAP1000__E003
+  description: 'Pine z_r reversal port (pine_ratio_zrev_v1), N=30 / 15M / absolute /
+    always-in-market, CADJPY/UK100. Capital 1000 USD, target_notional_per_leg_usd=1000
+    (1x). Episode test: window 2024-01-01 -> 2024-03-21, a clipped slice of the continuous
+    252d-cointegrated span (2023-12-29 -> 2024-03-21). cointegration_join
+    lookback_days=252 gates (any-span) + routes to the cointegration ledger.'
 symbols:
 - CADJPY
 - UK100
@@ -28,7 +28,7 @@ execution_rules:
   entry_when_flat_only: true
   reset_on_exit: false
   entry_logic:
-    type: coint_trigger_proposal
+    type: pine_zrev_reversal_proposal
   exit_logic:
     type: basket_recycle_rule
   stop_loss:
@@ -62,14 +62,15 @@ basket:
   cointegration_join:
     lookback_days: 252
   recycle_rule:
-    name: cointegration_meanrev_v1_2
+    name: pine_ratio_zrev_v1
     version: 1
     params:
-      min_gap_days_between_triggers: 5
-      exit_z: 1.0
-      time_stop_bars: 60
-      regime_exit_states:
-      - breaking
-      - broken
+      n_window: 30
+      n_meta: 100
+      z_entry: 2.0
+      entry_mode: absolute
+      hedge_lock_at_entry: true
+      always_in_market: true
       initial_notional_usd: 1000.0
+      target_notional_per_leg_usd: 1000.0
       default_initial_lot: 0.01
