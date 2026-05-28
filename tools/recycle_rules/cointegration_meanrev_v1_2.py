@@ -84,9 +84,23 @@ from tools.recycle_strategies import CointTriggerArmedState
 # ---------------------------------------------------------------------------
 
 
+# Fiat currencies supported by the FX PnL path (h2_recycle_v3 currency
+# decomposition). A real FX pair has BOTH halves fiat; BTCUSD/ETHUSD/XAUUSD are
+# 6-char all-alpha USD-quoted instruments that must route to the non-FX
+# broker-spec (usd_per_pu_per_lot) path instead, like indices.
+_FIAT = {"USD", "EUR", "GBP", "AUD", "NZD", "JPY", "CHF", "CAD"}
+
+
 def _is_fx_symbol(symbol: str) -> bool:
-    """6-character alphabetic symbol = FX pair. Indices/commodities are not."""
-    return len(symbol) == 6 and symbol.isalpha()
+    """True only for a fiat/fiat 6-char FX pair. Indices, commodities (XAU) and
+    crypto (BTC/ETH) are NOT FX -- they route to the broker-spec usd_per_pu_per_lot
+    PnL path (their base currency has no entry in h2_recycle_v3._USD_REF)."""
+    return (
+        len(symbol) == 6
+        and symbol.isalpha()
+        and symbol[:3].upper() in _FIAT
+        and symbol[3:].upper() in _FIAT
+    )
 
 
 def _leg_pnl_usd_universal(leg: BasketLeg, current_price: float,
