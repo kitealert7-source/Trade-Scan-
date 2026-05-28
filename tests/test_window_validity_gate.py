@@ -20,7 +20,9 @@ import yaml
 import tools.window_validity_gate as gate
 from tools.window_validity_gate import (
     WindowValidityGateError,
+    WindowValidityResult,
     check_window_validity,
+    evaluate_window_validity,
     _continuous_cointegrated_spans,
 )
 
@@ -240,3 +242,67 @@ def test_live_db_lookback_determines_tf():
         f"window_validity_gate queries on (pair, lookback) and assumes a "
         f"unique tf; add tf to the query if this invariant no longer holds."
     )
+
+
+# --- evaluate_window_validity (non-raising core + provenance) --------------
+
+def test_evaluate_not_applicable_without_cointegration_join(tmp_path, synthetic_db):
+    d = _write_directive(tmp_path / "d.txt", symbols=["EURUSD", "USDJPY"],
+                         lookback=None)
+    r = evaluate_window_validity(d)
+    assert isinstance(r, WindowValidityResult)
+    assert r.applies is False
+    assert r.status == "NOT_APPLICABLE"
+    assert r.ledger_window_status == "N/A"
+
+
+def test_evaluate_pass_populates_provenance(tmp_path, synthetic_db):
+    synthetic_db("EURUSD", "USDJPY", 252,
+                 _daily("2024-01-01", ["cointegrated"] * 400))
+    d = _write_directive(tmp_path / "d.txt", symbols=["EURUSD", "USDJPY"],
+                         lookback=252, start="2024-03-01", end="2024-10-01")
+    r = evaluate_window_validity(d)
+    assert r.status == "PASS"
+    assert r.ledger_window_status == "PASS"
+    assert r.span_start == "2024-01-01"
+    assert r.continuous_span_obs == 400
+    assert r.fragment_count == 1
+    assert r.pct_cointegrated == 1.0
+    assert r.regime_state == "cointegrated"
+    assert r.reject_reason is None
+
+
+def test_evaluate_reject_keeps_provenance_and_does_not_raise(tmp_path, synthetic_db):
+    # two cointegrated spans separated by a break; window straddles -> reject
+    synthetic_db("EURUSD", "USDJPY", 252, _daily("2024-01-01",
+                 ["cointegrated"] * 100 + ["broken"] * 50 + ["cointegrated"] * 100))
+    d = _write_directive(tmp_path / "d.txt", symbols=["EURUSD", "USDJPY"],
+                         lookback=252, start="2024-02-01", end="2024-08-01")
+    r = evaluate_window_validity(d)   # must NOT raise
+    assert r.status == "REJECT"
+    assert r.reject_reason is not None
+    assert r.fragment_count == 2
+    assert r.ledger_window_status == "N/A"  # rejected, no override
+
+
+def test_evaluate_override_maps_to_override_status(tmp_path, synthetic_db):
+    synthetic_db("EURUSD", "USDJPY", 252, _daily("2024-01-01", ["broken"] * 200))
+    d = _write_directive(tmp_path / "d.txt", symbols=["EURUSD", "USDJPY"],
+                         lookback=252, start="2024-03-01", end="2024-09-01",
+                         override="deliberate out-of-regime probe")
+    r = evaluate_window_validity(d)
+    assert r.status == "REJECT"
+    assert r.override_reason == "deliberate out-of-regime probe"
+    assert r.ledger_window_status == "OVERRIDE"
+
+
+def test_evaluate_pct_cointegrated_fraction(tmp_path, synthetic_db):
+    # 100 cointegrated of 200 total -> 0.5; latest span is the trailing run
+    synthetic_db("EURUSD", "USDJPY", 252,
+                 _daily("2024-01-01", ["broken"] * 100 + ["cointegrated"] * 100))
+    d = _write_directive(tmp_path / "d.txt", symbols=["EURUSD", "USDJPY"],
+                         lookback=252, start="2024-05-01", end="2024-06-01")
+    r = evaluate_window_validity(d)
+    assert r.pct_cointegrated == 0.5
+    assert r.fragment_count == 1
+    assert r.regime_state == "cointegrated"

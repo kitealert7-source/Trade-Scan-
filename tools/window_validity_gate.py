@@ -61,6 +61,42 @@ class _Span:
     n_rows: int  # number of cointegrated rows in the run
 
 
+@dataclass(frozen=True)
+class WindowValidityResult:
+    """Structured, non-raising result of the window-validity evaluation.
+
+    `status` is the raw methodology verdict: NOT_APPLICABLE (gate does not
+    apply), PASS (window inside the latest continuous cointegrated span), or
+    REJECT. The remaining fields are the regime provenance the cointegration
+    ledger records. check_window_validity() turns a REJECT into a raise, or a
+    WARN+admit when `override_reason` is set.
+    """
+    applies: bool
+    status: str  # "NOT_APPLICABLE" | "PASS" | "REJECT"
+    reject_reason: str | None = None
+    suggestion: str = ""
+    override_reason: str | None = None
+    test_start: str | None = None
+    test_end: str | None = None
+    span_start: str | None = None
+    span_end: str | None = None
+    continuous_span_obs: int | None = None
+    fragment_count: int | None = None
+    pct_cointegrated: float | None = None
+    regime_state: str | None = None
+
+    @property
+    def ledger_window_status(self) -> str:
+        """`window_validation_status` value for the cointegration ledger:
+        PASS, OVERRIDE (admitted past a REJECT via methodology_override),
+        or N/A (not applicable, or a REJECT that was not admitted)."""
+        if self.status == "PASS":
+            return "PASS"
+        if self.status == "REJECT" and self.override_reason:
+            return "OVERRIDE"
+        return "N/A"
+
+
 def _canonical_pair(symbols: list[str]) -> tuple[str, str]:
     """Match the DB's canonical ordering (mirrors basket_data_loader)."""
     a, b = sorted([symbols[0].upper(), symbols[1].upper()])
@@ -119,37 +155,59 @@ def _parse_directive(directive_path: Path) -> dict:
     return yaml.safe_load(directive_path.read_text(encoding="utf-8")) or {}
 
 
-def check_window_validity(directive_path: Path) -> None:
-    """Gate entry point. Raise WindowValidityGateError to reject admission.
+def evaluate_window_validity(directive_path: Path) -> WindowValidityResult:
+    """Non-raising core of the window-validity gate.
 
-    No-op unless the directive declares `basket.cointegration_join.lookback_days`
-    on a 2-symbol basket.
+    Computes whether the directive's test window sits inside the LATEST
+    continuous cointegrated span, plus the regime provenance (span bounds,
+    fragment count, aligned fraction, latest regime) that the cointegration
+    ledger records. Methodology verdicts never raise; a missing screener DB is
+    an ENVIRONMENT error and still raises (from _load_regime_series) -- but only
+    for directives the gate applies to, after the no-op checks.
+    check_window_validity() wraps this for admission.
     """
     data = _parse_directive(directive_path)
     basket = data.get("basket") or {}
     coint_join = basket.get("cointegration_join") or {}
     lookback = coint_join.get("lookback_days")
     if lookback is None:
-        return  # not a cointegration-join directive — gate does not apply
+        # not a cointegration-join directive — gate does not apply
+        return WindowValidityResult(applies=False, status="NOT_APPLICABLE")
 
     legs = basket.get("legs") or []
     symbols = [leg.get("symbol") for leg in legs if leg.get("symbol")]
     if len(symbols) != 2:
         # cointegration_join is a pairwise construct; >2 or <2 legs are out of
         # this gate's single question. Leave to other validation.
-        return
+        return WindowValidityResult(applies=False, status="NOT_APPLICABLE")
 
     test = data.get("test") or {}
     test_start = test.get("start_date")
     test_end = test.get("end_date")
     if not test_start or not test_end:
-        return  # no window to validate; other gates own date presence
+        # no window to validate; other gates own date presence
+        return WindowValidityResult(applies=False, status="NOT_APPLICABLE")
 
     override = coint_join.get("methodology_override")
     override = override.strip() if isinstance(override, str) else None
 
     pair_a, pair_b = _canonical_pair(symbols)
     series = _load_regime_series(pair_a, pair_b, int(lookback))
+    ts, te = str(test_start), str(test_end)
+
+    # Regime provenance from the full series (independent of pass/fail).
+    n_series = len(series)
+    pct_cointegrated = (
+        sum(1 for _, r in series if r == ALIGNED_REGIME) / n_series
+        if n_series else None
+    )
+    regime_state = series[-1][1] if series else None
+    spans = _continuous_cointegrated_spans(series) if series else []
+    fragment_count = len(spans)
+    latest = spans[-1] if spans else None
+    span_start = latest.start if latest else None
+    span_end = latest.end if latest else None
+    continuous_span_obs = latest.n_rows if latest else None
 
     reject_reason: str | None = None
     suggestion: str = ""
@@ -160,53 +218,77 @@ def check_window_validity(directive_path: Path) -> None:
             f"lookback_days={lookback}. The screener has never evaluated this "
             f"pair/lookback."
         )
+    elif not spans:
+        reject_reason = (
+            f"pair ({pair_a}, {pair_b}) lookback_days={lookback} has "
+            f"{len(series)} screener rows but ZERO continuous "
+            f"'{ALIGNED_REGIME}' spans — never aligned in recorded history."
+        )
     else:
-        spans = _continuous_cointegrated_spans(series)
-        if not spans:
-            reject_reason = (
-                f"pair ({pair_a}, {pair_b}) lookback_days={lookback} has "
-                f"{len(series)} screener rows but ZERO continuous "
-                f"'{ALIGNED_REGIME}' spans — never aligned in recorded history."
-            )
-        else:
-            latest = spans[-1]
-            ts, te = str(test_start), str(test_end)
-            before = ts < latest.start
-            after = te > latest.end
-            if before or after:
-                parts = []
-                if before:
-                    parts.append(
-                        f"window starts {ts} — before the aligned span opens "
-                        f"({latest.start})"
-                    )
-                if after:
-                    parts.append(
-                        f"window ends {te} — after the aligned span closes "
-                        f"({latest.end}); regime left '{ALIGNED_REGIME}' after that"
-                    )
-                reject_reason = "; ".join(parts)
-                suggestion = (
-                    f" Latest continuous '{ALIGNED_REGIME}' span: "
-                    f"{latest.start} → {latest.end} ({latest.n_rows} aligned "
-                    f"rows). Suggested directive window: start_date={latest.start}, "
-                    f"end_date={latest.end}."
+        before = ts < latest.start
+        after = te > latest.end
+        if before or after:
+            parts = []
+            if before:
+                parts.append(
+                    f"window starts {ts} — before the aligned span opens "
+                    f"({latest.start})"
                 )
+            if after:
+                parts.append(
+                    f"window ends {te} — after the aligned span closes "
+                    f"({latest.end}); regime left '{ALIGNED_REGIME}' after that"
+                )
+            reject_reason = "; ".join(parts)
+            suggestion = (
+                f" Latest continuous '{ALIGNED_REGIME}' span: "
+                f"{latest.start} → {latest.end} ({latest.n_rows} aligned "
+                f"rows). Suggested directive window: start_date={latest.start}, "
+                f"end_date={latest.end}."
+            )
 
-    if reject_reason is None:
-        return  # PASS — window fully inside the latest cointegrated span
+    status = "PASS" if reject_reason is None else "REJECT"
+    return WindowValidityResult(
+        applies=True,
+        status=status,
+        reject_reason=reject_reason,
+        suggestion=suggestion,
+        override_reason=override,
+        test_start=ts,
+        test_end=te,
+        span_start=span_start,
+        span_end=span_end,
+        continuous_span_obs=continuous_span_obs,
+        fragment_count=fragment_count,
+        pct_cointegrated=pct_cointegrated,
+        regime_state=regime_state,
+    )
+
+
+def check_window_validity(directive_path: Path) -> None:
+    """Gate entry point. Raise WindowValidityGateError to reject admission.
+
+    Thin wrapper over evaluate_window_validity(): NOT_APPLICABLE / PASS ->
+    return; REJECT -> raise, unless basket.cointegration_join.methodology_override
+    admits it with a noisy WARN. Behavior is byte-identical to the pre-refactor
+    gate. No-op unless the directive declares
+    `basket.cointegration_join.lookback_days` on a 2-symbol basket.
+    """
+    result = evaluate_window_validity(directive_path)
+    if result.status in ("NOT_APPLICABLE", "PASS"):
+        return
 
     msg = (
         f"[WINDOW_VALIDITY_GATE] directive '{directive_path.stem}' "
-        f"test window [{test_start} → {test_end}] is not inside a continuous "
-        f"cointegrated regime: {reject_reason}.{suggestion}"
+        f"test window [{result.test_start} → {result.test_end}] is not inside a continuous "
+        f"cointegrated regime: {result.reject_reason}.{result.suggestion}"
     )
 
-    if override:
+    if result.override_reason:
         print(
             f"[WINDOW_VALIDITY_GATE][WARN] METHODOLOGY_OVERRIDE for "
-            f"'{directive_path.stem}': {override} -- admitting despite window "
-            f"check. Reject reason was: {reject_reason}"
+            f"'{directive_path.stem}': {result.override_reason} -- admitting despite window "
+            f"check. Reject reason was: {result.reject_reason}"
         )
         return
 
