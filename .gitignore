@@ -89,6 +89,9 @@ backtest_directives/active_backup/
 # Completed directives: tracked (they are the specification record)
 # *.admitted: 0-byte pipeline markers, no value in git
 *.admitted
+# Episode staging: scratch pre-INBOX corpus generation, regenerable via the
+# episode generator. Not a spec record (completed/ is). Do not track.
+backtest_directives/cointrev_v3_staging/
 
 # Data artifacts
 *.parquet
