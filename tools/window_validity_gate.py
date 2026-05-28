@@ -17,8 +17,21 @@ heuristic from the plan sketch):
     ends the run. Missing as_of rows (weekends/holidays/screener downtime)
     are NOT treated as breaks and are NOT interpolated — the gate operates on
     observed regime rows only.
-  - Pass iff [test.start_date, test.end_date] is fully contained within the
-    LATEST (most-recent) continuous cointegrated span.
+  - Pass iff [test.start_date, test.end_date] is fully contained within a
+    SINGLE continuous cointegrated span -- ANY one, not only the most-recent
+    (operator decision 2026-05-28; see ANY-SPAN note below).
+
+ANY-SPAN (operator decision 2026-05-28): the gate originally required the
+window to sit inside the *latest* span. It was widened so a window inside *any*
+single continuous cointegrated span passes -- this admits historical
+cointegration episodes for research (a pair cointegrated Jan-Apr 2025 then
+broken is a valid episode to backtest over its own span; restricting to the
+latest span would force methodology_override on every historical episode AND
+mis-record provenance as the latest span). The protective invariant is
+unchanged: a window that straddles a break, or overruns a span, is contained by
+no span and still rejects. On PASS the provenance fields report the CONTAINING
+span (so the ledger records the tested episode) and regime_state is
+'cointegrated' by construction.
 
 DELIBERATELY OUT OF SCOPE (do not add): regime-quality scoring, gap
 smoothing, day interpolation, percentage/fraction thresholds, tolerance
@@ -66,7 +79,8 @@ class WindowValidityResult:
     """Structured, non-raising result of the window-validity evaluation.
 
     `status` is the raw methodology verdict: NOT_APPLICABLE (gate does not
-    apply), PASS (window inside the latest continuous cointegrated span), or
+    apply), PASS (window inside a single continuous cointegrated span -- any
+    one, not just the latest), or
     REJECT. The remaining fields are the regime provenance the cointegration
     ledger records. check_window_validity() turns a REJECT into a raise, or a
     WARN+admit when `override_reason` is set.
@@ -158,9 +172,10 @@ def _parse_directive(directive_path: Path) -> dict:
 def evaluate_window_validity(directive_path: Path) -> WindowValidityResult:
     """Non-raising core of the window-validity gate.
 
-    Computes whether the directive's test window sits inside the LATEST
-    continuous cointegrated span, plus the regime provenance (span bounds,
-    fragment count, aligned fraction, latest regime) that the cointegration
+    Computes whether the directive's test window sits inside a SINGLE
+    continuous cointegrated span (any one -- not just the latest; see ANY-SPAN
+    in the module docstring), plus the regime provenance (the containing span's
+    bounds on PASS, fragment count, aligned fraction) that the cointegration
     ledger records. Methodology verdicts never raise; a missing screener DB is
     an ENVIRONMENT error and still raises (from _load_regime_series) -- but only
     for directives the gate applies to, after the no-op checks.
@@ -204,10 +219,27 @@ def evaluate_window_validity(directive_path: Path) -> WindowValidityResult:
     regime_state = series[-1][1] if series else None
     spans = _continuous_cointegrated_spans(series) if series else []
     fragment_count = len(spans)
-    latest = spans[-1] if spans else None
-    span_start = latest.start if latest else None
-    span_end = latest.end if latest else None
-    continuous_span_obs = latest.n_rows if latest else None
+
+    # ANY-SPAN containment (operator decision 2026-05-28): the window passes if
+    # it sits inside a SINGLE continuous cointegrated span -- ANY one, not only
+    # the most-recent -- so historical cointegration episodes are admissible for
+    # research (a pair cointegrated Jan-Apr 2025 then broken is still a valid
+    # episode to backtest over its own span). Spans are disjoint, so at most one
+    # contains the window. The protective invariant is unchanged: a window that
+    # straddles a break, or overruns a span, is contained by none and rejects.
+    containing = next(
+        (sp for sp in spans if sp.start <= ts and te <= sp.end), None
+    )
+    # Provenance reports the CONTAINING span on PASS (the ledger records the
+    # episode actually tested, not the latest); on REJECT fall back to the
+    # latest span purely to make the suggestion hint useful.
+    report = containing or (spans[-1] if spans else None)
+    span_start = report.start if report else None
+    span_end = report.end if report else None
+    continuous_span_obs = report.n_rows if report else None
+    if containing is not None:
+        # tested window is cointegrated by construction
+        regime_state = ALIGNED_REGIME
 
     reject_reason: str | None = None
     suggestion: str = ""
@@ -224,28 +256,34 @@ def evaluate_window_validity(directive_path: Path) -> WindowValidityResult:
             f"{len(series)} screener rows but ZERO continuous "
             f"'{ALIGNED_REGIME}' spans — never aligned in recorded history."
         )
-    else:
-        before = ts < latest.start
-        after = te > latest.end
-        if before or after:
-            parts = []
-            if before:
-                parts.append(
-                    f"window starts {ts} — before the aligned span opens "
-                    f"({latest.start})"
-                )
-            if after:
-                parts.append(
-                    f"window ends {te} — after the aligned span closes "
-                    f"({latest.end}); regime left '{ALIGNED_REGIME}' after that"
-                )
-            reject_reason = "; ".join(parts)
-            suggestion = (
-                f" Latest continuous '{ALIGNED_REGIME}' span: "
-                f"{latest.start} → {latest.end} ({latest.n_rows} aligned "
-                f"rows). Suggested directive window: start_date={latest.start}, "
-                f"end_date={latest.end}."
+    elif containing is None:
+        # window is not inside any single span: it starts before the nearest
+        # span, ends after it, or straddles a break between spans.
+        before = ts < report.start
+        after = te > report.end
+        parts = []
+        if before:
+            parts.append(
+                f"window starts {ts} — before the aligned span opens "
+                f"({report.start})"
             )
+        if after:
+            parts.append(
+                f"window ends {te} — after the aligned span closes "
+                f"({report.end}); regime left '{ALIGNED_REGIME}' after that"
+            )
+        if not parts:
+            parts.append(
+                f"window [{ts} → {te}] straddles a break — not contained in "
+                f"any single continuous '{ALIGNED_REGIME}' span"
+            )
+        reject_reason = "; ".join(parts)
+        suggestion = (
+            f" Nearest continuous '{ALIGNED_REGIME}' span: "
+            f"{report.start} → {report.end} ({report.n_rows} aligned "
+            f"rows). Suggested directive window: start_date={report.start}, "
+            f"end_date={report.end}."
+        )
 
     status = "PASS" if reject_reason is None else "REJECT"
     return WindowValidityResult(
@@ -270,8 +308,9 @@ def check_window_validity(directive_path: Path) -> None:
 
     Thin wrapper over evaluate_window_validity(): NOT_APPLICABLE / PASS ->
     return; REJECT -> raise, unless basket.cointegration_join.methodology_override
-    admits it with a noisy WARN. Behavior is byte-identical to the pre-refactor
-    gate. No-op unless the directive declares
+    admits it with a noisy WARN. PASS now means the window is inside ANY single
+    continuous cointegrated span (see ANY-SPAN in the module docstring), not
+    only the latest. No-op unless the directive declares
     `basket.cointegration_join.lookback_days` on a 2-symbol basket.
     """
     result = evaluate_window_validity(directive_path)

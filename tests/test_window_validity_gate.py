@@ -2,7 +2,9 @@
 
 Continuous-span semantics (operator-locked 2026-05-28):
   - aligned = regime == 'cointegrated' ONLY ('breaking'/'broken' are not)
-  - pass iff test window fully inside the LATEST continuous cointegrated span
+  - pass iff test window fully inside ANY single continuous cointegrated span
+    (the any-span widening, 2026-05-28: not restricted to the latest span;
+    provenance reports the CONTAINING span). A straddle/overrun still rejects.
   - no fractions, no smoothing, no interpolation, no tolerance
 
 Fixtures use a synthetic temp SQLite DB with a minimal cointegration_daily
@@ -155,17 +157,37 @@ def test_window_spanning_a_break_rejects(tmp_path, synthetic_db):
         check_window_validity(d)
 
 
-def test_suggestion_names_latest_span(tmp_path, synthetic_db):
+def test_window_inside_earlier_span_passes(tmp_path, synthetic_db):
+    """ANY-SPAN: a window inside an EARLIER (non-latest) cointegrated span
+    passes, and provenance reports THAT span (not the latest)."""
     synthetic_db("EURUSD", "USDJPY", 252, _daily("2024-01-01",
                  ["cointegrated"] * 100 + ["broken"] * 50 + ["cointegrated"] * 100))
-    # latest span = day 150..249 -> 2024-05-30 .. 2024-09-06
+    # span 1 = 2024-01-01 .. 2024-04-09 (100 rows); window sits inside it
     d = _write_directive(tmp_path / "d.txt", symbols=["EURUSD", "USDJPY"],
                          lookback=252, start="2024-01-15", end="2024-03-01")
+    check_window_validity(d)  # no raise -- earlier span is admissible
+    r = evaluate_window_validity(d)
+    assert r.status == "PASS"
+    assert r.span_start == "2024-01-01"   # the EARLIER span, not the latest
+    assert r.span_end == "2024-04-09"
+    assert r.continuous_span_obs == 100
+    assert r.fragment_count == 2          # both spans still counted
+    assert r.regime_state == "cointegrated"
+
+
+def test_reject_suggestion_names_nearest_span(tmp_path, synthetic_db):
+    """A window in the GAP between two spans is contained by neither -> reject,
+    with a suggestion naming a real span."""
+    synthetic_db("EURUSD", "USDJPY", 252, _daily("2024-01-01",
+                 ["cointegrated"] * 100 + ["broken"] * 50 + ["cointegrated"] * 100))
+    # gap = 2024-04-10 .. 2024-05-29; window falls inside the gap
+    d = _write_directive(tmp_path / "d.txt", symbols=["EURUSD", "USDJPY"],
+                         lookback=252, start="2024-04-20", end="2024-05-20")
     with pytest.raises(WindowValidityGateError) as exc:
         check_window_validity(d)
     msg = str(exc.value)
     assert "Suggested directive window" in msg
-    assert "2024-09-06" in msg  # latest span end
+    assert "2024-09-06" in msg  # nearest/fallback span end
 
 
 def test_pair_order_normalization(tmp_path, synthetic_db):
