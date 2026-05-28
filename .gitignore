@@ -112,6 +112,7 @@ outputs/logs/
 outputs/proposals/
 outputs/audit_reports/
 outputs/audit\ _reports/
+outputs/.session_state/pipeline_telemetry/
 
 # ===== Logs =====
 *.log
