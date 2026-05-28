@@ -954,17 +954,52 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
             _basket_block = parsed.get("basket", {}) or {}
             _stake_usd = float(_basket_block.get("initial_stake_usd", 1000.0))
             _parquet_p = backtests_csv.parent / "results_basket_per_bar.parquet"
-            mps_path = append_basket_row_to_mps(
-                result, run_id=run_id, directive_id=directive_id,
-                backtests_path=str(backtests_csv.relative_to(TRADE_SCAN_STATE)),
-                vault_path=vault_path_str,
-                df_trades=df_trades,   # Phase 5d.1 fix: writer uses converter's
-                                       # computed pnl_usd so force_close trades
-                                       # contribute correctly to final_realized_usd
-                parquet_path=_parquet_p if _parquet_p.is_file() else None,
-                stake_usd=_stake_usd,
-            )
-            print(f"[BASKET] MPS Baskets row: {mps_path}")
+            mps_path = None
+            if _basket_block.get("cointegration_join"):
+                # Cointegration research run -> the dedicated regime-aware ledger
+                # (separate ontology from operational baskets). The orchestrator
+                # computes the canonical metrics + substrate hash here; the writer
+                # stays a dumb, sink-only persister that never reads the screener.
+                from tools.portfolio.cointegration_provenance import build_cointegration_row
+                from tools.portfolio.cointegration_ledger_writer import append_cointegration_row
+                from tools.basket_hypothesis.canonical_metrics import canonical_metrics
+                from engine_abi.v1_5_9 import ENGINE_VERSION as _coint_engine_ver
+                import hashlib as _hl
+                if not _parquet_p.is_file():
+                    print("[COINT] WARN no per-bar parquet; skipping cointegration ledger row")
+                else:
+                    _cm = canonical_metrics(_parquet_p, _stake_usd)
+                    try:
+                        import pandas as _pd
+                        _n_obs = int(len(_pd.read_parquet(_parquet_p)))
+                    except Exception:
+                        _n_obs = None
+                    _pq_sha = _hl.sha256(_parquet_p.read_bytes()).hexdigest()
+                    _trades_total = sum(len(t) for t in result.per_leg_trades.values())
+                    _coint_row = build_cointegration_row(
+                        parsed=parsed, directive_path=path, run_id=run_id,
+                        directive_id=directive_id, directive_hash=_content_hash,
+                        backtests_path=str(backtests_dir.parent.relative_to(TRADE_SCAN_STATE)),
+                        vault_path=vault_path_str, canonical=_cm,
+                        trades_total=_trades_total,
+                        completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
+                        engine_version=str(_coint_engine_ver),
+                    )
+                    append_cointegration_row(_coint_row)
+                    print(f"[COINT] Cointegration ledger row written: {run_id}")
+            else:
+                mps_path = append_basket_row_to_mps(
+                    result, run_id=run_id, directive_id=directive_id,
+                    backtests_path=str(backtests_csv.relative_to(TRADE_SCAN_STATE)),
+                    vault_path=vault_path_str,
+                    df_trades=df_trades,   # Phase 5d.1 fix: writer uses converter's
+                                           # computed pnl_usd so force_close trades
+                                           # contribute correctly to final_realized_usd
+                    parquet_path=_parquet_p if _parquet_p.is_file() else None,
+                    stake_usd=_stake_usd,
+                )
+                print(f"[BASKET] MPS Baskets row: {mps_path}")
         except Exception as exc:
             print(f"[BASKET] WARN MPS Baskets append failed: {exc}")
 
