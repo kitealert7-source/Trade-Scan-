@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 2 uncommitted
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-27T13:37:42Z
+> Generated: 2026-05-28T03:24:43Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -32,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-27** | Symbols: 221
+- Latest bar: **2026-05-28** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1057
+- Run directories: 939
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 2 uncommitted
-- Last substantive commit: `5b178e3 tests: update lineage_pruner_quarantine_filter for build_keep_runs 3-tuple`
+- Working tree: 1 uncommitted
+- Last substantive commit: `2a28ee6 data_access: routine OctaFx mt5_tick_value refresh (21 symbols)`
 
 ## Deferred Maintenance
 
@@ -64,12 +64,13 @@
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
 #### Charter COMPLETE — 2026-05-27 — advisory-to-enforced (closed 2026-05-28)
-**Focus:** Convert five bypassed advisory checks into enforced gates / hooks / CI tests. Plan: [`outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md`](outputs/system_reports/04_governance_and_guardrails/ENFORCEMENT_PLAN_2026-05-27.md). **STATUS: COMPLETE — all 7 enforcement units landed 2026-05-28.** The original "advisory bypass" failure mode is now solved structurally, not rhetorically. F-series refactor backlog (F1-F3 in the plan) may now begin.
+**Focus:** Convert five bypassed advisory checks into enforced gates / hooks / CI tests. Plan (archived): [`outputs/system_reports/09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md`](outputs/system_reports/09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md). **STATUS: COMPLETE — all 7 enforcement units landed 2026-05-28.** The original "advisory bypass" failure mode is now solved structurally, not rhetorically. F-series refactor backlog (F1-F3 in the plan) may now begin.
 
 **Sessions on this charter:**
 - 2026-05-27 — plan authored; commits 544c361 / 12455b9 / 478389b landed the retroactive fix for failure mode #5 (state_lifecycle Baskets blindness). Five gates A-E remain to build (8-10 hours estimated).
 - 2026-05-27 (later) — appended refactoring backlog F1-F3 to plan (commit f4bfc3e). NEW deferred work surfaced: `ledger_db --export` reverted MPS row drops because cleanup tools operate on Excel only; SQL is source of truth. Pipeline-state-cleanup needs SQL-side parity (addendum candidate).
-- 2026-05-28 — **CHARTER COMPLETE.** All units landed: A rule-binding gate (44b9506) + A2 strict flip (7f10de6); B window-validity continuous-span gate (5b954bc); C intent memory-hints (e65f0da); D methodology-citation gate (3eb6371); E1 sheet-coverage CI (692485f) + E2 registry state matrix + reconcile-authoritative cleanup (f4ceb51). MEMORY consolidated (enforcement-family entry + convention→mechanically-verified reframe). Key cross-cutting decision: every gate is repo-local + deterministic — D explicitly rejected ~/.claude auto-memory coupling in favor of an in-repo methodology_registry.yaml. Live preflight GREEN. Remaining (NOT part of this charter): pipeline-state-cleanup SQL-side parity addendum; F1-F3 decomposition backlog.
+- 2026-05-28 — **CHARTER COMPLETE.** All units landed: A rule-binding gate (44b9506) + A2 strict flip (7f10de6); B window-validity continuous-span gate (5b954bc); C intent memory-hints (e65f0da); D methodology-citation gate (3eb6371); E1 sheet-coverage CI (692485f) + E2 registry state matrix + reconcile-authoritative cleanup (f4ceb51). Plan archived to `09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md`. MEMORY consolidated (enforcement-family entry + convention→mechanically-verified reframe). Key cross-cutting decision: every gate is repo-local + deterministic — D explicitly rejected ~/.claude auto-memory coupling in favor of an in-repo methodology_registry.yaml. Live preflight GREEN.
+- **NEXT SESSION DIRECTIVE (operator, 2026-05-28): do NOT start the F1-F3 refactor immediately.** First spend ≥1 *operational* session using the hardened gates and observe natural friction — the repo now enforces assumptions that were historically only implied. Watch: (1) B rejects (is continuous-span over-constraining given 1-15 day cointegration spans? is methodology_override reached legitimately?); (2) A2 namespace strictness (does any real directive class hit unknown-pattern reject?); (3) D citation ergonomics (is the opt-in workflow usable?). F-series + pipeline-state-cleanup SQL-parity addendum come only after that. See [[project_governance_enforcement_family]].
 
 <!-- (4h backfill gen-2 completed 2026-05-27;
      coverage 2023-12-28 → 2026-05-27, 561,685 rows in cointegration_daily) -->
