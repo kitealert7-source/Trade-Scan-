@@ -29,6 +29,47 @@ PROJECT_ROOT = Path(__file__).parent.parent
 REGISTRY_PATH = REGISTRY_DIR / "run_registry.json"
 LOCK_PATH = REGISTRY_PATH.with_suffix(".lock")
 
+# ─────────────────────────────────────────────────────────────────────
+# Registry status vocabulary — single source of truth (Task E2).
+#
+# Format: status -> (terminal: bool, description: str)
+#
+# "terminal" semantics:
+#   True  = registry entry never mutates further (preserved as audit
+#           tombstone). reconcile_registry() leaves it alone.
+#   False = registry entry can still transition, or be dropped, based on
+#           physical state. reconcile_registry() must define behavior for
+#           every (status, physical_state) combination.
+#
+# Every status string written into the registry must appear here. The
+# vocabulary-drift guard in tests/test_registry_state_coverage.py
+# enforces this.
+# ─────────────────────────────────────────────────────────────────────
+REGISTRY_STATUS_VOCABULARY: dict[str, tuple[bool, str]] = {
+    "complete": (
+        False,
+        "Run finished; physical folder expected in runs/ (or a tier "
+        "subdir). Non-terminal: folder may later be lost (->invalid) or "
+        "operator-quarantined (->quarantined).",
+    ),
+    "invalid": (
+        True,
+        "Registry entry where physical folder is absent. Set by "
+        "reconcile when a 'complete' entry's folder disappears. "
+        "Terminal tombstone: preserved as evidence that the run was once "
+        "tracked but its physical state was lost without operator action.",
+    ),
+    "quarantined": (
+        False,
+        "Folder intentionally moved to quarantine/runs/ by operator "
+        "(lifecycle cleanup, basket-rule supersession, etc.). "
+        "Non-terminal: if the operator subsequently physically purges "
+        "the quarantined folder (lineage_pruner --execute), reconcile "
+        "drops the registry entry — the operator-driven purge is already "
+        "audited via lineage_pruner's sweep manifest.",
+    ),
+}
+
 def _load_registry() -> dict:
     """Load run_registry.json with fail-hard semantics on corruption.
 
@@ -373,6 +414,7 @@ def reconcile_registry() -> dict:
 
     # 2. Load registry, compute mutations, and save — all under lock to prevent TOCTOU race.
     #    Filesystem moves (step 3) happen outside the lock since they don't touch the registry file.
+    quarantine_completion_planned: list[tuple[str, Path]] = []
     with FileLock(str(LOCK_PATH)):
         reg = _load_registry()
         dirty = False
@@ -457,8 +499,31 @@ def reconcile_registry() -> dict:
                     results["invalid_in_registry"].append(run_id)
                     continue
 
-                if current_status in ("invalid", "quarantined"):
+                if current_status == "invalid":
+                    # Terminal tombstone — preserved as audit record.
                     results["invalid_in_registry"].append(run_id)
+                    continue
+
+                if current_status == "quarantined":
+                    # Folder absent from both runs/ AND quarantine/ ->
+                    # operator-purged via lineage_pruner --execute. The
+                    # operator-driven purge is audited at the lineage_pruner
+                    # level (sweep manifest); the registry entry has no
+                    # further purpose. Drop to keep the registry hygienic.
+                    print(
+                        f"[RECONCILE] Registry entry {run_id} quarantined but "
+                        f"folder absent -> dropping entry (operator-purged)."
+                    )
+                    log_event(
+                        action="REGISTRY_PURGE_QUARANTINED",
+                        target=f"run_id:{run_id}",
+                        actor="reconcile_registry",
+                        reason="quarantined run folder physically purged; registry entry orphan",
+                        before={"status": "quarantined"},
+                    )
+                    del reg[run_id]
+                    results["invalid_in_registry"].append(run_id)
+                    dirty = True
                     continue
 
                 if not (runs_dir / run_id).exists():
@@ -475,8 +540,9 @@ def reconcile_registry() -> dict:
                     reg[run_id]["status"] = "invalid"
                     dirty = True
             else:
-                # Run IS physically present but registry says invalid — stale flag, restore it.
+                # Run IS physically present (in runs/ or selected/).
                 if data.get("status") == "invalid":
+                    # Stale invalid flag — restore to complete.
                     print(f"[RECONCILE] Run {run_id} is physically present but marked invalid -> restored to complete.")
                     log_event(
                         action="REGISTRY_STATUS_CHANGE",
@@ -488,10 +554,59 @@ def reconcile_registry() -> dict:
                     )
                     reg[run_id]["status"] = "complete"
                     dirty = True
+                elif data.get("status") == "quarantined":
+                    # Registry intent (quarantined) lags physical state
+                    # (folder still in runs/) — symptom of a partial
+                    # quarantine where the registry flip succeeded but the
+                    # folder move did not (e.g., the Baskets-blindness
+                    # lifecycle gap from 2026-05-27). Plan the folder move
+                    # to quarantine/runs/ to complete operator intent.
+                    # Filesystem move happens outside the lock (next step).
+                    src = physical_run_home.get(run_id)
+                    if src is not None:
+                        quarantine_completion_planned.append((run_id, src))
 
         # Commit — still under lock, load + mutate + save is now atomic
         if dirty:
             _save_registry_atomic(reg)
+
+    # 2.5 Complete partial quarantines — move folders that the registry
+    #     already marked quarantined but were never physically moved.
+    #     Filesystem move only; registry status is already correct.
+    quarantine_runs_dir = QUARANTINE_DIR / "runs"
+    for run_id, src in quarantine_completion_planned:
+        dst = quarantine_runs_dir / run_id
+        if dst.exists():
+            print(
+                f"[RECONCILE][WARN] Run {run_id} marked quarantined and "
+                f"exists in BOTH {src} and {dst}. Manual triage required; "
+                f"leaving as-is."
+            )
+            log_event(
+                action="REGISTRY_INVARIANT_DUAL_LOCATION",
+                target=f"run_id:{run_id}",
+                actor="reconcile_registry",
+                reason="quarantined run physically present in both runs/ and quarantine/runs/",
+                before={"src": str(src), "dst": str(dst)},
+            )
+            continue
+        try:
+            quarantine_runs_dir.mkdir(parents=True, exist_ok=True)
+            print(
+                f"[RECONCILE] Run {run_id} marked quarantined but folder in "
+                f"{src} -> completing quarantine move to {dst}."
+            )
+            shutil.move(str(src), str(dst))
+            log_event(
+                action="REGISTRY_COMPLETE_QUARANTINE",
+                target=f"run_id:{run_id}",
+                actor="reconcile_registry",
+                reason="quarantined registry status, folder still in runs/; moved to quarantine/",
+                before={"physical_location": str(src)},
+                after={"physical_location": str(dst)},
+            )
+        except Exception as e:
+            print(f"[ERROR] Quarantine completion move failed for {run_id}: {e}")
 
     # 3. Candidate Location Alignment (Auto-Repair) — filesystem moves, no registry lock needed
     for run_id, data in reg.items():
