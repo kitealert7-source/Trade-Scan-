@@ -987,6 +987,14 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
                         engine_version=str(_coint_engine_ver),
                     )
                     append_cointegration_row(_coint_row)
+                    # Writer is sink-only (DB); the orchestrator triggers the MPS
+                    # render so the Cointegration tab refreshes, mirroring how the
+                    # basket writer regenerates the MPS after its write.
+                    try:
+                        from tools.ledger_db import export_mps as _export_mps
+                        _export_mps()
+                    except Exception as _exc:
+                        print(f"[COINT] WARN MPS export (Cointegration tab) failed: {_exc}")
                     print(f"[COINT] Cointegration ledger row written: {run_id}")
             else:
                 mps_path = append_basket_row_to_mps(

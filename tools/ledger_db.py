@@ -28,6 +28,13 @@ from typing import Any
 
 import pandas as pd
 
+# Support direct-script invocation (`python tools/ledger_db.py --export-mps`):
+# put the repo root on sys.path so the `from tools...` import below resolves
+# even when this file is run as a script rather than imported as tools.ledger_db.
+_repo_root = str(Path(__file__).resolve().parent.parent)
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 from tools.portfolio.cointegration_schema import (
     COINTEGRATION_NUMERIC_COLUMNS,
     COINTEGRATION_SHEET_COLUMNS,
