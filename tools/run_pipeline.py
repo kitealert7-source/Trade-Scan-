@@ -71,9 +71,17 @@ def admit_directive(directive_id: str) -> None:
             return
         raise PipelineExecutionError(f"Directive {directive_id} not found in {ACTIVE_DIR}")
 
+    # Rule-binding gate (Task A, Phase A1). Runs BEFORE any state mutation:
+    # a reject leaves the directive in INBOX/ for the operator to fix.
+    from tools.rule_binding_gate import check_directive_rule_binding, RuleBindingGateError
+    try:
+        check_directive_rule_binding(d_path)
+    except RuleBindingGateError as exc:
+        raise PipelineExecutionError(str(exc)) from exc
+
     ACTIVE_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     target_path = ACTIVE_BACKUP_DIR / d_path.name
-    
+
     # Atomic Move
     os.replace(str(d_path), str(target_path))
     

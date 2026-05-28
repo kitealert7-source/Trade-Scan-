@@ -1,0 +1,47 @@
+# ════════════════════════════════════════════════════════════════════
+# DIRECTIVE -> recycle_rule.name BINDING REGISTRY
+#
+# Plan reference: ENFORCEMENT_PLAN_2026-05-27.md Task A.
+# Phase: A1 (warn-only on unknown patterns; mismatch + ambiguity hard reject).
+# Source of truth: this file. Comparison is exact, case-sensitive.
+#
+# Failure semantics (enforced by tools/rule_binding_gate.py at admission):
+#   - Mismatch (pattern matches, YAML rule_name differs)        -> hard reject
+#   - Ambiguity (>1 pattern matches the same directive_id)      -> hard reject
+#   - Unknown pattern AND meta.strict_unknown=true              -> hard reject
+#   - Unknown pattern AND meta.strict_unknown=false (Phase A1)  -> WARN + telemetry
+#   - Match in legacy_patterns                                  -> WARN + telemetry
+#   - Directive YAML lacks recycle_rule.name (non-basket)       -> gate no-op
+#
+# Patterns are anchored with (?:^|_) and (?:_|$) for token-boundary safety.
+# Per operator decision: no precedence rules. Ambiguity = registry-hygiene
+# failure, not a precedence question.
+# ════════════════════════════════════════════════════════════════════
+
+meta:
+  # Phase A1 -> A2 toggle. Flip to true after corpus audit completes.
+  strict_unknown: false
+
+# Canonical bindings: pattern must yield a single match against a directive_id;
+# the directive YAML's recycle_rule.name must equal rule_name exactly.
+bindings:
+  - pattern: '(?:^|_)COINTREV_V2_L\d+(?:_|$)'
+    rule_name: cointegration_meanrev_v1_2
+  - pattern: '(?:^|_)COINTREV_V3_L\d+(?:_|$)'
+    rule_name: pine_ratio_zrev_v1
+  - pattern: '(?:^|_)PAIRX_S\d+_V\d+_P\d+(?:_|$)'
+    rule_name: H3_spread
+  - pattern: '(?:^|_)RECYCLE_S\d+_V\d+_P\d+(?:_|$)'
+    rule_name: H2_recycle
+
+# Legacy patterns recognized during Phase A1 corpus audit (2026-05-28).
+# Pattern matches WARN with telemetry but admit; resolve to either bindings
+# or explicit removal before flipping meta.strict_unknown to true.
+legacy_patterns:
+  - pattern: '(?:^|_)COINTREV_S\d+_V\d+_P\d+(?:_|$)'
+    note: >
+      29 RETIRED `91_PORT_*` rows in MPS Baskets (completed 2026-05-20).
+      Historical rule_name='COINTREV_meanrev' (non-canonical; not present
+      in tools/recycle_rules/ or governance/recycle_rules/registry.yaml).
+      All rows have rule_family='h3_spread'. Resolve before Phase A2: bind
+      to H3_spread (rule_family signal) OR retire the convention.
