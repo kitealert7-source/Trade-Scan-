@@ -28,6 +28,11 @@ from typing import Any
 
 import pandas as pd
 
+from tools.portfolio.cointegration_schema import (
+    COINTEGRATION_NUMERIC_COLUMNS,
+    COINTEGRATION_SHEET_COLUMNS,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -263,6 +268,9 @@ def _col_def(col: str) -> str:
         "canonical_final_equity_usd", "cycle_win_rate_pct",
         "cycles_completed", "peak_winner_lot",
     }
+    # Cointegration ledger numerics (single-source set; see
+    # tools/portfolio/cointegration_schema.py).
+    numeric |= COINTEGRATION_NUMERIC_COLUMNS
     # Columns with numeric prefixes (net_profit_*, trades_*)
     if col.startswith(("net_profit_", "trades_")):
         return f'"{col}" REAL'
@@ -384,6 +392,42 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         'CREATE INDEX IF NOT EXISTS idx_basket_verdict '
         'ON basket_sheet(verdict_status)'
+    )
+
+    # Cointegration Sheet -- greenfield regime-conditioned research ledger.
+    # Separate ontology from basket_sheet (never merged). Single-source schema:
+    # tools/portfolio/cointegration_schema.py. Append-only via the writer's
+    # pre-insert SELECT-1. Verdict-free in v1 (rank is a view concern); the
+    # writer is a pure sink that never reads the screener DB.
+    coint_cols = ",\n        ".join(_col_def(c) for c in COINTEGRATION_SHEET_COLUMNS)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS cointegration_sheet (
+            {coint_cols},
+            PRIMARY KEY ("run_id")
+        )
+    """)
+    c_existing = {row[1] for row in conn.execute(
+        'PRAGMA table_info("cointegration_sheet")').fetchall()}
+    newly_added_c: list[str] = []
+    for col in COINTEGRATION_SHEET_COLUMNS:
+        if col not in c_existing:
+            conn.execute(f'ALTER TABLE cointegration_sheet ADD COLUMN {_col_def(col)}')
+            newly_added_c.append(col)
+    # Backfill is_current default on schema migration (ADD COLUMN ignores
+    # DEFAULT for existing rows in SQLite -- they receive NULL).
+    if "is_current" in newly_added_c:
+        conn.execute(
+            'UPDATE cointegration_sheet SET "is_current" = 1 '
+            'WHERE "is_current" IS NULL'
+        )
+    # Indexes: re-run detection by (pair, lookback) and current-row filtering.
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_coint_pair '
+        'ON cointegration_sheet(pair_a, pair_b, lookback_days)'
+    )
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_coint_current '
+        'ON cointegration_sheet(is_current)'
     )
 
     # Portfolio Control — user decision store for promote/disable
