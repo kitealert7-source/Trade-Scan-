@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.basket_ledger import leg_specs_string
+from tools.portfolio.cointegration_schema import METRICS_FN_VERSION
 from tools.window_validity_gate import evaluate_window_validity
 
 
@@ -114,6 +115,7 @@ def build_cointegration_row(
             else int(canonical["cycles_completed"])
         ),
         "trades_total": int(trades_total),
+        "metrics_fn_version": METRICS_FN_VERSION,
     }
 
 

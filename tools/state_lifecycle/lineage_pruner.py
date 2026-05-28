@@ -202,6 +202,46 @@ def _row_is_quarantined(row, *, bool_col: str | None = None, status_col: str | N
     return False
 
 
+def _cointegration_keep_info() -> dict[str, tuple[str, str]]:
+    """Current cointegration_sheet run_ids -> (directive_id, basket_id).
+
+    DB-sourced: the xlsx Cointegration tab is a projected human view that drops
+    run_id/directive_id, so the keep-set must read the source-of-truth DB.
+    basket_id is recovered from the backtests_path basename (the run folder is
+    "<directive_id>_<basket_id>"). Cointegration runs live in
+    backtests/<directive_id>_<basket_id>/ like baskets, so they get the same
+    backtests-aware integrity treatment. Empty on any error / absent table.
+    """
+    info: dict[str, tuple[str, str]] = {}
+    try:
+        from tools.ledger_db import _connect
+        conn = _connect()
+        try:
+            has = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='cointegration_sheet'"
+            ).fetchone()
+            if not has:
+                return info
+            rows = conn.execute(
+                "SELECT run_id, directive_id, backtests_path FROM cointegration_sheet "
+                "WHERE is_current = 1"
+            ).fetchall()
+        finally:
+            conn.close()
+        for rid, did, btp in rows:
+            rid = str(rid or "").strip()
+            if not rid:
+                continue
+            did = str(did or "").strip()
+            folder = Path(str(btp or "")).name
+            bid = folder[len(did) + 1:] if folder.startswith(did + "_") else ""
+            info[rid] = (did, bid)
+    except Exception as exc:
+        print(f"[INFO] Cointegration keep-set skipped: {exc}")
+    return info
+
+
 def build_keep_runs() -> tuple[set, set, dict]:
     """Build union index from candidates and active portfolio subsets.
 
@@ -278,6 +318,15 @@ def build_keep_runs() -> tuple[set, set, dict]:
                 basket_run_info[rid] = (did, bid)
     except (ValueError, KeyError):
         pass
+
+    # 2c. Cointegration ledger (DB-sourced; the xlsx tab is a projected view
+    #     that drops run_id/directive_id). Coint runs live in
+    #     backtests/<directive_id>_<basket_id>/ like baskets, so add them to
+    #     keep_runs and record (directive_id, basket_id) for backtests-aware
+    #     integrity. Without this, a future cleanup prunes coint substrate.
+    for _crid, _cdibi in _cointegration_keep_info().items():
+        keep_runs.add(_crid)
+        basket_run_info[_crid] = _cdibi
 
     # 3. Protect PORTFOLIO_COMPLETE directives (promotion-eligible, not yet in spreadsheets)
     pc_runs, pc_directives = _collect_portfolio_complete_runs()
