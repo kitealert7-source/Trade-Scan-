@@ -1,6 +1,6 @@
 # Cointegration Research Ledger — Design & Implementation Plan
 
-**Status:** APPROVED — P0 landed 2026-05-28; P1–P5 pending.
+**Status:** COMPLETE — all phases (P0–P5) landed 2026-05-28. Commits: `b2d31cd` (this plan), `1beba64` (P0), `eb937c6` (P1), `a9814c9` (P2), `23fd2bd` (P3), `417a04c` (P4), `cf83656` (P5). Full cointegration test suite 64/64; gate suite + regression harness green on every commit.
 **Date:** 2026-05-28
 **Scope:** A greenfield, methodology-aware ledger for cointegration-join research — schema-separate from `basket_sheet`, infrastructure-shared, with a lean human view over a rich, future-proof DB.
 
@@ -112,12 +112,14 @@ v1 = pure Ret/DD `rank` (view-derived). No hard CORE/WATCH/FAIL. Verdict semanti
 
 | # | Deliverable | Status |
 |---|---|---|
-| P0 | Single-source schema + `cointegration_sheet` table + types + tests | **DONE 2026-05-28** |
-| P1 | Non-raising `evaluate_window_validity()`; run emits regime fields; provenance dict | pending |
-| P2 | `cointegration_ledger_writer` (pure sink, fail-fast, append-only) + metrics registry | pending |
-| P3 | Routing fork + reproducibility threading | pending |
-| P4 | Export Cointegration tab + lean human view (labels, comments, hyperlink, multi-key sort) | pending |
-| P5 | `reenrich` tool + substrate-retention guard | pending |
+| P0 | Single-source schema + `cointegration_sheet` table + types + tests | **DONE** `1beba64` |
+| P1 | Non-raising `evaluate_window_validity()` + regime-provenance result object | **DONE** `eb937c6` |
+| P2 | `cointegration_ledger_writer` (pure sink, fail-fast, append-only) + metrics registry | **DONE** `a9814c9` |
+| P3 | Routing fork + provenance assembler + reproducibility threading | **DONE** `23fd2bd` |
+| P4 | Export Cointegration tab + lean human view (rename, multi-key sort, hyperlink) | **DONE** `417a04c` |
+| P5 | `reenrich` tool + `metrics_fn_version` + substrate-retention guard | **DONE** `cf83656` |
+
+Notes on what shifted during execution: the run-side `classifier_version`/`data_vintage` emission (originally sketched in P1/P3) was deferred to `reenrich`/follow-up (both nullable, no migration needed); header comments on the human tab were deferred (friendly renames already carry the meaning). Neither affects the data layer.
 
 ---
 
