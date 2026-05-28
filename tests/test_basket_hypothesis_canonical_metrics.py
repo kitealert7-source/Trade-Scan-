@@ -17,8 +17,27 @@ import pandas as pd
 import pytest
 
 from tools.basket_hypothesis.canonical_metrics import (
-    canonical_metrics, detect_rule_family,
+    canonical_metrics, detect_rule_family, _cycle_pnl_from_parquet,
 )
+
+
+def test_pine_reversal_family_and_segment_cycles():
+    """pine_ratio_zrev_v1 (V3 always-in-market reversal): LIQUIDATE_REVERSAL
+    tags -> 'pine_reversal' family; each segment's cycle_pnl is the
+    realized_total_usd delta, so cycles_completed + cycle_win_rate_pct are
+    populated (regression for the all-zero win_rate bug, 2026-05-28)."""
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2024-01-01", periods=6, freq="1D"),
+        "skip_reason": ["HOLDING", "LIQUIDATE_REVERSAL", "HOLDING",
+                        "LIQUIDATE_REVERSAL", "HOLDING", "LIQUIDATE_REVERSAL"],
+        # cumulative realized -> segment deltas: +10, -5, +15  (2 won / 3)
+        "realized_total_usd": [0.0, 10.0, 10.0, 5.0, 5.0, 20.0],
+    })
+    assert detect_rule_family(df) == "pine_reversal"
+    cycles = _cycle_pnl_from_parquet(df, ["LIQUIDATE_REVERSAL"])
+    assert [c["cycle_pnl_usd"] for c in cycles] == [10.0, -5.0, 15.0]
+    won = sum(1 for c in cycles if c["cycle_pnl_usd"] > 0)
+    assert won == 2 and len(cycles) == 3
 
 
 # ---------------------------------------------------------------------------

@@ -70,19 +70,30 @@ _H3_SPREAD_TAGS = {"PYRAMID", "AWAITING_ENTRY", "HOLDING",
                    "LIQUIDATE_TIME_STOP", "LIQUIDATE_ADVERSE_STOP",
                    "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP",
                    "LIQUIDATE_HARVEST_COMPLETE"}
+# pine_ratio_zrev_v1 (V3, always-in-market reversal): no harvest cycle (the
+# harvest threshold is never hit); a "cycle" is one held reversal SEGMENT,
+# closed when the z_r flip liquidates+reverses, tagged LIQUIDATE_REVERSAL.
+# This tag is unique to the reversal rule, so detection is unambiguous.
+_PINE_REVERSAL_TAGS = {"LIQUIDATE_REVERSAL"}
 
 
 def detect_rule_family(df: pd.DataFrame) -> str:
     """Auto-detect rule family from per-bar skip_reason values.
 
     Returns one of: "h3_spread", "v5_pyramid", "v4_bump_liquidate",
-    "v1_recycle". Used to drive cycle-level metric reconstruction in
+    "pine_reversal", "v1_recycle". Used to drive cycle-level metric reconstruction in
     `canonical_metrics`. Pass `rule_family` explicitly if auto-detect
     would be ambiguous (e.g. zero-event runs).
     """
     if "skip_reason" not in df.columns:
         return "v1_recycle"
     reasons = set(df["skip_reason"].dropna().unique())
+    # Check LIQUIDATE_REVERSAL FIRST: it is unique to pine_ratio_zrev_v1, but
+    # that rule also emits HOLDING/AWAITING_ENTRY which overlap _H3_SPREAD_TAGS,
+    # so the h3 check would otherwise mis-claim it (and then find none of its
+    # liquidation tags -> zero cycles -> the all-zero win_rate bug).
+    if reasons & _PINE_REVERSAL_TAGS:
+        return "pine_reversal"
     if reasons & _H3_SPREAD_TAGS:
         return "h3_spread"
     if reasons & _V5_TAGS:
@@ -306,6 +317,10 @@ def canonical_metrics(
              "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP",
              "LIQUIDATE_HARVEST_COMPLETE"],
         )
+    elif rf == "pine_reversal":
+        # each held reversal segment closes at a LIQUIDATE_REVERSAL flip;
+        # cycle_pnl = realized_total_usd delta over the segment.
+        cycle_pnls = _cycle_pnl_from_parquet(df, ["LIQUIDATE_REVERSAL"])
 
     cycles_completed = len(cycle_pnls)
     cycles_won = sum(1 for c in cycle_pnls if c["cycle_pnl_usd"] > 0)
