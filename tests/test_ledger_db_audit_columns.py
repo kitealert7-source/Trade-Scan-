@@ -222,6 +222,25 @@ def test_export_mps_no_existing_xlsx_writes_clean(fake_state):
     assert out["run_id"].iloc[0] == "RID_FRESH"
 
 
+def test_export_mps_atomic_no_leftover_temp(fake_state):
+    """Atomic write: export renders to a per-process temp then os.replace()s it
+    into place, so concurrent exports can't leave a half-written workbook. After
+    a normal export there must be NO .tmp.* artifact and the file must be valid."""
+    from openpyxl import load_workbook
+    from tools.ledger_db import export_mps
+    strat = fake_state / "strategies"
+    _seed_basket_row(run_id="RID_ATOMIC")
+    out = export_mps()
+    leftovers = list(strat.glob("Master_Portfolio_Sheet.tmp.*"))
+    assert not leftovers, f"atomic export left temp artifacts: {leftovers}"
+    assert out.is_file()
+    wb = load_workbook(out)
+    try:
+        assert "Baskets" in wb.sheetnames
+    finally:
+        wb.close()
+
+
 def test_export_mps_audit_col_only_on_some_rows(fake_state):
     """Two DB rows; xlsx carries audit metadata for only one of them.
     Annotated row keeps its values; unannotated row gets NaN, not dropped."""

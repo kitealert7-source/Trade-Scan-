@@ -1113,13 +1113,28 @@ def export_mps(
             from tools.portfolio.cointegration_view import build_cointegration_view_df
             df_coint_view = build_cointegration_view_df(df_coint)
 
-        with pd.ExcelWriter(str(out), engine="openpyxl") as writer:
-            df_port.to_excel(writer, sheet_name="Portfolios", index=False)
-            df_single.to_excel(writer, sheet_name="Single-Asset Composites", index=False)
-            if not df_baskets.empty:
-                df_baskets.to_excel(writer, sheet_name="Baskets", index=False)
-            if df_coint_view is not None and not df_coint_view.empty:
-                df_coint_view.to_excel(writer, sheet_name="Cointegration", index=False)
+        # Atomic write: render to a per-process temp in the SAME directory, then
+        # os.replace() into place (atomic on one volume). The xlsx is a derived
+        # view of the canonical DB, so even if several processes export
+        # concurrently (e.g. a --max-parallel batch), readers never observe a
+        # half-written workbook -- the worst case is "last writer wins", and the
+        # DB remains authoritative regardless.
+        _tmp_out = out.with_name(f"{out.stem}.tmp.{os.getpid()}{out.suffix}")
+        try:
+            with pd.ExcelWriter(str(_tmp_out), engine="openpyxl") as writer:
+                df_port.to_excel(writer, sheet_name="Portfolios", index=False)
+                df_single.to_excel(writer, sheet_name="Single-Asset Composites", index=False)
+                if not df_baskets.empty:
+                    df_baskets.to_excel(writer, sheet_name="Baskets", index=False)
+                if df_coint_view is not None and not df_coint_view.empty:
+                    df_coint_view.to_excel(writer, sheet_name="Cointegration", index=False)
+            os.replace(str(_tmp_out), str(out))
+        finally:
+            if _tmp_out.exists():
+                try:
+                    _tmp_out.unlink()
+                except OSError:
+                    pass
 
         suffix = f", Baskets={len(df_baskets)}" if not df_baskets.empty else ""
         if df_coint_view is not None and not df_coint_view.empty:

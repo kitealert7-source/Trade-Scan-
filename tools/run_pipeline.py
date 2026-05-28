@@ -987,14 +987,19 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
                         engine_version=str(_coint_engine_ver),
                     )
                     append_cointegration_row(_coint_row)
-                    # Writer is sink-only (DB); the orchestrator triggers the MPS
-                    # render so the Cointegration tab refreshes, mirroring how the
-                    # basket writer regenerates the MPS after its write.
-                    try:
-                        from tools.ledger_db import export_mps as _export_mps
-                        _export_mps()
-                    except Exception as _exc:
-                        print(f"[COINT] WARN MPS export (Cointegration tab) failed: {_exc}")
+                    # Writer is sink-only (DB, WAL-safe under parallel workers).
+                    # The MPS xlsx is a derived view: in batch mode the parent
+                    # renders it ONCE after all directives (TS_DEFER_MPS_EXPORT),
+                    # avoiding N redundant concurrent renders; a single-directive
+                    # run renders inline so its tab refreshes immediately.
+                    if os.environ.get("TS_DEFER_MPS_EXPORT") == "1":
+                        print(f"[COINT] MPS render deferred to batch end: {run_id}")
+                    else:
+                        try:
+                            from tools.ledger_db import export_mps as _export_mps
+                            _export_mps()
+                        except Exception as _exc:
+                            print(f"[COINT] WARN MPS export (Cointegration tab) failed: {_exc}")
                     print(f"[COINT] Cointegration ledger row written: {run_id}")
             else:
                 mps_path = append_basket_row_to_mps(
@@ -1535,6 +1540,11 @@ def run_batch_mode(provision_only=False, max_parallel=1):
     for _d_id in admitted:
         _telemetry.queue_directive(_d_id)
 
+    # Batch mode: defer the per-directive MPS render. The cointegration dispatch
+    # writes only the (WAL-safe) DB during the run; the parent renders the xlsx
+    # ONCE below, after all directives -- avoiding N redundant, concurrent renders
+    # under --max-parallel. Set BEFORE workers spawn so they inherit the flag.
+    os.environ["TS_DEFER_MPS_EXPORT"] = "1"
     _orchestrator = PipelineOrchestrator(
         batch_id=_batch_id,
         max_parallel=max_parallel,
@@ -1557,6 +1567,18 @@ def run_batch_mode(provision_only=False, max_parallel=1):
             # Telemetry summary is diagnostic — never let a summary
             # failure mask the actual batch outcome.
             print(f"[BATCH] (telemetry summary unavailable: {_summary_err})")
+        # Deferred single MPS render (parent process, no contention). Runs even
+        # on a partial/failed batch so the xlsx reflects whatever the DB now
+        # holds. The DB is canonical — a render failure is logged, never fatal.
+        os.environ.pop("TS_DEFER_MPS_EXPORT", None)
+        if not provision_only:
+            try:
+                from tools.ledger_db import export_mps as _export_mps
+                _export_mps()
+                print("[BATCH] MPS rendered once from DB after batch.")
+            except Exception as _exc:
+                print(f"[BATCH] WARN deferred MPS render failed (DB is canonical; "
+                      f"run `python tools/ledger_db.py --export-mps` to refresh): {_exc}")
 
     # --- PHASE 3: ARCHIVE (SEQUENTIAL) ---
     # Only reached if all futures succeeded.
