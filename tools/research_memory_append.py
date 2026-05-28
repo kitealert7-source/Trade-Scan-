@@ -39,31 +39,53 @@ def build_entry(
     conclusion: str,
     implication: str,
 ) -> str:
+    """Build one entry in the canonical single-line-pipe format.
+
+    This is the ONLY format accepted by the pre-commit validator
+    (tools/generate_research_memory_index.py, HEADER_A) and used by every
+    existing entry:
+
+        ---
+        YYYY-MM-DD | Tags: t1, t2, t3 | Strategy: <s> | Run IDs: <ids>
+        Finding: ...
+        Evidence: ...
+        Conclusion: ...
+        Implication: ...
+        ---
+
+    Strategy is optional; the segment order (date | Tags | Strategy | Run IDs)
+    matches the validator regex. Labeled body lines survive both the validator
+    and the compactor (compact_research_memory.py LABEL_PAT).
+    """
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
-    tags_block = "\n".join(tags)
-    strategy_block = f"Strategy: {strategy}\n" if strategy else ""
-    
-    return (
-        f"{date_str}\n"
-        "Tags:\n"
-        f"{tags_block}\n\n"
-        f"{strategy_block}"
-        f"Run IDs: {run_ids}\n\n"
-        "Finding:\n"
-        f"{finding}\n\n"
-        "Evidence:\n"
-        f"{evidence}\n\n"
-        "Conclusion:\n"
-        f"{conclusion}\n\n"
-        "Implication:\n"
-        f"{implication}\n"
+
+    header = f"{date_str} | Tags: {', '.join(tags)}"
+    if strategy:
+        header += f" | Strategy: {strategy}"
+    header += f" | Run IDs: {run_ids}"
+
+    body = "\n".join(
+        (
+            f"Finding: {finding}",
+            f"Evidence: {evidence}",
+            f"Conclusion: {conclusion}",
+            f"Implication: {implication}",
+        )
     )
+
+    return f"---\n{header}\n{body}\n---\n"
 
 
 def append_entry(path: Path, entry: str) -> None:
     existing = path.read_text(encoding="utf-8")
-    separator = "" if existing.endswith("\n") else "\n"
+    # Separate entries by exactly one blank line to match the canonical layout
+    # (prior entry's closing '---', blank line, this entry's opening '---').
+    if existing == "" or existing.endswith("\n\n"):
+        separator = ""
+    elif existing.endswith("\n"):
+        separator = "\n"
+    else:
+        separator = "\n\n"
     with path.open("a", encoding="utf-8") as f:
         f.write(separator + entry)
 
