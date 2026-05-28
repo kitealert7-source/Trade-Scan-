@@ -1,0 +1,36 @@
+# ════════════════════════════════════════════════════════════════════
+# RESEARCH METRICS REGISTRY
+#
+# Governs the `metrics_json` column of the cointegration_sheet ledger.
+# Enforced by tools/portfolio/research_metrics.py::validate_metrics_json,
+# called by the cointegration ledger writer at write time (fail-fast).
+#
+# CONTRACT (this is what keeps metrics_json from becoming a hidden schema):
+#   - Every metrics_json key MUST be registered here.
+#   - Keys are FLAT and NAMESPACED: "<namespace>.<name>". The dot is a naming
+#     convention, NOT nesting. namespace in: regime | cycle | tail | capital | signal
+#   - Values MUST be SCALARS (float | int | str | bool). No nesting, no blobs.
+#   - first_class: false -> the metric lives in metrics_json (a zero-DDL extra).
+#     first_class: true  -> the metric has been PROMOTED to a typed column and
+#                           must NOT appear in metrics_json.
+#
+# PROMOTION PATH: when an extra proves load-bearing for decisions, flip its
+# first_class to true AND add the column to
+# tools/portfolio/cointegration_schema.py in one deliberate change.
+#
+# Deliberately repo-local + declarative (mirrors the namespace / methodology /
+# rule-binding registries): no ~/.claude coupling, CI-stable, worktree-safe.
+#
+# Example (uncomment + populate when a metric earns a slot):
+#   metrics:
+#     - key: tail.worst_trade_pct
+#       type: float
+#       namespace: tail
+#       first_class: false
+#       description: worst single-trade return as % of stake
+# ════════════════════════════════════════════════════════════════════
+
+# v1: no extras yet. The cointegration ledger's decision metrics are all
+# first-class columns (canonical_* etc. in cointegration_schema.py). Add
+# metrics_json extras here as research surfaces new decision signals.
+metrics: []

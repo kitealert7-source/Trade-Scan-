@@ -588,6 +588,26 @@ def upsert_basket_row(
     conn.commit()
 
 
+def upsert_cointegration_row(
+    conn: sqlite3.Connection,
+    row: dict[str, Any],
+) -> None:
+    """Insert a cointegration row. Append-only: existing run_id -> NO-OP at the
+    SQL layer (the writer raises FATAL upstream via its SELECT-1 pre-check).
+    Mirrors upsert_basket_row; restricts to the single-source schema columns.
+    """
+    cols = [c for c in COINTEGRATION_SHEET_COLUMNS if c in row]
+    col_names = ", ".join(f'"{c}"' for c in cols)
+    placeholders = ", ".join("?" for _ in cols)
+    values = [_py_val(row[c]) for c in cols]
+    conn.execute(
+        f'INSERT INTO cointegration_sheet ({col_names}) VALUES ({placeholders}) '
+        f'ON CONFLICT("run_id") DO NOTHING',
+        values,
+    )
+    conn.commit()
+
+
 def upsert_basket_df(
     conn: sqlite3.Connection,
     df: pd.DataFrame,
