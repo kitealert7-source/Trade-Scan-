@@ -835,3 +835,36 @@ retired durably by a DB **delete** + re-export.
 
 ---
 
+### Basket Episode Silently Missing From Corpus — Diagnostic — 2026-05-29
+
+**Context:** a basket/cointegration directive can finish (state IDLE, file in completed/) yet leave
+NO `cointegration_sheet` row — the append was skipped via a NON-FATAL `[BASKET] WARN ... append
+failed` (e.g. NaN USD-converted PnL from a leg/ref data-coverage gap). The failure is silent: the
+corpus looks "complete" with episodes missing. On 2026-05-29, 4 `E231229` episodes were missing this
+way (root cause: NZDUSD/USDCAD/AUDUSD/USDCHF lacked pre-2024 15m data). Triaging from scratch took
+~7 probes; this procedure cuts it to minutes. (A fail-loud guard is proposed separately — retro task
+"no-silent-corpus-gaps guard" — but until it lands, diagnose with the steps below.)
+
+**Diagnostic path (all read-only):**
+1. **Find the gap (intended vs recorded).** Diff the intended episode enumeration (e.g. the
+   `backtest_directives/cointrev_v3_staging/` directive stems) against `is_current=1` rows in
+   `cointegration_sheet` (concat `pair_a||pair_b`, filter by `test_start`). The set difference is the
+   silently-missing episodes. `tools/cointegration_aggregator.py` gives the live current count.
+2. **Check the run registry.** A missing episode with NO entry in
+   `TradeScan_State/registry/run_registry.json` aborted pre-`record_run` (admission/data-prep); one
+   WITH a `BASKET_COMPLETE` entry but no sheet row failed at the append step.
+3. **Probe leg + ref data coverage at the window start (usual root cause).** For each leg, get the
+   required USD-conversion refs via `basket_data_loader._required_ref_pairs([legs])` (JPY->USDJPY,
+   NZD->NZDUSD, ...), then confirm every leg AND ref has 15m bars covering `test.start_date`
+   (`_read_year_csv_cached(sym, year, "15m")`; call `clear_year_file_cache()` first for a fresh disk
+   read). Any ref/leg whose earliest bar is AFTER the window start -> NaN PnL -> skipped append.
+4. **Rule out false leads:** leg OHLC usually loads fine, and cointegration regime / Task-B is usually
+   NOT the cause (verify span continuity in `cointegration.db cointegration_daily` only if step 3 is clean).
+
+**Recovery:** fix the upstream data gap (DATA_INGRESS backfill of the missing 15m history), verify
+coverage, then re-run the directive(s). State is IDLE, so NO `reset_directive` is needed — copy the
+staging `.txt` to `backtest_directives/INBOX/` and `run_pipeline.py --all` (re-admission re-checks
+Task B). Confirm via the aggregator count + the step-1 intended-vs-recorded diff.
+
+---
+
