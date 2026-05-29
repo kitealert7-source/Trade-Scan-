@@ -27,10 +27,12 @@ from config.path_authority import REAL_REPO_ROOT, TRADE_SCAN_STATE
 MPS_PATH = TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
 
 # Sheets explicitly preserved without scanning. Adding to this set is a
-# governance decision — narrow scope deliberately. The "Notes" sheet was
-# intentionally retired 2026-05-29 (MPS is SQL source-of-truth; the non-data
-# operator Notes sheet was dropped), leaving no exempt sheets currently.
-EXEMPT_SHEETS: set[str] = set()
+# governance decision — narrow scope deliberately. "Notes" is the GENERATED
+# portfolio glossary (tools/excel_format/notes.py::add_notes_sheet_to_ledger,
+# added by format_excel_artifact.py --profile portfolio) — a non-data sheet,
+# exempt from lifecycle coverage. (A bare `ledger_db.py --export` writes data
+# sheets only and drops it until the next format; do NOT treat that as a retirement.)
+EXEMPT_SHEETS = {"Notes"}
 
 LIFECYCLE_TOOLS = (
     REAL_REPO_ROOT / "tools" / "state_lifecycle" / "repair_integrity.py",
