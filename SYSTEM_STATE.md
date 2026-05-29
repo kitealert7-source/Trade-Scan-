@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-28T16:03:42Z
+> Generated: 2026-05-29T11:05:09Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -19,8 +18,8 @@
 - **Master Filter:** 1257 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
-  - **Portfolios:** 131 rows — CORE: 4, FAIL: 122, WATCH: 5
-  - **Single-Asset Composites:** 81 rows — CORE: 11, FAIL: 65, WATCH: 5
+  - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
+  - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
 
 - **Candidates (FPS):** 381 rows — CORE: 15, FAIL: 242, RESERVE: 26, WATCH: 98
 
@@ -32,22 +31,22 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-28** | Symbols: 221
+- Latest bar: **2026-05-29** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1265
+- Run directories: 1269
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `713c193 research: commit V3 cointegration episode corpus directives + ignore staging`
+- Working tree: clean
+- Last substantive commit: `aa4bdc1 session: bundle MT5 broker-spec recalibration + cointegration corpus research entry`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 34 KB / 73 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [SIZE] RESEARCH_MEMORY.md 35 KB / 81 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
