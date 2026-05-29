@@ -97,6 +97,8 @@ Non-negotiable. The agent must never violate any of these.
 
 → STOP immediately → Do NOT attempt ad-hoc fixes → Consult `TOOL_ROUTING_TABLE.md` FAST PATH OVERRIDE → If no match, Section 2 → Classify scenario + tier → Execute only per tier rule (Tier 4 = escalate)
 
+31. **Pipeline-Authoritative Conclusions (ad-hoc is hypothesis-only)** — A decision-grade conclusion (any claim that a strategy / pair / edge / hypothesis is *confirmed, dead, deployable, retired,* or that a *research arc is settled*) is valid ONLY when grounded in pipeline-produced, `run_id`-stamped artifacts. Ad-hoc analysis — research scripts, ad-hoc queries, hand-computed proxies of strategy behavior — is hypothesis-generation only: it may measure input-data properties and *read* pipeline-produced numbers, but may NEVER on its own establish a conclusion, drive a decision (promote / retire / supersede / conclude or kill an arc / author or skip a directive), or be recorded as settled in any authoritative record (ledger, `RESEARCH_MEMORY.md`, auto-memory, `SYSTEM_STATE.md`). Reproduce an ad-hoc finding through the pipeline (≥1 representative case) before treating it as established; until then tag it **PROVISIONAL**. *Enforcement (audited 2026-05-29): mechanically enforced at the ACTION layer — promotion + ledger / `portfolio.yaml` writes require a real pipeline `run_id` (append-only, run_id-keyed). STOP-level doctrine at the CONCLUSION layer — `research_memory_append.py` accepts an unvalidated run_id string, auto-memory is ungated, and the methodology-citation gate is opt-in / directive-scoped. Deferred hardening (post gate-shakeout): require run_id-or-explicit-`PROVISIONAL` on research-record writes.*
+
 ---
 
 ## LIFECYCLE OVERVIEW

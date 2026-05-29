@@ -50,7 +50,7 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 
 ---
 
-## Critical Invariants (key 9 — full list of 29 in AGENT.md)
+## Critical Invariants (key 10 — full list of 31 in AGENT.md)
 
 1. **Fail-Fast** — any failure aborts the pipeline; never silently continue
 2. **Append-Only Ledgers (pipeline-driven)** — `Strategy_Master_Filter.xlsx` and `Master_Portfolio_Sheet.xlsx` are append-only for *automated* mutation; no Stage-N tool or evaluator may delete or overwrite rows. **Exception:** operator-driven cleanup via `tools/state_lifecycle/repair_integrity.py --action drop` is authorized to drop rows whose disk artifacts the operator has already deleted — the operator's `rm -rf` is the signal of intent, not an automated decision. See `.claude/skills/pipeline-state-cleanup/SKILL.md` Critical Authority Note for the full workflow
@@ -61,6 +61,7 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 7. **Sequential by default; opt-in parallelism via FileLock barriers** — `run_pipeline.py --all` runs directives sequentially by default (`--max-parallel 1`, permanent first-class mode for debug / safe / reproducibility / emergency recovery). The legacy 15s cooldown was REMOVED 2026-05-27; Stage 3 + Stage 4 file locks (`Strategy_Master_Filter.xlsx.lock`, `Master_Portfolio_Sheet.xlsx.lock`) provide deterministic exclusivity around shared Excel ledger writes. Pass `--max-parallel N` for cross-directive `ProcessPoolExecutor` parallelism — opt-in, evidence-driven, default never silently flips. Telemetry JSONL lands at `outputs/.session_state/pipeline_telemetry/<batch_id>__pid_<pid>.jsonl` every run regardless of mode
 8. **Scratch Script Placement** — all ad-hoc/diagnostic scripts go to `/tmp/` exclusively; no transient scripts in the repo root
 9. **Indicator Separation** — all indicator logic must live in `indicators/` as importable modules; inline computation and external data loading in strategy.py is prohibited (enforced at Stage-0.5)
+10. **Pipeline-Authoritative Conclusions** — a decision-grade conclusion (X confirmed / dead / deployable / research-arc-settled) is valid ONLY from pipeline-produced, `run_id`-stamped artifacts. Ad-hoc analysis (research scripts, queries, hand-computed behavior proxies) is hypothesis-only: it never on its own establishes a conclusion or drives a decision (promote/retire/supersede/conclude-or-kill-an-arc/author-or-skip-a-directive), and ad-hoc-sourced research/memory entries are tagged **PROVISIONAL** until reproduced through the pipeline (≥1 representative case). Mechanically enforced for actions (promotion + ledger/`portfolio.yaml` writes need a real run_id); STOP-level doctrine for conclusions (`RESEARCH_MEMORY`/auto-memory not yet gated). Full text: AGENT.md #31
 
 ---
 
