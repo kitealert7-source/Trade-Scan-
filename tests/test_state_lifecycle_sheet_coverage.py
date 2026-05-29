@@ -27,8 +27,10 @@ from config.path_authority import REAL_REPO_ROOT, TRADE_SCAN_STATE
 MPS_PATH = TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
 
 # Sheets explicitly preserved without scanning. Adding to this set is a
-# governance decision — narrow scope deliberately.
-EXEMPT_SHEETS = {"Notes"}
+# governance decision — narrow scope deliberately. The "Notes" sheet was
+# intentionally retired 2026-05-29 (MPS is SQL source-of-truth; the non-data
+# operator Notes sheet was dropped), leaving no exempt sheets currently.
+EXEMPT_SHEETS: set[str] = set()
 
 LIFECYCLE_TOOLS = (
     REAL_REPO_ROOT / "tools" / "state_lifecycle" / "repair_integrity.py",
