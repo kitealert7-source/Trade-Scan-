@@ -9,6 +9,8 @@ This workflow executes the structured Lineage-Aware State Lifecycle sequence to 
 If a run or portfolio identifier is documented in these active spreadsheets or shielded by the execution config, all its corresponding staging footprint directories across `TradeScan_State/runs`, `TradeScan_State/backtests`, `TradeScan_State/sandbox`, `TradeScan_State/strategies`, and `Trade_Scan/strategies` are natively shielded.
 Anything absent from these central lists is mathematically defined as "abandoned" and will be formally pruned by Phase 4.
 
+**Manual ledger-retirement safety (2026-05-29):** when the Phase-1/2 tools cannot durably retire a stale ledger row — e.g. `portfolio_sheet` has no `is_current`/`quarantine_status` column, so a Portfolios/SAC row can only be removed by a DB delete, and `repair_integrity`'s Portfolios/SAC arm is Excel-only (wiped on next export) — and you fall back to a direct `ledger.db` edit: (1) back up `ledger.db` first (timestamped `bak_*`); (2) scope the `is_current=0`/DELETE by the EXACT target `run_id`s or the missing-disk criterion, NEVER a strategy-name `LIKE` (a broad LIKE over-touched 9 `master_filter` rows when only 5 were orphans); (3) use an idempotent `AND is_current=1` guard; (4) re-export MPS so the change reaches the pruner's keep-set.
+
 ### Phase 1: Diagnose & Repair Structural Decay
 
 (Optional) Automatically locate missing strings from active tracking spreadsheets `Master_Portfolio_Sheet.xlsx` and `Filtered_Strategies_Passed.xlsx` against physical files on disk, actively dropping rows/portfolios that contain no live counterparts. This neutralizes structural database decay.
@@ -58,3 +60,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
 | 2026-05-22 | Phase 1 referenced `tmp/hydrate_sandbox.py` which no longer exists; was a one-time pipeline-restructure bootstrap, not recurring infrastructure | Removed Phase 1 entirely; renumbered Phases 2–5 → 1–4 |
+| 2026-05-29 | Manual ledger flip used a strategy-name LIKE → over-touched 9 rows (5 were orphans); needed backup recovery | Added "Manual ledger-retirement safety" note: scope by exact run_ids/missing-disk; back up + AND-guard |

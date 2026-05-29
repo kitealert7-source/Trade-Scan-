@@ -805,3 +805,33 @@ Do NOT use `.pyc` as source substitute.
 
 ---
 
+### Operator-Driven Ledger Surgery — Backup & Rollback Pattern — 2026-05-29
+
+**Context:** clearing a large pruner referential breach (251 → 0) required many operator-driven
+`is_current=0` flips + row deletes across `ledger.db` (`basket_sheet`, `cointegration_sheet`,
+`master_filter`, `portfolio_sheet`) for rows whose disk artifacts were gone — the documented
+append-only exception (Invariant 2). The pattern below cut recovery from "reconstruct by hand" to
+"restore one file", and is the standard for ANY direct `ledger.db` surgery.
+
+**Safe-surgery checklist:**
+1. **Back up once, first.** `shutil.copy2(ledger.db, ledger.db.bak_<reason>_<date>)` in
+   TradeScan_State, guarded `if not BACKUP.exists()` so re-runs never clobber the pristine snapshot.
+2. **Scope by the EXACT target set** — explicit `run_id`s or the missing-disk/missing-folder
+   criterion — **never a name `LIKE`** (a broad `strategy LIKE '..._P03_%'` over-touched 9
+   `master_filter` rows when only 5 were orphans; required a backup-restore to undo).
+3. **Idempotent write:** `UPDATE ... WHERE run_id IN (...) AND is_current=1` (re-run → 0 changed).
+4. **Re-export the derived view** so the change reaches consumers: `python tools/ledger_db.py
+   --export-mps` (MPS Baskets/Portfolios/SAC/Cointegration) and `python tools/filter_strategies.py`
+   (FSP) — the pruner reads those, not the DB directly, so a DB-only flip is invisible until re-export.
+5. **Verify** (re-run `lineage_pruner.py --dry-run` / a breach enumerator).
+
+**Rollback:** restore the `bak_*` snapshot over `ledger.db`, OR reverse the specific column
+(`UPDATE ... SET is_current=1, superseded_at=NULL, supersede_reason=NULL WHERE supersede_reason
+LIKE '<batch tag>%'`), then re-export.
+
+**Gotcha:** `portfolio_sheet` has NO `is_current`/`quarantine_status` column and `repair_integrity`'s
+Portfolios/SAC arm is Excel-only (wiped on next export) — so a stale Portfolios/SAC row can only be
+retired durably by a DB **delete** + re-export.
+
+---
+
