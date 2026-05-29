@@ -165,6 +165,7 @@ Suggested first task: <Infra #1 if BLOCKER; else Active Charter focus if present
 | Skill | Relationship |
 |---|---|
 | `/session-close` | Sibling pair — generates the state this skill reads; invoke at session end |
+| `/session-retro` | Pre-close sibling — stages the HIGH ROI pick + MONITOR watch-list (in SYSTEM_STATE Deferred Maintenance) that inform the next session |
 | `/system-health-maintenance` | Deeper audit if SESSION STATUS = BROKEN |
 | `/skill-maintenance` | If friction entries need attention (weekend cadence) |
 | `/repo-cleanup-refactor` | If infra debt surfaces in priorities (weekend cadence) |

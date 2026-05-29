@@ -28,6 +28,7 @@ to use** + **when NOT to use** + **related skills**.
 | Test a hypothesis on a basket strategy (mechanic / architecture) | `/basket-hypothesis-testing` |
 | Run capital wrappers at uniform risk | `/uniform-risk-capital-simulation` |
 | Start a new session and orient to priorities | `/session-start` |
+| Run an operational retrospective before closing | `/session-retro` |
 | End a work session cleanly | `/session-close` |
 | Register a long-running Windows daemon | `/launch-windows-supervised-task` |
 | Periodic repo hygiene + code DRY | `/repo-cleanup-refactor` |
@@ -86,6 +87,7 @@ to use** + **when NOT to use** + **related skills**.
 | Skill | When | When NOT | Related |
 |---|---|---|---|
 | `session-start` | Start of every non-trivial session — reads SYSTEM_STATE + RESEARCH_MEMORY + git log to surface top 3 infra + top 3 research priorities | Already have working context → skip; trivial read-only sessions → skip | `session-close` (sibling pair), `system-health-maintenance`, `skill-maintenance` |
+| `session-retro` | Immediately before `/session-close` on any substantive session — convert observed friction, robustness/resilience gaps, missed opportunities, and measured future-pressure trends into routed, capped follow-ups (Execute/Monitor/Ignore) + one HIGH ROI pick | Trivial read-only / Q&A session; mid-task pause | `session-close` (commits what it stages), `session-start` (reads its HIGH ROI + MONITOR outputs), `skill-maintenance` (audits friction rows it creates) |
 | `session-close` | Ending a work session — commit, push, document, regenerate `SYSTEM_STATE.md` snapshot, run periodic skills if it's the weekend | Mid-task pause (resuming same session) → skip; trivial read-only session → skip | All maintenance skills (called from §8b) |
 | `launch-windows-supervised-task` | Registering a long-running Python daemon under Windows Task Scheduler — Phase 7a-H2 live runner, Stage-5-equivalent field stress, basket_pipeline live runner, TS_Execution H2 shim | One-shot scripts → just invoke directly | `repo-cleanup-refactor` (refactoring code that runs as scheduled task), `system-health-maintenance` (audits scheduled-task drift) |
 
