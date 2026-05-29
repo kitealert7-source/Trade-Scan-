@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-29T12:29:49Z
+> Generated: 2026-05-29T12:43:14Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,8 +38,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `46c9c72 fix: drop retired Notes sheet from state-lifecycle EXEMPT_SHEETS`
+- Working tree: clean
+- Last substantive commit: `b5981f6 fix: restore Notes to EXEMPT_SHEETS; it is a generated glossary, not retired`
 
 ## Deferred Maintenance
 
