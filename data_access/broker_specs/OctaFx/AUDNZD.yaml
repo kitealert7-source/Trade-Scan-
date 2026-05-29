@@ -18,7 +18,7 @@ calibration:
   price_unit: NZD
   status: MT5_VERIFIED
   currency_profit: NZD
-  mt5_tick_value: 0.5892700000000001
+  mt5_tick_value: 0.59433
   mt5_tick_size: 1.0e-05
-  usd_per_pu_per_lot: 58927.0
+  usd_per_pu_per_lot: 59433.0
   digits: 5

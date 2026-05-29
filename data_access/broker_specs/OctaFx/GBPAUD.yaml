@@ -18,7 +18,7 @@ calibration:
   price_unit: AUD
   status: MT5_VERIFIED
   currency_profit: AUD
-  mt5_tick_value: 0.7123000000000002
+  mt5_tick_value: 0.71611
   mt5_tick_size: 1.0e-05
-  usd_per_pu_per_lot: 71230.0
+  usd_per_pu_per_lot: 71611.0
   digits: 5
