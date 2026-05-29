@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-29T12:43:14Z
+> Generated: 2026-05-29T18:32:29Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,8 +39,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `b5981f6 fix: restore Notes to EXEMPT_SHEETS; it is a generated glossary, not retired`
+- Working tree: 1 uncommitted
+- Last substantive commit: `0cab4f1 governance: add Invariant #31 â€” Pipeline-Authoritative Conclusions (ad-hoc is hypothesis-only)`
 
 ## Deferred Maintenance
 
@@ -55,6 +56,9 @@
 - [SKILL_REFACTOR] **Change F — strip `/system-health-maintenance` §5 / §6 / §8 overlap.** §5 (vault) duplicates `/update-vault`; §6 (Excel format) duplicates `/format-excel-ledgers`; §8 (memory compaction) is the only home for the compaction logic but is also referenced from `/session-close §3.9`. Action: delete §5 + §6; keep §8 as canonical home, reference from elsewhere. Resulting scope of `/system-health-maintenance`: preflight + recovery + smoke tests + migration only. Earliest revisit: 2026-06-01. Defer this longest — cross-skill refactors create silent doc drift if rushed.
 - [CODE_DRY] **Extract `_leg_pnl_usd` shared helper across `tools/recycle_rules/h2_compression.py` + `h2_recycle.py`.** Bodies are byte-identical modulo error-message rule-name (52 lines each). NOT a candidate for unification with `h2_recycle_v3.py` (different signature: takes `ref_closes` for cross-pair USD conversion). Surfaced by `/repo-cleanup-refactor` 2026-05-26. Deferred because `tools/recycle_rules/` was touched 2026-05-24 for the `leg_direction_flip_bug` Option-B fix — anti-pattern: "Don't extract refactors during high-stakes pre-deployment windows". Recommend: land after H2 strategy lock (per `[[project_h2_engine_promotion_plan]]` Phase 7b gate). One commit; new `tools/recycle_rules/_basket_pnl.py`; full basket regression suite (127+ tests). Earliest revisit: post-Phase-7a-ack.
 - [MONITOR] RESEARCH_MEMORY.md size — 34->35.3 KB this session, 40 KB cap; promote to compaction (`compact_research_memory.py` / advance ARCHIVE_BEFORE) when >38 KB AND still growing; discard this monitor if a compaction resets it below first (first seen 2026-05-29, session-retro)
+- [MONITOR] conclusion-write-path provenance gate — `research_memory_append` accepts an unvalidated run_id and auto-memory is ungated (AGENT.md Invariant #31 is STOP-doctrine, NOT yet mechanically gated for conclusions). Promote to BUILD only after >=1 operational gate-shakeout session (per the advisory-to-enforced standing directive). First seen 2026-05-29.
+- [NEXT-FOCUS] Lifecycle granularity-mismatch — WORKING HYPOTHESIS (analysis-only, NO remedy decided): lifecycle burden originates from arc-level intent expressed at artifact level; high-fan-out arcs amplify one decision into 100-1000+ actions. Full evidence in auto-memory `project_lifecycle_granularity_mismatch.md`. Next session's question: smallest mechanisms to reduce decision fan-out without a new state system. Start from this framing, not lineage-contamination. (first seen 2026-05-29)
+- [SIZE] auto-memory MEMORY.md at/over 200-line cap — run `/anthropic-skills:consolidate-memory` next session (HIGH-ROI from session-retro; index truncates beyond 200).
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
