@@ -19,6 +19,7 @@ to use** + **when NOT to use** + **related skills**.
 | Re-run a previously tested strategy | `/rerun-backtest` |
 | Combine 2+ runs into a portfolio | `/run-composite-portfolio` |
 | Build a new strategy or port from Pine | `/port-strategy` |
+| Adversarially challenge a finalized design before scaling | `/design-challenge` |
 | Promote a strategy to LIVE | `/promote` |
 | Snapshot the workspace as a vault entry | `/update-vault` |
 | Add or remove a strategy from the active selection | `/portfolio-selection-add` / `/portfolio-selection-remove` |
@@ -69,6 +70,7 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
+| `design-challenge` | A finalized research design is about to consume durable state — corpus-building run, large matrix sweep, infra rollout — and you want an adversarial read for ontology/population/analog/bias errors gates can't catch, before scaling | Single exploratory one-window backtest (that *is* the probe); anything cheaper to run than to challenge; errors the mechanical gates already own | `port-strategy` (produces the design), `execute-directives` (the scaled run design-challenge gates), `session-retro` (audits honoured kill-criteria), `hypothesis-testing` (later lifecycle point) |
 | `hypothesis-testing` | Single-strategy hypothesis via directive-filter exclusion (regime cell, direction bias, session, age-gradient, weak-cell) on a baseline that has actionable `hypothesis_tester.py` insights | Basket-strategy hypothesis (mechanic / architecture) → use `/basket-hypothesis-testing`; no actionable insights ranked → don't synthesize one | `rerun-backtest`, `execute-directives`, `basket-hypothesis-testing` (sibling for basket scope) |
 | `basket-hypothesis-testing` | Basket-strategy hypothesis test — v1 scope is **mechanic** (different rule class on same architecture, e.g. `H2_recycle@1` vs `@4`) or **architecture** (different leg compositions with same rule, e.g. B1 vs B2 vs 4-leg). Orchestrator: Detect → Route → Execute → Summarize; delegates to `/execute-directives` and `/port-strategy` | Single-strategy directive-filter exclusion → use `/hypothesis-testing`; parameter sweep / composite / regime-gate / multi-window classes → not in v1 scope yet (deferred) | `hypothesis-testing` (sibling for single-strategy scope), `execute-directives` (called per variant), `port-strategy` (called when new rule class needed), `run-composite-portfolio` (future composite class) |
 | `uniform-risk-capital-simulation` | Need to compare capital profiles on a fixed dataset with `risk_per_trade` held uniform across all profiles | Default capital_wrapper run (per-profile risk varies) → use the standard `run-composite-portfolio` flow | `run-composite-portfolio` |
