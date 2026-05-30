@@ -142,6 +142,70 @@ class TestSchema:
             "PRAGMA table_info(singles_daily)").fetchall()}
         assert "methodology_version" in s_cols
 
+    def test_placeholder_rows_skipped_at_upsert(self, conn, tmp_path):
+        """When run() emits a placeholder row for a pair that lacked the
+        requested lookback bars at as_of (sample_size=0, NaT window dates),
+        upsert_from_parquet must skip the row entirely. The schema declares
+        window_start/end as NOT NULL — a snapshot with no compute is not
+        a series claim. Regression for 2026-05-30 BC3 attempt 2 failure.
+
+        Production daily runs never produce placeholders (today's as_of
+        has full history for every symbol); historical backfills do, for
+        pair-pairs involving symbols that were not yet in the universe.
+
+        Note: production-produced parquets have TZ-NAIVE window_start/end
+        (compute_pair_stats reads them from the data index which is tz-naive).
+        This fixture mirrors that so the upsert's NaT-fillna doesn't trip
+        the .dt accessor on a mixed tz-aware + tz-naive column."""
+        def _row(pair_a, pair_b, sample_size, pvalue):
+            window_end = pd.Timestamp("2026-05-15")  # tz-naive, matches prod
+            return {
+                "pair_a": pair_a, "pair_b": pair_b,
+                "tf": "1d", "lookback_days": 252,
+                "window_start": window_end - pd.Timedelta(days=251)
+                                  if sample_size > 0 else pd.NaT,
+                "window_end": window_end if sample_size > 0 else pd.NaT,
+                "sample_size": sample_size,
+                "adf_pvalue": pvalue,
+                "pvalue_rolling_median_5d": float("nan"),
+                "adf_statistic": -3.5 if sample_size > 0 else float("nan"),
+                "half_life_days": 10.0 if sample_size > 0 else float("nan"),
+                "hedge_ratio": 1.5 if sample_size > 0 else float("nan"),
+                "beta_method": "ols_static",
+                "test_method": "eg_mackinnon",
+                "current_zscore": 0.5 if sample_size > 0 else float("nan"),
+                "regime": "cointegrated" if sample_size > 0 else "broken",
+                "data_version": "abc",
+                "generated_at": pd.Timestamp("2026-05-15T22:00:00", tz="UTC"),
+                "methodology_version": "v1_raw_adf",
+            }
+
+        df = pd.DataFrame(
+            [_row("EURUSD", "USDJPY", 252, 0.03),
+             _row("GBPUSD", "USDCHF", 252, 0.04),
+             _row("ETHUSD", "BTCUSD", 0, 1.0)],          # placeholder
+            columns=PARQUET_COLUMNS,
+        )
+        p = tmp_path / "mixed.parquet"
+        df.to_parquet(p, index=False)
+
+        n = upsert_from_parquet(conn, p)
+        assert n == 2, f"expected 2 real rows upserted, got {n}"
+
+        rows = conn.execute(
+            f"SELECT pair_a, pair_b, sample_size FROM {TABLE_NAME} "
+            f"ORDER BY pair_a, pair_b"
+        ).fetchall()
+        pairs = {(r["pair_a"], r["pair_b"]) for r in rows}
+        assert ("EURUSD", "USDJPY") in pairs
+        assert ("GBPUSD", "USDCHF") in pairs
+        assert ("ETHUSD", "BTCUSD") not in pairs, (
+            "Placeholder row (sample_size=0) should have been skipped, "
+            "but it landed in the DB."
+        )
+        for r in rows:
+            assert r["sample_size"] > 0
+
     def test_methodology_version_required_not_null(self, conn):
         """No write path may emit NULL methodology_version (operator C2 invariant)."""
         import sqlite3

@@ -450,6 +450,19 @@ def upsert_from_parquet(conn: sqlite3.Connection,
     rows_to_insert: list[tuple] = []
 
     for _, r in df.iterrows():
+        # Skip placeholder rows. When a pair lacks the requested lookback
+        # bars at as_of (e.g., a recently-added symbol on a historical
+        # backfill date), compute_pair_stats returns None and run() emits
+        # a placeholder row with sample_size=0 and NaT window_start/end.
+        # The schema declares window_start/end as NOT NULL — there is no
+        # row to write for a pair the screener could not compute. Production
+        # daily runs (as_of=today) never hit this path because all symbols
+        # have full history; historical backfills (BC3/BC4 2026-05-30) do.
+        # The placeholder is not part of the eligibility series either: a
+        # snapshot without compute carries no regime/p-value claim.
+        if int(r["sample_size"]) == 0:
+            continue
+
         # methodology_version is mandatory (C2: no NULL write path). For
         # parquet files written before C2 the column is absent; fall back
         # to 'v1_raw_adf' rather than NULL so the schema's NOT NULL holds.
@@ -700,6 +713,12 @@ def upsert_singles_from_parquet(
     inserted_at = datetime.now(timezone.utc).isoformat()
     rows_to_insert: list[tuple] = []
     for _, r in df.iterrows():
+        # Skip placeholder rows (sample_size=0, NaT window dates). Same
+        # rationale as in upsert_from_parquet — schema declares window_*
+        # NOT NULL and a snapshot without compute is not a series claim.
+        if int(r["sample_size"]) == 0:
+            continue
+
         # methodology_version mandatory (C2): pull from parquet, fall back
         # to 'v1_raw_adf' for pre-C2 parquet files that lack the column.
         methodology = (
