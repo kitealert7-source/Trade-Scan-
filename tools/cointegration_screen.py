@@ -55,7 +55,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.stattools import adfuller, coint
 
 from config.path_authority import DATA_ROOT
 # Private import is intentional (per spec §V1 "for v1 just call it directly");
@@ -94,7 +94,13 @@ LOOKBACK_BY_TF: dict[str, tuple[int, ...]] = {
 LOOKBACK_WINDOWS = LOOKBACK_BY_TF[TF]  # backward-compat default
 SUPPORTED_TFS: tuple[str, ...] = ("1d", "4h")
 BETA_METHOD = "ols_static"
-TEST_METHOD = "adf"
+# v2 (2026-05-30, C3): cointegration test on log prices using Engle-Granger
+# with MacKinnon critical values via statsmodels.tsa.stattools.coint. Field
+# names adf_statistic / adf_pvalue retained for schema stability — semantics
+# now flip via TEST_METHOD = "eg_mackinnon". The singles path (compute_
+# single_series_adf) still uses plain ADF since unit-root on one series is
+# the right test there; tagged separately via SINGLES_METHODOLOGY_VERSION.
+TEST_METHOD = "eg_mackinnon"
 
 OUTPUT_DIR = DATA_ROOT / "SYSTEM_FACTORS" / "FX_COINTEGRATION"
 PARQUET_PATH = OUTPUT_DIR / "coint_1d_latest.parquet"
@@ -151,11 +157,17 @@ def singles_metadata_path_for(tf: str) -> Path:
     return (SINGLES_METADATA_PATH if tf == "1d"
             else OUTPUT_DIR / f"singles_metadata_{tf}.json")
 
-# Methodology version label. Tags every emitted row with the version of the
-# math that produced it. C2 (2026-05-30) introduces the column on v1 math
-# unchanged; C3 flips this constant to "v2_log_eg" alongside the log+EG fix.
+# Methodology version labels. Tags every emitted row with the cohort of the
+# math that produced it. Pair-pair flipped to v2_log_eg in C3 (log prices +
+# Engle-Granger/MacKinnon criticals). Singles flipped to v2_log_adf — the
+# singles math itself didn't change (it was already log+ADF) but the cohort
+# label tracks the era cleanly so post-C3 rows are distinguishable from C2-
+# period rows that were mis-tagged 'v1_raw_adf'.
 # See outputs/system_reports/06_strategy_research/COINTEGRATION_SCREEN_MATH_V2.md.
-METHODOLOGY_VERSION = "v1_raw_adf"
+PAIR_METHODOLOGY_VERSION = "v2_log_eg"
+SINGLES_METHODOLOGY_VERSION = "v2_log_adf"
+# Back-compat alias for any external caller that imported the C2 constant.
+METHODOLOGY_VERSION = PAIR_METHODOLOGY_VERSION
 
 # Columns in canonical order (matches spec §5a). Locked here so any
 # accidental reorder fails the byte-identity test in Phase 1.
@@ -209,27 +221,47 @@ def compute_pair_stats(close_a: pd.Series, close_b: pd.Series,
     a_vals = aligned["a"].values
     b_vals = aligned["b"].values
 
-    # --- OLS hedge ratio: B = α + β·A + ε
-    X = sm.add_constant(a_vals)
+    # v2 (2026-05-30, C3): log prices throughout. Reasons:
+    #   (1) Engle-Granger criticals expect the cointegrating regression to run
+    #       on the actual modeled series — for FX/equity/etc. that's log-prices
+    #       (returns are stationary, log-prices have unit roots).
+    #   (2) Consistent with the singles path (compute_single_series_adf), which
+    #       always used log; removes a long-standing pair↔singles inconsistency.
+    la = np.log(a_vals)
+    lb = np.log(b_vals)
+
+    # --- OLS hedge ratio in log space: lb = α + β·la + ε
+    # β is stored for downstream consumers (the strategy doesn't use it; it
+    # trades 1:1). The OLS here mirrors the one coint() runs internally, so
+    # the spread used for half-life + z-score matches the residual coint() tests.
+    X = sm.add_constant(la)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        ols = sm.OLS(b_vals, X).fit()
+        ols = sm.OLS(lb, X).fit()
     alpha = float(ols.params[0])
     beta = float(ols.params[1])
-    spread = b_vals - beta * a_vals
+    spread = lb - beta * la  # log-space residual
 
-    # --- ADF test on the spread
+    # --- Engle-Granger cointegration test on (lb, la)
+    # statsmodels.tsa.stattools.coint applies MacKinnon (1996) critical values
+    # tailored to the cointegration setting (pre-estimated residual). This is
+    # the correctness fix vs v1's plain adfuller(spread), which used unit-root
+    # criticals and systematically over-rejected — see 2026-05-29 audit.
+    # Field names adf_statistic / adf_pvalue preserved for schema stability;
+    # the test_method='eg_mackinnon' constant disambiguates the semantics.
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            adf_result = adfuller(spread, autolag="AIC")
-        adf_statistic = float(adf_result[0])
-        adf_pvalue = float(adf_result[1])
+            coint_t, coint_p, _ = coint(lb, la, trend="c", autolag="AIC")
+        adf_statistic = float(coint_t)
+        adf_pvalue = float(coint_p)
     except Exception:
         adf_statistic = float("nan")
         adf_pvalue = 1.0  # treat compute failure as fully non-stationary
 
-    # --- Half-life via OU fit: Δs_t = λ · s_{t-1} + ε
+    # --- Half-life via OU fit on the log-spread: Δs_t = λ · s_{t-1} + ε
+    # Numerically different units from v1 (log-return half-life vs price-spread
+    # half-life) but semantically the same "speed of mean reversion."
     spread_series = pd.Series(spread, index=aligned.index)
     delta = spread_series.diff().dropna()
     prev = spread_series.shift(1).dropna().loc[delta.index]
@@ -246,7 +278,7 @@ def compute_pair_stats(close_a: pd.Series, close_b: pd.Series,
     except Exception:
         half_life_days = float("nan")
 
-    # --- Current spread z-score (in-sample σ)
+    # --- Current log-spread z-score (in-sample σ)
     spread_mean = float(np.mean(spread))
     spread_std = float(np.std(spread, ddof=1))
     current_zscore = float((spread[-1] - spread_mean) / spread_std) if spread_std > 0 else float("nan")
@@ -271,7 +303,7 @@ def compute_pair_stats(close_a: pd.Series, close_b: pd.Series,
         "hedge_ratio": beta,
         "current_zscore": current_zscore,
         "regime": regime,
-        "methodology_version": METHODOLOGY_VERSION,
+        "methodology_version": PAIR_METHODOLOGY_VERSION,
     }
 
 
@@ -351,7 +383,7 @@ def compute_single_series_adf(close: pd.Series, lookback: int) -> dict | None:
         "half_life_days": half_life_days,
         "current_zscore": current_zscore,
         "regime": regime,
-        "methodology_version": METHODOLOGY_VERSION,
+        "methodology_version": SINGLES_METHODOLOGY_VERSION,
     }
 
 
@@ -457,7 +489,7 @@ def run(as_of: pd.Timestamp | None = None,
                     "regime": "broken",
                     "data_version": data_version,
                     "generated_at": generated_at,
-                    "methodology_version": METHODOLOGY_VERSION,
+                    "methodology_version": PAIR_METHODOLOGY_VERSION,
                 })
                 continue
             rows.append({
@@ -477,7 +509,7 @@ def run(as_of: pd.Timestamp | None = None,
                 "regime": stats["regime"],
                 "data_version": data_version,
                 "generated_at": generated_at,
-                "methodology_version": stats.get("methodology_version", METHODOLOGY_VERSION),
+                "methodology_version": stats.get("methodology_version", PAIR_METHODOLOGY_VERSION),
             })
 
     df = pd.DataFrame(rows, columns=PARQUET_COLUMNS)
@@ -586,7 +618,7 @@ def run_singles(
         "regime": "broken",
         "data_version": data_version,
         "generated_at": generated_at,
-        "methodology_version": METHODOLOGY_VERSION,
+        "methodology_version": SINGLES_METHODOLOGY_VERSION,
     }
     for sym in sorted(universe):
         for lookback in windows:
@@ -611,7 +643,7 @@ def run_singles(
                 "regime": stats["regime"],
                 "data_version": data_version,
                 "generated_at": generated_at,
-                "methodology_version": stats.get("methodology_version", METHODOLOGY_VERSION),
+                "methodology_version": stats.get("methodology_version", SINGLES_METHODOLOGY_VERSION),
             })
     for a, b in synthetic_specs:
         for lookback in windows:
@@ -637,7 +669,7 @@ def run_singles(
                 "regime": stats["regime"],
                 "data_version": data_version,
                 "generated_at": generated_at,
-                "methodology_version": stats.get("methodology_version", METHODOLOGY_VERSION),
+                "methodology_version": stats.get("methodology_version", SINGLES_METHODOLOGY_VERSION),
             })
 
     df = pd.DataFrame(rows, columns=SINGLES_PARQUET_COLUMNS)

@@ -38,6 +38,8 @@ from tools.cointegration_screen import (
     universe_for,
     BETA_METHOD,
     TEST_METHOD,
+    PAIR_METHODOLOGY_VERSION,
+    SINGLES_METHODOLOGY_VERSION,
 )
 from tools.factors.fx_correlation_matrix import FX_UNIVERSE
 
@@ -49,18 +51,26 @@ from tools.factors.fx_correlation_matrix import FX_UNIVERSE
 
 @pytest.fixture
 def cointegrated_pair() -> tuple[pd.Series, pd.Series]:
-    """A: random walk. B: 2.0 * A + stationary noise.
+    """Log-cointegrated by construction: B = A * exp(stationary_noise).
 
-    Spread b - 2*a == stationary noise -> ADF should reject the
-    unit-root null at well below 1%, half-life finite and small.
+    Equivalently: log(B) = log(A) + ε where ε is stationary. So (la, lb)
+    are cointegrated with β=1.0 exactly; the residual log-spread is just ε.
+    Under v2 (log + Engle-Granger via coint()), this fits the math directly:
+    coint(lb, la) returns a small p-value, OLS recovers β≈1.0, log-spread
+    is stationary so half-life is finite + small.
+
+    Construction migrated 2026-05-30 (C3) from the v1 linear form
+    `B = 2.0 * A + noise` — that form was *also* log-cointegrated when
+    a >> noise, but β coerced to ≈1.0 not 2.0 under log-space OLS, so the
+    test's hedge_ratio assertion needed re-grounding in the new construction.
     """
     rng = np.random.default_rng(seed=42)
     n = 504
     idx = pd.date_range("2024-01-01", periods=n, freq="D")
     a_returns = rng.normal(0, 0.01, n)
     a = pd.Series(100 * np.exp(np.cumsum(a_returns)), index=idx, name="A")
-    noise = rng.normal(0, 0.5, n)  # stationary
-    b = pd.Series(2.0 * a.values + noise, index=idx, name="B")
+    log_noise = rng.normal(0, 0.005, n)  # stationary in log-space
+    b = pd.Series(a.values * np.exp(log_noise), index=idx, name="B")
     return a, b
 
 
@@ -93,18 +103,26 @@ class TestComputePairStats:
         stats = compute_pair_stats(a, b, lookback=252)
         assert stats is not None
         # Strong cointegration => p-value should be well below 0.05.
+        # adf_pvalue field name preserved for schema stability; under v2 the
+        # value is the Engle-Granger p-value from coint(), not raw adfuller.
         assert stats["adf_pvalue"] < 0.01, (
-            f"expected p<0.01 for known cointegrated pair, got {stats['adf_pvalue']}"
+            f"expected p<0.01 for known log-cointegrated pair, got {stats['adf_pvalue']}"
         )
         # Regime should be "cointegrated".
         assert stats["regime"] == "cointegrated"
-        # Hedge ratio should recover the true 2.0 (within numerical tolerance).
-        assert abs(stats["hedge_ratio"] - 2.0) < 0.05
+        # Hedge ratio recovers ≈1.0 by construction (B = A * exp(noise) → β=1
+        # in log space). Under v1 raw this synthetic gave β≈2.0; under v2 log
+        # it gives β≈1.0 — the assertion was re-grounded with the synthetic.
+        assert abs(stats["hedge_ratio"] - 1.0) < 0.05, (
+            f"expected hedge_ratio ≈1.0 in log space, got {stats['hedge_ratio']}"
+        )
         # Half-life should be finite and small (fast mean reversion).
         assert not np.isnan(stats["half_life_days"])
         assert 0 < stats["half_life_days"] < 30
         # Sample size matches the lookback.
         assert stats["sample_size"] == 252
+        # Methodology cohort tag: pair path is v2_log_eg post-C3.
+        assert stats["methodology_version"] == "v2_log_eg"
 
     def test_random_walk_pair_fails_adf(self, random_walk_pair):
         a, b = random_walk_pair
@@ -158,7 +176,16 @@ class TestSchema:
 
     def test_required_constants(self):
         assert BETA_METHOD == "ols_static"
-        assert TEST_METHOD == "adf"
+        # v2 (C3, 2026-05-30): cointegration test is Engle-Granger with
+        # MacKinnon critical values via statsmodels.tsa.stattools.coint.
+        # Field names adf_statistic / adf_pvalue retained; semantics flip
+        # via this constant.
+        assert TEST_METHOD == "eg_mackinnon"
+
+    def test_methodology_constants_post_c3(self):
+        """Cohort tags after the math fix lands."""
+        assert PAIR_METHODOLOGY_VERSION == "v2_log_eg"
+        assert SINGLES_METHODOLOGY_VERSION == "v2_log_adf"
 
     def test_parquet_columns_canonical_order(self):
         """Schema is FROZEN — accidental reorder must fail this test.

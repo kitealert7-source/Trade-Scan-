@@ -290,8 +290,10 @@ class TestRollingMedian:
 
 class TestUpsertSemantics:
 
-    def _seed_history(self, conn, pvalues_oldest_first: list[float]):
-        """Insert N rows for EURUSD/USDJPY/252, one per day."""
+    def _seed_history(self, conn, pvalues_oldest_first: list[float],
+                       methodology: str = "v1_raw_adf"):
+        """Insert N rows for EURUSD/USDJPY/252, one per day. methodology
+        tags the cohort; default 'v1_raw_adf' mirrors the legacy era."""
         base = pd.Timestamp("2026-05-01", tz="UTC")
         inserted_at = datetime.now(timezone.utc).isoformat()
         for i, p in enumerate(pvalues_oldest_first):
@@ -303,7 +305,7 @@ class TestUpsertSemantics:
                     "2025-08-25", as_of, 252, p, None, 0, -3.0,
                     10.0, 1.5, "ols_static", "adf",
                     0.0, "broken", "v0", inserted_at,
-                    "v1_raw_adf",
+                    methodology,
                 ),
             )
         conn.commit()
@@ -349,6 +351,83 @@ class TestUpsertSemantics:
         upsert_from_parquet(conn, parquet_one_day)
         n = conn.execute(f"SELECT COUNT(*) AS n FROM {TABLE_NAME}").fetchone()["n"]
         assert n == 2
+
+    # --- C3 regime-reset transition tests (2026-05-30) ---
+
+    def test_query_for_classifier_filters_by_methodology(self, conn):
+        """When methodology_version is passed, query returns only same-cohort
+        priors. Prevents v1+v2 p-value mixing on the math cutover."""
+        # Seed 3 v1 rows (oldest p-values) then 2 v2 rows (most recent).
+        self._seed_history(conn, [0.50, 0.40, 0.30], methodology="v1_raw_adf")
+        # _seed_history starts at 2026-05-01; second call starts again — collide
+        # on the as_of PK. Use direct inserts at later dates instead.
+        base = pd.Timestamp("2026-05-04", tz="UTC")
+        inserted_at = datetime.now(timezone.utc).isoformat()
+        for i, p in enumerate([0.20, 0.10]):
+            as_of = (base + pd.Timedelta(days=i)).strftime("%Y-%m-%d")
+            conn.execute(
+                f"INSERT INTO {TABLE_NAME} ({', '.join(DB_COLUMNS)}) VALUES ({', '.join(['?']*len(DB_COLUMNS))})",
+                (as_of, "EURUSD", "USDJPY", "1d", 252, "2025-09-01", as_of,
+                 252, p, None, 0, -4.0, 10.0, 1.0, "ols_static", "eg_mackinnon",
+                 0.0, "broken", "v0", inserted_at, "v2_log_eg"),
+            )
+        conn.commit()
+        # Unfiltered: returns all 5
+        all_priors = query_for_classifier(
+            conn, "EURUSD", "USDJPY", 252, before_as_of="2026-05-10")
+        assert all_priors == [0.10, 0.20, 0.30, 0.40, 0.50]
+        # v2 filter: returns only 2 v2 priors
+        v2_priors = query_for_classifier(
+            conn, "EURUSD", "USDJPY", 252,
+            methodology_version="v2_log_eg",
+            before_as_of="2026-05-10")
+        assert v2_priors == [0.10, 0.20]
+        # v1 filter: returns only 3 v1 priors
+        v1_priors = query_for_classifier(
+            conn, "EURUSD", "USDJPY", 252,
+            methodology_version="v1_raw_adf",
+            before_as_of="2026-05-10")
+        assert v1_priors == [0.30, 0.40, 0.50]
+
+    def test_hysteresis_resets_at_methodology_cutover(self, conn, tmp_path):
+        """End-to-end: 5 v1 priors + 1 v2 row → v2 row's regime is classified
+        from current p-value alone (bootstrap path), NOT from the v1 priors.
+
+        Locked decision (2026-05-30): regime reset until ≥5 v2 rows exist per
+        pair-window. The query filter + classify_regime's existing
+        bootstrap-when-priors<5 path compose to deliver this naturally."""
+        # Seed 5 v1 priors all cointegrated (p<0.05). Under v1 history, the
+        # hysteresis would lock the regime to "cointegrated" if mixing were
+        # allowed. With methodology filter, v2 sees 0 priors → bootstrap.
+        self._seed_history(conn, [0.01, 0.02, 0.03, 0.04, 0.045],
+                            methodology="v1_raw_adf")
+
+        # Write a v2 parquet row whose adf_pvalue is in the BREAKING zone
+        # (0.05 ≤ p < 0.10). If hysteresis incorrectly mixed v1 priors in,
+        # the regime would lock to "cointegrated" (4+ of 5 priors < 0.05).
+        # With reset, current-pvalue alone → "breaking".
+        v2_pq_path = tmp_path / "v2.parquet"
+        v2_row = _make_parquet_row(
+            "2026-05-20", "EURUSD", "USDJPY", 252, 0.07,  # in breaking zone
+            regime="breaking", methodology_version="v2_log_eg")
+        pd.DataFrame([v2_row], columns=PARQUET_COLUMNS).to_parquet(
+            v2_pq_path, index=False)
+        upsert_from_parquet(conn, v2_pq_path)
+
+        # The v2 row should be classified by the bootstrap path (no same-
+        # methodology priors), so regime = "breaking" purely from p=0.07.
+        df = query_today(conn)
+        assert len(df) == 1
+        v2 = df.iloc[0]
+        assert v2["methodology_version"] == "v2_log_eg"
+        assert v2["regime"] == "breaking", (
+            "v2 row classified using v1 priors — methodology filter not "
+            "applied; expected bootstrap-from-current-pvalue (regime=breaking)"
+        )
+        # history_depth = 0 confirms zero same-methodology priors used.
+        assert v2["history_depth"] == 0
+        # And the rolling median is None for the same reason.
+        assert v2["pvalue_rolling_median_5d"] is None or pd.isna(v2["pvalue_rolling_median_5d"])
 
     def test_history_query_returns_oldest_first(self, conn):
         self._seed_history(conn, [0.50, 0.40, 0.30, 0.20, 0.10])

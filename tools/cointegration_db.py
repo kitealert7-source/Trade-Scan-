@@ -279,6 +279,7 @@ def query_for_classifier(conn: sqlite3.Connection,
                          *,
                          lookback: int = HYSTERESIS_LOOKBACK,
                          before_as_of: str | None = None,
+                         methodology_version: str | None = None,
                          ) -> list[float]:
     """Return list of `adf_pvalue` values from the last `lookback`
     snapshots STRICTLY BEFORE `before_as_of` for this pair-window.
@@ -288,6 +289,15 @@ def query_for_classifier(conn: sqlite3.Connection,
 
     `before_as_of` defaults to the maximum as_of in the table
     (i.e. "before today's row" when called during enrichment).
+
+    `methodology_version` (2026-05-30, C3) restricts the history to rows
+    produced by the same screener methodology. EG p-values are systematically
+    larger than plain-ADF p-values for the same data, so mixing v1+v2 history
+    would cause spurious regime flips on methodology cutover. When fewer than
+    HYSTERESIS_LOOKBACK same-methodology priors exist, classify_regime's
+    bootstrap path falls back to current-pvalue alone — clean regime reset.
+    When `methodology_version` is None (legacy callers, tests), no filter is
+    applied — preserves backward compatibility.
     """
     if before_as_of is None:
         row = conn.execute(
@@ -295,16 +305,30 @@ def query_for_classifier(conn: sqlite3.Connection,
         ).fetchone()
         before_as_of = row["m"] if row and row["m"] else "0000-00-00"
 
-    rows = conn.execute(
-        f"""
-        SELECT adf_pvalue FROM {TABLE_NAME}
-        WHERE pair_a = ? AND pair_b = ? AND lookback_days = ?
-              AND as_of < ?
-        ORDER BY as_of DESC
-        LIMIT ?
-        """,
-        (pair_a, pair_b, int(lookback_days), before_as_of, int(lookback)),
-    ).fetchall()
+    if methodology_version is None:
+        rows = conn.execute(
+            f"""
+            SELECT adf_pvalue FROM {TABLE_NAME}
+            WHERE pair_a = ? AND pair_b = ? AND lookback_days = ?
+                  AND as_of < ?
+            ORDER BY as_of DESC
+            LIMIT ?
+            """,
+            (pair_a, pair_b, int(lookback_days), before_as_of, int(lookback)),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"""
+            SELECT adf_pvalue FROM {TABLE_NAME}
+            WHERE pair_a = ? AND pair_b = ? AND lookback_days = ?
+                  AND methodology_version = ?
+                  AND as_of < ?
+            ORDER BY as_of DESC
+            LIMIT ?
+            """,
+            (pair_a, pair_b, int(lookback_days), methodology_version,
+             before_as_of, int(lookback)),
+        ).fetchall()
     return [float(r["adf_pvalue"]) for r in rows]
 
 
@@ -426,21 +450,6 @@ def upsert_from_parquet(conn: sqlite3.Connection,
     rows_to_insert: list[tuple] = []
 
     for _, r in df.iterrows():
-        # Pull the prior history for this pair-window STRICTLY BEFORE
-        # this row's as_of. By querying with `before_as_of=as_of` we
-        # naturally exclude any prior re-run of TODAY's snapshot.
-        prior = query_for_classifier(
-            conn,
-            r["pair_a"], r["pair_b"], int(r["lookback_days"]),
-            lookback=HYSTERESIS_LOOKBACK,
-            before_as_of=r["as_of"],
-        )
-
-        # Enrich.
-        regime_hysteresis = classify_regime(float(r["adf_pvalue"]), prior)
-        rolling_median = compute_rolling_median(prior)
-        history_depth = len(prior)  # 0..HYSTERESIS_LOOKBACK; <5 = bootstrap
-
         # methodology_version is mandatory (C2: no NULL write path). For
         # parquet files written before C2 the column is absent; fall back
         # to 'v1_raw_adf' rather than NULL so the schema's NOT NULL holds.
@@ -448,6 +457,23 @@ def upsert_from_parquet(conn: sqlite3.Connection,
             r["methodology_version"] if "methodology_version" in r
             and pd.notna(r["methodology_version"]) else "v1_raw_adf"
         )
+
+        # Pull the prior history for this pair-window STRICTLY BEFORE
+        # this row's as_of and FILTERED to same-methodology rows only
+        # (C3 regime-reset transition: prevents v1+v2 p-value mixing
+        # from causing spurious regime flips on the math cutover).
+        prior = query_for_classifier(
+            conn,
+            r["pair_a"], r["pair_b"], int(r["lookback_days"]),
+            lookback=HYSTERESIS_LOOKBACK,
+            before_as_of=r["as_of"],
+            methodology_version=methodology,
+        )
+
+        # Enrich.
+        regime_hysteresis = classify_regime(float(r["adf_pvalue"]), prior)
+        rolling_median = compute_rolling_median(prior)
+        history_depth = len(prior)  # 0..HYSTERESIS_LOOKBACK; <5 = bootstrap
         rows_to_insert.append((
             r["as_of"],
             r["pair_a"], r["pair_b"],
@@ -604,22 +630,38 @@ def _float_or_none(v) -> float | None:
 def query_singles_for_classifier(
     conn: sqlite3.Connection, symbol: str, lookback_days: int,
     *, lookback: int = HYSTERESIS_LOOKBACK, before_as_of: str | None = None,
+    methodology_version: str | None = None,
 ) -> list[float]:
-    """Singles analog of query_for_classifier — last N prior p-values."""
+    """Singles analog of query_for_classifier — last N prior p-values.
+    See query_for_classifier for the methodology_version filter rationale."""
     if before_as_of is None:
         row = conn.execute(
             f"SELECT MAX(as_of) AS m FROM {SINGLES_TABLE_NAME}"
         ).fetchone()
         before_as_of = row["m"] if row and row["m"] else "0000-00-00"
-    rows = conn.execute(
-        f"""
-        SELECT adf_pvalue FROM {SINGLES_TABLE_NAME}
-        WHERE symbol = ? AND lookback_days = ? AND as_of < ?
-        ORDER BY as_of DESC
-        LIMIT ?
-        """,
-        (symbol, int(lookback_days), before_as_of, int(lookback)),
-    ).fetchall()
+    if methodology_version is None:
+        rows = conn.execute(
+            f"""
+            SELECT adf_pvalue FROM {SINGLES_TABLE_NAME}
+            WHERE symbol = ? AND lookback_days = ? AND as_of < ?
+            ORDER BY as_of DESC
+            LIMIT ?
+            """,
+            (symbol, int(lookback_days), before_as_of, int(lookback)),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"""
+            SELECT adf_pvalue FROM {SINGLES_TABLE_NAME}
+            WHERE symbol = ? AND lookback_days = ?
+                  AND methodology_version = ?
+                  AND as_of < ?
+            ORDER BY as_of DESC
+            LIMIT ?
+            """,
+            (symbol, int(lookback_days), methodology_version,
+             before_as_of, int(lookback)),
+        ).fetchall()
     return [float(r["adf_pvalue"]) for r in rows]
 
 
@@ -658,19 +700,21 @@ def upsert_singles_from_parquet(
     inserted_at = datetime.now(timezone.utc).isoformat()
     rows_to_insert: list[tuple] = []
     for _, r in df.iterrows():
-        prior = query_singles_for_classifier(
-            conn, r["symbol"], int(r["lookback_days"]),
-            lookback=HYSTERESIS_LOOKBACK, before_as_of=r["as_of"],
-        )
-        regime_hysteresis = classify_regime(float(r["adf_pvalue"]), prior)
-        rolling_median = compute_rolling_median(prior)
-        history_depth = len(prior)
         # methodology_version mandatory (C2): pull from parquet, fall back
         # to 'v1_raw_adf' for pre-C2 parquet files that lack the column.
         methodology = (
             r["methodology_version"] if "methodology_version" in r
             and pd.notna(r["methodology_version"]) else "v1_raw_adf"
         )
+        # Same-methodology priors only — see upsert_from_parquet rationale.
+        prior = query_singles_for_classifier(
+            conn, r["symbol"], int(r["lookback_days"]),
+            lookback=HYSTERESIS_LOOKBACK, before_as_of=r["as_of"],
+            methodology_version=methodology,
+        )
+        regime_hysteresis = classify_regime(float(r["adf_pvalue"]), prior)
+        rolling_median = compute_rolling_median(prior)
+        history_depth = len(prior)
         rows_to_insert.append((
             r["as_of"],
             r["symbol"],
