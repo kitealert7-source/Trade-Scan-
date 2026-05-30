@@ -97,6 +97,27 @@ def test_build_row_pass_window(tmp_path, monkeypatch):
     assert row["strategy_code_sha256"] is None  # baskets have no strategy.py
 
 
+def test_default_methodology_is_v2_log_eg(tmp_path, monkeypatch):
+    """Default methodology_version is the screener's active cohort (v2_log_eg).
+
+    Frozen by this test against accidental drift; flipped from v1_raw_adf on
+    2026-05-30 once the pair screener migrated to log-price Engle-Granger.
+    Callers may still override; this only pins the default."""
+    _setup_screener(tmp_path, monkeypatch, "EURUSD", "GER40", 252,
+                    _daily("2024-01-01", ["cointegrated"] * 400))
+    doc = _directive_doc(["EURUSD", "GER40"], 252, "2024-03-01", "2024-10-01")
+    d = _write(tmp_path, doc)
+
+    row = build_cointegration_row(
+        parsed=doc, directive_path=d, run_id="R_DEF", directive_id="DIR_DEF",
+        directive_hash="h", backtests_path="backtests/z", vault_path="",
+        canonical=_CANON, trades_total=1,
+        completed_at_utc="2026-05-30T00:00:00Z", stake_usd=1000.0,
+    )
+
+    assert row["methodology_version"] == "v2_log_eg"
+
+
 def test_build_row_override_window(tmp_path, monkeypatch):
     _setup_screener(tmp_path, monkeypatch, "EURUSD", "GER40", 252,
                     _daily("2024-01-01", ["broken"] * 200))  # never aligned

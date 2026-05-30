@@ -54,7 +54,7 @@ def build_cointegration_row(
     engine_abi: str = "engine_abi.v1_5_9",
     classifier_version: str | None = None,
     data_vintage: str | None = None,
-    methodology_version: str = "v1_raw_adf",
+    methodology_version: str = "v2_log_eg",
 ) -> dict[str, Any]:
     """Assemble a cointegration_sheet row dict. Reads the screener once via the
     window-validity gate; performs no parquet read (canonical is passed in)."""
@@ -117,9 +117,12 @@ def build_cointegration_row(
         ),
         "trades_total": int(trades_total),
         "metrics_fn_version": METRICS_FN_VERSION,
-        # methodology cohort tag (2026-05-30, C2). Default v1_raw_adf preserves
-        # the pre-correction math identity; orchestration may override once the
-        # screener exposes its active methodology to the gate.
+        # methodology cohort tag (2026-05-30, C2; default flipped to v2_log_eg
+        # on 2026-05-30). v2_log_eg is the screener's current pair methodology
+        # (log-price Engle-Granger; see PAIR_METHODOLOGY_VERSION in
+        # tools/cointegration_screen.py), so newly-produced corpus rows inherit
+        # the active cohort by default. Legacy v1_raw_adf rows remain in the
+        # ledger; callers can still override to re-tag a non-default cohort.
         "methodology_version": methodology_version,
     }
 
