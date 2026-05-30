@@ -16,12 +16,28 @@ Methodology vs the legacy tmp/gen_all_episodes.py:
   - Exit_date is set to the bar AFTER the regime break (break_idx + 1), so
     the exit is also strictly causal.
 
+INDEXING CONVENTION (operator-fixed, 2026-05-30 --- do not relitigate)
+======================================================================
+   onset day             = day 0  (the first bar labeled regime='cointegrated'
+                                   that triggers a new span)
+   confirmation period   = next N completed business days (default N=5,
+                                   i.e. days 1, 2, 3, 4, 5 of the span)
+   entry eligibility     = the following business day  (day N+1 of the span,
+                                   i.e. onset_idx + N + 1 in the regime series)
+
+This convention answers the recurring "+N vs +N+1" question by anchoring
+on the trader's information set: the screener emits the regime label for
+day D at the close of day D, so the earliest causal entry bar is day
+D+1. Five days of confirmation observed end-of-day for days 1..5 means
+the position can be opened at the open of day 6 --- *not* day 5.
+
 Look-ahead-safe convention (see section A of the design contract):
-  onset_idx       = first bar of the cointegrated span
+  onset_idx       = first bar of the cointegrated span                (= day 0)
   last_coint_idx  = last bar still labeled 'cointegrated'
   break_idx       = first bar after the span where regime != 'cointegrated'
                     (None when the span is open at end-of-series)
-  entry_idx       = onset_idx + N + 1  (bar AFTER the Nth confirmation day)
+  entry_idx       = onset_idx + N + 1  (bar AFTER the Nth confirmation day,
+                                        i.e. day N+1 of the span)
   exit_idx        = break_idx + 1, or len(series) - 1 for open spans
   ncoint          = last_coint_idx - onset_idx + 1   (onset day + run-length)
 
@@ -152,6 +168,11 @@ def spans_confirmation_safe(
                                                  and break_idx + 1 < len(series)
                      else                       series[-1][0]
 
+    Indexing convention (operator-fixed; mirrors module docstring):
+        onset day             = day 0
+        confirmation period   = next N completed business days (default N=5)
+        entry eligibility     = the following business day (day N+1)
+
     Look-ahead correctness:
         * The Nth confirmation day's regime label is known at the close of
           bar (onset_idx + N), so the trader can act on the open of bar
@@ -161,6 +182,17 @@ def spans_confirmation_safe(
         * Open spans (no observed break yet) use the latest available
           as_of as the exit boundary --- callers should interpret this
           as a "data still streaming" boundary, not as a closed episode.
+
+    Edge case --- just-at-threshold (ncoint == N + 1):
+        When the span has exactly N+1 cointegrated days, entry_idx
+        coincides with break_idx (= the bar regime='cointegrated'
+        first stops). The trader enters at open of the break day
+        because end-of-day-N-confirmation-day the regime was still
+        'cointegrated'; end-of-day-entry the regime flips to
+        'breaking' and the exit fires at open of break_idx + 1.
+        Tradable duration is 1 trading day. This is correct per
+        the rule above and is intentionally retained in the corpus
+        (see CR-VERIFY sample walkthrough 2026-05-30).
 
     Returns [] when the series produces no qualifying spans.
     """
