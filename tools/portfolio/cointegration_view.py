@@ -20,6 +20,10 @@ from pathlib import Path
 import pandas as pd
 
 # Final display order (== the locked human view; column-budget guard caps this).
+# methodology added 2026-05-30 (C4): surfaces the cohort tag so operators can
+# tell v1_raw_adf legacy rows apart from v2_log_eg / v2_log_adf post-correction
+# rows — the two are NOT comparable head-to-head (different EG vs raw-ADF
+# criticals, log vs raw spread). See COINTEGRATION_SCREEN_MATH_V2.md.
 COINTEGRATION_VIEW_COLUMNS = [
     "rank",
     "pair",
@@ -36,6 +40,7 @@ COINTEGRATION_VIEW_COLUMNS = [
     "cycles",
     "win_rate",
     "regime",
+    "methodology",
     "backtest",
 ]
 
@@ -53,6 +58,7 @@ _RENAME = {
     "cycles_completed": "cycles",
     "cycle_win_rate_pct": "win_rate",
     "regime_state": "regime",
+    "methodology_version": "methodology",
 }
 
 # Sort keys (descending): primary metric, then recency, then a stable tiebreak.

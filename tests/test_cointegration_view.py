@@ -17,7 +17,8 @@ def _raw(rows):
     return pd.DataFrame(rows)
 
 
-def _row(run_id, ret_dd, completed, pair_a="EURUSD", pair_b="GER40"):
+def _row(run_id, ret_dd, completed, pair_a="EURUSD", pair_b="GER40",
+         methodology_version="v1_raw_adf"):
     return {
         "run_id": run_id,
         "pair_a": pair_a, "pair_b": pair_b,
@@ -29,6 +30,7 @@ def _row(run_id, ret_dd, completed, pair_a="EURUSD", pair_b="GER40"):
         "trades_total": 42, "cycles_completed": 11, "cycle_win_rate_pct": 55.0,
         "regime_state": "cointegrated",
         "backtests_path": f"backtests/{run_id}_X",
+        "methodology_version": methodology_version,
     }
 
 
@@ -51,6 +53,23 @@ def test_friendly_rename_and_no_canonical_names():
     assert "total_trades" in out.columns and "win_rate" in out.columns
     assert "canonical_ret_dd" not in out.columns
     assert "trades_total" not in out.columns
+    # methodology column carries the cohort tag (C4 2026-05-30).
+    assert "methodology" in out.columns
+    assert "methodology_version" not in out.columns  # renamed away
+    assert out.iloc[0]["methodology"] == "v1_raw_adf"
+
+
+def test_methodology_passes_through_per_row():
+    """Mixed-cohort corpus: v1 legacy rows and v2 post-correction rows must
+    display side by side with their own methodology tag (the operator's
+    primary signal that the two methodologies are not comparable)."""
+    out = build_cointegration_view_df(_raw([
+        _row("V1ROW", 1.5, "2026-05-15T00:00:00Z", methodology_version="v1_raw_adf"),
+        _row("V2ROW", 2.0, "2026-05-30T00:00:00Z", methodology_version="v2_log_eg"),
+    ]))
+    by_run_date = dict(zip(out["run_date"], out["methodology"]))
+    assert by_run_date["2026-05-15"] == "v1_raw_adf"
+    assert by_run_date["2026-05-30"] == "v2_log_eg"
 
 
 def test_sort_primary_by_ret_dd_desc():

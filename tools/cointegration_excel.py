@@ -545,6 +545,16 @@ def _pivot_today(df: pd.DataFrame) -> pd.DataFrame:
             agreement = "504-only"
         else:
             agreement = "NEITHER"
+        # methodology_version is shared across both windows (same screener run
+        # produces both); take from 252 with 504 fallback. Surfaces the cohort
+        # tag (v1_raw_adf legacy vs v2_log_eg post-correction) in the All Pairs
+        # diagnostic so operators don't accidentally compare across cohorts.
+        methodology = (
+            r252["methodology_version"] if "methodology_version" in r252
+            and pd.notna(r252["methodology_version"])
+            else (r504["methodology_version"] if "methodology_version" in r504
+                  and pd.notna(r504["methodology_version"]) else "v1_raw_adf")
+        )
         pivoted.append({
             "pair_a": a, "pair_b": b,
             "pair_class": _classify_pair(a, b),
@@ -555,6 +565,7 @@ def _pivot_today(df: pd.DataFrame) -> pd.DataFrame:
             "current_zscore_252": r252["current_zscore"], "current_zscore_504": r504["current_zscore"],
             "hedge_ratio_252": r252["hedge_ratio"], "hedge_ratio_504": r504["hedge_ratio"],
             "history_depth": max(r252["history_depth"], r504["history_depth"]),
+            "methodology": methodology,
         })
     return pd.DataFrame(pivoted)
 
@@ -809,6 +820,7 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
         "current_zscore_252", "current_zscore_504",
         "hedge_ratio_252", "hedge_ratio_504",
         "history_depth", "score",
+        "methodology",  # NEW 2026-05-30 (C4) — cohort tag (v1_raw_adf / v2_log_eg)
     ]
     for c, h in enumerate(columns, start=1):
         _header_style(ws.cell(row=1, column=c, value=h))
@@ -844,8 +856,8 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
                     cell.fill, cell.font = _fill(COLOR_BOOTSTRAP_BG, "000000")
 
     ws.freeze_panes = "D2"
-    #         pair_a pair_b cls  agr  reg2 reg5 p25 p50 hl2 hl5 z25 z50 he2 he5 hd score
-    widths = [10,    10,    10,  11,  13,  13,  14, 14, 18, 18, 18, 18, 14, 14, 14, 10]
+    #         pair_a pair_b cls  agr  reg2 reg5 p25 p50 hl2 hl5 z25 z50 he2 he5 hd score methodology
+    widths = [10,    10,    10,  11,  13,  13,  14, 14, 18, 18, 18, 18, 14, 14, 14, 10,   14]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
