@@ -92,7 +92,7 @@ def _schtasks_output(state: str) -> str:
     """A minimal schtasks /Query /V /FO LIST blob with the state line we parse."""
     return (
         "HostName:              MACHINE\r\n"
-        "TaskName:              \\CointegrationScreener_DailyRun\r\n"
+        "TaskName:              \\AntiGravity_Daily_Preflight\r\n"
         f"Scheduled Task State:  {state}\r\n"
         "Task To Run:           pythonw.exe ...\r\n"
     )
@@ -112,7 +112,7 @@ class TestSchedulerCheck:
                 returncode=0, stdout=_schtasks_output("Disabled"), stderr="")
             bf._check_scheduler_paused()  # no raise
 
-    @pytest.mark.parametrize("state", ["Ready", "Running", "Queued"])
+    @pytest.mark.parametrize("state", ["Ready", "Running", "Queued", "Enabled"])
     def test_any_enabled_state_raises(self, state):
         with mock.patch.object(bf.os, "name", "nt"), \
              mock.patch.object(bf.shutil, "which", return_value="schtasks.exe"), \

@@ -147,11 +147,11 @@ Alternative (if operator pushes back on §2): `DELETE FROM … WHERE as_of >= ?`
 
 BC2 ships a hard pre-flight that the tool runs **before** the backup step, **before** the truncate, and **before** the compute loop. The check refuses to start the backfill if the production `cointegration_daily_runner` scheduled task is enabled — operator discipline is not sufficient given the concurrent-write blast radius (a daily-runner tick mid-backfill would write a v1-styled row from the still-deployed but soon-truncated baseline + race against the chronological upsert).
 
-**Implementation:** Windows Task Scheduler query via `schtasks /Query /TN CointegrationScreener_DailyRun /V /FO LIST` (the canonical task name registered by `outputs/cointegration_screener_v1/phase4/register_daily_task.ps1`). Parse the `Scheduled Task State` field; refuse if not `Disabled`. If the task is unregistered (query returns non-zero exit), pass with an info log line (no scheduled writer to pause).
+**Implementation:** Windows Task Scheduler query via `schtasks /Query /TN AntiGravity_Daily_Preflight /V /FO LIST`. This is the DATA_INGRESS daily preflight task (`DATA_INGRESS/engines/ops/invoke_preflight.ps1`), which on RUN_DAILY triggers `invoke_daily_pipeline.ps1` — the daily pipeline in turn invokes `Trade_Scan/tools/cointegration_daily_runner.py` as a downstream consumer (`invoke_daily_pipeline.ps1` §"COINTEGRATION SCREENER" line ~300-334). Parse the `Scheduled Task State` field; refuse if not `Disabled`. The legacy `CointegrationScreener_DailyRun` task (registered by `outputs/cointegration_screener_v1/phase4/register_daily_task.ps1`) is superseded by this DATA_INGRESS path and is typically not registered — checking only the legacy name would silently pass while the real trigger remained armed (BC2 errata 2026-05-30). If the task is unregistered (query returns non-zero exit), pass with an info log line (no scheduled writer to pause).
 
-**Failure behavior:** The tool prints a fatal error naming the task and the exact disable command (`schtasks /Change /TN CointegrationScreener_DailyRun /DISABLE`) and exits non-zero before any DB connection opens. **No bypass flag.** If a future operator needs to bypass for a one-off, they can edit the source — the friction is deliberate per the operator's "mandatory" instruction (2026-05-30).
+**Failure behavior:** The tool prints a fatal error naming the task and the exact disable command (`schtasks /Change /TN AntiGravity_Daily_Preflight /DISABLE`) and exits non-zero before any DB connection opens. **No bypass flag.** If a future operator needs to bypass for a one-off, they can edit the source — the friction is deliberate per the operator's "mandatory" instruction (2026-05-30).
 
-**Re-enable after BC4:** the post-BC4 verify step in §8 reminds the operator to re-enable via `schtasks /Change /TN CointegrationScreener_DailyRun /ENABLE` once the v2 history is validated.
+**Re-enable after BC4:** the post-BC4 verify step in §8 reminds the operator to re-enable via `schtasks /Change /TN AntiGravity_Daily_Preflight /ENABLE` once the v2 history is validated.
 
 ---
 
@@ -214,7 +214,7 @@ Recommended `--max-parallel 8` (registry topology was validated at this level pe
 - Full range `2024-01-01 → present`, `--max-parallel 8`, `--tfs 1d,4h`
 - Estimated wall clock: ~1 hour
 - Pre-flight: BC2 §6.7 mandatory scheduler check enforces the pause (refuses to run otherwise — no operator override). Operator additionally confirms backup tables created and `cointegration.db` has free space (~few hundred MB).
-- Post-verify also re-enables the daily runner: `schtasks /Change /TN CointegrationScreener_DailyRun /ENABLE`.
+- Post-verify also re-enables the daily runner: `schtasks /Change /TN AntiGravity_Daily_Preflight /ENABLE`.
 - Mid-flight: progress log every 25 iterations (existing behavior).
 - Post-verify:
   - Row counts per (tf, lookback) — for 1d: 440 as_ofs × 2 lookbacks × 465 pairs ≈ 409,200 rows.

@@ -16,7 +16,7 @@ BC2 (2026-05-30) extension for the v2 eligibility backfill:
                           truncate + backup
   * --workdir PATH        override the per-(as_of, tf) parquet workdir
   * mandatory pre-flight: refuses to start if
-                          CointegrationScreener_DailyRun scheduled task
+                          AntiGravity_Daily_Preflight scheduled task
                           is enabled (concurrent-write race protection)
 
 Why backfill instead of waiting for natural accumulation?
@@ -76,11 +76,17 @@ from tools.cointegration_screen import (
 )
 
 
-# Production scheduled task name (registered by
-# outputs/cointegration_screener_v1/phase4/register_daily_task.ps1). The
-# mandatory pre-flight check below queries Task Scheduler for this name
-# and refuses to start the backfill if the task is enabled.
-SCHEDULED_TASK_NAME = "CointegrationScreener_DailyRun"
+# Production scheduled task name. The cointegration screener is NOT
+# triggered directly by Task Scheduler — DATA_INGRESS's daily pipeline
+# (invoke_preflight.ps1 → invoke_daily_pipeline.ps1) invokes
+# tools/cointegration_daily_runner.py as a downstream consumer of the
+# data-update phase (DATA_INGRESS/engines/ops/invoke_daily_pipeline.ps1
+# line ~300-334). So the real concurrent-write risk is the AntiGravity
+# preflight task, which is what we check here. The legacy task name
+# 'AntiGravity_Daily_Preflight' (registered by
+# outputs/cointegration_screener_v1/phase4/register_daily_task.ps1) is
+# no longer the production path and is typically not registered.
+SCHEDULED_TASK_NAME = "AntiGravity_Daily_Preflight"
 
 # BC2 §6.7: leave at least this many cores free for the parent + OS.
 PARALLEL_RESERVE_CORES = 2
