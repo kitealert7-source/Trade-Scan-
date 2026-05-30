@@ -5,16 +5,21 @@ N=5 confirmation model. All series-level tests use hand-crafted lists; only the
 end-to-end directive emission test touches SQLite (via a tmp_path DB, never the
 production cointegration.db).
 
-Look-ahead-safe convention under test (see section A of the design contract):
+Look-ahead-safe convention under test (revised 2026-05-30 — exit = last_coint_idx
+per operator decision; see CR-EXIT-FIX in COINTEGRATION_V1_TO_V2_TRANSITION.md):
   - For a span of consecutive 'cointegrated' rows starting at onset_idx and
     last cointegrated at last_coint_idx with break_idx = last_coint_idx + 1
     (or None if open):
       * ncoint = last_coint_idx - onset_idx + 1  (= onset day + confirmation days)
-      * span qualifies iff ncoint >= N + 1
-      * entry_idx = onset_idx + N + 1 (the bar AFTER the Nth confirmation day)
-      * if entry_idx >= len(series): skip (confirmation completes off the end)
-      * exit_idx  = break_idx + 1 (the bar AFTER the break is observable)
-                    or last index for open-at-end spans
+      * entry_idx = onset_idx + N + 1  (bar AFTER the Nth confirmation day)
+      * span qualifies iff entry_idx <= last_coint_idx (i.e. ncoint >= N + 2)
+        AND entry_idx < len(series)
+      * exit_idx  = last_coint_idx (last cointegrated bar of the span;
+                    for open spans this equals len(series) - 1)
+
+The directive's [start_date, end_date] therefore lies inside a single
+continuous cointegrated regime, satisfying the window_validity_gate's
+containment rule (operator-locked 2026-05-28).
 
 Per design contract section E (7 required tests).
 """
@@ -155,13 +160,14 @@ def _seed_pair(
 
 
 def test_spans_confirmation_safe_basic():
-    """Contract E.(1): 8 rows, days 1-6 cointegrated, days 7-8 broken. N=5.
+    """Contract E.(1): 10 rows, days 1-8 cointegrated, days 9-10 broken. N=5.
 
-    ncoint = 6 (onset_idx=0, last_coint_idx=5)
-    entry_idx = onset_idx + N + 1 = 0 + 5 + 1 = 6 → series[6] (day 7 / first break)
-    break_idx = 6 → exit_idx = break_idx + 1 = 7 → series[7] (day 8)
+    ncoint = 8 (onset_idx=0, last_coint_idx=7)
+    entry_idx = onset_idx + N + 1 = 0 + 5 + 1 = 6 → series[6] (cointegrated)
+    entry_idx (6) <= last_coint_idx (7) → qualifies
+    exit_idx = last_coint_idx = 7 → series[7] (last cointegrated bar)
     """
-    series = _series("2024-01-01", ["cointegrated"] * 6 + ["broken"] * 2)
+    series = _series("2024-01-01", ["cointegrated"] * 8 + ["broken"] * 2)
     out = spans_confirmation_safe(series, N=5)
     assert len(out) == 1, f"expected exactly 1 span, got {len(out)}: {out}"
     entry_date, exit_date, ncoint = out[0]
@@ -169,16 +175,19 @@ def test_spans_confirmation_safe_basic():
         f"entry_date should be series[6][0]={series[6][0]}, got {entry_date}"
     )
     assert exit_date == series[7][0], (
-        f"exit_date should be series[7][0]={series[7][0]}, got {exit_date}"
+        f"exit_date should be series[7][0]={series[7][0]} (= last_coint_idx), "
+        f"got {exit_date}"
     )
-    assert ncoint == 6, f"ncoint should be 6, got {ncoint}"
+    assert ncoint == 8, f"ncoint should be 8, got {ncoint}"
 
 
 def test_spans_confirmation_safe_just_at_threshold():
     """Contract E.(2): 6 rows all cointegrated. N=5.
 
-    ncoint = 6, satisfies >= N+1 = 6. entry_idx = 0 + 5 + 1 = 6 = len(series).
-    Confirmation completes off the end of data → skip → empty list.
+    ncoint = 6, satisfies the old >= N+1 = 6 check, BUT entry_idx = 6 ==
+    len(series), so confirmation completes off the end of data → skip.
+    Under the revised exit rule the qualification is ncoint >= N+2 = 7,
+    which this span also fails — empty list either way.
     """
     series = _series("2024-01-01", ["cointegrated"] * 6)
     out = spans_confirmation_safe(series, N=5)
@@ -188,16 +197,28 @@ def test_spans_confirmation_safe_just_at_threshold():
 
 
 def test_spans_confirmation_safe_below_threshold():
-    """Contract E.(3): 5 coint + 2 broken. N=5. ncoint=5 < N+1=6 → no qualifying span."""
-    series = _series("2024-01-01", ["cointegrated"] * 5 + ["broken"] * 2)
+    """Contract E.(3): 6 coint + 2 broken. N=5.
+
+    ncoint = 6 (onset_idx=0, last_coint_idx=5), entry_idx = 6.
+    entry_idx (6) > last_coint_idx (5) — entry would be AFTER the
+    cointegrated span ends, so SKIP. Minimum tradable span requires
+    ncoint >= N + 2 = 7.
+    """
+    series = _series("2024-01-01", ["cointegrated"] * 6 + ["broken"] * 2)
     out = spans_confirmation_safe(series, N=5)
-    assert out == [], f"ncoint=5 should not qualify with N=5 (needs >= 6), got {out}"
+    assert out == [], (
+        f"ncoint=6 should not qualify with N=5 under exit=last_coint rule "
+        f"(needs ncoint >= 7), got {out}"
+    )
 
 
 def test_spans_confirmation_safe_open_at_end():
     """Contract E.(4): 10 rows all cointegrated, no break. N=5.
 
-    ncoint = 10 >= 6. entry_idx = 6. break_idx = None → exit = series[-1][0].
+    ncoint = 10 >= 7. onset_idx=0, last_coint_idx=9, entry_idx = 6.
+    Open span (no observed break). exit = series[last_coint_idx][0] =
+    series[9][0] = series[-1][0] (last_coint_idx == len-1 by construction
+    for open spans).
     """
     series = _series("2024-01-01", ["cointegrated"] * 10)
     out = spans_confirmation_safe(series, N=5)
@@ -207,21 +228,24 @@ def test_spans_confirmation_safe_open_at_end():
         f"entry_date should be series[6][0]={series[6][0]}, got {entry_date}"
     )
     assert exit_date == series[-1][0] == series[9][0], (
-        f"exit_date should be series[-1][0]={series[-1][0]}, got {exit_date}"
+        f"exit_date should be series[-1][0]={series[-1][0]} (= last_coint_idx for open spans), "
+        f"got {exit_date}"
     )
     assert ncoint == 10, f"ncoint should be 10, got {ncoint}"
 
 
 def test_spans_confirmation_safe_multiple_spans():
-    """Contract E.(5): 8 coint + 3 broken + 7 coint + 2 broken. N=5.
+    """Contract E.(5): 8 coint + 3 broken + 9 coint + 2 broken. N=5.
 
-    Span 1: onset_idx=0, ncoint=8 >= 6, entry_idx=6, break_idx=8, exit=series[9].
-    Span 2: onset_idx=11, ncoint=7 >= 6, entry_idx=11+5+1=17, break_idx=18,
-            exit=series[19].
+    Span 1: onset_idx=0, last_coint_idx=7, ncoint=8 >= 7, entry_idx=6,
+            exit = series[last_coint_idx] = series[7].
+    Span 2: onset_idx=11, last_coint_idx=19, ncoint=9 >= 7,
+            entry_idx = 11 + 5 + 1 = 17,
+            exit = series[last_coint_idx] = series[19].
     """
     regimes = (
         ["cointegrated"] * 8 + ["broken"] * 3
-        + ["cointegrated"] * 7 + ["broken"] * 2
+        + ["cointegrated"] * 9 + ["broken"] * 2
     )
     series = _series("2024-01-01", regimes)
     out = spans_confirmation_safe(series, N=5)
@@ -231,8 +255,8 @@ def test_spans_confirmation_safe_multiple_spans():
     assert e1_date == series[6][0], (
         f"span 1 entry should be series[6][0]={series[6][0]}, got {e1_date}"
     )
-    assert x1_date == series[9][0], (
-        f"span 1 exit should be series[9][0]={series[9][0]} (break_idx=8 +1), got {x1_date}"
+    assert x1_date == series[7][0], (
+        f"span 1 exit should be series[7][0]={series[7][0]} (= last_coint_idx), got {x1_date}"
     )
     assert n1 == 8, f"span 1 ncoint should be 8, got {n1}"
 
@@ -241,9 +265,9 @@ def test_spans_confirmation_safe_multiple_spans():
         f"span 2 entry should be series[17][0]={series[17][0]} (onset 11 + N + 1), got {e2_date}"
     )
     assert x2_date == series[19][0], (
-        f"span 2 exit should be series[19][0]={series[19][0]} (break_idx=18 +1), got {x2_date}"
+        f"span 2 exit should be series[19][0]={series[19][0]} (= last_coint_idx), got {x2_date}"
     )
-    assert n2 == 7, f"span 2 ncoint should be 7, got {n2}"
+    assert n2 == 9, f"span 2 ncoint should be 9, got {n2}"
 
 
 def test_directive_yaml_well_formed(tmp_coint_db, tmp_path):
@@ -254,7 +278,8 @@ def test_directive_yaml_well_formed(tmp_coint_db, tmp_path):
     output dir, and validates the resulting YAML structure.
     """
     pair_a, pair_b = "EURUSD", "USDJPY"
-    # 15 coint + 3 broken: ncoint=15 >= 6, entry_idx=6, break_idx=15, exit=series[16].
+    # 15 coint + 3 broken: ncoint=15 >= 7, entry_idx=6, last_coint_idx=14,
+    # exit = series[last_coint_idx] = series[14].
     series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
     _seed_pair(tmp_coint_db, pair_a, pair_b, series)
 
@@ -280,7 +305,7 @@ def test_directive_yaml_well_formed(tmp_coint_db, tmp_path):
     parsed = yaml.safe_load(directive_path.read_text(encoding="utf-8"))
 
     expected_entry = series[6][0]   # 2024-01-07
-    expected_exit  = series[16][0]  # 2024-01-17 (break_idx=15 +1)
+    expected_exit  = series[14][0]  # 2024-01-15 (= last_coint_idx)
     yymmdd = expected_entry[2:4] + expected_entry[5:7] + expected_entry[8:10]
 
     # E.6 assertions

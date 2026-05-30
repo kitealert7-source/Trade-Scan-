@@ -10,11 +10,17 @@ Methodology vs the legacy tmp/gen_all_episodes.py:
   - Replaces the retrospective `dur >= 45 days` filter with a **look-ahead-safe
     N=5 confirmation model**: a span is admitted only if it has at least
     N+1 consecutive cointegrated bars (one onset day + N confirmation days),
-    and the entry_date is set to the bar AFTER the N confirmation days, so
-    a real-time trader would have observed the full confirmation window
-    before opening the position.
-  - Exit_date is set to the bar AFTER the regime break (break_idx + 1), so
-    the exit is also strictly causal.
+    AND there is at least one further cointegrated bar after the confirmation
+    period (so the entry bar lies inside the span). The entry_date is the
+    bar AFTER the N confirmation days, so a real-time trader would have
+    observed the full confirmation window before opening the position.
+  - Exit_date is set to the **last cointegrated bar of the span**
+    (last_coint_idx), so [start_date, end_date] is fully inside a single
+    continuous cointegrated regime. This matches the window_validity_gate
+    "any-span containment" rule (operator-locked 2026-05-28). Treating exit
+    as break+1 is a separate strategy-side experiment (live exit fires at
+    open of break_idx + 1 via the engine's regime feed, but the BACKTEST
+    WINDOW encodes the regime period, not the execution day).
 
 INDEXING CONVENTION (operator-fixed, 2026-05-30 --- do not relitigate)
 ======================================================================
@@ -38,12 +44,18 @@ Look-ahead-safe convention (see section A of the design contract):
                     (None when the span is open at end-of-series)
   entry_idx       = onset_idx + N + 1  (bar AFTER the Nth confirmation day,
                                         i.e. day N+1 of the span)
-  exit_idx        = break_idx + 1, or len(series) - 1 for open spans
+  exit_idx        = last_coint_idx (the last bar still labeled 'cointegrated'
+                                    in the span; same for closed and open
+                                    spans because last_coint_idx == len-1
+                                    when the span is open at series end)
   ncoint          = last_coint_idx - onset_idx + 1   (onset day + run-length)
 
-A span QUALIFIES iff ncoint >= N + 1. Spans whose entry_idx falls off the
-end of available data (confirmation completes only at series end) are
-skipped --- there is no causal entry bar to use.
+A span QUALIFIES iff entry_idx <= last_coint_idx, i.e. ncoint >= N + 2.
+(Mathematically: entry_idx = onset + N + 1 and last_coint_idx = onset +
+ncoint - 1, so the constraint reduces to ncoint - 1 >= N + 1.) Spans whose
+entry_idx falls off the end of available data, or that have only the
+confirmation period inside the regime (ncoint == N + 1), are skipped ---
+there is no causal entry bar inside the cointegrated span.
 
 The default N=5 matches HYSTERESIS_LOOKBACK in tools/cointegration_db.py
 (one trading week of confirmation), filters out single-day flickers, and
@@ -158,15 +170,19 @@ def spans_confirmation_safe(
                           end of series)
         ncoint          = last_coint_idx - onset_idx + 1
 
-    A span QUALIFIES iff ncoint >= N + 1 (onset day + N confirmation days).
+    A span QUALIFIES iff entry_idx <= last_coint_idx, i.e. there is at
+    least one cointegrated bar AFTER the N-day confirmation period.
+    Equivalently: ncoint >= N + 2 (onset day + N confirmation days + at
+    least one bar to enter on, all still cointegrated).
 
     For a qualifying span:
-        entry_idx = onset_idx + N + 1
+        entry_idx  = onset_idx + N + 1
         if entry_idx >= len(series): skip (confirmation off end of data)
         entry_date = series[entry_idx][0]
-        exit_date  = series[break_idx + 1][0] if break_idx is not None
-                                                 and break_idx + 1 < len(series)
-                     else                       series[-1][0]
+        exit_date  = series[last_coint_idx][0]
+                     (last cointegrated bar in the span; for open-at-end
+                     spans, last_coint_idx == len(series) - 1 so this is
+                     the latest available as_of)
 
     Indexing convention (operator-fixed; mirrors module docstring):
         onset day             = day 0
@@ -177,22 +193,23 @@ def spans_confirmation_safe(
         * The Nth confirmation day's regime label is known at the close of
           bar (onset_idx + N), so the trader can act on the open of bar
           (onset_idx + N + 1) --- that's the entry_idx.
-        * The break is known at the close of break_idx, so the exit fires
-          on the open of break_idx + 1.
-        * Open spans (no observed break yet) use the latest available
-          as_of as the exit boundary --- callers should interpret this
-          as a "data still streaming" boundary, not as a closed episode.
+        * The exit is the LAST bar still labeled 'cointegrated' in the span;
+          the directive's [start_date, end_date] therefore lies entirely
+          inside a single continuous cointegrated regime, which is the
+          window_validity_gate's containment rule (operator-locked
+          2026-05-28). The "live exit on break+1" execution rule is a
+          separate strategy-side concern --- the BACKTEST WINDOW encodes
+          the regime period, not the execution day.
+        * Open spans (no observed break yet) terminate at series[-1] --
+          which equals series[last_coint_idx] by construction, since
+          last_coint_idx tracks the latest cointegrated bar.
 
     Edge case --- just-at-threshold (ncoint == N + 1):
-        When the span has exactly N+1 cointegrated days, entry_idx
-        coincides with break_idx (= the bar regime='cointegrated'
-        first stops). The trader enters at open of the break day
-        because end-of-day-N-confirmation-day the regime was still
-        'cointegrated'; end-of-day-entry the regime flips to
-        'breaking' and the exit fires at open of break_idx + 1.
-        Tradable duration is 1 trading day. This is correct per
-        the rule above and is intentionally retained in the corpus
-        (see CR-VERIFY sample walkthrough 2026-05-30).
+        With the new exit rule, a span of exactly N+1 cointegrated days
+        has entry_idx = N + 1 but last_coint_idx = N, so entry_idx >
+        last_coint_idx and the span is SKIPPED. The minimum tradable span
+        is ncoint == N + 2 (one cointegrated bar to enter on; tradable
+        duration = 1 bar).
 
     Returns [] when the series produces no qualifying spans.
     """
@@ -208,22 +225,20 @@ def spans_confirmation_safe(
     def _emit_span(
         onset: int, last_coint: int, break_at: int | None
     ) -> None:
-        ncoint = last_coint - onset + 1
-        if ncoint < N + 1:
-            return
+        # Two qualification checks:
+        #   1. entry_idx must lie inside the cointegrated span
+        #      (entry_idx <= last_coint, i.e. ncoint >= N + 2)
+        #   2. entry_idx must lie inside the series
+        #      (entry_idx <  n_total; covers the case where confirmation
+        #       completes only at series-end with no entry bar emitted yet)
         entry_idx = onset + N + 1
+        if entry_idx > last_coint:
+            return
         if entry_idx >= n_total:
-            # Confirmation completes off the end of available data --- no
-            # causal entry bar exists.
             return
         entry_date = series[entry_idx][0]
-        if break_at is not None and break_at + 1 < n_total:
-            exit_date = series[break_at + 1][0]
-        else:
-            # Open span, or break observed on the very last bar with no
-            # bar-after to enter the exit on --- fall back to the latest
-            # available as_of as the "still streaming" boundary.
-            exit_date = series[-1][0]
+        exit_date = series[last_coint][0]
+        ncoint = last_coint - onset + 1
         out.append((entry_date, exit_date, ncoint))
 
     for i, (_as_of, regime) in enumerate(series):
