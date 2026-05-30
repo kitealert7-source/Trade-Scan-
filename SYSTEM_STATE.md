@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-05-29T18:32:29Z
+> Generated: 2026-05-30T17:32:37Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 366 directives
+- Completed: 488 directives
 
 ## Ledgers
 
@@ -32,22 +31,23 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-05-29** | Symbols: 221
+- Latest bar: **2026-05-30** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1269
+- Run directories: 1419
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `0cab4f1 governance: add Invariant #31 â€” Pipeline-Authoritative Conclusions (ad-hoc is hypothesis-only)`
+- Working tree: clean
+- Last substantive commit: `4dc482f baseline: accept untagged COINTREV_meanrev rows after v1 cleanup`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 35 KB / 81 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [SIZE] RESEARCH_MEMORY.md 37 KB / 86 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [CALENDAR] Saturday — weekly cadence slot for `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 (run before close to land in the closing snapshot)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
@@ -59,10 +59,13 @@
 - [MONITOR] conclusion-write-path provenance gate — `research_memory_append` accepts an unvalidated run_id and auto-memory is ungated (AGENT.md Invariant #31 is STOP-doctrine, NOT yet mechanically gated for conclusions). Promote to BUILD only after >=1 operational gate-shakeout session (per the advisory-to-enforced standing directive). First seen 2026-05-29.
 - [NEXT-FOCUS] Lifecycle granularity-mismatch — WORKING HYPOTHESIS (analysis-only, NO remedy decided): lifecycle burden originates from arc-level intent expressed at artifact level; high-fan-out arcs amplify one decision into 100-1000+ actions. Full evidence in auto-memory `project_lifecycle_granularity_mismatch.md`. Next session's question: smallest mechanisms to reduce decision fan-out without a new state system. Start from this framing, not lineage-contamination. (first seen 2026-05-29)
 - [SIZE] auto-memory MEMORY.md at/over 200-line cap — run `/anthropic-skills:consolidate-memory` next session (HIGH-ROI from session-retro; index truncates beyond 200).
+- [RETRO] Session retro 2026-05-30 — 9 findings parked as a durable report at `outputs/session_retros/SESSION_RETRO_2026-05-30.md`. HIGH ROI: gate-verify step in corpus generation (catches operator-locked-rule conflicts at the source). Companion snapshot: `outputs/system_reports/06_strategy_research/COINTEGRATION_V1_TO_V2_TRANSITION.md` (v1→v2 baseline + CR-EXIT-FIX rule revision + 488/473 corpus aggregation).
+- [BLOCKED] Tag 20 retired COINTREV_meanrev rows DB-side — v1 cointegration cleanup (commit 950a7ab) exposed pre-existing untagged 91_PORT_*_COINTREV_S*_V1_P00 rows (idea 91, retired 2026-05-21). `tests/test_quarantine_integrity.py::test_deprecated_rules_have_all_mps_rows_tagged` acknowledged into broader-pytest baseline at close (commit 4dc482f). Spawned as a separate task chip; revert baseline after fix.
+- [BLOCKED] Wire run_stage1's warmup pre-extension into basket pipeline — `_load_symbol_5m` strictly filters to `[start_date, end_date]`, no per-leg warmup bars. 15 short-window v2 directives silently failed at `pine_ratio_zrev_v1`'s `2 * n_window` assertion (488 → 473 ledger delta this session). Spawned as a separate task chip; details in COINTEGRATION_V1_TO_V2_TRANSITION.md §4.5.
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Broader-pytest baseline:** 16 acknowledged failure(s) (last refreshed 2026-05-26 @ 255f2d84). Tests: test_directive_basket_block_parses, test_directive_file_exists, test_directive_legs_match_h2_spec (+13 more). Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
+- **Broader-pytest baseline:** 17 acknowledged failure(s) (last refreshed 2026-05-30 @ e9856a41). Tests: test_directive_basket_block_parses, test_directive_file_exists, test_directive_legs_match_h2_spec (+14 more). Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
