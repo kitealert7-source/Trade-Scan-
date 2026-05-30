@@ -118,6 +118,7 @@ DB_COLUMNS = [
     "half_life_days", "hedge_ratio", "beta_method", "test_method",
     "current_zscore", "regime",
     "data_version", "inserted_at",
+    "methodology_version",  # 2026-05-30 (C2): tags screener math version
 ]
 
 # Singles table schema. `symbol` may be a direct broker symbol (AUDNZD) or a
@@ -131,6 +132,7 @@ SINGLES_DB_COLUMNS = [
     "half_life_days", "test_method",
     "current_zscore", "regime",
     "data_version", "inserted_at",
+    "methodology_version",  # 2026-05-30 (C2): tags screener math version
 ]
 
 
@@ -174,6 +176,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
             regime          TEXT    NOT NULL,
             data_version    TEXT    NOT NULL,
             inserted_at     TEXT    NOT NULL,
+            methodology_version TEXT NOT NULL DEFAULT 'v1_raw_adf',
             PRIMARY KEY (as_of, pair_a, pair_b, tf, lookback_days)
         );
         CREATE INDEX IF NOT EXISTS idx_coint_pair
@@ -201,6 +204,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
             regime          TEXT    NOT NULL,
             data_version    TEXT    NOT NULL,
             inserted_at     TEXT    NOT NULL,
+            methodology_version TEXT NOT NULL DEFAULT 'v1_raw_adf',
             PRIMARY KEY (as_of, symbol, tf, lookback_days)
         );
         CREATE INDEX IF NOT EXISTS idx_singles_symbol
@@ -240,6 +244,28 @@ def create_tables(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_trigger_z
             ON {TRIGGERS_TABLE_NAME} (as_of, z_at_trigger);
     """)
+
+    # --- Idempotent additive migration: methodology_version (2026-05-30, C2)
+    # CREATE TABLE IF NOT EXISTS doesn't update existing schema. For DBs
+    # created before the column was introduced, ALTER TABLE adds it with
+    # the v1 default; for fresh DBs the CREATE TABLE above already has it
+    # and this is a no-op. The follow-up UPDATE is belt-and-suspenders:
+    # the ALTER's DEFAULT already populates existing rows, but the WHERE
+    # IS NULL guard makes the migration safely re-runnable in any state.
+    for tbl in (TABLE_NAME, SINGLES_TABLE_NAME):
+        cols = {r[1] for r in conn.execute(
+            f"PRAGMA table_info({tbl})").fetchall()}
+        if "methodology_version" not in cols:
+            conn.execute(
+                f"ALTER TABLE {tbl} ADD COLUMN methodology_version TEXT "
+                f"NOT NULL DEFAULT 'v1_raw_adf'"
+            )
+        # Idempotent backfill: only fills NULLs, leaves populated rows alone.
+        conn.execute(
+            f"UPDATE {tbl} SET methodology_version='v1_raw_adf' "
+            f"WHERE methodology_version IS NULL"
+        )
+
     conn.commit()
 
 
@@ -415,6 +441,13 @@ def upsert_from_parquet(conn: sqlite3.Connection,
         rolling_median = compute_rolling_median(prior)
         history_depth = len(prior)  # 0..HYSTERESIS_LOOKBACK; <5 = bootstrap
 
+        # methodology_version is mandatory (C2: no NULL write path). For
+        # parquet files written before C2 the column is absent; fall back
+        # to 'v1_raw_adf' rather than NULL so the schema's NOT NULL holds.
+        methodology = (
+            r["methodology_version"] if "methodology_version" in r
+            and pd.notna(r["methodology_version"]) else "v1_raw_adf"
+        )
         rows_to_insert.append((
             r["as_of"],
             r["pair_a"], r["pair_b"],
@@ -434,6 +467,7 @@ def upsert_from_parquet(conn: sqlite3.Connection,
             regime_hysteresis,
             r["data_version"],
             inserted_at,
+            methodology,
         ))
 
     placeholders = ", ".join(["?"] * len(DB_COLUMNS))
@@ -631,6 +665,12 @@ def upsert_singles_from_parquet(
         regime_hysteresis = classify_regime(float(r["adf_pvalue"]), prior)
         rolling_median = compute_rolling_median(prior)
         history_depth = len(prior)
+        # methodology_version mandatory (C2): pull from parquet, fall back
+        # to 'v1_raw_adf' for pre-C2 parquet files that lack the column.
+        methodology = (
+            r["methodology_version"] if "methodology_version" in r
+            and pd.notna(r["methodology_version"]) else "v1_raw_adf"
+        )
         rows_to_insert.append((
             r["as_of"],
             r["symbol"],
@@ -648,6 +688,7 @@ def upsert_singles_from_parquet(
             regime_hysteresis,
             r["data_version"],
             inserted_at,
+            methodology,
         ))
     placeholders = ", ".join(["?"] * len(SINGLES_DB_COLUMNS))
     columns = ", ".join(SINGLES_DB_COLUMNS)

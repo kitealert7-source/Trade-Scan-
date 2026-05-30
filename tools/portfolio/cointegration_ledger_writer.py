@@ -53,6 +53,10 @@ REQUIRED_FIELDS = (
     "canonical_ret_dd",
     "canonical_final_equity_usd",
     "trades_total",
+    # methodology_version added 2026-05-30 (C2). Mandatory so no row can
+    # silently enter the corpus without a methodology cohort tag — every
+    # row must declare 'v1_raw_adf' (legacy), 'v2_log_eg' (post-C3), etc.
+    "methodology_version",
 )
 
 

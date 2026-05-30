@@ -427,6 +427,15 @@ def create_tables(conn: sqlite3.Connection) -> None:
             'UPDATE cointegration_sheet SET "is_current" = 1 '
             'WHERE "is_current" IS NULL'
         )
+    # methodology_version backfill (2026-05-30, C2): tag every legacy row
+    # with 'v1_raw_adf' so the corpus has explicit cohort provenance after
+    # the math correction lands in C3. Idempotent: only fills NULL rows,
+    # never overwrites a row that already has a methodology declared.
+    if "methodology_version" in newly_added_c:
+        conn.execute(
+            'UPDATE cointegration_sheet SET "methodology_version" = \'v1_raw_adf\' '
+            'WHERE "methodology_version" IS NULL'
+        )
     # Indexes: re-run detection by (pair, lookback) and current-row filtering.
     conn.execute(
         'CREATE INDEX IF NOT EXISTS idx_coint_pair '

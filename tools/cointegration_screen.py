@@ -151,8 +151,15 @@ def singles_metadata_path_for(tf: str) -> Path:
     return (SINGLES_METADATA_PATH if tf == "1d"
             else OUTPUT_DIR / f"singles_metadata_{tf}.json")
 
+# Methodology version label. Tags every emitted row with the version of the
+# math that produced it. C2 (2026-05-30) introduces the column on v1 math
+# unchanged; C3 flips this constant to "v2_log_eg" alongside the log+EG fix.
+# See outputs/system_reports/06_strategy_research/COINTEGRATION_SCREEN_MATH_V2.md.
+METHODOLOGY_VERSION = "v1_raw_adf"
+
 # Columns in canonical order (matches spec §5a). Locked here so any
 # accidental reorder fails the byte-identity test in Phase 1.
+# Additive-only: methodology_version appended at end 2026-05-30.
 PARQUET_COLUMNS = [
     "pair_a", "pair_b", "tf", "lookback_days",
     "window_start", "window_end", "sample_size",
@@ -160,6 +167,7 @@ PARQUET_COLUMNS = [
     "half_life_days", "hedge_ratio", "beta_method", "test_method",
     "current_zscore", "regime",
     "data_version", "generated_at",
+    "methodology_version",
 ]
 
 # Single-series mean-reversion candidates parquet schema. `symbol` may be
@@ -171,6 +179,7 @@ SINGLES_PARQUET_COLUMNS = [
     "adf_pvalue", "pvalue_rolling_median_5d", "adf_statistic",
     "half_life_days", "current_zscore", "regime",
     "data_version", "generated_at",
+    "methodology_version",
 ]
 
 
@@ -262,6 +271,7 @@ def compute_pair_stats(close_a: pd.Series, close_b: pd.Series,
         "hedge_ratio": beta,
         "current_zscore": current_zscore,
         "regime": regime,
+        "methodology_version": METHODOLOGY_VERSION,
     }
 
 
@@ -341,6 +351,7 @@ def compute_single_series_adf(close: pd.Series, lookback: int) -> dict | None:
         "half_life_days": half_life_days,
         "current_zscore": current_zscore,
         "regime": regime,
+        "methodology_version": METHODOLOGY_VERSION,
     }
 
 
@@ -446,6 +457,7 @@ def run(as_of: pd.Timestamp | None = None,
                     "regime": "broken",
                     "data_version": data_version,
                     "generated_at": generated_at,
+                    "methodology_version": METHODOLOGY_VERSION,
                 })
                 continue
             rows.append({
@@ -465,6 +477,7 @@ def run(as_of: pd.Timestamp | None = None,
                 "regime": stats["regime"],
                 "data_version": data_version,
                 "generated_at": generated_at,
+                "methodology_version": stats.get("methodology_version", METHODOLOGY_VERSION),
             })
 
     df = pd.DataFrame(rows, columns=PARQUET_COLUMNS)
@@ -573,6 +586,7 @@ def run_singles(
         "regime": "broken",
         "data_version": data_version,
         "generated_at": generated_at,
+        "methodology_version": METHODOLOGY_VERSION,
     }
     for sym in sorted(universe):
         for lookback in windows:
@@ -597,6 +611,7 @@ def run_singles(
                 "regime": stats["regime"],
                 "data_version": data_version,
                 "generated_at": generated_at,
+                "methodology_version": stats.get("methodology_version", METHODOLOGY_VERSION),
             })
     for a, b in synthetic_specs:
         for lookback in windows:
@@ -622,6 +637,7 @@ def run_singles(
                 "regime": stats["regime"],
                 "data_version": data_version,
                 "generated_at": generated_at,
+                "methodology_version": stats.get("methodology_version", METHODOLOGY_VERSION),
             })
 
     df = pd.DataFrame(rows, columns=SINGLES_PARQUET_COLUMNS)

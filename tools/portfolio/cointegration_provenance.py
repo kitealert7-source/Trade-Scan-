@@ -54,6 +54,7 @@ def build_cointegration_row(
     engine_abi: str = "engine_abi.v1_5_9",
     classifier_version: str | None = None,
     data_vintage: str | None = None,
+    methodology_version: str = "v1_raw_adf",
 ) -> dict[str, Any]:
     """Assemble a cointegration_sheet row dict. Reads the screener once via the
     window-validity gate; performs no parquet read (canonical is passed in)."""
@@ -116,6 +117,10 @@ def build_cointegration_row(
         ),
         "trades_total": int(trades_total),
         "metrics_fn_version": METRICS_FN_VERSION,
+        # methodology cohort tag (2026-05-30, C2). Default v1_raw_adf preserves
+        # the pre-correction math identity; orchestration may override once the
+        # screener exposes its active methodology to the gate.
+        "methodology_version": methodology_version,
     }
 
 

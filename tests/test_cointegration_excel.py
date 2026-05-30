@@ -63,6 +63,7 @@ def _make_row(pair_a, pair_b, lookback, pvalue, regime,
         "regime": regime,
         "data_version": "v0",
         "inserted_at": datetime.now(timezone.utc).isoformat(),
+        "methodology_version": "v1_raw_adf",
     }
 
 

@@ -56,7 +56,8 @@ def conn(tmp_path):
 
 def _make_parquet_row(as_of_date: str, pair_a: str, pair_b: str,
                        lookback_days: int, adf_pvalue: float,
-                       regime: str = "broken") -> dict:
+                       regime: str = "broken",
+                       methodology_version: str = "v1_raw_adf") -> dict:
     """Construct a minimal valid parquet row in PARQUET_COLUMNS order."""
     window_end = pd.Timestamp(as_of_date, tz="UTC")
     window_start = window_end - pd.Timedelta(days=lookback_days - 1)
@@ -76,6 +77,7 @@ def _make_parquet_row(as_of_date: str, pair_a: str, pair_b: str,
         "regime": regime,
         "data_version": "abc123def456",
         "generated_at": pd.Timestamp(as_of_date + "T22:00:00", tz="UTC"),
+        "methodology_version": methodology_version,
     }
 
 
@@ -119,6 +121,7 @@ class TestSchema:
 
     def test_db_columns_canonical_order(self):
         # Schema is FROZEN — accidental reorder must fail this test.
+        # Additive-only: methodology_version appended at end 2026-05-30 (C2).
         expected = [
             "as_of", "pair_a", "pair_b", "tf", "lookback_days",
             "window_start", "window_end", "sample_size",
@@ -126,8 +129,72 @@ class TestSchema:
             "half_life_days", "hedge_ratio", "beta_method", "test_method",
             "current_zscore", "regime",
             "data_version", "inserted_at",
+            "methodology_version",
         ]
         assert DB_COLUMNS == expected
+
+    def test_methodology_version_column_present(self, conn):
+        """Column is on the live DB after create_tables."""
+        cols = {r[1] for r in conn.execute(
+            f"PRAGMA table_info({TABLE_NAME})").fetchall()}
+        assert "methodology_version" in cols
+        s_cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(singles_daily)").fetchall()}
+        assert "methodology_version" in s_cols
+
+    def test_methodology_version_required_not_null(self, conn):
+        """No write path may emit NULL methodology_version (operator C2 invariant)."""
+        import sqlite3
+        # Build a row tuple with NULL in the methodology slot — must raise.
+        inserted_at = datetime.now(timezone.utc).isoformat()
+        cols = ", ".join(DB_COLUMNS)
+        placeholders = ", ".join(["?"] * len(DB_COLUMNS))
+        bad_row = (
+            "2026-05-30", "EURUSD", "USDJPY", "1d", 252,
+            "2025-08-25", "2026-05-30", 252, 0.5, None, 0, -3.0,
+            10.0, 1.5, "ols_static", "adf",
+            0.0, "broken", "v0", inserted_at,
+            None,  # methodology_version = NULL → NOT NULL constraint should fire
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="NOT NULL|methodology_version"):
+            conn.execute(
+                f"INSERT INTO {TABLE_NAME} ({cols}) VALUES ({placeholders})",
+                bad_row,
+            )
+
+    def test_create_tables_is_idempotent(self, tmp_path):
+        """create_tables can be called repeatedly without error or drift.
+        Guards the backfill UPDATE which runs on every call — must not overwrite
+        existing populated values."""
+        db = tmp_path / "idem.db"
+        c1 = connect(db)
+        create_tables(c1)
+        # Seed a v2 row that the migration MUST NOT clobber back to v1.
+        inserted_at = datetime.now(timezone.utc).isoformat()
+        c1.execute(
+            f"INSERT INTO {TABLE_NAME} ({', '.join(DB_COLUMNS)}) VALUES ({', '.join(['?']*len(DB_COLUMNS))})",
+            (
+                "2026-06-01", "EURUSD", "USDJPY", "1d", 252,
+                "2025-09-01", "2026-06-01", 252, 0.03, None, 0, -4.0,
+                12.0, 1.0, "ols_static", "eg_mackinnon",
+                0.2, "cointegrated", "v0", inserted_at,
+                "v2_log_eg",  # NEW methodology; migration must leave alone
+            ),
+        )
+        c1.commit()
+        c1.close()
+        # Re-open and re-run create_tables — should be a no-op for schema +
+        # idempotent for the UPDATE WHERE IS NULL.
+        c2 = connect(db)
+        create_tables(c2)  # second call — must not raise, must not corrupt
+        row = c2.execute(
+            f"SELECT methodology_version FROM {TABLE_NAME} "
+            f"WHERE as_of='2026-06-01'"
+        ).fetchone()
+        c2.close()
+        assert row["methodology_version"] == "v2_log_eg", (
+            "second create_tables call clobbered a non-NULL methodology_version"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +303,7 @@ class TestUpsertSemantics:
                     "2025-08-25", as_of, 252, p, None, 0, -3.0,
                     10.0, 1.5, "ols_static", "adf",
                     0.0, "broken", "v0", inserted_at,
+                    "v1_raw_adf",
                 ),
             )
         conn.commit()

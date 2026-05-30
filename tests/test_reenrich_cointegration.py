@@ -47,6 +47,7 @@ def _make_run(tmp_path, run_id="COINTR1", directive_id="DIR", basket_id="H2"):
         "canonical_net_pct": 1.0, "canonical_max_dd_pct": 1.0,
         "canonical_ret_dd": 1.0, "canonical_final_equity_usd": 1010.0,
         "trades_total": 5,
+        "methodology_version": "v1_raw_adf",
     })
     return run_id, pq
 

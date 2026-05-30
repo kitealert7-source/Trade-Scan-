@@ -91,6 +91,8 @@ COINTEGRATION_SHEET_COLUMNS = [
     # --- bookkeeping ---
     "schema_version",
     "enrichment_status",      # complete | no_canonical
+    # --- methodology cohort (2026-05-30, C2) ---
+    "methodology_version",    # v1_raw_adf (legacy) | v2_log_eg (post-C3) | ...
 ]
 
 # REAL-typed columns. Everything else is TEXT; is_current is special-cased in

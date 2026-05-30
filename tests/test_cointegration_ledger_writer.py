@@ -42,6 +42,7 @@ def _good_row(tmp_path, run_id="COINT0001"):
         "canonical_ret_dd": 1.56,
         "canonical_final_equity_usd": 1125.0,
         "trades_total": 42,
+        "methodology_version": "v1_raw_adf",
     }
 
 
@@ -78,6 +79,14 @@ def test_append_only_duplicate_raises(patched_state):
 def test_missing_required_field_raises(patched_state):
     row = _good_row(patched_state)
     del row["canonical_ret_dd"]
+    with pytest.raises(CointegrationLedgerError, match="missing required"):
+        append_cointegration_row(row)
+
+
+def test_missing_methodology_version_raises(patched_state):
+    """C2 invariant: methodology_version is mandatory on every corpus row."""
+    row = _good_row(patched_state)
+    del row["methodology_version"]
     with pytest.raises(CointegrationLedgerError, match="missing required"):
         append_cointegration_row(row)
 

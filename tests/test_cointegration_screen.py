@@ -161,7 +161,8 @@ class TestSchema:
         assert TEST_METHOD == "adf"
 
     def test_parquet_columns_canonical_order(self):
-        """Schema is FROZEN — accidental reorder must fail this test."""
+        """Schema is FROZEN — accidental reorder must fail this test.
+        Additive-only: methodology_version appended at end 2026-05-30 (C2)."""
         expected = [
             "pair_a", "pair_b", "tf", "lookback_days",
             "window_start", "window_end", "sample_size",
@@ -169,6 +170,7 @@ class TestSchema:
             "half_life_days", "hedge_ratio", "beta_method", "test_method",
             "current_zscore", "regime",
             "data_version", "generated_at",
+            "methodology_version",
         ]
         assert PARQUET_COLUMNS == expected
 
@@ -179,6 +181,7 @@ class TestSchema:
             "adf_pvalue", "pvalue_rolling_median_5d", "adf_statistic",
             "half_life_days", "current_zscore", "regime",
             "data_version", "generated_at",
+            "methodology_version",
         ]
         assert SINGLES_PARQUET_COLUMNS == expected
 
