@@ -574,10 +574,18 @@ def _write_summary(wb: Workbook, conn: sqlite3.Connection,
                     df_today: pd.DataFrame) -> None:
     ws = wb.create_sheet("Summary", 0)
     as_of = df_today["as_of"].iloc[0] if not df_today.empty else "—"
-    ws.cell(row=1, column=1, value=f"Cointegration Screener — Summary  ({as_of})").font = Font(bold=True, size=14)
+    ws.cell(
+        row=1, column=1,
+        value=f"Cointegration Screener — Summary  ({as_of})  [methodology: v2_log_eg]"
+    ).font = Font(bold=True, size=14)
     ws.merge_cells(start_row=1, end_row=1, start_column=1, end_column=6)
+    ws.cell(
+        row=2, column=1,
+        value="Math: log prices + Engle-Granger / MacKinnon criticals via statsmodels.coint"
+    ).font = Font(italic=True, size=10)
+    ws.merge_cells(start_row=2, end_row=2, start_column=1, end_column=6)
 
-    row = 3
+    row = 4
 
     # --- Section 1: Universe regime distribution
     row = _section_header(ws, row, "1. Universe regime distribution", span=5)
@@ -1305,16 +1313,27 @@ def _write_notes(wb: Workbook) -> None:
     ws.cell(row=1, column=1, value="Cointegration Screener — Operator Notes").font = Font(bold=True, size=14)
     lines = [
         "",
-        "HYPOTHESIS-LED CURATION (2026-05-21 amendment)",
-        "  This workbook is organized by ASSET CLASS, with operator-actionable",
-        "  candidates separated from the full diagnostic ADF surface. Curated",
-        "  candidates have explicit economic rationale (governance/cointegration",
-        "  _candidates.yaml). Diagnostic tabs preserve the full universe output",
-        "  but are NOT operator-actionable without economic-rationale screening.",
+        "METHODOLOGY",
+        "  Pair-pair test:    Engle-Granger via statsmodels.tsa.stattools.coint(lb, la,",
+        "                     trend='c', autolag='AIC') on log prices, MacKinnon (1996)",
+        "                     critical values.",
+        "  Single-series:     ADF on log price.",
+        "  Methodology tag:   methodology_version column on every row = v2_log_eg (pair)",
+        "                     / v2_log_adf (singles).",
+        "  Field name note:   adf_pvalue and adf_statistic columns hold the EG / MacKinnon",
+        "                     values, not plain-ADF. test_method='eg_mackinnon' disambiguates",
+        "                     the semantics.",
         "",
-        "  Why: a blind ADF screen of ~210 pair-pairs × 2 windows is a data-",
-        "  mining exercise. At α=0.05 you expect ~21 spurious 'cointegrated'",
-        "  finds even on pure random walks. Hypothesis-led curation flips the",
+        "HYPOTHESIS-LED CURATION",
+        "  This workbook is organized by ASSET CLASS, with operator-actionable",
+        "  candidates separated from the full diagnostic surface. Curated candidates",
+        "  have explicit economic rationale (governance/cointegration_candidates.yaml).",
+        "  Diagnostic tabs preserve the full universe output but are NOT operator-",
+        "  actionable without economic-rationale screening.",
+        "",
+        "  Why: a blind statistical screen of ~465 pair-pairs × 2 windows is a",
+        "  data-mining exercise. At α=0.05 you expect ~23 spurious 'cointegrated'",
+        "  finds on pure random walks before bias. Hypothesis-led curation flips the",
         "  workflow: start from structural reasoning, use the screener to",
         "  confirm and monitor regime persistence — not to discover.",
         "",
@@ -1347,7 +1366,7 @@ def _write_notes(wb: Workbook) -> None:
         "  current_pvalue ≥ 0.10                                            →  broken",
         f"  History depth required for hysteresis: {HYSTERESIS_LOOKBACK} prior daily snapshots.",
         "  Rows with history_depth < hysteresis threshold use the BOOTSTRAP classifier",
-        "  (current p-value only) — flagged with orange highlight in the Today sheet.",
+        "  (current p-value only) — flagged with orange highlight in the All Pairs (Diagnostic) sheet.",
         "",
         "RANKING SCORE (spec §8)",
         "  score = stability_persistence × half_life_quality × excursion_containment",
@@ -1356,7 +1375,7 @@ def _write_notes(wb: Workbook) -> None:
         "    excursion_containment  = fraction of last 252 days with |z-score| ≤ 3.0",
         "  Score helps SORTING. It does NOT replace diagnostic columns (p-value, half-life, z-score, regime, rolling-median).",
         "",
-        "AGREEMENT COLUMN (Today sheet)",
+        "AGREEMENT COLUMN (All Pairs Diagnostic sheet)",
         "  BOTH      — both 252d and 504d windows are cointegrated (strongest signal)",
         "  252-only  — only short window cointegrated; possibly a recent regime formation, treat with caution",
         "  504-only  — only long window cointegrated; relationship may be degrading",
@@ -1378,9 +1397,10 @@ def _write_notes(wb: Workbook) -> None:
         "  strategy that consumes this screener must size legs by the screener's",
         "  hedge_ratio (β) column, not 1:1.",
         "",
-        "THE PROBE",
-        "  Phase 0a probe script: tools/cointegration_screener_smoke.py (re-runnable via the registered",
-        "  Windows task 'CointegrationScreener_Phase0aProbe').",
+        "PRODUCTION TRIGGER",
+        "  Excel regenerated daily by DATA_INGRESS/engines/ops/invoke_daily_pipeline.ps1",
+        "  via tools/cointegration_daily_runner.py, after the data update succeeds.",
+        "  Smoke probe still available via tools/cointegration_screener_smoke.py.",
         "",
         f"  Generated: {datetime.now(timezone.utc).isoformat()}",
     ]
