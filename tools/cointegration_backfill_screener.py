@@ -46,11 +46,14 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as _cf
+import json
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 import time
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -278,28 +281,213 @@ def _parquet_paths(workdir: Path, tf: str, as_of: pd.Timestamp,
             workdir / f"singles_{tf}_{stamp}.parquet")
 
 
-def _compute_one(as_of_iso: str, tf: str, workdir_str: str) -> tuple[str, str]:
+def _compute_one(as_of_iso: str, tf: str, workdir_str: str,
+                  profile: bool = False) -> tuple[str, str]:
     """Worker: compute the screener for one (as_of, tf) pair and write per-task
     parquets to the workdir. Returns (coint_parquet_path, singles_parquet_path).
 
     No DB access. No shared state between workers. Pure compute → isolated
     output, per the validated `shard-per-worker + parent merge` pattern
     (feedback_parallelization_selectivity).
+
+    When profile=True, the worker monkey-patches `cointegration_screen._load_native_closes`
+    to record per-call duration + (symbol, tf) key, then emits one JSONL row per task to
+    `workdir/_timings_pid<PID>.jsonl`. The patch is restored in `finally` so the worker
+    is identical to the non-profile path on completion. NO behavior change otherwise.
     """
     as_of = pd.Timestamp(as_of_iso)
     workdir = Path(workdir_str)
     coint_path, singles_path = _parquet_paths(workdir, tf, as_of)
 
-    coint_df = run(as_of=as_of, tf=tf)
-    coint_df.to_parquet(coint_path, index=False)
+    if not profile:
+        coint_df = run(as_of=as_of, tf=tf)
+        coint_df.to_parquet(coint_path, index=False)
 
-    singles_df = run_singles(
-        as_of=as_of, tf=tf,
-        synthetic_specs=[("BTCUSD", "ETHUSD")],
-    )
-    singles_df.to_parquet(singles_path, index=False)
+        singles_df = run_singles(
+            as_of=as_of, tf=tf,
+            synthetic_specs=[("BTCUSD", "ETHUSD")],
+        )
+        singles_df.to_parquet(singles_path, index=False)
 
-    return (str(coint_path), str(singles_path))
+        return (str(coint_path), str(singles_path))
+
+    # --- profile path: monkey-patch loader for per-call counting + timing ---
+    import tools.cointegration_screen as _cs
+    original_load = _cs._load_native_closes
+    load_log: list[tuple[str, str, float]] = []
+
+    def _wrapped_load(symbol, tf_in, start, end):
+        _t = time.perf_counter()
+        _r = original_load(symbol, tf_in, start, end)
+        load_log.append((symbol, tf_in, time.perf_counter() - _t))
+        return _r
+
+    _cs._load_native_closes = _wrapped_load
+    try:
+        # run() — pair-pair compute over universe, includes loader calls
+        n_before = len(load_log)
+        t0 = time.perf_counter()
+        coint_df = run(as_of=as_of, tf=tf)
+        run_total_s = time.perf_counter() - t0
+        run_load_s = sum(d for _, _, d in load_log[n_before:])
+        run_compute_s = max(0.0, run_total_s - run_load_s)
+
+        # parquet write pair
+        t0 = time.perf_counter()
+        coint_df.to_parquet(coint_path, index=False)
+        pw_pair_s = time.perf_counter() - t0
+
+        # run_singles() — single-series ADF, also calls loader
+        n_before = len(load_log)
+        t0 = time.perf_counter()
+        singles_df = run_singles(
+            as_of=as_of, tf=tf,
+            synthetic_specs=[("BTCUSD", "ETHUSD")],
+        )
+        singles_total_s = time.perf_counter() - t0
+        singles_load_s = sum(d for _, _, d in load_log[n_before:])
+        singles_compute_s = max(0.0, singles_total_s - singles_load_s)
+
+        # parquet write singles
+        t0 = time.perf_counter()
+        singles_df.to_parquet(singles_path, index=False)
+        pw_singles_s = time.perf_counter() - t0
+
+        task_wall_s = run_total_s + pw_pair_s + singles_total_s + pw_singles_s
+        record = {
+            "worker_pid": os.getpid(),
+            "as_of": as_of_iso,
+            "tf": tf,
+            "task_wall_s": task_wall_s,
+            "spans_s": {
+                "data_load_pair": run_load_s,
+                "compute_pair": run_compute_s,
+                "data_load_singles": singles_load_s,
+                "compute_singles": singles_compute_s,
+                "parquet_write_pair": pw_pair_s,
+                "parquet_write_singles": pw_singles_s,
+            },
+            "load_count": len(load_log),
+            "load_keys": [[s, t] for s, t, _ in load_log],
+        }
+        jsonl_path = workdir / f"_timings_pid{os.getpid()}.jsonl"
+        with open(jsonl_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+        return (str(coint_path), str(singles_path))
+    finally:
+        _cs._load_native_closes = original_load
+
+
+def _aggregate_timings(workdir: Path) -> str:
+    """Read all `_timings_pid*.jsonl` shards in workdir; emit Markdown report.
+
+    Sections: per-span median + p95 + %; tasks-per-worker; first-task vs rest;
+    load-count census per (symbol, tf); verdict hints driven by thresholds.
+    """
+    records: list[dict] = []
+    for f in sorted(workdir.glob("_timings_pid*.jsonl")):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+
+    if not records:
+        return "# BC backfill timing report\n\n(no timing records — `--profile` may not have run)\n"
+
+    span_names = ["data_load_pair", "compute_pair", "data_load_singles",
+                  "compute_singles", "parquet_write_pair", "parquet_write_singles"]
+    samples = {s: [r["spans_s"][s] for r in records] for s in span_names}
+    medians = {s: statistics.median(v) for s, v in samples.items()}
+    p95s: dict[str, float] = {}
+    for s, v in samples.items():
+        if len(v) >= 20:
+            p95s[s] = statistics.quantiles(v, n=20)[18]
+        else:
+            p95s[s] = max(v) if v else 0.0
+    total_median = sum(medians.values())
+
+    worker_tasks = Counter(r["worker_pid"] for r in records)
+    load_keys: Counter = Counter()
+    for r in records:
+        for k in r["load_keys"]:
+            load_keys[tuple(k)] += 1
+
+    worker_walls: dict[int, list[float]] = defaultdict(list)
+    for r in records:
+        worker_walls[r["worker_pid"]].append(r["task_wall_s"])
+
+    first_vs_rest = []
+    for pid, walls in worker_walls.items():
+        if len(walls) >= 2:
+            first_vs_rest.append((pid, walls[0], statistics.median(walls[1:]),
+                                   walls[0] - statistics.median(walls[1:])))
+
+    lines: list[str] = []
+    lines.append("# BC backfill timing report")
+    lines.append("")
+    lines.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
+    lines.append(f"Tasks: {len(records)} | Workers: {len(worker_tasks)} | "
+                 f"Total `_load_native_closes` calls: {sum(load_keys.values())}")
+    lines.append("")
+    lines.append("## Per-task spans (median across all tasks)")
+    lines.append("")
+    lines.append("| Component | Median (ms) | p95 (ms) | % of task |")
+    lines.append("|---|---:|---:|---:|")
+    for s in span_names:
+        pct = (100 * medians[s] / total_median) if total_median > 0 else 0
+        lines.append(f"| {s} | {medians[s]*1000:.0f} | {p95s[s]*1000:.0f} | {pct:.1f}% |")
+    lines.append(f"| **Total (sum of medians)** | **{total_median*1000:.0f}** | | 100% |")
+    lines.append("")
+    lines.append("## Tasks per worker")
+    lines.append("")
+    for pid in sorted(worker_tasks):
+        lines.append(f"- worker {pid}: {worker_tasks[pid]} tasks")
+    lines.append("")
+    lines.append("## First-task vs rest (per worker)")
+    lines.append("")
+    if first_vs_rest:
+        lines.append("| worker_pid | first task (s) | median of rest (s) | first-call overhead (s) |")
+        lines.append("|---|---:|---:|---:|")
+        for pid, first, rest, delta in first_vs_rest:
+            lines.append(f"| {pid} | {first:.2f} | {rest:.2f} | {delta:.2f} |")
+    else:
+        lines.append("(insufficient samples — need ≥2 tasks per worker)")
+    lines.append("")
+    lines.append("## Load-count census per (symbol, tf) — top 20")
+    lines.append("")
+    lines.append("| symbol | tf | loads |")
+    lines.append("|---|---|---:|")
+    for (sym, tf_k), cnt in sorted(load_keys.items(), key=lambda x: -x[1])[:20]:
+        lines.append(f"| {sym} | {tf_k} | {cnt} |")
+    lines.append("")
+    lines.append("## Verdict hints")
+    lines.append("")
+    load_share = ((medians["data_load_pair"] + medians["data_load_singles"]) / total_median * 100
+                   if total_median > 0 else 0)
+    if load_share >= 60:
+        lines.append(f"- Data loading dominates: **{load_share:.1f}%** of per-task wall. "
+                     f"Cache hypothesis viable.")
+    elif load_share >= 30:
+        lines.append(f"- Data loading is significant ({load_share:.1f}%) but not dominant. "
+                     f"Cache fix would help but is not the largest lever.")
+    else:
+        lines.append(f"- Data loading is only {load_share:.1f}% of per-task wall. "
+                     f"Cache hypothesis **WEAK**. Look elsewhere.")
+    max_tpw = max(worker_tasks.values()) if worker_tasks else 0
+    if max_tpw <= 1:
+        lines.append(f"- Each worker processes ≤1 task. Cache **CANNOT** help — "
+                     f"each worker only loads once anyway.")
+    elif max_tpw >= 5:
+        lines.append(f"- Workers process up to {max_tpw} tasks each. Cache amortization is applicable.")
+    else:
+        lines.append(f"- Workers process up to {max_tpw} tasks each. Cache helps moderately.")
+    if load_keys:
+        max_loads = max(load_keys.values())
+        if max_loads >= max_tpw * 2 and max_tpw > 1:
+            cache_savings = (1 - 1 / max_loads) * 100 if max_loads else 0
+            lines.append(f"- Same (symbol, tf) loaded up to {max_loads}× — heavy redundancy. "
+                         f"Worker-local cache would catch ~{cache_savings:.0f}% of loads.")
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +502,7 @@ def backfill(start_date: pd.Timestamp, end_date: pd.Timestamp,
               dry_run: bool = False,
               resume: bool = False,
               workdir: Path | None = None,
+              profile: bool = False,
               ) -> None:
     """Run the screener for every business day in [start_date, end_date]
     across all requested timeframes.
@@ -389,7 +578,7 @@ def backfill(start_date: pd.Timestamp, end_date: pd.Timestamp,
         # determinism-guard test simple).
         for i, (as_of_iso, tf) in enumerate(tasks, start=1):
             try:
-                _compute_one(as_of_iso, tf, workdir_str)
+                _compute_one(as_of_iso, tf, workdir_str, profile)
                 if i == 1 or i % 25 == 0 or i == len(tasks):
                     elapsed = time.time() - t_start
                     avg = elapsed / i
@@ -407,7 +596,7 @@ def backfill(start_date: pd.Timestamp, end_date: pd.Timestamp,
         # Parallel mode — workers write per-task parquets to the workdir.
         with _cf.ProcessPoolExecutor(max_workers=bounded) as pool:
             futures = {
-                pool.submit(_compute_one, as_of_iso, tf, workdir_str):
+                pool.submit(_compute_one, as_of_iso, tf, workdir_str, profile):
                     (as_of_iso, tf)
                 for as_of_iso, tf in tasks
             }
@@ -479,6 +668,15 @@ def backfill(start_date: pd.Timestamp, end_date: pd.Timestamp,
     _log(f"final state: {row[0]} cointegration_triggers rows")
 
     conn.close()
+
+    if profile:
+        report_md = _aggregate_timings(workdir)
+        perf_dir = PROJECT_ROOT / "outputs" / "perf"
+        perf_dir.mkdir(parents=True, exist_ok=True)
+        report_path = perf_dir / f"bc_timing_{suffix}.md"
+        report_path.write_text(report_md, encoding="utf-8")
+        _log(f"PROFILE  report written to {report_path}")
+
     _log("DONE.")
 
 
@@ -506,6 +704,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="Print plan only; no compute or DB writes.")
     p.add_argument("--skip-backup", action="store_true",
                    help="Skip the backup-tables step (advanced; loses rollback).")
+    p.add_argument("--profile", action="store_true",
+                   help="Instrument workers to capture per-task span timings, "
+                        "tasks-per-worker distribution, and (symbol, tf) "
+                        "load-count census. Emits Markdown report to "
+                        "outputs/perf/bc_timing_<UTC_TS>.md. Zero behavior "
+                        "change otherwise (monkey-patch restored in finally).")
     args = p.parse_args(argv)
 
     end_date = (pd.Timestamp(args.end) if args.end
@@ -527,6 +731,7 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
             resume=args.resume,
             workdir=args.workdir,
+            profile=args.profile,
         )
     except SchedulerStillEnabledError as exc:
         _log(f"FATAL  {exc}")
