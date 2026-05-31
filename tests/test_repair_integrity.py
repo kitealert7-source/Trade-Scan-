@@ -418,6 +418,145 @@ def test_coint_drop_preserves_all_sheets(staged_coint):
 
 
 # ---------------------------------------------------------------------------
+# Baskets DB-drop arm (durability of operator-driven cleanup across --export)
+# ---------------------------------------------------------------------------
+
+
+def _seed_basket_row(tmp_path: Path, run_id: str, directive_id: str,
+                     basket_id: str, *, make_valid: bool) -> None:
+    """Seed one basket_sheet DB row + (optionally) plant the disk artifacts
+    that make it valid under is_valid_basket_run.
+
+    Valid: backtests/<directive_id>_<basket_id>/raw/results_basket_per_bar.parquet
+    is planted. Orphan: nothing is planted.
+    """
+    from tools.ledger_db import _connect, create_tables, upsert_basket_row
+    conn = _connect()
+    try:
+        create_tables(conn)
+        upsert_basket_row(conn, {
+            "run_id": run_id,
+            "directive_id": directive_id,
+            "basket_id": basket_id,
+            "execution_mode": "live",
+            "rule_name": "test_rule",
+            "rule_version": 1.0,
+            "leg_count": 2,
+            "leg_specs": "{}",
+            "trades_total": 0,
+            "completed_at_utc": "2026-05-31T00:00:00Z",
+            "backtests_path": f"backtests/{directive_id}_{basket_id}",
+        })
+    finally:
+        conn.close()
+    if make_valid:
+        btdir = tmp_path / "backtests" / f"{directive_id}_{basket_id}"
+        (btdir / "raw").mkdir(parents=True, exist_ok=True)
+        (btdir / "raw" / "results_basket_per_bar.parquet").write_bytes(b"PAR1")
+
+
+def _basket_db_run_ids(tmp_path: Path) -> set[str]:
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "ledger.db"))
+    try:
+        return {r[0] for r in conn.execute("SELECT run_id FROM basket_sheet")}
+    finally:
+        conn.close()
+
+
+def test_drop_orphan_basket_row_survives_re_export(staged_coint):
+    """Regression for the 2026-05-31 durability gap.
+
+    Pre-fix, apply_baskets_drop only mutated the xlsx. The basket_sheet table
+    still held the dropped row, so the next `ledger_db.py --export` rebuilt
+    df_baskets from query_baskets() and silently re-emitted the orphan into
+    the xlsx — making the operator-driven cleanup invisible at the next
+    export trigger. The fix adds apply_baskets_db_drop, called from main()
+    alongside the xlsx rewrite.
+
+    This test seeds one valid + one orphan basket_sheet row, mirrors them in
+    the xlsx Baskets tab, runs repair_integrity --execute, then RE-EXPORTS
+    via ledger_db.export_mps() and asserts the orphan stays gone. The
+    re-export step is the critical assertion: pre-fix it would have undone
+    the cleanup.
+    """
+    tmp, fsp, mps = staged_coint
+
+    _seed_basket_row(tmp, "RID_BSKVALID", "dir_valid", "H2", make_valid=True)
+    _seed_basket_row(tmp, "RID_BSKORPH", "dir_orph", "H3", make_valid=False)
+
+    # Mirror the DB state in the xlsx Baskets tab so scan_baskets (which
+    # reads the xlsx, not the DB) flags the orphan.
+    _write_mps(
+        mps, portfolios=[], sac=[],
+        baskets=[
+            {"run_id": "RID_BSKVALID", "directive_id": "dir_valid",
+             "basket_id": "H2", "verdict_status": "CORE",
+             "quarantine_status": None},
+            {"run_id": "RID_BSKORPH", "directive_id": "dir_orph",
+             "basket_id": "H3", "verdict_status": "CORE",
+             "quarantine_status": None},
+        ],
+        cointegration=[{"rank": 1, "pair": "seed/seed"}],
+    )
+    assert _basket_db_run_ids(tmp) == {"RID_BSKVALID", "RID_BSKORPH"}
+
+    rc = ri.main_via_args(["--execute"])  # default drop
+    assert rc == 0
+
+    # DB: orphan deleted, valid preserved.
+    assert _basket_db_run_ids(tmp) == {"RID_BSKVALID"}, \
+        "Orphan basket_sheet row was not deleted from DB"
+
+    # Xlsx: orphan removed by repair_integrity's own write.
+    post_xlsx = pd.read_excel(mps, sheet_name="Baskets")
+    assert "RID_BSKORPH" not in set(post_xlsx["run_id"])
+    assert "RID_BSKVALID" in set(post_xlsx["run_id"])
+
+    # THE REGRESSION CHECK: re-export from DB. Pre-fix, basket_sheet still
+    # held the orphan, so this would re-emit it and overwrite the cleaned
+    # xlsx. Post-fix, the DB no longer has the row → export keeps it gone.
+    from tools.ledger_db import export_mps
+    export_mps(output_path=mps)
+
+    final_xlsx = pd.read_excel(mps, sheet_name="Baskets")
+    assert "RID_BSKORPH" not in set(final_xlsx["run_id"]), \
+        "Orphan reappeared after re-export — DB DELETE did not happen"
+    assert "RID_BSKVALID" in set(final_xlsx["run_id"]), \
+        "Valid basket row went missing after re-export"
+
+
+def test_drop_basket_lineage_protected_not_db_deleted(staged_coint):
+    """SUPERSEDED basket rows survive both the xlsx drop and the DB delete.
+
+    apply_baskets_drop filters LINEAGE_PROTECTED_TAGS out of its drop set
+    AND out of the run_ids it hands to apply_baskets_db_drop. A SUPERSEDED
+    row whose disk is gone must remain in both the xlsx and basket_sheet —
+    the tag is the explicit audit decision.
+    """
+    tmp, fsp, mps = staged_coint
+
+    _seed_basket_row(tmp, "RID_BSKSUPER", "dir_super", "H4", make_valid=False)
+    _write_mps(
+        mps, portfolios=[], sac=[],
+        baskets=[
+            {"run_id": "RID_BSKSUPER", "directive_id": "dir_super",
+             "basket_id": "H4", "verdict_status": "CORE",
+             "quarantine_status": "SUPERSEDED"},
+        ],
+        cointegration=[{"rank": 1, "pair": "seed/seed"}],
+    )
+
+    rc = ri.main_via_args(["--execute"])
+    assert rc == 0
+
+    # SUPERSEDED row preserved in DB AND xlsx, even though disk is missing.
+    assert _basket_db_run_ids(tmp) == {"RID_BSKSUPER"}
+    post_xlsx = pd.read_excel(mps, sheet_name="Baskets")
+    assert "RID_BSKSUPER" in set(post_xlsx["run_id"])
+
+
+# ---------------------------------------------------------------------------
 # argparse wrapper for tests
 # ---------------------------------------------------------------------------
 

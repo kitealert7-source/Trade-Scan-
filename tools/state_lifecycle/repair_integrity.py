@@ -341,25 +341,68 @@ def apply_mps_drop(df: pd.DataFrame, constituent_targets: list[tuple[int, list[s
     return df, n
 
 
-def apply_baskets_drop(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int]:
+def apply_baskets_drop(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int, list[str]]:
     """Drop mode: remove orphan rows from MPS::Baskets.
 
     Honors LINEAGE_PROTECTED_TAGS — SUPERSEDED / ARCHIVED_UNRESOLVED rows are
     preserved even when their disk is gone (those tags come from the H3 rehab
     batch and represent explicit audit decisions). ARCHIVED_DEPENDENCY_LOST
     and untagged rows are dropped.
+
+    Returns (df_post_drop, count_dropped, run_ids_dropped). The run_ids list
+    is the contract input to apply_baskets_db_drop — by construction these
+    have already passed the LINEAGE_PROTECTED_TAGS filter, so the DB delete
+    does not re-check tags.
     """
     drop_indexes: list[int] = []
+    dropped_run_ids: list[str] = []
     for idx in targets:
         tag = _mps_quarantine_tag(df.iloc[idx])
         if tag in LINEAGE_PROTECTED_TAGS:
             continue
         drop_indexes.append(idx)
+        rid = str(df.iloc[idx].get("run_id", "")).strip()
+        if rid and rid.lower() != "nan":
+            dropped_run_ids.append(rid)
     if not drop_indexes:
-        return df, 0
+        return df, 0, []
     n = len(drop_indexes)
     df = df.drop(index=drop_indexes).reset_index(drop=True)
-    return df, n
+    return df, n, dropped_run_ids
+
+
+def apply_baskets_db_drop(orphan_run_ids: list[str]) -> int:
+    """Drop mode (DB side): hard-DELETE basket_sheet rows by run_id.
+
+    Mirrors apply_cointegration_drop — operator-driven cleanup is the
+    documented exception to append-only (CLAUDE.md #2). Without this delete,
+    the next `ledger_db.py --export` re-emits the row from basket_sheet
+    because export_mps() rebuilds df_baskets from query_baskets() and
+    _merge_audit_columns only carries audit columns onto the DB-sourced
+    rows; it does not drop rows the operator removed from the xlsx. The
+    cointegration arm doesn't need this distinction (the xlsx tab is a
+    lossy projection, not a managed sheet), but baskets does.
+
+    Contract: caller (apply_baskets_drop) has already filtered out
+    LINEAGE_PROTECTED_TAGS rows, so every run_id passed here is safe to
+    delete. This function does NOT re-check tags. Returns the count of
+    rows actually removed.
+    """
+    if not orphan_run_ids:
+        return 0
+    from tools.ledger_db import _connect
+    conn = _connect(LEDGER_DB_PATH)
+    try:
+        n = 0
+        for rid in orphan_run_ids:
+            cur = conn.execute(
+                'DELETE FROM basket_sheet WHERE "run_id" = ?', (rid,)
+            )
+            n += cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return n
 
 
 def apply_baskets_mark(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int]:
@@ -367,6 +410,13 @@ def apply_baskets_mark(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFra
 
     Idempotent: rows already carrying any quarantine_status are left alone
     (avoids overwriting SUPERSEDED / ARCHIVED_UNRESOLVED with the generic tag).
+
+    Xlsx-only by design. quarantine_status / quarantine_reason are operator
+    audit columns absent from the basket_sheet DB schema; ledger_db's
+    _merge_audit_columns carries them xlsx → xlsx across export_mps() calls,
+    so marking only the xlsx is durable. (Drop mode, by contrast, MUST also
+    hard-DELETE from basket_sheet — see apply_baskets_db_drop — because
+    otherwise the next export re-emits the row from DB.)
     """
     df = _ensure_columns(df, (
         ("quarantine_status", None),
@@ -693,9 +743,16 @@ def main() -> int:
             mps_to_write[sheet] = mps_sheets[sheet]
 
     # Baskets apply (single run_id semantics, separate code path).
+    # Drop is dual-write: xlsx rewrite + DB hard-DELETE. Without the DB
+    # delete, ledger_db.export_mps() would re-emit the dropped row from
+    # basket_sheet (canonical) on the next export and overwrite the
+    # cleaned xlsx. See apply_baskets_db_drop docstring for the rationale.
     if baskets_df is not None and baskets_targets:
         if action == "drop":
-            baskets_df, n = apply_baskets_drop(baskets_df, baskets_targets)
+            baskets_df, n, dropped_basket_run_ids = apply_baskets_drop(baskets_df, baskets_targets)
+            db_dropped = apply_baskets_db_drop(dropped_basket_run_ids)
+            if db_dropped:
+                print(f"-> Deleted {db_dropped} basket_sheet DB row(s).")
         else:
             baskets_df, n = apply_baskets_mark(baskets_df, baskets_targets)
         mps_applied[MPS_BASKETS_SHEET] = n
