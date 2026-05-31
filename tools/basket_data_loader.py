@@ -322,14 +322,26 @@ def load_compression_5d_factor(start_date: str, end_date: str) -> pd.Series:
 
 
 def _load_symbol_5m(symbol: str, start_date: str, end_date: str,
-                    timeframe: str = "5m") -> pd.DataFrame:
+                    timeframe: str = "5m",
+                    leg_warmup_bars: int = 0) -> pd.DataFrame:
     """Read every RESEARCH year-file for symbol covering the window at the
-    given timeframe, concat (via cache), filter to [start, end].
+    given timeframe, concat (via cache), filter to [start, end] — optionally
+    extending the lower bound backward by `leg_warmup_bars` bars so the
+    leg strategy / rule has indicator warmup data before `start_date`.
 
     Function name retains _5m suffix for callsite-compat; `timeframe` param
     selects the actual file series (5m/15m/30m/1h per DATA_INGRESS ingest).
     Year-files are cached process-locally via _read_year_csv_cached so
     cross-window matrix runs reuse parsed frames instead of re-parsing.
+
+    `leg_warmup_bars` default 0 = byte-equivalent to pre-2026-05-30 behavior
+    (strict filter to [start_date, end_date]). When > 0, the loader extends
+    the lower bound backward by `leg_warmup_bars` *index positions* (NOT
+    calendar days) so weekend / holiday / session gaps don't truncate the
+    effective warmup. The returned DataFrame still includes those warmup
+    bars; the caller (BasketRunner) is responsible for muting strategy
+    signals during the warmup region — see BasketRunner.warmup_bars +
+    the v1_5_8/main.py:88-104 mute pattern.
     """
     research_dir = DATA_ROOT / "MASTER_DATA" / f"{symbol}_OCTAFX_MASTER" / "RESEARCH"
     if not research_dir.is_dir():
@@ -338,8 +350,25 @@ def _load_symbol_5m(symbol: str, start_date: str, end_date: str,
             f"Confirm DATA_INGRESS has produced the OctaFx {timeframe} "
             f"series for this symbol."
         )
+    if leg_warmup_bars < 0:
+        raise ValueError(
+            f"_load_symbol_5m: leg_warmup_bars must be >= 0, got {leg_warmup_bars!r}"
+        )
     start_year = int(start_date[:4])
     end_year = int(end_date[:4])
+    # Extend the scan year backward when warmup is requested. Conservative
+    # bound: subtract enough years to cover `leg_warmup_bars` at the
+    # timeframe's per-day bar count. Over-loading is cheap (cached);
+    # under-loading would silently truncate the warmup region.
+    if leg_warmup_bars > 0:
+        bars_per_day = max(1, 86400 // _BAR_SECONDS.get(timeframe, 300))
+        extra_days = (leg_warmup_bars + bars_per_day - 1) // bars_per_day
+        # +30 calendar-day cushion for weekend/holiday gaps.
+        scan_start_year = (
+            (pd.Timestamp(start_date) - pd.Timedelta(days=extra_days + 30))
+            .year
+        )
+        start_year = min(start_year, scan_start_year)
     pieces: list[pd.DataFrame] = []
     for year in range(start_year, end_year + 1):
         piece = _read_year_csv_cached(symbol, year, timeframe)
@@ -354,7 +383,25 @@ def _load_symbol_5m(symbol: str, start_date: str, end_date: str,
     df = pd.concat(pieces).sort_index()
     start_ts = pd.Timestamp(start_date)
     end_ts = pd.Timestamp(end_date)
-    df = df[(df.index >= start_ts) & (df.index <= end_ts)]
+    # Filter to [effective_start, end_date]. `effective_start` is the
+    # bar `leg_warmup_bars` positions BEFORE the bar that first hits
+    # `start_date` (positional, not calendar — avoids weekend/holiday
+    # truncation of the warmup region).
+    if leg_warmup_bars > 0:
+        # Find the first index position at-or-after start_date in the
+        # full concatenated frame, then back off by leg_warmup_bars.
+        in_window_mask = df.index >= start_ts
+        if not in_window_mask.any():
+            raise ValueError(
+                f"_load_symbol_5m: no {timeframe} bars at-or-after {start_date} "
+                f"for {symbol} — cannot anchor warmup extension."
+            )
+        first_in_window_pos = int(in_window_mask.argmax())
+        effective_start_pos = max(0, first_in_window_pos - leg_warmup_bars)
+        df = df.iloc[effective_start_pos:]
+        df = df[df.index <= end_ts]
+    else:
+        df = df[(df.index >= start_ts) & (df.index <= end_ts)]
     if df.empty:
         raise ValueError(
             f"After window filter {start_date}..{end_date}, no {timeframe} bars "
@@ -414,6 +461,7 @@ def load_basket_leg_data(
     regime_gate_lookback_bars: int | None = None,
     regime_gate_flip_threshold: float | None = None,
     cointegration_join_lookback_days: int | None = None,
+    leg_warmup_bars: int = 0,
 ) -> dict[str, pd.DataFrame]:
     """Load per-symbol OHLC + a USD_SYNTH regime factor for a basket.
 
@@ -461,7 +509,8 @@ def load_basket_leg_data(
     for ref_pair in ref_pairs:
         try:
             ref_df = _load_symbol_5m(ref_pair, start_date, end_date,
-                                      timeframe=timeframe)
+                                      timeframe=timeframe,
+                                      leg_warmup_bars=leg_warmup_bars)
             ref_closes[ref_pair] = ref_df["close"]
         except (FileNotFoundError, ValueError) as exc:
             # Non-fatal — the v3 rule's _build_ref_closes will degrade gracefully
@@ -490,7 +539,8 @@ def load_basket_leg_data(
 
     out: dict[str, pd.DataFrame] = {}
     for sym in symbols:
-        df_5m = _load_symbol_5m(sym, start_date, end_date, timeframe=timeframe)
+        df_5m = _load_symbol_5m(sym, start_date, end_date, timeframe=timeframe,
+                                 leg_warmup_bars=leg_warmup_bars)
         df_5m = _join_factor_onto_5m(df_5m, factor)
         # Join USD reference rates as columns
         for ref_pair, ref_series in ref_closes.items():

@@ -759,7 +759,15 @@ def run_basket_pipeline(directive: dict[str, Any],
     )
 
     legs = _legs_from_directive(directive, leg_data, leg_strategies)
-    runner = BasketRunner(legs=legs, rules=[rule])
+    # Warmup contract (2026-05-30): rule declares its own data dependency via
+    # required_warmup_bars (Protocol extension). The runner mutes leg signals
+    # and rule.apply during the first N bars. Default 0 via getattr fallback
+    # preserves byte-equivalence for rules that don't implement the method.
+    # The data loader at the call site (run_pipeline._load_basket_leg_inputs)
+    # uses the SAME rule.required_warmup_bars() value to pre-extend leg.df —
+    # both consumers read from a single source of truth, no drift possible.
+    rule_warmup = int(getattr(rule, "required_warmup_bars", lambda: 0)())
+    runner = BasketRunner(legs=legs, rules=[rule], warmup_bars=rule_warmup)
     per_leg_trades = runner.run()
 
     return BasketRunResult(

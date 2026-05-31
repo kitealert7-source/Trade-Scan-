@@ -1223,6 +1223,36 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             SpreadCrossArmedState,
             SpreadCrossLegStrategy,
         )
+        # Leg-warmup probe (2026-05-30): the rule is the single source of truth
+        # for how many bars of pre-start_date data its indicators need. We
+        # temp-instantiate the rule with identity dummies (required_warmup_bars
+        # only reads param fields, not run_id/directive_id/basket_id) and read
+        # the count. The real rule instance is re-created by basket_pipeline's
+        # _instantiate_rule later with real identity; both share the same
+        # param values, so the warmup count is deterministic and identical.
+        # Pipeline stays generic — no rule-specific formula lives here.
+        rule_warmup_bars = 0
+        if parsed.get("basket", {}).get("recycle_rule"):
+            try:
+                from tools.basket_pipeline import _instantiate_rule as _probe_rule_init
+                _probe = _probe_rule_init(
+                    parsed["basket"]["recycle_rule"],
+                    run_id="__warmup_probe__",
+                    directive_id="__warmup_probe__",
+                    basket_id=parsed["basket"].get("basket_id", "__probe__"),
+                )
+                rule_warmup_bars = int(
+                    getattr(_probe, "required_warmup_bars", lambda: 0)()
+                )
+            except Exception as exc:
+                # Probe-failure is non-blocking — warmup defaults to 0, which
+                # preserves pre-2026-05-30 behavior (rule may still hit its
+                # own min-bars assertion at run time, surfaced as a real error
+                # instead of silenced by hidden warmup).
+                print(
+                    f"[BASKET] WARN: warmup probe failed ({exc!r}); "
+                    f"leg_warmup_bars=0 (pre-2026-05-30 default)."
+                )
         leg_data = load_basket_leg_data(
             symbols, start_date, end_date,
             factor_column=factor_column, timeframe=bar_timeframe,
@@ -1235,6 +1265,7 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             regime_gate_lookback_bars=regime_gate_lookback_bars,
             regime_gate_flip_threshold=regime_gate_flip_threshold,
             cointegration_join_lookback_days=cointegration_join_lookback_days,
+            leg_warmup_bars=rule_warmup_bars,
         )
         # Leg-strategy dispatch by recycle rule name (2026-05-18 — H3_spread@1):
         # different rules require different leg-entry semantics. ContinuousHold

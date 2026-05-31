@@ -112,12 +112,34 @@ class BasketRule(Protocol):
     Phase 2 defines the Protocol shape only — there are no implementations
     yet, and `BasketRunner.run()` with no rules is required to be a pure
     orchestrator. A future RecycleRule will implement this interface.
+
+    Warmup contract (2026-05-30, Protocol extension):
+        Rules MAY implement `required_warmup_bars(self) -> int` to declare
+        how many bars of pre-start_date data their indicators need to be
+        fully computed by the directive's start_date. Default by absence
+        of implementation is 0 (no warmup). The pipeline reads this via
+        `getattr(rule, 'required_warmup_bars', lambda: 0)()` and passes
+        the max across all rules to BasketRunner.warmup_bars +
+        basket_data_loader.leg_warmup_bars.
+
+        Rules that need warmup override the method based on their own
+        param-derived window math (NOT pipeline-side hard-coded formulas).
+        See PineRatioZRevRule.required_warmup_bars for the reference
+        implementation.
     """
 
     name: str
 
     def apply(self, legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp) -> None:
         """Called after each per-bar leg evaluation. May mutate leg state."""
+        ...
+
+    def required_warmup_bars(self) -> int:
+        """Bars of pre-start_date data this rule's indicators require for
+        validity by start_date. Default 0 = no warmup. Optional Protocol
+        method — pipeline uses getattr fallback for rules that don't
+        implement it. Rules with windowing dependencies (z-score, ATR,
+        EMA, half-life, etc.) override based on their own params."""
         ...
 
 
@@ -172,9 +194,18 @@ class BasketRunner:
     change required — keeps existing rules untouched.
     """
 
-    def __init__(self, legs: list[BasketLeg], rules: list[BasketRule] | None = None) -> None:
+    def __init__(
+        self,
+        legs: list[BasketLeg],
+        rules: list[BasketRule] | None = None,
+        warmup_bars: int = 0,
+    ) -> None:
         if not legs or len(legs) < 2:
             raise ValueError(f"BasketRunner requires >= 2 legs; got {len(legs)}.")
+        if warmup_bars < 0:
+            raise ValueError(
+                f"BasketRunner: warmup_bars must be >= 0, got {warmup_bars!r}."
+            )
         seen: set[str] = set()
         for leg in legs:
             if leg.symbol in seen:
@@ -190,6 +221,13 @@ class BasketRunner:
                 )
         self.legs = legs
         self.rules: list[BasketRule] = list(rules) if rules else []
+        # Bars at the front of the aligned index that exist for indicator
+        # warmup only — leg strategies AND basket rules see no signals /
+        # apply during this window. Default 0 = byte-equivalent to pre-
+        # 2026-05-30 behavior (every aligned bar is signal-eligible).
+        # Mirrors the proven engine-side mute pattern in
+        # engine_dev/universal_research_engine/v1_5_8/main.py:88-104.
+        self.warmup_bars: int = int(warmup_bars)
 
         # Capture initial lots — read by basket-level primitives such as
         # soft_reset_basket. Immutable for the lifetime of the runner; only
@@ -304,7 +342,17 @@ class BasketRunner:
         return self._run_engine_path()
 
     def _run_engine_path(self) -> dict[str, list[dict[str, Any]]]:
-        """The original Phase 2 implementation — always correct, slower."""
+        """The original Phase 2 implementation — always correct, slower.
+
+        Warmup mute (2026-05-30): when `self.warmup_bars > 0`, the first
+        `warmup_bars` aligned bars are processed for indicator computation
+        only — leg strategies' check_entry / check_exit are wrapped to
+        return None / False, and basket rules' apply() is skipped. This
+        mirrors engine_dev/v1_5_8/main.py:88-104 (single-strategy path)
+        so the basket pipeline has the same warmup contract as run_stage1.
+        Default warmup_bars=0 → wrappers no-op → byte-equivalent to the
+        pre-2026-05-30 behavior; every existing basket result is unchanged.
+        """
         self._prepare()
         aligned = self._aligned_index()
         if len(aligned) == 0:
@@ -315,15 +363,48 @@ class BasketRunner:
         # Construct positional views per leg over the aligned set.
         leg_views: list[pd.DataFrame] = [leg.df.loc[aligned].copy() for leg in self.legs]
 
-        for i in range(len(aligned)):
-            bar_ts = aligned[i]
-            for leg, view in zip(self.legs, leg_views):
-                trade = evaluate_bar(view, i, leg.state, leg.strategy, leg.config)
-                if trade is not None:
-                    leg.trades.append(trade)
-            # Phase 3+: basket-level rules run after all legs have advanced.
-            for rule in self.rules:
-                rule.apply(self.legs, i, bar_ts)
+        # --- Warmup mute setup (no-op when warmup_bars == 0). ---
+        wrap_targets: list[tuple[Any, Any, Any]] = []  # (strategy, orig_check_entry, orig_check_exit)
+        if self.warmup_bars > 0:
+            warmup = self.warmup_bars
+            for leg in self.legs:
+                orig_ce = leg.strategy.check_entry
+                orig_cx = leg.strategy.check_exit
+                wrap_targets.append((leg.strategy, orig_ce, orig_cx))
+                def _make_wrapped_check_entry(orig):
+                    def wrapped(ctx):
+                        if getattr(ctx, "index", 0) < warmup:
+                            return None
+                        return orig(ctx)
+                    return wrapped
+                def _make_wrapped_check_exit(orig):
+                    def wrapped(ctx):
+                        if getattr(ctx, "index", 0) < warmup:
+                            return False
+                        return orig(ctx)
+                    return wrapped
+                leg.strategy.check_entry = _make_wrapped_check_entry(orig_ce)
+                leg.strategy.check_exit = _make_wrapped_check_exit(orig_cx)
+
+        try:
+            for i in range(len(aligned)):
+                bar_ts = aligned[i]
+                for leg, view in zip(self.legs, leg_views):
+                    trade = evaluate_bar(view, i, leg.state, leg.strategy, leg.config)
+                    if trade is not None:
+                        leg.trades.append(trade)
+                # Phase 3+: basket-level rules run after all legs have advanced.
+                # Skip rule.apply during warmup — the rule's signal columns and
+                # internal state would not be valid against muted legs.
+                if i >= self.warmup_bars:
+                    for rule in self.rules:
+                        rule.apply(self.legs, i, bar_ts)
+        finally:
+            # Restore original strategy methods so subsequent runs of the
+            # same strategy object (e.g. in tests) see un-wrapped behavior.
+            for strategy, orig_ce, orig_cx in wrap_targets:
+                strategy.check_entry = orig_ce
+                strategy.check_exit = orig_cx
 
         for leg, view in zip(self.legs, leg_views):
             finalize_force_close(view, leg.state, leg.trades)
@@ -354,16 +435,22 @@ class BasketRunner:
         """
         self._prepare()
         aligned = self._aligned_index()
-        if len(aligned) < 2:
+        min_bars = max(2, self.warmup_bars + 2)  # need warmup + signal-bar + fill-bar
+        if len(aligned) < min_bars:
             raise RuntimeError(
-                "BasketRunner._run_fast_path: aligned index has < 2 bars; need at "
-                "least bar 0 (signal) + bar 1 (fill) for a next_bar_open open."
+                f"BasketRunner._run_fast_path: aligned index has {len(aligned)} bars; "
+                f"need at least {min_bars} (warmup={self.warmup_bars} + signal-bar + fill-bar)."
             )
 
         leg_views: list[pd.DataFrame] = [leg.df.loc[aligned].copy() for leg in self.legs]
 
-        # ---- Bar 1: open every leg at next-bar open, mirroring engine path.
-        fill_idx = 1
+        # ---- Open every leg at the bar after warmup completes.
+        # Fast-path strategies (ContinuousHoldStrategy + variants) signal once
+        # at bar 0 with signal == direction; engine fills at bar 1 (next open).
+        # When warmup_bars > 0, the equivalent positions are signal at
+        # warmup_bars and fill at warmup_bars + 1. Default warmup_bars == 0
+        # keeps fill_idx == 1 → byte-equivalent to pre-2026-05-30 behavior.
+        fill_idx = self.warmup_bars + 1
         fill_ts = aligned[fill_idx]
         for leg, view in zip(self.legs, leg_views):
             entry_row = view.iloc[fill_idx]

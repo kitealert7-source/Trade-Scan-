@@ -121,6 +121,42 @@ class PineRatioZRevRule(H2RecycleRule):
     # --- Back-reference (populated by BasketRunner.__init__) ---
     basket_runner: Optional[BasketRunner] = None
 
+    # ---- Warmup contract (BasketRule Protocol extension, 2026-05-30) ----
+
+    def required_warmup_bars(self) -> int:
+        """Bars of pre-start_date data the rule's z_r needs for validity.
+
+        Mechanism, NOT comfort — every number traces to a line of code:
+
+        - Absolute mode: ratio_hedged_spread_zscore computes z_r over a
+          rolling n_window window. The first valid z_r value is at bar
+          index `n_window - 1` (uses bars 0..n_window-1 inclusive). The
+          rule's own published floor is the line-215 assertion
+          `len(common_idx) >= 2 * n_window`. We mirror that exactly —
+          with 2*n_window bars there are n_window+1 valid z_r values,
+          sufficient for cross detection (requires 2 consecutive valid
+          values). No safety buffer: if a directive trips this floor at
+          execution time, the failure is real (data shortage), not
+          warmup-shortfall, and should surface — not be padded over.
+
+        - Centered mode: `z_r_centered` = z_r minus its own rolling mean
+          over n_meta past z_r values. The centering mean is first valid
+          n_meta bars AFTER z_r becomes valid, so the first valid
+          centered z_r is at bar `n_window - 1 + n_meta`. Pre-extension
+          floor: `n_window + n_meta` bars (off by 1 vs the strict
+          n_window + n_meta - 1, accepted as a single-bar over-allocation
+          to keep the formula intuitive and self-documenting).
+
+        Pipeline reads this via
+        `getattr(rule, 'required_warmup_bars', lambda: 0)()` and passes
+        the value to both the data loader (extends [start_date, end_date]
+        backward) and BasketRunner.warmup_bars (mutes leg signals +
+        rule.apply during the warmup region).
+        """
+        if self.entry_mode == "centered":
+            return self.n_window + self.n_meta
+        return 2 * self.n_window
+
     def __post_init__(self) -> None:
         # Validate params
         if self.n_window < 2:
