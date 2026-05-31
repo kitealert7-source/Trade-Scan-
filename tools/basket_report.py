@@ -557,6 +557,50 @@ def _write_basket_md_report(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _resolve_recycle_rule_source(rule_name: str) -> tuple[Path, str] | None:
+    """Map a registry rule name to its source file + sha256.
+
+    Returns (source_path, sha256_hex) or None if the source can't be found.
+    Used by the basket strategy card to snapshot the actual rule code that
+    ran, so the artifact set is self-contained for audit-replay (per the
+    Strategy Pointer Files convention adapted for basket strategies, which
+    don't have a per-symbol strategy.py).
+
+    Convention: rule_name matches the file stem of the recycle_rule module
+    (e.g. "pine_ratio_zrev_v1_zcross" -> tools/recycle_rules/pine_ratio_zrev_v1_zcross.py).
+    Registry-versioning is *behavioral* (a name@version change implies a
+    NEW file, never an in-place mutation), so name alone resolves the file.
+    """
+    import hashlib
+    candidate = (
+        Path(__file__).resolve().parent / "recycle_rules" / f"{rule_name}.py"
+    )
+    if not candidate.is_file():
+        return None
+    src_bytes = candidate.read_bytes()
+    return candidate, hashlib.sha256(src_bytes).hexdigest()
+
+
+def _resolve_directive_source(directive_id: str) -> Path | None:
+    """Locate the original directive .txt by stem across the standard
+    backtest_directives lifecycle locations (inbox -> active_backup ->
+    completed).
+
+    Returns the first match found, or None if no .txt with this stem exists.
+    Used by the basket strategy card to byte-copy the full source directive
+    as the `DIRECTIVE_SOURCE.txt` sidecar — the authoritative artifact for
+    full reproducibility. The card itself stays glance-able; reproducibility
+    lives in the sidecar.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    base = project_root / "backtest_directives"
+    for stage in ("inbox", "active_backup", "completed"):
+        candidate = base / stage / f"{directive_id}.txt"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def write_basket_strategy_card(
     out_dir: Path,
     *,
@@ -572,9 +616,13 @@ def write_basket_strategy_card(
       1. Header line (directive, run_id, engine, generated)
       2. Configuration table (basket-specific fields)
       3. Active Logic (one-liner of recycle + gate + harvest)
-      4. Hypothesis (from directive notes/description)
-      5. Testing Logic (from directive description)
-      6. Changes from Previous Run (P-diff scaffolding; basket diff is
+      4. Rule source snapshot (path + sha256 + sidecar file
+         `RECYCLE_RULE_SOURCE.py` containing the byte-equivalent rule code
+         that ran). Enables auditor / future-self to inspect the exact
+         exit / entry / liquidate logic without crawling the live repo.
+      5. Hypothesis (from directive notes/description)
+      6. Testing Logic (from directive description)
+      7. Changes from Previous Run (P-diff scaffolding; basket diff is
          deferred until a second pass exists)
 
     This is the basket counterpart to generate_strategy_card.generate_strategy_card,
@@ -609,17 +657,100 @@ def write_basket_strategy_card(
     rule_name = rule.get("name", "?")
     rule_version = rule.get("version", "?")
 
+    # Window summary for the header — at-a-glance reproducibility anchor.
+    start_date = test_block.get("start_date", "?")
+    end_date = test_block.get("end_date", "?")
+    try:
+        from datetime import date as _date
+        span_days = (_date.fromisoformat(str(end_date))
+                      - _date.fromisoformat(str(start_date))).days
+        window_text = f"{start_date} -> {end_date} ({span_days}d)"
+    except Exception:
+        window_text = f"{start_date} -> {end_date}"
+    broker = test_block.get("broker", "?")
+
     lines: list[str] = []
     lines.append(f"# STRATEGY CARD — {directive_id}")
     lines.append("")
     lines.append(
-        f"**Basket:** {basket_id}  |  **Timeframe:** {timeframe}  |  "
-        f"**Sweep:** {sweep_str}  |  **Pass:** {pass_str}  |  "
+        f"**Window:** {window_text}  |  **Broker:** {broker}  |  "
+        f"**Timeframe:** {timeframe}  |  **Basket:** {basket_id}"
+    )
+    lines.append(
         f"**Run ID:** `{run_id}`  |  **Engine:** {engine_version}  |  "
+        f"**Sweep/Pass:** {sweep_str}/{pass_str}  |  "
         f"**Generated:** {generated}"
     )
     lines.append("")
     lines.append("---")
+    lines.append("")
+
+    # ---- At a Glance ----
+    # Glance-able recovery summary — the minimum operator needs to identify
+    # what was tested. Full byte-exact recovery lives in DIRECTIVE_SOURCE.txt
+    # sidecar (written below); this section is the "is this the run I think
+    # it is" view, not a replacement for the directive.
+    exec_rules = parsed_directive.get("execution_rules", {}) or {}
+    order_p = parsed_directive.get("order_placement", {}) or {}
+    trade_m = parsed_directive.get("trade_management", {}) or {}
+    indicators_list = parsed_directive.get("indicators", []) or []
+    coint_join = basket_block.get("cointegration_join", {}) or {}
+
+    entry_logic_block = exec_rules.get("entry_logic", {}) or {}
+    exit_logic_block = exec_rules.get("exit_logic", {}) or {}
+    sl_block = exec_rules.get("stop_loss", {}) or {}
+    tp_block = exec_rules.get("take_profit", {}) or {}
+    ts_block = exec_rules.get("trailing_stop", {}) or {}
+    reentry_block = trade_m.get("reentry", {}) or {}
+
+    legs_pretty = "; ".join(
+        f"{l.get('symbol', '?')} ({l.get('direction', '?')}, {l.get('lot', '?')})"
+        for l in legs
+    ) or "(none)"
+
+    entry_param_tags = []
+    for k in ("n_window", "z_entry", "entry_mode"):
+        if k in rule_params:
+            entry_param_tags.append(f"{k}={rule_params[k]}")
+    entry_desc = entry_logic_block.get("type", "?")
+    if entry_param_tags:
+        entry_desc = f"{entry_desc} (rule={rule_name}@{rule_version}, " \
+                     + ", ".join(entry_param_tags) + ")"
+    exit_desc = exit_logic_block.get("type", "?")
+    if rule_name and rule_name != "?":
+        exit_desc = f"{exit_desc} -> {rule_name}@{rule_version}"
+
+    sl_desc = (
+        f"{sl_block.get('type', '?')} (mult={sl_block.get('atr_multiplier', '?')})"
+        if sl_block else "(none)"
+    )
+    tp_desc = "on" if tp_block.get("enabled") else "off"
+    ts_desc = "on" if ts_block.get("enabled") else "off"
+    pyr_desc = "on" if exec_rules.get("pyramiding") else "off"
+    reentry_desc = "allowed" if reentry_block.get("allowed") else "no"
+
+    lines.append("## At a Glance")
+    lines.append("")
+    lines.append("| Field | Value |")
+    lines.append("|-------|-------|")
+    lines.append(f"| Legs | {legs_pretty} |")
+    lines.append(f"| Entry signal | {entry_desc} |")
+    lines.append(f"| Exit signal | {exit_desc} |")
+    lines.append(f"| Order placement | {order_p.get('type', '?')}, "
+                 f"fill at {order_p.get('execution_timing', '?')} |")
+    lines.append(f"| Stop / TP / trail | {sl_desc} / {tp_desc} / {ts_desc} |")
+    lines.append(f"| Re-entry / pyramiding | {reentry_desc} / {pyr_desc} |")
+    lines.append(f"| Session reset | {trade_m.get('session_reset', '?')} |")
+    lines.append(f"| Indicators | "
+                 f"{', '.join(indicators_list) if indicators_list else '(none declared)'} |")
+    if coint_join:
+        lines.append(f"| Cointegration join | "
+                     f"lookback_days = {coint_join.get('lookback_days', '?')} |")
+    lines.append(f"| Hypothesis ref | {test_block.get('hypothesis_ref', '?')} |")
+    lines.append(f"| signal_version | {test_block.get('signal_version', '?')} |")
+    lines.append("")
+    lines.append("Full byte-exact directive in **DIRECTIVE_SOURCE.txt** sidecar "
+                 "(drop into `backtest_directives/inbox/` to reconstruct).")
     lines.append("")
 
     # ---- Configuration table ----
@@ -667,6 +798,34 @@ def write_basket_strategy_card(
     lines.append(" | ".join(parts) if parts else "(no rule attached)")
     lines.append("")
 
+    # ---- Rule Source Snapshot ----
+    lines.append("## Rule Source Snapshot")
+    lines.append("")
+    rule_src = _resolve_recycle_rule_source(str(rule_name)) if rule_name else None
+    if rule_src is not None:
+        src_path, src_hash = rule_src
+        # Copy the source to a sidecar in the same out_dir so the artifact
+        # set is self-contained (auditor doesn't need the Trade_Scan repo
+        # to see the actual code that ran).
+        snapshot_path = out_dir / "RECYCLE_RULE_SOURCE.py"
+        snapshot_path.write_bytes(src_path.read_bytes())
+        lines.append(f"- **Source file (in repo):** `tools/recycle_rules/{src_path.name}`")
+        lines.append(f"- **SHA-256:** `{src_hash}`")
+        lines.append(f"- **Sidecar snapshot:** `RECYCLE_RULE_SOURCE.py` "
+                     f"(byte-equivalent copy of the file above at run time)")
+        lines.append("")
+        lines.append("Inspect the sidecar to see the exact entry / exit / liquidate "
+                     "logic that produced this run's trades. Cross-check the SHA-256 "
+                     "above against the live source if you need to verify the file "
+                     "hasn't drifted since this run.")
+    else:
+        lines.append(f"- **Source file resolution:** FAILED for rule "
+                     f"`{rule_name}` — no matching file at "
+                     f"`tools/recycle_rules/{rule_name}.py`. Re-verify the "
+                     f"rule code from the registry entry + repo at the "
+                     f"commit pinned by the manifest.")
+    lines.append("")
+
     # ---- Hypothesis ----
     lines.append("## Hypothesis")
     lines.append("")
@@ -690,7 +849,15 @@ def write_basket_strategy_card(
     # ---- Changes from Previous Run ----
     lines.append("## Changes from Previous Run")
     lines.append("")
-    if pass_str == "P00" and sweep_str == "S00":
+    if pass_str == "?":
+        # Non-S/V/P naming — episode-lineage directives (COINTREV V3 etc.).
+        # Don't claim Phase-5d.1 / H2-family things that don't apply.
+        lines.append(
+            "Episode-lineage directive (uses `__E<date>` rather than "
+            "`_Sxx_Vx_Pxx`). Single in-sample pass over the episode's natural "
+            "cointegrated span — no prior-pass diff applicable."
+        )
+    elif pass_str == "P00" and sweep_str == "S00":
         lines.append("Initial run — no previous pass.")
     elif pass_str == "P00":
         lines.append(f"Sweep transition (S(prev) → {sweep_str}) — basket-pass diff "
@@ -705,6 +872,14 @@ def write_basket_strategy_card(
 
     card_path = out_dir / "STRATEGY_CARD.md"
     card_path.write_text("\n".join(lines), encoding="utf-8")
+
+    # ---- DIRECTIVE_SOURCE.txt sidecar (byte-exact copy) ----
+    # Authoritative recovery artifact: drop into backtest_directives/inbox/
+    # to reproduce the exact directive that produced this run.
+    dir_src = _resolve_directive_source(directive_id)
+    if dir_src is not None:
+        (out_dir / "DIRECTIVE_SOURCE.txt").write_bytes(dir_src.read_bytes())
+
     return card_path
 
 
@@ -816,11 +991,13 @@ def write_per_window_report_artifacts(
             date_range = (
                 f"{test_block.get('start_date', '?')} → {test_block.get('end_date', '?')}"
             )
+            tradelevel_p = raw_dir / "results_tradelevel.csv"
             basket_report_path = write_basket_report(
                 out_dir, parquet_p, stake_usd,
                 directive_id=directive_id, rule_label=rule_label,
                 basket_id=basket_id, timeframe=timeframe, date_range=date_range,
                 run_id=run_id,
+                tradelevel_csv_path=tradelevel_p if tradelevel_p.is_file() else None,
             )
             paths["basket_report"] = basket_report_path
     except Exception as e:

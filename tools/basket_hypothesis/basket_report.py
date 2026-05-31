@@ -87,7 +87,13 @@ def _build_top_line_table(m: dict[str, Any]) -> str:
 
 def _build_event_taxonomy_table(m: dict[str, Any]) -> str:
     """Event counts by rule family — only show rows relevant to the
-    detected rule family to keep the table tight."""
+    detected rule family to keep the table tight.
+
+    Pass-2 fix #10: when the rule family is unrecognized (or `events`
+    dict is empty), fall back to a placeholder body instead of rendering
+    a bare section header with no rows underneath (looks like a render
+    bug to the reader).
+    """
     ev = m["events"]
     rf = m["rule_family"]
     lines = ["## Event Taxonomy", ""]
@@ -144,6 +150,23 @@ def _build_event_taxonomy_table(m: dict[str, Any]) -> str:
             f"| Holding bars (in position) | {_fmt_int(ev['h3_holding'])} | basket open + waiting for trigger |",
             f"| Awaiting-entry bars | {_fmt_int(ev['h3_awaiting'])} | flat, waiting for next cross signal |",
         ])
+    # Pass-2 fix #10: empty-body guard. If the rule family wasn't matched
+    # above (unknown / unrecognized) OR the events dict was empty, we'd
+    # leave a bare header — reads as a render bug. Suppress the section
+    # entirely in that case rather than emitting a header with no rows.
+    if len(lines) <= 2:
+        if not ev:
+            return ""  # nothing to show — suppress header (pass-2 fix #10)
+        # Rule family unrecognized but events dict has content: render a
+        # minimal placeholder so the data is at least visible.
+        lines.extend([
+            f"_(no taxonomy template for rule_family=`{rf}`; showing raw counts)_",
+            "",
+            "| Event key | Count |",
+            "|---|---|",
+        ])
+        for k in sorted(ev.keys()):
+            lines.append(f"| `{k}` | {_fmt_int(ev[k])} |")
     return "\n".join(lines)
 
 
@@ -336,27 +359,359 @@ def _build_monthly_curve_table(m: dict[str, Any]) -> str:
 def _build_pnl_histogram_table(m: dict[str, Any]) -> str:
     """Per-cycle PnL distribution histogram — visualizes the bimodal
     'many small losers + few huge winners' shape that percentiles only
-    hint at."""
-    hist = m.get("pnl_histogram") or []
-    if not hist:
+    hint at.
+
+    Pass-2 fix #2: rebuild from `cycle_pnls` using evenly-spaced edges
+    (linspace from min to max in 7 buckets) instead of relying on the
+    quantile-equalized `pnl_histogram` that canonical_metrics still
+    pre-computes. Quantile equalization produced ~equal counts per bucket
+    by construction, hiding the actual distribution shape. Evenly-spaced
+    edges show variable bar widths reflecting real distribution mass.
+    """
+    cycle_pnls_meta = m.get("cycle_pnls") or []
+    if not cycle_pnls_meta:
         return ""
-    max_count = max(b["count"] for b in hist) if hist else 0
-    BAR_WIDTH = 30  # max ASCII bar width
+    vals = [c.get("cycle_pnl_usd", 0.0) for c in cycle_pnls_meta if c]
+    if not vals:
+        return ""
+    import numpy as _np
+    arr = _np.asarray([float(v) for v in vals], dtype=float)
+    n_total = int(arr.size)
+    if n_total == 0:
+        return ""
+
+    N_BUCKETS = 7
+    BAR_WIDTH = 30
+    lo, hi = float(arr.min()), float(arr.max())
+    if lo == hi:
+        # Degenerate: all values identical. Single-bucket display.
+        buckets = [{
+            "lo": lo, "hi": hi, "count": n_total,
+            "share_pct": 100.0,
+        }]
+    else:
+        # Evenly-spaced edges from min to max. Right-open intervals except
+        # the last, so max is always captured.
+        edges = _np.linspace(lo, hi, N_BUCKETS + 1).tolist()
+        buckets = []
+        for i in range(N_BUCKETS):
+            e_lo = edges[i]
+            e_hi = edges[i + 1]
+            if i == N_BUCKETS - 1:
+                mask = (arr >= e_lo) & (arr <= e_hi)
+            else:
+                mask = (arr >= e_lo) & (arr < e_hi)
+            cnt = int(mask.sum())
+            buckets.append({
+                "lo": e_lo,
+                "hi": e_hi,
+                "count": cnt,
+                "share_pct": (cnt / n_total * 100.0) if n_total else 0.0,
+            })
+
+    max_count = max((b["count"] for b in buckets), default=0)
     lines = [
         "## Cycle-PnL Distribution",
         "",
-        "Seven adaptive buckets (quantile-based) across the observed",
-        "cycle-PnL range. The ASCII bar shows relative cycle counts.",
+        "Seven evenly-spaced buckets across `[min_cycle_pnl, max_cycle_pnl]`",
+        "(fixed-width, not quantile-equalized). Variable bar lengths show",
+        "the true distribution shape — bimodal 'many small losers + few",
+        "huge winners' patterns are visible at a glance.",
         "",
         "| PnL range (USD) | Count | Share | Distribution |",
         "|---|---|---|---|",
     ]
-    for b in hist:
-        bar_len = int(round(b["count"] / max_count * BAR_WIDTH)) if max_count else 0
-        bar = "█" * bar_len
+    for b in buckets:
+        if max_count and b["count"] > 0:
+            bar_len = int(round(b["count"] / max_count * BAR_WIDTH))
+            bar = "█" * max(bar_len, 1)
+        else:
+            bar = "."
         lines.append(
             f"| {_fmt_money(b['lo'])} → {_fmt_money(b['hi'])} | "
             f"{b['count']} | {b['share_pct']:.1f}% | `{bar}` |"
+        )
+    return "\n".join(lines)
+
+
+_SMALL_N_THRESHOLD = 10  # below this, the new tradelevel-derived sections suppress
+
+
+def _small_n_notice(section_title: str, n: int) -> str:
+    """Render a one-line suppression notice for tradelevel-derived sections
+    when the leg-trade sample is too small to support a histogram or table."""
+    return (
+        f"## {section_title}\n"
+        "\n"
+        f"_(suppressed: N={n} leg-trades; below small-sample threshold)_"
+    )
+
+
+def _population_line(n: int) -> str:
+    """Population banner displayed at the top of each tradelevel-derived
+    section. Says explicitly that one cycle in a 2-leg basket records two
+    leg-trade rows, so the reader can map N back to cycles."""
+    # 2-leg basket convention; the //2 is the most common case. We say
+    # "= N/2 cycles x 2 legs" so a reader doing the arithmetic gets it
+    # right without us having to introspect leg_count here.
+    return f"_Population: {n} leg-trades (= {n // 2} cycles x 2 legs)_"
+
+
+# Fixed R-bucket edges (Pass-2 fix #1). Replaces quantile-equalized buckets
+# which collapsed to a single bar when all R-values were negative.
+_FIXED_R_EDGES = (float("-inf"), -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, float("inf"))
+_FIXED_R_LABELS = (
+    "<-2R",
+    "[-2,-1)R",
+    "[-1,0)R",
+    "[0,+1)R",
+    "[+1,+2)R",
+    "[+2,+3)R",
+    ">=+3R",
+)
+
+
+def _build_r_multiple_histogram(tl_df: pd.DataFrame) -> str:
+    """Per-leg-trade R-multiple distribution histogram.
+
+    Uses FIXED bucket edges [-inf, -2, -1, 0, +1, +2, +3, +inf] so the
+    histogram shape is invariant across runs and an all-losing leg-trade
+    population shows up as concentrated mass in the negative buckets rather
+    than collapsing to a single quantile-equalized bucket (Pass-2 fix #1).
+
+    Each row is one leg-trade (2 rows per cycle for 2-leg baskets).
+    R-multiple = realized PnL / risk_distance at entry.
+
+    Returns empty string if tl_df is empty or r_multiple all-NaN.
+    Returns a small-N notice if N < _SMALL_N_THRESHOLD.
+    """
+    if tl_df.empty or "r_multiple" not in tl_df.columns:
+        return ""
+    r = tl_df["r_multiple"].dropna()
+    if r.empty:
+        return ""
+
+    n_total = len(r)
+    if n_total < _SMALL_N_THRESHOLD:
+        return _small_n_notice("R-Multiple Distribution (per leg-trade)", n_total)
+
+    BAR_WIDTH = 30
+    edges = list(_FIXED_R_EDGES)
+    labels = list(_FIXED_R_LABELS)
+
+    # Bucketize with right-open edges except the last (closed).
+    buckets = []
+    for i in range(len(edges) - 1):
+        lo, hi = edges[i], edges[i + 1]
+        if i == len(edges) - 2:
+            mask = (r >= lo) & (r <= hi)
+        else:
+            mask = (r >= lo) & (r < hi)
+        cnt = int(mask.sum())
+        buckets.append({
+            "label": labels[i],
+            "lo": lo,
+            "hi": hi,
+            "count": cnt,
+            "share_pct": (cnt / n_total * 100.0) if n_total else 0.0,
+        })
+
+    max_count = max((b["count"] for b in buckets), default=0)
+    lines = [
+        "## R-Multiple Distribution (per leg-trade)",
+        "",
+        _population_line(n_total),
+        "",
+        "Fixed bucket edges `[-inf, -2, -1, 0, +1, +2, +3, +inf]` so the",
+        "distribution shape is invariant across runs. Each row is one",
+        "leg-trade (2 rows per cycle for 2-leg baskets). R-multiple =",
+        "realized PnL / risk_distance at entry. Empty buckets render with",
+        "count 0 and a single-dot bar so the full shape is always visible.",
+        "",
+        "| R-multiple range | Count | Share | Distribution |",
+        "|---|---|---|---|",
+    ]
+    for b in buckets:
+        if max_count and b["count"] > 0:
+            bar_len = int(round(b["count"] / max_count * BAR_WIDTH))
+            bar = "█" * max(bar_len, 1)
+        else:
+            # Empty bucket: single-dot placeholder so the row is visually
+            # distinct from a populated bucket but the shape is still
+            # auditable (the bug Reviewer 5 spotted).
+            bar = "."
+        lines.append(
+            f"| {b['label']} | {b['count']} | {b['share_pct']:.1f}% | `{bar}` |"
+        )
+    lines.extend([
+        "",
+        f"**Median R-multiple:** {float(r.median()):+.3f}R",
+        f"**Mean R-multiple:** {float(r.mean()):+.3f}R",
+    ])
+    return "\n".join(lines)
+
+
+def _build_vol_regime_breakdown(tl_df: pd.DataFrame) -> str:
+    """Per-leg-trade breakdown by volatility regime.
+
+    Groups leg-trades by `volatility_regime` (int -1/0/+1 expected;
+    strings handled defensively). Each row is one leg-trade — see caption.
+
+    Pass-2 fix #5: adds "Share of leg-trades %" column so per-regime
+    exposure weight is visible alongside per-regime quality.
+    Pass-2 fix #6: prepends population line.
+    Pass-2 fix #7: small-N guard suppresses when total leg-trades < threshold.
+
+    Returns empty string if volatility_regime missing or all-NaN.
+    """
+    if tl_df.empty or "volatility_regime" not in tl_df.columns:
+        return ""
+    vr = tl_df["volatility_regime"].dropna()
+    if vr.empty:
+        return ""
+
+    n_total = len(tl_df)
+    if n_total < _SMALL_N_THRESHOLD:
+        return _small_n_notice("Volatility Regime Breakdown (per leg-trade)", n_total)
+
+    df = tl_df.dropna(subset=["volatility_regime"]).copy()
+    n_classified = len(df)
+
+    # Sort key: numeric -1/0/+1 ordering when possible; otherwise lexical.
+    def _sort_key(v):
+        try:
+            return (0, float(v))
+        except (TypeError, ValueError):
+            return (1, str(v))
+
+    regimes = sorted(df["volatility_regime"].unique().tolist(), key=_sort_key)
+
+    def _regime_label(v):
+        # Friendly labels for the canonical -1/0/+1 ints.
+        try:
+            iv = int(v)
+            return {-1: "-1 (low vol)", 0: "0 (mid vol)", 1: "+1 (high vol)"}.get(iv, str(iv))
+        except (TypeError, ValueError):
+            return str(v)
+
+    lines = [
+        "## Volatility Regime Breakdown (per leg-trade)",
+        "",
+        _population_line(n_total),
+        "",
+        "Each row is one leg-trade (so a 2-leg basket records 2 rows per",
+        "cycle). Win rate = share of leg-trades with r_multiple > 0.",
+        "Share of leg-trades = per-regime exposure weight (denominator =",
+        "classified leg-trades, i.e. excludes rows with null regime).",
+        "",
+        "| Regime | Leg-trades | Share of leg-trades | Win rate | Mean R | Median R | Mean PnL |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    has_r = "r_multiple" in df.columns
+    has_pnl = "pnl_usd" in df.columns
+    for v in regimes:
+        sub = df[df["volatility_regime"] == v]
+        n = len(sub)
+        share = (n / n_classified * 100.0) if n_classified else 0.0
+        if has_r:
+            r_sub = sub["r_multiple"].dropna()
+            wins = int((r_sub > 0).sum())
+            wr = (wins / len(r_sub) * 100.0) if len(r_sub) else 0.0
+            mean_r = float(r_sub.mean()) if len(r_sub) else 0.0
+            med_r = float(r_sub.median()) if len(r_sub) else 0.0
+        else:
+            wr = mean_r = med_r = 0.0
+        if has_pnl:
+            p_sub = sub["pnl_usd"].dropna()
+            mean_pnl = float(p_sub.mean()) if len(p_sub) else 0.0
+        else:
+            mean_pnl = 0.0
+        lines.append(
+            f"| {_regime_label(v)} | {n} | {share:.1f}% | {wr:.1f}% | "
+            f"{mean_r:+.3f}R | {med_r:+.3f}R | {_fmt_money(mean_pnl)} |"
+        )
+    return "\n".join(lines)
+
+
+def _build_leg_pnl_contribution(tl_df: pd.DataFrame) -> str:
+    """Per-symbol leg-PnL contribution breakdown.
+
+    Groups leg-trades by `symbol`, summing realized PnL per leg and
+    showing each leg's share of the basket's total realized PnL.
+
+    Pass-2 fix #3: adds Median PnL + Win Rate % columns.
+    Pass-2 fix #6: prepends population line.
+    Pass-2 fix #7: small-N guard suppresses when N < threshold.
+    Pass-2 fix #8: sort by abs(total_realized) DESC (biggest contributors
+    first regardless of sign).
+    Pass-2 fix #9: column renamed to "Share of basket P&L" (ampersand) AND
+    the share is a SIGNED contribution percentage so a losing leg in a
+    losing basket shows NEGATIVE share, not a misleading positive
+    percentage. Formula: share = leg_total / abs(basket_total) * 100
+    (sign preserved from leg_total). A leg that bears more of the loss
+    shows higher-magnitude negative share; a winning leg in a losing
+    basket shows positive share with the basket's negative total
+    explicitly noted in the caption.
+
+    Returns empty string if pnl_usd missing or all-NaN.
+    """
+    if tl_df.empty or "pnl_usd" not in tl_df.columns or "symbol" not in tl_df.columns:
+        return ""
+    pn = tl_df["pnl_usd"].dropna()
+    if pn.empty:
+        return ""
+
+    n_total = len(tl_df)
+    if n_total < _SMALL_N_THRESHOLD:
+        return _small_n_notice("Per-Leg PnL Contribution", n_total)
+
+    df = tl_df.dropna(subset=["pnl_usd"]).copy()
+    basket_total = float(df["pnl_usd"].sum())
+    # Signed-share denominator: use |basket_total| so the sign of each
+    # leg's contribution is preserved (fix #9). Falls back to 1.0 to
+    # avoid divide-by-zero if every leg netted exactly 0.
+    denom = abs(basket_total) if basket_total != 0 else 1.0
+    grp = df.groupby("symbol", sort=False)
+
+    rows = []
+    for sym, sub in grp:
+        n = len(sub)
+        sum_pnl = float(sub["pnl_usd"].sum())
+        mean_pnl = float(sub["pnl_usd"].mean()) if n else 0.0
+        median_pnl = float(sub["pnl_usd"].median()) if n else 0.0
+        win_rate = (float((sub["pnl_usd"] > 0).mean()) * 100.0) if n else 0.0
+        # Signed share: preserves the sign of leg's contribution. A losing
+        # leg in a losing basket shows negative share (its loss reduced
+        # equity); a winning leg in a losing basket shows positive share.
+        share = (sum_pnl / denom * 100.0) if denom else 0.0
+        rows.append((sym, n, mean_pnl, median_pnl, win_rate, sum_pnl, share))
+    # Sort by |total realized| descending — biggest contributors first.
+    rows.sort(key=lambda r: -abs(r[5]))
+
+    basket_total_note = (
+        f"Basket total realized = {_fmt_money(basket_total)}"
+        + ("  **(NEGATIVE — losing basket)**" if basket_total < 0 else "")
+    )
+
+    lines = [
+        "## Per-Leg PnL Contribution",
+        "",
+        _population_line(n_total),
+        "",
+        "Realized PnL per leg symbol across all leg-trades. Sorted by",
+        "|Total realized| descending. **Share of basket P&L** is signed",
+        "and uses `|basket_total|` as denominator: a losing leg shows",
+        "NEGATIVE share, a winning leg POSITIVE share, regardless of",
+        "whether the basket itself was profitable. " + basket_total_note + ".",
+        "",
+        "| Symbol | Leg-trades | Mean PnL | Median PnL | Win Rate % | Total realized | Share of basket P&L |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for sym, n, mean_pnl, median_pnl, win_rate, sum_pnl, share in rows:
+        lines.append(
+            f"| {sym} | {n} | {_fmt_money(mean_pnl)} | "
+            f"{_fmt_money(median_pnl)} | {win_rate:.1f}% | "
+            f"{_fmt_money(sum_pnl)} | {share:+.1f}% |"
         )
     return "\n".join(lines)
 
@@ -530,6 +885,7 @@ def render_basket_report(
     date_range: str,
     run_id: str | None = None,
     basket_csv_path: str | Path | None = None,
+    tradelevel_csv_path: str | Path | None = None,
 ) -> str:
     """Render the BASKET_REPORT.md content for a basket run.
 
@@ -538,9 +894,17 @@ def render_basket_report(
 
     Caller is responsible for writing to disk via `write_basket_report`
     (below) or directly.
+
+    `tradelevel_csv_path` is optional; when provided and the file exists,
+    three additional sections derived from per-leg-trade rows are emitted
+    (R-multiple distribution, vol-regime breakdown, per-leg PnL share).
     """
     m = canonical_metrics(parquet_path, stake_usd, basket_csv_path=basket_csv_path)
     mfe = compute_mfe_giveback(parquet_path, rule_family=m.get("rule_family"))
+    if tradelevel_csv_path and Path(tradelevel_csv_path).is_file():
+        tl_df = pd.read_csv(tradelevel_csv_path)
+    else:
+        tl_df = pd.DataFrame()
 
     header = [
         f"# Basket Report (cycle-aware) — {directive_id}",
@@ -556,13 +920,20 @@ def render_basket_report(
         "",
     ]
 
+    # Pass-2 fix #4: Per-Leg PnL Contribution promoted to immediately
+    # below Top-Line Metrics. Operator's natural reading order is
+    # "net % -> DD % -> Ret/DD -> which leg made the money?" so the
+    # per-leg view should land before Event Taxonomy / Cycle Breakdown.
     sections = [
         _build_top_line_table(m),
+        _build_leg_pnl_contribution(tl_df),       # promoted (pass-2 fix #4)
         _build_event_taxonomy_table(m),
         _build_time_and_capital_table(m),
         _build_underwater_section(m),
         _build_cycle_breakdown_table(m),
         _build_pnl_histogram_table(m),
+        _build_r_multiple_histogram(tl_df),
+        _build_vol_regime_breakdown(tl_df),
         _build_mfe_giveback_section(mfe),
         _build_monthly_curve_table(m),
         _build_asymmetry_table(m),
@@ -585,16 +956,27 @@ def write_basket_report(
     date_range: str,
     run_id: str | None = None,
     basket_csv_path: str | Path | None = None,
+    tradelevel_csv_path: str | Path | None = None,
 ) -> Path:
     """Render + write BASKET_REPORT_<directive_id>.md to out_dir.
 
     Returns the path written.
+
+    If `tradelevel_csv_path` is not provided, it is derived from the
+    parquet path's parent dir (`<parquet_parent>/results_tradelevel.csv`)
+    so callers that already know the parquet location don't need to
+    pass the sibling CSV explicitly.
     """
+    parquet_path = Path(parquet_path)
+    if tradelevel_csv_path is None:
+        candidate = parquet_path.parent / "results_tradelevel.csv"
+        tradelevel_csv_path = candidate if candidate.is_file() else None
     content = render_basket_report(
         parquet_path, stake_usd,
         directive_id=directive_id, rule_label=rule_label,
         basket_id=basket_id, timeframe=timeframe, date_range=date_range,
         run_id=run_id, basket_csv_path=basket_csv_path,
+        tradelevel_csv_path=tradelevel_csv_path,
     )
     out_dir = Path(out_dir)
     out_path = out_dir / f"BASKET_REPORT_{directive_id}.md"
