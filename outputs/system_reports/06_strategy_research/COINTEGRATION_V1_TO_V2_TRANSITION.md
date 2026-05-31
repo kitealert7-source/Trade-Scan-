@@ -193,6 +193,29 @@ These are the boundary cases of the `ncoint >= N + 2` qualification rule meeting
 
 **Follow-up deferred to a separate session (2026-05-30):** the per-strategy warmup pre-extension mechanism in `tools/run_stage1.py:259` (`RESOLVED_WARMUP_BARS`) was not ported to the basket pipeline (`tools/basket_data_loader._load_symbol_5m` strictly filters to `[start_date, end_date]`). Wiring it in would recover most of the 15 zero/short-window directives. Spawned as a separate task chip with full implementation plan; not addressed in this session to keep the v2 baseline frozen.
 
+**UPDATE 2026-05-31 — warmup pre-extension landed (commit `cb9e180`).** The framework gap above was closed:
+
+- `BasketRule` Protocol now carries a `required_warmup_bars()` extension point; `PineRatioZRevRule` returns `2 * n_window` (absolute mode) / `n_window + n_meta` (centered mode) — mechanism-derived, no comfort buffers.
+- `basket_data_loader.load_basket_leg_data` accepts `leg_warmup_bars` and extends the lower bound by N index positions (NOT calendar days — avoids weekend/holiday truncation).
+- `BasketRunner` accepts `warmup_bars` and wraps `check_entry` / `check_exit` to return None/False for bars `[0, warmup_bars)`; rule.apply is skipped in the same range. Originals restored in `finally`. Mirrors the proven `engine_dev/v1_5_8/main.py:88-104` pattern.
+- Fast path opens at bar `warmup_bars + 1` instead of bar 1.
+- Pipeline (`_load_basket_leg_inputs` + `basket_pipeline.run_basket_pipeline`) reads `rule.required_warmup_bars()` via `getattr` fallback — single source of truth, no rule-specific formulas in pipeline code.
+- 14 new tests (engine path mute, fast-path open shift, loader extension, rule warmup math, restoration after run).
+
+**Recovery outcome for the 15 originally-silent-skip directives:**
+
+| Outcome | Count | Notes |
+|---|---:|---|
+| Ledger row landed (incl. 0-trade rows with audit trail) | **14** | 13 with 0 trades + 1 with 2 trades (AUS200GER40 __E260211 +0.53%) |
+| Ledger row skipped at writer (no per-bar parquet) | 1 | GBPJPYNZDJPY __E251113 — 0-trade + 0-recycle backtest produced no per-bar artifact; downstream ledger-writer condition, NOT a warmup failure |
+
+v2 ledger now at **487 rows** (was 473 before this fix). The 14 recovered rows are mostly explicit-zero-trade artifacts that the aggregator + Excel views can see and exclude from edge analysis. Class is now visible instead of silently dropped.
+
+**Byte-equivalence on existing 473 baseline (operator decision):** smoke test on `CADJPYNZDJPY __E250917` (390 trades, 4-month window) showed +2 trades / +3 recycles after warmup (+0.5%). The +1 per leg is the signal that warmup now enables to fire in the first ~30 in-window bars (z_r was previously NaN there). Operator chose NOT to re-run the 473 existing rows for a clean v2-with-warmup baseline — the 0.5% drift is within tolerance, and the existing baseline can be re-cut later if a different methodology change motivates a full corpus rerun.
+
+**Remaining limitations** (out of scope for this fix; potential future work):
+- The ledger-writer skip-when-no-per-bar-parquet condition (1 holdout above) — could be relaxed to write a row even for 0/0 baskets so the audit trail is complete.
+
 ---
 
 ## 6. Corpus aggregation — 2026-05-30
