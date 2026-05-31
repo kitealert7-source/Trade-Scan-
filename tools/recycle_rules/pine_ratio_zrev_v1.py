@@ -110,6 +110,11 @@ class PineRatioZRevRule(H2RecycleRule):
     _entry_bar_idx: Optional[int] = None
     _entry_r_bar: Optional[float] = None
     _entry_lots: dict[str, float] = field(default_factory=dict)
+    # Tradelevel enrichment state (_cycle_entry_ctx, _cycle_mfe_price,
+    # _cycle_mae_price) + helpers (_snapshot_cycle_entry_ctx,
+    # _update_cycle_excursions, _enrich_exit_trade) are inherited from
+    # H2RecycleRule (lifted there 2026-05-31 to share across the H2/H3/Pine
+    # basket rule family).
 
     # --- Telemetry ---
     _n_signals_seen: int = 0
@@ -349,6 +354,9 @@ class PineRatioZRevRule(H2RecycleRule):
                 self._basket_direction = int(legs[0].state.direction or 0)
             entry_lots = {leg.symbol: leg.lot for leg in legs}
             self._entry_lots = entry_lots
+            # Tradelevel enrichment: snapshot per-leg entry context for the
+            # exit_trade dict; init MFE/MAE trackers to this bar's high/low.
+            self._snapshot_cycle_entry_ctx(legs, bar_ts, bar_closes)
             self.recycle_events.append({
                 "bar_index":     i,
                 "bar_ts":        bar_ts,
@@ -360,6 +368,9 @@ class PineRatioZRevRule(H2RecycleRule):
             })
             if state is not None:
                 state.reset()
+
+        # Per-bar excursion tracking for the open cycle (no-op if flat).
+        self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
         # OPEN basket + opposite-direction cross → REVERSAL (liquidate + repropose)
         reversal_triggered = False
@@ -503,6 +514,10 @@ class PineRatioZRevRule(H2RecycleRule):
 
     # ---- Liquidation -----------------------------------------------------
 
+    # Tradelevel enrichment helpers (_snapshot_cycle_entry_ctx,
+    # _update_cycle_excursions, _enrich_exit_trade) and the
+    # _ENTRY_PASSTHROUGH_COLS constant live on H2RecycleRule (parent class).
+
     def _liquidate(
         self,
         legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp,
@@ -511,7 +526,14 @@ class PineRatioZRevRule(H2RecycleRule):
         *, extra: dict[str, Any] | None = None,
     ) -> None:
         """Close all legs at bar close, realize P&L, reset cycle state.
-        Restores leg.lot to initial value. Same shape as v1.2._liquidate."""
+        Restores leg.lot to initial value. Same shape as v1.2._liquidate.
+
+        Tradelevel enrichment (2026-05-31): the rule constructs the minimal
+        per-leg exit_trade dict (basics + pnl_usd) and the inherited
+        `_enrich_exit_trade` from H2RecycleRule adds the analytical fields
+        (atr_entry, risk_distance, initial_stop_price, r_multiple, mfe/mae
+        prices + R units, vol/trend/regime passthroughs).
+        """
         if self.basket_runner is None:
             raise RuntimeError(
                 "PineRatioZRevRule._liquidate: basket_runner is None. "
@@ -524,16 +546,21 @@ class PineRatioZRevRule(H2RecycleRule):
         for leg in legs:
             if not leg.state.in_pos:
                 continue
-            exit_trade = {
+            exit_trade: dict[str, Any] = {
                 "entry_index":    leg.state.entry_index,
                 "entry_price":    leg.state.entry_price,
                 "exit_index":     i,
                 "exit_price":     bar_closes[leg.symbol],
                 "direction":      leg.effective_direction,
-                "lot":            leg.lot,
+                "lot":             leg.lot,
                 "exit_source":    f"PINE_ZREV_{reason}",
                 "exit_timestamp": bar_ts,
+                "pnl_usd":         leg_float.get(leg.symbol, 0.0),
             }
+            # Enrich in place — adds r_multiple, mfe/mae prices + R units,
+            # atr_entry, risk_distance, initial_stop_price, vol/trend/regime
+            # passthroughs from the cycle's BASKET_OPEN snapshot.
+            self._enrich_exit_trade(exit_trade, leg)
             leg.trades.append(exit_trade)
             leg.state.in_pos = False
             leg.state.direction = 0
@@ -546,6 +573,10 @@ class PineRatioZRevRule(H2RecycleRule):
         self._entry_bar_idx = None
         self._entry_r_bar = None
         self._entry_lots = {}
+        # Reset enrichment trackers for next cycle.
+        self._cycle_entry_ctx = {}
+        self._cycle_mfe_price = {}
+        self._cycle_mae_price = {}
 
         event: dict[str, Any] = {
             "bar_index":               i,

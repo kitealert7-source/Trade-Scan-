@@ -283,6 +283,11 @@ class H3SpreadV1Rule(H2RecycleRule):
                 if self.basket_runner is not None else {},
                 "leg_directions": {l.symbol: l.direction for l in legs},
             })
+            # Tradelevel enrichment: snapshot per-leg entry context.
+            self._snapshot_cycle_entry_ctx(legs, bar_ts, bar_closes)
+
+        # Per-bar MFE/MAE tracking (no-op when basket flat).
+        self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
         # If basket not yet active (awaiting SpreadCrossLeg signal),
         # nothing for the rule to do besides emit a per-bar record.
@@ -458,7 +463,9 @@ class H3SpreadV1Rule(H2RecycleRule):
                 "lot": leg.lot,
                 "exit_source": f"BASKET_RULE_{reason}",
                 "exit_timestamp": bar_ts,
+                "pnl_usd": leg_float.get(leg.symbol, 0.0),
             }
+            self._enrich_exit_trade(exit_trade, leg)
             leg.trades.append(exit_trade)
             leg.state.in_pos = False
             leg.state.direction = 0

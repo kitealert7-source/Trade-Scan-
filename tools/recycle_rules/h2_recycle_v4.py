@@ -172,6 +172,12 @@ class H2RecycleRuleV4(H2RecycleRule):
         floating_total = sum(leg_float.values())
         equity = self.starting_equity + self.realized_total + floating_total
 
+        # Tradelevel enrichment: lazy per-leg snapshot (detects initial open
+        # + BUMP / LIQUIDATE_RESET entry-price changes), then per-bar
+        # excursion update.
+        self._maybe_resnapshot_legs(legs, bar_ts, bar_closes)
+        self._update_cycle_excursions(legs, bar_ts, bar_closes)
+
         # Exit checks (same as @1) -------------------------------------------
         if equity >= self.harvest_target_usd:
             self._exit_all(legs, i, bar_ts, bar_closes, leg_float, reason="TARGET")
@@ -628,7 +634,7 @@ class H2RecycleRuleV4(H2RecycleRule):
         }
         self.recycle_events.append(event)
 
-        winner.trades.append({
+        winner_exit_trade = {
             "entry_index": winner.state.entry_index,
             "exit_index":  i,
             "direction":   winner.direction,
@@ -637,7 +643,9 @@ class H2RecycleRuleV4(H2RecycleRule):
             "exit_source": "BASKET_RECYCLE_WINNER",
             "exit_reason": _RULE_NAME_V4,
             "pnl_usd":     winner_realized,
-        })
+        }
+        self._enrich_exit_trade(winner_exit_trade, winner)
+        winner.trades.append(winner_exit_trade)
 
         post_leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol]) for leg in legs}
         post_floating_total = sum(post_leg_float.values())

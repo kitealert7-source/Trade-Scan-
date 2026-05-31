@@ -168,6 +168,15 @@ class H2RecycleRule:
     _last_recycle_bar: Optional[int] = None
     _peak_equity: float = 0.0
 
+    # Tradelevel enrichment (2026-05-31, Priority B): per-leg entry context
+    # snapshot + per-bar excursion tracking. Captured at BASKET_OPEN, updated
+    # during HOLDING via `_update_cycle_excursions`, consumed by
+    # `_enrich_exit_trade` to populate the tradelevel schema columns. Shared
+    # across the whole H2/H3/Pine basket rule family via inheritance.
+    _cycle_entry_ctx: dict[str, dict] = field(default_factory=dict)
+    _cycle_mfe_price: dict[str, float] = field(default_factory=dict)
+    _cycle_mae_price: dict[str, float] = field(default_factory=dict)
+
     def __post_init__(self) -> None:
         if self.trigger_usd <= 0:
             raise ValueError("H2RecycleRule.trigger_usd must be > 0.")
@@ -247,6 +256,11 @@ class H2RecycleRule:
         leg_float = {leg.symbol: _leg_pnl_usd(leg, bar_closes[leg.symbol]) for leg in legs}
         floating_total = sum(leg_float.values())
         equity = self.starting_equity + self.realized_total + floating_total
+
+        # Tradelevel enrichment: lazy per-leg snapshot (detects initial open
+        # + recycle entry-price changes), then per-bar excursion update.
+        self._maybe_resnapshot_legs(legs, bar_ts, bar_closes)
+        self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
         # ---- Exit checks (priority order) — _exit_all records the harvest bar ----
         if equity >= self.harvest_target_usd:
@@ -467,7 +481,7 @@ class H2RecycleRule:
         # (closes the previous winner entry; the position is conceptually
         # re-opened at the same bar at the new entry price — no exit trade
         # records the re-open, just the close).
-        winner.trades.append({
+        winner_exit_trade = {
             "entry_index": winner.state.entry_index,  # newly reset == i
             "exit_index":  i,
             "direction":   winner.direction,
@@ -476,7 +490,13 @@ class H2RecycleRule:
             "exit_source": "BASKET_RECYCLE_WINNER",
             "exit_reason": _RULE_NAME,
             "pnl_usd":     winner_realized,
-        })
+        }
+        # Enrich with r_multiple / mfe/mae / atr_entry / passthrough — uses
+        # ctx + trackers from the winner's pre-recycle segment. The subsequent
+        # `_maybe_resnapshot_legs` call on the next bar will detect the new
+        # winner entry_price and re-baseline the segment.
+        self._enrich_exit_trade(winner_exit_trade, winner)
+        winner.trades.append(winner_exit_trade)
 
         # Per-bar record for the recycle-executed bar.
         # State-capture invariant: at the event bar, the record must show
@@ -729,7 +749,7 @@ class H2RecycleRule:
         for leg in legs:
             if leg.state.in_pos:
                 bc = bar_closes[leg.symbol]
-                leg.trades.append({
+                exit_trade = {
                     "entry_index": leg.state.entry_index,
                     "exit_index":  i,
                     "direction":   leg.effective_direction,
@@ -738,7 +758,9 @@ class H2RecycleRule:
                     "exit_source": f"BASKET_HARVEST_{reason}",
                     "exit_reason": _RULE_NAME,
                     "pnl_usd":     leg_float[leg.symbol],
-                })
+                }
+                self._enrich_exit_trade(exit_trade, leg)
+                leg.trades.append(exit_trade)
                 leg.state.in_pos = False
                 leg.state.direction = 0
                 leg.state.entry_index = -1
@@ -747,6 +769,239 @@ class H2RecycleRule:
                 leg.state.partial_leg = None
                 leg.state.stop_price_active = None
                 leg.state.entry_market_state = {}
+
+    # ============================================================
+    # Tradelevel enrichment helpers (2026-05-31)
+    # ------------------------------------------------------------
+    # Shared infrastructure for ALL basket rules in this family
+    # (H2 V1/V4/V5, H3 V1/V2/V3, Pine baseline + variant).
+    # Subclasses wire calls at three points in their apply() / exit
+    # code; the helpers handle the rest.
+    #
+    #   1. At BASKET_OPEN transition (right after recycle_events.append
+    #      and state.reset()):
+    #          self._snapshot_cycle_entry_ctx(legs, bar_ts, bar_closes)
+    #
+    #   2. Per-bar inside apply(), right after the BASKET_OPEN check
+    #      (no-op when basket is flat):
+    #          self._update_cycle_excursions(legs, bar_ts, bar_closes)
+    #
+    #   3. At each exit_trade construction site (inside _liquidate /
+    #      harvest / etc.), AFTER the rule's own dict is built and BEFORE
+    #      `leg.trades.append`:
+    #          self._enrich_exit_trade(exit_trade, leg)
+    #
+    # Reset is implicit — `_snapshot_cycle_entry_ctx` clears the per-leg
+    # dicts on each new cycle.
+    # ============================================================
+
+    # Schema columns already attached to leg.df by
+    # `engines.regime_state_machine.apply_regime_model` (called during
+    # basket_runner._prepare). Pure passthrough at entry — no computation,
+    # no classification. Matches PER_SYMBOL_TRADE_COLUMNS at
+    # tools/basket_ledger.py:42-57.
+    _ENTRY_PASSTHROUGH_COLS: tuple[str, ...] = (
+        "volatility_regime",
+        "trend_score",
+        "trend_regime",
+        "trend_label",
+        "market_regime",
+        "regime_id",
+        "regime_age",
+    )
+
+    def _snapshot_single_leg_ctx(
+        self,
+        leg: BasketLeg,
+        bar_ts: pd.Timestamp,
+        bar_closes: dict[str, float],
+    ) -> None:
+        """Snapshot ONE leg's entry context + reset its MFE/MAE trackers.
+
+        Called by:
+          - `_snapshot_cycle_entry_ctx` for the all-legs-at-once pattern
+            used by Pine/H3 at BASKET_OPEN.
+          - `_maybe_resnapshot_legs` lazily on per-leg entry_price
+            transitions for the H2 family (initial open, V1 recycle,
+            V4 LIQUIDATE_RESET, V5 pyramid).
+
+        Marks the snapshot with `_snapshot_entry_price = leg.state.entry_price`
+        so the lazy detector can recognize subsequent re-baselines as the
+        "same" segment vs a new one.
+        """
+        sym = leg.symbol
+        try:
+            atr_entry = float(leg.df.loc[bar_ts, "atr"])
+            if atr_entry != atr_entry or atr_entry <= 0:
+                atr_entry = float("nan")
+        except (KeyError, ValueError, TypeError):
+            atr_entry = float("nan")
+        risk_distance = atr_entry  # 1 ATR unit (engine stop disabled at 100000x)
+        entry_p = leg.state.entry_price
+        dir_sign = leg.effective_direction
+        if (entry_p is not None and risk_distance == risk_distance
+                and risk_distance > 0):
+            initial_stop_price = entry_p - dir_sign * risk_distance
+        else:
+            initial_stop_price = float("nan")
+        ctx: dict[str, Any] = {
+            "atr_entry":          atr_entry,
+            "risk_distance":      risk_distance,
+            "initial_stop_price": initial_stop_price,
+            "_snapshot_entry_price": entry_p,  # segment marker
+        }
+        for col in self._ENTRY_PASSTHROUGH_COLS:
+            try:
+                val = leg.df.loc[bar_ts, col]
+                if pd.isna(val):
+                    val = None
+            except (KeyError, ValueError, TypeError):
+                val = None
+            ctx[col] = val
+        self._cycle_entry_ctx[sym] = ctx
+        # Reset MFE/MAE trackers to this bar's high/low (per direction)
+        try:
+            bar_high = float(leg.df.loc[bar_ts, "high"])
+            bar_low = float(leg.df.loc[bar_ts, "low"])
+        except (KeyError, ValueError, TypeError):
+            bar_high = bar_closes.get(sym, float("nan"))
+            bar_low = bar_high
+        if dir_sign > 0:
+            self._cycle_mfe_price[sym] = bar_high
+            self._cycle_mae_price[sym] = bar_low
+        else:
+            self._cycle_mfe_price[sym] = bar_low
+            self._cycle_mae_price[sym] = bar_high
+
+    def _snapshot_cycle_entry_ctx(
+        self,
+        legs: list[BasketLeg],
+        bar_ts: pd.Timestamp,
+        bar_closes: dict[str, float],
+    ) -> None:
+        """All-legs-at-once snapshot — Pine/H3 BASKET_OPEN pattern.
+
+        Clears per-cycle state and snapshots every leg in one shot. Use at
+        the BASKET_OPEN transition where all legs entered together.
+
+        For H2 family (per-leg lifecycle), use `_maybe_resnapshot_legs`
+        instead.
+        """
+        self._cycle_entry_ctx = {}
+        self._cycle_mfe_price = {}
+        self._cycle_mae_price = {}
+        for leg in legs:
+            self._snapshot_single_leg_ctx(leg, bar_ts, bar_closes)
+
+    def _maybe_resnapshot_legs(
+        self,
+        legs: list[BasketLeg],
+        bar_ts: pd.Timestamp,
+        bar_closes: dict[str, float],
+    ) -> None:
+        """Lazy per-leg snapshot trigger for the H2 family.
+
+        For each in-position leg, snapshots ctx + resets MFE/MAE WHEN:
+          - First time we see this leg in_pos (no ctx yet), OR
+          - leg.state.entry_price differs from the stored snapshot price
+            (segment boundary: V1 recycle, V4 RESET, V5 pyramid).
+
+        PYRAMID NOTE: V5 pyramid commits change leg.state.entry_price (volume-
+        weighted average shifts). This trigger fires → ctx + MFE/MAE reset for
+        that leg, NO trade row emitted (position stays open). The cumulative
+        cross-pyramid R-multiple is intentionally NOT preserved; we measure
+        each pyramid layer independently. Documented decision 2026-05-31.
+
+        For Pine/H3: no-op (their explicit `_snapshot_cycle_entry_ctx` already
+        populates ctx with the matching `_snapshot_entry_price`).
+        """
+        for leg in legs:
+            if not leg.state.in_pos:
+                continue
+            ctx = self._cycle_entry_ctx.get(leg.symbol)
+            if ctx is None or ctx.get("_snapshot_entry_price") != leg.state.entry_price:
+                self._snapshot_single_leg_ctx(leg, bar_ts, bar_closes)
+
+    def _update_cycle_excursions(
+        self,
+        legs: list[BasketLeg],
+        bar_ts: pd.Timestamp,
+        bar_closes: dict[str, float],
+    ) -> None:
+        """Per-bar MFE/MAE update.
+
+        Gated on `sym in self._cycle_mfe_price` (= a snapshot exists for this
+        leg) rather than a basket-level flag. Works uniformly for Pine/H3
+        (snapshot at BASKET_OPEN populates all legs) and H2 family (snapshot
+        is lazy per-leg).
+        """
+        for leg in legs:
+            sym = leg.symbol
+            if sym not in self._cycle_mfe_price:
+                continue
+            if not leg.state.in_pos:
+                continue
+            try:
+                bar_high = float(leg.df.loc[bar_ts, "high"])
+                bar_low = float(leg.df.loc[bar_ts, "low"])
+            except (KeyError, ValueError, TypeError):
+                bar_high = bar_closes.get(sym, float("nan"))
+                bar_low = bar_high
+            if leg.effective_direction > 0:
+                self._cycle_mfe_price[sym] = max(self._cycle_mfe_price[sym], bar_high)
+                self._cycle_mae_price[sym] = min(self._cycle_mae_price[sym], bar_low)
+            else:
+                self._cycle_mfe_price[sym] = min(self._cycle_mfe_price[sym], bar_low)
+                self._cycle_mae_price[sym] = max(self._cycle_mae_price[sym], bar_high)
+
+    def _enrich_exit_trade(self, trade: dict[str, Any], leg: BasketLeg) -> None:
+        """Mutate `trade` in place to add tradelevel enrichment columns.
+
+        Reads from per-cycle state (`_cycle_entry_ctx`, `_cycle_mfe_price`,
+        `_cycle_mae_price`). Computes r_multiple / mfe_r / mae_r.
+        Adds passthrough columns (volatility_regime, trend_*, market_regime,
+        regime_id, regime_age) from the snapshot.
+
+        Assumes `trade` already has at least: `entry_price`, `exit_price`,
+        `direction`. Does not overwrite existing keys — only ADDS missing ones,
+        so each rule's exit_source/exit_reason/etc. stay intact.
+        """
+        sym = leg.symbol
+        ctx = self._cycle_entry_ctx.get(sym, {})
+        entry_p = trade.get("entry_price")
+        exit_p = trade.get("exit_price")
+        direction = trade.get("direction", leg.effective_direction)
+        risk_distance = ctx.get("risk_distance", float("nan"))
+
+        # Add entry-context columns (only if not already present)
+        for k, default in (
+            ("atr_entry",          ctx.get("atr_entry", float("nan"))),
+            ("initial_stop_price", ctx.get("initial_stop_price", float("nan"))),
+            ("risk_distance",      risk_distance),
+        ):
+            if k not in trade:
+                trade[k] = default
+        for col in self._ENTRY_PASSTHROUGH_COLS:
+            if col not in trade:
+                trade[col] = ctx.get(col)
+
+        # Compute r_multiple, mfe/mae from prices when risk_distance is finite
+        if (entry_p is not None and exit_p is not None
+                and risk_distance == risk_distance and risk_distance > 0):
+            if "r_multiple" not in trade:
+                trade["r_multiple"] = (exit_p - entry_p) * direction / risk_distance
+            mfe_p = self._cycle_mfe_price.get(sym)
+            mae_p = self._cycle_mae_price.get(sym)
+            if mfe_p is not None and mfe_p == mfe_p:
+                if "mfe_price" not in trade:
+                    trade["mfe_price"] = mfe_p
+                if "mfe_r" not in trade:
+                    trade["mfe_r"] = (mfe_p - entry_p) * direction / risk_distance
+            if mae_p is not None and mae_p == mae_p:
+                if "mae_price" not in trade:
+                    trade["mae_price"] = mae_p
+                if "mae_r" not in trade:
+                    trade["mae_r"] = (mae_p - entry_p) * direction / risk_distance
 
 
 __all__ = ["H2RecycleRule"]

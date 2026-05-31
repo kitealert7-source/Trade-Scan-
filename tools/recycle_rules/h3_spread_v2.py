@@ -374,6 +374,11 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
                 "leg_directions": {l.symbol: l.effective_direction for l in legs},
                 "max_lot_per_leg": self._max_lot_per_leg,
             })
+            # Tradelevel enrichment: snapshot per-leg entry context.
+            self._snapshot_cycle_entry_ctx(legs, bar_ts, bar_closes)
+
+        # Per-bar MFE/MAE tracking (no-op when basket flat).
+        self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
         if not all_open:
             self._emit_record(
@@ -743,7 +748,9 @@ class H3SpreadV2Rule(H3SpreadV1Rule):
                     "lot": 0.0,
                     "exit_source": "BASKET_RULE_HARVEST_COMPLETE",
                     "exit_timestamp": bar_ts,
+                    "pnl_usd": leg_float.get(leg.symbol, 0.0),
                 }
+                self._enrich_exit_trade(exit_trade, leg)
                 leg.trades.append(exit_trade)
                 leg.state.in_pos = False
                 leg.state.direction = 0

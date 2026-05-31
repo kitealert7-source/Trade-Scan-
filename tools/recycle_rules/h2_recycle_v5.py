@@ -330,6 +330,15 @@ class H2RecycleRuleV5(H2RecycleRule):
         floating_total = sum(leg_float.values())
         equity = self.starting_equity + self.realized_total + floating_total
 
+        # Tradelevel enrichment: lazy per-leg snapshot (detects initial open
+        # + pyramid commits that shift winner avg-entry + soft_reset basket
+        # cycles), then per-bar excursion update. Pyramid commits silently
+        # re-baseline ctx + MFE/MAE (no trade row emitted, position stays
+        # open) — see _maybe_resnapshot_legs docstring for the documented
+        # decision.
+        self._maybe_resnapshot_legs(legs, bar_ts, bar_closes)
+        self._update_cycle_excursions(legs, bar_ts, bar_closes)
+
         # ---- Exit checks (same as @1/@4) ----
         if equity >= self.harvest_target_usd:
             self._exit_all(legs, i, bar_ts, bar_closes, leg_float, reason="TARGET")
