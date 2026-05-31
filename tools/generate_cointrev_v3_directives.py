@@ -61,6 +61,17 @@ The default N=5 matches HYSTERESIS_LOOKBACK in tools/cointegration_db.py
 (one trading week of confirmation), filters out single-day flickers, and
 empirically removes ~50% of unfiltered spans.
 
+Pre-write gate verification (CR-EXIT-FIX 2026-05-30, retro F1 high-ROI):
+After span enumeration completes, the generator renders 3 sample directives
+(first / median / last) and runs each through
+tools.window_validity_gate.evaluate_window_validity(). Any REJECT aborts the
+run with the gate's reject_reason -- BEFORE any directive reaches staging.
+The historical motivator: the first v2 corpus emitted 527 directives that
+ALL failed at window_validity_gate because exit=break+1 contradicted the
+gate's containment rule (operator-locked 2026-05-28). A pre-write sample
+check would have caught that conflict before any file was written. ~10 ms
+overhead per corpus generation.
+
 CLI:
     python tools/generate_cointrev_v3_directives.py --dry-run
     python tools/generate_cointrev_v3_directives.py
@@ -410,6 +421,106 @@ def _render_directive(
     return name, body
 
 
+def _verify_gate_compatibility(
+    spans_per_pair: list[tuple[str, str, str, str, int]],
+    *,
+    sample_indices: list[int] | None = None,
+    db_path: Path | None = None,
+) -> None:
+    """Render sample directives and run them through evaluate_window_validity.
+
+    Catches operator-locked-rule conflicts at corpus-generation time, BEFORE
+    any directive is written to staging or promoted to INBOX. The historical
+    motivator is CR-EXIT-FIX (2026-05-30): the first v2 corpus was generated
+    with exit=break+1 and ALL 527 directives were rejected at
+    window_validity_gate because the rule required end_date <= last_coint_date.
+    A 3-sample pre-write check costs ~10 ms and would have caught that
+    contradiction before any file was written.
+
+    Picks 1-3 samples from `spans_per_pair` (first / median / last by
+    enumeration order, which is alphabetical-by-pair then chronological-by-
+    onset within a pair -- a reasonable spread). For each sample, renders the
+    directive YAML to a tempfile, calls
+    tools.window_validity_gate.evaluate_window_validity(), and asserts
+    status == "PASS". Raises RuntimeError on the first REJECT with the gate's
+    reject_reason + remediation pointer.
+
+    `db_path` (optional): override the gate's module-level DB_PATH for the
+    duration of the verification. When omitted, the gate reads from the
+    production cointegration.db (its default). This is threaded through from
+    generate_directives's own db_path arg so tests using a tmp DB don't see
+    a mismatch between span enumeration (tmp DB) and gate verification
+    (would otherwise hit production DB).
+
+    No-op when `spans_per_pair` is empty. Tempfiles are cleaned up in
+    `finally` regardless of outcome; the gate's original DB_PATH is restored
+    in `finally` regardless of outcome.
+    """
+    if not spans_per_pair:
+        return
+
+    # Default: first / median / last sample. With <3 items, sample all.
+    if sample_indices is None:
+        n = len(spans_per_pair)
+        if n >= 3:
+            sample_indices = [0, n // 2, n - 1]
+        else:
+            sample_indices = list(range(n))
+
+    # Local import — keeps the gate dependency at use-time, not import-time,
+    # so tools that import this module for span enumeration alone don't pay
+    # the cost of loading the gate's sqlite layer.
+    import tempfile
+
+    from tools import window_validity_gate
+
+    # Optionally override the gate's module-level DB_PATH so verification
+    # reads from the same DB the spans were enumerated from. Restored in
+    # `finally`.
+    _original_gate_db = window_validity_gate.DB_PATH
+    if db_path is not None:
+        window_validity_gate.DB_PATH = Path(db_path)
+
+    try:
+        for idx in sample_indices:
+            pair_a, pair_b, entry_date, exit_date, ncoint = spans_per_pair[idx]
+            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date)
+            tf_handle = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8"
+            )
+            try:
+                tf_handle.write(body)
+                tf_handle.close()
+                tf_path = Path(tf_handle.name)
+                res = window_validity_gate.evaluate_window_validity(tf_path)
+                if res.status != "PASS":
+                    raise RuntimeError(
+                        f"[GATE-VERIFY] Sample directive {name!r} would be REJECTED "
+                        f"at admission by window_validity_gate.\n"
+                        f"  pair         : {pair_a} / {pair_b}\n"
+                        f"  test window  : [{res.test_start} -> {res.test_end}]\n"
+                        f"  span         : {res.span_start} -> {res.span_end} "
+                        f"({res.continuous_span_obs} aligned rows)\n"
+                        f"  reject reason: {res.reject_reason}\n"
+                        f"\n"
+                        f"Generator rules contradict an operator-locked admission "
+                        f"gate. Either adjust the generator (preferred: align "
+                        f"entry/exit with the gate's containment rule) or update "
+                        f"the gate's contract. Aborting before bulk write to avoid "
+                        f"the wasted-corpus failure mode documented in "
+                        f"CR-EXIT-FIX 2026-05-30 "
+                        f"(outputs/system_reports/06_strategy_research/"
+                        f"COINTEGRATION_V1_TO_V2_TRANSITION.md §4.5)."
+                    )
+            finally:
+                try:
+                    Path(tf_handle.name).unlink()
+                except FileNotFoundError:
+                    pass
+    finally:
+        window_validity_gate.DB_PATH = _original_gate_db
+
+
 def generate_directives(
     tf: str = DEFAULT_TF,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
@@ -472,6 +583,15 @@ def generate_directives(
     for pair_a, pair_b, _ed, _xd, _nc in spans_per_pair:
         cls_count[_pair_class(pair_a, pair_b)] += 1
         pairs_with_eps.add((pair_a, pair_b))
+
+    # Gate-compatibility verification (CR-EXIT-FIX 2026-05-30, F1 high-ROI).
+    # Renders 3 sample directives + runs them through evaluate_window_validity
+    # to catch operator-locked-rule conflicts at generation time, before any
+    # bulk write reaches staging. ~10 ms overhead; aborts loudly on REJECT.
+    # Threads db_path through so the gate reads from the same DB the spans
+    # were enumerated from (matters for tests using a tmp DB; in production
+    # both default to cointegration.db).
+    _verify_gate_compatibility(spans_per_pair, db_path=db_path)
 
     if dry_run:
         print(

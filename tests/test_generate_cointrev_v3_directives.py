@@ -43,6 +43,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # at test-time rather than at collection-time.
 from tools.generate_cointrev_v3_directives import (  # noqa: E402
     DEFAULT_CONFIRMATION_N,
+    _verify_gate_compatibility,
     generate_directives,
     spans_confirmation_safe,
 )
@@ -338,3 +339,78 @@ def test_default_confirmation_is_5():
         f"(matches HYSTERESIS_LOOKBACK in tools/cointegration_db.py), "
         f"got {DEFAULT_CONFIRMATION_N!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Section F — gate-compatibility verification (CR-EXIT-FIX 2026-05-30, F1)
+# ---------------------------------------------------------------------------
+#
+# F.1 happy path: samples that align with window_validity_gate's containment
+#     rule pass without raising.
+# F.2 fail path:  a hand-constructed bad sample (exit_date past last_coint_idx)
+#     triggers RuntimeError with the gate's reject_reason in the message.
+# F.3 empty case: no spans = no-op, no exception.
+
+
+def test_verify_gate_compatibility_passes_on_valid_samples(
+    tmp_coint_db, monkeypatch
+):
+    """F.1 — samples produced by spans_confirmation_safe (with the post-CR-EXIT-FIX
+    rule exit=last_coint_date) all pass window_validity_gate containment."""
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    # 15 coint + 3 broken: spans_confirmation_safe emits entry=series[6],
+    # exit=series[14] (= last_coint_idx). The window fully sits inside the
+    # cointegrated span [series[0], series[14]] -> gate PASS.
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, pair_a, pair_b, series)
+
+    # Patch the gate's DB_PATH so evaluate_window_validity reads our tmp DB
+    # instead of the production cointegration.db.
+    monkeypatch.setattr("tools.window_validity_gate.DB_PATH", tmp_coint_db)
+
+    # Build spans list as spans_confirmation_safe would emit:
+    # (pair_a, pair_b, entry_date, exit_date, ncoint)
+    spans = [(pair_a, pair_b, series[6][0], series[14][0], 15)]
+
+    # Should return None without raising.
+    result = _verify_gate_compatibility(spans)
+    assert result is None, "happy-path helper should return None"
+
+
+def test_verify_gate_compatibility_blocks_on_reject(
+    tmp_coint_db, monkeypatch
+):
+    """F.2 — a hand-constructed bad sample (exit_date PAST last_coint_idx,
+    simulating the pre-CR-EXIT-FIX exit=break+1 rule) triggers RuntimeError
+    BEFORE any bulk write. This is exactly the failure mode the helper exists
+    to catch.
+    """
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    # 15 coint + 3 broken; last_coint_idx = 14 (series[14] = '2024-01-15').
+    # Cointegrated span ends 2024-01-15; series[16] = '2024-01-17' is BREAKING.
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, pair_a, pair_b, series)
+    monkeypatch.setattr("tools.window_validity_gate.DB_PATH", tmp_coint_db)
+
+    # Manually inject exit_date=series[16] — 2 bars past last_coint_idx, in
+    # the breaking regime. This is the pre-CR-EXIT-FIX exit=break+1 shape.
+    bad_spans = [(pair_a, pair_b, series[6][0], series[16][0], 15)]
+
+    with pytest.raises(RuntimeError) as exc_info:
+        _verify_gate_compatibility(bad_spans)
+
+    msg = str(exc_info.value)
+    assert "GATE-VERIFY" in msg, f"error must be tagged [GATE-VERIFY], got {msg!r}"
+    assert "REJECTED" in msg, f"error must surface REJECTED, got {msg!r}"
+    assert pair_a in msg and pair_b in msg, (
+        f"error must name the pair, got {msg!r}"
+    )
+    assert "CR-EXIT-FIX" in msg, (
+        f"error must point at the historical motivator for remediation context"
+    )
+
+
+def test_verify_gate_compatibility_empty_spans_is_noop():
+    """F.3 — empty span list = no-op, no exception, no DB read."""
+    result = _verify_gate_compatibility([])
+    assert result is None
