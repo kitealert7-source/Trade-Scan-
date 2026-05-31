@@ -20,9 +20,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gc
 import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1024,7 +1026,14 @@ def _merge_audit_columns(
     if spec is None or df.empty or not xlsx_path.exists():
         return df
     try:
-        existing = pd.read_excel(xlsx_path, sheet_name=sheet_name)
+        # Explicit ExcelFile context so the underlying openpyxl handle is
+        # released deterministically before the caller's atomic-replace
+        # writer runs. Windows os.replace() requires NO open handles on the
+        # destination path; the bare pd.read_excel(path, ...) form can let
+        # openpyxl hold the handle past return on some Python/openpyxl/pandas
+        # combinations, producing WinError 5 during the subsequent replace.
+        with pd.ExcelFile(xlsx_path, engine="openpyxl") as xl:
+            existing = pd.read_excel(xl, sheet_name=sheet_name)
     except (ValueError, KeyError, FileNotFoundError):
         return df
     key = spec["key"]
@@ -1137,7 +1146,26 @@ def export_mps(
                     df_baskets.to_excel(writer, sheet_name="Baskets", index=False)
                 if df_coint_view is not None and not df_coint_view.empty:
                     df_coint_view.to_excel(writer, sheet_name="Cointegration", index=False)
-            os.replace(str(_tmp_out), str(out))
+            # Retry os.replace on Windows PermissionError (WinError 5). Even
+            # with the explicit ExcelFile close in _merge_audit_columns, AV
+            # scanners / file indexers can transiently hold a handle on the
+            # destination. Force-GC first to drop any lingering openpyxl
+            # references, then retry with short backoffs. Five attempts at
+            # 50/100/200/400/800ms covers ~1.5s of transient contention,
+            # which is the canonical pattern from feedback_workbook_lifecycle_remediation.
+            gc.collect()
+            _last_exc: OSError | None = None
+            for _delay_ms in (0, 50, 100, 200, 400, 800):
+                if _delay_ms:
+                    time.sleep(_delay_ms / 1000.0)
+                try:
+                    os.replace(str(_tmp_out), str(out))
+                    _last_exc = None
+                    break
+                except PermissionError as exc:  # WinError 5
+                    _last_exc = exc
+            if _last_exc is not None:
+                raise _last_exc
         finally:
             if _tmp_out.exists():
                 try:

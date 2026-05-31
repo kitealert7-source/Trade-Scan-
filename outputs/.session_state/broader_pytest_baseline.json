@@ -16,11 +16,10 @@
     "tests/test_cointegration_screen.py::TestCandidatesRegistry::test_candidates_yaml_parses",
     "tests/test_known_issues_auto_populator.py::TestRenderer::test_clean_state_shows_none_in_manual_section",
     "tests/test_known_issues_auto_populator.py::TestRenderer::test_pytest_failure_surfaces_in_auto_section",
-    "tests/test_known_issues_auto_populator.py::TestRenderer::test_skipped_only_is_informational_not_blocker",
-    "tests/test_quarantine_integrity.py::test_deprecated_rules_have_all_mps_rows_tagged"
+    "tests/test_known_issues_auto_populator.py::TestRenderer::test_skipped_only_is_informational_not_blocker"
   ],
-  "count": 17,
-  "sha": "e9856a41bf2515894ea2039de6f0950ba430d73f",
-  "updated_at": "2026-05-30T17:32:00+00:00",
-  "rationale": "v1 cointegration corpus retirement (commit 950a7ab) ran repair_integrity which dropped 20 tagged-orphan Baskets rows; pre-existing 20 untagged COINTREV_meanrev (idea 91, retired 2026-05-21) rows became newly visible to the integrity test. Tagging deferred \u2014 needs DB-canonical fix per workbook lifecycle resolution 2026-05-27 (xlsx is interface, basket_sheet table is source of truth). Test failure accepted as new baseline pending DB-side tagging in follow-up."
+  "count": 16,
+  "sha": "03db5ca39003b1185f9256ba52d6f4121feb4c43",
+  "updated_at": "2026-05-31T03:20:00+00:00",
+  "rationale": "20 untagged COINTREV_meanrev (idea 91, v1, retired 2026-05-21 commit 605317c) Baskets rows dropped DB-side per CLAUDE.md Invariant #2 operator-cleanup exception (disk artifacts gone, cohort 19 FAIL + 1 CORE). Hard-DELETE from basket_sheet then ledger_db.py --export + format_excel_artifact --profile portfolio; MPS Baskets 247 -> 227, 29 RETIRED + 60 SUPERSEDED preserved via _MPS_AUDIT_COLUMNS carry-over. test_deprecated_rules_have_all_mps_rows_tagged now PASSes. Also fixed pre-existing Windows file-handle bug in ledger_db.py export_mps (WinError 5 on os.replace, surfaced by chip-task 03db5ca's new in-process test_drop_orphan_basket_row_survives_re_export): _merge_audit_columns now uses explicit pd.ExcelFile context manager + os.replace gets gc.collect() + retry-with-backoff (50/100/200/400/800ms) per feedback_workbook_lifecycle_remediation pattern. Baseline 17 -> 16."
 }
