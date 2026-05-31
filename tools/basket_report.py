@@ -678,7 +678,7 @@ def write_basket_strategy_card(
     )
     lines.append(
         f"**Run ID:** `{run_id}`  |  **Engine:** {engine_version}  |  "
-        f"**Sweep/Pass:** {sweep_str}/{pass_str}  |  "
+        f"**Sweep:** {sweep_str}  |  **Pass:** {pass_str}  |  "
         f"**Generated:** {generated}"
     )
     lines.append("")
