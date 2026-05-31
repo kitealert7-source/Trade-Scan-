@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-05-31T03:44:09Z
+> Generated: 2026-05-31T16:31:17Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 488 directives
+- Completed: 975 directives
 
 ## Ledgers
 
@@ -35,19 +35,18 @@
 - Latest bar: **2026-05-31** | Symbols: 221
 
 ## Artifacts
-- Run directories: 1434
+- Run directories: 1887
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `604be78 session: idea gate refresh â€” tools_manifest regen`
+- Last substantive commit: `1ac8927 basket_report: restore separate Sweep:/Pass: header labels`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 40 KB / 91 lines (EXCEEDS 40 KB / 600 line cap) — run `python tools/compact_research_memory.py --dry-run` then `--apply`
 - [CALENDAR] Sunday — weekly cadence slot for `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 (run before close to land in the closing snapshot)
 
 ### Manual (operator-deferred items)
@@ -56,13 +55,19 @@
 - [SKILL_REFACTOR] **Change D — move `/session-close §3.3 Artifact cleanup` into `/repo-cleanup-refactor §1d`.** The full root-untracked + scratch detection belongs in the repo-cleanup skill. Keep one minimal check in session-close: "any tracked file under `/tmp/`?" (real invariant-8 violation). Earliest revisit: 2026-06-01.
 - [SKILL_REFACTOR] **Change F — strip `/system-health-maintenance` §5 / §6 / §8 overlap.** §5 (vault) duplicates `/update-vault`; §6 (Excel format) duplicates `/format-excel-ledgers`; §8 (memory compaction) is the only home for the compaction logic but is also referenced from `/session-close §3.9`. Action: delete §5 + §6; keep §8 as canonical home, reference from elsewhere. Resulting scope of `/system-health-maintenance`: preflight + recovery + smoke tests + migration only. Earliest revisit: 2026-06-01. Defer this longest — cross-skill refactors create silent doc drift if rushed.
 - [CODE_DRY] **Extract `_leg_pnl_usd` shared helper across `tools/recycle_rules/h2_compression.py` + `h2_recycle.py`.** Bodies are byte-identical modulo error-message rule-name (52 lines each). NOT a candidate for unification with `h2_recycle_v3.py` (different signature: takes `ref_closes` for cross-pair USD conversion). Surfaced by `/repo-cleanup-refactor` 2026-05-26. Deferred because `tools/recycle_rules/` was touched 2026-05-24 for the `leg_direction_flip_bug` Option-B fix — anti-pattern: "Don't extract refactors during high-stakes pre-deployment windows". Recommend: land after H2 strategy lock (per `[[project_h2_engine_promotion_plan]]` Phase 7b gate). One commit; new `tools/recycle_rules/_basket_pnl.py`; full basket regression suite (127+ tests). Earliest revisit: post-Phase-7a-ack.
-- [MONITOR] RESEARCH_MEMORY.md size — 34->35.3 KB this session, 40 KB cap; promote to compaction (`compact_research_memory.py` / advance ARCHIVE_BEFORE) when >38 KB AND still growing; discard this monitor if a compaction resets it below first (first seen 2026-05-29, session-retro)
+<!-- [MONITOR] RESEARCH_MEMORY.md size — DISCARDED 2026-05-31: compaction landed (commit 48af382, ARCHIVE_BEFORE -> 2026-05-25), file now at 22 KB / 53 lines, well below the 38 KB rearm threshold. Re-add monitor if size grows back >38 KB. -->
+
 - [MONITOR] conclusion-write-path provenance gate — `research_memory_append` accepts an unvalidated run_id and auto-memory is ungated (AGENT.md Invariant #31 is STOP-doctrine, NOT yet mechanically gated for conclusions). Promote to BUILD only after >=1 operational gate-shakeout session (per the advisory-to-enforced standing directive). First seen 2026-05-29.
 - [NEXT-FOCUS] Lifecycle granularity-mismatch — WORKING HYPOTHESIS (analysis-only, NO remedy decided): lifecycle burden originates from arc-level intent expressed at artifact level; high-fan-out arcs amplify one decision into 100-1000+ actions. Full evidence in auto-memory `project_lifecycle_granularity_mismatch.md`. Next session's question: smallest mechanisms to reduce decision fan-out without a new state system. Start from this framing, not lineage-contamination. (first seen 2026-05-29)
-- [SIZE] auto-memory MEMORY.md at/over 200-line cap — run `/anthropic-skills:consolidate-memory` next session (HIGH-ROI from session-retro; index truncates beyond 200).
+<!-- [SIZE] auto-memory MEMORY.md — DONE 2026-05-31: /anthropic-skills:consolidate-memory ran as Infra Priority 1 at session start. Re-add when next cap-near event surfaces. -->
 - [RETRO] Session retro 2026-05-30 — 9 findings parked as a durable report at `outputs/session_retros/SESSION_RETRO_2026-05-30.md`. 8/9 dispositioned 2026-05-31 (F1 built, F2/F3/R2/MO1 memory, MO2 cross-link, R1+Res1 proposal-only doc). HIGH ROI (F1) shipped: gate-verify step in corpus generation (commit `f948415`). Companion snapshot: `outputs/system_reports/06_strategy_research/COINTEGRATION_V1_TO_V2_TRANSITION.md`.
 - [DONE 2026-05-31] Warmup pre-extension wired into basket pipeline — commit `cb9e180`. `BasketRule.required_warmup_bars()` Protocol method + `PineRatioZRevRule` override (`2 * n_window` absolute / `n_window + n_meta` centered, mechanism-derived); `basket_data_loader.leg_warmup_bars` + `BasketRunner.warmup_bars` with engine-path mute + fast-path open-shift; pipeline wires both via single source of truth. 14 tests pass. Recovery run landed 14/15 of the originally-silent-skip directives (1 holdout = no-per-bar-parquet ledger-writer skip, separate class). v2 ledger 473 → 487. Byte-equivalence on long-window baseline: +0.5% trade-count drift (correctness fix, not break). Snapshot doc updated.
 - [DONE 2026-05-31] 20 retired COINTREV_meanrev rows tagged DB-side — chip task completed. Baseline reverted 17 → 16 acknowledged failures.
+- [DONE 2026-05-31] Legacy `Trade_Scan/strategies/Master_Portfolio_Sheet.xlsx` deleted (78 KB, last modified 2026-04-15, NOT tracked, NOT referenced by any tool — all 5 tool refs point to `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`). Fossil from pre-2026-04-10 strategy-pointer-files migration. Canonical at 326 KB / 5 sheets including Cointegration (942 rows) unaffected.
+- [DONE 2026-05-31] **Basket `results_tradelevel.csv` per-trade enrichment gap — LANDED.** All in-scope columns now populated end-to-end across H2 / H3 / Pine families (commit `cdcbe4a`). `r_multiple`, `atr_entry`, `initial_stop_price`, `risk_distance`, `mfe_price`, `mae_price`, `mfe_r`, `mae_r` fill on every cycle (not just first); per-leg `pnl_usd` split surfaces both legs (no more 50% NaN); regime passthrough (`volatility_regime`, `trend_score`, `trend_regime`, `trend_label`, `market_regime`, `regime_id`, `regime_age`) added gratis since `apply_regime_model` already attaches them at leg-df level. Verified across 920-run mass refresh + paired-cycle dataset (66,807 rows, 1.48% genuine NaN preserved as UNKNOWN; per the zero-cross localization Phase-1 build). Beyond the original in-scope list — Priority C regime fields landed too because they were already attached.
+- [NEXT-FOCUS] **Z-cross edge localization is PROVISIONAL — regime-filtered Phase-3 backtest required to lock conclusion.** Hypothesis-only result from 2026-05-31 cycle-level analysis on the 451 paired (baseline / zcross) ZCRS corpus: decision-gate trips REGIME-CONCENTRATED (top-1 bucket = 68% of total ΔPnL, top-3 = 100%), but the "regime" carrying the concentration is INSTRUMENT-FAMILY (CRY + MET via NaN `market_regime` proxy), NOT a market-state classification. BTC family +$10.64M net (50/50 directive win-rate, fat-tail), ETH/XAU positive, FX/IDX (382 paired directives — the actual design target) ≈ flat-to-mildly-negative (≈ -$1.6K, 45% win-rate). Edge fragility: dropping the top 20 worst baseline cycles flips corpus Δ from +$11.08M to -$0.43M. Next-session step: separate FX/IDX-only vs crypto/metals-inclusive Phase-3 backtests; walk-forward / LOO resampling on BTC specifically. Per Invariant #10 the bucket-level classification is ad-hoc; the BACKTEST validates. Memo + dataset preserved at `C:/tmp/zcross_edge_localization_memo.md` / `C:/tmp/zcross_edge_localization_cycles.parquet` + `C:/tmp/zcross_localization_directive_inventory.csv` for next session's reference. (first seen 2026-05-31)
+- [QA — minor] **`market_regime` NaN on crypto/metals legs (~990 cycles in localization corpus).** Source `results_tradelevel.csv` rows for BTCUSD / ETHUSD / XAUUSD legs carry NULL `market_regime` despite the regime model attaching the column at leg-df level. Likely a regime-model coverage gap for non-FX symbols (FX cohort drives the model fit). Effect: any analysis grouping by `market_regime` will bucket these as UNKNOWN; the `mae_r <= -3R` blowup heuristic also evaluates trivially FALSE on the NaN-`mae_r` subset within UNKNOWN, so blowup counts there are uninformative. Fix scope: regime-model symbol-coverage audit + classification rule for non-FX leg types. Touches Protected Infra; plan + approval before landing. Not a render bug; not a metric bug; a coverage gap. (first seen 2026-05-31, deferred from zero-cross localization run)
+- [DEFER — polish-only] **BASKET_REPORT Pass-3 polish backlog** (5 items, all ACCEPTABLE-DEFER per 2026-05-31 Pass-2 reviewer synthesis): (a) `pine_reversal` Event Taxonomy fallback verbosity — 22 rows mostly zero; tighten via family-specific template OR zero-row suppression. (b) Cycle-PnL Distribution degenerate single-bucket render when N_cycles<3 — add parallel small-N guard. (c) Silent elision of MFE-Giveback + Asymmetry sections for pine_reversal — consider explicit "not applicable" stub. (d) `h3_holding` semantic mis-framing in Event Taxonomy (bar-count not event-count). (e) Spot-check higher-N report from a future mass-refresh batch as sanity. NONE are blockers — mass refresh 2026-05-31 landed CLEAN at scale. Address if BASKET_REPORT renderer is touched for another reason. (first seen 2026-05-31)
 - [PERF — Stage A LANDED 2026-05-31] **BC-family backfill data-load amortization.** Stage A (worker-local LRU cache on `_load_native_closes` keyed on `(symbol, tf)`) shipped after a measured profiling pass on BC3's 5-day slice. BC3 wall: 29s → 21s (-28%). Per-task `data_load_pair`: 8069ms → 698ms (cold tasks, OS-page-cache warm) → 4ms (cache-hit tasks). Byte-equivalent on all 10 parquets excluding the per-run `generated_at` audit timestamp. 5 focused unit tests added at [tests/test_load_native_closes_cache.py](tests/test_load_native_closes_cache.py); BC3 spawn-bootstrap regression unchanged. **Open items deliberately NOT done:** (a) larger profile run including 4h TF to project the BC4 wall improvement (~30 min, would replace the still-uncertain BC4 extrapolation); (b) `compute_pair`-side optimizations (43% of warm-task wall) — only needed if measured BC4 <2h target requires it; (c) parquet conversion (CSV→Parquet); (d) `run` + `run_singles` data-load de-duplication — disqualified by profile (data_load_singles is 4.8% of task; not worth touching). **Earliest revisit for (a):** when next BC backfill is planned. **First seen:** 2026-05-31.
 
 ## Known Issues
