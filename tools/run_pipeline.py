@@ -1319,12 +1319,16 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
                 )
                 for leg in parsed["basket"]["legs"]
             }
-        elif rule_name == "pine_ratio_zrev_v1":
-            # Pine port (2026-05-24): ratio-hedged z_r reversal, always-in-market.
-            # Preserved follow-on arc #2 from cointegration_meanrev_v1_2 retirement.
+        elif rule_name in ("pine_ratio_zrev_v1", "pine_ratio_zrev_v1_zcross"):
+            # Pine port (2026-05-24) + zero-crossing exit variant (2026-05-31):
+            # ratio-hedged z_r reversal. Variant differs ONLY in rule's exit
+            # detection (sign-flip vs opposite-extreme cross) — the leg
+            # strategy + shared state machinery is identical, so both rule
+            # names dispatch the same leg construction.
+            #
             # Leg strategy proposes on `pine_zrev_signal` column crosses (column
-            # is attached by PineRatioZRevRule.apply() on first bar). Same
-            # shared-state auto-discovery pattern as cointegration_meanrev_v1_2.
+            # is attached by PineRatioZRevRule(.Zcross).apply() on first bar).
+            # Same shared-state auto-discovery pattern as cointegration_meanrev_v1_2.
             # ONE shared PineZRevArmedState instance for both legs.
             shared_armed_state = PineZRevArmedState()
             leg_strategies = {

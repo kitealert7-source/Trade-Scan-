@@ -73,8 +73,11 @@ _H3_SPREAD_TAGS = {"PYRAMID", "AWAITING_ENTRY", "HOLDING",
 # pine_ratio_zrev_v1 (V3, always-in-market reversal): no harvest cycle (the
 # harvest threshold is never hit); a "cycle" is one held reversal SEGMENT,
 # closed when the z_r flip liquidates+reverses, tagged LIQUIDATE_REVERSAL.
-# This tag is unique to the reversal rule, so detection is unambiguous.
-_PINE_REVERSAL_TAGS = {"LIQUIDATE_REVERSAL"}
+# pine_ratio_zrev_v1_zcross (2026-05-31): zero-crossing exit variant. Same
+# cycle shape — one held SEGMENT per propose+approve+open+exit lifecycle —
+# but exits tag LIQUIDATE_EQUILIBRIUM (sign-flip) instead of REVERSAL
+# (opposite-extreme cross). Both tags share the family for metric purposes.
+_PINE_REVERSAL_TAGS = {"LIQUIDATE_REVERSAL", "LIQUIDATE_EQUILIBRIUM"}
 
 
 def detect_rule_family(df: pd.DataFrame) -> str:
@@ -318,9 +321,13 @@ def canonical_metrics(
              "LIQUIDATE_HARVEST_COMPLETE"],
         )
     elif rf == "pine_reversal":
-        # each held reversal segment closes at a LIQUIDATE_REVERSAL flip;
-        # cycle_pnl = realized_total_usd delta over the segment.
-        cycle_pnls = _cycle_pnl_from_parquet(df, ["LIQUIDATE_REVERSAL"])
+        # Each held reversal segment closes at either:
+        #   LIQUIDATE_REVERSAL    — pine_ratio_zrev_v1 (opposite-extreme cross)
+        #   LIQUIDATE_EQUILIBRIUM — pine_ratio_zrev_v1_zcross (sign-flip exit)
+        # Both denote a completed cycle for metric purposes.
+        cycle_pnls = _cycle_pnl_from_parquet(
+            df, ["LIQUIDATE_REVERSAL", "LIQUIDATE_EQUILIBRIUM"]
+        )
 
     cycles_completed = len(cycle_pnls)
     cycles_won = sum(1 for c in cycle_pnls if c["cycle_pnl_usd"] > 0)
