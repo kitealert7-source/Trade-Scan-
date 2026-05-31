@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import itertools
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -96,11 +97,25 @@ def _research_dir(symbol: str) -> Path:
     return DATA_ROOT / "MASTER_DATA" / f"{symbol}_OCTAFX_MASTER" / "RESEARCH"
 
 
-def _load_native_closes(symbol: str, tf: str,
-                        start: pd.Timestamp | None,
-                        end: pd.Timestamp | None) -> pd.Series:
-    """Load all year-files for ``symbol`` at ``tf`` and return a single
-    close-price series indexed by timestamp, filtered to [start, end]."""
+@lru_cache(maxsize=128)
+def _load_full_history(symbol: str, tf: str) -> pd.Series:
+    """Internal: load + concat + dedupe + sort the FULL (symbol, tf) close series.
+
+    Cached per process (lru_cache, key=(symbol, tf)). First call pays the disk
+    I/O (glob year-files, pd.read_csv each, concat, dedupe, sort, astype). All
+    subsequent calls within the same process return the cached Series without
+    re-reading disk. Date filtering is NOT done here — that happens in
+    `_load_native_closes` on read so the cache is reusable across windows.
+
+    Cache scope is process-local. Each ProcessPoolExecutor worker maintains its
+    own cache because workers are separate processes (Windows spawn). At BC4
+    scale (~150 tasks per worker), this amortizes ~31 symbols × ~7 year-files
+    into a single load per (symbol, tf) per worker, vs the previous ~500k
+    redundant loads across the full backfill.
+
+    For tests: call `_load_full_history.cache_clear()` to reset between runs.
+    Cache hit/miss visible via `_load_full_history.cache_info()`.
+    """
     research = _research_dir(symbol)
     if not research.is_dir():
         raise FileNotFoundError(
@@ -120,11 +135,34 @@ def _load_native_closes(symbol: str, tf: str,
     full = pd.concat(frames, ignore_index=True)
     full["time"] = pd.to_datetime(full["time"])
     full = full.drop_duplicates(subset=["time"]).set_index("time").sort_index()
-    if start is not None:
-        full = full.loc[full.index >= start]
-    if end is not None:
-        full = full.loc[full.index <= end]
     return full["close"].astype(float).rename(symbol)
+
+
+def _load_native_closes(symbol: str, tf: str,
+                        start: pd.Timestamp | None,
+                        end: pd.Timestamp | None) -> pd.Series:
+    """Load all year-files for ``symbol`` at ``tf`` and return a single
+    close-price series indexed by timestamp, filtered to [start, end].
+
+    Backed by a process-local LRU cache (`_load_full_history`) keyed on
+    (symbol, tf). First call per key pays the disk I/O; subsequent calls
+    return the cached full Series sliced by [start, end]. Slicing via boolean
+    indexing produces a new Series (copy semantics), so callers cannot mutate
+    the cache via the returned object. When both `start` and `end` are None,
+    a defensive `.copy()` is returned to preserve cache isolation against
+    callers that might mutate in place.
+
+    Public signature and return value are unchanged from the pre-cache
+    implementation. Byte-equivalent results expected.
+    """
+    series = _load_full_history(symbol, tf)
+    if start is None and end is None:
+        return series.copy()
+    if start is not None:
+        series = series.loc[series.index >= start]
+    if end is not None:
+        series = series.loc[series.index <= end]
+    return series
 
 
 # ---------------------------------------------------------------------------
