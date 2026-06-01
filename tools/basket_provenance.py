@@ -22,6 +22,7 @@ which is a curated store for promotable artifacts only.
 """
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import shutil
@@ -167,3 +168,67 @@ def load_recycle_rule_hashes(path: Path = RULE_CODE_HASHES_PATH) -> dict:
         return {}
     hashes = data.get("hashes") if isinstance(data, dict) else None
     return {str(k): str(v) for k, v in hashes.items()} if isinstance(hashes, dict) else {}
+
+
+# ── Input provenance (reproducibility identity) ────────────────────────────
+# A basket run is reproducible iff its inputs are unchanged: directive + engine
+# + leg data + leg/rule code. Part A already folds the code hashes into the run
+# manifest; these helpers add the engine version + per-leg DATA hash so a re-run
+# can be compared to a prior run and declared reproducible-or-new-truth (the
+# single-strategy `parquet_sha256` match -> restore / mismatch -> new truth
+# model). The DATA hash is of the loaded leg DataFrame (the exact input that fed
+# the engine, post-slice/derive), not the raw source parquet, so a different
+# date range or derived column is correctly detected.
+
+
+def leg_data_sha256(df) -> str:
+    """Deterministic content hash (schema + rows) of a leg's input DataFrame."""
+    import pandas as pd  # local: keep module import light for non-data callers
+
+    schema = repr([(str(c), str(df[c].dtype)) for c in df.columns]).encode("utf-8")
+    rows = pd.util.hash_pandas_object(df, index=True).values.tobytes()
+    return hashlib.sha256(schema + rows).hexdigest()
+
+
+def basket_input_provenance(leg_data: dict, engine_version: str) -> dict:
+    """Build the reproducibility-identity block written into the run manifest:
+    the engine version + a per-leg DATA hash for every leg."""
+    return {
+        "engine_version": str(engine_version),
+        "leg_data_sha256": {
+            str(sym): leg_data_sha256(df) for sym, df in (leg_data or {}).items()
+        },
+    }
+
+
+def basket_run_identity(manifest: dict) -> dict:
+    """Extract the full reproducibility identity from a basket run manifest:
+    directive hash + engine + per-leg data hashes + leg/rule code hashes."""
+    manifest = manifest or {}
+    arts = manifest.get("artifacts") or {}
+    inp = manifest.get("input_provenance") or {}
+    return {
+        "directive": manifest.get("strategy_hash"),
+        "engine_version": manifest.get("engine_version") or inp.get("engine_version"),
+        "leg_data_sha256": dict(inp.get("leg_data_sha256") or {}),
+        "code": {k: v for k, v in arts.items() if k.startswith("basket_code/")},
+    }
+
+
+def compare_basket_runs(manifest_a: dict, manifest_b: dict) -> dict:
+    """Diff two basket run manifests' reproducibility identities. Returns
+    {"reproducible": bool, "changed": [<dimension>, ...]} — empty `changed`
+    means a re-run would reproduce (identical inputs)."""
+    a, b = basket_run_identity(manifest_a), basket_run_identity(manifest_b)
+    changed: list[str] = []
+    if a["directive"] != b["directive"]:
+        changed.append("directive")
+    if a["engine_version"] != b["engine_version"]:
+        changed.append(f"engine_version ({a['engine_version']} -> {b['engine_version']})")
+    for leg in sorted(set(a["leg_data_sha256"]) | set(b["leg_data_sha256"])):
+        if a["leg_data_sha256"].get(leg) != b["leg_data_sha256"].get(leg):
+            changed.append(f"leg_data:{leg}")
+    for c in sorted(set(a["code"]) | set(b["code"])):
+        if a["code"].get(c) != b["code"].get(c):
+            changed.append(f"code:{c.removeprefix('basket_code/')}")
+    return {"reproducible": not changed, "changed": changed}

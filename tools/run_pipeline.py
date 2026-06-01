@@ -903,6 +903,19 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
     except Exception as exc:
         print(f"[BASKET] WARN code snapshot failed: {exc}")
 
+    # Reproducibility identity: engine version + per-leg input-data hash. With
+    # the code hashes (above) this lets a re-run be compared to a prior run and
+    # declared reproducible-or-new-truth (single-strategy parquet_sha256 model).
+    input_provenance = None
+    try:
+        from tools.basket_provenance import basket_input_provenance
+        from engine_abi.v1_5_9 import ENGINE_VERSION as _eng_ver
+        input_provenance = basket_input_provenance(
+            run_ctx.get("leg_data") or {}, str(_eng_ver),
+        )
+    except Exception as exc:
+        print(f"[BASKET] WARN input provenance failed: {exc}")
+
     # Phase 5b.4: emit run_state.json so the startup guardrail
     # (enforce_run_schema) does not quarantine basket runs on subsequent
     # pipeline invocations. Basket dispatch is monolithic but
@@ -971,6 +984,7 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
         "backtests_dir": backtests_dir,
         "runs_dir": runs_dir,
         "code_snapshot": code_snapshot,
+        "input_provenance": input_provenance,
         "basket_id": basket_id,
         "df_trades": df_trades,
         "runs_csv": runs_csv,
@@ -1132,9 +1146,12 @@ def _basket_finalize_state_machine(state_mgr, run_id: str, path,
         _code_snap = artifact_ctx.get("code_snapshot") or {}
         for _rel, _h in (_code_snap.get("files") or {}).items():
             artifacts_manifest[f"basket_code/{_rel}"] = _h
+        _input_prov = artifact_ctx.get("input_provenance") or {}
         manifest_payload = {
             "run_id": run_id,
             "strategy_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "engine_version": _input_prov.get("engine_version"),
+            "input_provenance": _input_prov,
             "artifacts": artifacts_manifest,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "execution_mode": "basket",
