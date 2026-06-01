@@ -1291,6 +1291,22 @@ def _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id):
     else:
         raise FileNotFoundError(f"Source strategy missing: {source_file}")
 
+    # Co-locate the SOURCE DIRECTIVE with the run (write-once). strategy.py is
+    # derived from the directive, so pairing them makes the run self-describing
+    # and reproducible even if the directive is later cleaned out of completed/.
+    # Non-fatal: a missing/unresolvable directive must not abort a run whose
+    # strategy.py snapshot already succeeded.
+    try:
+        from tools.run_directive_snapshot import (
+            find_live_directive, snapshot_run_directive,
+        )
+        _dpath = find_live_directive(strategy_id, PROJECT_ROOT)
+        _dsnap = snapshot_run_directive(target_dir, _dpath)
+        if _dsnap and _dsnap.get("written"):
+            print(f"    [GOVERNANCE] directive_snapshot: {_dsnap['filename']}")
+    except Exception as _exc:
+        print(f"    [WARN] directive snapshot failed: {_exc}")
+
     # Strategy (Load from Snapshot)
     strategy = load_strategy(strategy_id, run_id=run_id)
 

@@ -916,6 +916,22 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
     except Exception as exc:
         print(f"[BASKET] WARN input provenance failed: {exc}")
 
+    # Co-locate the SOURCE DIRECTIVE with the basket run (write-once) — parity
+    # with the single-strategy strategy.py pairing; makes the run self-describing
+    # and reproducible even if the directive is later cleaned out of completed/.
+    # Non-fatal.
+    try:
+        from tools.run_directive_snapshot import (
+            find_live_directive, snapshot_run_directive,
+        )
+        from config.path_authority import REAL_REPO_ROOT
+        _dpath = find_live_directive(directive_id, REAL_REPO_ROOT)
+        _dsnap = snapshot_run_directive(runs_dir.parent, _dpath)
+        if _dsnap and _dsnap.get("written"):
+            print(f"[BASKET] Directive snapshot: {_dsnap['filename']}")
+    except Exception as exc:
+        print(f"[BASKET] WARN directive snapshot failed: {exc}")
+
     # Phase 5b.4: emit run_state.json so the startup guardrail
     # (enforce_run_schema) does not quarantine basket runs on subsequent
     # pipeline invocations. Basket dispatch is monolithic but
