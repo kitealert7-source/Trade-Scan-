@@ -77,4 +77,47 @@ __all__ = [
     "PineRatioZRevRule",
     "PineRatioZRevRuleZBand",
     "PineRatioZRevRuleZCross",
+    "RULE_CLASSES",
+    "rule_class_for",
 ]
+
+
+# ── Authoritative (name, version) -> class resolver ────────────────────────
+# Built by introspecting each exported rule's dataclass `name`/`version`
+# defaults (declared as plain class attributes, so readable without
+# instantiation). Single source of truth for resolving a directive's
+# recycle_rule.name@version to its implementing class — consumed by the
+# per-run code snapshot (tools/basket_provenance.py) and the admission-time
+# rule-code-hash gate (tools/namespace_gate.py). A sync test
+# (tests/test_recycle_rule_resolver.py) asserts this covers
+# governance/recycle_rules/registry.yaml exactly, so a new rule cannot be
+# registered without a resolver entry (and vice versa).
+_ALL_RULE_CLASSES = (
+    CointegrationMeanRevV1_2Rule,
+    H2RecycleRule,
+    H2RecycleRuleV2,
+    H2RecycleRuleV3,
+    H2RecycleRuleV4,
+    H2RecycleRuleV5,
+    H2CompressionRecycleRule,
+    H3SpreadV1Rule,
+    H3SpreadV2Rule,
+    H3SpreadV3Rule,
+    PineRatioZRevRule,
+    PineRatioZRevRuleZBand,
+    PineRatioZRevRuleZCross,
+)
+
+RULE_CLASSES: dict[tuple[str, int], type] = {
+    (cls.name, int(cls.version)): cls for cls in _ALL_RULE_CLASSES
+}
+
+
+def rule_class_for(name: str, version: int):
+    """Resolve a (rule_name, version) to its implementing rule class.
+
+    Raises KeyError if the pair is not registered. The resolver-sync test
+    guarantees this map matches governance/recycle_rules/registry.yaml, so a
+    runtime KeyError means a directive referenced an unregistered rule.
+    """
+    return RULE_CLASSES[(name, int(version))]
