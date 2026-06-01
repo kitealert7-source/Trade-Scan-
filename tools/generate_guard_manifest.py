@@ -33,8 +33,25 @@ MANIFEST_PATH = TOOLS_ROOT / "tools_manifest.json"
 sys.path.insert(0, str(PROJECT_ROOT))
 from tools.verify_engine_integrity import canonical_sha256  # noqa: E402
 
-# Critical Guard Set — files that constitute the governance boundary
+# Critical Guard Set — files that constitute the governance boundary.
+#
+# Inclusion criterion: a tool belongs here iff it is LOADED DURING a pipeline
+# run AND its correctness determines backtest / gating-decision integrity — so
+# that a silent (unreviewed) change must freeze execution until a human
+# re-blesses the manifest (the startup hash check in
+# run_pipeline.verify_tools_timestamp_guard).
+#
+# Intentionally NOT guarded:
+#   * Operator-driven cleanup tools that never run inside a pipeline
+#     (lineage_pruner, directive_reconciler). They are covered by the
+#     Protected-Infrastructure approval doctrine (AGENT.md #11) + their own
+#     regression tests; guarding them would only couple unrelated cleanup
+#     edits to pipeline availability.
+#   * Per-experiment mechanics with their own governance: per-symbol
+#     strategies/<id>/strategy.py (namespace_gate + SIGNATURE_HASH) and
+#     tools/recycle_rules/* (governance/recycle_rules/registry.yaml).
 GUARD_FILES = [
+    # ── Single-strategy pipeline spine ──
     "run_pipeline.py",
     "run_stage1.py",
     "semantic_validator.py",
@@ -50,6 +67,15 @@ GUARD_FILES = [
     "skill_loader.py",
     "orchestration/runner.py",
     "system_logging/pipeline_failure_logger.py",
+    # ── Basket execution path (added 2026-06-01; dispatched by
+    #    run_pipeline._try_basket_dispatch). The basket analogue of the
+    #    single-strategy spine: orchestrator + engine + leg-data loader +
+    #    admission validator. The per-basket mechanics (tools/recycle_rules/*)
+    #    stay out under the per-experiment exclusion above. ──
+    "basket_pipeline.py",
+    "basket_runner.py",
+    "basket_data_loader.py",
+    "basket_schema.py",
 ]
 
 
