@@ -733,6 +733,404 @@ def _find_admitted_directive_path(directive_id: str) -> Path | None:
     return None
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Basket dispatch — phase helpers (2026-06-01 decomposition, Backlog 1/4)
+#
+# `_try_basket_dispatch` was 358 LOC, the largest function in the file.
+# Decomposed into six phase helpers + a slim orchestrator. Behavior is
+# byte-equivalent: same print order, same try/except boundaries, same
+# state-machine transitions, same artifact-write order.
+# ────────────────────────────────────────────────────────────────────────
+
+
+def _basket_early_dispatch_check(directive_id: str, provision_only: bool):
+    """Run the four early-return gates and return (path, parsed) for a valid
+    basket directive, or None to signal the caller to fall through to the
+    per-symbol flow.
+
+    Gates (in order):
+      1. provision-only mode never dispatches basket execution
+      2. directive file must be locatable in active_backup/ or completed/
+      3. directive must parse cleanly (parse problems surface on per-symbol path)
+      4. parsed directive must be a basket directive
+    """
+    if provision_only:
+        return None  # provision-only flow never dispatches basket execution
+
+    path = _find_admitted_directive_path(directive_id)
+    if path is None:
+        return None  # caller will surface the missing-directive error
+
+    from tools.basket_schema import is_basket_directive
+    from tools.pipeline_utils import parse_directive
+
+    try:
+        parsed = parse_directive(path)
+    except Exception:
+        return None  # parsing problems surface in the existing flow
+    if not is_basket_directive(parsed):
+        return None
+
+    return path, parsed
+
+
+def _basket_run_pipeline(directive_id: str, path, parsed):
+    """Print the dispatch banner, load per-leg OHLC + leg strategies via the
+    registry-driven dispatch, generate run_id BEFORE the rule executes (so
+    the rule can thread it into per-bar ledger rows), and invoke
+    run_basket_pipeline. Returns a dict bundling result + threading state
+    that the downstream phase helpers consume.
+
+    Phase 5c: real per-leg OHLC + USD_SYNTH compression_5d factor; falls
+    back to synthetic-mode (passthrough strategy + closed-gate compression)
+    when data loading fails — useful for smoke testing without real
+    RESEARCH layer access.
+    """
+    from tools.basket_pipeline import run_basket_pipeline
+    from tools.pipeline_utils import generate_run_id as _generate_run_id
+    # Phase 5b.3 (2026-05-20): research/basket_runs.csv writer retired.
+    # The legacy import (append_basket_row_to_research_csv) is gone; the
+    # function remains in tools/portfolio_evaluator.py as dead code until
+    # the next cleanup sweep.
+
+    print(f"[BASKET] Phase 5b dispatch: {directive_id}")
+    print(f"[BASKET] Directive: {path}")
+    print(f"[BASKET] basket_id={parsed['basket']['basket_id']} "
+          f"legs={[l['symbol'] for l in parsed['basket']['legs']]}")
+
+    leg_data, leg_strategies, data_mode = _load_basket_leg_inputs(parsed)
+    print(f"[BASKET] Data mode: {data_mode}")
+    registry_path = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
+
+    # 1.3.0-basket schema: generate run_id BEFORE the rule executes so the rule
+    # can thread it into per-bar ledger rows. Path B (Phase 5b.2) reuses this
+    # same run_id for the run_registry entry + tradelevel CSV pair.
+    _basket_id_for_runid = parsed["basket"]["basket_id"]
+    run_id, _content_hash = _generate_run_id(path, symbol=_basket_id_for_runid)
+
+    result = run_basket_pipeline(
+        parsed, leg_data, leg_strategies,
+        recycle_registry_path=registry_path,
+        run_id=run_id,
+        directive_id=directive_id,
+    )
+    return {
+        "result": result,
+        "leg_data": leg_data,
+        "data_mode": data_mode,
+        "run_id": run_id,
+        "content_hash": _content_hash,
+    }
+
+
+def _basket_write_vault_snapshot(directive_id: str, parsed, result):
+    """Write the DRY_RUN_VAULT basket snapshot (Phase 6 layout). Folder:
+    `DRY_RUN_VAULT/baskets/<directive_id>/<basket_id>/` (write_basket_vault
+    adds the inner basket_id directory).
+
+    Returns the vault directory path on success, or None if the write
+    failed (logged but non-fatal — Path B / standard artifacts carries on
+    without it; future analysis can recover from the run record alone)."""
+    from config.path_authority import DRY_RUN_VAULT as _DRY_RUN_VAULT
+    from tools.basket_vault import BasketVaultPayload, write_basket_vault
+
+    vault_parent = _DRY_RUN_VAULT / "baskets" / directive_id
+    vault_parent.mkdir(parents=True, exist_ok=True)
+
+    payload = BasketVaultPayload(
+        basket_id=parsed["basket"]["basket_id"],
+        directive=parsed,
+        rule_name=result.rule_name,
+        rule_version=result.rule_version,
+        harvested_total_usd=result.harvested_total_usd,
+        legs=parsed["basket"]["legs"],
+        leg_trades=dict(result.per_leg_trades),
+        recycle_events=list(result.recycle_events),
+    )
+    try:
+        vault_dir = write_basket_vault(vault_parent, payload)
+        print(f"[BASKET] Vault written: {vault_dir}")
+        return vault_dir
+    except Exception as exc:
+        print(f"[BASKET] WARN vault write failed: {exc}")
+        return None
+
+
+def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
+    """Path B / Phase 5b.2 first half: initialize PipelineStateManager, create
+    the backtests/ + runs/ folders, write the dual-location tradelevel CSV,
+    and emit the per-window report stack (results_standard/risk/yearwise/
+    basket, metrics_glossary, bar_geometry, metadata/run_metadata,
+    REPORT_<id>.md, STRATEGY_CARD.md).
+
+    Result is a dict containing the state_mgr + paths the next phase helpers
+    consume. The per-window report's inner try/except is preserved exactly so
+    a per-window-report failure does not abort the run record write.
+    """
+    from tools.basket_ledger import basket_result_to_tradelevel_df
+    from config.path_authority import TRADE_SCAN_STATE
+    from tools.pipeline_utils import PipelineStateManager
+
+    result = run_ctx["result"]
+    leg_data = run_ctx["leg_data"]
+    run_id = run_ctx["run_id"]
+    basket_id = parsed["basket"]["basket_id"]
+
+    backtests_dir = TRADE_SCAN_STATE / "backtests" / f"{directive_id}_{basket_id}" / "raw"
+    backtests_dir.mkdir(parents=True, exist_ok=True)
+    runs_dir = TRADE_SCAN_STATE / "runs" / run_id / "data"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Phase 5b.4: emit run_state.json so the startup guardrail
+    # (enforce_run_schema) does not quarantine basket runs on subsequent
+    # pipeline invocations. Basket dispatch is monolithic but
+    # ALLOWED_TRANSITIONS is linear — initialize as IDLE here and walk
+    # through stages to COMPLETE at the end of the try block (or
+    # transition to FAILED in the outer except).
+    state_mgr = PipelineStateManager(run_id, directive_id=directive_id)
+    state_mgr.initialize(metadata={
+        "execution_mode": "basket",
+        "basket_id": basket_id,
+    })
+
+    # Build per-symbol-shape tradelevel DataFrame and write to BOTH
+    # locations (runs/ for the per-run snapshot, backtests/ for the
+    # discovery-friendly per-directive folder).
+    df_trades = basket_result_to_tradelevel_df(
+        result, run_id=run_id, directive_id=directive_id, leg_data=leg_data,
+    )
+    runs_csv = runs_dir / "results_tradelevel.csv"
+    backtests_csv = backtests_dir / "results_tradelevel.csv"
+    df_trades.to_csv(runs_csv, index=False)
+    df_trades.to_csv(backtests_csv, index=False)
+    print(f"[BASKET] Tradelevel CSV: {backtests_csv} ({len(df_trades)} rows)")
+
+    # Phase 5b.3a — fill the per-window report stack. Without this, the
+    # basket backtests/ folder has only `raw/results_tradelevel.csv` while
+    # per-symbol folders have ~7 files. This block closes that gap.
+    try:
+        from tools.basket_report import (
+            write_per_window_report_artifacts,
+            write_basket_strategy_card,
+        )
+        from engine_abi.v1_5_9 import ENGINE_VERSION as _engine_version
+        stake = float(parsed.get("basket", {}).get("initial_stake_usd", 1000.0))
+        written = write_per_window_report_artifacts(
+            out_dir=backtests_dir.parent,  # parent of raw/ is the directive folder
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_result=result,
+            df_trades=df_trades,
+            parsed_directive=parsed,
+            engine_version=str(_engine_version),
+            starting_equity=stake,
+        )
+        print(f"[BASKET] Per-window report: {len(written)} files "
+              f"(REPORT.md, results_standard/risk/yearwise/basket, glossary, bar_geometry, metadata)")
+
+        # Phase 5b.3a — STRATEGY_CARD.md (basket-flavored counterpart to
+        # tools/generate_strategy_card.py). Per-symbol generator assumes a
+        # strategy.py with STRATEGY_SIGNATURE; baskets have no such file
+        # (rule lives in tools/recycle_rules/), so we render the card
+        # directly from the directive's basket block.
+        card_path = write_basket_strategy_card(
+            out_dir=backtests_dir.parent,
+            directive_id=directive_id,
+            run_id=run_id,
+            parsed_directive=parsed,
+            engine_version=str(_engine_version),
+        )
+        print(f"[BASKET] STRATEGY_CARD.md: {card_path.name}")
+    except Exception as exc:
+        print(f"[BASKET] WARN per-window report emit failed: {exc}")
+
+    return {
+        "state_mgr": state_mgr,
+        "backtests_dir": backtests_dir,
+        "runs_dir": runs_dir,
+        "basket_id": basket_id,
+        "df_trades": df_trades,
+        "runs_csv": runs_csv,
+        "backtests_csv": backtests_csv,
+    }
+
+
+def _basket_persist_run_record(directive_id: str, path, parsed,
+                               run_ctx, vault_dir, artifact_ctx):
+    """Path B / Phase 5b.2 second half: write the basket run record to the
+    authoritative ledger surfaces — run_registry.json (single chokepoint via
+    record_run, shard-safe under --max-parallel), and EITHER the MPS Baskets
+    sheet (operational basket runs) OR the cointegration_sheet ledger
+    (research runs with basket.cointegration_join set, separate ontology).
+
+    The Baskets writer is a dumb sink; canonical metrics are computed here so
+    the writer never needs to read the per-bar parquet."""
+    from tools.portfolio.basket_ledger_writer import append_basket_row_to_mps
+    from config.path_authority import (
+        TRADE_SCAN_STATE,
+        DRY_RUN_VAULT as _DRY_RUN_VAULT,
+    )
+    from tools.system_registry import record_run
+    from datetime import datetime, timezone
+
+    result = run_ctx["result"]
+    run_id = run_ctx["run_id"]
+    _content_hash = run_ctx["content_hash"]
+    basket_id = artifact_ctx["basket_id"]
+    backtests_dir = artifact_ctx["backtests_dir"]
+    backtests_csv = artifact_ctx["backtests_csv"]
+    df_trades = artifact_ctx["df_trades"]
+
+    # run_registry.json entry (basket-flavored) via the SINGLE chokepoint
+    # record_run() -- shard in parallel-batch mode, locked merge sequentially.
+    # This is the BASKET topology's authoritative run-state write; it must go
+    # through record_run (topology guard enforces it). Previously an inline
+    # _load_registry + _save_registry_atomic here raced under --max-parallel,
+    # corrupting the registry AND (on WinError 5) aborting this block before
+    # the cointegration dispatch below ran.
+    record_run({
+        "run_id": run_id,
+        "tier": "basket",
+        "status": "BASKET_COMPLETE",
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "directive_id": directive_id,
+        "directive_hash": _content_hash,
+        "artifact_hash": "",  # basket vault hash not yet schematized; Phase 5b.3
+        "basket_id": basket_id,
+        "execution_mode": "basket",
+    })
+    print(f"[BASKET] run_registry entry: {run_id}")
+
+    # Append to MPS Baskets sheet (the actual MPS file users open).
+    try:
+        vault_path_str = ""
+        if vault_dir is not None:
+            try:
+                vault_path_str = str(vault_dir.relative_to(_DRY_RUN_VAULT.parent))
+            except (ValueError, AttributeError):
+                vault_path_str = str(vault_dir)
+        # Phase 5d.2 (2026-05-17): also pass parquet_path + stake_usd so
+        # the writer can populate the canonical_* / cycle_* columns from
+        # tools.basket_hypothesis.canonical_metrics. For cycle-mechanic
+        # rules (@4/@5+), these are the deployment-decision metrics; the
+        # trade-level final_realized_usd column stays for back-compat.
+        _basket_block = parsed.get("basket", {}) or {}
+        _stake_usd = float(_basket_block.get("initial_stake_usd", 1000.0))
+        _parquet_p = backtests_csv.parent / "results_basket_per_bar.parquet"
+        mps_path = None
+        if _basket_block.get("cointegration_join"):
+            # Cointegration research run -> the dedicated regime-aware ledger
+            # (separate ontology from operational baskets). The orchestrator
+            # computes the canonical metrics + substrate hash here; the writer
+            # stays a dumb, sink-only persister that never reads the screener.
+            from tools.portfolio.cointegration_provenance import build_cointegration_row
+            from tools.portfolio.cointegration_ledger_writer import append_cointegration_row
+            from tools.basket_hypothesis.canonical_metrics import canonical_metrics
+            from engine_abi.v1_5_9 import ENGINE_VERSION as _coint_engine_ver
+            import hashlib as _hl
+            if not _parquet_p.is_file():
+                print("[COINT] WARN no per-bar parquet; skipping cointegration ledger row")
+            else:
+                _cm = canonical_metrics(_parquet_p, _stake_usd)
+                try:
+                    import pandas as _pd
+                    _n_obs = int(len(_pd.read_parquet(_parquet_p)))
+                except Exception:
+                    _n_obs = None
+                _pq_sha = _hl.sha256(_parquet_p.read_bytes()).hexdigest()
+                _trades_total = sum(len(t) for t in result.per_leg_trades.values())
+                _coint_row = build_cointegration_row(
+                    parsed=parsed, directive_path=path, run_id=run_id,
+                    directive_id=directive_id, directive_hash=_content_hash,
+                    backtests_path=str(backtests_dir.parent.relative_to(TRADE_SCAN_STATE)),
+                    vault_path=vault_path_str, canonical=_cm,
+                    trades_total=_trades_total,
+                    completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
+                    engine_version=str(_coint_engine_ver),
+                )
+                append_cointegration_row(_coint_row)
+                # Writer is sink-only (DB, WAL-safe under parallel workers).
+                # The MPS xlsx is a derived view: in batch mode the parent
+                # renders it ONCE after all directives (TS_DEFER_MPS_EXPORT),
+                # avoiding N redundant concurrent renders; a single-directive
+                # run renders inline so its tab refreshes immediately.
+                if os.environ.get("TS_DEFER_MPS_EXPORT") == "1":
+                    print(f"[COINT] MPS render deferred to batch end: {run_id}")
+                else:
+                    try:
+                        from tools.ledger_db import export_mps as _export_mps
+                        _export_mps()
+                    except Exception as _exc:
+                        print(f"[COINT] WARN MPS export (Cointegration tab) failed: {_exc}")
+                print(f"[COINT] Cointegration ledger row written: {run_id}")
+        else:
+            mps_path = append_basket_row_to_mps(
+                result, run_id=run_id, directive_id=directive_id,
+                backtests_path=str(backtests_csv.relative_to(TRADE_SCAN_STATE)),
+                vault_path=vault_path_str,
+                df_trades=df_trades,   # Phase 5d.1 fix: writer uses converter's
+                                       # computed pnl_usd so force_close trades
+                                       # contribute correctly to final_realized_usd
+                parquet_path=_parquet_p if _parquet_p.is_file() else None,
+                stake_usd=_stake_usd,
+            )
+            print(f"[BASKET] MPS Baskets row: {mps_path}")
+    except Exception as exc:
+        print(f"[BASKET] WARN MPS Baskets append failed: {exc}")
+
+
+def _basket_finalize_state_machine(state_mgr, run_id: str, path,
+                                   artifact_ctx):
+    """Phase 5b.4: emit manifest.json (so the startup guardrail accepts this
+    basket run on next pipeline invocation) and walk the PipelineStateManager
+    through PREFLIGHT → STAGE_1..3A → COMPLETE.
+
+    Schema mirrors the per-symbol manifest (stage_symbol_execution.py):
+    run_id + strategy_hash (here: hash of directive file, since baskets have
+    no strategy.py) + artifacts hash map + timestamp. Extra basket markers
+    ('execution_mode', 'basket_id') aid future consumers."""
+    import hashlib
+    import json
+    from datetime import datetime, timezone
+
+    runs_csv = artifact_ctx["runs_csv"]
+    basket_id = artifact_ctx["basket_id"]
+
+    if state_mgr is not None:
+        artifacts_manifest = {}
+        if runs_csv.exists():
+            artifacts_manifest["results_tradelevel.csv"] = hashlib.sha256(
+                runs_csv.read_bytes()
+            ).hexdigest()
+        manifest_payload = {
+            "run_id": run_id,
+            "strategy_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "artifacts": artifacts_manifest,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "execution_mode": "basket",
+            "basket_id": basket_id,
+        }
+        manifest_path = state_mgr.run_dir / "manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_payload, f, indent=4)
+        print(f"[BASKET] Manifest written: {manifest_path}")
+
+    # Phase 5b.4: walk state machine to COMPLETE so the startup
+    # guardrail accepts this basket run on next pipeline invocation.
+    if state_mgr is not None:
+        for _next_state in [
+            "PREFLIGHT_COMPLETE",
+            "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
+            "STAGE_1_COMPLETE",
+            "STAGE_2_COMPLETE",
+            "STAGE_3_COMPLETE",
+            "STAGE_3A_COMPLETE",
+            "COMPLETE",
+        ]:
+            state_mgr.transition_to(_next_state)
+
+
 def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     """Phase 5b minimal basket dispatch.
 
@@ -748,84 +1146,25 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     Per-symbol hot path is unchanged — this function early-returns False
     for non-basket directives.
 
+    Decomposition (2026-06-01, Backlog Item 1/4): orchestrates six phase
+    helpers (_basket_early_dispatch_check / _basket_run_pipeline /
+    _basket_write_vault_snapshot / _basket_write_tradelevel_and_report /
+    _basket_persist_run_record / _basket_finalize_state_machine). Path B
+    (Phase 5b.2 — standard artifacts) try/except stays here so the failure
+    handler can transition the run uniformly to FAILED regardless of which
+    sub-phase raised.
+
     Plan: H2_ENGINE_PROMOTION_PLAN.md Phase 5b (single-ABI on v1_5_9).
     """
-    if provision_only:
-        return False  # provision-only flow never dispatches basket execution
-
-    path = _find_admitted_directive_path(directive_id)
-    if path is None:
-        return False  # caller will surface the missing-directive error
-
-    from tools.basket_schema import is_basket_directive
-    from tools.pipeline_utils import parse_directive
-
-    try:
-        parsed = parse_directive(path)
-    except Exception:
-        return False  # parsing problems surface in the existing flow
-    if not is_basket_directive(parsed):
+    dispatch = _basket_early_dispatch_check(directive_id, provision_only)
+    if dispatch is None:
         return False
+    path, parsed = dispatch
 
-    # ---- Basket dispatch path ----
-    from tools.basket_pipeline import run_basket_pipeline
-    from tools.basket_vault import write_basket_vault
-    # Phase 5b.3 (2026-05-20): research/basket_runs.csv writer retired.
-    # The legacy import (append_basket_row_to_research_csv) is gone; the
-    # function remains in tools/portfolio_evaluator.py as dead code until
-    # the next cleanup sweep.
-
-    print(f"[BASKET] Phase 5b dispatch: {directive_id}")
-    print(f"[BASKET] Directive: {path}")
-    print(f"[BASKET] basket_id={parsed['basket']['basket_id']} "
-          f"legs={[l['symbol'] for l in parsed['basket']['legs']]}")
-
-    # Phase 5c: load real per-leg OHLC + USD_SYNTH compression_5d factor and
-    # build ContinuousHoldStrategy per leg. Falls back to synthetic-mode
-    # (passthrough strategy + zero-gate compression) if data loading fails
-    # — useful for smoke testing without real RESEARCH layer access.
-    leg_data, leg_strategies, data_mode = _load_basket_leg_inputs(parsed)
-    print(f"[BASKET] Data mode: {data_mode}")
-    registry_path = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
-
-    # 1.3.0-basket schema: generate run_id BEFORE the rule executes so the rule
-    # can thread it into per-bar ledger rows. Path B (Phase 5b.2) reuses this
-    # same run_id for the run_registry entry + tradelevel CSV pair.
-    from tools.pipeline_utils import generate_run_id as _generate_run_id
-    _basket_id_for_runid = parsed["basket"]["basket_id"]
-    run_id, _content_hash = _generate_run_id(path, symbol=_basket_id_for_runid)
-
-    result = run_basket_pipeline(
-        parsed, leg_data, leg_strategies,
-        recycle_registry_path=registry_path,
-        run_id=run_id,
-        directive_id=directive_id,
-    )
-
-    # Write basket vault snapshot (Phase 6 layout). Folder structure:
-    #   DRY_RUN_VAULT/baskets/<directive_id>/<basket_id>/  (write_basket_vault adds the inner basket_id dir)
-    from config.path_authority import DRY_RUN_VAULT as _DRY_RUN_VAULT
-    from tools.basket_vault import BasketVaultPayload
-    vault_parent = _DRY_RUN_VAULT / "baskets" / directive_id
-    vault_parent.mkdir(parents=True, exist_ok=True)
-    trades_total = sum(len(t) for t in result.per_leg_trades.values())
-
-    payload = BasketVaultPayload(
-        basket_id=parsed["basket"]["basket_id"],
-        directive=parsed,
-        rule_name=result.rule_name,
-        rule_version=result.rule_version,
-        harvested_total_usd=result.harvested_total_usd,
-        legs=parsed["basket"]["legs"],
-        leg_trades=dict(result.per_leg_trades),
-        recycle_events=list(result.recycle_events),
-    )
-    vault_dir = None  # may stay None if vault write fails — Path B block handles it
-    try:
-        vault_dir = write_basket_vault(vault_parent, payload)
-        print(f"[BASKET] Vault written: {vault_dir}")
-    except Exception as exc:
-        print(f"[BASKET] WARN vault write failed: {exc}")
+    # Run the basket through the recycle-rule pipeline and snapshot to
+    # DRY_RUN_VAULT. Vault failure is non-fatal (logged); Path B still runs.
+    run_ctx = _basket_run_pipeline(directive_id, path, parsed)
+    vault_dir = _basket_write_vault_snapshot(directive_id, parsed, run_ctx["result"])
 
     # ---- Path B / Phase 5b.2 — discoverable artifacts in the standard layout ----
     # Goal: a basket run shows up alongside per-symbol runs in:
@@ -837,226 +1176,16 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     # principle: "results must be discoverable later, not just produced."
     # Phase 5b.3 (2026-05-20): writer now goes through ledger.db.basket_sheet;
     # the legacy research/basket_runs.csv writer is retired.
-    # run_id + _content_hash were already generated above (pre-run, so the rule
-    # can thread run_id into per-bar ledger rows). Reused here verbatim.
     state_mgr = None  # Phase 5b.4: emit run_state.json (startup-guardrail compliance)
     try:
-        from tools.basket_ledger import basket_result_to_tradelevel_df
-        from tools.portfolio.basket_ledger_writer import append_basket_row_to_mps
-        from config.path_authority import TRADE_SCAN_STATE
-        from datetime import datetime, timezone
-
-        basket_id = parsed["basket"]["basket_id"]
-        backtests_dir = TRADE_SCAN_STATE / "backtests" / f"{directive_id}_{basket_id}" / "raw"
-        backtests_dir.mkdir(parents=True, exist_ok=True)
-        runs_dir = TRADE_SCAN_STATE / "runs" / run_id / "data"
-        runs_dir.mkdir(parents=True, exist_ok=True)
-
-        # Phase 5b.4: emit run_state.json so the startup guardrail
-        # (enforce_run_schema) does not quarantine basket runs on subsequent
-        # pipeline invocations. Basket dispatch is monolithic but
-        # ALLOWED_TRANSITIONS is linear — initialize as IDLE here and walk
-        # through stages to COMPLETE at the end of the try block (or
-        # transition to FAILED in the outer except).
-        from tools.pipeline_utils import PipelineStateManager
-        state_mgr = PipelineStateManager(run_id, directive_id=directive_id)
-        state_mgr.initialize(metadata={
-            "execution_mode": "basket",
-            "basket_id": basket_id,
-        })
-
-        # Build per-symbol-shape tradelevel DataFrame and write to BOTH
-        # locations (runs/ for the per-run snapshot, backtests/ for the
-        # discovery-friendly per-directive folder).
-        df_trades = basket_result_to_tradelevel_df(
-            result, run_id=run_id, directive_id=directive_id, leg_data=leg_data,
+        artifact_ctx = _basket_write_tradelevel_and_report(directive_id, parsed, run_ctx)
+        state_mgr = artifact_ctx["state_mgr"]
+        _basket_persist_run_record(
+            directive_id, path, parsed, run_ctx, vault_dir, artifact_ctx,
         )
-        runs_csv = runs_dir / "results_tradelevel.csv"
-        backtests_csv = backtests_dir / "results_tradelevel.csv"
-        df_trades.to_csv(runs_csv, index=False)
-        df_trades.to_csv(backtests_csv, index=False)
-        print(f"[BASKET] Tradelevel CSV: {backtests_csv} ({len(df_trades)} rows)")
-
-        # Phase 5b.3a — fill the per-window report stack (results_standard,
-        # results_risk, results_yearwise, results_basket, metrics_glossary,
-        # bar_geometry, metadata/run_metadata, REPORT_<id>.md). Without
-        # these, the basket backtests/ folder has only `raw/results_tradelevel.csv`
-        # while per-symbol folders have ~7 files. This block closes that gap.
-        try:
-            from tools.basket_report import (
-                write_per_window_report_artifacts,
-                write_basket_strategy_card,
-            )
-            from engine_abi.v1_5_9 import ENGINE_VERSION as _engine_version
-            stake = float(parsed.get("basket", {}).get("initial_stake_usd", 1000.0))
-            written = write_per_window_report_artifacts(
-                out_dir=backtests_dir.parent,  # parent of raw/ is the directive folder
-                run_id=run_id,
-                directive_id=directive_id,
-                basket_result=result,
-                df_trades=df_trades,
-                parsed_directive=parsed,
-                engine_version=str(_engine_version),
-                starting_equity=stake,
-            )
-            print(f"[BASKET] Per-window report: {len(written)} files "
-                  f"(REPORT.md, results_standard/risk/yearwise/basket, glossary, bar_geometry, metadata)")
-
-            # Phase 5b.3a — STRATEGY_CARD.md (basket-flavored counterpart to
-            # tools/generate_strategy_card.py). Per-symbol generator assumes a
-            # strategy.py with STRATEGY_SIGNATURE; baskets have no such file
-            # (rule lives in tools/recycle_rules/), so we render the card
-            # directly from the directive's basket block.
-            card_path = write_basket_strategy_card(
-                out_dir=backtests_dir.parent,
-                directive_id=directive_id,
-                run_id=run_id,
-                parsed_directive=parsed,
-                engine_version=str(_engine_version),
-            )
-            print(f"[BASKET] STRATEGY_CARD.md: {card_path.name}")
-        except Exception as exc:
-            print(f"[BASKET] WARN per-window report emit failed: {exc}")
-
-        # run_registry.json entry (basket-flavored) via the SINGLE chokepoint
-        # record_run() -- shard in parallel-batch mode, locked merge sequentially.
-        # This is the BASKET topology's authoritative run-state write; it must go
-        # through record_run (topology guard enforces it). Previously an inline
-        # _load_registry + _save_registry_atomic here raced under --max-parallel,
-        # corrupting the registry AND (on WinError 5) aborting this block before
-        # the cointegration dispatch below ran.
-        from tools.system_registry import record_run
-        record_run({
-            "run_id": run_id,
-            "tier": "basket",
-            "status": "BASKET_COMPLETE",
-            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "directive_id": directive_id,
-            "directive_hash": _content_hash,
-            "artifact_hash": "",  # basket vault hash not yet schematized; Phase 5b.3
-            "basket_id": basket_id,
-            "execution_mode": "basket",
-        })
-        print(f"[BASKET] run_registry entry: {run_id}")
-
-        # Append to MPS Baskets sheet (the actual MPS file users open).
-        try:
-            vault_path_str = ""
-            if vault_dir is not None:
-                try:
-                    vault_path_str = str(vault_dir.relative_to(_DRY_RUN_VAULT.parent))
-                except (ValueError, AttributeError):
-                    vault_path_str = str(vault_dir)
-            # Phase 5d.2 (2026-05-17): also pass parquet_path + stake_usd so
-            # the writer can populate the canonical_* / cycle_* columns from
-            # tools.basket_hypothesis.canonical_metrics. For cycle-mechanic
-            # rules (@4/@5+), these are the deployment-decision metrics; the
-            # trade-level final_realized_usd column stays for back-compat.
-            _basket_block = parsed.get("basket", {}) or {}
-            _stake_usd = float(_basket_block.get("initial_stake_usd", 1000.0))
-            _parquet_p = backtests_csv.parent / "results_basket_per_bar.parquet"
-            mps_path = None
-            if _basket_block.get("cointegration_join"):
-                # Cointegration research run -> the dedicated regime-aware ledger
-                # (separate ontology from operational baskets). The orchestrator
-                # computes the canonical metrics + substrate hash here; the writer
-                # stays a dumb, sink-only persister that never reads the screener.
-                from tools.portfolio.cointegration_provenance import build_cointegration_row
-                from tools.portfolio.cointegration_ledger_writer import append_cointegration_row
-                from tools.basket_hypothesis.canonical_metrics import canonical_metrics
-                from engine_abi.v1_5_9 import ENGINE_VERSION as _coint_engine_ver
-                import hashlib as _hl
-                if not _parquet_p.is_file():
-                    print("[COINT] WARN no per-bar parquet; skipping cointegration ledger row")
-                else:
-                    _cm = canonical_metrics(_parquet_p, _stake_usd)
-                    try:
-                        import pandas as _pd
-                        _n_obs = int(len(_pd.read_parquet(_parquet_p)))
-                    except Exception:
-                        _n_obs = None
-                    _pq_sha = _hl.sha256(_parquet_p.read_bytes()).hexdigest()
-                    _trades_total = sum(len(t) for t in result.per_leg_trades.values())
-                    _coint_row = build_cointegration_row(
-                        parsed=parsed, directive_path=path, run_id=run_id,
-                        directive_id=directive_id, directive_hash=_content_hash,
-                        backtests_path=str(backtests_dir.parent.relative_to(TRADE_SCAN_STATE)),
-                        vault_path=vault_path_str, canonical=_cm,
-                        trades_total=_trades_total,
-                        completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
-                        engine_version=str(_coint_engine_ver),
-                    )
-                    append_cointegration_row(_coint_row)
-                    # Writer is sink-only (DB, WAL-safe under parallel workers).
-                    # The MPS xlsx is a derived view: in batch mode the parent
-                    # renders it ONCE after all directives (TS_DEFER_MPS_EXPORT),
-                    # avoiding N redundant concurrent renders; a single-directive
-                    # run renders inline so its tab refreshes immediately.
-                    if os.environ.get("TS_DEFER_MPS_EXPORT") == "1":
-                        print(f"[COINT] MPS render deferred to batch end: {run_id}")
-                    else:
-                        try:
-                            from tools.ledger_db import export_mps as _export_mps
-                            _export_mps()
-                        except Exception as _exc:
-                            print(f"[COINT] WARN MPS export (Cointegration tab) failed: {_exc}")
-                    print(f"[COINT] Cointegration ledger row written: {run_id}")
-            else:
-                mps_path = append_basket_row_to_mps(
-                    result, run_id=run_id, directive_id=directive_id,
-                    backtests_path=str(backtests_csv.relative_to(TRADE_SCAN_STATE)),
-                    vault_path=vault_path_str,
-                    df_trades=df_trades,   # Phase 5d.1 fix: writer uses converter's
-                                           # computed pnl_usd so force_close trades
-                                           # contribute correctly to final_realized_usd
-                    parquet_path=_parquet_p if _parquet_p.is_file() else None,
-                    stake_usd=_stake_usd,
-                )
-                print(f"[BASKET] MPS Baskets row: {mps_path}")
-        except Exception as exc:
-            print(f"[BASKET] WARN MPS Baskets append failed: {exc}")
-
-        # Phase 5b.4: emit manifest.json so the COMPLETE-state guardrail
-        # accepts the basket run on next startup. Schema mirrors the
-        # per-symbol manifest (stage_symbol_execution.py): run_id +
-        # strategy_hash (here: hash of directive file, since baskets have
-        # no strategy.py) + artifacts hash map + timestamp. Extra basket
-        # markers ('execution_mode', 'basket_id') aid future consumers.
-        import hashlib, json
-        if state_mgr is not None:
-            artifacts_manifest = {}
-            if runs_csv.exists():
-                artifacts_manifest["results_tradelevel.csv"] = hashlib.sha256(
-                    runs_csv.read_bytes()
-                ).hexdigest()
-            manifest_payload = {
-                "run_id": run_id,
-                "strategy_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
-                "artifacts": artifacts_manifest,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "execution_mode": "basket",
-                "basket_id": basket_id,
-            }
-            manifest_path = state_mgr.run_dir / "manifest.json"
-            with open(manifest_path, "w", encoding="utf-8") as f:
-                json.dump(manifest_payload, f, indent=4)
-            print(f"[BASKET] Manifest written: {manifest_path}")
-
-        # Phase 5b.4: walk state machine to COMPLETE so the startup
-        # guardrail accepts this basket run on next pipeline invocation.
-        if state_mgr is not None:
-            for _next_state in [
-                "PREFLIGHT_COMPLETE",
-                "PREFLIGHT_COMPLETE_SEMANTICALLY_VALID",
-                "STAGE_1_COMPLETE",
-                "STAGE_2_COMPLETE",
-                "STAGE_3_COMPLETE",
-                "STAGE_3A_COMPLETE",
-                "COMPLETE",
-            ]:
-                state_mgr.transition_to(_next_state)
-
+        _basket_finalize_state_machine(
+            state_mgr, run_ctx["run_id"], path, artifact_ctx,
+        )
     except Exception as exc:
         # Path B failure must NOT swallow the run — log + continue. The
         # vault + research CSV still landed; future analysis can recover.
@@ -1079,6 +1208,10 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
     # run_ids). The function append_basket_row_to_research_csv stays in
     # tools/portfolio_evaluator.py as dead code until the next cleanup sweep.
 
+    result = run_ctx["result"]
+    run_id = run_ctx["run_id"]
+    data_mode = run_ctx["data_mode"]
+    trades_total = sum(len(t) for t in result.per_leg_trades.values())
     print(f"[BASKET] Phase 5b.2 dispatch complete. "
           f"trades={trades_total}, recycles={len(result.recycle_events)}, "
           f"harvested_usd={result.harvested_total_usd:.2f}, "
@@ -1112,6 +1245,142 @@ class _PassthroughStrategy:
 
     def check_exit(self, ctx):
         return False
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Leg-strategy dispatch — single source of truth
+# (2026-06-01: replaces the inline if/elif chain that produced the ZBND
+# silent-fallthrough bug. See SYSTEM_STATE.md [INVARIANT_PROPOSAL] entry
+# 2026-06-01 and [[mechanism-port-integration-points]] memory.)
+#
+# Every recycle rule registered in governance/recycle_rules/registry.yaml
+# MUST be in exactly ONE of:
+#   - LEG_STRATEGY_DISPATCH : proposal-based legs (fire entry signals)
+#   - CONTINUOUS_HOLD_RULES : always-open legs (rule handles the mechanic)
+# A registered rule absent from BOTH raises LegDispatchError at dispatch
+# time. tests/test_leg_strategy_dispatch.py also catches it at test time
+# by enumerating the registry.
+# ────────────────────────────────────────────────────────────────────────
+
+
+class LegDispatchError(RuntimeError):
+    """Raised when a recycle rule has no leg-strategy assignment.
+
+    Distinct from generic RuntimeError so the synthetic-fallback
+    try/except in _load_basket_leg_inputs does NOT mask the
+    misconfiguration. ZBND 2026-06-01: a new rule wired into registry +
+    basket_pipeline dispatch + __init__ exports but MISSED at the
+    leg-strategy site silently ran with ContinuousHoldStrategy → no
+    armed_state → no proposal mechanism → 24 episodes returned wrong
+    synthesis before root-cause."""
+
+
+def _build_spread_cross_legs(parsed, rule_block, bar_seconds):
+    """H3_spread leg strategy: shared SpreadCrossArmedState, cross signals."""
+    from tools.recycle_strategies import (
+        SpreadCrossArmedState, SpreadCrossLegStrategy,
+    )
+    rule_params = rule_block.get("params", {}) or {}
+    if bool(rule_params.get("bidirectional", False)):
+        cross_watch = 0
+    else:
+        cross_watch = int(rule_params.get("entry_direction", +1))
+    delay_bars = int(rule_params.get("entry_delay_bars", 12))
+    shared_armed_state = SpreadCrossArmedState()
+    return {
+        leg["symbol"]: SpreadCrossLegStrategy(
+            symbol=leg["symbol"],
+            position_direction=+1 if leg["direction"] == "long" else -1,
+            cross_watch_direction=cross_watch,
+            armed_state=shared_armed_state,
+            delay_bars=delay_bars,
+            bar_seconds=bar_seconds,
+        )
+        for leg in parsed["basket"]["legs"]
+    }
+
+
+def _build_coint_trigger_legs(parsed, rule_block, bar_seconds):
+    """cointegration_meanrev_v1_2 leg strategy: shared CointTriggerArmedState."""
+    from tools.recycle_strategies import (
+        CointTriggerArmedState, CointTriggerLegStrategy,
+    )
+    shared_armed_state = CointTriggerArmedState()
+    return {
+        leg["symbol"]: CointTriggerLegStrategy(
+            symbol=leg["symbol"],
+            position_direction=+1 if leg["direction"] == "long" else -1,
+            armed_state=shared_armed_state,
+        )
+        for leg in parsed["basket"]["legs"]
+    }
+
+
+def _build_pine_zrev_legs(parsed, rule_block, bar_seconds):
+    """pine_ratio_zrev_v1 family (incl. _zcross, _zband): shared PineZRevArmedState."""
+    from tools.recycle_strategies import (
+        PineZRevArmedState, PineZRevLegStrategy,
+    )
+    shared_armed_state = PineZRevArmedState()
+    return {
+        leg["symbol"]: PineZRevLegStrategy(
+            symbol=leg["symbol"],
+            position_direction=+1 if leg["direction"] == "long" else -1,
+            armed_state=shared_armed_state,
+        )
+        for leg in parsed["basket"]["legs"]
+    }
+
+
+def _build_continuous_hold_legs(parsed, rule_block, bar_seconds):
+    """ContinuousHoldStrategy: legs hold unconditionally; rule manages cycle."""
+    from tools.recycle_strategies import ContinuousHoldStrategy
+    return {
+        leg["symbol"]: ContinuousHoldStrategy(
+            symbol=leg["symbol"],
+            direction=+1 if leg["direction"] == "long" else -1,
+        )
+        for leg in parsed["basket"]["legs"]
+    }
+
+
+LEG_STRATEGY_DISPATCH = {
+    "H3_spread":                  _build_spread_cross_legs,
+    "cointegration_meanrev_v1_2": _build_coint_trigger_legs,
+    "pine_ratio_zrev_v1":         _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zcross":  _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zband":   _build_pine_zrev_legs,
+}
+
+CONTINUOUS_HOLD_RULES = frozenset({
+    "H2_recycle",         # v1, v2, v3, v4, v5 — all registry-tracked variants
+    "H2_v7_compression",  # DEPRECATED but admitted for audit replay
+})
+
+
+def _dispatch_leg_strategies(parsed, rule_block, bar_seconds):
+    """Resolve recycle_rule.name -> {symbol: leg_strategy_instance}.
+
+    Loud-fail invariant: a rule name absent from BOTH
+    LEG_STRATEGY_DISPATCH and CONTINUOUS_HOLD_RULES raises LegDispatchError.
+    Empty rule_name (non-basket directive) routes to continuous-hold for
+    legacy compatibility — basket detection happens upstream.
+    """
+    rule_name = rule_block.get("name", "") if rule_block else ""
+    if rule_name in LEG_STRATEGY_DISPATCH:
+        return LEG_STRATEGY_DISPATCH[rule_name](parsed, rule_block, bar_seconds)
+    if rule_name in CONTINUOUS_HOLD_RULES or not rule_name:
+        return _build_continuous_hold_legs(parsed, rule_block, bar_seconds)
+    raise LegDispatchError(
+        f"recycle_rule.name={rule_name!r} is not in LEG_STRATEGY_DISPATCH "
+        f"(proposal-based legs) or CONTINUOUS_HOLD_RULES (always-open "
+        f"legs). Every recycle rule registered in "
+        f"governance/recycle_rules/registry.yaml MUST be in exactly one "
+        f"of those collections in tools/run_pipeline.py. This raises "
+        f"explicitly to prevent the silent-fallthrough bug from "
+        f"2026-06-01 (ZBND ran in degraded mode across 24 episodes "
+        f"before root-cause)."
+    )
 
 
 def _synthetic_leg_data(parsed: dict) -> dict:
@@ -1214,15 +1483,12 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
         cointegration_join_lookback_days = int(cointegration_join_lookback_days)
     try:
         from tools.basket_data_loader import load_basket_leg_data
-        from tools.recycle_strategies import (
-            CointTriggerArmedState,
-            CointTriggerLegStrategy,
-            ContinuousHoldStrategy,
-            PineZRevArmedState,
-            PineZRevLegStrategy,
-            SpreadCrossArmedState,
-            SpreadCrossLegStrategy,
-        )
+        # Note: recycle_strategies symbols (CointTriggerLegStrategy,
+        # PineZRevLegStrategy, SpreadCrossLegStrategy, ContinuousHoldStrategy,
+        # and their armed-state companions) are imported lazily inside the
+        # _build_*_legs helpers used by _dispatch_leg_strategies. Keeping
+        # imports local to the helpers means the dispatch dict can live at
+        # module scope and be exported for tests (test_leg_strategy_dispatch.py).
         # Leg-warmup probe (2026-05-30): the rule is the single source of truth
         # for how many bars of pre-start_date data its indicators need. We
         # temp-instantiate the rule with identity dummies (required_warmup_bars
@@ -1267,87 +1533,22 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
             cointegration_join_lookback_days=cointegration_join_lookback_days,
             leg_warmup_bars=rule_warmup_bars,
         )
-        # Leg-strategy dispatch by recycle rule name (2026-05-18 — H3_spread@1):
-        # different rules require different leg-entry semantics. ContinuousHold
-        # opens unconditionally on bar 1 (the H2-family default); SpreadCross
-        # waits for cross signal + reconfirmation. The shared SpreadCrossArmedState
-        # instance is critical: BOTH legs of the basket MUST reference the same
-        # instance so arming + fire decisions are atomic at the basket level.
-        # Without it, per-leg state can drift and legs fire on different bars.
+        # Leg-strategy dispatch by recycle rule name. Delegated to the
+        # module-scope _dispatch_leg_strategies / LEG_STRATEGY_DISPATCH /
+        # CONTINUOUS_HOLD_RULES (2026-06-01 refactor; replaces inline
+        # if/elif that produced the ZBND silent-fallthrough bug). The
+        # shared armed-state instance(s) are constructed inside the helper
+        # so BOTH legs of the basket reference the same instance (required
+        # for per-bar atomicity).
         rule_block = parsed.get("basket", {}).get("recycle_rule", {}) or {}
-        rule_name = rule_block.get("name", "")
-        if rule_name == "H3_spread":
-            rule_params = rule_block.get("params", {}) or {}
-            # Bidirectional mode: leg strategy watches BOTH cross directions
-            # and the rule sets cycle direction per cycle from cross_side at
-            # entry. cross_watch_direction=0 signals bidirectional to the leg
-            # strategy. The leg's YAML "direction" becomes the base orientation
-            # (UP-cross direction) and gets flipped per cycle by the leg
-            # strategy's signal × armed_direction multiplication.
-            if bool(rule_params.get("bidirectional", False)):
-                cross_watch = 0
-            else:
-                cross_watch = int(rule_params.get("entry_direction", +1))
-            delay_bars = int(rule_params.get("entry_delay_bars", 12))
-            # ONE shared armed state for both legs.
-            shared_armed_state = SpreadCrossArmedState()
-            leg_strategies = {
-                leg["symbol"]: SpreadCrossLegStrategy(
-                    symbol=leg["symbol"],
-                    position_direction=+1 if leg["direction"] == "long" else -1,
-                    cross_watch_direction=cross_watch,
-                    armed_state=shared_armed_state,
-                    delay_bars=delay_bars,
-                    bar_seconds=bar_seconds,
-                )
-                for leg in parsed["basket"]["legs"]
-            }
-        elif rule_name == "cointegration_meanrev_v1_2":
-            # COINTREV v1.2 (2026-05-24): trigger-driven β-weighted spread.
-            # Leg strategy proposes triggers via shared CointTriggerArmedState;
-            # the rule (CointegrationMeanRevV1_2Rule, dispatched in
-            # basket_pipeline._instantiate_rule) discovers the same state via
-            # leg.strategy.armed_state on first apply() and uses it for the
-            # APPROVAL phase + β-weighted lot mutation. ONE shared instance
-            # for both legs — required for per-bar atomicity.
-            shared_armed_state = CointTriggerArmedState()
-            leg_strategies = {
-                leg["symbol"]: CointTriggerLegStrategy(
-                    symbol=leg["symbol"],
-                    position_direction=+1 if leg["direction"] == "long" else -1,
-                    armed_state=shared_armed_state,
-                )
-                for leg in parsed["basket"]["legs"]
-            }
-        elif rule_name in ("pine_ratio_zrev_v1", "pine_ratio_zrev_v1_zcross"):
-            # Pine port (2026-05-24) + zero-crossing exit variant (2026-05-31):
-            # ratio-hedged z_r reversal. Variant differs ONLY in rule's exit
-            # detection (sign-flip vs opposite-extreme cross) — the leg
-            # strategy + shared state machinery is identical, so both rule
-            # names dispatch the same leg construction.
-            #
-            # Leg strategy proposes on `pine_zrev_signal` column crosses (column
-            # is attached by PineRatioZRevRule(.Zcross).apply() on first bar).
-            # Same shared-state auto-discovery pattern as cointegration_meanrev_v1_2.
-            # ONE shared PineZRevArmedState instance for both legs.
-            shared_armed_state = PineZRevArmedState()
-            leg_strategies = {
-                leg["symbol"]: PineZRevLegStrategy(
-                    symbol=leg["symbol"],
-                    position_direction=+1 if leg["direction"] == "long" else -1,
-                    armed_state=shared_armed_state,
-                )
-                for leg in parsed["basket"]["legs"]
-            }
-        else:
-            leg_strategies = {
-                leg["symbol"]: ContinuousHoldStrategy(
-                    symbol=leg["symbol"],
-                    direction=+1 if leg["direction"] == "long" else -1,
-                )
-                for leg in parsed["basket"]["legs"]
-            }
+        leg_strategies = _dispatch_leg_strategies(parsed, rule_block, bar_seconds)
         return leg_data, leg_strategies, "real"
+    except LegDispatchError:
+        # NEVER mask leg-dispatch wiring errors with the synthetic fallback.
+        # The whole point of the loud-fail invariant is to surface a
+        # silent-fallthrough at the construction site, not bury it under a
+        # WARN that lets the directive complete in degraded mode.
+        raise
     except Exception as exc:
         print(f"[BASKET] WARN real data load failed ({exc}); falling back to synthetic mode.")
         leg_data = _synthetic_leg_data(parsed)
@@ -1483,16 +1684,36 @@ def _assert_pipeline_idle():
         raise PipelineExecutionError("PIPELINE_BUSY", directive_id="BATCH")
 
 
-def run_batch_mode(provision_only=False, max_parallel=1):
-    """Sequential Batch Execution."""
+# ────────────────────────────────────────────────────────────────────────
+# Batch mode — phase helpers (2026-06-01 decomposition, Backlog 2/4)
+#
+# `run_batch_mode` was 226 LOC. Decomposed into three phase helpers plus a
+# slim orchestrator. Behavior is byte-equivalent: same print order, same
+# telemetry emit sequence, same try/finally semantics around the
+# orchestrator.run_batch() call, same env-var lifecycle (TS_DEFER_MPS_EXPORT
+# + TS_REGISTRY_SHARD_DIR set BEFORE workers spawn, popped after).
+# ────────────────────────────────────────────────────────────────────────
+
+
+def _batch_discover_and_admit(provision_only: bool):
+    """Phase 1 — discovery + sequential admission.
+
+    Discovers INBOX directives, asserts the pipeline is idle, runs the
+    ACTIVE Bypass Guard, applies the Auto-Consistency Gate (hash alignment
+    + approved marker) to every directive, then admits each via
+    `admit_directive` (sequential — Invariant #26).
+
+    Returns the list of admitted directive stems, or None for the two
+    early-return short-circuits (active dir missing, no directives in
+    INBOX). The caller treats None as "nothing to execute"."""
     active_dir = PROJECT_ROOT / "backtest_directives" / "INBOX"
     completed_dir = PROJECT_ROOT / "backtest_directives" / "completed"
-    
+
     _assert_pipeline_idle()
 
     if not active_dir.exists():
         print(f"[BATCH] Active directory not found: {active_dir}")
-        return
+        return None
 
     directives = prepare_batch_directives_for_execution(
         active_dir=active_dir,
@@ -1501,7 +1722,7 @@ def run_batch_mode(provision_only=False, max_parallel=1):
     )
     if not directives:
         print("[BATCH] No directives found in active/")
-        return
+        return None
 
     print(f"[BATCH] Found {len(directives)} directives: {[d.name for d in directives]}")
 
@@ -1541,20 +1762,34 @@ def run_batch_mode(provision_only=False, max_parallel=1):
             admit_directive(d_id)
 
     print(f"[BATCH] Admitted {len(admitted)} directive(s).")
+    return admitted
 
-    # --- PHASE 2: EXECUTION via PipelineOrchestrator ---
-    # Phase 3b (2026-05-27) — directive-level dispatch refactored into
-    # PipelineOrchestrator. Default `max_parallel=1` keeps pre-Phase-3
-    # sequential semantics (direct loop, no subprocess overhead) and is
-    # permanently first-class — debugging / safe-mode / reproducibility /
-    # emergency recovery. `--max-parallel >=2` enables ProcessPoolExecutor
-    # parallelism; Stage 3 + Stage 4 FileLocks (Phase 2) provide
-    # cross-directive write coordination.
-    #
-    # The 15s inter-directive cooldown is REMOVED — Stage 4 file lock
-    # (Phase 2b) now provides deterministic exclusivity around the shared
-    # ledger writes. Lock acquire is fast under no contention; lock
-    # release is bounded by Stage 4 wall time (~1-2s typical).
+
+def _batch_execute_with_telemetry(admitted: list, provision_only: bool,
+                                  max_parallel: int) -> None:
+    """Phase 2 — telemetry-wrapped execution with optional registry sharding.
+
+    Initializes the TelemetryWriter + batch_id, emits batch_start +
+    directive_queued events, sets the TS_DEFER_MPS_EXPORT env var so the
+    cointegration dispatch only touches the DB (parent renders xlsx once
+    after the batch), sets up per-worker registry sharding when
+    `max_parallel >= 2`, constructs the PipelineOrchestrator, runs the
+    batch under a try/finally, and in the finally block: emits batch_end,
+    prints the telemetry summary, merges shards (if any), and renders the
+    deferred MPS exactly once from the (canonical) DB.
+
+    Phase 3b (2026-05-27) — directive-level dispatch refactored into
+    PipelineOrchestrator. Default `max_parallel=1` keeps pre-Phase-3
+    sequential semantics (direct loop, no subprocess overhead) and is
+    permanently first-class — debugging / safe-mode / reproducibility /
+    emergency recovery. `--max-parallel >=2` enables ProcessPoolExecutor
+    parallelism; Stage 3 + Stage 4 FileLocks (Phase 2) provide
+    cross-directive write coordination.
+
+    The 15s inter-directive cooldown is REMOVED — Stage 4 file lock
+    (Phase 2b) now provides deterministic exclusivity around the shared
+    ledger writes. Lock acquire is fast under no contention; lock
+    release is bounded by Stage 4 wall time (~1-2s typical)."""
     from tools.pipeline_telemetry import (
         TelemetryWriter,
         batch_summary,
@@ -1658,6 +1893,16 @@ def run_batch_mode(provision_only=False, max_parallel=1):
                 print(f"[BATCH] WARN deferred MPS render failed (DB is canonical; "
                       f"run `python tools/ledger_db.py --export-mps` to refresh): {_exc}")
 
+
+def _batch_archive_and_postprocess(admitted: list, provision_only: bool) -> None:
+    """Phase 3 — archive completed directives + end-of-batch post-processing.
+
+    Archives admitted directives via `archive_completed_directive` (or
+    prints provision-only retention banners), then runs Candidate Promotion
+    (`filter_strategies.py`), hyperlink restoration, and MPS/FSP Excel
+    formatting. Each post-processing step is wrapped in its own try/except
+    so a downstream failure (e.g., Excel file open locally → permission
+    denied on the formatter) does not abort earlier sweeps."""
     # --- PHASE 3: ARCHIVE (SEQUENTIAL) ---
     # Only reached if all futures succeeded.
     if not provision_only:
@@ -1666,7 +1911,7 @@ def run_batch_mode(provision_only=False, max_parallel=1):
     else:
         for d_id in admitted:
             print(f"[BATCH] Provision-only: {d_id} remains in INBOX/")
-            
+
     if not provision_only:
         print("\n[BATCH] Running Candidate Promotion (filter_strategies.py)...")
         try:
@@ -1709,6 +1954,28 @@ def run_batch_mode(provision_only=False, max_parallel=1):
             print(f"[WARN] FSP formatting failed: {e}")
 
     print("\n[BATCH] All directives processed successfully.")
+
+
+def run_batch_mode(provision_only=False, max_parallel=1):
+    """Sequential Batch Execution.
+
+    Three-phase batch dispatcher:
+      1. Discover INBOX directives + admit them sequentially (Invariant #26).
+      2. Execute through PipelineOrchestrator with telemetry + optional
+         per-worker registry sharding (max_parallel >= 2 only).
+      3. Archive completed directives + run end-of-batch post-processing
+         (candidate promotion, hyperlinks, MPS/FSP formatting).
+
+    Decomposition (2026-06-01, Backlog Item 2/4): each phase is a helper.
+    Behavior is byte-equivalent: same print order, same telemetry emit
+    sequence, same try/finally semantics around `orchestrator.run_batch()`,
+    same TS_DEFER_MPS_EXPORT / TS_REGISTRY_SHARD_DIR env-var lifecycle,
+    same exit codes."""
+    admitted = _batch_discover_and_admit(provision_only)
+    if admitted is None:
+        return  # active dir missing or empty INBOX — discovery short-circuits
+    _batch_execute_with_telemetry(admitted, provision_only, max_parallel)
+    _batch_archive_and_postprocess(admitted, provision_only)
 
 def _parse_max_parallel(argv: list[str]) -> int:
     """Extract --max-parallel N from argv. Default 1 (sequential fast-path).
