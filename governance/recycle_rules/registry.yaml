@@ -837,6 +837,71 @@ rules:
     requires_basket_runner_primitives:
       - soft_reset_basket
 
+  - name: pine_ratio_zrev_v1_zband
+    version: 1
+    description: >
+      A/B test variant of pine_ratio_zrev_v1 (2026-06-01). Sibling to
+      pine_ratio_zrev_v1_zcross. Identical entries, hedge lock, sizing, warmup
+      contract. Only exit logic differs:
+
+        Baseline (pine_ratio_zrev_v1): liquidate on opposite-direction cross
+        of |z_active| >= z_entry (always-in-market reversal; exit IS the
+        next entry signal).
+
+        Variant: liquidate on first bar where |z_active| <= z_exit (default
+        1.0). The spread has reverted to the equilibrium band. Strategy goes
+        FLAT after exit; next +/- z_entry cross opens a fresh cycle. No
+        same-bar repropose.
+
+      Hypothesis: bank partial mean-reversion at the equilibrium band rather
+      than chase the full extreme-to-extreme swing — caps both per-cycle
+      drawdown and per-cycle upside, leaving Ret/DD trade-off as the
+      empirical question.
+
+      Recycle event tag emitted on exit: LIQUIDATE_BAND_REVERT (distinct from
+      baseline's REVERSAL and pine_ratio_zrev_v1_zcross's EQUILIBRIUM).
+      always_in_market param inherited but functionally ignored under the new
+      exit semantic.
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zband.py.
+      Subclasses PineRatioZRevRule; overrides _attach_z_r (attaches
+      pine_zrev_zband_exit boolean column = |z| <= z_exit) and apply
+      (replaces REVERSAL check with BAND_EXIT check, plus `not band_exit`
+      guard on FLAT-state propose path). z_exit must be > 0 AND < z_entry.
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      z_exit:
+        type: float
+        default: 1.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+    required_factors: []
+    initial_consumer: tools/basket_runner.py
+
   - name: pine_ratio_zrev_v1_zcross
     version: 1
     description: >
