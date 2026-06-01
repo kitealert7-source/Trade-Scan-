@@ -155,6 +155,9 @@ def _build_notes_portfolio(ws, _w, r, fonts, thresholds):
 
     # Section 5 — Deployed Profile Selection (portfolio-only)
     r = _notes_write_deployed_profile(ws, _w, r, fonts)
+
+    # Section 6 — Cointegration tab (separate ontology; not deployment-classified)
+    r = _notes_write_cointegration_section(ws, _w, r, fonts)
     return r
 
 
@@ -429,6 +432,140 @@ def _notes_write_deployed_profile(ws, _w, r, fonts):
          "keep the previous profile to avoid flip-flopping."),
     ]:
         _w(r, 1, step, normal); _w(r, 2, desc, normal); r += 1
+    r += 1
+    return r
+
+
+def _notes_write_cointegration_section(ws, _w, r, fonts):
+    """Section 6: Cointegration tab — separate ontology from Portfolios /
+    Single-Asset Composites. Point-in-time research provenance, not a
+    deployment ledger. Ranks by Ret/DD only; no verdict_status column."""
+    bold, header, normal = fonts["bold"], fonts["header"], fonts["normal"]
+
+    # 6a. Sheet Purpose
+    _w(r, 1, "SECTION 6 — COINTEGRATION TAB", header); r += 1
+    _w(r, 1,
+       "Cointegration tab — research-stage record of regime-conditioned "
+       "cointegration backtests. Distinct ontology from the deployment-classified "
+       "Portfolios / Single-Asset Composites tabs: there is NO verdict_status "
+       "(CORE / WATCH / FAIL) on this sheet. Rows are ranked by Ret/DD only; "
+       "operator filtering carries the screening. Each row = one (pair, episode, "
+       "variant) backtest stamped with full screener provenance at test_end. "
+       "Two methodology cohorts coexist: v1_raw_adf (legacy, retired) and "
+       "v2_log_eg (current, post-2026-05-30 EG/MacKinnon math correction). They "
+       "are NOT comparable head-to-head — always filter by methodology before "
+       "ranking.",
+       normal); r += 2
+
+    # 6b. Filter aids (the three columns operators use to narrow the universe)
+    _w(r, 1, "Filter aids (columns 5-7 — added 2026-06-01)", bold); r += 1
+    _w(r, 1, "Column", bold); _w(r, 2, "Definition", bold); r += 1
+    filter_aids = [
+        ("pair_class",
+         "Structural taxonomy of the leg pair. Closed value set "
+         "(no Unknown — silent expansion fails loudly). "
+         "FX = both legs FX (majors or crosses). "
+         "IDX = both legs equity indices. "
+         "Cross = one FX leg + one IDX leg. "
+         "Crypto = either leg in {BTCUSD, ETHUSD} — overrides FX/IDX. "
+         "Metals = either leg in {XAUUSD, XAGUSD} — overrides FX/IDX. "
+         "(BTCUSD/EURUSD lands in Crypto, NOT Cross.)"),
+        ("coint_friendly",
+         "Screener-side cointegration-strength band from continuous_span_obs "
+         "at the run's test_end (point-in-time provenance, NOT lifetime-max). "
+         "STRONG = >= 90 obs (top ~2% of corpus — matches 2026-05-28 cohort-shift "
+         "survey). FRIENDLY = >= 30 obs (B-gate admissible today). WEAK = < 30 obs "
+         "or NaN. SEMANTIC CAVEAT: episodes tested on short windows (e.g., "
+         "post-onset 1-7 day windows from the v2 generation rule) carry low span "
+         "at test_end and land as WEAK even when the underlying pair has had long "
+         "stable cointegration arcs elsewhere. Do NOT dismiss WEAK wholesale — "
+         "condition on both_profitable=Yes to find robust short-window edges. "
+         "Lifetime-peak alternative is a separate column candidate, not built."),
+        ("both_profitable",
+         "Per (pair_a, pair_b, test_start, test_end) group: Yes iff BOTH the "
+         "baseline and the zcross variant rows have canonical_net_pct > 0. No "
+         "if either variant is non-profitable. Blank for orphan rows where only "
+         "one variant exists (10 such rows in the current v2_log_eg corpus — "
+         "recovery residuals). Mechanism-robustness filter: a pair-episode "
+         "positive under two different exit mechanics has a real cointegration "
+         "edge, not an exit-engineering artifact. Naturally drops blanks under "
+         "`both_profitable == Yes` filter."),
+    ]
+    for col_name, definition in filter_aids:
+        _w(r, 1, col_name, normal); _w(r, 2, definition, normal); r += 1
+    r += 1
+
+    # 6c. Suggested filter sequence
+    _w(r, 1, "Suggested filter sequence (Excel autofilter)", bold); r += 1
+    _w(r, 1, "Step", bold); _w(r, 2, "Filter", bold); r += 1
+    for step, desc in [
+        ("1. Methodology",
+         "methodology = v2_log_eg (drops legacy v1_raw_adf rows — different math)"),
+        ("2. Robustness",
+         "both_profitable = Yes (drops pairs that survive only one exit mechanic)"),
+        ("3. Design target",
+         "pair_class IN {FX, IDX} for the cointegration design target, "
+         "OR Cross/Crypto/Metals for cross-class exploration"),
+        ("4. Strength",
+         "coint_friendly IN {STRONG, FRIENDLY} for B-gate admissible; "
+         "OR include WEAK if testing short-window edges"),
+        ("5. Rank",
+         "Sort by return_dd_ratio descending (already the sheet's primary sort) "
+         "— Ret/DD is the deployment-immune research evaluator; ignore CORE/WATCH/"
+         "FAIL semantics on this sheet (they do not exist here by design)."),
+    ]:
+        _w(r, 1, step, normal); _w(r, 2, desc, normal); r += 1
+    r += 1
+
+    # 6d. Remaining column glossary
+    _w(r, 1, "Cointegration column glossary", bold); r += 1
+    _w(r, 1, "Column", bold); _w(r, 2, "Definition", bold); r += 1
+    coint_glossary = [
+        ("rank",
+         "1-based row position after the deterministic sort "
+         "(return_dd_ratio desc, completed_at_utc desc, run_id desc). "
+         "Recomputed on every export — not stored."),
+        ("pair",
+         "Display string 'pair_a / pair_b'. Underlying legs are separate "
+         "columns in the DB (pair_a, pair_b)."),
+        ("timeframe / lookback",
+         "Execution timeframe of the backtest (e.g., 15m); screener lookback "
+         "in days (typically 252 = 1 trading year)."),
+        ("run_date / test_start / test_end",
+         "Date the run completed (UTC); episode start and end bounds. "
+         "Episodes target the active cointegration arc — entry at onset+N+1, "
+         "exit at last_coint_idx per the v2 generation rule. Test windows are "
+         "structurally short (per [[feedback_test_window_must_match_signal_class]])."),
+        ("return_dd_ratio",
+         "PRIMARY METRIC. canonical_net_pct / canonical_max_dd_pct. "
+         "Scale-invariant; capital-model-independent. The research evaluator "
+         "per [[feedback_screening_rules_for_research]] — use this, NOT verdict "
+         "thresholds, for short-window research tests."),
+        ("net_pct / max drawdown %",
+         "Canonical net % return and peak-relative drawdown % for the run "
+         "(mark-to-market, includes floating). At fixed $1,000 stake, net_pct = "
+         "5.0 means $50 USD net."),
+        ("final_equity_usd",
+         "stake_usd + realized PnL at test_end (USD)."),
+        ("total_trades / cycles / win_rate",
+         "Trade count, completed (open→close) cycles, and cycle-level win-rate %. "
+         "Zcross variant typically produces MORE cycles than baseline (z-cross "
+         "exit fires earlier and resets) — directly comparable cycle-mean PnL "
+         "across variants understates the variant's trade pace."),
+        ("regime",
+         "Regime state as-of test_end (point-in-time provenance). 'cointegrated' "
+         "is the expected/admissible state."),
+        ("methodology",
+         "Cohort tag: v1_raw_adf (legacy raw-spread + plain unit-root criticals; "
+         "RETIRED 2026-05-30) | v2_log_eg (current, log prices + Engle-Granger "
+         "MacKinnon criticals). Pair stats are NOT comparable across cohorts."),
+        ("backtest",
+         "Hyperlink-rendered run-folder identifier "
+         "(e.g., 90_PORT_<pair>_<TF>_COINTREV_V3_L30__E<yyyymmdd>_<pair> for "
+         "baseline; _ZCRS_ token marks zcross variant). Click in Excel to open."),
+    ]
+    for col_name, definition in coint_glossary:
+        _w(r, 1, col_name, normal); _w(r, 2, definition, normal); r += 1
     r += 1
     return r
 
