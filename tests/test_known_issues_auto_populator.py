@@ -95,23 +95,29 @@ class TestRenderer:
 
     def test_clean_state_shows_none_in_manual_section(self):
         out = _render_with(self._empty_known())
+        # Scope to the Known Issues section: the sibling Deferred Maintenance
+        # section has its own identically-named '### Auto-detected' /
+        # '### Manual' subsections, so a whole-document search would collide.
+        ki = out.split("\n## Known Issues\n", 1)[1]
         # No auto-detected subsection should appear (nothing to surface).
-        assert "### Auto-detected" not in out
+        assert "### Auto-detected" not in ki
         # Manual section always present, with placeholder.
-        assert "### Manual" in out
-        assert "- (none)" in out
+        assert "### Manual" in ki
+        assert "- (none)" in ki
 
     def test_pytest_failure_surfaces_in_auto_section(self):
         k = self._empty_known()
         k["pytest_failed"] = 3
         k["pytest_passed"] = 80
         out = _render_with(k)
-        assert "### Auto-detected" in out
-        assert "Gate suite: 3 failing test(s)" in out
+        # Scope to Known Issues (see clean-state test for why).
+        ki = out.split("\n## Known Issues\n", 1)[1]
+        assert "### Auto-detected" in ki
+        assert "Gate suite: 3 failing test(s)" in ki
         # Manual subsection still present, but no "(none)" since auto
         # has surfaced something.
-        assert "### Manual" in out
-        manual_section = out.split("### Manual", 1)[1]
+        assert "### Manual" in ki
+        manual_section = ki.split("### Manual", 1)[1]
         assert "- (none)" not in manual_section
 
     def test_intent_index_hard_error_surfaces(self):
@@ -144,9 +150,12 @@ class TestRenderer:
         k["pytest_skipped"] = 5
         k["pytest_passed"] = 80
         out = _render_with(k)
+        # Scope to Known Issues (see clean-state test for why), then isolate
+        # its auto-detected subsection.
+        ki = out.split("\n## Known Issues\n", 1)[1]
         # Surfaces the count without bolding (no '**' around the line)
         # and without "failing" language.
-        auto_section = out.split("### Auto-detected", 1)[1].split("### Manual", 1)[0]
+        auto_section = ki.split("### Auto-detected", 1)[1].split("### Manual", 1)[0]
         assert "5 skipped" in auto_section
         assert "failing" not in auto_section
 

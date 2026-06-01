@@ -817,6 +817,7 @@ def _basket_run_pipeline(directive_id: str, path, parsed):
     return {
         "result": result,
         "leg_data": leg_data,
+        "leg_strategies": leg_strategies,  # for the per-run code provenance snapshot
         "data_mode": data_mode,
         "run_id": run_id,
         "content_hash": _content_hash,
@@ -880,6 +881,40 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
     backtests_dir.mkdir(parents=True, exist_ok=True)
     runs_dir = TRADE_SCAN_STATE / "runs" / run_id / "data"
     runs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Per-run code provenance: snapshot the exact leg-strategy + recycle-rule
+    # source files that executed into runs/<run_id>/basket_code/ (write-once).
+    # Brings basket runs to parity with the single-strategy
+    # runs/<run_id>/strategy.py snapshot. Non-fatal: a provenance hiccup must
+    # not abort the run record write (mirrors the vault-write contract).
+    code_snapshot = None
+    try:
+        from tools.basket_provenance import snapshot_basket_code
+        from config.path_authority import REAL_REPO_ROOT
+        code_snapshot = snapshot_basket_code(
+            runs_dir.parent,
+            rule_name=result.rule_name,
+            rule_version=result.rule_version,
+            leg_strategies=run_ctx.get("leg_strategies") or {},
+            project_root=REAL_REPO_ROOT,
+        )
+        print(f"[BASKET] Code snapshot: basket_code/ "
+              f"({len(code_snapshot['files'])} files, rule {code_snapshot['rule']})")
+    except Exception as exc:
+        print(f"[BASKET] WARN code snapshot failed: {exc}")
+
+    # Reproducibility identity: engine version + per-leg input-data hash. With
+    # the code hashes (above) this lets a re-run be compared to a prior run and
+    # declared reproducible-or-new-truth (single-strategy parquet_sha256 model).
+    input_provenance = None
+    try:
+        from tools.basket_provenance import basket_input_provenance
+        from engine_abi.v1_5_9 import ENGINE_VERSION as _eng_ver
+        input_provenance = basket_input_provenance(
+            run_ctx.get("leg_data") or {}, str(_eng_ver),
+        )
+    except Exception as exc:
+        print(f"[BASKET] WARN input provenance failed: {exc}")
 
     # Phase 5b.4: emit run_state.json so the startup guardrail
     # (enforce_run_schema) does not quarantine basket runs on subsequent
@@ -948,6 +983,8 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
         "state_mgr": state_mgr,
         "backtests_dir": backtests_dir,
         "runs_dir": runs_dir,
+        "code_snapshot": code_snapshot,
+        "input_provenance": input_provenance,
         "basket_id": basket_id,
         "df_trades": df_trades,
         "runs_csv": runs_csv,
@@ -1103,9 +1140,18 @@ def _basket_finalize_state_machine(state_mgr, run_id: str, path,
             artifacts_manifest["results_tradelevel.csv"] = hashlib.sha256(
                 runs_csv.read_bytes()
             ).hexdigest()
+        # Code provenance: fold the per-run basket_code/ snapshot hashes into
+        # the run manifest so the run record references the exact leg-strategy
+        # + recycle-rule code that executed (canonical LF sha256).
+        _code_snap = artifact_ctx.get("code_snapshot") or {}
+        for _rel, _h in (_code_snap.get("files") or {}).items():
+            artifacts_manifest[f"basket_code/{_rel}"] = _h
+        _input_prov = artifact_ctx.get("input_provenance") or {}
         manifest_payload = {
             "run_id": run_id,
             "strategy_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "engine_version": _input_prov.get("engine_version"),
+            "input_provenance": _input_prov,
             "artifacts": artifacts_manifest,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "execution_mode": "basket",

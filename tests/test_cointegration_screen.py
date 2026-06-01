@@ -298,8 +298,14 @@ class TestCandidatesRegistry:
         # Crypto has known candidates
         crypto_keys = {c["key"] for c in data["crypto"]["candidates"]}
         assert "BTC_ETH_RATIO" in crypto_keys
-        # Indices/stocks deferred
-        assert data["indices_stocks"].get("deferred") is True
+        # Indices/stocks: the equity-universe class was a `deferred: true`
+        # placeholder pre-2026-05; it has since been populated with
+        # synthesize-route index/JPY-cross pairs. Assert it parses with real
+        # candidates (mirrors the forex/crypto checks above) rather than the
+        # stale deferred placeholder.
+        indices_keys = {c["key"] for c in data["indices_stocks"]["candidates"]}
+        assert indices_keys, "indices_stocks should now carry candidates"
+        assert "CHFJPY_vs_UK100" in indices_keys
 
     def test_candidate_types_are_valid(self):
         from tools.cointegration_excel import load_candidates

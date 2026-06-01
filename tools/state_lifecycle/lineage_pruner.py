@@ -33,6 +33,38 @@ REGISTRY_PATH = STATE_ROOT / "registry" / "run_registry.json"
 # the quarantine move automatically.
 DIRECTIVE_SIDECAR_SUFFIXES = (".admitted",)
 
+# Directive IDs registered as pytest fixtures. These .txt files live under
+# backtest_directives/completed/ but back NO real pipeline state — they are
+# the canonical on-disk shape that broader pytest suites parse. The mechanism
+# parallels tools/directive_reconciler.py's 4th living-signal; the
+# pipeline-state-cleanup engine MUST honor the same registry or a cleanup
+# sweep silently re-quarantines them. 2026-05-22 incident: this exact path
+# quarantined 90_PORT_H2_5M_RECYCLE_S01_V1_P00 — already protected for
+# directive_reconciler by cad47a0 but NOT here — re-breaking 12 broader-pytest
+# tests across the basket suite (an un-ported-mechanism regression).
+FIXTURE_REGISTRY_PATH = PROJECT_ROOT / "tests" / "_fixtures" / "directives.yaml"
+
+
+def _load_fixture_directives() -> frozenset:
+    """Return the set of directive_ids protected as test fixtures.
+
+    Mirrors tools/directive_reconciler._load_fixture_directives. Fail-soft:
+    a missing or malformed YAML yields an empty set so a cleanup run is never
+    blocked by test-infrastructure drift.
+    """
+    if not FIXTURE_REGISTRY_PATH.exists():
+        return frozenset()
+    try:
+        payload = yaml.safe_load(FIXTURE_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[WARN] Failed to read fixture registry {FIXTURE_REGISTRY_PATH}: {exc}")
+        return frozenset()
+    ids = payload.get("protected_directives") if isinstance(payload, dict) else None
+    if not isinstance(ids, list):
+        return frozenset()
+    return frozenset(str(i) for i in ids if isinstance(i, str))
+
+
 def execution_pid_exists() -> bool:
     """Returns True if TS_Execution appears to be running.
 
@@ -427,12 +459,20 @@ def _collect_directive_targets(directives_dir: Path, keep_runs: set) -> list:
     Each <id>.txt outside keep_runs is followed by every existing
     <id>.txt<suffix> sentinel listed in DIRECTIVE_SIDECAR_SUFFIXES, so the
     quarantine sweep moves them atomically.
+
+    Directive IDs registered in tests/_fixtures/directives.yaml are skipped
+    regardless of keep_runs linkage — they are pytest fixtures that back no
+    pipeline state but must remain on disk (parallels directive_reconciler's
+    4th living-signal; see _load_fixture_directives).
     """
+    protected_fixtures = _load_fixture_directives()
     out: list = []
     for d in directives_dir.rglob("*.txt"):
         if not d.is_file():
             continue
         if d.stem in keep_runs:
+            continue
+        if d.stem in protected_fixtures:
             continue
         out.append(d)
         for suffix in DIRECTIVE_SIDECAR_SUFFIXES:
