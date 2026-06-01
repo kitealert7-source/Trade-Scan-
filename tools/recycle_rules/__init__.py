@@ -88,10 +88,11 @@ __all__ = [
 # instantiation). Single source of truth for resolving a directive's
 # recycle_rule.name@version to its implementing class — consumed by the
 # per-run code snapshot (tools/basket_provenance.py) and the admission-time
-# rule-code-hash gate (tools/namespace_gate.py). A sync test
-# (tests/test_recycle_rule_resolver.py) asserts this covers
-# governance/recycle_rules/registry.yaml exactly, so a new rule cannot be
-# registered without a resolver entry (and vice versa).
+# rule-code-hash gate (tools/namespace_gate.py). Sync tests
+# (test_resolver_matches_registry_exactly in tests/test_basket_code_snapshot.py;
+# test_sidecar_covers_all_registry_rules in tests/test_recycle_rule_hash_gate.py)
+# assert this covers governance/recycle_rules/registry.yaml exactly, so a new
+# rule cannot be registered without a resolver entry (and vice versa).
 _ALL_RULE_CLASSES = (
     CointegrationMeanRevV1_2Rule,
     H2RecycleRule,

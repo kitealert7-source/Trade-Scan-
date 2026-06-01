@@ -35,6 +35,57 @@ IDEA_REGISTRY_PATH = NAMESPACE_ROOT / "idea_registry.yaml"
 TOKEN_DICTIONARY_PATH = NAMESPACE_ROOT / "token_dictionary.yaml"
 RECYCLE_REGISTRY_PATH = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
 
+
+def _validate_recycle_rule_code_hash(parsed: dict) -> list[str]:
+    """Compare the directive's recycle-rule module hash to the pinned hash in
+    rule_code_hashes.yaml. Returns a list of error strings ([] = ok).
+
+    Soft-skip (returns []) when the sidecar is absent or the provenance module
+    is unavailable, so a missing pin never blocks admission — the gate only
+    catches *accidental* drift (an edited rule whose version was not bumped and
+    whose hash was not re-blessed). A present-but-unknown rule or a hash
+    mismatch is a hard error.
+    """
+    try:
+        from tools.basket_provenance import (
+            load_recycle_rule_hashes,
+            recycle_rule_code_sha256,
+        )
+    except Exception:
+        return []  # provenance module unavailable — do not block admission
+
+    pinned = load_recycle_rule_hashes()
+    if not pinned:
+        return []  # sidecar absent/empty — soft skip
+
+    rule = (parsed.get("basket") or {}).get("recycle_rule") or {}
+    name = rule.get("name")
+    if not name:
+        return []  # rule presence is validated by basket_schema, not here
+    version = int(rule.get("version", 1))
+    key = f"{name}@{version}"
+
+    expected = pinned.get(key)
+    if expected is None:
+        return [
+            f"recycle_rule {key} has no pinned code hash in "
+            f"rule_code_hashes.yaml. Register + hash it via "
+            f"`python tools/generate_recycle_rule_hashes.py`."
+        ]
+    try:
+        actual = recycle_rule_code_sha256(name, version)
+    except Exception as exc:
+        return [f"cannot hash recycle_rule {key}: {exc}"]
+    if actual != expected:
+        return [
+            f"recycle_rule {key} code hash {actual[:12]} != pinned "
+            f"{expected[:12]} — the rule's code changed without a version bump. "
+            f"Bump the rule version (append-only) for a behavior change, or if "
+            f"this is an intended in-place fix rehash via "
+            f"`python tools/generate_recycle_rule_hashes.py`."
+        ]
+    return []
+
 NAME_PATTERN = re.compile(
     r"^(?P<clone>C_)?"
     r"(?P<idea_id>\d{2})_"
@@ -251,6 +302,18 @@ def validate_namespace(directive_path: str | Path) -> dict[str, str]:
         if basket_errors:
             raise NamespaceValidationError(
                 "NAMESPACE_BASKET_INVALID:\n  - " + "\n  - ".join(basket_errors)
+            )
+
+        # Recycle-rule code-integrity gate: the rule's actual module-file hash
+        # must match the pin in governance/recycle_rules/rule_code_hashes.yaml.
+        # Catches a rule whose CODE changed without a version bump + rehash,
+        # making the registry's append-only "version is part of the basket
+        # strategy hash" guarantee mechanical instead of convention-only.
+        rule_hash_errors = _validate_recycle_rule_code_hash(parsed)
+        if rule_hash_errors:
+            raise NamespaceValidationError(
+                "NAMESPACE_RECYCLE_RULE_CODE_DRIFT:\n  - "
+                + "\n  - ".join(rule_hash_errors)
             )
 
     return {
