@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-06-01T14:10:34Z
+> Generated: 2026-06-01T15:28:32Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,8 +38,8 @@
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `95ff70d Merge #1: basket provenance + reproducibility; clear pytest baseline (16->0)`
+- Working tree: clean
+- Last substantive commit: `7460fb5 Merge #2: directive co-location + enforcement`
 
 ## Deferred Maintenance
 
