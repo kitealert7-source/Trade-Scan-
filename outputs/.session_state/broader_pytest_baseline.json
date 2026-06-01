@@ -1,25 +1,8 @@
 {
   "schema_version": 1,
-  "failed": [
-    "tests/test_basket_directive_phase5.py::test_directive_basket_block_parses",
-    "tests/test_basket_directive_phase5.py::test_directive_file_exists",
-    "tests/test_basket_directive_phase5.py::test_directive_legs_match_h2_spec",
-    "tests/test_basket_directive_phase5.py::test_directive_namespace_validates",
-    "tests/test_basket_directive_phase5.py::test_directive_runs_through_basket_pipeline_with_synthetic_data",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_emits_basket_sheet_row",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_returns_false_for_provision_only",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_returns_true_for_recycle_directive",
-    "tests/test_basket_dispatch_phase5b.py::test_basket_dispatch_writes_vault",
-    "tests/test_basket_path_b_phase5b2.py::test_dispatch_produces_all_four_artifact_paths",
-    "tests/test_basket_phase5c_real_data.py::test_dispatch_against_h2_directive_with_real_data",
-    "tests/test_basket_phase5c_real_data.py::test_load_basket_leg_inputs_returns_real_mode_for_h2_directive",
-    "tests/test_cointegration_screen.py::TestCandidatesRegistry::test_candidates_yaml_parses",
-    "tests/test_known_issues_auto_populator.py::TestRenderer::test_clean_state_shows_none_in_manual_section",
-    "tests/test_known_issues_auto_populator.py::TestRenderer::test_pytest_failure_surfaces_in_auto_section",
-    "tests/test_known_issues_auto_populator.py::TestRenderer::test_skipped_only_is_informational_not_blocker"
-  ],
-  "count": 16,
-  "sha": "03db5ca39003b1185f9256ba52d6f4121feb4c43",
-  "updated_at": "2026-05-31T03:20:00+00:00",
-  "rationale": "20 untagged COINTREV_meanrev (idea 91, v1, retired 2026-05-21 commit 605317c) Baskets rows dropped DB-side per CLAUDE.md Invariant #2 operator-cleanup exception (disk artifacts gone, cohort 19 FAIL + 1 CORE). Hard-DELETE from basket_sheet then ledger_db.py --export + format_excel_artifact --profile portfolio; MPS Baskets 247 -> 227, 29 RETIRED + 60 SUPERSEDED preserved via _MPS_AUDIT_COLUMNS carry-over. test_deprecated_rules_have_all_mps_rows_tagged now PASSes. Also fixed pre-existing Windows file-handle bug in ledger_db.py export_mps (WinError 5 on os.replace, surfaced by chip-task 03db5ca's new in-process test_drop_orphan_basket_row_survives_re_export): _merge_audit_columns now uses explicit pd.ExcelFile context manager + os.replace gets gc.collect() + retry-with-backoff (50/100/200/400/800ms) per feedback_workbook_lifecycle_remediation pattern. Baseline 17 -> 16."
+  "failed": [],
+  "count": 0,
+  "sha": "bf217717ca3addff3a7cb0f3a4172007263496d4",
+  "updated_at": "2026-06-01T12:03:48+00:00",
+  "rationale": "All 16 baseline failures fixed 2026-06-01 (infra priority #2). (a) 12 basket-dispatch tests: restored quarantined fixture backtest_directives/completed/90_PORT_H2_5M_RECYCLE_S01_V1_P00.txt from git (byte-identical LF sha a5276253; lineage_pruner re-quarantined it 2026-05-22 because _collect_directive_targets does not honor tests/_fixtures/directives.yaml fixture-protection registry that directive_reconciler respects). (b) 1 cointegration test: indices_stocks is no longer a 'deferred' placeholder, now carries 8 synthesize-route candidates; updated test_candidates_yaml_parses assertion. (c) 3 known_issues renderer tests: re-scoped to the '## Known Issues' section since they collided with the later-added Deferred Maintenance section's identically-named ### Auto-detected / ### Manual subsections. Suite now 0 failed / 1655 passed / 3 skipped. Baseline 16 -> 0."
 }
