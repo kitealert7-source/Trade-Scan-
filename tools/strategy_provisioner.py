@@ -331,6 +331,22 @@ def _check_schema_sample(strategy_file: Path) -> None:
         print(f"[PROVISION] WARNING: could not inspect _schema_sample: {e}")
 
 
+def _colocate_directive_with_strategy(strategy_dir: Path, directive_path: Path) -> None:
+    """Save a readable copy of the source directive next to the authority
+    strategy.py: strategies/<id>/directive.txt. The run-folder copy
+    (runs/<run_id>/directive.txt) is keyed by an opaque run_id; this one is
+    keyed by the human-readable strategy id, so the operator can find a
+    strategy's source spec by browsing strategies/. Refreshed on re-provision
+    (NOT write-once) so it always matches the current strategy.py.
+
+    MANDATORY: directive_path is the directive being provisioned (already
+    existence-checked by the caller), so co-locating it is a guaranteed copy.
+    A failure raises (propagates to provision_strategy's handler → provision
+    fails) — the rule is enforced, never silently skipped."""
+    from tools.run_directive_snapshot import require_directive_snapshot
+    require_directive_snapshot(strategy_dir, directive_path, write_once=False)
+
+
 def provision_strategy(directive_path: str) -> bool:
     """
     Provision strategy artifacts from directive.
@@ -385,6 +401,7 @@ def provision_strategy(directive_path: str) -> bool:
         if strategy_file.exists():
             ok = _update_existing_strategy(strategy_file, signature, import_lines)
             _check_schema_sample(strategy_file)
+            _colocate_directive_with_strategy(strategy_dir, d_path)
             return (ok, False)
         else:
             print(f"[PROVISION] Creating new strategy: {s_name}")
@@ -425,6 +442,7 @@ def provision_strategy(directive_path: str) -> bool:
 
             print(f"[PROVISION] SUCCESS: {strategy_file}")
             _check_schema_sample(strategy_file)
+            _colocate_directive_with_strategy(strategy_dir, d_path)
             return (True, True)
 
     except Exception as e:

@@ -1247,7 +1247,7 @@ def _stage1_compute_regime_dataframe(target_symbol):
     return df_regime
 
 
-def _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id):
+def _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id, directive_path):
     """Phase D.3+D.4 — load execution-TF market data + broker spec, compute
     bar geometry, set up the per-run output directory + immutable
     strategy.py snapshot, then load the strategy from the snapshot.
@@ -1291,21 +1291,16 @@ def _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id):
     else:
         raise FileNotFoundError(f"Source strategy missing: {source_file}")
 
-    # Co-locate the SOURCE DIRECTIVE with the run (write-once). strategy.py is
+    # Co-locate the SOURCE DIRECTIVE with the run, MANDATORY. strategy.py is
     # derived from the directive, so pairing them makes the run self-describing
     # and reproducible even if the directive is later cleaned out of completed/.
-    # Non-fatal: a missing/unresolvable directive must not abort a run whose
-    # strategy.py snapshot already succeeded.
-    try:
-        from tools.run_directive_snapshot import (
-            find_live_directive, snapshot_run_directive,
-        )
-        _dpath = find_live_directive(strategy_id, PROJECT_ROOT)
-        _dsnap = snapshot_run_directive(target_dir, _dpath)
-        if _dsnap and _dsnap.get("written"):
-            print(f"    [GOVERNANCE] directive_snapshot: {_dsnap['filename']}")
-    except Exception as _exc:
-        print(f"    [WARN] directive snapshot failed: {_exc}")
+    # directive_path is the parsed run directive (existence-checked upstream by
+    # _stage1_parse_args_and_load_directive), so this is a guaranteed copy; a
+    # failure raises and main's handler marks the run FAILED — the rule is
+    # enforced, never silently skipped.
+    from tools.run_directive_snapshot import require_directive_snapshot
+    _dsnap = require_directive_snapshot(target_dir, directive_path)
+    print(f"    [GOVERNANCE] directive_snapshot: {_dsnap['filename']}")
 
     # Strategy (Load from Snapshot)
     strategy = load_strategy(strategy_id, run_id=run_id)
@@ -1692,7 +1687,7 @@ def main():
         df_regime = _stage1_compute_regime_dataframe(target_symbol)
 
         # Phase D.3+D.4 — load market data + run-folder snapshot
-        ctx = _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id)
+        ctx = _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id, directive_path)
         df = ctx["df"]
         broker_spec = ctx["broker_spec"]
         median_bar_seconds = ctx["median_bar_seconds"]

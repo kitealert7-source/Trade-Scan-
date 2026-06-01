@@ -15,9 +15,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+import pytest  # noqa: E402
+
 from tools.run_directive_snapshot import (  # noqa: E402
     DIRECTIVE_SNAPSHOT_NAME,
+    DirectiveSnapshotError,
     find_live_directive,
+    require_directive_snapshot,
     snapshot_run_directive,
 )
 
@@ -57,3 +61,26 @@ def test_snapshot_missing_source_returns_none(tmp_path):
     run_dir.mkdir()
     assert snapshot_run_directive(run_dir, tmp_path / "nope.txt") is None
     assert snapshot_run_directive(run_dir, None) is None
+
+
+# ── Enforcement: require_directive_snapshot is mandatory (fail-loud) ─────────
+
+
+def test_require_succeeds_on_present_directive(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    src = tmp_path / "90_X_S01_V1_P00.txt"
+    src.write_text("test:\n  name: x\n", encoding="utf-8")
+    snap = require_directive_snapshot(run_dir, src)
+    assert (run_dir / DIRECTIVE_SNAPSHOT_NAME).is_file()
+    assert snap["filename"] == "90_X_S01_V1_P00.txt"
+
+
+def test_require_raises_when_directive_missing(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    # The rule must NOT be silently skippable: a missing/None source raises.
+    with pytest.raises(DirectiveSnapshotError):
+        require_directive_snapshot(run_dir, tmp_path / "does_not_exist.txt")
+    with pytest.raises(DirectiveSnapshotError):
+        require_directive_snapshot(run_dir, None)

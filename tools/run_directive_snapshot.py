@@ -24,6 +24,12 @@ DIRECTIVE_SNAPSHOT_NAME = "directive.txt"
 _LIVE_SUBDIRS = ("INBOX", "active", "active_backup", "completed")
 
 
+class DirectiveSnapshotError(RuntimeError):
+    """Raised by require_directive_snapshot when the mandatory co-location of a
+    KNOWN-PRESENT source directive fails — so the rule can never be silently
+    skipped at a write point where the directive is definitionally available."""
+
+
 def find_live_directive(directive_id: str, project_root) -> Path | None:
     """Return the on-disk `<directive_id>.txt` from the live backtest_directives
     subdirs, or None. (For runs where the directive is still live — the forward
@@ -67,3 +73,26 @@ def snapshot_run_directive(run_dir, directive_path, *, write_once: bool = True) 
     sha = hashlib.sha256(src.read_bytes()).hexdigest()
     shutil.copy2(src, dest)  # byte-exact copy, mirrors the strategy.py snapshot
     return {"filename": src.name, "sha256": sha, "written": True}
+
+
+def require_directive_snapshot(run_dir, directive_path, *, write_once: bool = True) -> dict:
+    """MANDATORY co-location: the directive MUST be present and copyable.
+
+    Use at write points where the directive is definitionally available — the
+    provisioner (d_path, existence-checked), stage-1 (the parsed directive
+    path), and basket dispatch (the dispatched directive path). Raises
+    DirectiveSnapshotError if the source is missing/None or the copy fails, so
+    a run/provision CANNOT complete while silently dropping its source spec.
+    Returns the snapshot dict on success.
+    """
+    if not directive_path or not Path(directive_path).is_file():
+        raise DirectiveSnapshotError(
+            f"directive co-location is mandatory but the source directive is "
+            f"missing: {directive_path!r}"
+        )
+    snap = snapshot_run_directive(run_dir, directive_path, write_once=write_once)
+    if snap is None:  # only reachable if the file vanished mid-call
+        raise DirectiveSnapshotError(
+            f"directive co-location failed for {directive_path!r}"
+        )
+    return snap
