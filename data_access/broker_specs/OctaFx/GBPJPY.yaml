@@ -20,7 +20,7 @@ calibration:
   price_unit: JPY
   status: MT5_VERIFIED
   currency_profit: JPY
-  mt5_tick_value: 0.6277306282328127
+  mt5_tick_value: 0.6270811254852041
   mt5_tick_size: 0.001
-  usd_per_pu_per_lot: 627.730628
+  usd_per_pu_per_lot: 627.081125
   digits: 3

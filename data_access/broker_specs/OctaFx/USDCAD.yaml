@@ -15,7 +15,7 @@ calibration:
   price_unit: CAD
   status: MT5_VERIFIED
   currency_profit: CAD
-  mt5_tick_value: 0.7246901949416625
+  mt5_tick_value: 0.7242125998508124
   mt5_tick_size: 1.0e-05
-  usd_per_pu_per_lot: 72469.019494
+  usd_per_pu_per_lot: 72421.259985
   digits: 5
