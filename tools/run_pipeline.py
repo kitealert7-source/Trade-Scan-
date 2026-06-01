@@ -818,6 +818,7 @@ def _basket_run_pipeline(directive_id: str, path, parsed):
         "result": result,
         "leg_data": leg_data,
         "leg_strategies": leg_strategies,  # for the per-run code provenance snapshot
+        "directive_path": path,            # guaranteed source directive (mandatory snapshot)
         "data_mode": data_mode,
         "run_id": run_id,
         "content_hash": _content_hash,
@@ -915,6 +916,16 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
         )
     except Exception as exc:
         print(f"[BASKET] WARN input provenance failed: {exc}")
+
+    # Co-locate the SOURCE DIRECTIVE with the basket run, MANDATORY — parity
+    # with the single-strategy strategy.py pairing; makes the run self-describing
+    # and reproducible even if the directive is later cleaned out of completed/.
+    # run_ctx["directive_path"] is the dispatched directive (guaranteed present),
+    # so this is a guaranteed copy; a failure raises and the run is marked FAILED
+    # — the rule is enforced, never silently skipped.
+    from tools.run_directive_snapshot import require_directive_snapshot
+    _dsnap = require_directive_snapshot(runs_dir.parent, run_ctx.get("directive_path"))
+    print(f"[BASKET] Directive snapshot: {_dsnap['filename']}")
 
     # Phase 5b.4: emit run_state.json so the startup guardrail
     # (enforce_run_schema) does not quarantine basket runs on subsequent

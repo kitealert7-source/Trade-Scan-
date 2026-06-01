@@ -447,6 +447,21 @@ if [ "$BP_EXIT" -eq 1 ]; then
     exit 1
 fi
 
+# Step A2 — directive-provenance gate (enforces the directive co-location rule:
+# every run/strategy whose source directive is RECOVERABLE must carry
+# directive.txt; grandfathers genuine pre-preservation losses via its baseline).
+#   Exit 0 -> clean (or only new acknowledged-unrecoverable losses)
+#   Exit 1 -> a recoverable directive is NOT co-located (rule bypassed) -> BLOCK
+python tools/verify_directive_provenance.py
+DP_EXIT=$?
+if [ "$DP_EXIT" -eq 1 ]; then
+    echo "ERROR: a run/strategy is missing its (recoverable) source directive."
+    echo "       Backfill it, or acknowledge new genuine losses:"
+    echo "  python tools/backfill_run_directives.py --target <runs|strategies> --apply"
+    echo "  python tools/verify_directive_provenance.py --update-baseline --rationale '<why>'"
+    exit 1
+fi
+
 # Step B — Re-derive gate-suite signals (5-file fast roster from
 # system_introspection's _GATE_TEST_SUITE; broader-pytest is Step A,
 # not here) + confirm the auto-populator surfaced them.
