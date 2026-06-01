@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-01T09:44:47Z
+> Generated: 2026-06-01T14:10:34Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 1125 directives
+- Completed: 1126 directives
 
 ## Ledgers
 
@@ -40,7 +40,7 @@
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: 1 uncommitted
-- Last substantive commit: `2ccf064 session: idea gate refresh (tools_manifest regen)`
+- Last substantive commit: `95ff70d Merge #1: basket provenance + reproducibility; clear pytest baseline (16->0)`
 
 ## Deferred Maintenance
 
@@ -78,10 +78,13 @@
 - [REFACTOR_BACKLOG 4/4] **Extract `tools/pipeline/leg_strategy_dispatch.py`.** The R1 work (2026-06-01) already extracted `LegDispatchError`, `LEG_STRATEGY_DISPATCH`, `CONTINUOUS_HOLD_RULES`, the `_build_*_legs` helpers, and `_dispatch_leg_strategies` to module scope. Moving them to a new file is mechanical: update imports in `run_pipeline.py`, update `from tools.run_pipeline import ...` in `tests/test_leg_strategy_dispatch.py` to point at the new module, regen `tools_manifest.json`. ~155 LOC moves; the registry-coverage invariant test continues to walk the same `governance/recycle_rules/registry.yaml`. **Lowest-risk first file move.** Acceptance: all 46 currently-passing dispatch + cointegration tests still pass; smoke pilot on the same AUDJPY/AUDNZD ZBND4 episode produces byte-equivalent results. PROTECTED INFRA. Background: same doc §3e step 4. First seen 2026-06-01.
 - [REFACTOR_GATE 2026-06-01] **Re-evaluate after items 1/4–4/4 land.** Operator-set checkpoint: do NOT begin the remaining file-split steps (admission, guardrails, strategy_drift, error_mapping, basket_inputs, basket_dispatch, batch_runner) until items 1–4 are complete AND `run_pipeline.py` LOC has been re-measured. Predicted post-1-through-4 LOC: 1050–1150. If the in-place decompositions land an acceptable reduction, the file-split campaign may be unnecessary. Mirrors April's incremental approach.
 - [REFACTOR_CLOSED 2026-06-01] **Campaign closed; no further structural moves authorized.** All 4 backlog items landed (Item #4 substituted at the gate: `emit_result` decompose, not `leg_strategy_dispatch.py` extraction). Max-fn dropped: `_try_basket_dispatch` 358→123, `run_batch_mode` 226→127, `main` 499→113, `emit_result` 493→140. LOC went UP, not down (helper overhead) — the gate's "down to 1050-1150" prediction was wrong; the real benefit was max-fn reduction (the "one giant function" anti-pattern is now absent). Two follow-up read-only audits closed the broader question: (a) Phase-1 dependency graph showed cointegration / validation flat-file clusters are organizational clutter, NOT architectural failure (closed clusters with low cross-bucket coupling); (b) basket dependency surface audit showed `tools.basket_runner` is already a clean de-facto API — 12 of 14 recycle_rules files import it, exporting exactly two symbols (`BasketLeg`, `BasketRunner`), 100% top-1 concentration, 0 whole-module imports. The 12-edge `recycle_rules → basket-flat` cross-bucket signal was a protocol kernel correctly used, not a tangle. **Verdict: no further structural campaign justified by the data.** Cosmetic relocation candidates (basket / cointegration / validation top-level cleanup) remain valid but un-gated work, addressable when convenient. Optional zero-risk follow-on noted but NOT authorized: add `__all__ = ["BasketLeg", "BasketRunner"]` at the top of `tools/basket_runner.py` to make the de-facto API surface explicit. Closure recorded in [`outputs/system_reports/01_system_architecture/LARGE_FILE_REFACTOR_PLAN_2026-06-01_REFRESH.md`](outputs/system_reports/01_system_architecture/LARGE_FILE_REFACTOR_PLAN_2026-06-01_REFRESH.md) §0.
+- [DEFER — basket provenance follow-ups] **Two higher-bar reproducibility levers parked 2026-06-01** after the per-run code snapshot + reproducibility-identity work landed (PR #1, merged `95ff70d`). (a) **Execute-from-snapshot for baskets** — load leg+rule code from `runs/<id>/basket_code/` at (re-)run time instead of importing live from `tools/`, for byte-deterministic re-runs (single-strategy parity). Bigger execution-path change; gate on real need (e.g. before promoting a basket to LIVE). (b) **Leg-strategy code enforcement** — `recycle_strategies.py` is snapshotted (provenance) but not drift-enforced; if wanted, add it to the guard set (execution-path infra), NOT a registry pin. Both lower-value than the data+engine recording already shipped. See `tools/basket_reproducibility_check.py` + auto-memory `feedback_reproduction_truth_check`.
+- [DOC — CLAUDE.md topic-index candidate] New basket provenance/integrity surface from PR #1 not yet in CLAUDE.md's topic index / key-files: `tools/basket_provenance.py`, `tools/basket_reproducibility_check.py`, `tools/generate_recycle_rule_hashes.py`, `governance/recycle_rules/rule_code_hashes.yaml`, and the guard-set criterion now documented in `tools/generate_guard_manifest.py`. Add a topic line next time CLAUDE.md is touched. Low priority (all self-documenting in-code).
+- [PRUNE-NEXT] The `[REFACTOR_BACKLOG 1/4–4/4]` + `[REFACTOR_GATE]` entries above are fully superseded by `[REFACTOR_CLOSED 2026-06-01]` (all 4 landed; campaign closed) — safe to delete next session to de-clutter this section.
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Broader-pytest baseline:** 16 acknowledged failure(s) (last refreshed 2026-05-31 @ 03db5ca3). Tests: test_directive_basket_block_parses, test_directive_file_exists, test_directive_legs_match_h2_spec (+13 more). Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
+- **Broader-pytest baseline:** clean (0 acknowledged failures). Last refreshed 2026-06-01T12:03:48+00:00 @ bf217717.
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
