@@ -1127,9 +1127,14 @@ def export_mps(
         # (separate ontology). The DB keeps every column; the view projects to
         # the ~16 a human scans (sorted, ranked, friendly-named).
         df_coint_view = None
+        df_candidates = None
         if not df_coint.empty:
             from tools.portfolio.cointegration_view import build_cointegration_view_df
             df_coint_view = build_cointegration_view_df(df_coint)
+            # Pair-level decision-support shortlist (one row per pair). Separate
+            # grain from the run-level Cointegration tab; same is_current rows.
+            from tools.portfolio.trade_candidates_view import build_trade_candidates_df
+            df_candidates = build_trade_candidates_df(df_coint)
 
         # Atomic write: render to a per-process temp in the SAME directory, then
         # os.replace() into place (atomic on one volume). The xlsx is a derived
@@ -1144,6 +1149,9 @@ def export_mps(
                 df_single.to_excel(writer, sheet_name="Single-Asset Composites", index=False)
                 if not df_baskets.empty:
                     df_baskets.to_excel(writer, sheet_name="Baskets", index=False)
+                # Shortlist before the detailed tab: summary then drill-down.
+                if df_candidates is not None and not df_candidates.empty:
+                    df_candidates.to_excel(writer, sheet_name="COINT TRADE CANDIDATES", index=False)
                 if df_coint_view is not None and not df_coint_view.empty:
                     df_coint_view.to_excel(writer, sheet_name="Cointegration", index=False)
             # Retry os.replace on Windows PermissionError (WinError 5). Even
@@ -1174,6 +1182,8 @@ def export_mps(
                     pass
 
         suffix = f", Baskets={len(df_baskets)}" if not df_baskets.empty else ""
+        if df_candidates is not None and not df_candidates.empty:
+            suffix += f", TradeCandidates={len(df_candidates)}"
         if df_coint_view is not None and not df_coint_view.empty:
             suffix += f", Cointegration={len(df_coint_view)}"
         print(f"  [EXPORT] MPS: Portfolios={len(df_port)}, "

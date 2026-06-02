@@ -3,7 +3,7 @@
 Pure DataFrame -> DataFrame; no Excel. Guards the column budget, the
 deterministic multi-key sort (with recency tiebreak), the friendly rename,
 and the derived pair / backtest / run_date / pair_class / coint_friendly /
-both_profitable columns.
+all_profitable columns.
 """
 import pandas as pd
 import pytest
@@ -179,8 +179,8 @@ def test_pair_class_new_cols_positioned_after_lookback():
     cols = COINTEGRATION_VIEW_COLUMNS
     assert cols.index("pair_class") == cols.index("lookback") + 1
     assert cols.index("coint_friendly") == cols.index("pair_class") + 1
-    assert cols.index("both_profitable") == cols.index("coint_friendly") + 1
-    assert cols.index("run_date") == cols.index("both_profitable") + 1
+    assert cols.index("all_profitable") == cols.index("coint_friendly") + 1
+    assert cols.index("run_date") == cols.index("all_profitable") + 1
 
 
 # ---------- coint_friendly thresholds ----------
@@ -220,73 +220,74 @@ def test_coint_friendly_WEAK_at_NaN():
     assert out.iloc[0]["coint_friendly"] == "WEAK"
 
 
-# ---------- both_profitable paired-group join ----------
+# ---------- all_profitable cross-run pair flag ----------
 
-def _paired(pair_a, pair_b, episode_start, episode_end, baseline_net, zcross_net):
-    """Helper: emit baseline + zcross rows for a single (pair, episode) group."""
-    base_id = f"90_PORT_{pair_a}{pair_b}_15M_X__E{episode_start.replace('-','')}"
-    zcross_id = f"90_PORT_{pair_a}{pair_b}_15M_X_ZCRS_E{episode_start.replace('-','')}"
+def _runs(pair_a, pair_b, nets, test_start="2025-01-01", test_end="2025-03-01"):
+    """Helper: emit one run (row) per net% in `nets`, all for the same pair.
+    The flag is pair-level (across every run and window), so the window only
+    matters when a test deliberately spreads runs across multiple windows."""
     return [
-        _row(f"B_{episode_start}", 1.0, "2026-05-28T00:00:00Z",
+        _row(f"{pair_a}{pair_b}_{i}", 1.0, "2026-05-28T00:00:00Z",
              pair_a=pair_a, pair_b=pair_b,
-             directive_id=base_id, net_pct=baseline_net,
-             test_start=episode_start, test_end=episode_end),
-        _row(f"Z_{episode_start}", 1.0, "2026-05-28T00:00:00Z",
-             pair_a=pair_a, pair_b=pair_b,
-             directive_id=zcross_id, net_pct=zcross_net,
-             test_start=episode_start, test_end=episode_end),
+             directive_id=f"90_PORT_{pair_a}{pair_b}_15M_X_{i}",
+             net_pct=net, test_start=test_start, test_end=test_end)
+        for i, net in enumerate(nets)
     ]
 
 
-def test_both_profitable_Yes_when_both_variants_positive():
+def test_all_profitable_Yes_when_every_run_positive():
     out = build_cointegration_view_df(_raw(
-        _paired("EURUSD", "GBPUSD", "2025-01-01", "2025-03-01",
-                baseline_net=5.0, zcross_net=3.0)
+        _runs("EURUSD", "GBPUSD", [5.0, 3.0, 0.1, 12.0])
     ))
-    assert set(out["both_profitable"].dropna().tolist()) == {"Yes"}
-    assert len(out) == 2
+    assert set(out["all_profitable"].tolist()) == {"Yes"}
 
 
-def test_both_profitable_No_when_baseline_negative():
+def test_all_profitable_No_when_any_run_negative():
+    # One losing run among many winners drops the whole pair to No.
     out = build_cointegration_view_df(_raw(
-        _paired("EURUSD", "GBPUSD", "2025-01-01", "2025-03-01",
-                baseline_net=-2.0, zcross_net=4.0)
+        _runs("EURUSD", "GBPUSD", [5.0, 3.0, -0.4, 12.0])
     ))
-    assert set(out["both_profitable"].dropna().tolist()) == {"No"}
+    assert set(out["all_profitable"].tolist()) == {"No"}
 
 
-def test_both_profitable_No_when_zcross_negative():
+def test_all_profitable_No_when_any_run_break_even():
+    # Break-even (0.0) is not > 0, so it counts against the pair.
     out = build_cointegration_view_df(_raw(
-        _paired("EURUSD", "GBPUSD", "2025-01-01", "2025-03-01",
-                baseline_net=5.0, zcross_net=-1.0)
+        _runs("EURUSD", "GBPUSD", [5.0, 0.0, 3.0])
     ))
-    assert set(out["both_profitable"].dropna().tolist()) == {"No"}
+    assert set(out["all_profitable"].tolist()) == {"No"}
 
 
-def test_both_profitable_blank_on_baseline_only_orphan():
-    # Mirrors the 10 baseline-only orphans in the v2_log_eg corpus.
-    out = build_cointegration_view_df(_raw([
-        _row("ORPHAN", 1.0, "2026-05-28T00:00:00Z",
-             pair_a="EURUSD", pair_b="GBPUSD",
-             directive_id="90_PORT_EURUSDGBPUSD_15M_X__E250101",
-             net_pct=4.0,
-             test_start="2025-01-01", test_end="2025-03-01"),
-    ]))
-    # Orphan -> NA (blank in Excel; naturally drops out of `== True` filter).
-    assert pd.isna(out.iloc[0]["both_profitable"])
+def test_all_profitable_single_run_pair_gets_verdict_not_blank():
+    # The retired both_profitable left single-variant pairs blank; every pair
+    # now gets a Yes/No verdict.
+    yes = build_cointegration_view_df(_raw(_runs("EURUSD", "GBPUSD", [2.0])))
+    no = build_cointegration_view_df(_raw(_runs("AUDUSD", "NZDUSD", [-2.0])))
+    assert yes.iloc[0]["all_profitable"] == "Yes"
+    assert no.iloc[0]["all_profitable"] == "No"
 
 
-def test_both_profitable_independent_per_episode():
-    # Two episodes for the same pair: episode A both profitable, episode B
-    # only baseline profitable. The merge must label each row by its own
-    # group's outcome, not collapse across episodes.
+def test_all_profitable_spans_all_windows():
+    # One pair, two windows: window A all-positive, window B has a loser. The
+    # screen is across ALL windows, so every row of the pair is labelled No.
     rows = (
-        _paired("EURUSD", "GBPUSD", "2025-01-01", "2025-03-01",
-                baseline_net=5.0, zcross_net=3.0) +
-        _paired("EURUSD", "GBPUSD", "2025-04-01", "2025-06-01",
-                baseline_net=5.0, zcross_net=-1.0)
+        _runs("EURUSD", "GBPUSD", [5.0, 3.0],
+              test_start="2025-01-01", test_end="2025-03-01") +
+        _runs("EURUSD", "GBPUSD", [4.0, -1.0],
+              test_start="2025-04-01", test_end="2025-06-01")
     )
     out = build_cointegration_view_df(_raw(rows))
-    by_episode = out.groupby("test_start")["both_profitable"].agg(set).to_dict()
-    assert by_episode["2025-01-01"] == {"Yes"}
-    assert by_episode["2025-04-01"] == {"No"}
+    assert set(out["all_profitable"].tolist()) == {"No"}
+
+
+def test_all_profitable_independent_per_pair():
+    # Two distinct pairs get independent verdicts; the merge must not collapse
+    # one pair's outcome onto the other.
+    rows = (
+        _runs("EURUSD", "GBPUSD", [5.0, 3.0]) +
+        _runs("AUDUSD", "NZDUSD", [5.0, -1.0])
+    )
+    out = build_cointegration_view_df(_raw(rows))
+    by_pair = out.groupby("pair")["all_profitable"].agg(set).to_dict()
+    assert by_pair["EURUSD / GBPUSD"] == {"Yes"}
+    assert by_pair["AUDUSD / NZDUSD"] == {"No"}

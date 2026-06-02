@@ -158,6 +158,9 @@ def _build_notes_portfolio(ws, _w, r, fonts, thresholds):
 
     # Section 6 — Cointegration tab (separate ontology; not deployment-classified)
     r = _notes_write_cointegration_section(ws, _w, r, fonts)
+
+    # Section 7 — COINT TRADE CANDIDATES tab (pair-level shortlist from §6)
+    r = _notes_write_trade_candidates_section(ws, _w, r, fonts)
     return r
 
 
@@ -436,6 +439,59 @@ def _notes_write_deployed_profile(ws, _w, r, fonts):
     return r
 
 
+def _notes_write_trade_candidates_section(ws, _w, r, fonts):
+    """Section 7: COINT TRADE CANDIDATES tab — pair-level decision-support
+    shortlist projected from the Cointegration research rows (one row per pair
+    vs one row per run). Reliability-under-exposure, not perfection."""
+    bold, header, normal = fonts["bold"], fonts["header"], fonts["normal"]
+
+    _w(r, 1, "SECTION 7 — COINT TRADE CANDIDATES TAB", header); r += 1
+    _w(r, 1,
+       "Decision-support shortlist: one row per PAIR (the Cointegration tab is "
+       "one row per backtest run). Answers a single question — 'after thousands "
+       "of backtests, which handful of pairs should I focus research or capital "
+       "on next?' QUALIFICATION: a pair must have >= 5 current runs to appear "
+       "here; thinner pairs are universe-explorer noise and remain on the "
+       "Cointegration tab only. Criterion is reliability-under-exposure, NOT "
+       "perfection: all_profitable is demoted to a badge so a heavily-tested "
+       "near-perfect pair (e.g. 24 runs / 2 losses) stays VISIBLE instead of "
+       "being banished for one loss. Because the ledger is append-only, a thin "
+       "pair GRADUATES IN as it gathers runs, and a pair drifts DOWN the ranking "
+       "as its robustness decays — it never vanishes on a single future loss.",
+       normal); r += 2
+
+    _w(r, 1, "Columns", bold); r += 1
+    _w(r, 1, "Column", bold); _w(r, 2, "Definition", bold); r += 1
+    for col, definition in [
+        ("Pair",
+         "pair_a / pair_b. Prefixed with the medal badge when the pair has zero "
+         "losses so far (= the retired all_profitable 'never lost yet' flag, kept "
+         "as an achievement, not a filter)."),
+        ("Runs",
+         "Total current (is_current=1) runs for the pair — every parameter "
+         "variant and every test window."),
+        ("Losses",
+         "Count of runs with canonical_net_pct <= 0 (break-even counts as a loss). "
+         "Shown as a RAW COUNT for instant legibility ('24 runs, 2 losses')."),
+        ("Median Ret/DD",
+         "Median canonical_ret_dd over ALL runs (including losers). Median, not "
+         "mean, so one outlier run cannot dominate."),
+    ]:
+        _w(r, 1, col, bold); _w(r, 2, definition, normal); r += 1
+    r += 1
+
+    _w(r, 1, "Sort order", bold); r += 1
+    _w(r, 1,
+       "loss_rate ascending  ->  Median Ret/DD descending  ->  Runs descending. "
+       "loss_rate (losses/runs) drives SORTING only; the displayed Losses column "
+       "stays a raw count (24/2 and 12/1, both ~8%, rank together). The runs>=5 "
+       "gate already certifies evidence, so once loss_rate ties, QUALITY (median "
+       "Ret/DD) leads and runs is only the final tiebreak — a clean 6-run/3.9 "
+       "pair outranks a clean 12-run/1.0 one.",
+       normal); r += 2
+    return r
+
+
 def _notes_write_cointegration_section(ws, _w, r, fonts):
     """Section 6: Cointegration tab — separate ontology from Portfolios /
     Single-Asset Composites. Point-in-time research provenance, not a
@@ -479,17 +535,16 @@ def _notes_write_cointegration_section(ws, _w, r, fonts):
          "post-onset 1-7 day windows from the v2 generation rule) carry low span "
          "at test_end and land as WEAK even when the underlying pair has had long "
          "stable cointegration arcs elsewhere. Do NOT dismiss WEAK wholesale — "
-         "condition on both_profitable=Yes to find robust short-window edges. "
+         "condition on all_profitable=Yes to find robust short-window edges. "
          "Lifetime-peak alternative is a separate column candidate, not built."),
-        ("both_profitable",
-         "Per (pair_a, pair_b, test_start, test_end) group: Yes iff BOTH the "
-         "baseline and the zcross variant rows have canonical_net_pct > 0. No "
-         "if either variant is non-profitable. Blank for orphan rows where only "
-         "one variant exists (10 such rows in the current v2_log_eg corpus — "
-         "recovery residuals). Mechanism-robustness filter: a pair-episode "
-         "positive under two different exit mechanics has a real cointegration "
-         "edge, not an exit-engineering artifact. Naturally drops blanks under "
-         "`both_profitable == Yes` filter."),
+        ("all_profitable",
+         "Per (pair_a, pair_b) pair across ALL its runs — every parameter "
+         "variant (P02/P03, lookbacks) AND every test window: Yes iff every "
+         "current row has canonical_net_pct > 0, else No. Every pair gets a "
+         "verdict (no blanks). Cross-run robustness filter: replaces the "
+         "retired 2-variant both_profitable, which ignored every run beyond "
+         "baseline+zcross (median 8 runs/pair today, up to 39). Plain English: "
+         "the pair never had a losing or break-even run."),
     ]
     for col_name, definition in filter_aids:
         _w(r, 1, col_name, normal); _w(r, 2, definition, normal); r += 1
@@ -502,7 +557,7 @@ def _notes_write_cointegration_section(ws, _w, r, fonts):
         ("1. Methodology",
          "methodology = v2_log_eg (drops legacy v1_raw_adf rows — different math)"),
         ("2. Robustness",
-         "both_profitable = Yes (drops pairs that survive only one exit mechanic)"),
+         "all_profitable = Yes (keeps only pairs profitable across every run/window)"),
         ("3. Design target",
          "pair_class IN {FX, IDX} for the cointegration design target, "
          "OR Cross/Crypto/Metals for cross-class exploration"),

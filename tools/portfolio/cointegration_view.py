@@ -22,10 +22,13 @@ Filter aids (2026-06-01):
   the run's test_end as-of date — NOT a function of the test-window calendar
   length. The 30-obs cutoff is the B-gate admission threshold; the 90-obs
   cutoff matches the 2026-05-28 cohort-shift survey's STRONG bucket.
-- `both_profitable`: per (pair_a, pair_b, test_start, test_end) group, TRUE iff
-  both the baseline and zcross variant rows have canonical_net_pct > 0. Blank
-  on orphan rows where only one variant exists (10 such rows in the current
-  v2_log_eg corpus, residual from the recovery run).
+- `all_profitable`: per (pair_a, pair_b) pair across ALL its runs — every
+  parameter variant (P02/P03, lookbacks) AND every test window — "Yes" iff
+  every current row has canonical_net_pct > 0, else "No". Every pair gets a
+  verdict (no blanks). Generalises the retired 2-variant `both_profitable`
+  check to the N-run reality (median 8 runs/pair, up to 39): a hardcoded
+  baseline-vs-zcross pairing silently ignored every run beyond those two.
+  Plain English: the pair never had a losing or break-even run.
 """
 from __future__ import annotations
 
@@ -38,8 +41,9 @@ import pandas as pd
 # tell v1_raw_adf legacy rows apart from v2_log_eg / v2_log_adf post-correction
 # rows — the two are NOT comparable head-to-head (different EG vs raw-ADF
 # criticals, log vs raw spread). See COINTEGRATION_SCREEN_MATH_V2.md.
-# pair_class / coint_friendly / both_profitable added 2026-06-01: filter aids
-# for paired baseline-vs-zcross robustness screening (see module docstring).
+# pair_class / coint_friendly added 2026-06-01; all_profitable added 2026-06-02
+# (replaced both_profitable — see module docstring): filter aids for cross-run
+# robustness screening of the cointegration corpus.
 COINTEGRATION_VIEW_COLUMNS = [
     "rank",
     "pair",
@@ -47,7 +51,7 @@ COINTEGRATION_VIEW_COLUMNS = [
     "lookback",
     "pair_class",        # filter aid: structural taxonomy
     "coint_friendly",    # filter aid: screener-span band
-    "both_profitable",   # filter aid: paired baseline+zcross robustness
+    "all_profitable",    # filter aid: every run of the pair profitable
     "run_date",
     "test_start",
     "test_end",
@@ -143,51 +147,37 @@ def _friendly_band(span_obs) -> str:
     return "WEAK"
 
 
-def _add_both_profitable(df: pd.DataFrame) -> pd.DataFrame:
-    """Per (pair_a, pair_b, test_start, test_end) group: TRUE iff both the
-    baseline and zcross variant rows have canonical_net_pct > 0.
+def _add_all_profitable(df: pd.DataFrame) -> pd.DataFrame:
+    """Per (pair_a, pair_b) pair across ALL its runs — every parameter variant
+    and every test window: "Yes" iff every current row has
+    canonical_net_pct > 0, else "No".
 
-    Variant identified by `_ZCRS_` token in directive_id. A group with only
-    one variant present (the 10 orphan baselines from the v2 recovery run)
-    yields both_profitable = NaN on its row, which renders as blank in Excel
-    and naturally drops out of a `both_profitable == TRUE` filter."""
-    needed = {"directive_id", "pair_a", "pair_b", "test_start", "test_end",
-              "canonical_net_pct"}
+    Replaces the retired `both_profitable`, which only compared the baseline
+    and zcross variants within a single window. With a median of 8 runs/pair
+    today — parameter variants (P02/P03, lookbacks) plus a growing set of
+    end-date windows — the 2-variant check ignored every run beyond those two.
+    `all_profitable` generalises to whatever N runs exist now or later: a pair
+    is "Yes" only if it never produced a losing or break-even run. Every pair
+    gets a verdict (no blanks). NaN and 0.0 net both count as not-profitable."""
+    needed = {"pair_a", "pair_b", "canonical_net_pct"}
     if not needed.issubset(df.columns):
-        df["both_profitable"] = pd.NA
+        df["all_profitable"] = pd.NA
         return df
 
-    directive = df["directive_id"].fillna("").astype(str)
-    is_zcross = directive.str.contains("_ZCRS_", regex=False)
     net = pd.to_numeric(df["canonical_net_pct"], errors="coerce")
-    profitable = net > 0
+    profitable = net > 0  # NaN and break-even (0.0) are not profitable
 
-    key_cols = ["pair_a", "pair_b", "test_start", "test_end"]
+    key_cols = ["pair_a", "pair_b"]
     work = pd.DataFrame({
         **{c: df[c] for c in key_cols},
-        "is_zcross": is_zcross,
         "profitable": profitable,
     })
-    agg = work.groupby(key_cols, dropna=False).agg(
-        n_zcross=("is_zcross", "sum"),
-        n_base=("is_zcross", lambda s: (~s).sum()),
-        n_zcross_profit=("profitable", lambda s: (s & work.loc[s.index, "is_zcross"]).sum()),
-        n_base_profit=("profitable", lambda s: (s & ~work.loc[s.index, "is_zcross"]).sum()),
-    ).reset_index()
+    agg = work.groupby(key_cols, dropna=False)["profitable"].all().reset_index()
+    agg["all_profitable"] = agg["profitable"].map({True: "Yes", False: "No"})
 
-    def _both(row):
-        if row["n_zcross"] == 0 or row["n_base"] == 0:
-            return pd.NA
-        return bool(row["n_zcross_profit"] >= 1 and row["n_base_profit"] >= 1)
-
-    agg["both_profitable"] = agg.apply(_both, axis=1)
     merged = df.merge(
-        agg[key_cols + ["both_profitable"]],
+        agg[key_cols + ["all_profitable"]],
         on=key_cols, how="left",
-    )
-    # Map True/False -> "Yes"/"No" for readability; NA stays NA -> blank in Excel.
-    merged["both_profitable"] = merged["both_profitable"].map(
-        {True: "Yes", False: "No"}
     )
     return merged
 
@@ -226,7 +216,7 @@ def build_cointegration_view_df(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "completed_at_utc" in df.columns:
         df["run_date"] = df["completed_at_utc"].fillna("").astype(str).str.slice(0, 10)
 
-    df = _add_both_profitable(df)
+    df = _add_all_profitable(df)
 
     df = df.rename(columns=_RENAME)
     df.insert(0, "rank", range(1, len(df) + 1))
