@@ -1,6 +1,5 @@
 import os
 import json
-import hashlib
 import sys
 from pathlib import Path
 
@@ -10,6 +9,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from config.state_paths import RUNS_DIR, REGISTRY_DIR, STRATEGIES_DIR, ARCHIVE_DIR, QUARANTINE_DIR, BACKTESTS_DIR, SELECTED_DIR, POOL_DIR, resolve_base_strategy_dir
 from config.path_authority import TS_EXECUTION, TRADE_SCAN_STATE
 from config.status_enums import PORTFOLIO_BLOCKED_STATUSES, PORTFOLIO_FAIL, RUN_ABORTED
+from tools.manifest_verification import verify_run_artifacts
 STRICT_MODE = True # Any error makes overall status RED
 
 # -----------------------------------------------------------------------------
@@ -76,9 +76,6 @@ def resolve_run_location(run_id: str):
         return ("quarantine", q_index[run_id])
     return (None, None)
 
-
-def get_hash(p: Path):
-    return hashlib.sha256(p.read_bytes()).hexdigest()
 
 def _execution_active() -> bool:
     """Detect TS_Execution running without depending on lineage_pruner's
@@ -160,46 +157,19 @@ class PreflightCheck:
                 red_count += 1
                 continue
 
-            # Step 3: Manifest Hash
-            #
-            # Mirror the artifact contract enforced by the authoritative
-            # startup gate run_pipeline.verify_manifest_integrity (PR #1,
-            # commit 3f9dc9e). TWO splits apply per artifact entry:
-            #   (a) PATH BASIS — basket_code/ snapshots live at run_folder
-            #       root; every other artifact lives under data/.
-            #   (b) HASH BASIS — basket_code/ entries record LF-canonical
-            #       sha256 (basket_provenance.canonical_sha256, stable across
-            #       OS line-end rendering); data/ entries are raw binary
-            #       artifacts where raw byte sha256 is correct.
-            # Without this split preflight resolves basket_code/ entries under
-            # data/ (reports them Missing) and would raw-hash them on a CRLF
-            # Windows checkout (Hash mismatch) — false-RED'ing every basket run
-            # while the real pipeline gate passes them. Regression test:
-            # tests/test_preflight_basket_manifest_path.py.
+            # Step 3: Manifest Hash — delegate per-artifact verification to the
+            # single source of truth shared with the pipeline startup gate
+            # (tools.manifest_verification.verify_run_artifacts), which owns the
+            # basket_code-vs-data/ PATH + HASH contract. Inlining a divergent
+            # copy here was the 2026-06-02 false-RED bug (2962 healthy basket
+            # runs flagged corrupt while the real gate passed them).
+            # Regression test: tests/test_preflight_basket_manifest_path.py.
             m_path = run_folder / "manifest.json"
             try:
                 manifest = json.loads(m_path.read_text(encoding="utf-8"))
                 artifacts = manifest.get("artifacts", {})
-                for name, expected in artifacts.items():
-                    if name.startswith("basket_code/"):
-                        p = run_folder / name
-                    else:
-                        p = run_folder / "data" / name
-                    if not p.exists():
-                        corrupt_count += 1
-                        break
-                    if name.startswith("basket_code/"):
-                        # Local import keeps verify_engine_integrity's
-                        # transitive deps off preflight's module-import path.
-                        from tools.verify_engine_integrity import (
-                            canonical_sha256 as _canonical_sha256,
-                        )
-                        actual = _canonical_sha256(p).lower()
-                    else:
-                        actual = get_hash(p)
-                    if actual != expected:
-                        corrupt_count += 1
-                        break
+                if verify_run_artifacts(run_folder, artifacts):
+                    corrupt_count += 1
             except Exception:
                 corrupt_count += 1
 

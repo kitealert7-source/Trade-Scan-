@@ -67,6 +67,12 @@ GUARD_FILES = [
     "skill_loader.py",
     "orchestration/runner.py",
     "system_logging/pipeline_failure_logger.py",
+    # Manifest artifact-integrity contract: single source of truth for the
+    # basket_code-vs-data/ PATH + HASH rule, shared by the startup gate
+    # verify_manifest_integrity AND the system_preflight diagnostic. A silent
+    # change to this rule could let corrupt run artifacts pass the gate, so an
+    # unreviewed edit must freeze execution until the manifest is re-blessed.
+    "manifest_verification.py",
     # ── Basket execution path (added 2026-06-01; dispatched by
     #    run_pipeline._try_basket_dispatch). The basket analogue of the
     #    single-strategy spine: orchestrator + engine + leg-data loader +

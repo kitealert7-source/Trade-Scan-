@@ -210,6 +210,7 @@ from tools.orchestration.pre_execution import (
 )
 from tools.orchestration.execution_adapter import run_command
 from tools.system_registry import reconcile_registry, _load_registry, _save_registry_atomic
+from tools.manifest_verification import verify_run_artifacts
 from tools.pipeline_utils import PipelineContext, parse_directive
 from tools.orchestration.bootstrap_controller import BootstrapController
 from tools.orchestration.runner import StageRunner
@@ -383,49 +384,14 @@ def verify_manifest_integrity(project_root: Path):
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
             
-            # We only check completed runs or those with artifacts
+            # Per-artifact verification (basket_code vs data/ PATH + HASH
+            # contract) lives in the single source of truth
+            # tools.manifest_verification.verify_run_artifacts, shared with
+            # system_preflight._check_runs so the two checkers can never
+            # desync on the contract again (the 2026-06-02 false-RED class).
             artifacts = manifest.get("artifacts", {})
-            for name, expected_hash in artifacts.items():
-                # PR #1 (commit 3f9dc9e: per-run code snapshot for basket
-                # execution) introduced TWO contract splits the pre-existing
-                # checker did not honor:
-                #   (a) PATH BASIS — basket_code/ lives at run_folder root,
-                #       everything else under data/.
-                #   (b) HASH BASIS — basket_code/ entries are LF-canonical
-                #       sha256 (basket_provenance uses canonical_sha256 so
-                #       the recorded hash is stable across OSes regardless
-                #       of git autocrlf rendering). Raw byte sha256 on a
-                #       CRLF Windows checkout will not match. data/ entries
-                #       are binary artifacts (CSV, parquet) where raw byte
-                #       hashing is correct and line-end normalization would
-                #       be unsafe.
-                # Without (a) the checker reports "Missing artifact"; once
-                # (a) is fixed it reports "Hash mismatch" on Windows. Both
-                # are the same regression class — startup gate fatals every
-                # subsequent run after the first basket run — and they must
-                # be resolved together.
-                if name.startswith("basket_code/"):
-                    artifact_path = run_folder / name
-                else:
-                    artifact_path = run_folder / "data" / name
-                if not artifact_path.exists():
-                    corrupted.append(f"{run_folder.name}: Missing artifact {name}")
-                    continue
-
-                # Check hash — branch on the artifact contract above.
-                if name.startswith("basket_code/"):
-                    # Local import: keeps verify_engine_integrity's
-                    # transitive deps off the module-import path; this
-                    # branch only fires once per basket run at startup.
-                    from tools.verify_engine_integrity import (
-                        canonical_sha256 as _canonical_sha256,
-                    )
-                    actual_hash = _canonical_sha256(artifact_path).lower()
-                else:
-                    actual_hash = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-                if actual_hash != expected_hash:
-                    corrupted.append(f"{run_folder.name}: Hash mismatch for {name}")
-                    
+            for problem in verify_run_artifacts(run_folder, artifacts):
+                corrupted.append(f"{run_folder.name}: {problem}")
         except Exception as e:
             corrupted.append(f"{run_folder.name}: Failed to read manifest ({e})")
 
