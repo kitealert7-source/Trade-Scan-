@@ -386,13 +386,43 @@ def verify_manifest_integrity(project_root: Path):
             # We only check completed runs or those with artifacts
             artifacts = manifest.get("artifacts", {})
             for name, expected_hash in artifacts.items():
-                artifact_path = run_folder / "data" / name
+                # PR #1 (commit 3f9dc9e: per-run code snapshot for basket
+                # execution) introduced TWO contract splits the pre-existing
+                # checker did not honor:
+                #   (a) PATH BASIS — basket_code/ lives at run_folder root,
+                #       everything else under data/.
+                #   (b) HASH BASIS — basket_code/ entries are LF-canonical
+                #       sha256 (basket_provenance uses canonical_sha256 so
+                #       the recorded hash is stable across OSes regardless
+                #       of git autocrlf rendering). Raw byte sha256 on a
+                #       CRLF Windows checkout will not match. data/ entries
+                #       are binary artifacts (CSV, parquet) where raw byte
+                #       hashing is correct and line-end normalization would
+                #       be unsafe.
+                # Without (a) the checker reports "Missing artifact"; once
+                # (a) is fixed it reports "Hash mismatch" on Windows. Both
+                # are the same regression class — startup gate fatals every
+                # subsequent run after the first basket run — and they must
+                # be resolved together.
+                if name.startswith("basket_code/"):
+                    artifact_path = run_folder / name
+                else:
+                    artifact_path = run_folder / "data" / name
                 if not artifact_path.exists():
                     corrupted.append(f"{run_folder.name}: Missing artifact {name}")
                     continue
-                
-                # Check hash
-                actual_hash = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+
+                # Check hash — branch on the artifact contract above.
+                if name.startswith("basket_code/"):
+                    # Local import: keeps verify_engine_integrity's
+                    # transitive deps off the module-import path; this
+                    # branch only fires once per basket run at startup.
+                    from tools.verify_engine_integrity import (
+                        canonical_sha256 as _canonical_sha256,
+                    )
+                    actual_hash = _canonical_sha256(artifact_path).lower()
+                else:
+                    actual_hash = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
                 if actual_hash != expected_hash:
                     corrupted.append(f"{run_folder.name}: Hash mismatch for {name}")
                     
