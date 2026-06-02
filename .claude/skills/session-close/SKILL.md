@@ -101,7 +101,6 @@ EPILOGUE — conditional (signal-gated):
   3.6  Skill-maintenance audit                ← SKILL.md modified in session commits
   3.9  Deferred Maintenance emission          ← always (writes Deferred Maintenance section)
   3.C  Active Charter sync                    ← charter heading present in SYSTEM_STATE
-  3.2  Document audit (manual review)         ← legacy; no auto-signal (Change C eligible)
   3.3  Artifact cleanup (/tmp, root)          ← legacy; partial overlap with /repo-cleanup-refactor (Change D eligible)
 ```
 
@@ -109,7 +108,7 @@ EPILOGUE — conditional (signal-gated):
 
 Numeric substeps are always-on; letter substeps are conditional. The
 ordering within Phase 3 interleaves them as shown above (3.1 → 3.A →
-3.B → 3.2 → … → 3.13).
+3.B → … → 3.13).
 
 > **Routing is not negotiable mid-execution.** If a Phase 3 step
 > uncovers a NEW reason to add work (e.g., commit reveals a stale
@@ -181,31 +180,6 @@ python tools/ledger_db.py --export
 - Regenerates `Strategy_Master_Filter.xlsx` and `Master_Portfolio_Sheet.xlsx`
 - Safe anytime — reads from DB, overwrites Excel
 - Use `--stats` to verify row counts before export
-
-### 3.2 Document audit
-
-Check whether any of these need updating based on today's work:
-
-| Document | Update if... |
-|---|---|
-| `AGENT.md` | New invariant, lifecycle change, or pipeline stage change |
-| `CLAUDE.md` | New topic that future sessions need to find |
-| `RESEARCH_MEMORY.md` | New research finding (Phase 4 — max 1 entry, human approval) |
-| `MEMORY.md` (`.claude/projects/`) | New gotcha, workflow, or persistent fact |
-| `outputs/system_reports/` | Stale doc found during session — fix or flag |
-| `.claude/skills/` | New or changed operational procedure |
-| `outputs/system_reports/INTENT_INDEX.yaml` | MISS cluster revealed a real coverage gap, OR a skill under `.claude/skills/` was renamed/added/removed |
-| `SYSTEM_STATE.md` `### Manual` section | **PRUNE** any entry resolved / superseded / struck-through / informational-only — see rule below |
-
-**`SYSTEM_STATE.md ### Manual` pruning rule:** the Manual block under
-`## Known Issues` is for **unresolved + operationally relevant** items
-only. Resolved entries (`~~strikethrough~~`, explicit "closed by commit
-...", "PASSED" status from completed phases, "now retired" /
-"superseded by ...") must be REMOVED — not archived. Git preserves
-history; `SYSTEM_STATE.md` is startup decision support, not historical
-record. While in this step, open the file, scan `### Manual`, remove
-anything that no longer affects the NEXT session's decisions. Edits
-land naturally — Phase 3.10 regen preserves the Manual section.
 
 ### 3.3 Artifact cleanup
 

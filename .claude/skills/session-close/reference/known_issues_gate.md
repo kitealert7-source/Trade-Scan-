@@ -44,7 +44,8 @@ past session-close on 2026-05-15.
   relevant only** — in-flight TDs, data quality notes, operational
   caveats the operator needs at next-session start. Resolved entries
   (`~~strikethrough~~`, "closed by commit ...", "PASSED" status from
-  completed phases, "superseded by ...") get REMOVED at session-close
-  §3.2 — not archived. Git preserves history; the file is startup
-  decision support, not historical documentation. Edit directly when
-  adding; the §3.2 audit handles the prune.
+  completed phases, "superseded by ...") get REMOVED during the periodic
+  `/repo-cleanup-refactor` §4c pass — not archived. Git preserves history;
+  the file is startup decision support, not historical documentation. Edit
+  directly when adding; `/repo-cleanup-refactor` §4c (cross-document
+  staleness) handles the prune.
