@@ -382,15 +382,37 @@ def _read_series(
     tf: str,
     lookback_days: int,
     methodology: str,
+    p_threshold: float | None = None,
 ) -> list[tuple[str, str]]:
+    """Return [(as_of, regime_label)] for the (pair, tf, lookback, methodology) cohort.
+
+    When ``p_threshold`` is None (default), uses the screener-precomputed
+    ``regime`` column (which encodes the screener's own p<0.05 threshold).
+    When set (e.g. 0.03 or 0.02), re-derives the regime label from the raw
+    ``adf_pvalue`` column: ``cointegrated`` iff ``adf_pvalue < p_threshold``.
+    The p-value is already stored at row creation time, so this is a pure
+    label re-derivation -- no screener re-run.
+    """
+    if p_threshold is None:
+        cur = conn.execute(
+            "SELECT as_of, regime FROM cointegration_daily "
+            "WHERE pair_a = ? AND pair_b = ? AND tf = ? AND lookback_days = ? "
+            "AND methodology_version = ? "
+            "ORDER BY as_of",
+            (pair_a, pair_b, tf, int(lookback_days), methodology),
+        )
+        return [(r[0], r[1]) for r in cur.fetchall()]
     cur = conn.execute(
-        "SELECT as_of, regime FROM cointegration_daily "
+        "SELECT as_of, adf_pvalue FROM cointegration_daily "
         "WHERE pair_a = ? AND pair_b = ? AND tf = ? AND lookback_days = ? "
         "AND methodology_version = ? "
         "ORDER BY as_of",
         (pair_a, pair_b, tf, int(lookback_days), methodology),
     )
-    return [(r[0], r[1]) for r in cur.fetchall()]
+    return [
+        (r[0], "cointegrated" if (r[1] is not None and r[1] < p_threshold) else "not_cointegrated")
+        for r in cur.fetchall()
+    ]
 
 
 def _render_directive(
@@ -398,17 +420,27 @@ def _render_directive(
     pair_b: str,
     entry_date: str,
     exit_date: str,
+    *,
+    p_tag: str = "",
 ) -> tuple[str, str]:
     """Return (filename_stem, yaml_body) for a single span.
 
     Filename + variant E-stamp are derived from entry_date (NOT onset),
     so the E-stamp encodes the look-ahead-safe entry boundary that the
     trader would actually act on.
+
+    ``p_tag`` (e.g. ``"_P03"``, ``"_P02"``) is spliced into the name and
+    variant after ``_L30`` to mark cohorts generated under a tighter
+    cointegration p-threshold than the screener default. Empty for the
+    baseline (screener-default p<0.05). Prevents directive-id collision
+    across cohorts when the same (pair, entry_date) tuple is produced by
+    multiple thresholds (same slot as existing exit-variant tokens such
+    as ``_ZBND`` / ``_ZCRS``).
     """
     bid = f"{pair_a}{pair_b}"
     yymmdd = _yymmdd(entry_date)
-    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30__E{yymmdd}"
-    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS_E{yymmdd}"
+    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}__E{yymmdd}"
+    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}_E{yymmdd}"
     body = TEMPLATE.format(
         name=name,
         start=entry_date,
@@ -426,6 +458,7 @@ def _verify_gate_compatibility(
     *,
     sample_indices: list[int] | None = None,
     db_path: Path | None = None,
+    p_tag: str = "",
 ) -> None:
     """Render sample directives and run them through evaluate_window_validity.
 
@@ -484,7 +517,7 @@ def _verify_gate_compatibility(
     try:
         for idx in sample_indices:
             pair_a, pair_b, entry_date, exit_date, ncoint = spans_per_pair[idx]
-            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date)
+            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag)
             tf_handle = tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, encoding="utf-8"
             )
@@ -528,6 +561,7 @@ def generate_directives(
     output_dir: Path | None = None,
     db_path: Path | None = None,
     dry_run: bool = False,
+    p_threshold: float | None = None,
 ) -> list[Path]:
     """Read cointegration_daily, enumerate look-ahead-safe spans, and emit
     one directive YAML per qualifying span.
@@ -552,6 +586,11 @@ def generate_directives(
         raise ValueError(f"N must be >= 0, got {N!r}")
     if lookback_days < 1:
         raise ValueError(f"lookback_days must be >= 1, got {lookback_days!r}")
+    if p_threshold is not None and not (0.0 < p_threshold < 1.0):
+        raise ValueError(f"p_threshold must lie in (0,1), got {p_threshold!r}")
+    # Encode p_threshold in directive name to prevent cohort collisions.
+    # _P05 is implicit (screener default); _P03 = p<0.03; _P02 = p<0.02; etc.
+    p_tag = "" if p_threshold is None else f"_P{int(round(p_threshold * 100)):02d}"
 
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
     db_path = Path(db_path) if db_path is not None else Path(SQLITE_DB)
@@ -568,7 +607,8 @@ def generate_directives(
         # (pair_a, pair_b, entry_date, exit_date, ncoint)
         for pair_a, pair_b in pairs:
             series = _read_series(
-                conn, pair_a, pair_b, tf, lookback_days, METHODOLOGY_VERSION
+                conn, pair_a, pair_b, tf, lookback_days, METHODOLOGY_VERSION,
+                p_threshold=p_threshold,
             )
             for entry_date, exit_date, ncoint in spans_confirmation_safe(series, N=N):
                 spans_per_pair.append(
@@ -591,12 +631,13 @@ def generate_directives(
     # Threads db_path through so the gate reads from the same DB the spans
     # were enumerated from (matters for tests using a tmp DB; in production
     # both default to cointegration.db).
-    _verify_gate_compatibility(spans_per_pair, db_path=db_path)
+    _verify_gate_compatibility(spans_per_pair, db_path=db_path, p_tag=p_tag)
 
+    p_tag_label = "screener-default p<0.05" if p_threshold is None else f"p<{p_threshold} ({p_tag} tag)"
     if dry_run:
         print(
             f"[summary] N={N}, lookback={lookback_days}, tf={tf}, "
-            f"methodology={METHODOLOGY_VERSION}, "
+            f"methodology={METHODOLOGY_VERSION}, p-threshold={p_tag_label}, "
             f"would write {len(spans_per_pair)} episodes across "
             f"{len(pairs_with_eps)} pairs"
         )
@@ -619,7 +660,7 @@ def generate_directives(
 
     written: list[Path] = []
     for pair_a, pair_b, entry_date, exit_date, _ncoint in spans_per_pair:
-        name, body = _render_directive(pair_a, pair_b, entry_date, exit_date)
+        name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag)
         out_path = output_dir / f"{name}.txt"
         out_path.write_text(body, encoding="utf-8")
         written.append(out_path)
@@ -627,7 +668,7 @@ def generate_directives(
     print(
         f"staged {len(written)} episode directives -> {output_dir} "
         f"(N={N}, lookback={lookback_days}, tf={tf}, "
-        f"methodology={METHODOLOGY_VERSION})"
+        f"methodology={METHODOLOGY_VERSION}, p-threshold={p_tag_label})"
     )
     print("by pair-class:")
     for k, v in sorted(cls_count.items(), key=lambda x: -x[1]):
@@ -693,6 +734,19 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print per-class summary + episode count, write NO files.",
     )
+    p.add_argument(
+        "--p-threshold",
+        type=float,
+        default=None,
+        help=(
+            "Custom p-value threshold for cointegration admission (e.g., 0.03 "
+            "or 0.02). Default: use the screener-precomputed regime label "
+            "(screener default p<0.05). When set, derives regime on-the-fly "
+            "from the stored adf_pvalue column; no screener re-run needed. "
+            "Encoded in directive name as _P03 / _P02 etc. to prevent cohort "
+            "collisions on the same (pair, entry_date)."
+        ),
+    )
     return p
 
 
@@ -705,6 +759,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=args.output_dir,
         db_path=args.db_path,
         dry_run=args.dry_run,
+        p_threshold=args.p_threshold,
     )
     return 0
 

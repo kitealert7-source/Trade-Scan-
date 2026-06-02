@@ -414,3 +414,212 @@ def test_verify_gate_compatibility_empty_spans_is_noop():
     """F.3 — empty span list = no-op, no exception, no DB read."""
     result = _verify_gate_compatibility([])
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Section G — custom p-threshold (2026-06-02: confirmation-window experiments)
+# ---------------------------------------------------------------------------
+#
+# The generator default reads the `regime` column directly (screener-default
+# threshold, p<0.05). With --p-threshold set, it re-derives `regime` on the fly
+# from the stored `adf_pvalue` column. Tests lock the contract:
+#   G.1 default (p_threshold=None) keeps reading the regime column unchanged
+#   G.2 a tighter threshold filters out borderline-cointegrated rows
+#   G.3 a non-tightening threshold (>= screener's) reproduces the default spans
+#   G.4 directive names carry the _P03 / _P02 tag to prevent cohort collisions
+#   G.5 invalid threshold values raise ValueError before any DB read
+
+
+def _seed_pair_with_pvalues(
+    db_path: Path,
+    pair_a: str,
+    pair_b: str,
+    rows: list[tuple[str, str, float]],  # (as_of, regime, adf_pvalue)
+    *,
+    tf: str = "1d",
+    lookback_days: int = 252,
+    methodology_version: str = "v2_log_eg",
+) -> None:
+    """Variant of ``_seed_pair`` that takes explicit per-row p-values.
+
+    Lets G-tests stage rows where the screener's recorded ``regime`` and
+    the raw ``adf_pvalue`` independently encode admissibility, so the
+    ``p_threshold`` filter path can be exercised against a known mix.
+    """
+    from tools.cointegration_db import DB_COLUMNS, TABLE_NAME
+    inserted_at = datetime.now(timezone.utc).isoformat()
+    cols = ", ".join(DB_COLUMNS)
+    placeholders = ", ".join(["?"] * len(DB_COLUMNS))
+    conn = sqlite3.connect(str(db_path))
+    try:
+        for as_of, regime, pvalue in rows:
+            row = (
+                as_of, pair_a, pair_b, tf, int(lookback_days),
+                as_of, as_of, int(lookback_days),
+                float(pvalue),
+                None, 0,
+                -3.5, 10.0, 1.5,
+                "ols_static", "eg_mackinnon",
+                0.5, regime, "synthetic-data-v1",
+                inserted_at, methodology_version,
+            )
+            conn.execute(
+                f"INSERT OR REPLACE INTO {TABLE_NAME} ({cols}) VALUES ({placeholders})",
+                row,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_p_threshold_default_uses_regime_column(tmp_coint_db, tmp_path):
+    """G.1: ``p_threshold=None`` (default) reads the ``regime`` column directly,
+    NOT the p-value. A row labelled 'cointegrated' with p=0.99 still qualifies.
+
+    This locks the default-path contract: existing behavior is byte-equivalent
+    for callers that don't pass ``--p-threshold``.
+    """
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    # 15 'cointegrated' rows with absurdly HIGH p-values (would fail any real
+    # threshold) + 3 'broken' rows. With p_threshold=None, the regime column
+    # alone determines admission -> one span as in test E.6.
+    rows = (
+        [(f"2024-01-{i:02d}", "cointegrated", 0.99) for i in range(1, 16)]
+        + [(f"2024-01-{i:02d}", "broken", 0.99) for i in range(16, 19)]
+    )
+    _seed_pair_with_pvalues(tmp_coint_db, pair_a, pair_b, rows)
+
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_default",
+        db_path=tmp_coint_db, dry_run=False,
+        p_threshold=None,  # default
+    )
+    assert len(written) == 1, (
+        f"default p_threshold=None must use regime column "
+        f"(ignoring p-values), expected 1 span, got {len(written)}"
+    )
+
+
+def test_p_threshold_filters_borderline_pvalues(tmp_coint_db, tmp_path):
+    """G.2: a TIGHTER threshold (e.g. 0.03) excludes rows the screener admitted
+    at p<0.05. The 'cointegrated'-labelled rows with p=0.04 are filtered out;
+    only the p<0.03 sub-series remains cointegrated -> fewer/no spans.
+
+    This locks the on-the-fly re-derivation contract: ``regime = cointegrated
+    iff adf_pvalue < p_threshold`` is what gets fed into ``spans_confirmation_safe``.
+    """
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    # All 18 rows are 'cointegrated' per the screener's column, but their
+    # p-values straddle 0.03. Under p_threshold=0.03 only rows with p<0.03
+    # count -- which in this layout is days 1-8 (p=0.01), then day 9 onward
+    # have p=0.04 -> filtered out -> only the first run of cointegrated days
+    # survives. With days 1-8 'cointegrated' at p<0.03 and day 9+ effectively
+    # 'not_cointegrated', spans_confirmation_safe at N=5 finds one span
+    # (entry=day 7, exit=day 8) per E.1.
+    rows = (
+        [(f"2024-01-{i:02d}", "cointegrated", 0.01) for i in range(1, 9)]
+        + [(f"2024-01-{i:02d}", "cointegrated", 0.04) for i in range(9, 19)]
+    )
+    _seed_pair_with_pvalues(tmp_coint_db, pair_a, pair_b, rows)
+
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_filtered",
+        db_path=tmp_coint_db, dry_run=False,
+        p_threshold=0.03,
+    )
+    assert len(written) == 1, (
+        f"with p_threshold=0.03 only the p<0.03 prefix should remain "
+        f"cointegrated; expected 1 span, got {len(written)}"
+    )
+
+
+def test_p_threshold_loose_reproduces_regime_column(tmp_coint_db, tmp_path):
+    """G.3: a threshold that admits ALL the cointegrated-labelled rows but
+    NONE of the broken ones reproduces the screener-default span set.
+
+    Critical: the regime column and the on-the-fly re-derivation must AGREE
+    on every row, otherwise the window_validity_gate (which reads the
+    stored regime column directly to validate end_date containment) will
+    reject the directive. So 'loose' here means "above all cointegrated
+    rows' p-values, below all broken rows' p-values". With p_threshold
+    inside the [coint_max, broken_min) interval, results match the
+    regime-column path.
+    """
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    rows = (
+        [(f"2024-01-{i:02d}", "cointegrated", 0.01) for i in range(1, 16)]
+        + [(f"2024-01-{i:02d}", "broken", 0.50) for i in range(16, 19)]
+    )
+    _seed_pair_with_pvalues(tmp_coint_db, pair_a, pair_b, rows)
+
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_loose",
+        db_path=tmp_coint_db, dry_run=False,
+        p_threshold=0.10,  # admits coint rows (0.01) but excludes broken (0.50)
+    )
+    assert len(written) == 1, (
+        f"with p_threshold=0.10 the 15-row coint prefix qualifies; broken "
+        f"rows at p=0.50 are excluded; one span should emerge as in E.6; "
+        f"got {len(written)}"
+    )
+
+
+def test_p_threshold_encodes_in_directive_name(tmp_coint_db, tmp_path):
+    """G.4: directive filename + test.name carry the _P03 / _P02 tag.
+
+    Critical for cohort isolation: without this, p<0.05 and p<0.03
+    directives that happen to land on the same (pair, entry_date) would
+    collide in INBOX and the directive-id-set aggregation would conflate
+    cohorts.
+    """
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    rows = (
+        [(f"2024-01-{i:02d}", "cointegrated", 0.01) for i in range(1, 16)]
+        + [(f"2024-01-{i:02d}", "broken", 0.50) for i in range(16, 19)]
+    )
+    _seed_pair_with_pvalues(tmp_coint_db, pair_a, pair_b, rows)
+
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_tag03",
+        db_path=tmp_coint_db, dry_run=False,
+        p_threshold=0.03,
+    )
+    assert len(written) == 1
+    name = Path(written[0]).stem
+    assert "_L30_P03__E" in name, (
+        f"name must splice _P03 between _L30 and __E (cohort-isolation tag), "
+        f"got {name!r}"
+    )
+    parsed = yaml.safe_load(Path(written[0]).read_text(encoding="utf-8"))
+    assert "_L30_P03__E" in parsed["test"]["name"], (
+        f"test.name inside the YAML body must also carry the tag, "
+        f"got {parsed['test']['name']!r}"
+    )
+
+    # And independently with 0.02 -> _P02
+    written2 = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_tag02",
+        db_path=tmp_coint_db, dry_run=False,
+        p_threshold=0.02,
+    )
+    assert len(written2) == 1
+    assert "_L30_P02__E" in Path(written2[0]).stem
+
+
+@pytest.mark.parametrize("bad", [0.0, 1.0, -0.01, 1.5, 2.0])
+def test_p_threshold_invalid_raises(tmp_coint_db, tmp_path, bad):
+    """G.5: a p_threshold outside (0, 1) raises ValueError before any DB
+    read, naming the bad value. Locks the boundary check.
+    """
+    with pytest.raises(ValueError, match="p_threshold"):
+        generate_directives(
+            tf="1d", lookback_days=252, N=5,
+            output_dir=tmp_path / "out_bad",
+            db_path=tmp_coint_db, dry_run=True,
+            p_threshold=bad,
+        )
