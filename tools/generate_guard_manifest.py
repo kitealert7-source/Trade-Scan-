@@ -73,6 +73,15 @@ GUARD_FILES = [
     # change to this rule could let corrupt run artifacts pass the gate, so an
     # unreviewed edit must freeze execution until the manifest is re-blessed.
     "manifest_verification.py",
+    # The hashing primitive itself: verify_engine_integrity.canonical_sha256 is
+    # what verify_tools_timestamp_guard (run_pipeline:2068, every pipeline run)
+    # uses to hash-verify every OTHER file in this set — plus it is the engine
+    # integrity verifier. It meets the criterion most strongly yet was the only
+    # integrity file not guarded by the mechanism it underpins (resolved
+    # 2026-06-02). Caveat: self-guarding via its own hasher defends against
+    # accidental/unreviewed edits (the documented threat model: "silent change
+    # must freeze execution"), NOT a malicious rewrite of canonical_sha256.
+    "verify_engine_integrity.py",
     # ── Basket execution path (added 2026-06-01; dispatched by
     #    run_pipeline._try_basket_dispatch). The basket analogue of the
     #    single-strategy spine: orchestrator + engine + leg-data loader +
