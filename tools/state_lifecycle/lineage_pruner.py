@@ -238,7 +238,9 @@ def _cointegration_keep_info() -> dict[str, tuple[str, str]]:
     """Current cointegration_sheet run_ids -> (directive_id, basket_id).
 
     DB-sourced: the xlsx Cointegration tab is a projected human view that drops
-    run_id/directive_id, so the keep-set must read the source-of-truth DB.
+    run_id/directive_id, so the keep-set must read the source-of-truth DB. The
+    "COINT TRADE CANDIDATES" tab is a further pair-grain render of the same
+    table — also a projection, not independently pruned (covered via the DB).
     basket_id is recovered from the backtests_path basename (the run folder is
     "<directive_id>_<basket_id>"). Cointegration runs live in
     backtests/<directive_id>_<basket_id>/ like baskets, so they get the same

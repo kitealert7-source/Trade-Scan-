@@ -63,6 +63,9 @@ STRATEGIES_DIR = STATE_ROOT / "strategies"
 # Cointegration ledger is DB-canonical (the "Cointegration" MPS tab is a lossy
 # one-way view that drops run_id) — so the coint drop arm reads/deletes the DB
 # table, unlike the xlsx-driven Baskets arm. Module-level so tests can patch it.
+# The "COINT TRADE CANDIDATES" MPS tab is likewise a pure pair-grain render of
+# cointegration_sheet (one row per pair, no independent rows) — regenerated on
+# export, never pruned/repaired here; managing the coint table covers it.
 LEDGER_DB_PATH = STATE_ROOT / "ledger.db"
 
 # Sheets read + rewritten in MPS. Baskets uses single run_id orphan detection
