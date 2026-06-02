@@ -161,13 +161,43 @@ class PreflightCheck:
                 continue
 
             # Step 3: Manifest Hash
+            #
+            # Mirror the artifact contract enforced by the authoritative
+            # startup gate run_pipeline.verify_manifest_integrity (PR #1,
+            # commit 3f9dc9e). TWO splits apply per artifact entry:
+            #   (a) PATH BASIS — basket_code/ snapshots live at run_folder
+            #       root; every other artifact lives under data/.
+            #   (b) HASH BASIS — basket_code/ entries record LF-canonical
+            #       sha256 (basket_provenance.canonical_sha256, stable across
+            #       OS line-end rendering); data/ entries are raw binary
+            #       artifacts where raw byte sha256 is correct.
+            # Without this split preflight resolves basket_code/ entries under
+            # data/ (reports them Missing) and would raw-hash them on a CRLF
+            # Windows checkout (Hash mismatch) — false-RED'ing every basket run
+            # while the real pipeline gate passes them. Regression test:
+            # tests/test_preflight_basket_manifest_path.py.
             m_path = run_folder / "manifest.json"
             try:
                 manifest = json.loads(m_path.read_text(encoding="utf-8"))
                 artifacts = manifest.get("artifacts", {})
                 for name, expected in artifacts.items():
-                    p = run_folder / "data" / name
-                    if not p.exists() or get_hash(p) != expected:
+                    if name.startswith("basket_code/"):
+                        p = run_folder / name
+                    else:
+                        p = run_folder / "data" / name
+                    if not p.exists():
+                        corrupt_count += 1
+                        break
+                    if name.startswith("basket_code/"):
+                        # Local import keeps verify_engine_integrity's
+                        # transitive deps off preflight's module-import path.
+                        from tools.verify_engine_integrity import (
+                            canonical_sha256 as _canonical_sha256,
+                        )
+                        actual = _canonical_sha256(p).lower()
+                    else:
+                        actual = get_hash(p)
+                    if actual != expected:
                         corrupt_count += 1
                         break
             except Exception:
