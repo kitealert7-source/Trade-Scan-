@@ -167,15 +167,12 @@ def patch_yaml(yaml_path, findings):
         if old_val != patch["contract_size"]:
             patches_applied.append(f"contract_size: {old_val} -> {patch['contract_size']}")
 
-    if "usd_pnl_per_pu_0p01" in patch:
-        old_val = data.get("calibration", {}).get("usd_pnl_per_price_unit_0p01")
-        if "calibration" not in data:
-            data["calibration"] = {}
-        data["calibration"]["usd_pnl_per_price_unit_0p01"] = patch["usd_pnl_per_pu_0p01"]
-        if old_val != patch["usd_pnl_per_pu_0p01"]:
-            patches_applied.append(
-                f"calibration.usd_pnl_per_price_unit_0p01: {old_val} -> {patch['usd_pnl_per_pu_0p01']}"
-            )
+    # NOTE: usd_pnl_per_price_unit_0p01 is intentionally NOT patched from the
+    # MT5 `derived_usd_pnl_per_pu_0p01` field here. It is derived from
+    # usd_per_pu_per_lot below (invariant: == usd_per_pu_per_lot * 0.01, same as
+    # create_yaml_from_mt5 and relied on by capital_wrapper / simulation).
+    # Patching it from a separate MT5 field on a different (>15%-drift) cadence
+    # than usd_per_pu_per_lot was the cause of sibling-field drift between them.
 
     if "min_lot" in patch:
         old_val = data.get("min_lot")
@@ -222,6 +219,15 @@ def patch_yaml(yaml_path, findings):
     if mt5_usd_per_pu is not None:
         data["calibration"]["usd_per_pu_per_lot"] = mt5_usd_per_pu
         patches_applied.append(f"calibration.usd_per_pu_per_lot: {mt5_usd_per_pu}")
+        # Enforce invariant: usd_pnl_per_price_unit_0p01 == usd_per_pu_per_lot * 0.01
+        # (matches create_yaml_from_mt5; relied on by capital_wrapper / simulation).
+        derived_0p01 = round(float(mt5_usd_per_pu) * 0.01, 6)
+        old_0p01 = data["calibration"].get("usd_pnl_per_price_unit_0p01")
+        data["calibration"]["usd_pnl_per_price_unit_0p01"] = derived_0p01
+        if old_0p01 != derived_0p01:
+            patches_applied.append(
+                f"calibration.usd_pnl_per_price_unit_0p01: {old_0p01} -> {derived_0p01}"
+            )
 
     # Add digits from MT5
     mt5_digits = findings["mt5"].get("digits")
