@@ -1,8 +1,10 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: 2 symbol(s) stale (>3 days behind)
+- WARNING: Working tree 2271 uncommitted
 
-> Generated: 2026-06-01T15:28:32Z
+> Generated: 2026-06-02T09:27:35Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +13,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 1126 directives
+- Completed: 3397 directives
 
 ## Ledgers
 
@@ -31,15 +33,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-06-01** | Symbols: 221
+- Latest bar: **2026-06-02** | Symbols: 221 | **Stale (>3d): 2**
 
 ## Artifacts
-- Run directories: 2037
+- Run directories: 4301
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `7460fb5 Merge #2: directive co-location + enforcement`
+- Working tree: 2271 uncommitted
+- Last substantive commit: `1026494 research: cointegration confirmation-window + p-threshold experiment artifacts`
 
 ## Deferred Maintenance
 
