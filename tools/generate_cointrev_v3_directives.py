@@ -422,6 +422,7 @@ def _render_directive(
     exit_date: str,
     *,
     p_tag: str = "",
+    n_tag: str = "",
 ) -> tuple[str, str]:
     """Return (filename_stem, yaml_body) for a single span.
 
@@ -429,18 +430,19 @@ def _render_directive(
     so the E-stamp encodes the look-ahead-safe entry boundary that the
     trader would actually act on.
 
-    ``p_tag`` (e.g. ``"_P03"``, ``"_P02"``) is spliced into the name and
-    variant after ``_L30`` to mark cohorts generated under a tighter
-    cointegration p-threshold than the screener default. Empty for the
-    baseline (screener-default p<0.05). Prevents directive-id collision
-    across cohorts when the same (pair, entry_date) tuple is produced by
-    multiple thresholds (same slot as existing exit-variant tokens such
-    as ``_ZBND`` / ``_ZCRS``).
+    ``p_tag`` (e.g. ``"_P03"``, ``"_P02"``) and ``n_tag`` (e.g. ``"_N0"``) are
+    spliced into the name and variant after ``_L30`` to mark cohorts generated
+    under a tighter cointegration p-threshold and/or a non-default confirmation
+    window N. Both empty for the baseline (screener-default p<0.05, N=5). They
+    prevent directive-id collision across cohorts when the same (pair,
+    entry_date) tuple is produced by multiple thresholds or N values (same slot
+    as existing exit-variant tokens such as ``_ZBND`` / ``_ZCRS``). Order is
+    ``{p_tag}{n_tag}`` -> e.g. ``_L30_P01_N0``.
     """
     bid = f"{pair_a}{pair_b}"
     yymmdd = _yymmdd(entry_date)
-    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}__E{yymmdd}"
-    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}_E{yymmdd}"
+    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}{n_tag}__E{yymmdd}"
+    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}{n_tag}_E{yymmdd}"
     body = TEMPLATE.format(
         name=name,
         start=entry_date,
@@ -459,6 +461,7 @@ def _verify_gate_compatibility(
     sample_indices: list[int] | None = None,
     db_path: Path | None = None,
     p_tag: str = "",
+    n_tag: str = "",
 ) -> None:
     """Render sample directives and run them through evaluate_window_validity.
 
@@ -517,7 +520,7 @@ def _verify_gate_compatibility(
     try:
         for idx in sample_indices:
             pair_a, pair_b, entry_date, exit_date, ncoint = spans_per_pair[idx]
-            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag)
+            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag)
             tf_handle = tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, encoding="utf-8"
             )
@@ -591,6 +594,10 @@ def generate_directives(
     # Encode p_threshold in directive name to prevent cohort collisions.
     # _P05 is implicit (screener default); _P03 = p<0.03; _P02 = p<0.02; etc.
     p_tag = "" if p_threshold is None else f"_P{int(round(p_threshold * 100)):02d}"
+    # Encode non-default confirmation N the same way: N=5 (default) -> no tag,
+    # so existing N=5 cohorts keep their stems; N=0 -> _N0. Same variant slot
+    # and collision-prevention role as p_tag.
+    n_tag = "" if N == DEFAULT_CONFIRMATION_N else f"_N{N}"
 
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
     db_path = Path(db_path) if db_path is not None else Path(SQLITE_DB)
@@ -631,7 +638,7 @@ def generate_directives(
     # Threads db_path through so the gate reads from the same DB the spans
     # were enumerated from (matters for tests using a tmp DB; in production
     # both default to cointegration.db).
-    _verify_gate_compatibility(spans_per_pair, db_path=db_path, p_tag=p_tag)
+    _verify_gate_compatibility(spans_per_pair, db_path=db_path, p_tag=p_tag, n_tag=n_tag)
 
     p_tag_label = "screener-default p<0.05" if p_threshold is None else f"p<{p_threshold} ({p_tag} tag)"
     if dry_run:
@@ -660,7 +667,7 @@ def generate_directives(
 
     written: list[Path] = []
     for pair_a, pair_b, entry_date, exit_date, _ncoint in spans_per_pair:
-        name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag)
+        name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag)
         out_path = output_dir / f"{name}.txt"
         out_path.write_text(body, encoding="utf-8")
         written.append(out_path)

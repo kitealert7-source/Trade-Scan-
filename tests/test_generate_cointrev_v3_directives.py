@@ -611,6 +611,52 @@ def test_p_threshold_encodes_in_directive_name(tmp_coint_db, tmp_path):
     assert "_L30_P02__E" in Path(written2[0]).stem
 
 
+def test_confirmation_n_encodes_in_directive_name(tmp_coint_db, tmp_path):
+    """G.6: a non-default confirmation N carries the _N tag for cohort isolation
+    (mirrors the _P p-threshold tag); default N=5 carries NO _N tag so existing
+    N=5 cohort stems are preserved. Combined with a p-threshold the order is
+    _P01_N0 -> ..._L30_P01_N0__E...
+    """
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    rows = (
+        [(f"2024-01-{i:02d}", "cointegrated", 0.005) for i in range(1, 16)]
+        + [(f"2024-01-{i:02d}", "broken", 0.50) for i in range(16, 19)]
+    )
+    _seed_pair_with_pvalues(tmp_coint_db, pair_a, pair_b, rows)
+
+    # N=0 + p<0.01 -> stem + test.name + variant carry _P01_N0 (p_tag then n_tag).
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=0,
+        output_dir=tmp_path / "out_p01_n0",
+        db_path=tmp_coint_db, dry_run=False, p_threshold=0.01,
+    )
+    assert len(written) >= 1
+    name = Path(written[0]).stem
+    assert "_L30_P01_N0__E" in name, (
+        f"non-default N must splice _N0 after the p-tag (cohort isolation), "
+        f"got {name!r}"
+    )
+    parsed = yaml.safe_load(Path(written[0]).read_text(encoding="utf-8"))
+    assert "_L30_P01_N0__E" in parsed["test"]["name"]
+    assert "_P01_N0" in parsed["test"]["hypothesis_variant"]
+
+    # N=0 alone (no p-threshold) -> _N0 only: ..._L30_N0__E...
+    written_n0 = generate_directives(
+        tf="1d", lookback_days=252, N=0,
+        output_dir=tmp_path / "out_n0",
+        db_path=tmp_coint_db, dry_run=False, p_threshold=None,
+    )
+    assert "_L30_N0__E" in Path(written_n0[0]).stem
+
+    # Default N=5 -> NO _N tag: existing cohort stem ..._L30_P01__E... unchanged.
+    written_n5 = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_n5",
+        db_path=tmp_coint_db, dry_run=False, p_threshold=0.01,
+    )
+    assert "_L30_P01__E" in Path(written_n5[0]).stem
+
+
 @pytest.mark.parametrize("bad", [0.0, 1.0, -0.01, 1.5, 2.0])
 def test_p_threshold_invalid_raises(tmp_coint_db, tmp_path, bad):
     """G.5: a p_threshold outside (0, 1) raises ValueError before any DB
