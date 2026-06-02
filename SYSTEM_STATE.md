@@ -2,9 +2,9 @@
 
 ## SESSION STATUS: WARNING
 - WARNING: 2 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 2271 uncommitted
+- WARNING: Working tree 2978 uncommitted
 
-> Generated: 2026-06-02T09:27:35Z
+> Generated: 2026-06-02T14:44:14Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,7 +13,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 3397 directives
+- Completed: 4104 directives
 
 ## Ledgers
 
@@ -36,12 +36,12 @@
 - Latest bar: **2026-06-02** | Symbols: 221 | **Stale (>3d): 2**
 
 ## Artifacts
-- Run directories: 4301
+- Run directories: 4999
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 2271 uncommitted
-- Last substantive commit: `1026494 research: cointegration confirmation-window + p-threshold experiment artifacts`
+- Working tree: 2978 uncommitted
+- Last substantive commit: `b16b5864 fix(lifecycle): document COINT TRADE CANDIDATES tab in state-lifecycle tools`
 
 ## Deferred Maintenance
 
