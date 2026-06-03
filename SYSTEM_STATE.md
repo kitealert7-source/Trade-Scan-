@@ -1,10 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: 2 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-06-02T16:17:19Z
+> Generated: 2026-06-03T17:52:15Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -26,22 +24,22 @@
 - **Candidates (FPS):** 381 rows — CORE: 15, FAIL: 242, RESERVE: 26, WATCH: 98
 
 ## Portfolio (TS_Execution)
-- **Total entries:** 9 | **Enabled:** 9
-- LIVE: 9 | RETIRED: 0 | LEGACY: 0
+- **Total entries:** 0 | **Enabled:** 0
+- LIVE: 0 | RETIRED: 0 | LEGACY: 0
 
 ## Vault (DRY_RUN_VAULT)
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-06-02** | Symbols: 221 | **Stale (>3d): 2**
+- Latest bar: **2026-06-03** | Symbols: 221
 
 ## Artifacts
 - Run directories: 4999
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `d213c156 guard: add verify_engine_integrity to Critical Guard Set (20 -> 21)`
+- Working tree: clean
+- Last substantive commit: `13228f7f feat(sizing): opt-in leg sizing_mode harness for cointegration baskets (default unchanged)`
 
 ## Deferred Maintenance
 
@@ -62,6 +60,7 @@
 
 - [MONITOR] conclusion-write-path provenance gate — `research_memory_append` accepts an unvalidated run_id and auto-memory is ungated (AGENT.md Invariant #31 is STOP-doctrine, NOT yet mechanically gated for conclusions). Promote to BUILD only after >=1 operational gate-shakeout session (per the advisory-to-enforced standing directive). First seen 2026-05-29.
 - [NEXT-FOCUS] Lifecycle granularity-mismatch — WORKING HYPOTHESIS (analysis-only, NO remedy decided): lifecycle burden originates from arc-level intent expressed at artifact level; high-fan-out arcs amplify one decision into 100-1000+ actions. Full evidence in auto-memory `project_lifecycle_granularity_mismatch.md`. Next session's question: smallest mechanisms to reduce decision fan-out without a new state system. Start from this framing, not lineage-contamination. (first seen 2026-05-29)
+- [NEXT-FOCUS — sizing] Leg `sizing_mode` harness landed (opt-in; default notional byte-unchanged; commit `13228f7f`). β-sizing PROVISIONAL **wash** (leverage on clean-β IDX-IDX; FX/CROSS β unusable; vol_parity dropped). Full pipeline settle pending a **clean-window path** (generate-fresh OR filter-to-valid; historical re-run blocked by cointegration-regime + broker-spec drift → in-batch control required). Detail: auto-memory `project_cointegration_leg_sizing_experiment`. (first seen 2026-06-03)
 <!-- [SIZE] auto-memory MEMORY.md — DONE 2026-05-31: /anthropic-skills:consolidate-memory ran as Infra Priority 1 at session start. Re-add when next cap-near event surfaces. -->
 - [RETRO] Session retro 2026-05-30 — 9 findings parked as a durable report at `outputs/session_retros/SESSION_RETRO_2026-05-30.md`. 8/9 dispositioned 2026-05-31 (F1 built, F2/F3/R2/MO1 memory, MO2 cross-link, R1+Res1 proposal-only doc). HIGH ROI (F1) shipped: gate-verify step in corpus generation (commit `f948415`). Companion snapshot: `outputs/system_reports/06_strategy_research/COINTEGRATION_V1_TO_V2_TRANSITION.md`.
 - [DONE 2026-05-31] Warmup pre-extension wired into basket pipeline — commit `cb9e180`. `BasketRule.required_warmup_bars()` Protocol method + `PineRatioZRevRule` override (`2 * n_window` absolute / `n_window + n_meta` centered, mechanism-derived); `basket_data_loader.leg_warmup_bars` + `BasketRunner.warmup_bars` with engine-path mute + fast-path open-shift; pipeline wires both via single source of truth. 14 tests pass. Recovery run landed 14/15 of the originally-silent-skip directives (1 holdout = no-per-bar-parquet ledger-writer skip, separate class). v2 ledger 473 → 487. Byte-equivalence on long-window baseline: +0.5% trade-count drift (correctness fix, not break). Snapshot doc updated.
