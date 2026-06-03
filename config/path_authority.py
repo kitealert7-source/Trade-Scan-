@@ -43,7 +43,6 @@ __all__ = [
     "TS_EXECUTION",
     "DRY_RUN_VAULT",
     "ANTI_GRAVITY_DATA_ROOT",
-    "VALIDATION_DATASET",
     "DATA_INGRESS",
     # Shared data layer (anchored on REAL_REPO_ROOT, not WORKTREE_ROOT)
     "DATA_ROOT",
@@ -133,10 +132,9 @@ DRY_RUN_VAULT: Path = _resolve_sibling("DRY_RUN_VAULT", "DRY_RUN_VAULT_ROOT")
 ANTI_GRAVITY_DATA_ROOT: Path = _resolve_sibling(
     "Anti_Gravity_DATA_ROOT", "ANTI_GRAVITY_DATA_ROOT"
 )
-# Immutable frozen corpus root — sibling to DRY_RUN_VAULT (Section 1m, Phase 7a.0).
-# Each corpus is a subdirectory: VALIDATION_DATASET/{corpus_id}/ with manifest.json.
-# Never create a junction or symlink pointing at this path — Section 1m-iii.
-VALIDATION_DATASET: Path = _resolve_sibling("VALIDATION_DATASET", "VALIDATION_DATASET_ROOT")
+# VALIDATION_DATASET removed 2026-06-03 — H2 Phase-7a validator track retired;
+# frozen corpus archived to Documents/Archive/. See H2_ENGINE_PROMOTION_PLAN.md
+# (validator sections marked RETIRED).
 
 # Data ingestion repo. tools/refresh_freshness_index.py needs the symbol universe
 # (config/symbol_universe.json) and the builder module (engines/ops/build_freshness_index.py).

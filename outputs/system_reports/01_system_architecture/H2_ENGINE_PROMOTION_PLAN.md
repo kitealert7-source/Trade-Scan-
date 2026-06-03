@@ -5,6 +5,22 @@
 **Date:** 2026-05-13.
 **Approval status:** human-approved as executable architecture.
 
+> **PARTIAL RETIREMENT (2026-06-03) — signal-validator track RETIRED.**
+> Phases 6, 7a.0, 7a, 7b, 8, 8.5 and the corpus-governance sections (1m / 1m-i /
+> 1m-ii / 1m-iii / 6.9) are no longer pursued. **Rationale:** the validator's job is
+> **execution fidelity** (are the signals a strategy fires executed faithfully?), NOT
+> re-validating a strategy in live/paper mode — strategy validation is the **backtest's**
+> job. The Phase-7a replay's "100% hard_fail" was the symptom of that category error
+> (2024 vault baselines vs 2026 live signals can never hash-match).
+> **Decommissioned 2026-06-03:** `TS_SignalValidator` + `VALIDATION_DATASET` (archived
+> to `Documents/Archive/`); `tools/corpus_audit.py` + `tools/replay_shadow_journal_reference.py`
+> (archived to `archive/`); the corpus_audit pre-commit gate + the `path_authority`
+> `VALIDATION_DATASET` entry (removed). **`TS_SIGNAL_STATE` is RETAINED** (empty state-root
+> skeleton) — it is the documented `h2_live` state root for the kept basket family; its
+> disposition is pending the basket-live-execution decision.
+> **STILL ACTIVE (NOT retired):** Phase 0a `engine_abi.v1_5_9` (production engine) and
+> the basket/RECYCLE family (Phases 1–5).
+
 **Change log:**
 - v11 (2026-05-13): TS_Execution was intentionally migrated to `engine_abi.v1_5_9` in a parallel session, collapsing the dual-ABI arrangement to a single ABI. `engine_abi/v1_5_3/` package, `governance/engine_abi_v1_5_3_manifest.yaml`, `tests/test_engine_abi_v1_5_3.py`, and v1_5_3 references in `tools/abi_audit.py` + `.github/workflows/abi_audit.yml` + `tools/hooks/pre-commit` retired. Section 1l rewritten, Section 5.12 simplified, Phase 0a steps consolidated. No other architectural changes — corpus, decision protocol, phase map, and validator design are unchanged from v10. Recon record archived to `archive/2026-05-13_phase0a_v1_5_3_retirement/`.
 - v10 (2026-05-13): Dual ABI for engine version isolation + link/junction prohibition on VALIDATION_DATASET.

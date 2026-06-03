@@ -44,8 +44,6 @@ For each in-flight process, identify the paths it reads/writes. Common cases:
 
 | In-flight process | Don't-touch paths |
 |---|---|
-| TS_SignalValidator validator | `TS_SIGNAL_STATE/decisions/<vault>/`, `TS_SIGNAL_STATE/heartbeats/<vault>/`, `VALIDATION_DATASET/<corpus>/` (read-only) |
-| Heartbeat staleness monitor | `TS_SIGNAL_STATE/events/stale_heartbeat.jsonl` (write) |
 | basket_pipeline live runner | `TS_SIGNAL_STATE/h2_live/actions.jsonl` (write), `DRY_RUN_VAULT/baskets/<dir_id>/` (read) |
 | TS_Execution H2 shim | `TS_SIGNAL_STATE/h2_live/executions.jsonl` (write) |
 | Pipeline run | `TradeScan_State/runs/<run_id>/`, `TradeScan_State/backtests/<dir>/` |
