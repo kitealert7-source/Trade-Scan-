@@ -106,7 +106,11 @@ class PineRatioZRevRule(H2RecycleRule):
     beta_cap_hi: float = 4.0
     target_risk_usd: float = 1000.0    # per-leg USD risk target (vol_parity)
     atr_window: int = 14               # ATR window (vol_parity)
-    coint_beta_column: str = "coint_beta_at_trigger"
+    # Dense DAILY hedge ratio (ffilled to every bar), NOT the sparse
+    # coint_beta_at_trigger (populated only on coint-trigger bars, which the
+    # pine signal does not enter on => NaN => fallback everywhere). Pilot
+    # 2026-06-03 caught beta_capped going inert with the trigger column.
+    coint_beta_column: str = "coint_hedge_ratio"
 
     # Leg column the rule will attach
     signal_column: str = "pine_zrev_signal"
