@@ -89,6 +89,25 @@ class PineRatioZRevRule(H2RecycleRule):
     # Default 10000 matches Pine Strategy's `notional = 10000` default.
     target_notional_per_leg_usd: float = 10000.0
 
+    # --- Leg-sizing mode (2026-06-02 sizing bake-off) ---
+    # Default "notional" preserves the notional-balanced behavior byte-for-byte
+    # (parity gate). Alternatives are evaluated full-universe, pilot-first.
+    #   notional    : equal $-notional per leg (control / default)
+    #   vol_parity  : equal USD risk per leg, lot prop. to 1/(ATR x usd_per_pu)
+    #   beta_capped : cointegration-beta-weighted (coint_beta_at_trigger),
+    #                 applied ONLY when beta in [beta_cap_lo, beta_cap_hi]
+    #                 (cap_lo>0 also excludes negative beta); otherwise FALLS
+    #                 BACK to notional for that trade (no fabricated hedge; a
+    #                 long/short spread cannot use a negative hedge ratio).
+    #                 ~30% of FX/CROSS triggers have beta<0 (design-challenge
+    #                 2026-06-02) -> they fall back, by design.
+    sizing_mode: str = "notional"
+    beta_cap_lo: float = 0.25
+    beta_cap_hi: float = 4.0
+    target_risk_usd: float = 1000.0    # per-leg USD risk target (vol_parity)
+    atr_window: int = 14               # ATR window (vol_parity)
+    coint_beta_column: str = "coint_beta_at_trigger"
+
     # Leg column the rule will attach
     signal_column: str = "pine_zrev_signal"
     r_bar_column: str = "pine_zrev_r_bar"
@@ -402,6 +421,53 @@ class PineRatioZRevRule(H2RecycleRule):
         self._emit_record(legs, i, bar_ts, bar_closes, leg_float, floating_total,
                           skip_reason="HOLDING")
 
+    # ---- Leg-sizing helpers (sizing_mode bake-off, 2026-06-02) -----------
+
+    def _vol_parity_lots(self, legs, bar_ts, notional_lots, specs_by_sym):
+        """Equal-USD-risk sizing: lot_i = target_risk_usd / (ATR_i * usd_per_pu_i),
+        rounded down to lot_step and floored at min_lot. ATR via the canonical
+        indicators.volatility.atr module (Inv 9 - no inline indicator logic).
+        Per-leg fallback to the notional lot when ATR is unavailable (warmup NaN
+        or non-positive)."""
+        from indicators.volatility.atr import atr as _atr
+        lots: dict[str, float] = {}
+        for leg in legs:
+            spec = specs_by_sym[leg.symbol]
+            try:
+                atr_now = float(_atr(leg.df, self.atr_window).loc[bar_ts])
+            except Exception:
+                atr_now = float("nan")
+            if not (atr_now > 0):
+                lots[leg.symbol] = notional_lots[leg.symbol]
+                continue
+            raw_lot = self.target_risk_usd / (atr_now * spec["usd_per_pu"])
+            lots[leg.symbol] = max(spec["min_lot"], int(raw_lot / spec["lot_step"]) * spec["lot_step"])
+        return lots
+
+    def _beta_capped_lots(self, legs, bar_ts, notional_lots, specs_by_sym):
+        """Cointegration-beta-weighted sizing via _compute_neutral_basket, used
+        ONLY when coint_beta_at_trigger is in [beta_cap_lo, beta_cap_hi]
+        (cap_lo>0 also excludes beta<=0 and NaN). Otherwise the whole basket
+        falls back to notional for this trade - a long/short spread cannot use a
+        negative hedge ratio, and ~30% of FX/CROSS triggers have beta<0
+        (design-challenge 2026-06-02)."""
+        try:
+            beta = float(legs[0].df.loc[bar_ts, self.coint_beta_column])
+        except Exception:
+            beta = float("nan")
+        if not (self.beta_cap_lo <= beta <= self.beta_cap_hi):
+            return dict(notional_lots)
+        from tools.cointegration_excel import _compute_neutral_basket
+        sym_a, sym_b = sorted([legs[0].symbol, legs[1].symbol])
+        lot_a, lot_b = _compute_neutral_basket(sym_a, sym_b, beta)
+        if not lot_a or not lot_b or lot_a <= 0 or lot_b <= 0:
+            return dict(notional_lots)
+        out: dict[str, float] = {}
+        for sym, lot in ((sym_a, lot_a), (sym_b, lot_b)):
+            spec = specs_by_sym[sym]
+            out[sym] = max(spec["min_lot"], int(lot / spec["lot_step"]) * spec["lot_step"])
+        return out
+
     # ---- Proposal / Approval phase ---------------------------------------
 
     def _maybe_propose(self, signal_value: int, bar_ts: pd.Timestamp) -> None:
@@ -462,7 +528,8 @@ class PineRatioZRevRule(H2RecycleRule):
         # Distinct from v1.2's β-neutral _compute_neutral_basket (which
         # produces 1:15,000 lot ratios for small-r̄ pairs — see v1.2 addendum 3
         # for why that backfires on outright moves).
-        lots_by_sym: dict[str, float] = {}
+        notional_lots: dict[str, float] = {}
+        specs_by_sym: dict[str, dict] = {}
         sizing_failed = False
         for leg in legs:
             try:
@@ -476,16 +543,32 @@ class PineRatioZRevRule(H2RecycleRule):
             if usd_per_pu <= 0 or lot_step <= 0:
                 sizing_failed = True
                 break
+            specs_by_sym[leg.symbol] = {"usd_per_pu": usd_per_pu, "min_lot": min_lot, "lot_step": lot_step}
             price_now = float(legs[0].df.loc[bar_ts, "close"]) if leg.symbol == legs[0].symbol else float(legs[1].df.loc[bar_ts, "close"])
             raw_lot = self.target_notional_per_leg_usd / (price_now * usd_per_pu)
             # Round down to lot_step, floor at min_lot
-            lot = max(min_lot, int(raw_lot / lot_step) * lot_step)
-            lots_by_sym[leg.symbol] = lot
+            notional_lots[leg.symbol] = max(min_lot, int(raw_lot / lot_step) * lot_step)
         if sizing_failed:
             # Broker spec missing or calibration invalid — reject this signal
             # rather than fall back to vol-mismatched lots.
             state.reset()
             return
+
+        # sizing_mode dispatch. Default "notional" leaves notional_lots
+        # untouched => byte-parity with the pre-sizing_mode rule (parity gate).
+        # Alternatives fall back to notional (per-leg for vol_parity, per-trade
+        # for beta_capped) when their inputs are unavailable.
+        if self.sizing_mode == "notional":
+            lots_by_sym = notional_lots
+        elif self.sizing_mode == "vol_parity":
+            lots_by_sym = self._vol_parity_lots(legs, bar_ts, notional_lots, specs_by_sym)
+        elif self.sizing_mode == "beta_capped":
+            lots_by_sym = self._beta_capped_lots(legs, bar_ts, notional_lots, specs_by_sym)
+        else:
+            raise ValueError(
+                "PineRatioZRevRule.sizing_mode must be 'notional', 'vol_parity', "
+                f"or 'beta_capped'; got {self.sizing_mode!r}."
+            )
         for leg in legs:
             leg.lot = lots_by_sym[leg.symbol]
 
