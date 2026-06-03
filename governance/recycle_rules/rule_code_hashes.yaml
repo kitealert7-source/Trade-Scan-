@@ -5,7 +5,7 @@
 # a rule's code legitimately changed AND its version was bumped (append-
 # only), or to accept an intended in-place fix.
 schema_version: 1
-generated_at: '2026-06-01T13:06:45+00:00'
+generated_at: '2026-06-03T16:13:32+00:00'
 hashes:
   H2_recycle@1: ca1a918688a404b64679ed25b32093d42076ba40a3e5bdab5e2883402d16169d
   H2_recycle@2: 9c2b8d3dc1e359a0998b6d2792deb9af97b8ac77332346717a51fa5b59e3723f
@@ -17,6 +17,6 @@ hashes:
   H3_spread@2: 61b13c40bdcb0ef2f0ca499a87e29a2aa4fb3a829652f1991bab2b5c10ac2063
   H3_spread@3: 716e48ec17bcf28dddb641fbe69f74327284b6aa4314bef17ef717096bd7167f
   cointegration_meanrev_v1_2@1: 115dcc381afee1b941a11c82e4ca9e1a72ad9c2464188a75762ce01d85873a63
-  pine_ratio_zrev_v1@1: cb7146db60f3b8ac2028bc8be6bbb34dc21909e8aa8f894e05c6614152981982
+  pine_ratio_zrev_v1@1: db1af12bedce285ba5a01fb5fc770e23bc64633b5c8f2df6650e2480082b8d6d
   pine_ratio_zrev_v1_zband@1: 18bc5d345e6cb920e30857ab337616b386222464c1f2d8c991df7b1d4a2fa72c
   pine_ratio_zrev_v1_zcross@1: 8dc40520103d873771a5156dfb100b56decd0e92f5660fc84046125da2cea628
