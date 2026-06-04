@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule, PineRatioZRevRule, PineRatioZRevRuleZBand, PineRatioZRevRuleZCross  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 + pine_ratio_zrev_v1 + pine_ratio_zrev_v1_zcross + pine_ratio_zrev_v1_zband dispatch)
+from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule, PineRatioZRevRule, PineRatioZRevRuleZBand, PineRatioZRevRuleZCross, PineRatioZRevRuleZOpp  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 + pine_ratio_zrev_v1 + pine_ratio_zrev_v1_zcross + pine_ratio_zrev_v1_zband + pine_ratio_zrev_v1_zopp dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -708,6 +708,37 @@ def _instantiate_rule(
         # cycle. Recycle event tag: LIQUIDATE_BAND_REVERT.
         # always_in_market inherited but functionally ignored.
         return PineRatioZRevRuleZBand(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(params.get("z_entry", 2.0)),
+            z_exit=float(params.get("z_exit", 1.0)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_zopp" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZOpp, params, name, version)
+        # Opposite-band (overshoot) exit variant of pine_ratio_zrev_v1
+        # (2026-06-04). TRUE exit-only change: entries stay at +/-z_entry.
+        # Liquidate FLAT when z crosses to the OPPOSITE side beyond +/- z_exit
+        # (entered -2 -> exit +1; entered +2 -> exit -1). Next +/-z_entry cross
+        # opens a fresh cycle. Recycle event tag: LIQUIDATE_OPP_REVERT.
+        # always_in_market inherited but functionally ignored.
+        return PineRatioZRevRuleZOpp(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
             z_entry=float(params.get("z_entry", 2.0)),
