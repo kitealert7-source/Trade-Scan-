@@ -58,3 +58,19 @@ Evidence: P01,N5: median net 0.456, Ret/DD 0.249, blowup 0.7%. Drop N=5 (P01,N0)
 Conclusion: N=5 correctly filters noise: the short spans it excludes are baseline-grade (median net 0.068, 53% positive, no edge). The p-threshold effect is concentrated in blowup reduction (0.3-0.7% vs 3.7%), retained at N=0. N=5 also improves entry timing on shared spans (0.295 at N=0 vs 0.456 at N=5).
 Implication: Keep the N=5 confirmation gate for cointegration return-quality; treat p<=0.01 as a blowup-safety control, not a return driver. N=0 additionally yields ~14.6% window-invalid premature entries (gate-rejected).
 ---
+
+---
+2026-06-04 | Tags: cointegration, leg_sizing, granular_parity, tail_risk, sizing_mode | Strategy: pine_ratio_zrev_v1 | Run IDs: 2410492ed851dea6b8910fb8, 9238f5e2580f6e7c28151754, 0081200bf52a755fba74e0b0
+Finding: Granular notional-parity vs equal-notional (lot-equal-floored) leg sizing on the FULL cointegration universe: 474 matched pairs, both arms freshly run same-day (same broker snapshot), 0 trade-count mismatches (sizing changes lots only, not entries).
+Evidence: ret/dd ~neutral (granular mean +0.42 vs notional +0.36, improves on 53%) but tail far worse: maxDD>50% = 41 vs 2 (20x), worst DD 172.6% vs 81.3%, catastrophic net<-50% = 12 vs 1; worst pair BTCUSD/ESP35 net -110% vs -24%.
+Conclusion: Granular parity does NOT improve risk-adjusted return; lot-equal-flooring was an accidental tail-brake and removing it (~3x notional deployed) inflates blowup risk 10-20x with no central-performance gain. Do NOT adopt as the sizing default.
+Implication: Keep equal-notional (lot-equal-floored) default. granular_parity/notional_ctl stay opt-in research only. If ever deploying true notional, pair with loser-leg-notional tail control (cf. H2 Martingale-tail), never granular parity alone.
+---
+
+---
+2026-06-04 | Tags: cointegration, leg_sizing, granular_parity, candidate_level, deployable_portfolio | Strategy: pine_ratio_zrev_v1 | Run IDs: 2410492ed851dea6b8910fb8, 9238f5e2580f6e7c28151754, 0081200bf52a755fba74e0b0
+Finding: REFINES the prior corpus-level granular_parity verdict to the DEPLOYABLE subset (the real decision). Candidate-level: each arm's top-N by ret/dd + the production approved candidate set (runs>=5, n=246), fresh _GP vs _GPN same-snapshot.
+Evidence: On approved top-10/20/50 ret/dd is a WASH (N +1.16/1.28/1.20 vs G +1.13/1.27/1.22) while granular nets ~2x (12-15% vs 5-6%) for ~2x DD; catastrophic tail is junk-only (top-N #DD>50=0; approved set only 1-2 moderate ~56% blowups vs notional 0).
+Conclusion: On the portfolio actually deployed, granular_parity is NOT catastrophic and NOT a ret/dd improvement -- it is a capital-efficiency lever: ~2x return for ~2x DD at parity risk-adjusted return. The corpus-wide '10-20x blowup' stat was dominated by undeployable junk pairs.
+Implication: Decide sizing on the candidate subset, not the 474-pair average. Conservative default (notional/0.01) stays defensible; granular is viable IF more deployed capital is wanted AND a per-pair DD cap handles the 1-2 moderate (~56%) blowups on the approved set.
+---
