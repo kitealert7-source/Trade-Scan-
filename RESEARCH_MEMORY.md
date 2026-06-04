@@ -98,3 +98,11 @@ Evidence: generate_cointrev_v3_directives default flipped notional->granular_par
 Conclusion: Future cointegration research runs granular by default (_GP = active base). Old untagged-notional base (1827 rows) kept ACTIVE transitionally (plan A) as the candidates(runs>=5) density source until the GP corpus matures, then archive it.
 Implication: Drop stale notional-default expectations -- GP is the base. PENDING: (a) build out GP coverage via future research, then archive the old notional base; (b) wire tools/leverage_liquidation_adjust into the candidates view so granular tails show realistically (-100% cap).
 ---
+
+---
+2026-06-04 | Tags: cointegration, exit_logic, zcross, zopp, confirmation | Strategy: pine_ratio_zrev_v1 | Run IDs: 4399e24940508844587423e0, cf6e7f307d24cdcdbf23094b, 083ed1438eeddcbf66854138
+Finding: Exit-logic 3-way under the GP baseline (granular, same windows, liquidation floor): current exit (reverse@+-2) vs Z=0/zcross (flat@mean) vs ZOPP/opposite-band (flat@opposite +-1). 473-474 matched pairs each.
+Evidence: Z=0 dominates: ret/dd mean +0.48 vs baseline +0.42 vs ZOPP +0.44; net% +0.4 vs +0.5 vs -0.1; maxDD>50 = 20 vs 41 vs 22; catastrophic = 6 vs 12 vs 8; top10 median ret/dd 4.33 vs 3.76 vs 3.95. ZOPP beats baseline on tail but loses to Z=0 on EVERY metric.
+Conclusion: Z=0 (exit at the mean) is the optimal exit -- recommended over baseline (~2x less tail at equal ret/dd). ZOPP (ride past the mean to opposite +-1) is RULED OUT: dominated by Z=0 -- overshooting past the mean gives back the reversion profit (net -0.1 vs Z=0 +0.4) and adds DD, no benefit. The 'later exit' hypothesis is falsified for this signal.
+Implication: If the exit is changed, adopt Z=0 (pine_ratio_zrev_v1_zcross), not ZOPP. zopp engine capability kept (opt-in, not adopted). Z=0 adoption (promote zcross to default) is a separate decision, not yet made. Exit experiment cohorts (_GP_ZCRS/_GP_ZOPP) archived as research artifacts.
+---
