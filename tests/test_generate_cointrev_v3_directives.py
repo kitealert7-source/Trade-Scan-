@@ -586,7 +586,7 @@ def test_p_threshold_encodes_in_directive_name(tmp_coint_db, tmp_path):
         tf="1d", lookback_days=252, N=5,
         output_dir=tmp_path / "out_tag03",
         db_path=tmp_coint_db, dry_run=False,
-        p_threshold=0.03,
+        p_threshold=0.03, sizing_mode="notional",  # P-tag on the notional path (granular is now default)
     )
     assert len(written) == 1
     name = Path(written[0]).stem
@@ -605,7 +605,7 @@ def test_p_threshold_encodes_in_directive_name(tmp_coint_db, tmp_path):
         tf="1d", lookback_days=252, N=5,
         output_dir=tmp_path / "out_tag02",
         db_path=tmp_coint_db, dry_run=False,
-        p_threshold=0.02,
+        p_threshold=0.02, sizing_mode="notional",
     )
     assert len(written2) == 1
     assert "_L30_P02__E" in Path(written2[0]).stem
@@ -628,7 +628,7 @@ def test_confirmation_n_encodes_in_directive_name(tmp_coint_db, tmp_path):
     written = generate_directives(
         tf="1d", lookback_days=252, N=0,
         output_dir=tmp_path / "out_p01_n0",
-        db_path=tmp_coint_db, dry_run=False, p_threshold=0.01,
+        db_path=tmp_coint_db, dry_run=False, p_threshold=0.01, sizing_mode="notional",
     )
     assert len(written) >= 1
     name = Path(written[0]).stem
@@ -644,7 +644,7 @@ def test_confirmation_n_encodes_in_directive_name(tmp_coint_db, tmp_path):
     written_n0 = generate_directives(
         tf="1d", lookback_days=252, N=0,
         output_dir=tmp_path / "out_n0",
-        db_path=tmp_coint_db, dry_run=False, p_threshold=None,
+        db_path=tmp_coint_db, dry_run=False, p_threshold=None, sizing_mode="notional",
     )
     assert "_L30_N0__E" in Path(written_n0[0]).stem
 
@@ -652,7 +652,7 @@ def test_confirmation_n_encodes_in_directive_name(tmp_coint_db, tmp_path):
     written_n5 = generate_directives(
         tf="1d", lookback_days=252, N=5,
         output_dir=tmp_path / "out_n5",
-        db_path=tmp_coint_db, dry_run=False, p_threshold=0.01,
+        db_path=tmp_coint_db, dry_run=False, p_threshold=0.01, sizing_mode="notional",
     )
     assert "_L30_P01__E" in Path(written_n5[0]).stem
 
@@ -686,11 +686,12 @@ def test_p_threshold_invalid_raises(tmp_coint_db, tmp_path, bad):
 #   H.4 an unknown sizing_mode raises ValueError before any DB read
 
 
-def test_sizing_mode_default_notional_is_byte_clean(tmp_coint_db, tmp_path):
-    """H.1: the default ("notional") cohort carries NO _GP tag and injects NO
-    sizing params -- the baseline arm must be identical to the historical
-    production directive, since it stands in for "current sizing" in the
-    comparison. Any drift here silently biases the experiment.
+def test_sizing_mode_notional_is_byte_clean(tmp_coint_db, tmp_path):
+    """H.1: the (now-superseded) explicit "notional" cohort carries NO _GP tag
+    and injects NO sizing params -- it must still reproduce the historical
+    untagged baseline byte-for-byte so legacy/notional directives stay
+    reproducible. (granular_parity is the DEFAULT since 2026-06-04; notional is
+    now an explicit opt-in.)
     """
     pair_a, pair_b = "EURUSD", "USDJPY"
     series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
@@ -712,6 +713,28 @@ def test_sizing_mode_default_notional_is_byte_clean(tmp_coint_db, tmp_path):
     assert "granular_parity_max_k" not in body
     params = yaml.safe_load(body)["basket"]["recycle_rule"]["params"]
     assert "sizing_mode" not in params and "granular_parity_max_k" not in params
+
+
+def test_sizing_mode_default_is_granular_parity(tmp_coint_db, tmp_path):
+    """H.1b: PROMOTION LOCK (2026-06-04) -- granular_parity is the adopted
+    methodology DEFAULT. Generating WITHOUT an explicit sizing_mode must produce
+    the granular cohort (_GP tag + injected sizing params). If this flips back to
+    notional, the GP-as-baseline decision has been silently reverted."""
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, pair_a, pair_b, series)
+
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_default_gp",
+        db_path=tmp_coint_db, dry_run=False,
+        # NO sizing_mode -> must default to granular_parity
+    )
+    assert len(written) == 1
+    name = Path(written[0]).stem
+    assert "_L30_GP__E" in name, f"DEFAULT must now be granular (_GP), got {name!r}"
+    params = yaml.safe_load(Path(written[0]).read_text(encoding="utf-8"))["basket"]["recycle_rule"]["params"]
+    assert params["sizing_mode"] == "granular_parity"
 
 
 def test_sizing_mode_granular_parity_tags_and_injects(tmp_coint_db, tmp_path):

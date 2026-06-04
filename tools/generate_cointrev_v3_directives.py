@@ -118,8 +118,12 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "backtest_directives" / "cointrev_v3_staging
 # values); we only want spans produced by the current math.
 METHODOLOGY_VERSION = "v2_log_eg"
 
-# Leg-sizing cohort. "notional" (default) reproduces the production baseline
-# byte-for-byte: no extra recycle_rule params, no name tag. "granular_parity"
+# Leg-sizing cohort. **"granular_parity" is the DEFAULT methodology since
+# 2026-06-04** (adopted as baseline: economically coherent, candidate rankings
+# stable, sizing doesn't drive edge -- see project_cointegration_leg_sizing_
+# experiment + SZVP_LEVERAGE_FORENSIC.md). "notional" is the SUPERSEDED prior
+# baseline: equal-dollar-notional that floors to lot-equal at the $1000 target;
+# no extra params, no name tag (untagged = historical base). "granular_parity"
 # injects the integer lot-step parity sizer (pine_ratio_zrev_v1.
 # _granular_parity_lots) plus a _GP cohort tag so it never collides on
 # (pair, entry_date) in INBOX / the ledger. Same cohort-tag slot and collision-
@@ -447,7 +451,7 @@ def _render_directive(
     *,
     p_tag: str = "",
     n_tag: str = "",
-    sizing_mode: str = "notional",
+    sizing_mode: str = "granular_parity",
 ) -> tuple[str, str]:
     """Return (filename_stem, yaml_body) for a single span.
 
@@ -510,7 +514,7 @@ def _verify_gate_compatibility(
     db_path: Path | None = None,
     p_tag: str = "",
     n_tag: str = "",
-    sizing_mode: str = "notional",
+    sizing_mode: str = "granular_parity",
 ) -> None:
     """Render sample directives and run them through evaluate_window_validity.
 
@@ -614,7 +618,7 @@ def generate_directives(
     db_path: Path | None = None,
     dry_run: bool = False,
     p_threshold: float | None = None,
-    sizing_mode: str = "notional",
+    sizing_mode: str = "granular_parity",
 ) -> list[Path]:
     """Read cointegration_daily, enumerate look-ahead-safe spans, and emit
     one directive YAML per qualifying span.
@@ -819,15 +823,15 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--sizing-mode",
         type=str,
-        default="notional",
+        default="granular_parity",
         choices=list(SIZING_MODES),
         help=(
-            "Leg-sizing cohort. 'notional' (default) = equal-dollar-notional "
-            "baseline (production behaviour; no name tag, body byte-identical to "
-            "the historical template). 'granular_parity' = integer lot-step "
-            "parity sizer; appends a _GP cohort tag and injects sizing_mode + "
-            "granular_parity_max_k into recycle_rule.params. Used to stand up the "
-            "system-level 'current notional vs granular parity' comparison."
+            "Leg-sizing cohort. 'granular_parity' (DEFAULT since 2026-06-04 -- the "
+            "adopted baseline methodology) = integer lot-step parity sizer; appends "
+            "a _GP cohort tag and injects sizing_mode + granular_parity_max_k into "
+            "recycle_rule.params. 'notional' = the superseded equal-dollar-notional "
+            "baseline (lot-equal-floored; untagged, historical). 'notional_ctl' = "
+            "tagged notional control for matched comparisons."
         ),
     )
     return p
