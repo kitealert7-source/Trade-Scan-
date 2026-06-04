@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-04T08:35:29Z
+> Generated: 2026-06-04T16:21:22Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 6101 directives
+- Completed: 6963 directives
 
 ## Ledgers
 
@@ -34,12 +34,12 @@
 - Latest bar: **2026-06-04** | Symbols: 221
 
 ## Artifacts
-- Run directories: 6988
+- Run directories: 7848
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `a25f6b45 corpus(cointrev): commit 9 bare-notional COINTREV_V3 spec records`
+- Last substantive commit: `38d7e4b9 corpus(cointrev): 4H-1500 baseline + zcross run artifacts`
 
 ## Deferred Maintenance
 
