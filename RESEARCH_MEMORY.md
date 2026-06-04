@@ -74,3 +74,11 @@ Evidence: On approved top-10/20/50 ret/dd is a WASH (N +1.16/1.28/1.20 vs G +1.1
 Conclusion: On the portfolio actually deployed, granular_parity is NOT catastrophic and NOT a ret/dd improvement -- it is a capital-efficiency lever: ~2x return for ~2x DD at parity risk-adjusted return. The corpus-wide '10-20x blowup' stat was dominated by undeployable junk pairs.
 Implication: Decide sizing on the candidate subset, not the 474-pair average. Conservative default (notional/0.01) stays defensible; granular is viable IF more deployed capital is wanted AND a per-pair DD cap handles the 1-2 moderate (~56%) blowups on the approved set.
 ---
+
+---
+2026-06-04 | Tags: engine_fidelity, liquidation, leverage, sizing, backtest_validity | Strategy: pine_ratio_zrev_v1 | Run IDs: e8208ba06643d3bca2b60270, 2410492ed851dea6b8910fb8
+Finding: Frozen v1_5_8 basket engine enforces NO margin-call/liquidation: high-leverage sizing (vol_parity, granular_parity) can run to NEGATIVE equity (loss > stake) instead of liquidating at the stake. Surfaced via the 14 SZVP runs; forensic SZVP_LEVERAGE_FORENSIC.md.
+Evidence: 326 runs scanned, 0 freezes ever fired (margin level to -2061%, equity to -$67k). Negative-equity CONFINED to SZVP (14/14) + GP (6/474); base + ~4500 others bounded (dd_vs_stake<=100% is exact proof; 300-run sample 0 negative, 0 freeze).
+Conclusion: Backtest-FIDELITY issue ONLY: live is broker-margined at 0.01 lot (RAW_MIN_LOT_V1), notional sizing is mathematically bounded. Blast radius = leveraged-sizing studies; production research unaffected. Granular tail magnitudes inflated (worst net -132%/DD 173% -> floored -100%/100%) but FREQUENCY unchanged (41 vs 2 runs >50% DD) so the granular verdict holds.
+Implication: Apply tools/leverage_liquidation_adjust.py floor (intra-run min_equity<0 -> net -100/DD 100/ret_dd -1) for ANY leveraged study; no-op on notional. Do NOT modify the frozen engine, NOT add run-halting liquidation, NOT re-run production. SZVP archived (is_current=0) as research artifact; raw kept.
+---
