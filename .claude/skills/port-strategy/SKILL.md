@@ -175,6 +175,8 @@ P01+ should target the largest single weak cell from the report's `Edge Decompos
 | `Indicator Set Match` fails Stage-0.5 | Directive `indicators:` ≠ STRATEGY_SIGNATURE `indicators` | Sync both lists |
 | `SWEEP_IDEA_UNREGISTERED` | New idea not in sweep_registry.yaml | Add stub block manually before `new_pass.py --rehash` |
 | Stage-0.5 semantic mismatch on `repeat_override_reason` | Field present in STRATEGY_SIGNATURE | Remove from strategy.py — directive `test:` block only |
+| `LegDispatchError: <rule> ... no leg-strategy assignment` (new recycle/basket rule) | Rule missing from `run_pipeline.LEG_STRATEGY_DISPATCH` — the 5th of 5 wiring points (rule file · `recycle_rules/__init__` · `basket_pipeline` · registry.yaml · **run_pipeline dispatch**) | Add it, then run `tests/test_leg_strategy_dispatch.py` + `generate_guard_manifest.py` BEFORE launching the batch |
+| `Tool content hash mismatch for <tool>.py` at startup | Edited a guarded `tools/` file without regenerating the manifest | `python tools/generate_guard_manifest.py` after ANY `tools/` edit (commit the manifest with it) |
 
 ---
 
@@ -195,4 +197,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| 2026-06-04 | New recycle rule: 2 wasted full-universe runs (LegDispatchError, manifest hash) | Added recycle-rule wiring + manifest-regen rows to failure-mode lookup |
