@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-03T17:52:15Z
+> Generated: 2026-06-04T08:35:29Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -11,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 4104 directives
+- Completed: 6101 directives
 
 ## Ledgers
 
@@ -31,15 +31,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-06-03** | Symbols: 221
+- Latest bar: **2026-06-04** | Symbols: 221
 
 ## Artifacts
-- Run directories: 4999
+- Run directories: 6988
 
 ## Git Sync
 - Remote: IN SYNC
 - Working tree: clean
-- Last substantive commit: `13228f7f feat(sizing): opt-in leg sizing_mode harness for cointegration baskets (default unchanged)`
+- Last substantive commit: `a25f6b45 corpus(cointrev): commit 9 bare-notional COINTREV_V3 spec records`
 
 ## Deferred Maintenance
 
