@@ -82,3 +82,11 @@ Evidence: 326 runs scanned, 0 freezes ever fired (margin level to -2061%, equity
 Conclusion: Backtest-FIDELITY issue ONLY: live is broker-margined at 0.01 lot (RAW_MIN_LOT_V1), notional sizing is mathematically bounded. Blast radius = leveraged-sizing studies; production research unaffected. Granular tail magnitudes inflated (worst net -132%/DD 173% -> floored -100%/100%) but FREQUENCY unchanged (41 vs 2 runs >50% DD) so the granular verdict holds.
 Implication: Apply tools/leverage_liquidation_adjust.py floor (intra-run min_equity<0 -> net -100/DD 100/ret_dd -1) for ANY leveraged study; no-op on notional. Do NOT modify the frozen engine, NOT add run-halting liquidation, NOT re-run production. SZVP archived (is_current=0) as research artifact; raw kept.
 ---
+
+---
+2026-06-04 | Tags: cointegration, leg_sizing, DECISION, sizing_settled, granular_parity | Strategy: pine_ratio_zrev_v1 | Run IDs: 0081200bf52a755fba74e0b0, 2410492ed851dea6b8910fb8
+Finding: DECISION (FROZEN 2026-06-04): granular_parity (GP) adopted as the baseline leg sizing for COINTREV_V3 cointegration baskets. Sizing research arc CLOSED -- do not re-litigate or re-run parity experiments.
+Evidence: Full-universe 474-pair GP-vs-notional (same broker snapshot): candidate rankings stable (Spearman +0.917, top-N overlap 70-78%); approved-set ret/dd parity (top10/20/50 N +1.16/1.28/1.20 vs G +1.13/1.27/1.22); 0 trade-count mismatches => sizing changes scale, not selection.
+Conclusion: GP adopted because: (1) economically coherent -- deploys the intended notional vs the lot-equal-floored under-deployment; (2) better parity; (3) similar candidate rankings; (4) no evidence sizing drives edge (matched controls: same ~5% edge across arms); (5) research question settled, expected info gain from more sizing work is low. Frozen to prevent re-debate.
+Implication: CLOSE sizing research. Discovery default stays notional (selection sizing-invariant + bounded); GP live application + per-pair DD-cap folds into the LIVE-DEPLOYMENT-SIZING topic. NEXT roadmap (higher expected deployment impact): capital model -> portfolio construction/allocation -> live deployment sizing -> correlation management.
+---
