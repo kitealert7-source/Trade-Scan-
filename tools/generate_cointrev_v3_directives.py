@@ -76,6 +76,8 @@ CLI:
     python tools/generate_cointrev_v3_directives.py --dry-run
     python tools/generate_cointrev_v3_directives.py
     python tools/generate_cointrev_v3_directives.py --confirmation 5 --lookback 252 --tf 1d
+    python tools/generate_cointrev_v3_directives.py --sizing-mode granular_parity \
+        --output-dir backtest_directives/cointrev_v3_staging_gp
 
 Module-level constants (operator-facing defaults):
     DEFAULT_CONFIRMATION_N  = 5    -- one trading week, == HYSTERESIS_LOOKBACK
@@ -115,6 +117,19 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "backtest_directives" / "cointrev_v3_staging
 # favour of v2_log_eg (log-prices + Engle-Granger/MacKinnon critical
 # values); we only want spans produced by the current math.
 METHODOLOGY_VERSION = "v2_log_eg"
+
+# Leg-sizing cohort. "notional" (default) reproduces the production baseline
+# byte-for-byte: no extra recycle_rule params, no name tag. "granular_parity"
+# injects the integer lot-step parity sizer (pine_ratio_zrev_v1.
+# _granular_parity_lots) plus a _GP cohort tag so the two arms never collide on
+# (pair, entry_date) in INBOX / the ledger. Same cohort-tag slot and collision-
+# prevention role as the _P (p_threshold) and _N (confirmation) tags. Added
+# 2026-06-04 to stand up the system-level "current notional vs granular parity"
+# sizing comparison on the full universe (the baseline arm is the untagged
+# notional default; the contrast arm is --sizing-mode granular_parity).
+SIZING_MODES = ("notional", "granular_parity")
+_SIZING_TAG = {"notional": "", "granular_parity": "_GP"}
+DEFAULT_GRANULAR_PARITY_MAX_K = 8
 
 # Pair-class membership --- mirrors tmp/gen_all_episodes.py classifier so
 # the per-class summary in --dry-run matches operator expectations from
@@ -350,7 +365,7 @@ basket:
       initial_notional_usd: 1000.0
       target_notional_per_leg_usd: 1000.0
       default_initial_lot: 0.01
-"""
+{extra_params}"""
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +438,7 @@ def _render_directive(
     *,
     p_tag: str = "",
     n_tag: str = "",
+    sizing_mode: str = "notional",
 ) -> tuple[str, str]:
     """Return (filename_stem, yaml_body) for a single span.
 
@@ -436,13 +452,31 @@ def _render_directive(
     window N. Both empty for the baseline (screener-default p<0.05, N=5). They
     prevent directive-id collision across cohorts when the same (pair,
     entry_date) tuple is produced by multiple thresholds or N values (same slot
-    as existing exit-variant tokens such as ``_ZBND`` / ``_ZCRS``). Order is
-    ``{p_tag}{n_tag}`` -> e.g. ``_L30_P01_N0``.
+    as existing exit-variant tokens such as ``_ZBND`` / ``_ZCRS``).
+
+    ``sizing_mode`` selects the leg-sizing cohort. ``"notional"`` (default)
+    renders no extra params and no tag -- byte-identical to the historical
+    template. ``"granular_parity"`` appends a ``_GP`` tag (same slot) and
+    injects ``sizing_mode`` + ``granular_parity_max_k`` into recycle_rule.params
+    so the rule runs its integer lot-step parity sizer instead of equal-notional.
+
+    Order is ``{p_tag}{n_tag}{s_tag}`` -> e.g. ``_L30_P01_N0_GP``.
     """
     bid = f"{pair_a}{pair_b}"
     yymmdd = _yymmdd(entry_date)
-    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}{n_tag}__E{yymmdd}"
-    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}{n_tag}_E{yymmdd}"
+    s_tag = _SIZING_TAG[sizing_mode]
+    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}{n_tag}{s_tag}__E{yymmdd}"
+    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}{n_tag}{s_tag}_E{yymmdd}"
+    # Non-default sizing injects extra recycle_rule.params lines; the default
+    # "notional" path renders extra_params="" so the body is byte-identical to
+    # the pre-2026-06-04 template (baseline-arm fidelity is load-bearing).
+    if sizing_mode == "notional":
+        extra_params = ""
+    else:
+        extra_params = (
+            f"      sizing_mode: {sizing_mode}\n"
+            f"      granular_parity_max_k: {DEFAULT_GRANULAR_PARITY_MAX_K}\n"
+        )
     body = TEMPLATE.format(
         name=name,
         start=entry_date,
@@ -451,6 +485,7 @@ def _render_directive(
         a=pair_a,
         b=pair_b,
         bid=bid,
+        extra_params=extra_params,
     )
     return name, body
 
@@ -462,6 +497,7 @@ def _verify_gate_compatibility(
     db_path: Path | None = None,
     p_tag: str = "",
     n_tag: str = "",
+    sizing_mode: str = "notional",
 ) -> None:
     """Render sample directives and run them through evaluate_window_validity.
 
@@ -520,7 +556,7 @@ def _verify_gate_compatibility(
     try:
         for idx in sample_indices:
             pair_a, pair_b, entry_date, exit_date, ncoint = spans_per_pair[idx]
-            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag)
+            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag, sizing_mode=sizing_mode)
             tf_handle = tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, encoding="utf-8"
             )
@@ -565,6 +601,7 @@ def generate_directives(
     db_path: Path | None = None,
     dry_run: bool = False,
     p_threshold: float | None = None,
+    sizing_mode: str = "notional",
 ) -> list[Path]:
     """Read cointegration_daily, enumerate look-ahead-safe spans, and emit
     one directive YAML per qualifying span.
@@ -591,6 +628,10 @@ def generate_directives(
         raise ValueError(f"lookback_days must be >= 1, got {lookback_days!r}")
     if p_threshold is not None and not (0.0 < p_threshold < 1.0):
         raise ValueError(f"p_threshold must lie in (0,1), got {p_threshold!r}")
+    if sizing_mode not in SIZING_MODES:
+        raise ValueError(
+            f"sizing_mode must be one of {SIZING_MODES}, got {sizing_mode!r}"
+        )
     # Encode p_threshold in directive name to prevent cohort collisions.
     # _P05 is implicit (screener default); _P03 = p<0.03; _P02 = p<0.02; etc.
     p_tag = "" if p_threshold is None else f"_P{int(round(p_threshold * 100)):02d}"
@@ -638,13 +679,17 @@ def generate_directives(
     # Threads db_path through so the gate reads from the same DB the spans
     # were enumerated from (matters for tests using a tmp DB; in production
     # both default to cointegration.db).
-    _verify_gate_compatibility(spans_per_pair, db_path=db_path, p_tag=p_tag, n_tag=n_tag)
+    _verify_gate_compatibility(
+        spans_per_pair, db_path=db_path, p_tag=p_tag, n_tag=n_tag,
+        sizing_mode=sizing_mode,
+    )
 
     p_tag_label = "screener-default p<0.05" if p_threshold is None else f"p<{p_threshold} ({p_tag} tag)"
     if dry_run:
         print(
             f"[summary] N={N}, lookback={lookback_days}, tf={tf}, "
             f"methodology={METHODOLOGY_VERSION}, p-threshold={p_tag_label}, "
+            f"sizing={sizing_mode}, "
             f"would write {len(spans_per_pair)} episodes across "
             f"{len(pairs_with_eps)} pairs"
         )
@@ -667,7 +712,10 @@ def generate_directives(
 
     written: list[Path] = []
     for pair_a, pair_b, entry_date, exit_date, _ncoint in spans_per_pair:
-        name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag)
+        name, body = _render_directive(
+            pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag,
+            sizing_mode=sizing_mode,
+        )
         out_path = output_dir / f"{name}.txt"
         out_path.write_text(body, encoding="utf-8")
         written.append(out_path)
@@ -675,7 +723,8 @@ def generate_directives(
     print(
         f"staged {len(written)} episode directives -> {output_dir} "
         f"(N={N}, lookback={lookback_days}, tf={tf}, "
-        f"methodology={METHODOLOGY_VERSION}, p-threshold={p_tag_label})"
+        f"methodology={METHODOLOGY_VERSION}, p-threshold={p_tag_label}, "
+        f"sizing={sizing_mode})"
     )
     print("by pair-class:")
     for k, v in sorted(cls_count.items(), key=lambda x: -x[1]):
@@ -754,6 +803,20 @@ def _parser() -> argparse.ArgumentParser:
             "collisions on the same (pair, entry_date)."
         ),
     )
+    p.add_argument(
+        "--sizing-mode",
+        type=str,
+        default="notional",
+        choices=list(SIZING_MODES),
+        help=(
+            "Leg-sizing cohort. 'notional' (default) = equal-dollar-notional "
+            "baseline (production behaviour; no name tag, body byte-identical to "
+            "the historical template). 'granular_parity' = integer lot-step "
+            "parity sizer; appends a _GP cohort tag and injects sizing_mode + "
+            "granular_parity_max_k into recycle_rule.params. Used to stand up the "
+            "system-level 'current notional vs granular parity' comparison."
+        ),
+    )
     return p
 
 
@@ -767,6 +830,7 @@ def main(argv: list[str] | None = None) -> int:
         db_path=args.db_path,
         dry_run=args.dry_run,
         p_threshold=args.p_threshold,
+        sizing_mode=args.sizing_mode,
     )
     return 0
 
