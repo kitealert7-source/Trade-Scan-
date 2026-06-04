@@ -32,6 +32,7 @@ Filter aids (2026-06-01):
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -52,6 +53,7 @@ COINTEGRATION_VIEW_COLUMNS = [
     "pair_class",        # filter aid: structural taxonomy
     "coint_friendly",    # filter aid: screener-span band
     "all_profitable",    # filter aid: every run of the pair profitable
+    "series",            # filter aid: variant/sizing tag (base, GP, GPN, ZCRS, SZVP, P03, ...)
     "run_date",
     "test_start",
     "test_end",
@@ -68,7 +70,7 @@ COINTEGRATION_VIEW_COLUMNS = [
 ]
 
 # Hard cap on the human view (enforcement: the budget test asserts this).
-COINTEGRATION_VIEW_BUDGET = 20
+COINTEGRATION_VIEW_BUDGET = 21
 
 # DB column -> friendly display header.
 _RENAME = {
@@ -147,6 +149,30 @@ def _friendly_band(span_obs) -> str:
     return "WEAK"
 
 
+def _classify_series(directive_id) -> str:
+    """Variant/series tag for the filter column: the cohort token(s) spliced
+    after the _L<lookback> segment of the directive id, up to the run-date
+    stamp. Examples:
+        '...L30_GP__E240109'    -> 'GP'      (granular-parity sizing arm)
+        '...L30_GPN__E240109'   -> 'GPN'     (notional-control arm)
+        '...L30_ZCRS__E...'     -> 'ZCRS'    (zero-cross exit variant)
+        '...L30_SZVP__E240719'  -> 'SZVP'    (vol-parity sizing arm)
+        '...L30_P01_N0__E...'   -> 'P01_N0'  (p-threshold + confirmation cohort)
+        '...L30__E...' / '...L100' -> 'base'
+
+    Lets operators filter the corpus by family -- e.g. exclude the SZVP
+    sizing-experiment rows whose profit re-staking yields non-deployable
+    compounded returns, or isolate a single exit/sizing variant. The existing
+    `lookback` + `methodology` columns disambiguate same-tag rows that differ
+    only by lookback or screener version."""
+    d = "" if directive_id is None else str(directive_id)
+    m = re.search(r"_L\d+((?:_[A-Z0-9]+)*?)(?:__E|$)", d)
+    if not m:
+        return "?"
+    tag = m.group(1)
+    return tag.lstrip("_") if tag else "base"
+
+
 def _add_all_profitable(df: pd.DataFrame) -> pd.DataFrame:
     """Per (pair_a, pair_b) pair across ALL its runs — every parameter variant
     and every test window: "Yes" iff every current row has
@@ -215,6 +241,8 @@ def build_cointegration_view_df(df_raw: pd.DataFrame) -> pd.DataFrame:
         )
     if "completed_at_utc" in df.columns:
         df["run_date"] = df["completed_at_utc"].fillna("").astype(str).str.slice(0, 10)
+    if "directive_id" in df.columns:
+        df["series"] = df["directive_id"].apply(_classify_series)
 
     df = _add_all_profitable(df)
 

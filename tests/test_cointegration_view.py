@@ -52,11 +52,27 @@ def test_column_budget_not_exceeded():
     assert list(out.columns) == COINTEGRATION_VIEW_COLUMNS
 
 
-def test_column_budget_locked_at_20():
+def test_column_budget_locked_at_21():
     # The cap is asserted explicitly so an accidental addition to
     # COINTEGRATION_VIEW_COLUMNS without a budget bump fails loudly.
-    assert COINTEGRATION_VIEW_BUDGET == 20
-    assert len(COINTEGRATION_VIEW_COLUMNS) == 20
+    # Bumped 20 -> 21 (2026-06-04): added 'series' variant/sizing filter aid.
+    assert COINTEGRATION_VIEW_BUDGET == 21
+    assert len(COINTEGRATION_VIEW_COLUMNS) == 21
+
+
+def test_series_classification():
+    """The 'series' filter column extracts the variant/sizing tag from the
+    directive id so operators can filter the corpus by family (and exclude the
+    SZVP sizing-experiment rows whose re-staking compounds non-deployably)."""
+    from tools.portfolio.cointegration_view import _classify_series
+    assert _classify_series("90_PORT_AUDJPYAUDNZD_15M_COINTREV_V3_L30_GP__E240109") == "GP"
+    assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_GPN__E240109") == "GPN"
+    assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_ZCRS__E240109") == "ZCRS"
+    assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_SZVP__E240719") == "SZVP"
+    assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_P01_N0__E240122") == "P01_N0"
+    assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30__E240719") == "base"
+    assert _classify_series("90_PORT_X_15M_COINTREV_V2_L252") == "base"
+    assert _classify_series(None) == "?"
 
 
 def test_friendly_rename_and_no_canonical_names():
@@ -180,7 +196,8 @@ def test_pair_class_new_cols_positioned_after_lookback():
     assert cols.index("pair_class") == cols.index("lookback") + 1
     assert cols.index("coint_friendly") == cols.index("pair_class") + 1
     assert cols.index("all_profitable") == cols.index("coint_friendly") + 1
-    assert cols.index("run_date") == cols.index("all_profitable") + 1
+    assert cols.index("series") == cols.index("all_profitable") + 1
+    assert cols.index("run_date") == cols.index("series") + 1
 
 
 # ---------- coint_friendly thresholds ----------
