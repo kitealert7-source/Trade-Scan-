@@ -718,6 +718,18 @@ def generate_directives(
     conn = sqlite3.connect(str(db_path))
     try:
         pairs = _read_pairs(conn, tf, lookback_days, METHODOLOGY_VERSION)
+        # Fail-Fast on a (tf, lookback_days) combo the screener has no data for,
+        # rather than silently emitting an empty corpus. The classic trap is
+        # `--tf 4h` left on the default `--lookback 252`: 4h data only exists at
+        # lookback 1500/3000, so the query returns zero pairs and -- without this
+        # guard -- the generator prints "would write 0 episodes" and exits 0.
+        if not pairs:
+            raise ValueError(
+                f"No cointegration pairs for tf={tf!r}, lookback_days={lookback_days} "
+                f"(methodology={METHODOLOGY_VERSION}). Valid combos: 1d->252/504, "
+                f"4h->1500/3000. Did you forget --lookback? (e.g. --tf 4h needs "
+                f"--lookback 1500.)"
+            )
 
         # Aggregate qualifying spans across all pairs.
         spans_per_pair: list[tuple[str, str, str, str, int]] = []

@@ -995,3 +995,19 @@ def test_generate_directives_4h_end_to_end(tmp_coint_db, tmp_path):
     )
     parsed = yaml.safe_load(Path(written[0]).read_text(encoding="utf-8"))
     assert parsed["basket"]["cointegration_join"]["lookback_days"] == 1500
+
+
+def test_generate_directives_empty_pairs_raises(tmp_coint_db, tmp_path):
+    """I.6 (Fail-Fast guard): a (tf, lookback_days) combo with no pairs in the DB
+    ABORTS with a clear error instead of silently emitting an empty corpus. The
+    classic trap is `--tf 4h` left on the default `--lookback 252` -- 4h data
+    lives at lookback 1500/3000, so the query returns zero pairs. Seed only a
+    (1d, 252) pair, then query (4h, 252)."""
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, "EURUSD", "USDJPY", series, tf="1d", lookback_days=252)
+    with pytest.raises(ValueError, match="No cointegration pairs"):
+        generate_directives(
+            tf="4h", lookback_days=252, N=5,
+            output_dir=tmp_path / "out_empty",
+            db_path=tmp_coint_db, dry_run=True,
+        )
