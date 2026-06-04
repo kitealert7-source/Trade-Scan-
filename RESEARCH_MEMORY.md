@@ -90,3 +90,11 @@ Evidence: Full-universe 474-pair GP-vs-notional (same broker snapshot): candidat
 Conclusion: GP adopted because: (1) economically coherent -- deploys the intended notional vs the lot-equal-floored under-deployment; (2) better parity; (3) similar candidate rankings; (4) no evidence sizing drives edge (matched controls: same ~5% edge across arms); (5) research question settled, expected info gain from more sizing work is low. Frozen to prevent re-debate.
 Implication: CLOSE sizing research. Discovery default stays notional (selection sizing-invariant + bounded); GP live application + per-pair DD-cap folds into the LIVE-DEPLOYMENT-SIZING topic. NEXT roadmap (higher expected deployment impact): capital model -> portfolio construction/allocation -> live deployment sizing -> correlation management.
 ---
+
+---
+2026-06-04 | Tags: cointegration, leg_sizing, DECISION, granular_parity, baseline_promotion | Strategy: pine_ratio_zrev_v1 | Run IDs: 0081200bf52a755fba74e0b0, 2410492ed851dea6b8910fb8
+Finding: EXECUTION + CORRECTION (2026-06-04): GP promoted to the methodology DEFAULT. The cointegration generator now defaults to granular_parity. This SUPERSEDES the prior decision entry's 'discovery default stays notional' (operator override: GP IS the base; future research runs on it).
+Evidence: generate_cointrev_v3_directives default flipped notional->granular_parity (commit bcf2a6ec; 30 tests + promotion-lock test). GPN archived: 474/474 tombstoned (is_current=0), exact duplicate of base, raw preserved. Rule internal fallback stays notional (legacy reproduction). MPS Cointegration 4680->4206.
+Conclusion: Future cointegration research runs granular by default (_GP = active base). Old untagged-notional base (1827 rows) kept ACTIVE transitionally (plan A) as the candidates(runs>=5) density source until the GP corpus matures, then archive it.
+Implication: Drop stale notional-default expectations -- GP is the base. PENDING: (a) build out GP coverage via future research, then archive the old notional base; (b) wire tools/leverage_liquidation_adjust into the candidates view so granular tails show realistically (-100% cap).
+---
