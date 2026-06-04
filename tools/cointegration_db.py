@@ -27,9 +27,17 @@ API (mirrors tools/ledger_db.py):
     create_tables(conn)
     upsert_from_parquet(conn, parquet_path)        -> int (rows upserted)
     query_today(conn)                              -> pd.DataFrame
+        (strict snapshot: all rows for the GLOBAL MAX(as_of); preserved for
+         debug + tests. May return a partial universe on mixed-calendar runs.)
+    query_latest_per_pair(conn)                    -> pd.DataFrame
+        (full-universe view: each pair's own most-recent row. Use for any
+         reporting/summary path where the intent is "latest per pair.")
     query_history(conn, pair_a, pair_b, lookback_days, days=90) -> pd.DataFrame
     query_for_classifier(conn, pair_a, pair_b, lookback_days,
                          lookback=5, before_as_of=None)         -> list[float]
+    latest_regime_map(conn, tf='1d', lookback_days=252)         -> dict
+    query_singles_today(conn)                      -> pd.DataFrame   (strict)
+    query_latest_per_symbol(conn)                  -> pd.DataFrame   (latest per symbol)
 
 CLI:
     python tools/cointegration_db.py --upsert
@@ -346,6 +354,47 @@ def query_today(conn: sqlite3.Connection) -> pd.DataFrame:
     )
 
 
+def query_latest_per_pair(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Per-pair latest snapshot: one row per (pair_a, pair_b, tf, lookback_days)
+    using each pair's OWN most-recent as_of.
+
+    Unlike query_today(), which filters on a single global MAX(as_of), this
+    walks each pair forward independently. Symbols trade on different calendars
+    (FX + most indices stop Friday; BTC/ETH trade weekends) and a daily run
+    can be partial, so a single global MAX(as_of) silently drops every pair
+    whose newest snapshot predates the latest date - reducing the reported
+    universe to the ~406 FX-FX pairs on weekdays and just the 1 crypto-crypto
+    pair on weekends. Per-pair latest carries each pair forward to its last
+    good row instead, recovering the full universe.
+
+    Returns a DataFrame with the full DB_COLUMNS schema; drop-in replacement
+    for query_today() at reporting sites where the intent is "the latest
+    available row for each pair." Empty-table behaviour matches query_today
+    (returns an empty DataFrame keyed by DB_COLUMNS).
+
+    Identical to the in-production loader in tools/cointegration_excel.py used
+    to feed the curated Excel tabs (extracted here so the same logic can back
+    the live `cointegration_db` summary log line + any future reporting
+    consumer). The correlated MAX(as_of) is served by the
+    (pair_a, pair_b, lookback_days, as_of DESC) index declared in create_tables.
+    """
+    row = conn.execute(
+        f"SELECT 1 FROM {TABLE_NAME} LIMIT 1"
+    ).fetchone()
+    if not row:
+        return pd.DataFrame(columns=DB_COLUMNS)
+    return pd.read_sql_query(
+        f"""SELECT t.* FROM {TABLE_NAME} t
+            WHERE t.as_of = (
+                SELECT MAX(as_of) FROM {TABLE_NAME}
+                WHERE pair_a = t.pair_a AND pair_b = t.pair_b
+                  AND tf = t.tf AND lookback_days = t.lookback_days
+            )
+            ORDER BY t.pair_a, t.pair_b, t.lookback_days""",
+        conn,
+    )
+
+
 def query_history(conn: sqlite3.Connection,
                   pair_a: str, pair_b: str, lookback_days: int,
                   *, days: int = 90) -> pd.DataFrame:
@@ -360,6 +409,44 @@ def query_history(conn: sqlite3.Connection,
         conn,
         params=(pair_a, pair_b, int(lookback_days), int(days)),
     ).sort_values("as_of").reset_index(drop=True)
+
+
+def latest_regime_map(
+    conn: sqlite3.Connection,
+    *,
+    tf: str = "1d",
+    lookback_days: int = 252,
+) -> dict[tuple[str, str], str]:
+    """Map (pair_a, pair_b) -> current cointegration regime, taking each pair's
+    OWN most-recent as_of for the given (tf, lookback_days).
+
+    Backs the MPS "COINT TRADE CANDIDATES" status column ("Coint Status
+    (252d)"). Uses PER-PAIR latest as_of, NOT a global MAX(as_of) — mirroring
+    the screener's own "All Pairs (Diagnostic)" load in
+    tools/cointegration_excel.py. Symbols trade on different calendars (FX +
+    most indices stop Friday; BTC/ETH trade weekends) and a daily run can be
+    partial, so a single global MAX(as_of) silently drops every pair whose
+    newest snapshot predates the latest date — blanking their status. Per-pair
+    latest reproduces exactly what the diagnostic sheet shows. Keys use the
+    canonical sorted/uppercase orientation already stored, so they join directly
+    against the candidate rows' (pair_a, pair_b) with no normalisation. regime is
+    NOT NULL in the schema, so every returned pair carries a concrete regime; a
+    candidate pair simply absent from the screen is handled by the caller (blank
+    cell). The correlated MAX(as_of) is served by the
+    (pair_a, pair_b, lookback_days, as_of DESC) index declared in create_tables.
+    """
+    rows = conn.execute(
+        f"""SELECT t.pair_a, t.pair_b, t.regime
+            FROM {TABLE_NAME} t
+            WHERE t.tf = ? AND t.lookback_days = ?
+              AND t.as_of = (
+                  SELECT MAX(as_of) FROM {TABLE_NAME}
+                  WHERE pair_a = t.pair_a AND pair_b = t.pair_b
+                    AND tf = t.tf AND lookback_days = t.lookback_days
+              )""",
+        (tf, int(lookback_days)),
+    ).fetchall()
+    return {(r["pair_a"], r["pair_b"]): r["regime"] for r in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -691,6 +778,32 @@ def query_singles_today(conn: sqlite3.Connection) -> pd.DataFrame:
     )
 
 
+def query_latest_per_symbol(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Singles equivalent of query_latest_per_pair: one row per
+    (symbol, tf, lookback_days) using each symbol's OWN most-recent as_of.
+
+    See query_latest_per_pair() for the calendar-mismatch rationale. Drop-in
+    replacement for query_singles_today() at reporting sites where the intent
+    is "the latest available row for each symbol." Identical to the
+    in-production singles loader in tools/cointegration_excel.py.
+    """
+    row = conn.execute(
+        f"SELECT 1 FROM {SINGLES_TABLE_NAME} LIMIT 1"
+    ).fetchone()
+    if not row:
+        return pd.DataFrame(columns=SINGLES_DB_COLUMNS)
+    return pd.read_sql_query(
+        f"""SELECT t.* FROM {SINGLES_TABLE_NAME} t
+            WHERE t.as_of = (
+                SELECT MAX(as_of) FROM {SINGLES_TABLE_NAME}
+                WHERE symbol = t.symbol AND tf = t.tf
+                  AND lookback_days = t.lookback_days
+            )
+            ORDER BY t.symbol, t.lookback_days""",
+        conn,
+    )
+
+
 def upsert_singles_from_parquet(
     conn: sqlite3.Connection,
     parquet_path: Path | str = SINGLES_PARQUET_PATH,
@@ -796,12 +909,13 @@ def main(argv: list[str] | None = None) -> int:
             if Path(SINGLES_PARQUET_PATH).is_file():
                 n_s = upsert_singles_from_parquet(conn, SINGLES_PARQUET_PATH)
                 print(f"[cointegration_db] upserted {n_s} singles rows")
-            # quick regime summary
-            df_today = query_today(conn)
+            # quick regime summary (per-pair / per-symbol latest, not global
+            # MAX(as_of) - see query_latest_per_pair docstring)
+            df_today = query_latest_per_pair(conn)
             if not df_today.empty:
                 counts = df_today.groupby(["lookback_days", "regime"]).size().unstack(fill_value=0)
                 print(f"[cointegration_db] today's pair-pair regime counts:\n{counts}")
-            df_singles = query_singles_today(conn)
+            df_singles = query_latest_per_symbol(conn)
             if not df_singles.empty:
                 s_counts = df_singles.groupby(["lookback_days", "regime"]).size().unstack(fill_value=0)
                 print(f"[cointegration_db] today's singles regime counts:\n{s_counts}")
