@@ -43,6 +43,8 @@ if str(PROJECT_ROOT) not in sys.path:
 # at test-time rather than at collection-time.
 from tools.generate_cointrev_v3_directives import (  # noqa: E402
     DEFAULT_CONFIRMATION_N,
+    EXIT_VARIANTS,
+    _render_directive,
     _verify_gate_compatibility,
     generate_directives,
     spans_confirmation_safe,
@@ -330,6 +332,61 @@ def test_directive_yaml_well_formed(tmp_coint_db, tmp_path):
     assert leg_symbols == {pair_a, pair_b}, (
         f"basket.legs must carry both pair symbols, got {leg_symbols}"
     )
+
+
+def test_render_directive_threads_lookback_days():
+    """Regression: the cointegration BASIS lookback_days must flow into the
+    directive's cointegration_join block, not stay hardcoded at 252.
+
+    Before this fix the template hardcoded `lookback_days: 252`, so a 4h run
+    (--lookback 1500) emitted directives claiming 252. The window_validity_gate
+    maps lookback_days -> tf (252/504 -> 1d, 1500/3000 -> 4h), so it validated
+    the 4h-dated window against the 1d span and systematically REJECTED every
+    4h directive at the gate-verify canary.
+    """
+    # Default (1d/252): byte-identical to the historical template.
+    _, body_default = _render_directive("EURUSD", "USDJPY", "2024-01-07", "2024-01-15")
+    parsed_default = yaml.safe_load(body_default)
+    assert parsed_default["basket"]["cointegration_join"]["lookback_days"] == 252
+
+    # 4h basis (lookback 1500): the gate keys on this value; it must be 1500.
+    _, body_4h = _render_directive(
+        "EURUSD", "USDJPY", "2024-01-07", "2024-01-15", lookback_days=1500,
+    )
+    parsed_4h = yaml.safe_load(body_4h)
+    assert parsed_4h["basket"]["cointegration_join"]["lookback_days"] == 1500
+    assert "lookback_days=1500" in parsed_4h["test"]["description"]
+
+
+def test_exit_variant_zcross_swaps_rule_and_tags():
+    """--exit-variant zcross swaps recycle_rule.name to pine_ratio_zrev_v1_zcross
+    and appends the _ZCRS tag AFTER the sizing tag (matching the _GP_ZCRS cohort
+    convention), leaving baseline byte-identical. Params/window unchanged."""
+    # Baseline (GP default): rule unchanged, no exit tag.
+    _, base = _render_directive("AUDJPY", "AUDNZD", "2024-01-09", "2024-02-20")
+    pb = yaml.safe_load(base)
+    assert pb["basket"]["recycle_rule"]["name"] == "pine_ratio_zrev_v1"
+    assert "_ZCRS" not in pb["test"]["name"]
+    assert pb["test"]["name"].split("__E")[0].endswith("_GP")
+
+    # zcross: rule swapped, _ZCRS after _GP, description updated, params identical.
+    _, z = _render_directive("AUDJPY", "AUDNZD", "2024-01-09", "2024-02-20",
+                             rule_name="pine_ratio_zrev_v1_zcross", exit_tag="_ZCRS")
+    pz = yaml.safe_load(z)
+    assert pz["basket"]["recycle_rule"]["name"] == "pine_ratio_zrev_v1_zcross"
+    assert "_GP_ZCRS" in pz["test"]["name"]
+    assert "_GP_ZCRS_E" in pz["test"]["hypothesis_variant"]
+    assert "pine_ratio_zrev_v1_zcross" in pz["test"]["description"]
+    # params must be identical to baseline (only the exit rule differs)
+    assert pz["basket"]["recycle_rule"]["params"] == pb["basket"]["recycle_rule"]["params"]
+
+
+def test_exit_variant_mapping_and_invalid_raises(tmp_coint_db, tmp_path):
+    assert EXIT_VARIANTS["baseline"] == ("pine_ratio_zrev_v1", "")
+    assert EXIT_VARIANTS["zcross"] == ("pine_ratio_zrev_v1_zcross", "_ZCRS")
+    with pytest.raises(ValueError, match="exit_variant"):
+        generate_directives(tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+                            output_dir=tmp_path, dry_run=True, exit_variant="bogus")
 
 
 def test_default_confirmation_is_5():
@@ -832,3 +889,109 @@ def test_sizing_mode_invalid_raises(tmp_coint_db, tmp_path, bad):
             db_path=tmp_coint_db, dry_run=True,
             sizing_mode=bad,
         )
+
+
+# ---------------------------------------------------------------------------
+# Section I — basis-TF cohort tag (COINT-NAMING-TF-TAG, 2026-06-04)
+# ---------------------------------------------------------------------------
+#
+# The cointegration BASIS timeframe (1d vs 4h) was never encoded in the
+# filename -- it lived only in cointegration_join.lookback_days (252 vs 1500).
+# So a 1D and a 4H directive for the same (pair, entry, sizing, exit) cohort
+# rendered IDENTICAL stems and collided (37 such collisions on 2026-06-04).
+# tf_tag fixes this: 1d (default) untagged for byte-identical back-compat;
+# 4h -> _TF4H, appended LAST (after the exit tag). Tests lock:
+#   I.1 1d default is byte-clean (no _TF tag)
+#   I.2 4h carries trailing _TF4H in name + variant; tf follows the exit tag
+#   I.3 a 1D and a 4H directive for the same cohort have DIFFERENT stems (core)
+#   I.4 full tag order is _P_N_GP_ZCRS_TF4H (tf last) -- position lock
+#   I.5 end-to-end 4h generation tags the stem + passes the 4h gate-verify
+
+
+def test_tf_tag_1d_untagged_byte_identical():
+    """I.1: the 1D basis (default tf_tag="") renders byte-identically to the
+    pre-change template -- NO _TF tag. Locks back-compat for the entire existing
+    1D corpus (every future 1D directive must keep its historical stem)."""
+    name, body = _render_directive("AUDJPY", "AUDNZD", "2024-01-09", "2024-02-20")
+    assert "_TF" not in name, f"1D default must carry no _TF tag, got {name!r}"
+    assert name == "90_PORT_AUDJPYAUDNZD_15M_COINTREV_V3_L30_GP__E240109", (
+        f"1D default stem must be byte-identical to the pre-change form, got {name!r}"
+    )
+    assert "_TF" not in yaml.safe_load(body)["test"]["hypothesis_variant"]
+
+
+def test_tf_tag_4h_trailing_in_name_and_variant():
+    """I.2: tf_tag="_TF4H" appends AFTER the exit tag in both name and variant;
+    sizing/exit/window content is otherwise unchanged."""
+    # GP default sizing + baseline exit + 4h basis.
+    name, body = _render_directive(
+        "AUDJPY", "AUDNZD", "2024-01-09", "2024-02-20",
+        lookback_days=1500, tf_tag="_TF4H",
+    )
+    assert name == "90_PORT_AUDJPYAUDNZD_15M_COINTREV_V3_L30_GP_TF4H__E240109", (
+        f"4H GP-baseline stem must carry trailing _TF4H, got {name!r}"
+    )
+    parsed = yaml.safe_load(body)
+    assert parsed["test"]["name"].endswith("_GP_TF4H__E240109")
+    assert "_GP_TF4H_E240109" in parsed["test"]["hypothesis_variant"]
+    assert parsed["basket"]["cointegration_join"]["lookback_days"] == 1500
+
+    # With an exit variant the tf tag still goes LAST: _GP_ZCRS_TF4H.
+    name_z, _ = _render_directive(
+        "AUDJPY", "AUDNZD", "2024-01-09", "2024-02-20",
+        lookback_days=1500, rule_name="pine_ratio_zrev_v1_zcross",
+        exit_tag="_ZCRS", tf_tag="_TF4H",
+    )
+    assert name_z.split("__E")[0].endswith("_GP_ZCRS_TF4H"), (
+        f"tf tag must follow the exit tag, got {name_z!r}"
+    )
+
+
+def test_1d_4h_names_disjoint():
+    """I.3 (CORE ACCEPTANCE): a 1D and a 4H directive for the SAME (pair, entry,
+    exit, sizing, exit-variant) cohort must render DIFFERENT filenames. Before
+    the TF tag they collided (basis tf lived only in lookback_days)."""
+    common = dict(pair_a="AUDJPY", pair_b="AUDNZD",
+                  entry_date="2024-01-09", exit_date="2024-02-20")
+    name_1d, _ = _render_directive(**common, lookback_days=252, tf_tag="")
+    name_4h, _ = _render_directive(**common, lookback_days=1500, tf_tag="_TF4H")
+    assert name_1d != name_4h, (
+        f"1D and 4H stems for the same cohort must differ; both were {name_1d!r}"
+    )
+    assert name_4h == name_1d.replace("__E", "_TF4H__E")
+
+
+def test_tf_tag_composes_after_exit():
+    """I.4: with p + n + sizing + exit + tf all set, the tag order is
+    _P01_N0_GP_ZCRS_TF4H (tf appended LAST). Position lock -- guards a reorder."""
+    name, _ = _render_directive(
+        "EURUSD", "USDJPY", "2024-01-07", "2024-01-15",
+        lookback_days=1500, rule_name="pine_ratio_zrev_v1_zcross",
+        exit_tag="_ZCRS", p_tag="_P01", n_tag="_N0", tf_tag="_TF4H",
+        sizing_mode="granular_parity",
+    )
+    assert "_L30_P01_N0_GP_ZCRS_TF4H__E" in name, (
+        f"tag order must be p,n,sizing,exit,tf -> _P01_N0_GP_ZCRS_TF4H, got {name!r}"
+    )
+
+
+def test_generate_directives_4h_end_to_end(tmp_coint_db, tmp_path):
+    """I.5: a 4h/1500 cohort generates directives whose stems carry the trailing
+    _TF4H tag, and the pre-write gate-verify passes for the 4h basis
+    (window_validity_gate keys span lookups on lookback_days=1500, not tf)."""
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, pair_a, pair_b, series, tf="4h", lookback_days=1500)
+
+    written = generate_directives(
+        tf="4h", lookback_days=1500, N=5,
+        output_dir=tmp_path / "out_4h",
+        db_path=tmp_coint_db, dry_run=False,
+    )
+    assert len(written) == 1
+    name = Path(written[0]).stem
+    assert name.split("__E")[0].endswith("_GP_TF4H"), (
+        f"4h end-to-end stem must carry trailing _TF4H, got {name!r}"
+    )
+    parsed = yaml.safe_load(Path(written[0]).read_text(encoding="utf-8"))
+    assert parsed["basket"]["cointegration_join"]["lookback_days"] == 1500

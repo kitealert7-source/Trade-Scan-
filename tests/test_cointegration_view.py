@@ -70,6 +70,10 @@ def test_series_classification():
     assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_ZCRS__E240109") == "ZCRS"
     assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_SZVP__E240719") == "SZVP"
     assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_P01_N0__E240122") == "P01_N0"
+    # basis-TF tag (_TF4H) is appended last and absorbed into the series string;
+    # 1d stays untagged so its series tags are unchanged.
+    assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_GP_TF4H__E240109") == "GP_TF4H"
+    assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30_GP_ZCRS_TF4H__E240109") == "GP_ZCRS_TF4H"
     assert _classify_series("90_PORT_X_15M_COINTREV_V3_L30__E240719") == "base"
     assert _classify_series("90_PORT_X_15M_COINTREV_V2_L252") == "base"
     assert _classify_series(None) == "?"

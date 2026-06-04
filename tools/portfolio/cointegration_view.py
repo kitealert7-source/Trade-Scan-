@@ -158,6 +158,7 @@ def _classify_series(directive_id) -> str:
         '...L30_ZCRS__E...'     -> 'ZCRS'    (zero-cross exit variant)
         '...L30_SZVP__E240719'  -> 'SZVP'    (vol-parity sizing arm)
         '...L30_P01_N0__E...'   -> 'P01_N0'  (p-threshold + confirmation cohort)
+        '...L30_GP_ZCRS_TF4H__E' -> 'GP_ZCRS_TF4H' (4h cointegration basis; 1d untagged)
         '...L30__E...' / '...L100' -> 'base'
 
     Lets operators filter the corpus by family -- e.g. exclude the SZVP

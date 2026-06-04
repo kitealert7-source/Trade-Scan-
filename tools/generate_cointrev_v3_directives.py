@@ -76,6 +76,7 @@ CLI:
     python tools/generate_cointrev_v3_directives.py --dry-run
     python tools/generate_cointrev_v3_directives.py
     python tools/generate_cointrev_v3_directives.py --confirmation 5 --lookback 252 --tf 1d
+    python tools/generate_cointrev_v3_directives.py --tf 4h --lookback 1500  # 4H basis -> _TF4H name tag
     python tools/generate_cointrev_v3_directives.py --sizing-mode granular_parity \
         --output-dir backtest_directives/cointrev_v3_staging_gp
 
@@ -140,6 +141,20 @@ METHODOLOGY_VERSION = "v2_log_eg"
 # injects NO sizing param, so the rule runs its default notional sizing.
 SIZING_MODES = ("notional", "granular_parity", "notional_ctl")
 _SIZING_TAG = {"notional": "", "granular_parity": "_GP", "notional_ctl": "_GPN"}
+
+# Exit-variant cohort -> (recycle_rule.name, name tag). "baseline" =
+# pine_ratio_zrev_v1 (reverse@+-2 exit), no tag, byte-identical to the pre-flag
+# template. The z-variants are registered recycle rules dispatched in
+# run_pipeline.LEG_STRATEGY_DISPATCH; the tag is appended AFTER the sizing tag
+# (matching the existing _GP_ZCRS cohort convention). Only the rule name + tag +
+# description string change vs baseline -- params and the cointegration window
+# are identical (so window_validity_gate behaviour is unchanged).
+EXIT_VARIANTS = {
+    "baseline": ("pine_ratio_zrev_v1", ""),
+    "zcross": ("pine_ratio_zrev_v1_zcross", "_ZCRS"),
+    "zband": ("pine_ratio_zrev_v1_zband", "_ZBND"),
+    "zopp": ("pine_ratio_zrev_v1_zopp", "_ZOPP"),
+}
 # Modes that run notional sizing (no param injection); only the name tag differs.
 _NOTIONAL_SIZING_MODES = ("notional", "notional_ctl")
 DEFAULT_GRANULAR_PARITY_MAX_K = 8
@@ -317,10 +332,10 @@ TEMPLATE = """test:
   parameter_mutation: false
   hypothesis_ref: COINTREV_V3_PINE_RATIOZ
   hypothesis_variant: {variant}
-  description: 'Pine z_r reversal port (pine_ratio_zrev_v1), N=30 / 15M / absolute /
+  description: 'Pine z_r reversal port ({rule_name}), N=30 / 15M / absolute /
     always-in-market, {a}/{b}. Capital 1000 USD, target_notional_per_leg_usd=1000.
-    Episode test: natural continuous 252d-cointegrated span {start} -> {end}.
-    cointegration_join lookback_days=252 gates (any-span) + routes to the
+    Episode test: natural continuous {lookback_days}d-cointegrated span {start} -> {end}.
+    cointegration_join lookback_days={lookback_days} gates (any-span) + routes to the
     cointegration ledger.'
 symbols:
 - {a}
@@ -364,9 +379,9 @@ basket:
   initial_stake_usd: 1000.0
   harvest_threshold_usd: 1000000.0
   cointegration_join:
-    lookback_days: 252
+    lookback_days: {lookback_days}
   recycle_rule:
-    name: pine_ratio_zrev_v1
+    name: {rule_name}
     version: 1
     params:
       n_window: 30
@@ -449,8 +464,12 @@ def _render_directive(
     entry_date: str,
     exit_date: str,
     *,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    rule_name: str = "pine_ratio_zrev_v1",
+    exit_tag: str = "",
     p_tag: str = "",
     n_tag: str = "",
+    tf_tag: str = "",
     sizing_mode: str = "granular_parity",
 ) -> tuple[str, str]:
     """Return (filename_stem, yaml_body) for a single span.
@@ -477,13 +496,23 @@ def _render_directive(
     (the bare-notional arm collides with the completed production corpus and is
     skipped, so it cannot serve as a same-snapshot control).
 
-    Order is ``{p_tag}{n_tag}{s_tag}`` -> e.g. ``_L30_P01_N0_GP``.
+    ``tf_tag`` (e.g. ``"_TF4H"``) marks the cointegration BASIS timeframe so 1D
+    and 4H cohorts are name-disjoint by construction. 1d (the default basis)
+    stays UNTAGGED (``tf_tag=""``) for byte-identical back-compat with the
+    existing corpus; 4h -> ``"_TF4H"``. It is appended LAST (after the exit tag)
+    so existing cohorts' leading tag sequence is unchanged. Without it, a 1D
+    (lookback 252) and a 4H (lookback 1500) directive for the same (pair,
+    entry_date, sizing, exit) cohort render IDENTICAL filenames -- the basis tf
+    lives only in cointegration_join.lookback_days and the ledger row.
+
+    Order is ``{p_tag}{n_tag}{s_tag}{exit_tag}{tf_tag}`` -> e.g.
+    ``_L30_P01_N0_GP_ZCRS_TF4H``.
     """
     bid = f"{pair_a}{pair_b}"
     yymmdd = _yymmdd(entry_date)
     s_tag = _SIZING_TAG[sizing_mode]
-    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}{n_tag}{s_tag}__E{yymmdd}"
-    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}{n_tag}{s_tag}_E{yymmdd}"
+    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}{n_tag}{s_tag}{exit_tag}{tf_tag}__E{yymmdd}"
+    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}{n_tag}{s_tag}{exit_tag}{tf_tag}_E{yymmdd}"
     # Non-default sizing injects extra recycle_rule.params lines; the default
     # "notional" path renders extra_params="" so the body is byte-identical to
     # the pre-2026-06-04 template (baseline-arm fidelity is load-bearing).
@@ -502,6 +531,8 @@ def _render_directive(
         a=pair_a,
         b=pair_b,
         bid=bid,
+        rule_name=rule_name,
+        lookback_days=lookback_days,
         extra_params=extra_params,
     )
     return name, body
@@ -512,8 +543,12 @@ def _verify_gate_compatibility(
     *,
     sample_indices: list[int] | None = None,
     db_path: Path | None = None,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    rule_name: str = "pine_ratio_zrev_v1",
+    exit_tag: str = "",
     p_tag: str = "",
     n_tag: str = "",
+    tf_tag: str = "",
     sizing_mode: str = "granular_parity",
 ) -> None:
     """Render sample directives and run them through evaluate_window_validity.
@@ -573,7 +608,7 @@ def _verify_gate_compatibility(
     try:
         for idx in sample_indices:
             pair_a, pair_b, entry_date, exit_date, ncoint = spans_per_pair[idx]
-            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag, sizing_mode=sizing_mode)
+            name, body = _render_directive(pair_a, pair_b, entry_date, exit_date, lookback_days=lookback_days, rule_name=rule_name, exit_tag=exit_tag, p_tag=p_tag, n_tag=n_tag, tf_tag=tf_tag, sizing_mode=sizing_mode)
             tf_handle = tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False, encoding="utf-8"
             )
@@ -619,6 +654,7 @@ def generate_directives(
     dry_run: bool = False,
     p_threshold: float | None = None,
     sizing_mode: str = "granular_parity",
+    exit_variant: str = "baseline",
 ) -> list[Path]:
     """Read cointegration_daily, enumerate look-ahead-safe spans, and emit
     one directive YAML per qualifying span.
@@ -649,6 +685,13 @@ def generate_directives(
         raise ValueError(
             f"sizing_mode must be one of {SIZING_MODES}, got {sizing_mode!r}"
         )
+    if exit_variant not in EXIT_VARIANTS:
+        raise ValueError(
+            f"exit_variant must be one of {tuple(EXIT_VARIANTS)}, got {exit_variant!r}"
+        )
+    # Exit variant -> recycle_rule.name + name tag (e.g. zcross -> _ZCRS). Baseline
+    # leaves both at their pre-flag defaults so existing cohorts stay byte-identical.
+    rule_name, exit_tag = EXIT_VARIANTS[exit_variant]
     # Encode p_threshold in directive name to prevent cohort collisions.
     # _P05 is implicit (screener default); _P03 = p<0.03; _P02 = p<0.02; etc.
     p_tag = "" if p_threshold is None else f"_P{int(round(p_threshold * 100)):02d}"
@@ -656,6 +699,15 @@ def generate_directives(
     # so existing N=5 cohorts keep their stems; N=0 -> _N0. Same variant slot
     # and collision-prevention role as p_tag.
     n_tag = "" if N == DEFAULT_CONFIRMATION_N else f"_N{N}"
+    # Encode the cointegration BASIS timeframe so 1D (lookback 252/504) and 4H
+    # (lookback 1500/3000) cohorts are name-disjoint by construction. They share
+    # lookback_days as the real basis key but previously shared FILENAMES, so a
+    # 1D and a 4H directive for the same (pair, entry_date, sizing, exit) cohort
+    # rendered identical stems (37 such collisions on 2026-06-04). 1d (default)
+    # stays UNTAGGED for byte-identical back-compat with the existing corpus;
+    # 4h -> _TF4H. Appended LAST (after exit_tag) so existing cohorts' leading
+    # tag sequence is unchanged. Same cohort-tag role as _P / _N / _GP / _ZCRS.
+    tf_tag = "" if tf == DEFAULT_TF else f"_TF{tf.upper()}"
 
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
     db_path = Path(db_path) if db_path is not None else Path(SQLITE_DB)
@@ -697,8 +749,9 @@ def generate_directives(
     # were enumerated from (matters for tests using a tmp DB; in production
     # both default to cointegration.db).
     _verify_gate_compatibility(
-        spans_per_pair, db_path=db_path, p_tag=p_tag, n_tag=n_tag,
-        sizing_mode=sizing_mode,
+        spans_per_pair, db_path=db_path, lookback_days=lookback_days,
+        rule_name=rule_name, exit_tag=exit_tag,
+        p_tag=p_tag, n_tag=n_tag, tf_tag=tf_tag, sizing_mode=sizing_mode,
     )
 
     p_tag_label = "screener-default p<0.05" if p_threshold is None else f"p<{p_threshold} ({p_tag} tag)"
@@ -730,8 +783,9 @@ def generate_directives(
     written: list[Path] = []
     for pair_a, pair_b, entry_date, exit_date, _ncoint in spans_per_pair:
         name, body = _render_directive(
-            pair_a, pair_b, entry_date, exit_date, p_tag=p_tag, n_tag=n_tag,
-            sizing_mode=sizing_mode,
+            pair_a, pair_b, entry_date, exit_date, lookback_days=lookback_days,
+            rule_name=rule_name, exit_tag=exit_tag,
+            p_tag=p_tag, n_tag=n_tag, tf_tag=tf_tag, sizing_mode=sizing_mode,
         )
         out_path = output_dir / f"{name}.txt"
         out_path.write_text(body, encoding="utf-8")
@@ -788,7 +842,13 @@ def _parser() -> argparse.ArgumentParser:
         type=str,
         default=DEFAULT_TF,
         choices=list(SUPPORTED_TFS),
-        help=f"Timeframe filter (default: {DEFAULT_TF}).",
+        help=(
+            f"Cointegration BASIS timeframe filter (default: {DEFAULT_TF}). Non-1d "
+            f"TFs get a _TF<TF> name tag (e.g. 4h -> _TF4H) so 1D and 4H cohorts "
+            f"are name-disjoint; 1d stays untagged. Pair with the matching "
+            f"--lookback: 1d -> 252/504, 4h -> 1500/3000 (a mismatched combo "
+            f"yields zero pairs and aborts)."
+        ),
     )
     p.add_argument(
         "--output-dir",
@@ -834,6 +894,20 @@ def _parser() -> argparse.ArgumentParser:
             "tagged notional control for matched comparisons."
         ),
     )
+    p.add_argument(
+        "--exit-variant",
+        type=str,
+        default="baseline",
+        choices=list(EXIT_VARIANTS),
+        help=(
+            "Exit logic variant. 'baseline' (DEFAULT) = pine_ratio_zrev_v1 "
+            "(reverse@+-2), no tag, byte-identical to the pre-flag template. "
+            "'zcross' = exit at z=0 (pine_ratio_zrev_v1_zcross, _ZCRS tag); "
+            "'zband'/'zopp' = the other registered exit rules. Swaps "
+            "recycle_rule.name + appends the tag after the sizing tag; params and "
+            "the cointegration window are unchanged."
+        ),
+    )
     return p
 
 
@@ -848,6 +922,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         p_threshold=args.p_threshold,
         sizing_mode=args.sizing_mode,
+        exit_variant=args.exit_variant,
     )
     return 0
 
