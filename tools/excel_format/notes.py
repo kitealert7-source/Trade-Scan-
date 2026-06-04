@@ -467,6 +467,14 @@ def _notes_write_trade_candidates_section(ws, _w, r, fonts):
          "pair_a / pair_b. Prefixed with the medal badge when the pair has zero "
          "losses so far (= the retired all_profitable 'never lost yet' flag, kept "
          "as an achievement, not a filter)."),
+        ("Coint Status (252d)",
+         "Current cointegration regime for the pair from the daily screener's "
+         "252-day window (cointegration_daily — the source behind the screener's "
+         "'All Pairs (Diagnostic)' sheet): cointegrated / breaking / broken. "
+         "Refreshed on each MPS regeneration; blank if the pair is not in the "
+         "current screen. NOTE: this is the standard 252d screen as of its latest "
+         "run, NOT the per-pair continuous-cointegration window the candidate was "
+         "actually backtested on."),
         ("Runs",
          "Total current (is_current=1) runs for the pair — every parameter "
          "variant and every test window."),

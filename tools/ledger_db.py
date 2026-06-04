@@ -1065,6 +1065,33 @@ def _read_cointegration_current(conn: sqlite3.Connection) -> pd.DataFrame:
     )
 
 
+def _latest_coint_regime_map() -> dict:
+    """Current 252d cointegration regime per pair for the COINT TRADE
+    CANDIDATES "Coint Status (252d)" column.
+
+    Reads the screener DB (cointegration_daily) -- the same source behind the
+    "All Pairs (Diagnostic)" sheet -- via tools.cointegration_db. Best-effort
+    enrichment: any failure (missing/locked DB, schema drift) returns an empty
+    map so MPS regeneration is never blocked by a source that lives in a sibling
+    data store with its own refresh lifecycle. The status reflects the standard
+    252d screen as of its latest run, NOT the per-pair window each candidate was
+    backtested on.
+    """
+    try:
+        from tools import cointegration_db as _cdb
+        if not _cdb.SQLITE_DB.exists():
+            return {}
+        _c = _cdb.connect(_cdb.SQLITE_DB)
+        try:
+            return _cdb.latest_regime_map(_c, tf="1d", lookback_days=252)
+        finally:
+            _c.close()
+    except Exception as exc:  # best-effort: never block the MPS export
+        print(f"  [EXPORT] WARN: cointegration regime lookup failed "
+              f"({type(exc).__name__}: {exc}); 'Coint Status (252d)' left blank")
+        return {}
+
+
 def export_mps(
     conn: sqlite3.Connection | None = None,
     output_path: Path | None = None,
@@ -1134,7 +1161,12 @@ def export_mps(
             # Pair-level decision-support shortlist (one row per pair). Separate
             # grain from the run-level Cointegration tab; same is_current rows.
             from tools.portfolio.trade_candidates_view import build_trade_candidates_df
-            df_candidates = build_trade_candidates_df(df_coint)
+            # Current 252d cointegration regime per pair, read from the screener
+            # DB (cointegration_daily -- the source behind "All Pairs
+            # (Diagnostic)"). Best-effort: a missing/locked screener DB leaves
+            # the status column blank rather than aborting MPS regeneration.
+            regime_map = _latest_coint_regime_map()
+            df_candidates = build_trade_candidates_df(df_coint, regime_map=regime_map)
 
         # Atomic write: render to a per-process temp in the SAME directory, then
         # os.replace() into place (atomic on one volume). The xlsx is a derived

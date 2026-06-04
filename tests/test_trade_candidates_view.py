@@ -166,3 +166,43 @@ def test_runs_is_final_tiebreak():
     )
     out = build_trade_candidates_df(_raw(rows))
     assert _strip(out.iloc[0]["Pair"]) == "X / X"
+
+
+# ---------- Coint Status (252d) column (regime_map injection) ----------
+
+def test_status_blank_without_regime_map():
+    # No screener data supplied -> column present, every value blank.
+    out = build_trade_candidates_df(_raw(_pair_rows("EURUSD", "GBPUSD", [5.0] * 5)))
+    assert "Coint Status (252d)" in out.columns
+    assert out.iloc[0]["Coint Status (252d)"] == ""
+
+
+def test_status_populated_from_regime_map():
+    out = build_trade_candidates_df(
+        _raw(_pair_rows("EURUSD", "GBPUSD", [5.0] * 5)),
+        regime_map={("EURUSD", "GBPUSD"): "cointegrated"},
+    )
+    assert out.iloc[0]["Coint Status (252d)"] == "cointegrated"
+
+
+def test_status_blank_for_pair_absent_from_map():
+    # A qualifying pair not in the current screen renders blank, not an error.
+    out = build_trade_candidates_df(
+        _raw(
+            _pair_rows("EURUSD", "GBPUSD", [5.0] * 5) +
+            _pair_rows("AUDUSD", "NZDUSD", [5.0] * 5)
+        ),
+        regime_map={("EURUSD", "GBPUSD"): "broken"},
+    )
+    byp = {_strip(p): s for p, s in zip(out["Pair"], out["Coint Status (252d)"])}
+    assert byp["EURUSD / GBPUSD"] == "broken"
+    assert byp["AUDUSD / NZDUSD"] == ""
+
+
+def test_status_column_is_second_after_pair():
+    out = build_trade_candidates_df(
+        _raw(_pair_rows("EURUSD", "GBPUSD", [5.0] * 5)),
+        regime_map={("EURUSD", "GBPUSD"): "breaking"},
+    )
+    assert list(out.columns) == TRADE_CANDIDATES_COLUMNS
+    assert list(out.columns).index("Coint Status (252d)") == 1

@@ -26,8 +26,14 @@ Design (operator-locked 2026-06-02):
   COUNT (a human reads "24 runs, 2 losses" instantly); the SORT uses loss_rate
   so exposure is normalised (24/2 and 12/1 are the same 8% quality).
 
-Columns (display): Pair | Runs | Losses | Median Ret/DD
+Columns (display): Pair | Coint Status (252d) | Runs | Losses | Median Ret/DD
   - Pair: "pair_a / pair_b", badge-prefixed for zero-loss pairs.
+  - Coint Status (252d): current screener regime (cointegrated / breaking /
+    broken) for the pair from cointegration_daily's 252-day window -- the source
+    behind the screener's "All Pairs (Diagnostic)" sheet. Injected via
+    `regime_map`; blank if the pair is not in the current screen. A current-state
+    proxy under the standard 252d screen, NOT the per-pair continuous-
+    cointegration window each candidate was actually backtested on.
   - Runs: total current runs (every parameter variant and test window).
   - Losses: count of runs with canonical_net_pct <= 0 (break-even is a loss).
   - Median Ret/DD: median canonical_ret_dd over ALL runs (incl. losers);
@@ -49,7 +55,9 @@ import pandas as pd
 # emoji in the xlsx cell.
 BADGE = "\U0001F3C5"
 
-TRADE_CANDIDATES_COLUMNS = ["Pair", "Runs", "Losses", "Median Ret/DD"]
+TRADE_CANDIDATES_COLUMNS = [
+    "Pair", "Coint Status (252d)", "Runs", "Losses", "Median Ret/DD",
+]
 
 # Qualification gate: a pair needs at least this many current runs to qualify
 # as a trade candidate. Below it there isn't enough evidence (a 1-run "perfect"
@@ -58,12 +66,22 @@ TRADE_CANDIDATES_COLUMNS = ["Pair", "Runs", "Losses", "Median Ret/DD"]
 MIN_QUALIFYING_RUNS = 5
 
 
-def build_trade_candidates_df(df_raw: pd.DataFrame) -> pd.DataFrame:
+def build_trade_candidates_df(
+    df_raw: pd.DataFrame,
+    regime_map: dict | None = None,
+) -> pd.DataFrame:
     """Project run-grain cointegration rows to the pair-level shortlist.
 
     One row per (pair_a, pair_b). See the module docstring for the criterion.
     Caller is responsible for passing the desired row scope (the MPS export
-    passes is_current=1 rows)."""
+    passes is_current=1 rows).
+
+    `regime_map` (optional): {(pair_a, pair_b): regime} for the "Coint Status
+    (252d)" column, sourced from the daily screener (cointegration_db
+    .latest_regime_map). Keys are the same canonical (pair_a, pair_b)
+    orientation as the candidate rows. A pair absent from the map renders blank;
+    regime_map=None (no screener data supplied) leaves the whole column blank.
+    Pure transform either way -- the caller owns the cross-DB read."""
     if df_raw is None or len(df_raw) == 0:
         return pd.DataFrame(columns=TRADE_CANDIDATES_COLUMNS)
 
@@ -105,8 +123,21 @@ def build_trade_candidates_df(df_raw: pd.DataFrame) -> pd.DataFrame:
     # Badge-prefix the zero-loss pairs only.
     pair = pair.mask(agg["losses"] == 0, BADGE + " " + pair)
 
+    # Current 252d screener regime per pair, looked up from the injected map
+    # (same canonical (pair_a, pair_b) key orientation). Pairs not in the
+    # current screen -> blank, per the operator-chosen no-match rendering;
+    # regime_map=None -> the whole column blank (no screener data supplied).
+    if regime_map:
+        status = [
+            regime_map.get((str(a), str(b)), "")
+            for a, b in zip(agg["pair_a"], agg["pair_b"])
+        ]
+    else:
+        status = [""] * len(agg)
+
     return pd.DataFrame({
         "Pair": pair,
+        "Coint Status (252d)": status,
         "Runs": agg["runs"].astype(int),
         "Losses": agg["losses"].astype(int),
         "Median Ret/DD": agg["median_ret_dd"].round(2),

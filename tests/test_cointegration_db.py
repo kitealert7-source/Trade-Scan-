@@ -31,6 +31,7 @@ from tools.cointegration_db import (
     compute_rolling_median,
     connect,
     create_tables,
+    latest_regime_map,
     query_for_classifier,
     query_history,
     query_today,
@@ -499,3 +500,77 @@ class TestUpsertSemantics:
         # oldest first
         assert hist["as_of"].iloc[0] == "2026-05-01"
         assert hist["as_of"].iloc[-1] == "2026-05-05"
+
+
+# ---------------------------------------------------------------------------
+# latest_regime_map — backs the MPS "Coint Status (252d)" candidates column
+# ---------------------------------------------------------------------------
+
+
+class TestLatestRegimeMap:
+
+    def _insert(self, conn, as_of, pair_a, pair_b, regime,
+                *, tf="1d", lookback_days=252):
+        inserted_at = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            f"INSERT INTO {TABLE_NAME} ({', '.join(DB_COLUMNS)}) "
+            f"VALUES ({', '.join(['?']*len(DB_COLUMNS))})",
+            (
+                as_of, pair_a, pair_b, tf, lookback_days,
+                "2025-01-01", as_of, lookback_days, 0.03, None, 0, -3.0,
+                10.0, 1.5, "ols_static", "eg_mackinnon",
+                0.5, regime, "v0", inserted_at, "v2_log_eg",
+            ),
+        )
+        conn.commit()
+
+    def test_empty_table_returns_empty(self, conn):
+        assert latest_regime_map(conn) == {}
+
+    def test_returns_latest_as_of_regime(self, conn):
+        # Same pair, two days; the map reflects the MOST RECENT as_of only.
+        self._insert(conn, "2026-05-01", "EURUSD", "GBPUSD", "breaking")
+        self._insert(conn, "2026-05-02", "EURUSD", "GBPUSD", "cointegrated")
+        assert latest_regime_map(conn, tf="1d", lookback_days=252) == {
+            ("EURUSD", "GBPUSD"): "cointegrated"}
+
+    def test_filters_by_lookback_window(self, conn):
+        # 252 + 504 rows at the same as_of; only the requested window returns.
+        self._insert(conn, "2026-05-02", "EURUSD", "GBPUSD", "cointegrated",
+                     lookback_days=252)
+        self._insert(conn, "2026-05-02", "EURUSD", "GBPUSD", "broken",
+                     lookback_days=504)
+        assert latest_regime_map(conn, lookback_days=252) == {
+            ("EURUSD", "GBPUSD"): "cointegrated"}
+        assert latest_regime_map(conn, lookback_days=504) == {
+            ("EURUSD", "GBPUSD"): "broken"}
+
+    def test_per_pair_latest_not_global_max(self, conn):
+        # THE regression guard: per-pair latest as_of, NOT a global MAX(as_of).
+        # Pair A updated on the partial 06-04 run; pair B last ran 06-03 (FX vs
+        # crypto calendar skew / partial run). A global MAX(as_of)=06-04 would
+        # drop B entirely; per-pair latest must keep B at its own 06-03 regime.
+        self._insert(conn, "2026-06-03", "EURUSD", "GBPUSD", "cointegrated")
+        self._insert(conn, "2026-06-04", "EURUSD", "GBPUSD", "breaking")   # A ran 06-04
+        self._insert(conn, "2026-06-03", "AUDUSD", "NZDUSD", "cointegrated")  # B did NOT
+        assert latest_regime_map(conn, tf="1d", lookback_days=252) == {
+            ("EURUSD", "GBPUSD"): "breaking",       # A's own latest (06-04)
+            ("AUDUSD", "NZDUSD"): "cointegrated",   # B kept (06-03), NOT dropped
+        }
+
+    def test_tf_isolation(self, conn):
+        # A 4h row must never leak into the 1d map, even at a later as_of.
+        self._insert(conn, "2026-05-02", "EURUSD", "GBPUSD", "cointegrated",
+                     tf="1d")
+        self._insert(conn, "2026-05-09", "EURUSD", "GBPUSD", "broken",
+                     tf="4h")
+        assert latest_regime_map(conn, tf="1d", lookback_days=252) == {
+            ("EURUSD", "GBPUSD"): "cointegrated"}
+
+    def test_multiple_pairs_on_latest_day(self, conn):
+        self._insert(conn, "2026-05-02", "EURUSD", "GBPUSD", "cointegrated")
+        self._insert(conn, "2026-05-02", "AUDUSD", "NZDUSD", "breaking")
+        assert latest_regime_map(conn, lookback_days=252) == {
+            ("EURUSD", "GBPUSD"): "cointegrated",
+            ("AUDUSD", "NZDUSD"): "breaking",
+        }
