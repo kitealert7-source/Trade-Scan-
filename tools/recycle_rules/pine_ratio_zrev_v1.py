@@ -111,6 +111,7 @@ class PineRatioZRevRule(H2RecycleRule):
     # pine signal does not enter on => NaN => fallback everywhere). Pilot
     # 2026-06-03 caught beta_capped going inert with the trigger column.
     coint_beta_column: str = "coint_hedge_ratio"
+    granular_parity_max_k: int = 8     # max lot-step multiple searched (granular_parity)
 
     # Leg column the rule will attach
     signal_column: str = "pine_zrev_signal"
@@ -472,6 +473,42 @@ class PineRatioZRevRule(H2RecycleRule):
             out[sym] = max(spec["min_lot"], int(lot / spec["lot_step"]) * spec["lot_step"])
         return out
 
+    def _granular_parity_lots(self, legs, bar_ts, notional_lots, specs_by_sym):
+        """Granular notional parity: pick integer lot-step multiples (k_a, k_b)
+        in [1, granular_parity_max_k] minimizing the leg notional imbalance
+        |k_a*n_a - k_b*n_b| (n_i = one lot_step's $-notional at entry), tiebreak
+        toward fewer total lots. Approximates true equal-notional at min-lot
+        granularity WITHOUT a large capital target (the plain notional mode
+        floors to lot-equal at small targets => ~44% median imbalance). Costs
+        ~3x capital (the bumps). Per-trade fallback to notional if prices/specs
+        are unavailable. Validated 2026-06-03: 44%->3% median imbalance."""
+        try:
+            step_notional = {}
+            for leg in legs:
+                spec = specs_by_sym[leg.symbol]
+                price = float(leg.df.loc[bar_ts, "close"])
+                if price <= 0 or spec["usd_per_pu"] <= 0:
+                    return dict(notional_lots)
+                step_notional[leg.symbol] = spec["lot_step"] * price * spec["usd_per_pu"]
+        except Exception:
+            return dict(notional_lots)
+        sym_a, sym_b = sorted(specs_by_sym.keys())
+        na, nb = step_notional[sym_a], step_notional[sym_b]
+        K = max(1, int(self.granular_parity_max_k))
+        best = None   # (imbalance, total_k, ka, kb)
+        for ka in range(1, K + 1):
+            for kb in range(1, K + 1):
+                imb = abs(ka * na - kb * nb) / max(ka * na, kb * nb)
+                cand = (imb, ka + kb, ka, kb)
+                if best is None or cand[:2] < best[:2]:
+                    best = cand
+        _, _, ka, kb = best
+        out: dict[str, float] = {}
+        for sym, k in ((sym_a, ka), (sym_b, kb)):
+            spec = specs_by_sym[sym]
+            out[sym] = max(spec["min_lot"], round(k * spec["lot_step"], 8))
+        return out
+
     # ---- Proposal / Approval phase ---------------------------------------
 
     def _maybe_propose(self, signal_value: int, bar_ts: pd.Timestamp) -> None:
@@ -568,10 +605,12 @@ class PineRatioZRevRule(H2RecycleRule):
             lots_by_sym = self._vol_parity_lots(legs, bar_ts, notional_lots, specs_by_sym)
         elif self.sizing_mode == "beta_capped":
             lots_by_sym = self._beta_capped_lots(legs, bar_ts, notional_lots, specs_by_sym)
+        elif self.sizing_mode == "granular_parity":
+            lots_by_sym = self._granular_parity_lots(legs, bar_ts, notional_lots, specs_by_sym)
         else:
             raise ValueError(
                 "PineRatioZRevRule.sizing_mode must be 'notional', 'vol_parity', "
-                f"or 'beta_capped'; got {self.sizing_mode!r}."
+                f"'beta_capped', or 'granular_parity'; got {self.sizing_mode!r}."
             )
         for leg in legs:
             leg.lot = lots_by_sym[leg.symbol]
