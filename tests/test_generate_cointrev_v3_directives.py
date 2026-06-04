@@ -745,6 +745,33 @@ def test_sizing_mode_granular_parity_tags_and_injects(tmp_coint_db, tmp_path):
     assert params["z_entry"] == 2.0
 
 
+def test_sizing_mode_notional_ctl_tags_gpn_without_params(tmp_coint_db, tmp_path):
+    """H.2b: notional_ctl is the isolated CONTROL arm -- it carries the _GPN tag
+    (so it lands as new rows instead of colliding with the bare-notional
+    production corpus and being skipped), but injects NO sizing param, so the
+    rule runs its default notional sizing. This is what makes a same-snapshot
+    notional control possible alongside the _GP granular arm."""
+    pair_a, pair_b = "EURUSD", "USDJPY"
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, pair_a, pair_b, series)
+
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=5,
+        output_dir=tmp_path / "out_nctl",
+        db_path=tmp_coint_db, dry_run=False,
+        sizing_mode="notional_ctl",
+    )
+    assert len(written) == 1
+    name = Path(written[0]).stem
+    assert "_L30_GPN__E" in name, f"notional_ctl must splice _GPN after _L30, got {name!r}"
+    body = Path(written[0]).read_text(encoding="utf-8")
+    assert "sizing_mode" not in body, "notional_ctl must inject NO sizing param (rule default notional)"
+    assert "granular_parity_max_k" not in body
+    params = yaml.safe_load(body)["basket"]["recycle_rule"]["params"]
+    assert "sizing_mode" not in params
+    assert params["target_notional_per_leg_usd"] == 1000.0  # baseline params intact
+
+
 def test_sizing_mode_tag_composes_after_p_and_n(tmp_coint_db, tmp_path):
     """H.3: with a p-threshold + non-default N + granular_parity, the name
     carries _P01_N0_GP in that order (p_tag, n_tag, s_tag). Locks the cohort

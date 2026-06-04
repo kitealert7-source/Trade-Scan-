@@ -121,14 +121,23 @@ METHODOLOGY_VERSION = "v2_log_eg"
 # Leg-sizing cohort. "notional" (default) reproduces the production baseline
 # byte-for-byte: no extra recycle_rule params, no name tag. "granular_parity"
 # injects the integer lot-step parity sizer (pine_ratio_zrev_v1.
-# _granular_parity_lots) plus a _GP cohort tag so the two arms never collide on
+# _granular_parity_lots) plus a _GP cohort tag so it never collides on
 # (pair, entry_date) in INBOX / the ledger. Same cohort-tag slot and collision-
-# prevention role as the _P (p_threshold) and _N (confirmation) tags. Added
-# 2026-06-04 to stand up the system-level "current notional vs granular parity"
-# sizing comparison on the full universe (the baseline arm is the untagged
-# notional default; the contrast arm is --sizing-mode granular_parity).
-SIZING_MODES = ("notional", "granular_parity")
-_SIZING_TAG = {"notional": "", "granular_parity": "_GP"}
+# prevention role as the _P (p_threshold) and _N (confirmation) tags.
+#
+# "notional_ctl" is notional SIZING under an isolating _GPN tag. It exists
+# because the UNTAGGED notional arm collides with the already-completed
+# production corpus (identical bare filenames) and gets skipped at admission as
+# "already namespaced" -- so it cannot serve as a fresh, same-broker-snapshot
+# CONTROL for the granular comparison. notional_ctl is the matched control arm
+# for _GP: same windows, freshly run today, but tagged _GPN so it lands as new
+# rows. (Lesson 2026-06-04: a controlled re-run needs BOTH arms tagged; the
+# first full run left the notional arm bare and 465/497 were skipped.) It
+# injects NO sizing param, so the rule runs its default notional sizing.
+SIZING_MODES = ("notional", "granular_parity", "notional_ctl")
+_SIZING_TAG = {"notional": "", "granular_parity": "_GP", "notional_ctl": "_GPN"}
+# Modes that run notional sizing (no param injection); only the name tag differs.
+_NOTIONAL_SIZING_MODES = ("notional", "notional_ctl")
 DEFAULT_GRANULAR_PARITY_MAX_K = 8
 
 # Pair-class membership --- mirrors tmp/gen_all_episodes.py classifier so
@@ -459,6 +468,10 @@ def _render_directive(
     template. ``"granular_parity"`` appends a ``_GP`` tag (same slot) and
     injects ``sizing_mode`` + ``granular_parity_max_k`` into recycle_rule.params
     so the rule runs its integer lot-step parity sizer instead of equal-notional.
+    ``"notional_ctl"`` is notional sizing (no param injection) under a ``_GPN``
+    tag -- the isolated, freshly-run CONTROL arm for the granular comparison
+    (the bare-notional arm collides with the completed production corpus and is
+    skipped, so it cannot serve as a same-snapshot control).
 
     Order is ``{p_tag}{n_tag}{s_tag}`` -> e.g. ``_L30_P01_N0_GP``.
     """
@@ -470,7 +483,7 @@ def _render_directive(
     # Non-default sizing injects extra recycle_rule.params lines; the default
     # "notional" path renders extra_params="" so the body is byte-identical to
     # the pre-2026-06-04 template (baseline-arm fidelity is load-bearing).
-    if sizing_mode == "notional":
+    if sizing_mode in _NOTIONAL_SIZING_MODES:
         extra_params = ""
     else:
         extra_params = (
