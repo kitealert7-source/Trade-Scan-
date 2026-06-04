@@ -7,7 +7,7 @@ test:
   broker: OctaFx
   timeframe: 15m
   start_date: '2026-02-16'
-  end_date: '2026-03-19'
+  end_date: '2026-03-20'
   research_mode: true
   tuning_allowed: false
   parameter_mutation: false
@@ -15,8 +15,8 @@ test:
   hypothesis_variant: COINTREV_V3_PINE_RATIOZ_AUDJPY_XAUUSD_N30_15M_ABS_GP_ZCRS_E260216
   description: 'Pine z_r reversal port (pine_ratio_zrev_v1_zcross), N=30 / 15M / absolute /
     always-in-market, AUDJPY/XAUUSD. Capital 1000 USD, target_notional_per_leg_usd=1000.
-    Episode test: natural continuous 252d-cointegrated span 2026-02-16 -> 2026-03-19.
-    cointegration_join lookback_days=252 gates (any-span) + routes to the
+    Episode test: natural continuous 1500d-cointegrated span 2026-02-16 -> 2026-03-20.
+    cointegration_join lookback_days=1500 gates (any-span) + routes to the
     cointegration ledger.'
 symbols:
 - AUDJPY
@@ -60,7 +60,7 @@ basket:
   initial_stake_usd: 1000.0
   harvest_threshold_usd: 1000000.0
   cointegration_join:
-    lookback_days: 252
+    lookback_days: 1500
   recycle_rule:
     name: pine_ratio_zrev_v1_zcross
     version: 1
