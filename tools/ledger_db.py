@@ -997,7 +997,8 @@ def export_master_filter(
         df = query_master_filter(_conn)
         out = output_path or MASTER_FILTER_PATH
         out.parent.mkdir(parents=True, exist_ok=True)
-        df.to_excel(str(out), index=False, engine="openpyxl")
+        from tools.pipeline_utils import resilient_xlsx_write
+        resilient_xlsx_write(out, lambda p: df.to_excel(p, index=False, engine="openpyxl"))
         print(f"  [EXPORT] Master Filter: {len(df)} rows -> {out}")
         return out
     finally:
@@ -1168,15 +1169,15 @@ def export_mps(
             regime_map = _latest_coint_regime_map()
             df_candidates = build_trade_candidates_df(df_coint, regime_map=regime_map)
 
-        # Atomic write: render to a per-process temp in the SAME directory, then
-        # os.replace() into place (atomic on one volume). The xlsx is a derived
-        # view of the canonical DB, so even if several processes export
-        # concurrently (e.g. a --max-parallel batch), readers never observe a
-        # half-written workbook -- the worst case is "last writer wins", and the
-        # DB remains authoritative regardless.
-        _tmp_out = out.with_name(f"{out.stem}.tmp.{os.getpid()}{out.suffix}")
-        try:
-            with pd.ExcelWriter(str(_tmp_out), engine="openpyxl") as writer:
+        # Atomic, lock-resilient write via the shared SSOT writer: per-PID temp
+        # render -> kill-Excel-if-locked -> os.replace with backoff -> loud-fail.
+        # The xlsx is a derived view of the canonical DB; concurrent
+        # --max-parallel exporters use per-PID temps and never observe a
+        # half-written workbook ("last writer wins"; DB stays authoritative).
+        from tools.pipeline_utils import resilient_xlsx_write
+
+        def _render_mps(_p):
+            with pd.ExcelWriter(str(_p), engine="openpyxl") as writer:
                 df_port.to_excel(writer, sheet_name="Portfolios", index=False)
                 df_single.to_excel(writer, sheet_name="Single-Asset Composites", index=False)
                 if not df_baskets.empty:
@@ -1186,32 +1187,8 @@ def export_mps(
                     df_candidates.to_excel(writer, sheet_name="COINT TRADE CANDIDATES", index=False)
                 if df_coint_view is not None and not df_coint_view.empty:
                     df_coint_view.to_excel(writer, sheet_name="Cointegration", index=False)
-            # Retry os.replace on Windows PermissionError (WinError 5). Even
-            # with the explicit ExcelFile close in _merge_audit_columns, AV
-            # scanners / file indexers can transiently hold a handle on the
-            # destination. Force-GC first to drop any lingering openpyxl
-            # references, then retry with short backoffs. Five attempts at
-            # 50/100/200/400/800ms covers ~1.5s of transient contention,
-            # which is the canonical pattern from feedback_workbook_lifecycle_remediation.
-            gc.collect()
-            _last_exc: OSError | None = None
-            for _delay_ms in (0, 50, 100, 200, 400, 800):
-                if _delay_ms:
-                    time.sleep(_delay_ms / 1000.0)
-                try:
-                    os.replace(str(_tmp_out), str(out))
-                    _last_exc = None
-                    break
-                except PermissionError as exc:  # WinError 5
-                    _last_exc = exc
-            if _last_exc is not None:
-                raise _last_exc
-        finally:
-            if _tmp_out.exists():
-                try:
-                    _tmp_out.unlink()
-                except OSError:
-                    pass
+
+        resilient_xlsx_write(out, _render_mps)
 
         suffix = f", Baskets={len(df_baskets)}" if not df_baskets.empty else ""
         if df_candidates is not None and not df_candidates.empty:

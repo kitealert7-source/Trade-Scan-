@@ -1079,3 +1079,74 @@ def ensure_xlsx_writable(path: Path, timeout: int = 15) -> None:
         f"XLSX_LOCK_TIMEOUT: '{path.name}' still locked after {timeout}s. "
         "Close Excel manually and retry."
     )
+
+
+def resilient_xlsx_write(final_path: Path, render_fn, *,
+                         attempts: int = 6, base_delay: float = 0.05) -> Path:
+    """Write an .xlsx to `final_path` resiliently against ANY lock — an open
+    Excel OR a transient system locker (Defender real-time scan, AV, backup,
+    file indexer).
+
+    THE single workbook-write primitive for this repo. Every MPS / FSP /
+    screener writer should route through it so lock-handling can't drift
+    per-tool again. The pre-existing patchwork of partial protections (some
+    writers killed Excel, some retried with backoff, some did neither, none did
+    all three) was the root cause behind both stale dashboards and the recurring
+    "please close Excel" interruptions during research (2026-06-05).
+
+    Contract:
+      * `render_fn(tmp_path)` MUST write a COMPLETE workbook to the path it is
+        given. Adapt any existing save call:
+            openpyxl    ->  lambda p: wb.save(str(p))
+            pandas      ->  lambda p: df.to_excel(p, index=False, engine="openpyxl")
+            multi-sheet ->  lambda p: _write_all_sheets(p)   # opens ExcelWriter(p)
+      * Renders to a per-PID sibling temp (so concurrent --max-parallel
+        exporters never collide on the temp, and readers never observe a
+        half-written workbook), fsyncs it, then atomically ``os.replace``s it
+        into `final_path`.
+      * Before each replace attempt, kills Excel if it holds the lock
+        (``ensure_xlsx_writable``), then retries with exponential backoff so a
+        NON-Excel transient locker is outlasted by wall-clock, not just a kill.
+      * On exhaustion: retains the fresh temp copy and raises RuntimeError — a
+        loud failure, never a silent skip and never a half-written final file.
+
+    Returns `final_path` on success.
+    """
+    import gc
+
+    final_path = Path(final_path)
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = final_path.with_name(
+        f"{final_path.stem}.tmp.{os.getpid()}{final_path.suffix}"
+    )
+
+    render_fn(tmp_path)
+    try:
+        with open(tmp_path, "r+b") as _fh:
+            os.fsync(_fh.fileno())
+    except OSError:
+        pass
+    gc.collect()  # drop lingering openpyxl handles before the swap
+
+    delay = base_delay
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            try:
+                ensure_xlsx_writable(final_path, timeout=5)
+            except RuntimeError:
+                pass
+            os.replace(str(tmp_path), str(final_path))
+            return final_path
+        except (PermissionError, OSError) as exc:
+            last_exc = exc
+            if attempt < attempts:
+                time.sleep(delay)
+                delay *= 2
+
+    raise RuntimeError(
+        f"XLSX_WRITE_FAILED: could not write {final_path.name} after "
+        f"{attempts} attempts (last: {type(last_exc).__name__}: {last_exc}). "
+        f"A current copy was retained at {tmp_path.name}; close whatever holds "
+        f"the lock and re-export."
+    )

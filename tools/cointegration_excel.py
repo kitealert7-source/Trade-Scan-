@@ -1414,6 +1414,18 @@ def _write_notes(wb: Workbook) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _atomic_save_workbook(wb: Workbook, output_path: Path | str) -> None:
+    """Resilient screener-xlsx save — delegates to the shared SSOT writer
+    ``pipeline_utils.resilient_xlsx_write`` (temp-render → kill-Excel-if-locked →
+    os.replace with backoff → loud-fail). Wired here after the 2026-06-05
+    incident where a bare ``wb.save()`` silently deferred Phase 3 on a locked
+    workbook (a transient post-boot Defender scan), leaving the History tab a
+    full day stale. See COINTEGRATION_SCREENER_V1_SPEC.md §11.
+    """
+    from tools.pipeline_utils import resilient_xlsx_write
+    resilient_xlsx_write(output_path, lambda p: wb.save(str(p)))
+
+
 def export_excel(db_path: Path | str = SQLITE_DB,
                  output_path: Path | str = EXCEL_PATH) -> Path:
     """Read DB, build workbook, write to `output_path`.
@@ -1493,7 +1505,7 @@ def export_excel(db_path: Path | str = SQLITE_DB,
         # 7 — History; 8 — Notes
         _write_history(wb, conn)
         _write_notes(wb)
-        wb.save(str(output_path))
+        _atomic_save_workbook(wb, output_path)
     finally:
         conn.close()
     return output_path

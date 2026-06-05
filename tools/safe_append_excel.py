@@ -18,6 +18,13 @@ import subprocess
 from pathlib import Path
 import openpyxl
 
+# Ensure project root is importable so `from tools.pipeline_utils import ...`
+# resolves when run as a standalone script (sys.path[0] would be tools/).
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+
 def safe_append(file_path, data_dict, profile):
     path = Path(file_path)
     if not path.exists():
@@ -60,8 +67,9 @@ def safe_append(file_path, data_dict, profile):
             else:
                 print(f"[WARNING] Key '{key}' not found in headers. Skipping.")
 
-        # 4. Save
-        wb.save(path)
+        # 4. Save (resilient SSOT: kill-Excel-if-locked + atomic temp-swap + backoff)
+        from tools.pipeline_utils import resilient_xlsx_write
+        resilient_xlsx_write(path, lambda p: wb.save(str(p)))
         print(f"[SUCCESS] Row appended to {path.name} (Row {target_row}).")
 
     except Exception as e:
