@@ -130,6 +130,143 @@ def _enforce_indicator_allowlist(declared_modules: set[str]) -> None:
             f"Stage-0.5 treats the registry as the allowlist authority."
         )
 
+
+# ---------------------------------------------------------------------------
+# Signal-primitive contract (migrated from tests/test_indicator_semantic_contracts.py
+# on 2026-06-05). The SIGNAL_PRIMITIVE / PIVOT_SOURCE contract is a property of
+# each SIGNAL indicator a strategy DECLARES. It was previously enforced by a
+# commit-time pytest that bulk-scanned every completed directive (~6,963 files)
+# to rediscover "indicators in use" — re-validating history whose provenance is
+# already frozen per-run. Enforcing it here, on the directive's declared
+# indicators at admission, puts the check where the decision is made (run once)
+# and scopes it exactly to signals-in-use; engine-internal regime/feature inputs
+# (ema_regime, realized_vol, …) are never declared by strategies, hence exempt.
+# Allowlist ported verbatim to preserve coverage equivalence with the old scan.
+# ---------------------------------------------------------------------------
+_ALLOWED_PRIMITIVES = {
+    "rolling_max_proxy",
+    "pivot_k3",
+    "structure_gated",
+    "rolling_max", "rolling_min",
+    "rolling_range_mean",
+    "rsi_threshold", "rsi_extreme_band",
+    "zscore_synthetic",
+    "wilder_rma_tr",
+    "atr_rolling_percentile", "atr_percentile_regime",
+    "kaufman_efficiency_ratio",
+    "kalman_filter_slope",
+    "linear_regression_slope", "linear_regression_slope_htf",
+    "trend_persistence_count",
+    "session_range_breakout",
+    "macd_multidim",
+    "rsi_smoothed_threshold",
+    "adx_wilder_trend_strength",
+    "ema_cross",
+    "gma_slope_flip",
+    "hurst_rs_persistence",
+    "wilder_rma_tr_floored",
+    "bar_hl_range",
+    "momentum_roc",
+    "adx_trend_strength",
+    "hull_moving_average",
+    "close_sign_run",
+    "consecutive_close_streak",
+    "prev_bar_breakout",
+    "rolling_zscore",
+    "three_bar_imbalance_zone",
+    "prev_session_extremes",
+    "session_clock",
+    "momentum_cmo",
+    "consecutive_highs_lows_breakout",
+    "dmi_wilder_directional",
+    "session_clock_universal",
+    "spread_sma_cross",
+    "regime",
+}
+_ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3", "session_high_low"}
+_PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}
+
+
+def _imports_swing_pivots(path: Path) -> bool:
+    """Static detection of an `indicators.structure.swing_pivots` import."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module and node.module.startswith("indicators.structure.swing_pivots"):
+                return True
+        elif isinstance(node, ast.Import):
+            for n in node.names:
+                if n.name.startswith("indicators.structure.swing_pivots"):
+                    return True
+    return False
+
+
+def _enforce_signal_primitive_contract(declared_modules: set[str]) -> None:
+    """Raise if any DECLARED indicator violates the SIGNAL_PRIMITIVE /
+    PIVOT_SOURCE contract. Called after `_enforce_indicator_allowlist` (so each
+    module already exists on disk + is registered).
+
+    ARCHITECTURAL RULE (made explicit 2026-06-05): directives are expected to
+    declare only SIGNAL indicators. Engine-owned regime/context indicators
+    (trend/volatility regime inputs, realized_vol, log_return_autocorr, ...) are
+    computed by apply_regime_model and read via ctx — they are NOT declared by
+    directives, so they fall outside this contract by construction. Because every
+    declared indicator must carry a valid SIGNAL_PRIMITIVE, a directive that
+    declares a non-signal indicator is rejected here: that rejection IS the
+    enforcement of "only signal indicators are declared".
+
+    Rules (ported verbatim from the retired directive-scan test):
+      1. SIGNAL_PRIMITIVE present, non-empty, and in the allowlist.
+      3. pivot_k3 / structure_gated  -> module MUST import swing_pivots.
+      4. rolling_max_proxy           -> module must NOT import swing_pivots.
+      5. PIVOT_SOURCE (if present) in allowlist + consistent with the primitive.
+    """
+    import importlib
+
+    violations: list[str] = []
+    for mod in sorted(declared_modules):
+        abs_path = PROJECT_ROOT / Path(*mod.split(".")).with_suffix(".py")
+        try:
+            imported = importlib.import_module(mod)
+        except Exception as exc:
+            violations.append(f"{mod}: import failed: {exc}")
+            continue
+        sp = getattr(imported, "SIGNAL_PRIMITIVE", None)
+        if not isinstance(sp, str) or not sp.strip():
+            violations.append(f"{mod}: missing or empty SIGNAL_PRIMITIVE")
+            continue
+        if sp not in _ALLOWED_PRIMITIVES:
+            violations.append(f"{mod}: SIGNAL_PRIMITIVE={sp!r} not in allowlist")
+        if sp in _PIVOT_PRIMITIVES and not _imports_swing_pivots(abs_path):
+            violations.append(
+                f"{mod}: SIGNAL_PRIMITIVE={sp!r} must import "
+                f"indicators.structure.swing_pivots"
+            )
+        if sp == "rolling_max_proxy" and _imports_swing_pivots(abs_path):
+            violations.append(f"{mod}: rolling_max_proxy must NOT import swing_pivots")
+        ps = getattr(imported, "PIVOT_SOURCE", None)
+        if ps is not None:
+            if ps not in _ALLOWED_PIVOT_SOURCES:
+                violations.append(f"{mod}: PIVOT_SOURCE={ps!r} not in allowlist")
+            elif sp in _PIVOT_PRIMITIVES and ps == "none":
+                violations.append(f"{mod}: primitive={sp!r} but PIVOT_SOURCE='none' — inconsistent")
+            elif sp == "rolling_max_proxy" and ps != "none":
+                violations.append(f"{mod}: rolling_max_proxy but PIVOT_SOURCE={ps!r} — inconsistent")
+
+    if violations:
+        raise ValueError(
+            "SIGNAL_PRIMITIVE contract violation(s) in declared indicators:\n  "
+            + "\n  ".join(violations)
+            + "\nArchitectural rule: directives may declare only SIGNAL indicators, and "
+            "every declared signal indicator must declare a valid SIGNAL_PRIMITIVE. "
+            "Engine-owned regime/context indicators are read via ctx and must not be "
+            "declared. Allowlist: tools/semantic_validator.py + indicators/INDICATOR_REGISTRY.yaml."
+        )
+
+
 def _canonicalize(obj):
     """
     Return a structural canonical representation for strict deterministic comparison.
@@ -323,6 +460,11 @@ def validate_semantic_signature(directive_path_str: str) -> bool:
     # At this point `declared_set == code_set`; pick either as the canonical
     # input. Each module must exist on disk AND in INDICATOR_REGISTRY.yaml.
     _enforce_indicator_allowlist(declared_set)
+    # 3b. SIGNAL_PRIMITIVE / PIVOT_SOURCE contract on the declared signal
+    # indicators (migrated 2026-06-05 from the retired directive-scan test;
+    # the contract belongs at admission, on signals-in-use, not a commit-time
+    # re-scan of completed directives).
+    _enforce_signal_primitive_contract(declared_set)
 
     print(f"[SEMANTIC] Identity Verified: {target_strategy_name}")
     print(f"[SEMANTIC] Timeframe Verified: {target_timeframe}")
