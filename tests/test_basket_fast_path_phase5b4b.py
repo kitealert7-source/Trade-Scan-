@@ -28,6 +28,7 @@ the rule is bar-state-driven, not bar-count-driven.
 """
 from __future__ import annotations
 
+import functools
 import sys
 from pathlib import Path
 
@@ -45,6 +46,16 @@ _WINDOW_START = "2024-09-02"
 _WINDOW_END = "2024-12-30"
 
 
+@functools.lru_cache(maxsize=1)
+def _cached_leg_data():
+    """Load the real EURUSD+USDJPY window ONCE per session. Callers copy the
+    frames per-runner (BasketLeg takes df.copy()), so test isolation is
+    preserved. The data load was the dominant cost here — _make_runner ran it
+    ~6x across this module's tests (audit 2026-06-05)."""
+    from tools.basket_data_loader import load_basket_leg_data
+    return load_basket_leg_data(["EURUSD", "USDJPY"], _WINDOW_START, _WINDOW_END)
+
+
 def _make_runner(fast_path_eligible: bool):
     """Build a BasketRunner against the H2 spec on a small real-data window.
 
@@ -52,12 +63,11 @@ def _make_runner(fast_path_eligible: bool):
     fast_path_eligible=False -> wrap each strategy in a class that strips
                                 the marker so auto-detect picks engine path
     """
-    from tools.basket_data_loader import load_basket_leg_data
     from tools.basket_runner import BasketLeg, BasketRunner
     from tools.recycle_rules.h2_recycle import H2RecycleRule
     from tools.recycle_strategies import ContinuousHoldStrategy
 
-    leg_data = load_basket_leg_data(["EURUSD", "USDJPY"], _WINDOW_START, _WINDOW_END)
+    leg_data = _cached_leg_data()
 
     eur_strat = ContinuousHoldStrategy(symbol="EURUSD", direction=+1)
     jpy_strat = ContinuousHoldStrategy(symbol="USDJPY", direction=+1)

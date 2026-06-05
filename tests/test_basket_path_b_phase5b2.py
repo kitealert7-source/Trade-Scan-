@@ -17,14 +17,12 @@ Tests cover:
   - basket_ledger_writer.append_basket_row_to_mps writes Baskets sheet,
     leaves Portfolios + Single-Asset Composites untouched, enforces
     append-only on duplicate run_id
-  - End-to-end _try_basket_dispatch produces all four artifact paths
+  - (End-to-end _try_basket_dispatch artifact-path assertions were moved to
+    test_basket_dispatch_e2e.py — consolidated to a single dispatch, 2026-06-05)
 """
 from __future__ import annotations
 
-import json
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -219,105 +217,3 @@ def test_append_basket_row_preserves_other_sheets(monkeypatch, tmp_path):
     # Baskets has our row.
     assert df_b.shape[0] == 1
     assert df_b["run_id"].iloc[0] == "RID01"
-
-
-# ---- end-to-end _try_basket_dispatch (Path B) -----------------------------
-
-
-def test_dispatch_produces_all_four_artifact_paths(monkeypatch, tmp_path):
-    """End-to-end: dispatch must write tradelevel CSV, run_registry entry,
-    Baskets MPS row, AND the legacy research CSV (kept during transition)."""
-    import config.path_authority as pa
-    fake_state = tmp_path / "TradeScan_State"
-    fake_state.mkdir()
-    monkeypatch.setattr(pa, "TRADE_SCAN_STATE", fake_state)
-    # config.state_paths pins RUNS_DIR at module import-time from pa.TRADE_SCAN_STATE,
-    # so monkeypatching pa alone leaves PipelineStateManager.run_dir pointing at
-    # whichever path was active when state_paths was first imported (often an
-    # earlier test's tmp_path). Without this rebind, the test passes in
-    # isolation but fails in the broader pytest suite because the state file
-    # from an earlier test is left in COMPLETE state and the post-2026-05-18
-    # terminal-state guard in PipelineStateManager.initialize() correctly
-    # rejects the re-init. Rebinding state_paths.RUNS_DIR here aligns the
-    # state-machine layer with the artifact-write layer.
-    import config.state_paths as sp
-    monkeypatch.setattr(sp, "STATE_ROOT", fake_state)
-    monkeypatch.setattr(sp, "RUNS_DIR", fake_state / "runs")
-    import tools.pipeline_utils as pu
-    monkeypatch.setattr(pu, "RUNS_DIR", fake_state / "runs")
-    # tools.system_registry caches REGISTRY_PATH at module import time;
-    # patch it to point at our fake state.
-    import tools.system_registry as sr
-    monkeypatch.setattr(sr, "REGISTRY_PATH", fake_state / "registry" / "run_registry.json")
-
-    import tools.run_pipeline as rp
-    from tools.run_pipeline import _try_basket_dispatch
-
-    directive_id = "90_PORT_H2_5M_RECYCLE_S01_V1_P00"
-    src = REPO_ROOT / "backtest_directives" / "completed" / f"{directive_id}.txt"
-    assert src.is_file()
-
-    tmp_active = tmp_path / "active_backup"
-    tmp_active.mkdir()
-    shutil.copy2(src, tmp_active / src.name)
-    monkeypatch.setattr(rp, "ACTIVE_BACKUP_DIR", tmp_active)
-
-    from config.path_authority import DRY_RUN_VAULT
-    vault_parent = DRY_RUN_VAULT / "baskets" / directive_id
-    if vault_parent.exists():
-        shutil.rmtree(vault_parent)
-
-    try:
-        ok = _try_basket_dispatch(directive_id, provision_only=False)
-        assert ok is True
-
-        # Find the run_id from the registry (basket-flavored entry)
-        registry = json.loads((fake_state / "registry" / "run_registry.json").read_text(encoding="utf-8"))
-        basket_entries = {rid: e for rid, e in registry.items() if e.get("execution_mode") == "basket"}
-        assert len(basket_entries) == 1, f"expected 1 basket registry entry, got {len(basket_entries)}"
-        run_id, entry = next(iter(basket_entries.items()))
-        assert entry["directive_id"] == directive_id
-        assert entry["basket_id"] == "H2"
-        assert entry["status"] == "BASKET_COMPLETE"
-        assert entry["tier"] == "basket"
-
-        # backtests CSV
-        bt_csv = fake_state / "backtests" / f"{directive_id}_H2" / "raw" / "results_tradelevel.csv"
-        assert bt_csv.is_file()
-        df_trades = pd.read_csv(bt_csv)
-        assert df_trades.shape[1] == 31
-        assert df_trades.shape[0] >= 2  # at least 1 trade per leg
-        assert set(df_trades["symbol"].unique()) == {"EURUSD", "USDJPY"}
-
-        # MPS Baskets row
-        mps_path = fake_state / "strategies" / "Master_Portfolio_Sheet.xlsx"
-        assert mps_path.is_file()
-        df_b = pd.read_excel(mps_path, sheet_name="Baskets")
-        assert (df_b["run_id"] == run_id).any()
-
-        # Phase 5b.3 (2026-05-20): legacy research/basket_runs.csv writer is
-        # retired. basket_sheet (ledger.db) is now the canonical store.
-        # Assertion that the CSV is NOT created — confirms the writer wiring
-        # has actually been removed from _try_basket_dispatch.
-        legacy_csv = fake_state / "research" / "basket_runs.csv"
-        assert not legacy_csv.exists()
-
-        # Phase 5b.3a — per-window report stack lands in the directive folder.
-        # Legacy REPORT_<id>.md was SUPPRESSED for basket runs 2026-05-18
-        # (its trade-level lens mis-reports cycle-mechanic strategies); the
-        # authoritative artifact is BASKET_REPORT_<id>.md, which only renders
-        # when the per-bar parquet is present (not the case in this synthetic
-        # test fixture). Assert legacy is absent + raw artifacts still land.
-        directive_dir = fake_state / "backtests" / f"{directive_id}_H2"
-        assert not (directive_dir / f"REPORT_{directive_id}.md").is_file(), (
-            "legacy REPORT.md should be suppressed for basket runs"
-        )
-        for fname in ("results_standard.csv", "results_risk.csv",
-                      "results_yearwise.csv", "results_basket.csv",
-                      "metrics_glossary.csv", "bar_geometry.json"):
-            assert (directive_dir / "raw" / fname).is_file(), f"missing raw/{fname}"
-        assert (directive_dir / "metadata" / "run_metadata.json").is_file()
-        assert (directive_dir / "STRATEGY_CARD.md").is_file()
-    finally:
-        if vault_parent.exists():
-            shutil.rmtree(vault_parent)
