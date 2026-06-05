@@ -47,9 +47,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.filters import (
-    CustomFilter, CustomFilters, FilterColumn, Filters,
-)
+from openpyxl.worksheet.filters import FilterColumn, Filters
 
 from tools.capital.capital_broker_spec import load_broker_spec
 
@@ -170,6 +168,23 @@ _AGREEMENT_FILL = {
     "504-only": _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
     "NEITHER":  _fill(COLOR_RED_BG,    COLOR_RED_FG),
 }
+# Column-D ("coint_window") operator-facing relabel for the All Pairs
+# (Diagnostic) sheet. The underlying _pivot_today() `agreement` field stays
+# BOTH/252-only/504-only/NEITHER (Summary §4 + the pivot tests depend on it);
+# these friendlier labels are display-only so the column-D AutoFilter dropdown
+# reads as a regime selector (Regime 252 / Regime 504 / Both / Neither).
+_AGREEMENT_TO_WINDOW = {
+    "BOTH":     "Both",
+    "252-only": "Regime 252",
+    "504-only": "Regime 504",
+    "NEITHER":  "Neither",
+}
+_COINT_WINDOW_FILL = {                       # same colour semantics as _AGREEMENT_FILL
+    "Both":       _fill(COLOR_GREEN_BG,  COLOR_GREEN_FG),
+    "Regime 252": _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
+    "Regime 504": _fill(COLOR_YELLOW_BG, COLOR_YELLOW_FG),
+    "Neither":    _fill(COLOR_RED_BG,    COLOR_RED_FG),
+}
 # Dual-TF agreement palette — 1d × 252 vs 4h × 1500. Same colors as
 # _AGREEMENT_FILL (cross-window 252/504), different key set since the
 # semantics are cross-timeframe rather than cross-window.
@@ -271,24 +286,29 @@ def _compute_neutral_basket(sym_a: str, sym_b: str,
 
 
 def _apply_all_pairs_default_filter(ws) -> None:
-    """Multi-column synchronized default filter for the All Pairs (Diagnostic)
-    sheet. Header at row 1, data at rows 2+. Columns laid out as:
+    """Single-column regime-selector default filter for the All Pairs
+    (Diagnostic) sheet. Header at row 1, data at rows 2+.
 
-        A pair_a | B pair_b | C pair_class | D agreement | E reg_252 |
-        F reg_504 | G p_252 | H p_504 | I hl_252 | J hl_504 | ...
+    Column D ("coint_window") tags each pair by the window(s) in which it is
+    currently cointegrated, using operator-facing labels:
 
-    Pre-applies four filters that together restrict the visible set to
-    "both-window cointegrated pairs with operationally tradable half-life":
+        Both        - cointegrated on BOTH the 252d and 504d windows
+        Regime 252  - cointegrated on the 252d window only
+        Regime 504  - cointegrated on the 504d window only
+        Neither     - cointegrated on neither window
 
-        D (agreement)     = "BOTH"
-        E (regime_252)    = "cointegrated"
-        F (regime_504)    = "cointegrated"
-        J (hl_504)        ∈ [5, 30]   (custom range filter)
+    The column-D AutoFilter dropdown IS the regime selector. The default view
+    pins it to "Regime 252" (operator request 2026-06-05) so the file opens on
+    the fresh-formation 252d-only pairs. The operator clicks the dropdown to
+    switch to "Both" / "Regime 504" / "Neither", or multi-checks to combine
+    (e.g. Regime 252 + Both to see every 252d-cointegrated pair). Every other
+    column keeps its own independent dropdown for further narrowing; none is
+    pre-filtered, so the regime choice alone drives the default visible set.
 
-    Column C (pair_class) is intentionally NOT pre-filtered — operator
-    clicks its dropdown to switch between FX / IX / CROSS / (all). Each
-    other filter renders as an independent dropdown so any one criterion
-    can be relaxed without touching the others.
+    (Supersedes the previous 4-filter "BOTH + both-windows-cointegrated +
+    tradable half_life_504" default — those criteria conflict with a
+    252d-only default, since a 252-only pair is by definition not
+    504-cointegrated and has no meaningful 504d half-life.)
     """
     last_row = ws.max_row
     if last_row <= 1:
@@ -296,44 +316,15 @@ def _apply_all_pairs_default_filter(ws) -> None:
     last_col = get_column_letter(ws.max_column)
     ws.auto_filter.ref = f"A1:{last_col}{last_row}"
 
-    # Value-list filters on D / E / F (colIds are 0-indexed from ref start)
+    # Single value-list filter on column D. colId is 0-indexed from the ref's
+    # first column (A), so D -> colId=3; the cell column index is 1-based: D=4.
+    DEFAULT_WINDOW = "Regime 252"
     fc_d = FilterColumn(colId=3)
-    fc_d.filters = Filters(filter=["BOTH"])
+    fc_d.filters = Filters(filter=[DEFAULT_WINDOW])
     ws.auto_filter.filterColumn.append(fc_d)
 
-    fc_e = FilterColumn(colId=4)
-    fc_e.filters = Filters(filter=["cointegrated"])
-    ws.auto_filter.filterColumn.append(fc_e)
-
-    fc_f = FilterColumn(colId=5)
-    fc_f.filters = Filters(filter=["cointegrated"])
-    ws.auto_filter.filterColumn.append(fc_f)
-
-    # Numeric range filter on J (half_life_days_504) ∈ [5, 30]
-    cfs = CustomFilters(_and=True)
-    cfs.customFilter = [
-        CustomFilter(operator="greaterThanOrEqual", val="5"),
-        CustomFilter(operator="lessThanOrEqual", val="30"),
-    ]
-    fc_j = FilterColumn(colId=9, customFilters=cfs)
-    ws.auto_filter.filterColumn.append(fc_j)
-
-    # Hide every row that doesn't pass ALL four filters. Cell column
-    # indices are 1-based: D=4, E=5, F=6, J=10 — all shifted right by 1
-    # from the pre-pair_class layout.
     for r in range(2, last_row + 1):
-        d_val = ws.cell(row=r, column=4).value
-        e_val = ws.cell(row=r, column=5).value
-        f_val = ws.cell(row=r, column=6).value
-        j_val = ws.cell(row=r, column=10).value
-        passes = (
-            d_val == "BOTH"
-            and e_val == "cointegrated"
-            and f_val == "cointegrated"
-            and isinstance(j_val, (int, float))
-            and 5 <= j_val <= 30
-        )
-        if not passes:
+        if ws.cell(row=r, column=4).value != DEFAULT_WINDOW:
             ws.row_dimensions[r].hidden = True
 
 
@@ -818,10 +809,15 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
     pivoted["score"] = scores
     pivoted = pivoted.sort_values("score", ascending=False).reset_index(drop=True)
 
+    # Column-D display relabel: BOTH/252-only/504-only/NEITHER -> friendly
+    # regime-selector labels (display-only; _pivot_today's `agreement` field is
+    # left intact for Summary section 4 + the pivot tests).
+    pivoted["coint_window"] = pivoted["agreement"].map(_AGREEMENT_TO_WINDOW)
+
     columns = [
         "pair_a", "pair_b",
         "pair_class",                   # NEW 2026-05-23 — FX / IX / CROSS
-        "agreement",
+        "coint_window",                 # was "agreement" — relabeled col D selector
         "regime_252", "regime_504",
         "adf_pvalue_252", "adf_pvalue_504",
         "half_life_days_252", "half_life_days_504",
@@ -849,8 +845,8 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
             # Conditional fills
             if col in ("regime_252", "regime_504") and v in _REGIME_FILL:
                 cell.fill, cell.font = _REGIME_FILL[v]
-            elif col == "agreement" and v in _AGREEMENT_FILL:
-                cell.fill, cell.font = _AGREEMENT_FILL[v]
+            elif col == "coint_window" and v in _COINT_WINDOW_FILL:
+                cell.fill, cell.font = _COINT_WINDOW_FILL[v]
             elif col in ("half_life_days_252", "half_life_days_504"):
                 fc = _half_life_color(v)
                 if fc:
@@ -864,21 +860,15 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
                     cell.fill, cell.font = _fill(COLOR_BOOTSTRAP_BG, "000000")
 
     ws.freeze_panes = "D2"
-    #         pair_a pair_b cls  agr  reg2 reg5 p25 p50 hl2 hl5 z25 z50 he2 he5 hd score methodology
-    widths = [10,    10,    10,  11,  13,  13,  14, 14, 18, 18, 18, 18, 14, 14, 14, 10,   14]
+    #         pair_a pair_b cls  cwin reg2 reg5 p25 p50 hl2 hl5 z25 z50 he2 he5 hd score methodology
+    widths = [10,    10,    10,  12,  13,  13,  14, 14, 18, 18, 18, 18, 14, 14, 14, 10,   14]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
-    # All Pairs (Diagnostic) — 4-column synchronized default filter
-    # designed to narrow ~465 pair-pairs to a hand-studyable subset:
-    #   C (agreement)      = "BOTH"          ← both windows cointegrated
-    #   D (regime_252)     = "cointegrated"  ← redundant with C but
-    #   E (regime_504)     = "cointegrated"    ← independently adjustable
-    #   I (hl_504)         ∈ [5, 30]         ← operational sweet spot
-    #
-    # Operator can clear/change any of the four dropdowns to widen the
-    # view (e.g. set C = "252-only" to see fresh formations, or set I
-    # filter dropdown → Number Filters → custom range).
+    # All Pairs (Diagnostic) — column-D regime-selector default filter.
+    # Column D ("coint_window") is the single default driver, pinned to
+    # "Regime 252"; the operator switches via its dropdown (Both / Regime 504 /
+    # Neither) or multi-checks to combine. See _apply_all_pairs_default_filter.
     _apply_all_pairs_default_filter(ws)
 
 
@@ -1375,11 +1365,17 @@ def _write_notes(wb: Workbook) -> None:
         "    excursion_containment  = fraction of last 252 days with |z-score| ≤ 3.0",
         "  Score helps SORTING. It does NOT replace diagnostic columns (p-value, half-life, z-score, regime, rolling-median).",
         "",
-        "AGREEMENT COLUMN (All Pairs Diagnostic sheet)",
-        "  BOTH      — both 252d and 504d windows are cointegrated (strongest signal)",
-        "  252-only  — only short window cointegrated; possibly a recent regime formation, treat with caution",
-        "  504-only  — only long window cointegrated; relationship may be degrading",
-        "  NEITHER   — neither window cointegrated",
+        "COINT WINDOW COLUMN (column D, All Pairs Diagnostic sheet)",
+        "  Column D is the regime selector — its AutoFilter dropdown chooses which",
+        "  cointegration window(s) to view. Default view = \"Regime 252\".",
+        "  Both        — cointegrated on BOTH the 252d and 504d windows (strongest signal)",
+        "  Regime 252  — cointegrated on the 252d window only (recent formation; treat with caution)",
+        "  Regime 504  — cointegrated on the 504d window only (relationship may be degrading)",
+        "  Neither     — cointegrated on neither window",
+        "  Tip: multi-check \"Regime 252\" + \"Both\" in the dropdown to see every",
+        "       252d-cointegrated pair. (The underlying field, also shown in the",
+        "       Summary \"Window agreement\" section, keeps the BOTH / 252-only /",
+        "       504-only / NEITHER labels.)",
         "",
         "CORRELATION ≠ COINTEGRATION (spec §1 doctrine)",
         "  Two high-correlation pairs can still have a non-stationary (non-mean-reverting) spread.",

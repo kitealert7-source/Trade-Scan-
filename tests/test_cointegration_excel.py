@@ -209,3 +209,42 @@ class TestExportExcel:
             assert ws.max_row >= 25
         finally:
             wb.close()
+
+    def test_all_pairs_coint_window_selector(self, conn_with_4_pairs, tmp_path):
+        """Column D of the All Pairs (Diagnostic) sheet is the relabeled regime
+        selector ("coint_window"), maps the agreement buckets 1:1 to the
+        operator-facing labels, and defaults its AutoFilter to "Regime 252"
+        (operator request 2026-06-05)."""
+        out = tmp_path / "out.xlsx"
+        export_excel(
+            db_path=conn_with_4_pairs.execute(
+                "PRAGMA database_list").fetchone()[2],
+            output_path=out,
+        )
+        wb = openpyxl.load_workbook(out)
+        try:
+            ws = wb["All Pairs (Diagnostic)"]
+            # (i) header relabeled agreement -> coint_window
+            assert ws.cell(row=1, column=4).value == "coint_window"
+            # (ii) the 4 fixture pairs map BOTH/252-only/504-only/NEITHER ->
+            #      Both / Regime 252 / Regime 504 / Neither
+            display = {}
+            for r in range(2, ws.max_row + 1):
+                a = ws.cell(row=r, column=1).value
+                b = ws.cell(row=r, column=2).value
+                if a is None:
+                    continue
+                display[f"{a}/{b}"] = ws.cell(row=r, column=4).value
+            assert display["GBPUSD/USDCHF"] == "Both"
+            assert display["EURAUD/USDCHF"] == "Regime 252"
+            assert display["CADJPY/GBPJPY"] == "Regime 504"
+            assert display["EURUSD/USDJPY"] == "Neither"
+            assert set(display.values()) <= {
+                "Both", "Regime 252", "Regime 504", "Neither"}
+            # (iii) default AutoFilter pins column D (colId=3) to "Regime 252"
+            d_filters = [fc for fc in ws.auto_filter.filterColumn
+                         if fc.colId == 3]
+            assert len(d_filters) == 1
+            assert list(d_filters[0].filters.filter) == ["Regime 252"]
+        finally:
+            wb.close()
