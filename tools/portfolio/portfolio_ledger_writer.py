@@ -20,7 +20,7 @@ from datetime import datetime
 import pandas as pd
 from filelock import FileLock
 
-from tools.pipeline_utils import ensure_xlsx_writable
+from tools.pipeline_utils import ensure_xlsx_writable, resilient_xlsx_write
 from tools.portfolio.portfolio_config import (
     PORTFOLIO_ENGINE_VERSION,
     PROJECT_ROOT,
@@ -475,17 +475,14 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
                         except Exception:
                             pass
         try:
-            _tmp_ledger = ledger_path.with_suffix(".xlsx.tmp")
-            with pd.ExcelWriter(_tmp_ledger, engine="openpyxl", mode="w") as writer:
-                df_final.to_excel(writer, sheet_name=target_sheet, index=False)
-                if df_other is not None and not df_other.empty:
-                    df_other.to_excel(writer, sheet_name=other_sheet, index=False)
-                for _sn, _sdf in _preserve.items():
-                    _sdf.to_excel(writer, sheet_name=_sn, index=False)
-            import os as _os_atomic
-            with open(_tmp_ledger, "r+b") as _fh:
-                _os_atomic.fsync(_fh.fileno())
-            _os_atomic.replace(str(_tmp_ledger), str(ledger_path))
+            def _render_mps_ledger(_p):
+                with pd.ExcelWriter(_p, engine="openpyxl", mode="w") as writer:
+                    df_final.to_excel(writer, sheet_name=target_sheet, index=False)
+                    if df_other is not None and not df_other.empty:
+                        df_other.to_excel(writer, sheet_name=other_sheet, index=False)
+                    for _sn, _sdf in _preserve.items():
+                        _sdf.to_excel(writer, sheet_name=_sn, index=False)
+            resilient_xlsx_write(ledger_path, _render_mps_ledger)
         except Exception as _xl_err:
             print(f"  [WARN] Excel export failed ({_xl_err}). Run: python tools/ledger_db.py --export-mps")
 

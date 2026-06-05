@@ -730,7 +730,10 @@ def add_notes_sheet_to_ledger(file_path: str, sheet_type: str) -> None:
     ws.column_dimensions["B"].width = 144
 
     try:
-        wb.save(file_path)
+        # Resilient SSOT save (kill-Excel-if-locked + atomic temp-swap + backoff).
+        # The --notes-type step runs right after --profile on every refresh.
+        from tools.pipeline_utils import resilient_xlsx_write
+        resilient_xlsx_write(file_path, lambda p: wb.save(str(p)))
         print(f"[NOTES] Notes sheet added ({sheet_type}) -> {Path(file_path).name}")
     except Exception as e:
         print(f"[WARN] Notes sheet could not be saved: {e}")

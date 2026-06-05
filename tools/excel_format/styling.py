@@ -620,7 +620,11 @@ def apply_formatting(file_path, profile):
         # pandas rewrite.
         _restore_hyperlinks(wb, path)
 
-        wb.save(path)
+        # Resilient save (SSOT): kill-Excel-if-locked + atomic temp-swap +
+        # backoff. The formatter runs LAST on every MPS/FSP refresh, so a bare
+        # save here was the canonical "please close Excel" trigger (pre-2026-06-05).
+        from tools.pipeline_utils import resilient_xlsx_write
+        resilient_xlsx_write(path, lambda p: wb.save(str(p)))
         print("[SUCCESS] Formatting complete.")
 
     except Exception as e:

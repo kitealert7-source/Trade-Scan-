@@ -28,6 +28,12 @@ from pathlib import Path
 _TOOLS_DIR = Path(__file__).resolve().parent
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
+# Also expose the project ROOT so `from tools.pipeline_utils import ...` inside
+# the excel_format package (e.g. styling's resilient save) resolves when this
+# shim is invoked as a standalone script (sys.path[0] would be tools/).
+_PROJECT_ROOT = _TOOLS_DIR.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from excel_format import add_notes_sheet_to_ledger, apply_formatting  # noqa: E402
 

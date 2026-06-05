@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Governance Imports
-from tools.pipeline_utils import PipelineStateManager, ensure_xlsx_writable
+from tools.pipeline_utils import PipelineStateManager, resilient_xlsx_write
 from tools.pipeline_locks import acquire_with_stale_warn
 from config.state_paths import POOL_DIR, BACKTESTS_DIR, RUNS_DIR
 
@@ -440,12 +440,10 @@ def _compile_stage3_locked(strategy_filter, master_filter_path):
         # lock acquisition needed. Excel failures don't roll back the DB
         # commit; operator can regenerate via `tools/ledger_db.py --export-mf`.
         try:
-            ensure_xlsx_writable(master_filter_path)
-            _tmp_filter = master_filter_path.with_suffix(".xlsx.tmp")
-            df_master.to_excel(_tmp_filter, index=False)
-            with open(_tmp_filter, "r+b") as _fh:
-                os.fsync(_fh.fileno())
-            os.replace(str(_tmp_filter), str(master_filter_path))
+            # Resilient SSOT write: kill-Excel-if-locked + per-PID atomic
+            # temp-swap + backoff. Already inside the Master Filter FileLock.
+            resilient_xlsx_write(master_filter_path,
+                                 lambda p: df_master.to_excel(p, index=False))
 
             project_root = Path(__file__).parent.parent
             formatter = project_root / "tools" / "format_excel_artifact.py"
