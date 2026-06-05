@@ -1,36 +1,48 @@
-"""cointegration_daily_runner.py — Phase 4: supervised daily pipeline.
+"""cointegration_daily_runner.py — supervised daily pipeline (spec Phase 4).
 
 Orchestrates the full daily cointegration cycle in a single process:
 
-    Phase 1 (compute)   tools.cointegration_screen.main()      → parquet
-    Phase 2 (upsert)    tools.cointegration_db.main(--upsert)  → SQLite
-    Phase 3 (render)    tools.cointegration_excel.main(--export) → Excel
+    Phase 1 (compute)   tools.cointegration_screen.main()        → parquet
+    Phase 2 (upsert)    tools.cointegration_db.main(--upsert)    → SQLite
+    Phase 3 (render)    tools.cointegration_excel.main(--export) → screener.xlsx
+    Phase 4 (mps)       ledger_db.export_mps() + portfolio format → MPS.xlsx
+
+Phases 1-2 are FATAL (downstream needs their output). Phases 3 and 4 are
+independent NON-FATAL render phases that read only the SQLite refreshed by
+Phase 2: Phase 3 renders the screener workbook; Phase 4 re-exports the MPS so
+its COINT TRADE CANDIDATES "Coint Status (252d)" column tracks the screener DB
+(that column is compute-at-regen — it only refreshes when the MPS is
+re-exported). A lock-skip in one render phase never blocks the other.
 
 Each phase is invoked as a function call (not subprocess) so:
   * single OS process, single result log
   * exceptions bubble with intact tracebacks
-  * exit code reflects the FIRST failing phase
+  * exit code reflects the FIRST failing fatal phase / worst render failure
 
 Per COINTEGRATION_SCREENER_V1_SPEC.md §12 Phase 4 + §11 failure handling.
 
-Excel failure semantics (spec §11):
-    Excel render failures (file lock, openpyxl error) are WARNINGS not
-    fatal — the parquet + SQLite remain valid for the next run to use,
-    and the operator can manually regenerate via:
-        python tools/cointegration_excel.py --export
+Render failure semantics (spec §11):
+    Excel render failures (file lock, openpyxl error) are WARNINGS not fatal —
+    the parquet + SQLite + ledger DB remain valid for the next run, and the
+    operator can manually regenerate via:
+        python tools/cointegration_excel.py --export                 # screener
+        python tools/ledger_db.py --export-mps  +  format_excel_artifact
+            --file <MPS> --profile portfolio                         # MPS
 
 Exit codes:
-     0   PASS  — all phases succeeded
+     0   PASS  — all phases succeeded (or a render phase deferred on a lock)
     30   FAIL  — Phase 1 (compute) failed
     31   FAIL  — Phase 2 (SQLite upsert) failed
-    32   WARN  — Phase 3 (Excel) failed; parquet + SQLite are still valid
+    32   WARN  — Phase 3 (screener Excel) hard-failed; parquet + SQLite valid
+    33   WARN  — Phase 4 (MPS refresh) hard-failed; ledger DB + screener valid
     40   FAIL  — unexpected uncaught exception
 
 Result log: tmp/cointegration_daily.log (UTF-8, append-only).
 
 Usage:
-    python tools/cointegration_daily_runner.py             # full daily run
-    python tools/cointegration_daily_runner.py --skip-excel  # debug
+    python tools/cointegration_daily_runner.py                 # full daily run
+    python tools/cointegration_daily_runner.py --skip-excel    # skip screener xlsx
+    python tools/cointegration_daily_runner.py --skip-mps      # skip MPS refresh
 """
 from __future__ import annotations
 
@@ -100,11 +112,42 @@ def _run_phase(name: str, fn, argv: list[str], fail_exit_code: int,
     return 0
 
 
+def _run_phase4_mps(_argv: list[str] | None = None) -> int:
+    """Phase 4 body: re-export the MPS so its COINT TRADE CANDIDATES
+    "Coint Status (252d)" column tracks the screener DB that Phase 2 just
+    upserted. Mirrors the post-backtest MPS procedure exactly:
+
+      1. ledger_db.export_mps()              -> MPS xlsx; the Coint Status
+         column recomputes from cointegration_daily (compute-at-regen).
+      2. apply_formatting(mps, "portfolio")  +  add_notes_sheet_to_ledger(mps,
+         "portfolio")                        -> portfolio styling + restore the
+         Notes glossary that export's ExcelWriter(mode='w') strips (the
+         candidates tab is a preserved sheet — its data is not reformatted).
+
+    Both writers route through the shared resilient_xlsx_write primitive, so a
+    workbook the operator left open is force-closed and rewritten rather than
+    silently skipped; a genuinely un-writable file raises (PermissionError ->
+    non-fatal deferral; any other error -> exit 33) via the _run_phase caller.
+
+    Returns 0 on success. Lazy imports keep module import light (ledger_db pulls
+    in the full ledger stack) and avoid an import cycle.
+    """
+    from tools import ledger_db
+    from tools.excel_format import add_notes_sheet_to_ledger, apply_formatting
+
+    mps_path = ledger_db.export_mps()
+    apply_formatting(str(mps_path), "portfolio")
+    add_notes_sheet_to_ledger(str(mps_path), "portfolio")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Cointegration screener — Phase 4 daily supervised runner.")
+        description="Cointegration screener — daily supervised runner (spec Phase 4).")
     parser.add_argument("--skip-excel", action="store_true",
-                        help="Skip the Excel-export phase (parquet + SQLite still run).")
+                        help="Skip Phase 3 (screener Excel render); Phases 1-2 + 4 still run.")
+    parser.add_argument("--skip-mps", action="store_true",
+                        help="Skip Phase 4 (MPS refresh); Phases 1-3 still run.")
     args = parser.parse_args(argv)
 
     _log("=" * 60)
@@ -114,34 +157,54 @@ def main(argv: list[str] | None = None) -> int:
     rc = _run_phase("Phase 1 (compute → parquet)",
                      cointegration_screen.main, [], fail_exit_code=30)
     if rc != 0:
-        _log(f"ABORT after Phase 1 failure")
+        _log("ABORT after Phase 1 failure")
         return rc
 
-    # Phase 2: parquet → SQLite. FATAL on failure (Phase 3 reads from SQLite).
+    # Phase 2: parquet → SQLite. FATAL on failure (Phases 3 + 4 read from SQLite).
     rc = _run_phase("Phase 2 (parquet → SQLite)",
                      cointegration_db.main, ["--upsert"], fail_exit_code=31)
     if rc != 0:
-        _log(f"ABORT after Phase 2 failure")
+        _log("ABORT after Phase 2 failure")
         return rc
 
-    # Phase 3: SQLite → Excel. NON-FATAL — locked Excel is expected and the
-    # parquet/SQLite stand on their own. Operator can manually regenerate.
+    # Phases 3 + 4: independent NON-FATAL render phases. Both read only the
+    # SQLite that Phase 2 just refreshed (NOT each other), so a lock-skip in one
+    # must never block the other — neither early-returns. We collect the worst
+    # hard exit code and report any lock-deferrals; a deferral alone is PASS.
+    worst_rc = 0
+    deferred: list[str] = []
+
+    # Phase 3: SQLite → screener.xlsx.
     if args.skip_excel:
         _log("SKIP  Phase 3 (--skip-excel)")
-        _log("PASS  all phases (excel skipped)")
-        return 0
+    else:
+        rc = _run_phase("Phase 3 (SQLite → Excel)",
+                         cointegration_excel.main, ["--export"],
+                         fail_exit_code=32, fatal=False)
+        if rc is None:
+            deferred.append("Phase 3")
+        elif rc != 0:
+            worst_rc = worst_rc or rc
 
-    rc = _run_phase("Phase 3 (SQLite → Excel)",
-                     cointegration_excel.main, ["--export"],
-                     fail_exit_code=32, fatal=False)
-    if rc is None:
-        # Non-fatal Excel skip — overall run is still PASS.
-        _log("PASS  Phases 1 + 2 (Phase 3 deferred — locked/error)")
-        return 0
-    if rc != 0:
-        return rc
+    # Phase 4: ledger DB + screener DB → MPS.xlsx (refreshes the COINT TRADE
+    # CANDIDATES "Coint Status (252d)" column — compute-at-regen).
+    if args.skip_mps:
+        _log("SKIP  Phase 4 (--skip-mps)")
+    else:
+        rc = _run_phase("Phase 4 (MPS refresh)",
+                         _run_phase4_mps, [],
+                         fail_exit_code=33, fatal=False)
+        if rc is None:
+            deferred.append("Phase 4")
+        elif rc != 0:
+            worst_rc = worst_rc or rc
 
-    _log("PASS  all phases")
+    if worst_rc:
+        return worst_rc
+    if deferred:
+        _log(f"PASS  Phases 1 + 2 ({' + '.join(deferred)} deferred — locked/error)")
+    else:
+        _log("PASS  all phases")
     return 0
 
 

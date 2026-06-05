@@ -33,6 +33,12 @@ def _patch_log_file(monkeypatch, tmp_path):
     # the TestArgvPropagation tests that bypass the `tracker` fixture.
     monkeypatch.setattr(cointegration_daily_runner, "LOG_FILE",
                          tmp_path / "cointegration_daily.log")
+    # Safety: Phase 4 (MPS refresh) writes the REAL Master_Portfolio_Sheet.xlsx
+    # via ledger_db.export_mps() + the portfolio formatter. Default EVERY test
+    # to a no-op so none ever touches the production MPS; the `tracker` fixture
+    # overrides this to record call order, and Phase-4 tests override per-case.
+    monkeypatch.setattr(cointegration_daily_runner, "_run_phase4_mps",
+                         lambda argv=None: 0)
 
 
 @pytest.fixture
@@ -45,13 +51,17 @@ def tracker(monkeypatch):
             return rc
         return _mock
 
-    # Default: all three succeed
+    # Default: all four succeed
     monkeypatch.setattr(cointegration_daily_runner.cointegration_screen, "main",
                          make_mock("p1", 0))
     monkeypatch.setattr(cointegration_daily_runner.cointegration_db, "main",
                          make_mock("p2", 0))
     monkeypatch.setattr(cointegration_daily_runner.cointegration_excel, "main",
                          make_mock("p3", 0))
+    # Phase 4 is a runner-local function (not a module .main), so patch it
+    # directly. Records "p4" and succeeds; overrides the autouse no-op.
+    monkeypatch.setattr(cointegration_daily_runner, "_run_phase4_mps",
+                         make_mock("p4", 0))
     return t
 
 
@@ -62,13 +72,25 @@ def tracker(monkeypatch):
 
 class TestHappyPath:
 
-    def test_all_three_phases_called_in_order(self, tracker):
+    def test_all_four_phases_called_in_order(self, tracker):
         rc = cointegration_daily_runner.main([])
+        assert rc == 0
+        assert tracker.calls == ["p1", "p2", "p3", "p4"]
+
+    def test_skip_excel_still_runs_mps(self, tracker):
+        # --skip-excel skips ONLY the screener render; Phase 4 (MPS) is
+        # independent (reads the SQLite from Phase 2) and still runs.
+        rc = cointegration_daily_runner.main(["--skip-excel"])
+        assert rc == 0
+        assert tracker.calls == ["p1", "p2", "p4"]
+
+    def test_skip_mps_still_runs_excel(self, tracker):
+        rc = cointegration_daily_runner.main(["--skip-mps"])
         assert rc == 0
         assert tracker.calls == ["p1", "p2", "p3"]
 
-    def test_skip_excel(self, tracker):
-        rc = cointegration_daily_runner.main(["--skip-excel"])
+    def test_skip_both_renders(self, tracker):
+        rc = cointegration_daily_runner.main(["--skip-excel", "--skip-mps"])
         assert rc == 0
         assert tracker.calls == ["p1", "p2"]
 
@@ -117,8 +139,8 @@ class TestPhase3FailuresAreNonFatal:
         monkeypatch.setattr(cointegration_daily_runner.cointegration_excel, "main", locked)
         rc = cointegration_daily_runner.main([])
         assert rc == 0   # overall PASS — Excel skip is acceptable
-        # All three were attempted
-        assert tracker.calls == ["p1", "p2"]  # p3 raised before append
+        # p3 raised before append; Phase 4 (MPS) is independent and still ran.
+        assert tracker.calls == ["p1", "p2", "p4"]
 
     def test_phase3_generic_exception_returns_32(self, tracker, monkeypatch):
         # Non-PermissionError exception → exit 32, but parquet+SQLite still valid
@@ -134,6 +156,41 @@ class TestPhase3FailuresAreNonFatal:
                              lambda argv=None: 3)
         rc = cointegration_daily_runner.main([])
         assert rc == 0   # non-fatal → overall PASS
+
+
+class TestPhase4MpsRefreshIsNonFatal:
+    """Phase 4 (MPS refresh) mirrors Phase 3 semantics: a locked/failed MPS
+    write must not abort the run, and must stay decoupled from Phase 3."""
+
+    def test_phase4_permission_error_returns_0(self, tracker, monkeypatch):
+        def locked(argv=None):
+            raise PermissionError("[WinError 32] MPS in use")
+        monkeypatch.setattr(cointegration_daily_runner, "_run_phase4_mps", locked)
+        rc = cointegration_daily_runner.main([])
+        assert rc == 0   # MPS lock is a non-fatal deferral
+        assert tracker.calls == ["p1", "p2", "p3"]  # p4 raised before append
+
+    def test_phase4_generic_exception_returns_33(self, tracker, monkeypatch):
+        def boom(argv=None):
+            raise RuntimeError("export failure")
+        monkeypatch.setattr(cointegration_daily_runner, "_run_phase4_mps", boom)
+        rc = cointegration_daily_runner.main([])
+        assert rc == 33
+
+    def test_phase4_nonzero_returns_0_warn(self, tracker, monkeypatch):
+        monkeypatch.setattr(cointegration_daily_runner, "_run_phase4_mps",
+                             lambda argv=None: 4)
+        rc = cointegration_daily_runner.main([])
+        assert rc == 0   # non-fatal → overall PASS
+
+    def test_phase4_runs_even_when_phase3_hard_fails(self, tracker, monkeypatch):
+        # Phase 3 hard error must NOT prevent the independent Phase 4 refresh.
+        def boom(argv=None):
+            raise RuntimeError("render failure")
+        monkeypatch.setattr(cointegration_daily_runner.cointegration_excel, "main", boom)
+        rc = cointegration_daily_runner.main([])
+        assert rc == 32                # worst hard exit code surfaces
+        assert "p4" in tracker.calls   # but Phase 4 still ran
 
 
 # ---------------------------------------------------------------------------
