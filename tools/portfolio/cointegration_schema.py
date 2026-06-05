@@ -31,7 +31,10 @@ SCHEMA_VERSION = "coint-1.0"
 # Version of the metrics-derivation function (canonical_metrics). Bump when the
 # metric computation changes; the assembler stamps it at write time and reenrich
 # re-stamps it on recompute, so re-derived rows are distinguishable.
-METRICS_FN_VERSION = "canonical-1"
+METRICS_FN_VERSION = "canonical-2"  # canonical-2 (2026-06-05): variant-agnostic
+# cycle counting (any "LIQUIDATE" full-close bar) — fixes GP_ZOPP 0-cycle bug,
+# strict generalization of the legacy per-family tag lists. See canonical_metrics
+# ._cycle_pnl_robust.
 PRIMARY_KEY = "run_id"
 
 # Locked column order. Additive only (append at the right edge); never reorder

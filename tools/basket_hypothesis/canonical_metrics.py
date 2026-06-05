@@ -141,6 +141,106 @@ def _cycle_pnl_from_parquet(
     return cycles
 
 
+# A completed cycle == one full-basket LIQUIDATION. Every rule family already
+# names these events with the shared "LIQUIDATE" convention — LIQUIDATE_RESET
+# (v4), TREND_LIQUIDATE_* (v5), LIQUIDATE_TIME_STOP / ..._HARVEST_COMPLETE (h3),
+# LIQUIDATE_REVERSAL / ..._EQUILIBRIUM / ..._OPP_REVERT (pine reversal / zcross /
+# zopp). Matching the CONVENTION (a substring) rather than a hardcoded per-family
+# tag list means a new exit variant is counted the moment it follows the
+# convention — closing the class of bug that silently zeroed GP_ZOPP's
+# LIQUIDATE_OPP_REVERT. Partial scale-outs (HARVEST_SCALE_OUT / SCALE_OUT_TO_CORE)
+# are not liquidations (no "LIQUIDATE" in the tag), so a harvested basket still
+# counts as one cycle.
+#
+# Why a tag CONVENTION and not a pure position signal: a same-direction
+# liquidate-and-reopen (a real cycle, e.g. pine zcross) and a v4 bump-add
+# (mid-cycle, NOT a cycle) are indistinguishable from the position series alone —
+# both realize PnL while staying 2-leg, same-direction. The skip_reason is the
+# only thing that separates them, so the robust fix generalizes the tag match
+# rather than abandoning it. (Validated: identical counts to the legacy per-family
+# path on every existing family; GP_ZOPP now counts.)
+_LIQUIDATION_TAG = "LIQUIDATE"
+
+
+def _cycle_pnl_robust(df: pd.DataFrame) -> list[dict]:
+    """Variant-agnostic per-cycle PnL: one cycle per full-basket LIQUIDATION bar
+    (`skip_reason` containing the shared "LIQUIDATE" convention); `cycle_pnl_usd`
+    is the realized_total_usd delta between consecutive liquidations. A strict
+    generalization of the legacy per-family `_cycle_pnl_from_parquet` (identical
+    counts on every existing family) that additionally catches exit variants whose
+    exact tag was never wired into the per-family list. Same dict shape.
+    """
+    if df.empty or "skip_reason" not in df.columns or "realized_total_usd" not in df.columns:
+        return []
+    mask = df["skip_reason"].astype(str).str.contains(
+        _LIQUIDATION_TAG, case=True, na=False, regex=False)
+    exit_bars = df[mask]
+    if exit_bars.empty:
+        return []
+    has_ts = "timestamp" in df.columns
+    cycles: list[dict] = []
+    prev_realized = 0.0
+    for idx in exit_bars.index:
+        row = df.loc[idx]
+        post_realized = float(row["realized_total_usd"])
+        cycles.append({
+            "bar_index": int(idx),
+            "ts": row["timestamp"] if has_ts else None,
+            "exit_tag": row["skip_reason"],
+            "cycle_pnl_usd": post_realized - prev_realized,
+            "prev_realized": prev_realized,
+            "post_realized": post_realized,
+        })
+        prev_realized = post_realized
+    return cycles
+
+
+class CycleConventionError(ValueError):
+    """A basket run fully closed a position without following the cycle-counting
+    naming convention (every full-basket close tagged with 'LIQUIDATE'). Raised to
+    FAIL the run loudly — the convention is what makes `_cycle_pnl_robust`
+    variant-agnostic, so a silent violation would reintroduce the GP_ZOPP class of
+    wrong-cycle-metric bug.
+    """
+
+
+# Families whose cycle metrics are computed (and therefore depend on the
+# convention). v1_recycle has no cycle taxonomy, so it is exempt.
+_CYCLE_MECHANIC_FAMILIES = frozenset({
+    "pine_reversal", "v4_bump_liquidate", "v5_pyramid", "h3_spread",
+})
+
+
+def _assert_liquidation_convention(df: pd.DataFrame, rule_family: str) -> None:
+    """Enforce the cycle-counting convention at backtest / metrics time: for a
+    cycle-mechanic family, any bar that FULLY closes the basket (active_legs -> 0)
+    AND realizes PnL MUST carry a 'LIQUIDATE' skip_reason. Such a bar is exactly a
+    completed cycle; tagged otherwise, `_cycle_pnl_robust` silently miscounts it
+    (the GP_ZOPP defect). Raising here stops the run before wrong cycle metrics
+    reach the ledger. Validated zero false positives across the live cointegration
+    corpus + the H2 v4/v5 reference runs (2026-06-05).
+    """
+    if rule_family not in _CYCLE_MECHANIC_FAMILIES:
+        return
+    if df.empty or not {"active_legs", "skip_reason", "realized_total_usd"} <= set(df.columns):
+        return
+    al = pd.to_numeric(df["active_legs"], errors="coerce").fillna(0).tolist()
+    rz = pd.to_numeric(df["realized_total_usd"], errors="coerce").fillna(0.0).tolist()
+    sk = df["skip_reason"].astype(str).tolist()
+    for i in range(1, len(df)):
+        if (al[i - 1] > 0 and al[i] == 0
+                and abs(rz[i] - rz[i - 1]) > 1e-9
+                and _LIQUIDATION_TAG not in sk[i]):
+            raise CycleConventionError(
+                f"cycle-counting convention violated: basket fully closed and "
+                f"realized PnL at bar {int(df.index[i])} with skip_reason={sk[i]!r} "
+                f"(rule_family={rule_family}) — it does not contain "
+                f"'{_LIQUIDATION_TAG}'. Every full-close event MUST be tagged "
+                f"LIQUIDATE_* or canonical_metrics._cycle_pnl_robust will silently "
+                f"miscount the cycle. Fix the rule's exit skip_reason."
+            )
+
+
 def _per_winner_side_breakdown(
     df: pd.DataFrame, exit_tags: list[str],
 ) -> dict[str, dict[str, Any]]:
@@ -305,29 +405,17 @@ def canonical_metrics(
         "h3_core_hold":     int((skip == "CORE_HOLD").sum()),
     }
 
-    # Cycle-level reconstruction (only meaningful for cycle-mechanic rules)
-    cycle_pnls: list[dict] = []
-    if rf == "v5_pyramid":
-        cycle_pnls = _cycle_pnl_from_parquet(
-            df, ["TREND_LIQUIDATE_RECOVERY", "TREND_LIQUIDATE_FLOOR", "TREND_LIQUIDATE_CORRELATION"]
-        )
-    elif rf == "v4_bump_liquidate":
-        cycle_pnls = _cycle_pnl_from_parquet(df, ["LIQUIDATE_RESET"])
-    elif rf == "h3_spread":
-        cycle_pnls = _cycle_pnl_from_parquet(
-            df,
-            ["LIQUIDATE_TIME_STOP", "LIQUIDATE_ADVERSE_STOP",
-             "LIQUIDATE_REVERSE_CROSS", "LIQUIDATE_TRAIL_STOP",
-             "LIQUIDATE_HARVEST_COMPLETE"],
-        )
-    elif rf == "pine_reversal":
-        # Each held reversal segment closes at either:
-        #   LIQUIDATE_REVERSAL    — pine_ratio_zrev_v1 (opposite-extreme cross)
-        #   LIQUIDATE_EQUILIBRIUM — pine_ratio_zrev_v1_zcross (sign-flip exit)
-        # Both denote a completed cycle for metric purposes.
-        cycle_pnls = _cycle_pnl_from_parquet(
-            df, ["LIQUIDATE_REVERSAL", "LIQUIDATE_EQUILIBRIUM"]
-        )
+    # Cycle-level reconstruction — variant-agnostic. Any full-basket LIQUIDATION
+    # bar (skip_reason containing "LIQUIDATE") is a completed cycle, so a new exit
+    # variant cannot silently drop to 0 cycles the way GP_ZOPP's
+    # LIQUIDATE_OPP_REVERT did under the old hardcoded per-family tag lists.
+    # Strict generalization: validated identical to the legacy per-family counts
+    # on every existing family (v4=5 / v5=37,104 / GP / GP_ZCRS / h3) 2026-06-05.
+    # Guard FIRST: fail loudly if a full-close skips the LIQUIDATE convention the
+    # counter relies on, so a non-conforming new rule is caught here, not in a
+    # silently-wrong ledger months later.
+    _assert_liquidation_convention(df, rf)
+    cycle_pnls = _cycle_pnl_robust(df)
 
     cycles_completed = len(cycle_pnls)
     cycles_won = sum(1 for c in cycle_pnls if c["cycle_pnl_usd"] > 0)

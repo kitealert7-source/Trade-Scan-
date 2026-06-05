@@ -18,6 +18,7 @@ import pytest
 
 from tools.basket_hypothesis.canonical_metrics import (
     canonical_metrics, detect_rule_family, _cycle_pnl_from_parquet,
+    _cycle_pnl_robust, _assert_liquidation_convention, CycleConventionError,
 )
 
 
@@ -38,6 +39,66 @@ def test_pine_reversal_family_and_segment_cycles():
     assert [c["cycle_pnl_usd"] for c in cycles] == [10.0, -5.0, 15.0]
     won = sum(1 for c in cycles if c["cycle_pnl_usd"] > 0)
     assert won == 2 and len(cycles) == 3
+
+
+def test_cycle_pnl_robust_catches_unwired_variants_and_excludes_scaleouts():
+    """`_cycle_pnl_robust` counts a cycle at ANY full-basket LIQUIDATION bar
+    (skip_reason containing 'LIQUIDATE'), so an exit variant whose exact tag was
+    never wired into a per-family list is still counted — the GP_ZOPP regression
+    (LIQUIDATE_OPP_REVERT reported 0 cycles under the old hardcoded lists). Partial
+    scale-outs (no 'LIQUIDATE') are excluded; their realized PnL accumulates into
+    the enclosing cycle, matching the legacy h3 accounting."""
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2024-01-01", periods=8, freq="1D"),
+        "skip_reason": ["HOLDING", "LIQUIDATE_OPP_REVERT", "HOLDING",
+                        "HARVEST_SCALE_OUT", "HOLDING", "LIQUIDATE_RESET",
+                        "HOLDING", "LIQUIDATE_EQUILIBRIUM"],
+        # cumulative realized; the +3 scale-out at idx 3 rolls into cycle 1's delta
+        "realized_total_usd": [0.0, 10.0, 10.0, 13.0, 13.0, 8.0, 8.0, 20.0],
+    })
+    cycles = _cycle_pnl_robust(df)
+    assert [c["exit_tag"] for c in cycles] == [
+        "LIQUIDATE_OPP_REVERT", "LIQUIDATE_RESET", "LIQUIDATE_EQUILIBRIUM"]
+    assert [c["cycle_pnl_usd"] for c in cycles] == [10.0, -2.0, 12.0]
+    assert len(cycles) == 3  # HARVEST_SCALE_OUT not counted as a cycle
+
+    # A hypothetical FUTURE exit variant is counted automatically the moment it
+    # follows the LIQUIDATE convention — no per-family wiring required.
+    df2 = pd.DataFrame({
+        "skip_reason": ["HOLDING", "LIQUIDATE_SOME_NEW_EXIT_V9"],
+        "realized_total_usd": [0.0, 5.0],
+    })
+    assert len(_cycle_pnl_robust(df2)) == 1
+
+
+def test_liquidation_convention_guard_fails_nonconforming_close():
+    """The guard fails a backtest the moment a cycle-mechanic rule fully closes a
+    basket (active_legs -> 0) while realizing PnL but tags it WITHOUT 'LIQUIDATE'
+    — the convention `_cycle_pnl_robust` relies on. Enforces it at backtest time
+    instead of shipping silently-wrong cycle metrics (the GP_ZOPP class of bug)."""
+    bad = pd.DataFrame({
+        "active_legs":       [2, 2, 0],
+        "skip_reason":       ["HOLDING", "HOLDING", "MEANREV_EXIT"],  # no LIQUIDATE
+        "realized_total_usd": [0.0, 0.0, 5.0],                       # realizing close
+    })
+    with pytest.raises(CycleConventionError):
+        _assert_liquidation_convention(bad, "pine_reversal")
+
+    # exempt for non-cycle families (no cycle taxonomy)
+    _assert_liquidation_convention(bad, "v1_recycle")
+
+    # conforming close (LIQUIDATE_* tag) -> no raise
+    good = bad.copy()
+    good["skip_reason"] = ["HOLDING", "HOLDING", "LIQUIDATE_MEANREV"]
+    _assert_liquidation_convention(good, "pine_reversal")
+
+    # a NON-realizing flatten (no realized change) does not trip the guard
+    flat = pd.DataFrame({
+        "active_legs":       [2, 0],
+        "skip_reason":       ["HOLDING", "FORCED_FLAT"],
+        "realized_total_usd": [3.0, 3.0],
+    })
+    _assert_liquidation_convention(flat, "pine_reversal")
 
 
 # ---------------------------------------------------------------------------
