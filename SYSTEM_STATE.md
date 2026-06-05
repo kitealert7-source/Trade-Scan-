@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-04T16:21:22Z
+> Generated: 2026-06-05T07:42:49Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -31,15 +32,15 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-06-04** | Symbols: 221
+- Latest bar: **2026-06-05** | Symbols: 221
 
 ## Artifacts
 - Run directories: 7848
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: clean
-- Last substantive commit: `38d7e4b9 corpus(cointrev): 4H-1500 baseline + zcross run artifacts`
+- Working tree: 1 uncommitted
+- Last substantive commit: `3f638aa0 session: closing SYSTEM_STATE snapshot`
 
 ## Deferred Maintenance
 
@@ -50,6 +51,7 @@
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
+- [BRANCHES — merge-deferred 2026-06-05] 3 feature branches pushed to origin awaiting merge review (kept off `main` per operator): `fix/xlsx-write-ssot-lock-resilience` (`7f3101b5` — resilient xlsx writer `pipeline_utils.resilient_xlsx_write` for all MPS/FSP/screener saves), `test/consolidate-basket-dispatch-cluster` (`d3d773f6` — basket phase5x dispatch-test consolidation, suite 253→188s), `fix/semantic-contract-at-admission` (`4984f4ea`+`17f3ee48` — SIGNAL_PRIMITIVE contract moved into `semantic_validator` at admission, suite→169s). All independent + green (full suite 1793 passed / 0 failed). MERGE CAVEAT: `fix/xlsx` + `fix/semantic` both regenerated `tools/tools_manifest.json` → run `python tools/generate_guard_manifest.py` on the merged tree to reconcile. Detail: auto-memory `project_semantic_contract_gate_migration` + `feedback_test_suite_audit_approach`. (pytest-xdist parallelization investigated same session + REJECTED — remain serial; xdist installed for the trial then uninstalled.)
 - [SKILL_REFACTOR — DONE 2026-06-02] **Change C — `/session-close §3.2 Document audit` removed.** Signal-less manual checklist deleted per the design-principle banner (`b02656a`): a manual review with no detection signal doesn't earn a close slot. Its one substantive job — pruning resolved entries from `## Known Issues ### Manual` — now belongs to `/repo-cleanup-refactor §4c`; `session-close/reference/known_issues_gate.md` re-pointed. Markdown-only; the §3.12 Truthfulness Gate is independent of the prune, so nothing breaks. **Cadence effect to watch over the next several closes:** the Known-Issues-Manual prune shifts every-session → weekend/periodic (accepted cleanliness debt). **D and F parked (operator, 2026-06-02):** revisit D (`§3.3 Artifact cleanup` → `/repo-cleanup-refactor §1d`) only if real duplication/drift appears; F last.
 - [SKILL_REFACTOR] **Change D — move `/session-close §3.3 Artifact cleanup` into `/repo-cleanup-refactor §1d`.** The full root-untracked + scratch detection belongs in the repo-cleanup skill. Keep one minimal check in session-close: "any tracked file under `/tmp/`?" (real invariant-8 violation). Earliest revisit: 2026-06-01.
 - [SKILL_REFACTOR] **Change F — strip `/system-health-maintenance` §5 / §6 / §8 overlap.** §5 (vault) duplicates `/update-vault`; §6 (Excel format) duplicates `/format-excel-ledgers`; §8 (memory compaction) is the only home for the compaction logic but is also referenced from `/session-close §3.9`. Action: delete §5 + §6; keep §8 as canonical home, reference from elsewhere. Resulting scope of `/system-health-maintenance`: preflight + recovery + smoke tests + migration only. Earliest revisit: 2026-06-01. Defer this longest — cross-skill refactors create silent doc drift if rushed.
