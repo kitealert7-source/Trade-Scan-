@@ -207,8 +207,16 @@ def _imports_swing_pivots(path: Path) -> bool:
 def _enforce_signal_primitive_contract(declared_modules: set[str]) -> None:
     """Raise if any DECLARED indicator violates the SIGNAL_PRIMITIVE /
     PIVOT_SOURCE contract. Called after `_enforce_indicator_allowlist` (so each
-    module already exists on disk + is registered). Scoped to declared (signal)
-    indicators by construction.
+    module already exists on disk + is registered).
+
+    ARCHITECTURAL RULE (made explicit 2026-06-05): directives are expected to
+    declare only SIGNAL indicators. Engine-owned regime/context indicators
+    (trend/volatility regime inputs, realized_vol, log_return_autocorr, ...) are
+    computed by apply_regime_model and read via ctx — they are NOT declared by
+    directives, so they fall outside this contract by construction. Because every
+    declared indicator must carry a valid SIGNAL_PRIMITIVE, a directive that
+    declares a non-signal indicator is rejected here: that rejection IS the
+    enforcement of "only signal indicators are declared".
 
     Rules (ported verbatim from the retired directive-scan test):
       1. SIGNAL_PRIMITIVE present, non-empty, and in the allowlist.
@@ -252,8 +260,10 @@ def _enforce_signal_primitive_contract(declared_modules: set[str]) -> None:
         raise ValueError(
             "SIGNAL_PRIMITIVE contract violation(s) in declared indicators:\n  "
             + "\n  ".join(violations)
-            + "\nEvery declared signal indicator must declare a valid SIGNAL_PRIMITIVE "
-            "(allowlist in tools/semantic_validator.py + indicators/INDICATOR_REGISTRY.yaml)."
+            + "\nArchitectural rule: directives may declare only SIGNAL indicators, and "
+            "every declared signal indicator must declare a valid SIGNAL_PRIMITIVE. "
+            "Engine-owned regime/context indicators are read via ctx and must not be "
+            "declared. Allowlist: tools/semantic_validator.py + indicators/INDICATOR_REGISTRY.yaml."
         )
 
 

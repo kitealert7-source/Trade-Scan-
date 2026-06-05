@@ -29,9 +29,11 @@ def test_empty_declared_set_admits():
     _enforce_signal_primitive_contract(set())
 
 
-def test_missing_primitive_blocks_admission():
-    """A declared indicator with no SIGNAL_PRIMITIVE fails admission.
-    indicators.volatility.realized_vol is an engine feature with no primitive."""
+def test_declared_non_signal_indicator_is_rejected():
+    """Architectural rule: directives may declare only SIGNAL indicators.
+    Declaring an engine-owned/feature indicator (no SIGNAL_PRIMITIVE) is rejected
+    at admission. realized_vol is such a feature — a regime input read via ctx,
+    not a declarable signal — so declaring it must fail."""
     with pytest.raises(ValueError, match="(?i)SIGNAL_PRIMITIVE"):
         _enforce_signal_primitive_contract({"indicators.volatility.realized_vol"})
 
