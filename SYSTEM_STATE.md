@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-06-05T07:52:50Z
+> Generated: 2026-06-05T14:39:39Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -35,12 +34,12 @@
 - Latest bar: **2026-06-05** | Symbols: 221
 
 ## Artifacts
-- Run directories: 7848
+- Run directories: 3642
 
 ## Git Sync
 - Remote: IN SYNC
-- Working tree: 1 uncommitted
-- Last substantive commit: `4c8f0de0 Merge branch 'fix/semantic-contract-at-admission'`
+- Working tree: clean
+- Last substantive commit: `56bf32a2 metrics: variant-agnostic cycle counting + convention guard`
 
 ## Deferred Maintenance
 
@@ -86,6 +85,13 @@
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
+
+#### COINTREV exit gap — strategy has NO cointegration-break exit (found 2026-06-05)
+COINTREV (`pine_ratio_zrev_v1` + zcross/zopp) exits on **z-score only** (opposite-cross / zero-cross / opposite-side); there is **no regime-stop exit** — the cointegration regime defines the backtest *window*, not an exit. A position entered before the regime breaks is never closed by the strategy; the backtest masks it with the window-end `DATA_END` force-close (NOT a `LIQUIDATE` cycle). That is why many Cointegration / COINT TRADE CANDIDATES rows show **net% > 0 with cycles = 0** — the net% is unrealized mark-to-market of a still-open position (verified BTCUSD/GBPJPY GP_ZOPP: realized $0, floating +$18.50, `active_legs=2` at window end). **Live risk:** no `DATA_END` backstop live → a position hangs on a broken/drifting spread with no stop. The `COINTEGRATION_FIRST_LIVE_DEPLOYMENT_PROPOSAL`'s assumed "regime-stopped exit" is **NOT implemented** → go-live prerequisite, not optional.
+
+Two follow-ups (parked, operator to resume):
+- **Quick (ranking):** add `realized_net%` (= Σ cycle_pnl / stake) + a `cycles ≥ 1` evaluable-run filter to `tools/portfolio/trade_candidates_view.py` so 0-cycle phantom-profit rows stop topping the rank. (net% = mark-to-market incl. floating; cycles = realized-only — they diverge for open-at-window-end positions.)
+- **Deeper (strategy, deployment-blocker class):** add a cointegration-break exit to the recycle rule (close when the pair leaves the cointegrated regime, independent of z) — removes the live hang risk AND makes these realize as real cycles. Strategy-logic change; needs scoping. (The cycle *metric* itself was fixed this session: `canonical_metrics._cycle_pnl_robust` + `_assert_liquidation_convention` guard; 473 GP_ZOPP rows re-derived.)
 
 #### Charter COMPLETE — 2026-05-27 — advisory-to-enforced (closed 2026-05-28)
 **Focus:** Convert five bypassed advisory checks into enforced gates / hooks / CI tests. Plan (archived): [`outputs/system_reports/09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md`](outputs/system_reports/09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md). **STATUS: COMPLETE — all 7 enforcement units landed 2026-05-28.** The original "advisory bypass" failure mode is now solved structurally, not rhetorically. F-series refactor backlog (F1-F3 in the plan) may now begin.
