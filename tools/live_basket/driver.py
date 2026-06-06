@@ -107,6 +107,14 @@ class StreamingBasketRunner:
         self.n_legs = n_legs
         self._seq = 0
         self._last_key = None
+        # Restart-clean: restore emission state from the bridge so a re-instantiated
+        # driver (watchdog restart) continues the seq and does NOT re-emit the
+        # current target. Fresh session (empty bridge) -> starts at seq 0. The
+        # bridge IS the state; the driver restores from it (Review #3 spirit).
+        latest = bridge.read_latest_target(self.bridge_dir)
+        if latest is not None and latest.basket_id == basket_id:
+            self._last_key = latest.key
+            self._seq = int(latest.seq) + 1
 
     def on_closed_bar(self, dfA_prefix, dfB_prefix):
         """Process the accumulated frames after a bar closes. Returns the Target
