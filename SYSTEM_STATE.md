@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 16 commits not pushed to origin
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-06T10:47:23Z
+> Generated: 2026-06-06T10:49:37Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,9 +38,9 @@
 - Run directories: 3642
 
 ## Git Sync
-- Remote: **16 commits ahead of origin**
+- Remote: IN SYNC (vs `origin/feat/live-basket-bridge-v0`)
 - Working tree: 1 uncommitted
-- Last substantive commit: `319fea17 feat(introspection): enforce SYSTEM_STATE Manual section size limit`
+- Last substantive commit: `8ccb5f45 session: closing SYSTEM_STATE snapshot (size guard + all branches pushed)`
 
 ## Deferred Maintenance
 

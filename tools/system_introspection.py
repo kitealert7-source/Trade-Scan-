@@ -608,16 +608,35 @@ def collect_git() -> dict[str, Any]:
     """Git sync status: commits ahead, clean working tree."""
     result: dict[str, Any] = {}
     try:
-        # Commits ahead of origin
+        # Commits ahead of origin — compare against origin/<current-branch> so
+        # feature branches that are fully pushed report 0 (not BROKEN). Fall
+        # back to origin/main when the current branch has no remote counterpart
+        # (e.g. a brand-new local branch that was never pushed).
+        branch_proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
+        )
+        current_branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else "main"
+        remote_ref = f"origin/{current_branch}"
+        # Verify the remote ref exists before using it
+        ref_check = subprocess.run(
+            ["git", "rev-parse", "--verify", remote_ref],
+            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
+        )
+        if ref_check.returncode != 0:
+            remote_ref = "origin/main"
+
         ahead = subprocess.run(
-            ["git", "log", "--oneline", "origin/main..HEAD"],
+            ["git", "log", "--oneline", f"{remote_ref}..HEAD"],
             cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
         )
         if ahead.returncode == 0:
             lines = [l for l in ahead.stdout.strip().splitlines() if l.strip()]
             result["commits_ahead"] = len(lines)
+            result["remote_ref"] = remote_ref
         else:
             result["commits_ahead"] = "unknown"
+            result["remote_ref"] = remote_ref
 
         # Working tree status
         status = subprocess.run(
@@ -1118,8 +1137,9 @@ def render_markdown(
     else:
         ahead = git.get("commits_ahead", "unknown")
         tree = git.get("working_tree", "unknown")
-        sync = "IN SYNC" if ahead == 0 else f"**{ahead} commits ahead of origin**"
-        lines.append(f"- Remote: {sync}")
+        remote_ref = git.get("remote_ref", "origin/main")
+        sync = "IN SYNC" if ahead == 0 else f"**{ahead} commits ahead of {remote_ref}**"
+        lines.append(f"- Remote: {sync} (vs `{remote_ref}`)")
         lines.append(f"- Working tree: {tree}")
         if git.get("last_commit"):
             lines.append(f"- Last substantive commit: `{git['last_commit']}`")
