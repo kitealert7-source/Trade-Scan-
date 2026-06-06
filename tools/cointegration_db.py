@@ -903,12 +903,40 @@ def main(argv: list[str] | None = None) -> int:
     try:
         create_tables(conn)
         if args.upsert:
-            n = upsert_from_parquet(conn, args.parquet)
-            print(f"[cointegration_db] upserted {n} pair-pair rows")
-            # Singles parquet is optional — if present, upsert it too.
-            if Path(SINGLES_PARQUET_PATH).is_file():
-                n_s = upsert_singles_from_parquet(conn, SINGLES_PARQUET_PATH)
-                print(f"[cointegration_db] upserted {n_s} singles rows")
+            # Per-TF discovery: when --parquet is the default 1d path, auto-pick
+            # every coint_<tf>_latest.parquet sibling so the daily runner picks
+            # up 4h (and any future TF) without per-TF path knowledge. When the
+            # caller explicitly points --parquet at a specific file (backfill /
+            # test tools), upsert only that file to preserve existing semantics.
+            base_path = Path(args.parquet)
+            if base_path == PARQUET_PATH:
+                pair_parquets = sorted(base_path.parent.glob("coint_*_latest.parquet"))
+                if not pair_parquets:
+                    pair_parquets = [base_path]
+            else:
+                pair_parquets = [base_path]
+
+            n = 0
+            for pq in pair_parquets:
+                if not pq.is_file():
+                    continue
+                k = upsert_from_parquet(conn, pq)
+                n += k
+                print(f"[cointegration_db] upserted {k} pair-pair rows from {pq.name}")
+            print(f"[cointegration_db] upserted {n} pair-pair rows (total)")
+
+            # Singles parquets — mirror the same per-TF discovery pattern.
+            singles_dir = Path(SINGLES_PARQUET_PATH).parent
+            singles_parquets = sorted(singles_dir.glob("singles_*_latest.parquet"))
+            n_s = 0
+            for sp in singles_parquets:
+                if not sp.is_file():
+                    continue
+                k_s = upsert_singles_from_parquet(conn, sp)
+                n_s += k_s
+                print(f"[cointegration_db] upserted {k_s} singles rows from {sp.name}")
+            if n_s:
+                print(f"[cointegration_db] upserted {n_s} singles rows (total)")
             # quick regime summary (per-pair / per-symbol latest, not global
             # MAX(as_of) - see query_latest_per_pair docstring)
             df_today = query_latest_per_pair(conn)

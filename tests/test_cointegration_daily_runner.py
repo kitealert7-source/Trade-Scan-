@@ -72,27 +72,31 @@ def tracker(monkeypatch):
 
 class TestHappyPath:
 
+    # Phase 1 fires TWICE per run (1a=1d, 1b=4h) — both invoke
+    # cointegration_screen.main, which the tracker records as "p1".
+    # Wired 2026-06-06 when 4h was added to the automated cadence.
+
     def test_all_four_phases_called_in_order(self, tracker):
         rc = cointegration_daily_runner.main([])
         assert rc == 0
-        assert tracker.calls == ["p1", "p2", "p3", "p4"]
+        assert tracker.calls == ["p1", "p1", "p2", "p3", "p4"]
 
     def test_skip_excel_still_runs_mps(self, tracker):
         # --skip-excel skips ONLY the screener render; Phase 4 (MPS) is
         # independent (reads the SQLite from Phase 2) and still runs.
         rc = cointegration_daily_runner.main(["--skip-excel"])
         assert rc == 0
-        assert tracker.calls == ["p1", "p2", "p4"]
+        assert tracker.calls == ["p1", "p1", "p2", "p4"]
 
     def test_skip_mps_still_runs_excel(self, tracker):
         rc = cointegration_daily_runner.main(["--skip-mps"])
         assert rc == 0
-        assert tracker.calls == ["p1", "p2", "p3"]
+        assert tracker.calls == ["p1", "p1", "p2", "p3"]
 
     def test_skip_both_renders(self, tracker):
         rc = cointegration_daily_runner.main(["--skip-excel", "--skip-mps"])
         assert rc == 0
-        assert tracker.calls == ["p1", "p2"]
+        assert tracker.calls == ["p1", "p1", "p2"]
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +144,8 @@ class TestPhase3FailuresAreNonFatal:
         rc = cointegration_daily_runner.main([])
         assert rc == 0   # overall PASS — Excel skip is acceptable
         # p3 raised before append; Phase 4 (MPS) is independent and still ran.
-        assert tracker.calls == ["p1", "p2", "p4"]
+        # p1 appears twice — Phase 1a (1d) + Phase 1b (4h).
+        assert tracker.calls == ["p1", "p1", "p2", "p4"]
 
     def test_phase3_generic_exception_returns_32(self, tracker, monkeypatch):
         # Non-PermissionError exception → exit 32, but parquet+SQLite still valid
@@ -168,7 +173,8 @@ class TestPhase4MpsRefreshIsNonFatal:
         monkeypatch.setattr(cointegration_daily_runner, "_run_phase4_mps", locked)
         rc = cointegration_daily_runner.main([])
         assert rc == 0   # MPS lock is a non-fatal deferral
-        assert tracker.calls == ["p1", "p2", "p3"]  # p4 raised before append
+        # p4 raised before append; p1 appears twice (Phase 1a + 1b).
+        assert tracker.calls == ["p1", "p1", "p2", "p3"]
 
     def test_phase4_generic_exception_returns_33(self, tracker, monkeypatch):
         def boom(argv=None):
@@ -229,3 +235,25 @@ class TestArgvPropagation:
         monkeypatch.setattr(cointegration_daily_runner.cointegration_excel, "main", capture)
         cointegration_daily_runner.main([])
         assert seen_argv["p3"] == ["--export"]
+
+    def test_phase1_invoked_per_tf_in_1d_then_4h_order(self, monkeypatch):
+        """Phase 1a fires with --tf 1d, then Phase 1b with --tf 4h.
+
+        Locks in the post-2026-06-06 dual-TF cadence so a future refactor
+        that drops 4h (or reverts to a single bare call) trips a test
+        rather than silently re-introducing the 10-day 4h staleness gap
+        observed 2026-05-29 → 2026-06-06.
+        """
+        seen_argv: list[list[str]] = []
+
+        def capture(argv=None):
+            seen_argv.append(list(argv) if argv else [])
+            return 0
+
+        monkeypatch.setattr(cointegration_daily_runner.cointegration_screen, "main", capture)
+        monkeypatch.setattr(cointegration_daily_runner.cointegration_db, "main",
+                             lambda argv=None: 0)
+        monkeypatch.setattr(cointegration_daily_runner.cointegration_excel, "main",
+                             lambda argv=None: 0)
+        cointegration_daily_runner.main([])
+        assert seen_argv == [["--tf", "1d"], ["--tf", "4h"]]

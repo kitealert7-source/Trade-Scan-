@@ -153,14 +153,33 @@ def main(argv: list[str] | None = None) -> int:
     _log("=" * 60)
     _log(f"START daily run  pid={os.getpid()} user={os.environ.get('USERNAME', '?')}")
 
-    # Phase 1: compute → parquet. FATAL on failure (downstream phases need parquet).
-    rc = _run_phase("Phase 1 (compute → parquet)",
-                     cointegration_screen.main, [], fail_exit_code=30)
+    # Phase 1: compute → parquet for each supported timeframe.
+    #   1d — FATAL: canonical screener view; Phases 2/3/4 + research consumers
+    #        (basket_data_loader, indicators.stats.cointegration_state,
+    #        cointegration_excel) read 1d artifacts.
+    #   4h — NON-FATAL: research-side dataset surfaced in the Excel Summary's
+    #        dual-TF intersection section and the History sheet's tf filter.
+    #        A 4h compute failure must not block the 1d-dependent downstream
+    #        phases, because consumers fall back gracefully to the prior 4h
+    #        SQLite rows.
+    # Wired 2026-06-06: previously the runner called cointegration_screen.main([])
+    # once (defaulting to tf=1d), so 4h had no automated cadence — the last 4h
+    # rows in SQLite were from 2026-05-29 via manual backfill.
+    rc = _run_phase("Phase 1a (compute 1d → parquet)",
+                     cointegration_screen.main, ["--tf", "1d"], fail_exit_code=30)
     if rc != 0:
-        _log("ABORT after Phase 1 failure")
+        _log("ABORT after Phase 1a (1d compute) failure")
         return rc
 
+    rc = _run_phase("Phase 1b (compute 4h → parquet)",
+                     cointegration_screen.main, ["--tf", "4h"],
+                     fail_exit_code=30, fatal=False)
+    # rc is 0 on success or None when _run_phase swallowed a non-fatal failure;
+    # either way we continue — 4h freshness is best-effort.
+
     # Phase 2: parquet → SQLite. FATAL on failure (Phases 3 + 4 read from SQLite).
+    # cointegration_db.main auto-discovers every coint_<tf>_latest.parquet
+    # alongside the default 1d path, so this single call upserts both TFs.
     rc = _run_phase("Phase 2 (parquet → SQLite)",
                      cointegration_db.main, ["--upsert"], fail_exit_code=31)
     if rc != 0:
