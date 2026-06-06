@@ -81,6 +81,8 @@ V0 deliberately uses: target-state reconciliation, fixed per-leg lots (beta rati
 
 V0 is a strict subset of the eventual capability; each increment maps to one seam -- and all basket *intelligence* stays in the Trade_Scan runner, so TS_Execution's only governed dependency remains `engine_abi`.
 
+**Data-feed resolution (architectural fact, not a tuning choice).** A cointegration *regime*-based exit (the future regime-break mechanic increment on the Mechanic seam) operates at **daily resolution by construction**: the regime is a once-per-trading-day Engle-Granger screen (`cointegration.db`, refreshed ~05:45 local / on-boot via the DATA_INGRESS hook) forward-filled onto the 5m bars -- there is no intraday recomputation. A regime-driven FLAT target therefore lands at most once per trading day and lags a real intraday spread break by up to one trading day (longer across market-closed spans). This is a property of the *feed*, not the strategy: **a regime exit is a daily safety net, not an intraday stop.** Tight / intraday position protection is the separate, capital-triggered **per-basket hard stop** (the deferred knob in the Runner-death section) -- the two compose, and neither substitutes for the other.
+
 **Bridge-specific invariants (in addition to the architecture-neutral Non-negotiables below):**
 - **Single writer per file** (runner -> `target.jsonl`; shim -> `executions.jsonl`); atomic tmp+rename.
 - **Shim is the sole reconciler against broker truth** -- target is desired, broker is actual; never replay past actions.
