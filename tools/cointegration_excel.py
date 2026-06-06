@@ -564,10 +564,26 @@ def _pivot_today(df: pd.DataFrame) -> pd.DataFrame:
 def _write_summary(wb: Workbook, conn: sqlite3.Connection,
                     df_today: pd.DataFrame) -> None:
     ws = wb.create_sheet("Summary", 0)
-    as_of = df_today["as_of"].iloc[0] if not df_today.empty else "—"
+    # Two distinct dates surface here:
+    #   data_as_of — newest as_of in the per-pair-latest result set; this is
+    #                the LATEST data cutoff used by the screener (e.g. on a
+    #                Saturday for an FX-dominant universe this is the prior
+    #                Friday because no new FX bars exist).
+    #   run_date   — when THIS Excel was regenerated (the screener actually ran).
+    # Showing both removes the 2026-06-06 confusion where the data_as_of date
+    # (Fri 2026-06-05) made it look like the screener had not run on Saturday.
+    if not df_today.empty:
+        data_as_of = df_today["as_of"].max()
+    else:
+        data_as_of = "—"
+    run_date = datetime.now(timezone.utc).date().isoformat()
     ws.cell(
         row=1, column=1,
-        value=f"Cointegration Screener — Summary  ({as_of})  [methodology: v2_log_eg]"
+        value=(
+            f"Cointegration Screener — Summary  "
+            f"(data as-of: {data_as_of} | run: {run_date} UTC)  "
+            f"[methodology: v2_log_eg]"
+        )
     ).font = Font(bold=True, size=14)
     ws.merge_cells(start_row=1, end_row=1, start_column=1, end_column=6)
     ws.cell(
@@ -1253,13 +1269,18 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection,
     if position is None:
         position = len(wb.sheetnames)
     ws = wb.create_sheet("History", position)
+    # Operator preference 2026-06-06: column A (as_of) defaults to Z→A so the
+    # most-recent snapshot is on top when the sheet opens. Within each date
+    # the rows stay grouped by (pair_a, pair_b, tf, lookback_days) so a single
+    # pair-window's history is still contiguous when the operator narrows the
+    # filter to one pair.
     df = pd.read_sql_query(
         f"""SELECT as_of, pair_a, pair_b, tf, lookback_days, regime,
                    adf_pvalue, pvalue_rolling_median_5d, half_life_days,
                    hedge_ratio, current_zscore, history_depth
             FROM {TABLE_NAME}
             WHERE as_of >= date('now', '-90 days')
-            ORDER BY pair_a, pair_b, tf, lookback_days, as_of DESC""",
+            ORDER BY as_of DESC, pair_a, pair_b, tf, lookback_days""",
         conn,
     )
     # Insert pair_class as col D (between pair_b and tf) so the operator can
