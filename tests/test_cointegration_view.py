@@ -31,6 +31,7 @@ def _row(run_id, ret_dd, completed, pair_a="EURUSD", pair_b="GER40",
         "completed_at_utc": completed,
         "test_start": test_start, "test_end": test_end,
         "canonical_ret_dd": ret_dd, "canonical_net_pct": net_pct,
+        "realized_net_pct": net_pct,
         "canonical_max_dd_pct": 8.0, "canonical_final_equity_usd": 1125.0,
         "trades_total": 42, "cycles_completed": 11, "cycle_win_rate_pct": 55.0,
         "regime_state": "cointegrated",
@@ -52,12 +53,13 @@ def test_column_budget_not_exceeded():
     assert list(out.columns) == COINTEGRATION_VIEW_COLUMNS
 
 
-def test_column_budget_locked_at_21():
+def test_column_budget_locked_at_22():
     # The cap is asserted explicitly so an accidental addition to
     # COINTEGRATION_VIEW_COLUMNS without a budget bump fails loudly.
     # Bumped 20 -> 21 (2026-06-04): added 'series' variant/sizing filter aid.
-    assert COINTEGRATION_VIEW_BUDGET == 21
-    assert len(COINTEGRATION_VIEW_COLUMNS) == 21
+    # Bumped 21 -> 22 (2026-06-05): added 'realized_net%'.
+    assert COINTEGRATION_VIEW_BUDGET == 22
+    assert len(COINTEGRATION_VIEW_COLUMNS) == 22
 
 
 def test_series_classification():

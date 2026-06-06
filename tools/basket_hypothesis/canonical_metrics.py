@@ -431,6 +431,16 @@ def canonical_metrics(
         float(sum(cycle_pnl_values) / len(cycle_pnl_values))
         if cycle_pnl_values else 0.0
     )
+    # Realized net% = Σ strategy-cycle PnL / stake (LIQUIDATE cycles only). EXCLUDES
+    # the open-position floating that net_pct (mark-to-market) carries AND the
+    # post-loop DATA_END boundary force-close (a trade-log event, never a per-bar
+    # LIQUIDATE row). So a run that never completed a strategy exit reads
+    # realized_net_pct = 0 even when net_pct shows a floating mark — the
+    # (net_pct - realized_net_pct) gap IS that unrealized boundary tail. This is
+    # the honest "did completed trades make money" number for ranking/evaluation.
+    realized_net_pct = (
+        sum(cycle_pnl_values) / stake_usd * 100 if stake_usd > 0 else 0.0
+    )
 
     # Per-winner-side asymmetry (only meaningful for 2-leg cycle-mechanic runs)
     per_winner_side: dict[str, dict[str, Any]] = {}
@@ -616,6 +626,7 @@ def canonical_metrics(
         # Cycle-level
         "cycle_win_rate_pct": cycle_win_rate_pct,
         "cycles_completed":   cycles_completed,
+        "realized_net_pct":   realized_net_pct,   # Σ strategy-cycle PnL / stake (excl. floating + DATA_END)
         "cycles_won":         cycles_won,
         "cycles_lost":        cycles_lost,
         "median_cycle_pnl":   median_cycle_pnl,

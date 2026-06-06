@@ -56,7 +56,7 @@ import pandas as pd
 BADGE = "\U0001F3C5"
 
 TRADE_CANDIDATES_COLUMNS = [
-    "Pair", "Coint Status (252d)", "Runs", "Losses", "Median Ret/DD",
+    "Pair", "Coint Status (252d)", "Runs", "Evaluable", "Losses", "Median Ret/DD",
 ]
 
 # Qualification gate: a pair needs at least this many current runs to qualify
@@ -99,10 +99,23 @@ def build_trade_candidates_df(
     else:
         df["_rdd"] = np.nan
 
+    # Evaluable run = completed >= 1 strategy cycle (a real reversion exit), vs a
+    # "phantom" run that entered, never reverted, and was force-closed at the
+    # window boundary (DATA_END) -- those carry an inflated Ret/DD on a near-zero
+    # realized drawdown. Rank QUALITY (median Ret/DD) over evaluable runs ONLY, so
+    # phantom runs cannot prop a pair up the shortlist; a pair with zero evaluable
+    # runs gets median = NaN and sorts last.
+    if "cycles_completed" in df.columns:
+        df["_eval"] = pd.to_numeric(df["cycles_completed"], errors="coerce").fillna(0) >= 1
+    else:
+        df["_eval"] = True  # no cycle data -> legacy behaviour (all evaluable)
+    df["_rdd_eval"] = df["_rdd"].where(df["_eval"])
+
     agg = df.groupby(["pair_a", "pair_b"], dropna=False).agg(
         runs=("_loss", "size"),
         losses=("_loss", "sum"),
-        median_ret_dd=("_rdd", "median"),
+        evaluable=("_eval", "sum"),
+        median_ret_dd=("_rdd_eval", "median"),
     ).reset_index()
 
     # Qualification gate: drop under-tested pairs -- not enough evidence to be a
@@ -139,6 +152,7 @@ def build_trade_candidates_df(
         "Pair": pair,
         "Coint Status (252d)": status,
         "Runs": agg["runs"].astype(int),
+        "Evaluable": agg["evaluable"].astype(int),  # runs with >=1 real strategy cycle
         "Losses": agg["losses"].astype(int),
         "Median Ret/DD": agg["median_ret_dd"].round(2),
     })[TRADE_CANDIDATES_COLUMNS]

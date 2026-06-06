@@ -59,6 +59,9 @@ COINTEGRATION_VIEW_COLUMNS = [
     "test_end",
     "return_dd_ratio",
     "net_pct",
+    "realized_net%",     # Σ strategy-cycle PnL / stake — net_pct minus the
+                         # unrealized floating + DATA_END boundary tail. 0 when a
+                         # run entered but never completed a strategy exit.
     "max drawdown %",
     "final_equity_usd",
     "total_trades",
@@ -70,13 +73,14 @@ COINTEGRATION_VIEW_COLUMNS = [
 ]
 
 # Hard cap on the human view (enforcement: the budget test asserts this).
-COINTEGRATION_VIEW_BUDGET = 21
+COINTEGRATION_VIEW_BUDGET = 22  # +realized_net% (2026-06-05)
 
 # DB column -> friendly display header.
 _RENAME = {
     "lookback_days": "lookback",
     "canonical_ret_dd": "return_dd_ratio",
     "canonical_net_pct": "net_pct",
+    "realized_net_pct": "realized_net%",
     "canonical_max_dd_pct": "max drawdown %",
     "canonical_final_equity_usd": "final_equity_usd",
     "trades_total": "total_trades",

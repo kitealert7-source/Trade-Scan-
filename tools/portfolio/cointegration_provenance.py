@@ -111,6 +111,7 @@ def build_cointegration_row(
         "canonical_ret_dd": _f(canonical.get("ret_dd")),
         "canonical_final_equity_usd": _f(canonical.get("final_equity_usd")),
         "cycle_win_rate_pct": _f(canonical.get("cycle_win_rate_pct")),
+        "realized_net_pct": _f(canonical.get("realized_net_pct")),
         "cycles_completed": (
             None if canonical.get("cycles_completed") is None
             else int(canonical["cycles_completed"])
