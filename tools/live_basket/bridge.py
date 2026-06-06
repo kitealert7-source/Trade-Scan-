@@ -258,12 +258,18 @@ def read_executions(bridge_dir) -> list:
 # future basis-reset recycle needs no broker-side tag migration.
 # --------------------------------------------------------------------------- #
 
-def basket_magic(basket_id: str) -> int:
-    """Deterministic positive 31-bit MT5 magic from basket_id (stable across
-    runs; no Date/Random)."""
+def leg_magic(basket_id: str, leg_index: int) -> int:
+    """Deterministic positive 31-bit MT5 magic PER LEG = hash("{basket_id}|L{leg}").
+
+    P2 Design-Lock D2: per-leg (NOT per-basket) magic so TS_Execution's proven
+    1 magic -> 1 ticket -> 1 slot reconcile path is reused UNCHANGED per leg
+    (a shared basket magic would trip its duplicate-magic discard). Basket
+    identity lives in the comment tag (`leg_comment`, audit/epoch only), never as
+    the reconcile key. Stable across runs; no Date/Random."""
     if not basket_id:
-        raise ContractError("basket_id is required for basket_magic")
-    return int(hashlib.sha256(basket_id.encode("utf-8")).hexdigest()[:8], 16) & 0x7FFFFFFF
+        raise ContractError("basket_id is required for leg_magic")
+    key = f"{basket_id}|L{int(leg_index)}"
+    return int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16) & 0x7FFFFFFF
 
 
 def leg_comment(epoch: int, leg_index: int) -> str:
@@ -287,5 +293,5 @@ __all__ = [
     "ContractError", "utc_now_iso", "Leg", "Target", "target_hash", "semantic_key",
     "append_jsonl_atomic", "read_latest_target", "read_all_targets",
     "write_heartbeat", "read_heartbeat", "read_executions",
-    "basket_magic", "leg_comment", "parse_leg_comment",
+    "leg_magic", "leg_comment", "parse_leg_comment",
 ]

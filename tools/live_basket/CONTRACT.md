@@ -101,12 +101,16 @@ flatten and reopen cleanly (Review #3).
 
 ## Order tags (self-identifying positions ⇒ stateless shim)
 
-- `magic` = deterministic 31-bit int from `basket_id` (`bridge.basket_magic`).
+- `magic` = deterministic 31-bit int **PER LEG** = `hash("{basket_id}|L{leg}")`
+  (`bridge.leg_magic`). Per-leg (not per-basket) magic reuses TS_Execution's proven
+  1 magic → 1 ticket → 1 slot reconcile path UNCHANGED per leg (P2 Design-Lock D2);
+  a shared basket magic would trip its duplicate-magic discard.
 - `comment` = `e{epoch}L{leg_index}` within MT5's 31-char limit
-  (`bridge.leg_comment` / `parse_leg_comment`).
-- `(basket, epoch, leg)` is fully recoverable from `magic` + `comment`, so the
-  reconcile loop holds **no durable state** (Review #3 linchpin). **Epoch is in
-  the tag from day one** (the migration-avoidance decision).
+  (`bridge.leg_comment` / `parse_leg_comment`) — **audit / epoch tag only**, never
+  the reconcile key.
+- Basket identity = the (derivable) pair of leg magics; `(epoch, leg)` from the
+  comment. The reconcile loop holds **no durable state** (Review #3 linchpin).
+  **Epoch is in the comment tag from day one** (migration-avoidance).
 
 ---
 

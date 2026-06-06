@@ -109,11 +109,14 @@ def test_heartbeat_roundtrip_separate_file(tmp_path):
 
 # --- order tags (self-identifying positions) ----------------------------- #
 
-def test_basket_magic_deterministic_and_positive():
-    m1 = bridge.basket_magic("COINTREV_EURUSD_USDJPY_GP")
-    m2 = bridge.basket_magic("COINTREV_EURUSD_USDJPY_GP")
-    assert m1 == m2 and 0 < m1 <= 0x7FFFFFFF
-    assert m1 != bridge.basket_magic("COINTREV_EURUSD_USDCHF_GP")
+def test_leg_magic_deterministic_positive_and_distinct_per_leg():
+    # P2 Design-Lock D2: per-leg magic -> each leg gets a distinct, deterministic
+    # magic so TS_Execution's 1:1 magic->ticket->slot reconcile is reused per leg.
+    b = "COINTREV_EURUSD_USDJPY_GP"
+    assert bridge.leg_magic(b, 0) == bridge.leg_magic(b, 0)        # deterministic
+    assert 0 < bridge.leg_magic(b, 0) <= 0x7FFFFFFF                # positive 31-bit
+    assert bridge.leg_magic(b, 0) != bridge.leg_magic(b, 1)        # distinct per leg
+    assert bridge.leg_magic(b, 0) != bridge.leg_magic("COINTREV_EURUSD_USDCHF_GP", 0)  # per basket
 
 
 def test_leg_comment_roundtrip_and_carries_epoch():
