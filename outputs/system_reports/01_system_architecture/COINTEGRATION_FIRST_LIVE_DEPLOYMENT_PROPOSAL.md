@@ -268,6 +268,29 @@ Note: BTCUSD/ETHUSD were used because FX is closed on Saturday; the pair has no 
 
 ---
 
+## Next pending steps (session opener — 2026-06-06)
+
+The P2 demo session retired broker-execution uncertainty. Everything below moves from **execution validation** into **strategy validation** — the project's highest-value questions now.
+
+**1. Review basket promotion path**
+The `/promote` skill and `portfolio_evaluator` are built for single-symbol strategies. A cointegration basket (2 legs + beta ratio + combined-PnL gate) needs a basket-aware promotion variant. Review the current path, identify the gaps, and specify what changes before a basket can be promoted without manual workarounds. Gate: a real `run_id`-stamped basket can reach `portfolio.yaml` through the standard pipeline.
+
+**2. Select first approved basket**
+From the current cointegration corpus (2249 runs, CANDIDATES tab, `realized_net%` + `Evaluable` ranking), select one EURUSD/GBPUSD pair (or the strongest qualifying GP pair) as the first live candidate. Criteria: ≥5 qualifying runs, positive `realized_net%`, loss_rate gate, per-pair aligned window (per `feedback_test_window_must_match_signal_class`). This is a research decision, not an execution decision — the execution infrastructure is ready; the edge is the remaining question.
+
+**3. Implement tick-freshness guard**
+`trade_mode=FULL` ≠ market open (confirmed Saturday: EURUSD/GBPUSD `trade_mode=FULL` with 11.6h stale tick; BTCUSD/ETHUSD live). Wire a both-legs-fresh check — `max(tick.time - now) < 300s` — into the live runner's pre-dispatch gate. This is the correct FX-open signal. Without it, the runner will attempt orders on a closed FX market and receive silent rejections or stale-price fills. Small, concrete, no architecture implications.
+
+**4. Wire coint_regime into the live runner**
+The cointegration regime feed (`cointegration.db`, refreshed ~05:45 local via DATA_INGRESS post-hook) is the daily safety net: if the pair is no longer cointegrated, the mechanic emits FLAT. This is the `coint_break_exit` path (implemented on `feat/coint-realized-net-and-break-exit`). Wire it into the live runner so the runner reads the daily regime verdict before emitting a target. Operate at daily resolution by construction (once-per-day screen, forward-filled onto 5m bars) — this is a property of the feed, not a limitation.
+
+**5. Execute first FX basket on demo when market opens**
+FX reopens Sunday ~22:00 local. With steps 1-4 done and an approved pair selected, run the first EURUSD/GBPUSD `dispatch_group` → `close_group` on the demo (213872531 / OctaFX-Demo) using the exact basket parameters from the promoted strategy (per-leg lots in beta ratio, not min lots). This is the transition from "execution validation with a throwaway pair" to "execution validation with the real research-approved signal." Gate: same Step 1-3 progression but with FX, the real pair, and real lot sizing.
+
+**After step 5:** move to L0 (real account, min lots, tight circuit breaker, 24-48h fidelity watch). That is where execution validation ends and strategy validation begins.
+
+---
+
 ## Don't-do list
 
 - Don't rebuild the validator (the post-deploy fidelity check is a thin log reader / manual review, not a replay engine).
