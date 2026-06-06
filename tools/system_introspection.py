@@ -657,6 +657,38 @@ _GATE_TEST_SUITE = (
 )
 
 
+def _count_deferred_maint_manual_lines(path: Path = DEFAULT_OUTPUT) -> int:
+    """Count substantive (non-blank, non-comment) lines in the Deferred
+    Maintenance Manual subsection of a prior SYSTEM_STATE.md.
+
+    Reads from `### Manual (operator-deferred items)` through the next
+    `###`-level heading or end-of-file. Used by both collect_deferred_maintenance
+    (for the [SIZE] auto-entry) and compute_session_status (for the >20 WARNING).
+    Returns 0 when the file is absent or the section is not found.
+    """
+    if not path.is_file():
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return 0
+    in_section = False
+    count = 0
+    for line in text.splitlines():
+        if line.strip() == _DEFERRED_MAINT_MANUAL_HEADER:
+            in_section = True
+            continue
+        if in_section:
+            # Stop at the next `###` heading (sibling or parent)
+            if line.startswith("###") or (line.startswith("##") and not line.startswith("###")):
+                break
+            stripped = line.strip()
+            # Skip blank lines and HTML comments
+            if stripped and not stripped.startswith("<!--"):
+                count += 1
+    return count
+
+
 def collect_deferred_maintenance() -> list[dict[str, str]]:
     """Auto-detected Deferred Maintenance signals.
 
@@ -705,6 +737,29 @@ def collect_deferred_maintenance() -> list[dict[str, str]]:
                         f"(approaching 40 KB / 600 line cap) — compaction "
                         f"available via `python tools/compact_research_memory.py`",
             })
+
+    # [SIZE] Deferred Maintenance Manual section line count
+    # Target is ≤12 substantive lines (operator-set 2026-06-06).
+    # Warn at 13–20 (prompt to prune); escalate to SESSION STATUS WARNING
+    # at >20 (handled in compute_session_status so it appears in the
+    # header, not just as a buried auto-detected entry).
+    dm_manual_lines = _count_deferred_maint_manual_lines()
+    if dm_manual_lines > 20:
+        items.append({
+            "category": "SIZE",
+            "text": f"SYSTEM_STATE Manual section {dm_manual_lines} lines "
+                    f"(EXCEEDS 20-line limit) — delete DONE entries, move "
+                    f"verbose detail to a linked report (target ≤12). "
+                    f"See outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md "
+                    f"for the pattern.",
+        })
+    elif dm_manual_lines > 12:
+        items.append({
+            "category": "SIZE",
+            "text": f"SYSTEM_STATE Manual section {dm_manual_lines} lines "
+                    f"(approaching 20-line limit) — prune DONE entries "
+                    f"and move verbose detail to a linked report (target ≤12).",
+        })
 
     # [CALENDAR] weekend cadence prompt
     weekday = datetime.now(timezone.utc).strftime("%A")
@@ -912,6 +967,13 @@ def compute_session_status(
     tree = git.get("working_tree", "unknown")
     if tree != "clean":
         reasons.append(f"WARNING: Working tree {tree}")
+    dm_manual_lines = _count_deferred_maint_manual_lines()
+    if dm_manual_lines > 20:
+        reasons.append(
+            f"WARNING: SYSTEM_STATE Manual section {dm_manual_lines} lines "
+            f"(limit 20) — purge DONE entries and move verbose detail to a "
+            f"linked report"
+        )
 
     warnings = [r for r in reasons if r.startswith("WARNING")]
     if warnings:
