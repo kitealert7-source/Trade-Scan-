@@ -868,3 +868,53 @@ Task B). Confirm via the aggregator count + the step-1 intended-vs-recorded diff
 
 ---
 
+### MT5 API Pipe Dead / Terminal Frozen (-10003) — 2026-06-06
+
+**Symptom:** `broker.connect()` returns `False`, or `mt5.initialize()` returns `False` with
+`last_error=(-10003, "IPC initialize failed, Pipe server didn't answer in 60 sec")`. All
+subsequent `broker.*` calls return `None`.
+
+**Root cause (most common):** the MT5 terminal has a modal dialog open (login box, warning popup,
+"Accept Terms") that blocks the IPC pipe. The terminal process is alive but unresponsive. Secondary
+cause: the terminal session was logged out and is waiting for credentials.
+
+**Diagnostic (read-only, 30 seconds):**
+```python
+import subprocess
+result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe"], capture_output=True, text=True)
+print(result.stdout)   # should show exactly ONE entry
+```
+- **Zero entries:** terminal is not running → relaunch (see Recovery).
+- **Two entries:** two terminals are open. The API attaches to the non-elevated one, which may not be the one you're looking at. Kill the second via Task Manager (Details tab → End task by PID), keep only the one whose path is `C:\Program Files\Octa Markets MetaTrader 5\terminal64.exe`.
+- **One entry, still failing:** a modal dialog is blocking the pipe. Click through any login/warning dialog visible in the terminal window.
+
+**Recovery (programmatic restart with login):**
+```python
+import subprocess, time, MetaTrader5 as mt5
+
+# Kill the stuck instance
+subprocess.run(["taskkill", "/PID", "<pid>", "/F"], capture_output=True)
+time.sleep(2)
+
+# Reinitialize with explicit path + credentials
+ok = mt5.initialize(
+    path=r"C:\Program Files\Octa Markets MetaTrader 5\terminal64.exe",
+    login=<account_number>,
+    password="<password>",
+    server="<server>",
+    timeout=60000
+)
+print("ok:", ok, mt5.last_error())
+# Verify: mt5.account_info().login, mt5.terminal_info().trade_allowed
+```
+
+**Verification before any order:**
+1. `account_info().login` matches the allow-list account number.
+2. `terminal_info().trade_allowed == True` (Algo Trading enabled).
+3. `account_info().trade_mode == 0` (DEMO) or the expected real-account mode.
+4. Exactly one `terminal64.exe` process running (re-run the tasklist check).
+
+**Recovery time with this runbook:** ~2–3 min. Without it: ~15 min (diagnosed 2026-06-06 live session).
+
+---
+
