@@ -79,6 +79,7 @@ def reenrich_cointegration_row(run_id: str) -> dict:
             "canonical_ret_dd": _f(cm.get("ret_dd")),
             "canonical_final_equity_usd": _f(cm.get("final_equity_usd")),
             "cycle_win_rate_pct": _f(cm.get("cycle_win_rate_pct")),
+            "realized_net_pct": _f(cm.get("realized_net_pct")),
             "cycles_completed": (
                 None if cm.get("cycles_completed") is None
                 else int(cm["cycles_completed"])

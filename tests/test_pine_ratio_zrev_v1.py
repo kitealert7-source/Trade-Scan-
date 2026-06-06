@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from engine_abi.v1_5_9 import BarState
 from tools.basket_runner import BasketLeg
 from tools.recycle_rules.pine_ratio_zrev_v1 import PineRatioZRevRule
+from tools.recycle_rules.pine_ratio_zrev_v1_zband import PineRatioZRevRuleZBand
+from tools.recycle_rules.pine_ratio_zrev_v1_zcross import PineRatioZRevRuleZCross
+from tools.recycle_rules.pine_ratio_zrev_v1_zopp import PineRatioZRevRuleZOpp
 from tools.recycle_strategies import PineZRevArmedState, PineZRevLegStrategy
 
 
@@ -179,3 +183,156 @@ def test_basket_open_long_spread_effective_matches_base():
     assert leg_a.direction == +1 and leg_a.effective_direction == +1
     assert leg_b.direction == -1 and leg_b.effective_direction == -1
     assert rule._basket_direction == +1
+
+
+# ---- Cointegration-break exit (live-safety, opt-in; 2026-06-06) ----------
+
+def _attach_regime(legs: list[BasketLeg], idx: pd.DatetimeIndex, *,
+                   break_from_idx: int, broken_label: str = "broken") -> None:
+    """coint_regime = 'cointegrated' before break_from_idx, broken_label from it
+    onward, on every leg df. Mirrors basket_data_loader's ffilled per-bar column."""
+    regimes = ["cointegrated"] * len(idx)
+    for k in range(break_from_idx, len(idx)):
+        regimes[k] = broken_label
+    for leg in legs:
+        leg.df["coint_regime"] = pd.Series(regimes, index=idx)
+
+
+def _open_long_spread(rule: PineRatioZRevRule, legs: list[BasketLeg],
+                      idx: pd.DatetimeIndex) -> None:
+    """Drive the 2-bar entry protocol so the basket is OPEN (LONG_SPREAD) at bar
+    4. Mirrors test_basket_open_long_spread_effective_matches_base."""
+    _fake_check_entries(legs, idx[2])
+    rule.apply(legs, 2, idx[2])
+    _fake_check_entries(legs, idx[3])
+    rule.apply(legs, 3, idx[3])
+    for leg in legs:
+        leg.state.in_pos = True
+        leg.state.direction = leg.direction
+        leg.state.entry_index = 4
+        leg.state.entry_price = float(leg.df.iloc[4]["close"])
+        leg.state.entry_market_state = {"initial_stop_price": 0.0}
+    rule.apply(legs, 4, idx[4])
+    assert rule._basket_open is True
+
+
+def test_coint_break_exit_liquidates_open_basket_and_latches():
+    """coint_break_exit=True: when coint_regime leaves 'cointegrated' on an OPEN
+    basket the rule liquidates to FLAT, emits LIQUIDATE_REGIME_BREAK (the
+    cycle-metric boundary tag), and latches _regime_broken."""
+    leg_a, leg_b, idx, shared = _build_legs_with_signal(
+        n_bars=12, signal_bar_idx=2, signal_value=+1,
+    )
+    rule = _make_rule(shared)
+    rule.coint_break_exit = True
+    legs = [leg_a, leg_b]
+    _attach_regime(legs, idx, break_from_idx=6)
+    _open_long_spread(rule, legs, idx)
+
+    # Bar 5 still cointegrated -> basket holds, no latch.
+    rule.apply(legs, 5, idx[5])
+    assert rule._basket_open is True and rule._regime_broken is False
+
+    # Bar 6 breaks -> liquidate-to-flat + latch.
+    rule.apply(legs, 6, idx[6])
+    assert rule._basket_open is False
+    assert rule._regime_broken is True
+    liq = [e for e in rule.recycle_events
+           if e.get("action") == "LIQUIDATE" and e.get("reason") == "REGIME_BREAK"]
+    assert len(liq) == 1, f"expected 1 REGIME_BREAK liquidation, got {len(liq)}"
+    # canonical_metrics counts any per-bar skip_reason containing 'LIQUIDATE'.
+    tagged = [r for r in rule.per_bar_records
+              if r.get("skip_reason") == "LIQUIDATE_REGIME_BREAK"]
+    assert len(tagged) == 1
+
+
+def test_coint_break_latch_blocks_reentry_on_post_break_signal():
+    """After a break the latch must block re-entry even when a fresh +/- z_entry
+    signal fires. Regression guard for the real mechanism: the LEG's check_entry
+    sets the proposal directly (pending_trigger_ts/proposed_direction), so the
+    only effective suppression point is the approval gate (_maybe_approve), NOT
+    _maybe_propose (which the leg-set proposal bypasses)."""
+    leg_a, leg_b, idx, shared = _build_legs_with_signal(
+        n_bars=12, signal_bar_idx=2, signal_value=+1,
+    )
+    rule = _make_rule(shared)
+    rule.coint_break_exit = True
+    legs = [leg_a, leg_b]
+    _attach_regime(legs, idx, break_from_idx=6)
+    _open_long_spread(rule, legs, idx)
+    rule.apply(legs, 6, idx[6])               # break -> flat + latch
+    assert rule._regime_broken is True
+
+    # Inject a fresh entry signal at bar 8 (still inside the broken regime).
+    for leg in legs:
+        leg.df.loc[idx[8], "pine_zrev_signal"] = +1
+    for k in (7, 8, 9, 10, 11):
+        _fake_check_entries(legs, idx[k])
+        rule.apply(legs, k, idx[k])
+
+    assert rule._basket_open is False, "latch must block re-entry into a dead spread"
+    assert shared.approved is False
+    assert sum(1 for e in rule.recycle_events
+               if e.get("action") == "BASKET_OPEN") == 1, "no second BASKET_OPEN"
+
+
+def test_coint_break_exit_disabled_is_inert():
+    """Default coint_break_exit=False: a broken coint_regime does NOT liquidate.
+    The current all-cointegrated backtest corpus stays byte-identical."""
+    leg_a, leg_b, idx, shared = _build_legs_with_signal(
+        n_bars=12, signal_bar_idx=2, signal_value=+1,
+    )
+    rule = _make_rule(shared)                 # coint_break_exit defaults False
+    legs = [leg_a, leg_b]
+    _attach_regime(legs, idx, break_from_idx=6)
+    _open_long_spread(rule, legs, idx)
+
+    rule.apply(legs, 6, idx[6])               # broken bar, but flag OFF
+    assert rule._basket_open is True, "flag OFF must be inert (no break-exit)"
+    assert rule._regime_broken is False
+    assert not any(e.get("reason") == "REGIME_BREAK" for e in rule.recycle_events)
+
+
+def _make_variant_rule(cls: type, shared: PineZRevArmedState,
+                       initial_lot: float = 0.01) -> PineRatioZRevRule:
+    """Construct any pine_ratio_zrev variant with the break-exit enabled. zband/
+    zopp also need z_exit (< z_entry). _z_r_attached=True bypasses the variant's
+    _attach_z_r, so its OWN exit columns are absent -> only the break-exit can
+    fire (which is the point: prove the hook is present in every variant)."""
+    kwargs = dict(
+        n_window=10, z_entry=2.0, entry_mode="absolute",
+        default_initial_lot=initial_lot, target_notional_per_leg_usd=10_000.0,
+        shared_armed_state=shared, coint_break_exit=True,
+        run_id="TEST", directive_id="TEST_DIR", basket_id="TEST_BASKET",
+    )
+    if cls in (PineRatioZRevRuleZBand, PineRatioZRevRuleZOpp):
+        kwargs["z_exit"] = 1.0
+    rule = cls(**kwargs)
+    rule.basket_runner = _FakeRunner({SYM_A: initial_lot, SYM_B: initial_lot})
+    rule._z_r_attached = True
+    return rule
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [PineRatioZRevRuleZCross, PineRatioZRevRuleZBand, PineRatioZRevRuleZOpp],
+    ids=lambda c: c.__name__,
+)
+def test_coint_break_exit_present_in_every_variant(cls):
+    """Mechanism-completeness breadth guard: every dispatched pine variant
+    integrates the break-exit hook at the same point in its apply() override.
+    No variant may be the one that silently hangs on a broken spread in live
+    (the base mechanism is covered in depth by the tests above)."""
+    leg_a, leg_b, idx, shared = _build_legs_with_signal(
+        n_bars=12, signal_bar_idx=2, signal_value=+1,
+    )
+    rule = _make_variant_rule(cls, shared)
+    legs = [leg_a, leg_b]
+    _attach_regime(legs, idx, break_from_idx=6)
+    _open_long_spread(rule, legs, idx)
+
+    rule.apply(legs, 6, idx[6])               # regime breaks
+    assert rule._basket_open is False, f"{cls.__name__} did not break-exit"
+    assert rule._regime_broken is True
+    assert any(e.get("action") == "LIQUIDATE" and e.get("reason") == "REGIME_BREAK"
+               for e in rule.recycle_events)

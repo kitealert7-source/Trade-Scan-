@@ -179,6 +179,11 @@ class PineRatioZRevRuleZBand(PineRatioZRevRule):
 
         self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
+        # COINTEGRATION-BREAK EXIT (live-safety, opt-in; inert in the
+        # all-cointegrated backtest corpus) — fires before the band exit.
+        if self._maybe_break_exit(legs, i, bar_ts, bar_closes, leg_float, floating_total):
+            return
+
         band_exit = False
         # Guard (2026-06-01 fix): the band-exit check must not fire on the
         # BASKET_OPEN bar itself. The 2-bar entry protocol means z has often

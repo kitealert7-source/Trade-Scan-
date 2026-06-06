@@ -37,6 +37,28 @@ def _strip(pair):
     return pair.replace(BADGE + " ", "")
 
 
+def test_evaluable_filter_excludes_phantom_runs_from_median():
+    """A run with cycles_completed == 0 (entered, never reverted, force-closed at
+    the window boundary) carries an inflated Ret/DD on a near-zero realized DD.
+    The candidates median must rank on EVALUABLE (cycles>=1) runs ONLY, so those
+    phantom runs cannot prop a pair up the shortlist; `Evaluable` reports the real
+    count."""
+    rows = [
+        {"run_id": f"ph{i}", "pair_a": "AAA", "pair_b": "BBB",
+         "canonical_net_pct": 1.8, "canonical_ret_dd": 26.0, "cycles_completed": 0}
+        for i in range(4)
+    ] + [
+        {"run_id": "real", "pair_a": "AAA", "pair_b": "BBB",
+         "canonical_net_pct": 5.0, "canonical_ret_dd": 1.5, "cycles_completed": 10},
+    ]
+    out = build_trade_candidates_df(_raw(rows))
+    assert len(out) == 1
+    r = out.iloc[0]
+    assert int(r["Runs"]) == 5
+    assert int(r["Evaluable"]) == 1          # only the cycles>=1 run counts as evaluable
+    assert r["Median Ret/DD"] == 1.5         # NOT the inflated phantom 26.0
+
+
 # ---------- qualification gate (runs >= MIN_QUALIFYING_RUNS) ----------
 
 def test_excludes_pairs_below_min_runs():

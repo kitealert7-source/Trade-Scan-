@@ -184,6 +184,11 @@ class PineRatioZRevRuleZCross(PineRatioZRevRule):
         # Per-bar excursion tracking for the open cycle (no-op if flat).
         self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
+        # COINTEGRATION-BREAK EXIT (live-safety, opt-in; inert in the
+        # all-cointegrated backtest corpus) — fires before the equilibrium exit.
+        if self._maybe_break_exit(legs, i, bar_ts, bar_closes, leg_float, floating_total):
+            return
+
         equilibrium_exit = False
         if self._basket_open:
             try:

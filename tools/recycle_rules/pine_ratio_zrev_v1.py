@@ -117,6 +117,22 @@ class PineRatioZRevRule(H2RecycleRule):
     signal_column: str = "pine_zrev_signal"
     r_bar_column: str = "pine_zrev_r_bar"
 
+    # --- Cointegration-break exit (live-safety, opt-in; 2026-06-06) ---
+    # When True, the rule liquidates any OPEN basket to FLAT the moment the
+    # per-bar `coint_regime` column leaves 'cointegrated' (screener taxonomy:
+    # cointegrated / breaking / broken) -- emitting LIQUIDATE_REGIME_BREAK -- and
+    # latches `_regime_broken` so it never re-enters the dead spread. A position
+    # must not hang on a spread that is no longer mean-reverting.
+    #   Default False keeps every existing corpus row byte-identical. It is INERT
+    #   even when True in the current backtest corpus: window_validity_gate
+    #   constrains every directive's window to ONE continuous cointegrated span,
+    #   so no in-window bar is ever non-cointegrated and the predicate never
+    #   fires. This is the LIVE path -- live data continues PAST the break, where
+    #   the hanging position is the real risk. Enable per-directive for live
+    #   deployment (and for any future Phase-2 break-inclusive backtest window).
+    coint_break_exit: bool = False
+    coint_regime_column: str = "coint_regime"
+
     # Fallback lot
     default_initial_lot: float = 0.01
 
@@ -131,6 +147,7 @@ class PineRatioZRevRule(H2RecycleRule):
     _z_r_attached: bool = False
     _basket_open: bool = False
     _basket_direction: int = 0   # +1 LONG_SPREAD / -1 SHORT_SPREAD
+    _regime_broken: bool = False  # latched once coint_regime leaves 'cointegrated' (break-exit)
     _entry_bar_idx: Optional[int] = None
     _entry_r_bar: Optional[float] = None
     _entry_lots: dict[str, float] = field(default_factory=dict)
@@ -396,6 +413,13 @@ class PineRatioZRevRule(H2RecycleRule):
         # Per-bar excursion tracking for the open cycle (no-op if flat).
         self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
+        # COINTEGRATION-BREAK EXIT (live-safety, opt-in via coint_break_exit;
+        # inert in the all-cointegrated backtest corpus). Fires BEFORE the
+        # reversal check: a regime break closes the basket to FLAT and latches,
+        # it never reverses. See _maybe_break_exit / _regime_break_fires.
+        if self._maybe_break_exit(legs, i, bar_ts, bar_closes, leg_float, floating_total):
+            return
+
         # OPEN basket + opposite-direction cross → REVERSAL (liquidate + repropose)
         reversal_triggered = False
         if self._basket_open and signal_value != 0 and signal_value != self._basket_direction:
@@ -425,6 +449,63 @@ class PineRatioZRevRule(H2RecycleRule):
         # Basket open, no exit signal → emit per-bar HOLDING record
         self._emit_record(legs, i, bar_ts, bar_closes, leg_float, floating_total,
                           skip_reason="HOLDING")
+
+    # ---- Cointegration-break exit (live-safety, opt-in; 2026-06-06) -------
+
+    def _regime_break_fires(self, legs: list[BasketLeg], bar_ts: pd.Timestamp) -> bool:
+        """COINTEGRATION-BREAK EXIT predicate. True iff the break-exit is enabled
+        (`coint_break_exit`) AND this bar's per-bar regime marks the pair OUT of
+        the cointegrated regime.
+
+        Reads the forward-filled `coint_regime` column (written onto each leg's
+        df by basket_data_loader when a cointegration_join is configured). The
+        screener taxonomy is {cointegrated, breaking, broken}; anything that is
+        not 'cointegrated' counts as a break -- an EAGER exit, because a spread
+        that is merely 'breaking' is already drifting out of mean-reversion (the
+        conservative live-safety default; tunable later if it whipsaws). A
+        missing column, NaN, or non-string value -> False (no-op), so the
+        predicate is harmless on any df that carries no regime data.
+
+        INERT in the current backtest corpus: window_validity_gate constrains
+        every window to one continuous cointegrated span, so no in-window bar is
+        non-cointegrated. This is the LIVE path, where post-break bars exist."""
+        if not self.coint_break_exit:
+            return False
+        try:
+            regime = legs[0].df.loc[bar_ts, self.coint_regime_column]
+        except (KeyError, ValueError, TypeError):
+            return False
+        return isinstance(regime, str) and regime.strip().lower() not in ("", "cointegrated")
+
+    def _maybe_break_exit(
+        self,
+        legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp,
+        bar_closes: dict[str, float], leg_float: dict[str, float],
+        floating_total: float,
+    ) -> bool:
+        """Shared break-exit hook for ALL pine_ratio_zrev variants. Call it once,
+        right after `_update_cycle_excursions` and BEFORE the variant's z-exit
+        check; if it returns True the caller must `return` immediately (the
+        basket has been liquidated to flat and the LIQUIDATE_REGIME_BREAK per-bar
+        record emitted by `_liquidate`).
+
+        Latches `_regime_broken` on ANY break bar (open or already flat) so the
+        FLAT-state propose path -- guarded by `not self._regime_broken` in every
+        variant -- never re-arms an entry into a dead spread. Also clears any
+        pending proposal in the shared armed state. No-op (returns False) when
+        the flag is off, so the default path is byte-identical."""
+        if not self._regime_break_fires(legs, bar_ts):
+            return False
+        self._regime_broken = True  # latch: never re-enter a broken spread
+        if not self._basket_open:
+            return False  # already flat; the latch alone suppresses re-entry
+        self._liquidate(
+            legs, i, bar_ts, bar_closes, leg_float, floating_total,
+            reason="REGIME_BREAK",  # _liquidate emits skip_reason=LIQUIDATE_REGIME_BREAK
+        )
+        if self.shared_armed_state is not None:
+            self.shared_armed_state.reset()  # drop any pending entry proposal
+        return True
 
     # ---- Leg-sizing helpers (sizing_mode bake-off, 2026-06-02) -----------
 
@@ -529,6 +610,15 @@ class PineRatioZRevRule(H2RecycleRule):
         default_initial_lot, set approved_fire_ts = next aligned bar."""
         state = self.shared_armed_state
         if state is None or state.pending_trigger_ts != bar_ts:
+            return
+        # COINTEGRATION-BREAK latch (live-safety): never approve a (re-)entry once
+        # the pair has left the cointegrated regime. The LEG's check_entry sets
+        # the proposal directly (pending_trigger_ts / proposed_direction), so the
+        # only effective suppression point is THIS approval gate -- the rule's
+        # sole entry control. Clear the leg's pending proposal so it cannot
+        # linger into the next bar. No-op unless coint_break_exit latched it.
+        if self._regime_broken:
+            state.reset()
             return
         if state.proposed_direction not in (+1, -1):
             return

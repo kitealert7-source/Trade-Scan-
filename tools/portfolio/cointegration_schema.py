@@ -31,10 +31,11 @@ SCHEMA_VERSION = "coint-1.0"
 # Version of the metrics-derivation function (canonical_metrics). Bump when the
 # metric computation changes; the assembler stamps it at write time and reenrich
 # re-stamps it on recompute, so re-derived rows are distinguishable.
-METRICS_FN_VERSION = "canonical-2"  # canonical-2 (2026-06-05): variant-agnostic
-# cycle counting (any "LIQUIDATE" full-close bar) — fixes GP_ZOPP 0-cycle bug,
-# strict generalization of the legacy per-family tag lists. See canonical_metrics
-# ._cycle_pnl_robust.
+METRICS_FN_VERSION = "canonical-3"  # canonical-3 (2026-06-05): adds realized_net_pct
+# (Σ strategy-cycle PnL / stake — excludes open-position floating + the DATA_END
+# boundary force-close) so 0-strategy-cycle "phantom" runs read realized 0 while
+# net_pct stays mark-to-market. canonical-2: variant-agnostic LIQUIDATE-convention
+# cycle counting (fixed GP_ZOPP 0-cycle bug). See canonical_metrics._cycle_pnl_robust.
 PRIMARY_KEY = "run_id"
 
 # Locked column order. Additive only (append at the right edge); never reorder
@@ -96,6 +97,8 @@ COINTEGRATION_SHEET_COLUMNS = [
     "enrichment_status",      # complete | no_canonical
     # --- methodology cohort (2026-05-30, C2) ---
     "methodology_version",    # v1_raw_adf (legacy) | v2_log_eg (post-C3) | ...
+    # --- realized performance (2026-06-05, canonical-3) ---
+    "realized_net_pct",       # Σ strategy-cycle PnL / stake (excl. floating + DATA_END boundary)
 ]
 
 # REAL-typed columns. Everything else is TEXT; is_current is special-cased in
@@ -116,6 +119,7 @@ COINTEGRATION_NUMERIC_COLUMNS = {
     "cycle_win_rate_pct",
     "cycles_completed",
     "trades_total",
+    "realized_net_pct",
 }
 
 __all__ = [
