@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: BROKEN
-- BROKEN: 12 commits not pushed to origin
+- BROKEN: 14 commits not pushed to origin
 
-> Generated: 2026-06-06T10:23:16Z
+> Generated: 2026-06-06T10:36:16Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,9 +38,9 @@
 - Run directories: 3642
 
 ## Git Sync
-- Remote: **12 commits ahead of origin**
+- Remote: **14 commits ahead of origin**
 - Working tree: clean
-- Last substantive commit: `f449df03 chore(state): add unpushed-branches monitor (retro FP1)`
+- Last substantive commit: `579431ca chore(state): purge Manual section â€” 29 lines â†’ 7 lines`
 
 ## Deferred Maintenance
 
