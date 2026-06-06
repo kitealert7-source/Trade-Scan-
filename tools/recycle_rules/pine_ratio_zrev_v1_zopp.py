@@ -156,6 +156,12 @@ class PineRatioZRevRuleZOpp(PineRatioZRevRule):
 
         self._update_cycle_excursions(legs, bar_ts, bar_closes)
 
+        # COINTEGRATION-BREAK EXIT (live-safety, opt-in; inert in the
+        # all-cointegrated backtest corpus) — fires before the opposite-band exit.
+        if self._maybe_break_exit(legs, i, bar_ts, bar_closes, leg_float, floating_total):
+            self._entry_z_sign = 0
+            return
+
         opp_exit = False
         # Min-hold-1-bar guard (mirrors ZBAND): never exit on the open bar.
         if (self._basket_open
