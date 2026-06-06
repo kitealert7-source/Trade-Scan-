@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from config.state_paths import STRATEGIES_DIR
 from config.status_enums import PORTFOLIO_PROFILE_UNRESOLVED
+from tools.numeric_coerce import safe_float as _safe_float
 STRATEGIES_ROOT = STRATEGIES_DIR
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
 
@@ -38,15 +39,6 @@ PROFILE_COLUMNS = [
     "rejection_rate_pct",
     "realized_vs_theoretical_pnl",
 ]
-
-
-def _safe_float(value, default=0.0):
-    try:
-        if value is None or pd.isna(value):
-            return default
-        return float(value)
-    except Exception:
-        return default
 
 
 def _profile_return_dd(metrics):

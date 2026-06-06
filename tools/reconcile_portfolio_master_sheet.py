@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from tools.profile_selector import load_profile_comparison  # read-only loader
 from config.state_paths import STRATEGIES_DIR
+from tools.numeric_coerce import safe_float as _safe_float
 
 STRATEGIES_ROOT = Path(STRATEGIES_DIR)
 LEDGER_PATH = STRATEGIES_ROOT / "Master_Portfolio_Sheet.xlsx"
@@ -80,15 +81,6 @@ COLUMN_ORDER = [
     "creation_timestamp",
     "constituent_run_ids",
 ]
-
-
-def _safe_float(value, default=0.0):
-    try:
-        if value is None or pd.isna(value):
-            return default
-        return float(value)
-    except Exception:
-        return default
 
 
 def _load_profile_map(portfolio_id):

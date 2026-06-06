@@ -24,6 +24,7 @@ from tools.portfolio.portfolio_config import (
     RELIABILITY_MIN_SIM_YEARS,
     STRATEGIES_ROOT,
 )
+from tools.numeric_coerce import safe_float as _safe_float
 
 
 # Re-exported so ledger writer can inline strategy-name parsing without another import.
@@ -43,16 +44,6 @@ __all__ = [
     "_EXP_FAIL_GATES",
     "_parse_strategy_name",
 ]
-
-
-def _safe_float(value, default=0.0):
-    """Best-effort numeric coercion for ledger writes."""
-    try:
-        if value is None or pd.isna(value):
-            return default
-        return float(value)
-    except Exception:
-        return default
 
 
 def _safe_bool(value, default=False):
