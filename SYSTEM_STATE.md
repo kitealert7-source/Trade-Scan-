@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: BROKEN
+- BROKEN: 12 commits not pushed to origin
 
-> Generated: 2026-06-05T14:39:39Z
+> Generated: 2026-06-06T10:23:16Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -31,22 +32,22 @@
 - Snapshots: 17 | Latest: `DRY_RUN_2026_04_30__c0abdf0e`
 
 ## Data Freshness
-- Latest bar: **2026-06-05** | Symbols: 221
+- Latest bar: **2026-06-06** | Symbols: 221
 
 ## Artifacts
 - Run directories: 3642
 
 ## Git Sync
-- Remote: IN SYNC
+- Remote: **12 commits ahead of origin**
 - Working tree: clean
-- Last substantive commit: `56bf32a2 metrics: variant-agnostic cycle counting + convention guard`
+- Last substantive commit: `f449df03 chore(state): add unpushed-branches monitor (retro FP1)`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- (none — no drift signals exceed threshold this session)
+- [CALENDAR] Saturday — weekly cadence slot for `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 (run before close to land in the closing snapshot)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Use this for deferral decisions that lack an auto-signal (e.g., 'deferred performance test until post-Phase-7b'). Distinct from Known Issues Manual: this section is for *deferred opportunities*, not unresolved problems. -->
