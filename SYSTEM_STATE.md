@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-06T13:05:10Z
+> Generated: 2026-06-06T13:38:08Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -37,9 +37,9 @@
 - Run directories: 3642
 
 ## Git Sync
-- Remote: IN SYNC (vs `origin/feat/live-basket-bridge-v0`)
+- Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `3d76a1cf session: closing SYSTEM_STATE snapshot`
+- Last substantive commit: `f6f72e47 Merge feat/live-basket-bridge-v0 into main`
 
 ## Deferred Maintenance
 
@@ -51,7 +51,6 @@
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced). Promote to BUILD after ≥1 gate-shakeout session. First seen 2026-05-29.
-- [MONITOR — CLEARED 2026-06-06] All 3 branches pushed to origin (feat/live-basket-bridge-v0, feat/coint-realized-net-and-break-exit, feat/basket-execution-p2). Next: merge to main.
 - [SKILL_REFACTOR] Changes D+F deferred — session-close §3.3 → repo-cleanup-refactor §1d; system-health-maintenance §5/§6 overlap removal. Detail: backlog report.
 - [CODE_DRY] `_leg_pnl_usd` + `_safe_float` deduplication deferred (Protected Infra; revisit next DRY pass). Detail: backlog report.
 - [DRIFT] pipeline-state-cleanup deferred — 19 orphan MPS::Baskets rows + lineage_pruner blocked (TS_Execution was live). Run off-hours; procedure in backlog report.
@@ -66,4 +65,4 @@
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
 #### COINTREV live exit gap — DEPLOYMENT BLOCKER (found 2026-06-05)
-COINTREV has **no cointegration-break exit** — a live position hangs on a broken spread with no stop (`DATA_END` backtests backstop doesn't exist live). **Follow-ups:** (a) `realized_net%` + `cycles≥1` ranking fix — DONE 2026-06-06 (`feat/coint-realized-net-and-break-exit`); (b) `coint_break_exit` gate — implemented on same branch, NOT yet merged. Go-live prerequisite. See `[[project_cointegration_exit_gap_and_cycle_metric]]`.
+COINTREV has **no cointegration-break exit** — a live position hangs on a broken spread with no stop (`DATA_END` backtests backstop doesn't exist live). **Follow-ups:** (a) `realized_net%` + `cycles≥1` ranking fix — DONE 2026-06-06 (`feat/coint-realized-net-and-break-exit`); (b) `coint_break_exit` gate — MERGED to main 2026-06-06 (capability now on main); remains a go-live prerequisite to ENABLE on the live runner (+ `coint_regime` feed). See `[[project_cointegration_exit_gap_and_cycle_metric]]`.
