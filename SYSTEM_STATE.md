@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: BROKEN
-- BROKEN: 14 commits not pushed to origin
+- BROKEN: 16 commits not pushed to origin
 
-> Generated: 2026-06-06T10:36:16Z
+> Generated: 2026-06-06T10:47:23Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,9 +38,9 @@
 - Run directories: 3642
 
 ## Git Sync
-- Remote: **14 commits ahead of origin**
-- Working tree: clean
-- Last substantive commit: `579431ca chore(state): purge Manual section â€” 29 lines â†’ 7 lines`
+- Remote: **16 commits ahead of origin**
+- Working tree: 1 uncommitted
+- Last substantive commit: `319fea17 feat(introspection): enforce SYSTEM_STATE Manual section size limit`
 
 ## Deferred Maintenance
 
@@ -52,7 +52,7 @@
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced). Promote to BUILD after ≥1 gate-shakeout session. First seen 2026-05-29.
-- [MONITOR] unpushed branch — `feat/coint-realized-net-and-break-exit` (Trade_Scan only; 2 of 3 pushed 2026-06-06). Push before next cointegration session. First seen 2026-06-06.
+- [MONITOR — CLEARED 2026-06-06] All 3 branches pushed to origin (feat/live-basket-bridge-v0, feat/coint-realized-net-and-break-exit, feat/basket-execution-p2). Next: merge to main.
 - [SKILL_REFACTOR] Changes D+F deferred — session-close §3.3 → repo-cleanup-refactor §1d; system-health-maintenance §5/§6 overlap removal. Detail: backlog report.
 - [CODE_DRY] `_leg_pnl_usd` + `_safe_float` deduplication deferred (Protected Infra; revisit next DRY pass). Detail: backlog report.
 - [DRIFT] pipeline-state-cleanup deferred — 19 orphan MPS::Baskets rows + lineage_pruner blocked (TS_Execution was live). Run off-hours; procedure in backlog report.
