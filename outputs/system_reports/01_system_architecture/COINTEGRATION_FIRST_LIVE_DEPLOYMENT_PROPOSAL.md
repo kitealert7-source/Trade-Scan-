@@ -1,8 +1,8 @@
 # Cointegration -- First Live Deployment (Design Proposal)
 
-**Status:** BASELINE (execution architecture) -- 2026-06-03. Every major execution assumption was challenged once via Reviews #1-#5; none collapsed. Remaining work = refinement + implementation planning, not architectural discovery. Still pre-implementation (no code); not locked governance.
-**Date:** 2026-06-03
-**Author context:** post-stand-down, post-validator-retirement.
+**Status:** P2 DEMO COMPLETE — 2026-06-06. The full V0 execution path (`dispatch_group` → `close_group` through `LiveBasketBroker` + HALT + fill classifier) ran against the real OctaFX-Demo broker and returned `[STEP 3] PASS`. Three broker-interface defects surfaced and were permanently fixed during the progression. Architecture is proven end-to-end at the broker seam. Next: basket-aware promotion → FX session (EURUSD/GBPUSD) when markets reopen.
+**Date:** 2026-06-03 (architecture) | Updated 2026-06-06 (P2 complete)
+**Author context:** post-stand-down, post-validator-retirement; post-P2-demo.
 
 **Supersedes / does not reuse:**
 - Validator-gated live path (H2 Phases 7b/8/8.5) -- RETIRED 2026-06-03.
@@ -80,6 +80,8 @@ V0 deliberately uses: target-state reconciliation, fixed per-leg lots (beta rati
 | Verification | reads `executions.jsonl` | manual review | automated fidelity reader (bridge makes this trivial) |
 
 V0 is a strict subset of the eventual capability; each increment maps to one seam -- and all basket *intelligence* stays in the Trade_Scan runner, so TS_Execution's only governed dependency remains `engine_abi`.
+
+**Data-feed resolution (architectural fact, not a tuning choice).** A cointegration *regime*-based exit (the future regime-break mechanic increment on the Mechanic seam) operates at **daily resolution by construction**: the regime is a once-per-trading-day Engle-Granger screen (`cointegration.db`, refreshed ~05:45 local / on-boot via the DATA_INGRESS hook) forward-filled onto the 5m bars -- there is no intraday recomputation. A regime-driven FLAT target therefore lands at most once per trading day and lags a real intraday spread break by up to one trading day (longer across market-closed spans). This is a property of the *feed*, not the strategy: **a regime exit is a daily safety net, not an intraday stop.** Tight / intraday position protection is the separate, capital-triggered **per-basket hard stop** (the deferred knob in the Runner-death section) -- the two compose, and neither substitutes for the other.
 
 **Bridge-specific invariants (in addition to the architecture-neutral Non-negotiables below):**
 - **Single writer per file** (runner -> `target.jsonl`; shim -> `executions.jsonl`); atomic tmp+rename.
@@ -196,15 +198,48 @@ Dynamic sizing; recycle / add / harvest mechanics; limit orders / slippage optim
 
 ## Validation stages (binary, evidence-gated -- no compression)
 
-| Stage | What | Capital |
-|---|---|---|
-| **P0** Offline parity | deployed reproduces promoted on backtest bars | none |
-| **P1** Dry-dispatch | live signal loop on live bars; dispatch logs "would-send", does not send | none |
-| **P2** Demo account | real multi-leg sends to a DEMO MT5 account; **deliberately induce a leg failure** to prove flatten/halt + restart-reconcile | none |
-| **L0** Live min lots | real account, fixed lots in beta ratio, ONE basket, tight circuit breaker, 24-48h manual fidelity watch | minimal |
-| **L1** Steady | run under watchdog + circuit breaker; daily fidelity check | minimal |
+| Stage | What | Capital | Status |
+|---|---|---|---|
+| **P0** Offline parity | deployed reproduces promoted on backtest bars | none | pending (needs first approved basket) |
+| **P1** Dry-dispatch | live signal loop on live bars; dispatch logs "would-send", does not send | none | pending |
+| **P2** Demo account | real multi-leg sends to a DEMO MT5 account; deliberately induce a leg failure to prove flatten/halt + restart-reconcile | none | **COMPLETE 2026-06-06** — see below |
+| **L0** Live min lots | real account, fixed lots in beta ratio, ONE basket, tight circuit breaker, 24-48h manual fidelity watch | minimal | pending (needs research-approved pair) |
+| **L1** Steady | run under watchdog + circuit breaker; daily fidelity check | minimal | pending |
 
 Each stage must be clean before the next.
+
+### P2 completion evidence (2026-06-06)
+
+Executed against **OctaFX-Demo 213872531** (HEDGING mode, 5000 USD demo balance). Terminal: `C:\Program Files\Octa Markets MetaTrader 5` (build 5833). Allow-list locked in `TS_Execution/config/demo_allowlist.json`.
+
+**Step 1** — single BTCUSD: open → verify COHERENT → close → verify FLAT. `[PASS]`
+**Step 2** — BTCUSD + ETHUSD separately: open both → verify both COHERENT → close both → verify both FLAT. `[PASS]`
+**Step 3** — `dispatch_group(BTCUSD, ETHUSD)` → `close_group(BTCUSD, ETHUSD)` through `LiveBasketBroker`:
+```
+[DISPATCH]   outcome=OPEN
+[OPEN BTC]   ticket=5672707706  magic=872828081  vol=0.01  price=60983.50  fill=COHERENT
+[OPEN ETH]   ticket=5672707707  magic=315380441  vol=0.01  price=1570.11   fill=COHERENT
+[CLOSE]      outcome=CLOSED
+[FLAT BTC]   count=0 -> FLAT
+[FLAT ETH]   count=0 -> FLAT
+[ORPHANS]    0  HALT=False  ALERTS=0
+[STEP 3]     PASS
+```
+
+Note: BTCUSD/ETHUSD were used because FX is closed on Saturday; the pair has no research significance. The test proves broker execution, not edge. The failure-injection cells (D3/D4: entry-reject → unwind-to-flat, exit-persistent-naked → HALT, HALT persists across restart, closes always allowed) were proven against `MockBasketBroker` during P2 implementation and are not re-run on the demo. The demo tests the **non-failure path + broker truth path**; mock tests cover the failure paths.
+
+**Three broker-interface defects surfaced and permanently fixed during P2:**
+→ Full post-mortem: `BROKER_EXECUTION_POSTMORTEM_2026_06_06.md` (same directory)
+
+| # | Defect | Fix | Commit |
+|---|---|---|---|
+| 1 | `ORDER_FILLING_IOC` hardcoded — BTCUSD is FOK-only | `resolve_filling()` reads `symbol_info().filling_mode` at send time | `e3f75df` |
+| 2 | `sl=0.0, tp=0.0` in request dict → OctaFX returns `None` | Omit `sl`/`tp` keys when value is zero | `bc493e0` |
+| 3 | `order_send` via `*args` → MT5 C ext error (-2) | Inline `acquire()` + direct `_mt5.order_send(request)` | `TS_Execution feat/basket-execution-p2` |
+
+**Bonus observation (not a defect):** `trade_mode=FULL` ≠ market open. EURUSD/GBPUSD showed `trade_mode=FULL` on Saturday with last tick 11.6h stale; BTCUSD/ETHUSD showed 0.0h stale. Tick-freshness check is the correct market-open signal, not `trade_mode`. Added to production guard backlog (both-legs-fresh gate, pre-FX-session deployment).
+
+**Remaining P2 item (not yet run):** deliberately induced failure cells against the live demo broker (leg reject → assert unwind-to-flat; persistent exit fail → assert HALT). These are mock-proven; running them live is optional additional confidence. The operator may choose to skip to L0 directly if the Step 1-3 evidence is sufficient.
 
 ---
 
@@ -230,6 +265,29 @@ Each stage must be clean before the next.
 - **Target-state contract (reviewed 2026-06-03):** pure target-state is sufficient for the discrete cointegration first deployment. It **may not cover all long-term mechanics** -- `soft_reset_basket` (live in H2_recycle@4/@5) and the planned `realize_winner` do full-realize-and-reopen / basis-reset that a net-vector target cannot express. **Candidate extension: a per-leg `epoch` tag.** Not needed for coint; **do not build now; revisit when recycle becomes active.**
 
 **Runner-death policy -- RESOLVED by Review #4 (2026-06-03):** V0 = hold last target + escalate alert; the shim gains no override authority; the always-on equity circuit breaker bounds the downside while blind; time-based grace->flatten rejected for V0. Full authority model + the per-basket-stop future knob are in the Runner-death section above.
+
+---
+
+## Next pending steps (session opener — 2026-06-06)
+
+The P2 demo session retired broker-execution uncertainty. Everything below moves from **execution validation** into **strategy validation** — the project's highest-value questions now.
+
+**1. Review basket promotion path**
+The `/promote` skill and `portfolio_evaluator` are built for single-symbol strategies. A cointegration basket (2 legs + beta ratio + combined-PnL gate) needs a basket-aware promotion variant. Review the current path, identify the gaps, and specify what changes before a basket can be promoted without manual workarounds. Gate: a real `run_id`-stamped basket can reach `portfolio.yaml` through the standard pipeline.
+
+**2. Select first approved basket**
+From the current cointegration corpus (2249 runs, CANDIDATES tab, `realized_net%` + `Evaluable` ranking), select one EURUSD/GBPUSD pair (or the strongest qualifying GP pair) as the first live candidate. Criteria: ≥5 qualifying runs, positive `realized_net%`, loss_rate gate, per-pair aligned window (per `feedback_test_window_must_match_signal_class`). This is a research decision, not an execution decision — the execution infrastructure is ready; the edge is the remaining question.
+
+**3. Implement tick-freshness guard**
+`trade_mode=FULL` ≠ market open (confirmed Saturday: EURUSD/GBPUSD `trade_mode=FULL` with 11.6h stale tick; BTCUSD/ETHUSD live). Wire a both-legs-fresh check — `max(tick.time - now) < 300s` — into the live runner's pre-dispatch gate. This is the correct FX-open signal. Without it, the runner will attempt orders on a closed FX market and receive silent rejections or stale-price fills. Small, concrete, no architecture implications.
+
+**4. Wire coint_regime into the live runner**
+The cointegration regime feed (`cointegration.db`, refreshed ~05:45 local via DATA_INGRESS post-hook) is the daily safety net: if the pair is no longer cointegrated, the mechanic emits FLAT. This is the `coint_break_exit` path (implemented on `feat/coint-realized-net-and-break-exit`). Wire it into the live runner so the runner reads the daily regime verdict before emitting a target. Operate at daily resolution by construction (once-per-day screen, forward-filled onto 5m bars) — this is a property of the feed, not a limitation.
+
+**5. Execute first FX basket on demo when market opens**
+FX reopens Sunday ~22:00 local. With steps 1-4 done and an approved pair selected, run the first EURUSD/GBPUSD `dispatch_group` → `close_group` on the demo (213872531 / OctaFX-Demo) using the exact basket parameters from the promoted strategy (per-leg lots in beta ratio, not min lots). This is the transition from "execution validation with a throwaway pair" to "execution validation with the real research-approved signal." Gate: same Step 1-3 progression but with FX, the real pair, and real lot sizing.
+
+**After step 5:** move to L0 (real account, min lots, tight circuit breaker, 24-48h fidelity watch). That is where execution validation ends and strategy validation begins.
 
 ---
 

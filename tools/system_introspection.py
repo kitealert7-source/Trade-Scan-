@@ -608,16 +608,35 @@ def collect_git() -> dict[str, Any]:
     """Git sync status: commits ahead, clean working tree."""
     result: dict[str, Any] = {}
     try:
-        # Commits ahead of origin
+        # Commits ahead of origin — compare against origin/<current-branch> so
+        # feature branches that are fully pushed report 0 (not BROKEN). Fall
+        # back to origin/main when the current branch has no remote counterpart
+        # (e.g. a brand-new local branch that was never pushed).
+        branch_proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
+        )
+        current_branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else "main"
+        remote_ref = f"origin/{current_branch}"
+        # Verify the remote ref exists before using it
+        ref_check = subprocess.run(
+            ["git", "rev-parse", "--verify", remote_ref],
+            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
+        )
+        if ref_check.returncode != 0:
+            remote_ref = "origin/main"
+
         ahead = subprocess.run(
-            ["git", "log", "--oneline", "origin/main..HEAD"],
+            ["git", "log", "--oneline", f"{remote_ref}..HEAD"],
             cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=10
         )
         if ahead.returncode == 0:
             lines = [l for l in ahead.stdout.strip().splitlines() if l.strip()]
             result["commits_ahead"] = len(lines)
+            result["remote_ref"] = remote_ref
         else:
             result["commits_ahead"] = "unknown"
+            result["remote_ref"] = remote_ref
 
         # Working tree status
         status = subprocess.run(
@@ -655,6 +674,38 @@ _GATE_TEST_SUITE = (
     "tests/test_fvg_session_infra_regressions.py",
     "tests/test_sweep_registry_td004_regression.py",
 )
+
+
+def _count_deferred_maint_manual_lines(path: Path = DEFAULT_OUTPUT) -> int:
+    """Count substantive (non-blank, non-comment) lines in the Deferred
+    Maintenance Manual subsection of a prior SYSTEM_STATE.md.
+
+    Reads from `### Manual (operator-deferred items)` through the next
+    `###`-level heading or end-of-file. Used by both collect_deferred_maintenance
+    (for the [SIZE] auto-entry) and compute_session_status (for the >20 WARNING).
+    Returns 0 when the file is absent or the section is not found.
+    """
+    if not path.is_file():
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return 0
+    in_section = False
+    count = 0
+    for line in text.splitlines():
+        if line.strip() == _DEFERRED_MAINT_MANUAL_HEADER:
+            in_section = True
+            continue
+        if in_section:
+            # Stop at the next `###` heading (sibling or parent)
+            if line.startswith("###") or (line.startswith("##") and not line.startswith("###")):
+                break
+            stripped = line.strip()
+            # Skip blank lines and HTML comments
+            if stripped and not stripped.startswith("<!--"):
+                count += 1
+    return count
 
 
 def collect_deferred_maintenance() -> list[dict[str, str]]:
@@ -705,6 +756,29 @@ def collect_deferred_maintenance() -> list[dict[str, str]]:
                         f"(approaching 40 KB / 600 line cap) — compaction "
                         f"available via `python tools/compact_research_memory.py`",
             })
+
+    # [SIZE] Deferred Maintenance Manual section line count
+    # Target is ≤12 substantive lines (operator-set 2026-06-06).
+    # Warn at 13–20 (prompt to prune); escalate to SESSION STATUS WARNING
+    # at >20 (handled in compute_session_status so it appears in the
+    # header, not just as a buried auto-detected entry).
+    dm_manual_lines = _count_deferred_maint_manual_lines()
+    if dm_manual_lines > 20:
+        items.append({
+            "category": "SIZE",
+            "text": f"SYSTEM_STATE Manual section {dm_manual_lines} lines "
+                    f"(EXCEEDS 20-line limit) — delete DONE entries, move "
+                    f"verbose detail to a linked report (target ≤12). "
+                    f"See outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md "
+                    f"for the pattern.",
+        })
+    elif dm_manual_lines > 12:
+        items.append({
+            "category": "SIZE",
+            "text": f"SYSTEM_STATE Manual section {dm_manual_lines} lines "
+                    f"(approaching 20-line limit) — prune DONE entries "
+                    f"and move verbose detail to a linked report (target ≤12).",
+        })
 
     # [CALENDAR] weekend cadence prompt
     weekday = datetime.now(timezone.utc).strftime("%A")
@@ -912,6 +986,13 @@ def compute_session_status(
     tree = git.get("working_tree", "unknown")
     if tree != "clean":
         reasons.append(f"WARNING: Working tree {tree}")
+    dm_manual_lines = _count_deferred_maint_manual_lines()
+    if dm_manual_lines > 20:
+        reasons.append(
+            f"WARNING: SYSTEM_STATE Manual section {dm_manual_lines} lines "
+            f"(limit 20) — purge DONE entries and move verbose detail to a "
+            f"linked report"
+        )
 
     warnings = [r for r in reasons if r.startswith("WARNING")]
     if warnings:
@@ -1056,8 +1137,9 @@ def render_markdown(
     else:
         ahead = git.get("commits_ahead", "unknown")
         tree = git.get("working_tree", "unknown")
-        sync = "IN SYNC" if ahead == 0 else f"**{ahead} commits ahead of origin**"
-        lines.append(f"- Remote: {sync}")
+        remote_ref = git.get("remote_ref", "origin/main")
+        sync = "IN SYNC" if ahead == 0 else f"**{ahead} commits ahead of {remote_ref}**"
+        lines.append(f"- Remote: {sync} (vs `{remote_ref}`)")
         lines.append(f"- Working tree: {tree}")
         if git.get("last_commit"):
             lines.append(f"- Last substantive commit: `{git['last_commit']}`")
