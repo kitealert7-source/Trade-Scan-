@@ -59,12 +59,24 @@ ls directives/inbox/ directives/active/ 2>/dev/null || echo "(both empty)"
 // turbo
 ```bash
 python -c "
-import os
-m  = sum(1 for _ in open('MEMORY.md', encoding='utf-8'))
+import os, re
+from pathlib import Path
+# RESEARCH_MEMORY.md lives at repo root.
 rm = sum(1 for _ in open('RESEARCH_MEMORY.md', encoding='utf-8'))
 rk = os.path.getsize('RESEARCH_MEMORY.md') // 1024
-print(f'MEMORY.md:          {m} lines  (limit 200)')
 print(f'RESEARCH_MEMORY.md: {rm} lines / {rk} KB  (limit 40 KB)')
+# MEMORY.md is the AUTO-MEMORY file under ~/.claude/projects/<slug>/memory/ (NOT repo root).
+# CC derives <slug> by replacing each non-alphanumeric char of the project path with '-'.
+slug = re.sub(r'[^A-Za-z0-9]', '-', str(Path.cwd()))
+mem = Path.home() / '.claude' / 'projects' / slug / 'memory' / 'MEMORY.md'
+if not mem.exists():
+    hits = list((Path.home() / '.claude' / 'projects').glob('*/memory/MEMORY.md'))
+    mem = hits[0] if len(hits) == 1 else None
+if mem and mem.exists():
+    m = sum(1 for _ in open(mem, encoding='utf-8'))
+    print(f'MEMORY.md (auto):   {m} lines  (limit 200)')
+else:
+    print('MEMORY.md (auto):   not found - check ~/.claude/projects/<slug>/memory/')
 "
 ```
 
