@@ -1,8 +1,8 @@
 # Cointegration -- First Live Deployment (Design Proposal)
 
-**Status:** BASELINE (execution architecture) -- 2026-06-03. Every major execution assumption was challenged once via Reviews #1-#5; none collapsed. Remaining work = refinement + implementation planning, not architectural discovery. Still pre-implementation (no code); not locked governance.
-**Date:** 2026-06-03
-**Author context:** post-stand-down, post-validator-retirement.
+**Status:** P2 DEMO COMPLETE — 2026-06-06. The full V0 execution path (`dispatch_group` → `close_group` through `LiveBasketBroker` + HALT + fill classifier) ran against the real OctaFX-Demo broker and returned `[STEP 3] PASS`. Three broker-interface defects surfaced and were permanently fixed during the progression. Architecture is proven end-to-end at the broker seam. Next: basket-aware promotion → FX session (EURUSD/GBPUSD) when markets reopen.
+**Date:** 2026-06-03 (architecture) | Updated 2026-06-06 (P2 complete)
+**Author context:** post-stand-down, post-validator-retirement; post-P2-demo.
 
 **Supersedes / does not reuse:**
 - Validator-gated live path (H2 Phases 7b/8/8.5) -- RETIRED 2026-06-03.
@@ -198,15 +198,48 @@ Dynamic sizing; recycle / add / harvest mechanics; limit orders / slippage optim
 
 ## Validation stages (binary, evidence-gated -- no compression)
 
-| Stage | What | Capital |
-|---|---|---|
-| **P0** Offline parity | deployed reproduces promoted on backtest bars | none |
-| **P1** Dry-dispatch | live signal loop on live bars; dispatch logs "would-send", does not send | none |
-| **P2** Demo account | real multi-leg sends to a DEMO MT5 account; **deliberately induce a leg failure** to prove flatten/halt + restart-reconcile | none |
-| **L0** Live min lots | real account, fixed lots in beta ratio, ONE basket, tight circuit breaker, 24-48h manual fidelity watch | minimal |
-| **L1** Steady | run under watchdog + circuit breaker; daily fidelity check | minimal |
+| Stage | What | Capital | Status |
+|---|---|---|---|
+| **P0** Offline parity | deployed reproduces promoted on backtest bars | none | pending (needs first approved basket) |
+| **P1** Dry-dispatch | live signal loop on live bars; dispatch logs "would-send", does not send | none | pending |
+| **P2** Demo account | real multi-leg sends to a DEMO MT5 account; deliberately induce a leg failure to prove flatten/halt + restart-reconcile | none | **COMPLETE 2026-06-06** — see below |
+| **L0** Live min lots | real account, fixed lots in beta ratio, ONE basket, tight circuit breaker, 24-48h manual fidelity watch | minimal | pending (needs research-approved pair) |
+| **L1** Steady | run under watchdog + circuit breaker; daily fidelity check | minimal | pending |
 
 Each stage must be clean before the next.
+
+### P2 completion evidence (2026-06-06)
+
+Executed against **OctaFX-Demo 213872531** (HEDGING mode, 5000 USD demo balance). Terminal: `C:\Program Files\Octa Markets MetaTrader 5` (build 5833). Allow-list locked in `TS_Execution/config/demo_allowlist.json`.
+
+**Step 1** — single BTCUSD: open → verify COHERENT → close → verify FLAT. `[PASS]`
+**Step 2** — BTCUSD + ETHUSD separately: open both → verify both COHERENT → close both → verify both FLAT. `[PASS]`
+**Step 3** — `dispatch_group(BTCUSD, ETHUSD)` → `close_group(BTCUSD, ETHUSD)` through `LiveBasketBroker`:
+```
+[DISPATCH]   outcome=OPEN
+[OPEN BTC]   ticket=5672707706  magic=872828081  vol=0.01  price=60983.50  fill=COHERENT
+[OPEN ETH]   ticket=5672707707  magic=315380441  vol=0.01  price=1570.11   fill=COHERENT
+[CLOSE]      outcome=CLOSED
+[FLAT BTC]   count=0 -> FLAT
+[FLAT ETH]   count=0 -> FLAT
+[ORPHANS]    0  HALT=False  ALERTS=0
+[STEP 3]     PASS
+```
+
+Note: BTCUSD/ETHUSD were used because FX is closed on Saturday; the pair has no research significance. The test proves broker execution, not edge. The failure-injection cells (D3/D4: entry-reject → unwind-to-flat, exit-persistent-naked → HALT, HALT persists across restart, closes always allowed) were proven against `MockBasketBroker` during P2 implementation and are not re-run on the demo. The demo tests the **non-failure path + broker truth path**; mock tests cover the failure paths.
+
+**Three broker-interface defects surfaced and permanently fixed during P2:**
+→ Full post-mortem: `BROKER_EXECUTION_POSTMORTEM_2026_06_06.md` (same directory)
+
+| # | Defect | Fix | Commit |
+|---|---|---|---|
+| 1 | `ORDER_FILLING_IOC` hardcoded — BTCUSD is FOK-only | `resolve_filling()` reads `symbol_info().filling_mode` at send time | `e3f75df` |
+| 2 | `sl=0.0, tp=0.0` in request dict → OctaFX returns `None` | Omit `sl`/`tp` keys when value is zero | `bc493e0` |
+| 3 | `order_send` via `*args` → MT5 C ext error (-2) | Inline `acquire()` + direct `_mt5.order_send(request)` | `TS_Execution feat/basket-execution-p2` |
+
+**Bonus observation (not a defect):** `trade_mode=FULL` ≠ market open. EURUSD/GBPUSD showed `trade_mode=FULL` on Saturday with last tick 11.6h stale; BTCUSD/ETHUSD showed 0.0h stale. Tick-freshness check is the correct market-open signal, not `trade_mode`. Added to production guard backlog (both-legs-fresh gate, pre-FX-session deployment).
+
+**Remaining P2 item (not yet run):** deliberately induced failure cells against the live demo broker (leg reject → assert unwind-to-flat; persistent exit fail → assert HALT). These are mock-proven; running them live is optional additional confidence. The operator may choose to skip to L0 directly if the Step 1-3 evidence is sufficient.
 
 ---
 
