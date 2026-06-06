@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-06T13:38:08Z
+> Generated: 2026-06-06T16:16:37Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,7 +39,7 @@
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `f6f72e47 Merge feat/live-basket-bridge-v0 into main`
+- Last substantive commit: `8410f0f1 refactor(tools): extract _safe_float pd.isna trio to tools/numeric_coerce`
 
 ## Deferred Maintenance
 
