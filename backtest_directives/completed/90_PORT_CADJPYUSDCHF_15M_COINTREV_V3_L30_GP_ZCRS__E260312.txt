@@ -7,17 +7,18 @@ test:
   broker: OctaFx
   timeframe: 15m
   start_date: '2026-03-12'
-  end_date: '2026-06-04'
+  end_date: '2026-06-05'
   research_mode: true
   tuning_allowed: false
   parameter_mutation: false
   hypothesis_ref: COINTREV_V3_PINE_RATIOZ
   hypothesis_variant: COINTREV_V3_PINE_RATIOZ_CADJPY_USDCHF_N30_15M_ABS_GP_ZCRS_E260312
-  description: 'Pine z_r reversal port (pine_ratio_zrev_v1_zcross), N=30 / 15M / absolute /
-    always-in-market, CADJPY/USDCHF. Capital 1000 USD, target_notional_per_leg_usd=1000.
-    Episode test: natural continuous 252d-cointegrated span 2026-03-12 -> 2026-06-04.
-    cointegration_join lookback_days=252 gates (any-span) + routes to the
-    cointegration ledger.'
+  description: 'Pine z_r reversal port (pine_ratio_zrev_v1_zcross), N=30 / 15M / absolute / always-in-market, CADJPY/USDCHF.
+    Capital 1000 USD, target_notional_per_leg_usd=1000. Episode test: natural continuous 252d-cointegrated span 2026-03-12
+    -> 2026-06-04. cointegration_join lookback_days=252 gates (any-span) + routes to the cointegration ledger.'
+  repeat_override_reason: '[COINT-REFRESH:ENGINE@2026-06-07 mode=current directive=90_PORT_CADJPYUSDCHF_15M_COINTREV_V3_L30_GP_ZCRS__E260312]
+    capture broker_spec provenance for promotion (fix 8ee1b87e + refresh tooling landed)'
+  rerun_of: 74d26f18407d744a25c02303
 symbols:
 - CADJPY
 - USDCHF
