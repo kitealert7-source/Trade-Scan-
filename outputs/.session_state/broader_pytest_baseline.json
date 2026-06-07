@@ -1,8 +1,14 @@
 {
   "schema_version": 1,
-  "failed": [],
-  "count": 0,
-  "sha": "bf217717ca3addff3a7cb0f3a4172007263496d4",
-  "updated_at": "2026-06-01T12:03:48+00:00",
-  "rationale": "All 16 baseline failures fixed 2026-06-01 (infra priority #2). (a) 12 basket-dispatch tests: restored quarantined fixture backtest_directives/completed/90_PORT_H2_5M_RECYCLE_S01_V1_P00.txt from git (byte-identical LF sha a5276253; lineage_pruner re-quarantined it 2026-05-22 because _collect_directive_targets does not honor tests/_fixtures/directives.yaml fixture-protection registry that directive_reconciler respects). (b) 1 cointegration test: indices_stocks is no longer a 'deferred' placeholder, now carries 8 synthesize-route candidates; updated test_candidates_yaml_parses assertion. (c) 3 known_issues renderer tests: re-scoped to the '## Known Issues' section since they collided with the later-added Deferred Maintenance section's identically-named ### Auto-detected / ### Manual subsections. Suite now 0 failed / 1655 passed / 3 skipped. Baseline 16 -> 0."
+  "failed": [
+    "tests/test_basket_dispatch_e2e.py::test_vault_layout",
+    "tests/test_basket_phase5c_real_data.py::test_dispatch_against_h2_directive_with_real_data",
+    "tests/test_indicator_registry_sync_hook.py::test_install_sh_installs_pre_push_hook",
+    "tests/test_indicator_registry_sync_hook.py::test_pre_push_hook_blocks_when_registry_drifts",
+    "tests/test_indicator_registry_sync_hook.py::test_pre_push_hook_passes_when_registry_clean"
+  ],
+  "count": 5,
+  "sha": "c9b8a0686dcac6fdc1fa72ee8b730eb3ff8dc609",
+  "updated_at": "2026-06-07T16:29:12+00:00",
+  "rationale": "5 new failures vs bf217717 baseline, none a functional regression. (a) test_basket_dispatch_e2e::test_vault_layout and test_basket_phase5c_real_data::test_dispatch_against_h2_directive_with_real_data assert the DRY_RUN_VAULT/baskets/ vault auto-write intentionally removed by operator directive in db87f977 (2026-06-07: delete baskets/ entirely + disable auto-write); tests encode a removed feature, rewrite/removal tracked. (b) 3x test_indicator_registry_sync_hook fail with WinError 2 (subprocess cannot find bash/sh on this Windows env); the hook is functional - the real pre-push hook and indicator_registry_sync --check both passed live during this session push."
 }
