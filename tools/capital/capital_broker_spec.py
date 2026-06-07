@@ -14,6 +14,17 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BROKER_SPECS_ROOT = _PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
 
 
+def broker_spec_path(symbol: str) -> Path:
+    """Resolve the on-disk OctaFx broker-spec YAML for a symbol.
+
+    Single source for the spec file path so every reader — the per-process
+    cache loader, the bootstrap loader, and the provenance hasher — resolves
+    the identical file, including under a worktree (BROKER_SPECS_ROOT is derived
+    from this module's own location).
+    """
+    return BROKER_SPECS_ROOT / f"{symbol}.yaml"
+
+
 # ======================================================================
 # BROKER VOLUME SPEC NORMALIZATION
 # ======================================================================
@@ -25,7 +36,7 @@ def _load_broker_spec_cached(symbol: str) -> dict | None:
     """Return per-symbol broker spec dict (from OctaFx YAML), or None if missing."""
     if symbol in _BACKTEST_BROKER_SPECS:
         return _BACKTEST_BROKER_SPECS[symbol]
-    spec_path = BROKER_SPECS_ROOT / f"{symbol}.yaml"
+    spec_path = broker_spec_path(symbol)
     if not spec_path.exists():
         _BACKTEST_BROKER_SPECS[symbol] = None
         return None
@@ -81,7 +92,7 @@ def _normalize_lot_broker(raw_lot: float, symbol: str) -> float | None:
 
 def load_broker_spec(symbol: str) -> dict:
     """Load broker spec YAML for a symbol."""
-    spec_path = BROKER_SPECS_ROOT / f"{symbol}.yaml"
+    spec_path = broker_spec_path(symbol)
     if not spec_path.exists():
         raise FileNotFoundError(f"Missing broker spec: {spec_path}")
     with open(spec_path, "r", encoding="utf-8") as f:

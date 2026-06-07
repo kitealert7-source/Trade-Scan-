@@ -201,7 +201,7 @@ def freeze_one(prefix, profile):
 
     for section_name, section_data in sections.items():
         path = out_dir / f"{section_name}.json"
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(section_data, f, indent=2, default=str)
         print(f"  [FROZEN] {section_name}.json")
 
@@ -236,7 +236,7 @@ def freeze_one(prefix, profile):
         "sections_frozen": list(sections.keys()),
         "engine_version": "pre-consolidation",
     }
-    with open(out_dir / "manifest.json", "w") as f:
+    with open(out_dir / "manifest.json", "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
     print(f"  [FROZEN] manifest.json")
 

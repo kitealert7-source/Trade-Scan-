@@ -30,6 +30,7 @@ from pathlib import Path
 
 import yaml
 
+from tools.capital.capital_broker_spec import broker_spec_path
 from tools.recycle_rules import rule_class_for
 from tools.verify_engine_integrity import canonical_sha256
 
@@ -172,13 +173,17 @@ def load_recycle_rule_hashes(path: Path = RULE_CODE_HASHES_PATH) -> dict:
 
 # ── Input provenance (reproducibility identity) ────────────────────────────
 # A basket run is reproducible iff its inputs are unchanged: directive + engine
-# + leg data + leg/rule code. Part A already folds the code hashes into the run
-# manifest; these helpers add the engine version + per-leg DATA hash so a re-run
-# can be compared to a prior run and declared reproducible-or-new-truth (the
-# single-strategy `parquet_sha256` match -> restore / mismatch -> new truth
-# model). The DATA hash is of the loaded leg DataFrame (the exact input that fed
-# the engine, post-slice/derive), not the raw source parquet, so a different
-# date range or derived column is correctly detected.
+# + leg data + leg/rule code + broker spec. Part A already folds the code hashes
+# into the run manifest; these helpers add the engine version + per-leg DATA
+# hash + per-leg BROKER-SPEC hash so a re-run can be compared to a prior run and
+# declared reproducible-or-new-truth (the single-strategy `parquet_sha256` match
+# -> restore / mismatch -> new truth model). The DATA hash is of the loaded leg
+# DataFrame (the exact input that fed the engine, post-slice/derive), not the
+# raw source parquet, so a different date range or derived column is correctly
+# detected. The BROKER-SPEC hash pins the sizing substrate (usd_per_pu /
+# lot_step / min_lot) that GP sizing reads per leg via load_broker_spec; the
+# OctaFx spec YAML self-updates daily (skip-worktree'd, never pushed), so without
+# this hash a past run's sizing tier is unrecoverable once the spec drifts.
 
 
 def leg_data_sha256(df) -> str:
@@ -190,13 +195,43 @@ def leg_data_sha256(df) -> str:
     return hashlib.sha256(schema + rows).hexdigest()
 
 
+def broker_spec_sha256(symbol: str) -> str | None:
+    """Canonical (LF-normalized) sha256 of a leg symbol's resolved OctaFx broker
+    spec — the exact YAML that GP sizing reads via load_broker_spec for
+    usd_per_pu / lot_step / min_lot. Returns None if the spec is absent or
+    unreadable (best-effort: provenance must never abort a run).
+
+    Resolves the path through capital_broker_spec.broker_spec_path so the hashed
+    file is byte-identical to the one sizing loaded (same SSOT, worktree-safe).
+    LF-normalized so a CRLF re-save of the daily-updating YAML does not read as a
+    spec change.
+    """
+    try:
+        path = broker_spec_path(symbol)
+        if not path.exists():
+            return None
+        return canonical_sha256(path).lower()
+    except Exception:
+        return None
+
+
 def basket_input_provenance(leg_data: dict, engine_version: str) -> dict:
     """Build the reproducibility-identity block written into the run manifest:
-    the engine version + a per-leg DATA hash for every leg."""
+    the engine version + a per-leg DATA hash + a per-leg BROKER-SPEC hash.
+
+    broker_spec_sha256 pins the sizing substrate (usd_per_pu / lot_step /
+    min_lot) that GP sizing reads per leg; the OctaFx spec YAML self-updates
+    daily, so without it a run's sizing tier is non-reproducible once the spec
+    drifts. Additive: a None value means no spec file was on disk for that leg
+    (that leg's sizing would itself have been rejected at run time)."""
+    legs = leg_data or {}
     return {
         "engine_version": str(engine_version),
         "leg_data_sha256": {
-            str(sym): leg_data_sha256(df) for sym, df in (leg_data or {}).items()
+            str(sym): leg_data_sha256(df) for sym, df in legs.items()
+        },
+        "broker_spec_sha256": {
+            str(sym): broker_spec_sha256(str(sym)) for sym in legs
         },
     }
 

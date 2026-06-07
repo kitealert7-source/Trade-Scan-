@@ -13,13 +13,27 @@ from tools.orchestration.stage_symbol_execution import run_symbol_execution_stag
 
 def test_run_id_entropy():
     print("--- Test 1: Run ID Entropy (24-char) ---")
-    directive_path = PROJECT_ROOT / "backtest_directives/INBOX/06_PA_XAUUSD_15M_DAYOC_REGFILT_S02_V1_P00.txt"
-    run_id, _ = generate_run_id(directive_path, "XAUUSD")
+    # generate_run_id() now parses the directive file (parse_directive), so it
+    # must exist and be a valid directive. Build a minimal one in a temp dir
+    # rather than depend on a specific INBOX directive that may not be present.
+    import tempfile
+    with tempfile.TemporaryDirectory() as _td:
+        directive_path = Path(_td) / "TEST_RUNID_ENTROPY.txt"
+        directive_path.write_text(
+            "test:\n"
+            "  name: TEST_RUNID_ENTROPY\n"
+            "  strategy: TEST_RUNID_ENTROPY\n"
+            "  broker: OctaFx\n"
+            "  timeframe: 15m\n"
+            "  start_date: '2024-01-01'\n"
+            "  end_date: '2024-06-01'\n"
+            "symbols:\n"
+            "- XAUUSD\n",
+            encoding="utf-8",
+        )
+        run_id, _ = generate_run_id(directive_path, "XAUUSD")
     print(f"Generated Run ID: {run_id} (Length: {len(run_id)})")
-    if len(run_id) == 24:
-        print("[PASS] Run ID has 24-character length.")
-    else:
-        print(f"[FAIL] Run ID length is {len(run_id)}, expected 24.")
+    assert len(run_id) == 24, f"Run ID length is {len(run_id)}, expected 24."
 
 def test_partial_run_verification():
     print("\n--- Test 2: Partial Run Verification ---")
@@ -69,13 +83,13 @@ def test_manifest_freeze():
     
     # Metadata and State
     state_file = run_dir / "run_state.json"
-    with open(state_file, "w") as f:
+    with open(state_file, "w", encoding="utf-8") as f:
         json.dump({"run_id": run_id, "current_state": "COMPLETE"}, f)
         
     # Initial Manifest
     manifest_path = run_dir / "manifest.json"
     initial_manifest = {"run_id": run_id, "artifacts": {"results_tradelevel.csv": "hash1"}}
-    with open(manifest_path, "w") as f:
+    with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(initial_manifest, f)
         
     print("[INFO] Attempting to overwrite manifest of a COMPLETE run...")

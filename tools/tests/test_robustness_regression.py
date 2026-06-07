@@ -142,7 +142,7 @@ def main():
             
         print(f"Testing {d.name}...")
         manifest_path = d / "manifest.json"
-        with open(manifest_path) as f:
+        with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
             
         prefix = manifest["prefix"]
@@ -186,7 +186,7 @@ def main():
             if not json_path.exists():
                 continue
                 
-            with open(json_path) as f:
+            with open(json_path, encoding="utf-8") as f:
                 baseline_data = json.load(f)
                 
             try:

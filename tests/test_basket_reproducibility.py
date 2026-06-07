@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from tools.basket_provenance import (  # noqa: E402
     basket_input_provenance,
+    broker_spec_sha256,
     compare_basket_runs,
     leg_data_sha256,
 )
@@ -92,3 +93,63 @@ def test_code_change_is_new_truth():
     v = compare_basket_runs(a, b)
     assert v["reproducible"] is False
     assert "code:recycle_rules/h2_recycle.py" in v["changed"]
+
+
+# ── broker-spec provenance ───────────────────────────────────────────────────
+
+
+def _write_spec(path: Path, usd_per_pu: float) -> None:
+    path.write_text(
+        "symbol: TEST\n"
+        "min_lot: 0.01\n"
+        "lot_step: 0.01\n"
+        "calibration:\n"
+        f"  usd_per_pu_per_lot: {usd_per_pu}\n",
+        encoding="utf-8",
+    )
+
+
+def test_broker_spec_sha256_deterministic_and_detects_drift(tmp_path, monkeypatch):
+    import tools.basket_provenance as bp
+
+    spec = tmp_path / "EURUSD.yaml"
+    _write_spec(spec, 10.0)
+    monkeypatch.setattr(bp, "broker_spec_path", lambda sym: tmp_path / f"{sym}.yaml")
+
+    h1 = bp.broker_spec_sha256("EURUSD")
+    assert h1 is not None and len(h1) == 64
+    assert bp.broker_spec_sha256("EURUSD") == h1          # deterministic
+    _write_spec(spec, 11.0)                                # usd_per_pu drifts (daily field)
+    assert bp.broker_spec_sha256("EURUSD") != h1          # drift is detected
+
+
+def test_broker_spec_sha256_missing_is_none(tmp_path, monkeypatch):
+    import tools.basket_provenance as bp
+
+    monkeypatch.setattr(bp, "broker_spec_path", lambda sym: tmp_path / f"{sym}.yaml")
+    assert bp.broker_spec_sha256("NOPE") is None          # best-effort, never raises
+
+
+def test_broker_spec_sha256_is_crlf_normalized(tmp_path, monkeypatch):
+    import tools.basket_provenance as bp
+
+    monkeypatch.setattr(bp, "broker_spec_path", lambda sym: tmp_path / f"{sym}.yaml")
+    (tmp_path / "LF.yaml").write_bytes(b"symbol: X\nmin_lot: 0.01\n")
+    (tmp_path / "CRLF.yaml").write_bytes(b"symbol: X\r\nmin_lot: 0.01\r\n")
+    assert bp.broker_spec_sha256("LF") == bp.broker_spec_sha256("CRLF")
+
+
+def test_basket_input_provenance_includes_broker_spec(tmp_path, monkeypatch):
+    import tools.basket_provenance as bp
+
+    _write_spec(tmp_path / "EURUSD.yaml", 10.0)           # USDJPY spec intentionally absent
+    monkeypatch.setattr(bp, "broker_spec_path", lambda sym: tmp_path / f"{sym}.yaml")
+
+    prov = bp.basket_input_provenance({"EURUSD": _df(1), "USDJPY": _df(2)}, "1.5.8")
+    # new per-leg block, keyed identically to leg_data_sha256
+    assert set(prov["broker_spec_sha256"]) == {"EURUSD", "USDJPY"}
+    assert len(prov["broker_spec_sha256"]["EURUSD"]) == 64
+    assert prov["broker_spec_sha256"]["USDJPY"] is None
+    # existing keys unchanged (additive)
+    assert prov["engine_version"] == "1.5.8"
+    assert set(prov["leg_data_sha256"]) == {"EURUSD", "USDJPY"}

@@ -33,7 +33,7 @@ def main():
     
     # 2. Read Log
     logs = []
-    with open(audit_log_path, 'r') as f:
+    with open(audit_log_path, 'r', encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 logs.append(json.loads(line))

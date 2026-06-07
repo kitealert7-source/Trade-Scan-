@@ -50,7 +50,7 @@ def main():
     try:
         print("[VERIFICATION] Running integrity check...")
         
-        with open(manifest_path, "r") as f:
+        with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
             
         expected_hash = manifest["artifacts"]["results_tradelevel.csv"]
@@ -84,12 +84,12 @@ def main():
     shutil.copy2(manifest_path, manifest_backup)
     
     try:
-        with open(manifest_path, "r") as f:
+        with open(manifest_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         
         data["artifacts"]["EXTRA_FILE.csv"] = "dummy_hash"
         
-        with open(manifest_path, "w") as f:
+        with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(data, f)
             
         # Verify (Simulated)
