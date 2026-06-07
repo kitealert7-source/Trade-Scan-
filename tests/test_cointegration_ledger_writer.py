@@ -136,3 +136,65 @@ def test_export_mps_emits_cointegration_tab(patched_state):
     assert len(df) == 1
     assert df.iloc[0]["pair"] == "EURUSD / GER40"
     assert df.iloc[0]["backtest"] == "rundir"
+
+
+# --- Identity-preserving refresh (cointegration pilot, 2026-06-07) -----------
+# A refresh re-runs an existing directive with a NEW run_id; the writer marks
+# any prior is_current=1 row for the SAME directive_id as superseded (flip,
+# never delete) using the dormant supersession columns. Scope: cointegration
+# only; no master_filter / mark_superseded / quarantine involvement.
+
+_DIRECTIVE_ID = "90_PORT_COINT_EURUSDGER40_1D_S01_V1_P00"  # _good_row's directive_id
+
+
+def _count_current(tmp_path, directive_id):
+    conn = sqlite3.connect(str(tmp_path / "ledger.db"))
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM cointegration_sheet "
+            "WHERE directive_id = ? AND is_current = 1",
+            (directive_id,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_refresh_supersedes_prior_same_directive(patched_state):
+    """Second append for the same directive_id (new run_id) flips the prior row
+    is_current=0 (superseded_by the new run, kind='re-run'), retains it, and
+    leaves exactly one current row."""
+    append_cointegration_row(_good_row(patched_state, run_id="COINTold1"))
+    append_cointegration_row(_good_row(patched_state, run_id="COINTnew2"))
+
+    old, new = _read(patched_state, "COINTold1"), _read(patched_state, "COINTnew2")
+    assert old is not None, "prior row must be RETAINED (flip, never delete)"
+    assert old["is_current"] == 0
+    assert old["superseded_by"] == "COINTnew2"
+    assert old["supersede_kind"] == "re-run"
+    assert old["superseded_at"]                      # timestamp set
+    assert new["is_current"] == 1
+    assert new["superseded_by"] is None
+    assert _count_current(patched_state, _DIRECTIVE_ID) == 1
+
+
+def test_first_append_leaves_no_supersession(patched_state):
+    """A directive's first run has no prior to flip: is_current=1 with the
+    supersession fields untouched (no spurious flip on a clean first append)."""
+    append_cointegration_row(_good_row(patched_state, run_id="COINTfirst"))
+    row = _read(patched_state, "COINTfirst")
+    assert row["is_current"] == 1
+    assert row["superseded_by"] is None
+    assert row["superseded_at"] is None
+
+
+def test_distinct_directives_not_cross_superseded(patched_state):
+    """Refresh-supersede is scoped to the SAME directive_id: a run of a
+    different directive must NOT flip another directive's current row."""
+    r1 = _good_row(patched_state, run_id="COINTdirA")
+    r1["directive_id"] = "90_PORT_COINT_AAA_1D_S01_V1_P00"
+    r2 = _good_row(patched_state, run_id="COINTdirB")
+    r2["directive_id"] = "90_PORT_COINT_BBB_1D_S01_V1_P00"
+    append_cointegration_row(r1)
+    append_cointegration_row(r2)
+    assert _read(patched_state, "COINTdirA")["is_current"] == 1
+    assert _read(patched_state, "COINTdirB")["is_current"] == 1

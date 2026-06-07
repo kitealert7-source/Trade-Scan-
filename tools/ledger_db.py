@@ -623,6 +623,33 @@ def upsert_cointegration_row(
         f'ON CONFLICT("run_id") DO NOTHING',
         values,
     )
+    # --- Identity-preserving refresh (cointegration pilot, 2026-06-07) ---------
+    # A refresh of an existing directive arrives with a NEW run_id (the
+    # FATAL-on-duplicate-run_id pre-check in append_cointegration_row guarantees
+    # run_id uniqueness; the run_pipeline uniqueness guard only lets a re-run
+    # through when it is an explicitly-declared refresh). Mark any PRIOR
+    # is_current=1 row for the SAME directive_id as superseded, using the dormant
+    # supersession columns already present in the schema. Properties:
+    #   * no-op on a first run (no prior row) -> backward-compatible;
+    #   * self-healing for any pre-existing duplicate-current rows;
+    #   * append-only preserved (flip, never delete);
+    #   * atomic with the INSERT (single commit below).
+    # Scope: cointegration_sheet ONLY. Does not touch master_filter,
+    # mark_superseded, quarantine, or any AGENT.md-named ledger. cointegration_
+    # sheet is not an AGENT.md append-only ledger (Inv. #1 names only the two
+    # Master xlsx ledgers), so this is a writer-behaviour change, not a
+    # governance exception.
+    _did, _rid = row.get("directive_id"), row.get("run_id")
+    if _did and _rid:
+        from datetime import datetime, timezone
+        conn.execute(
+            'UPDATE cointegration_sheet SET '
+            '"is_current" = 0, "superseded_by" = ?, "superseded_at" = ?, '
+            '"supersede_kind" = \'re-run\', "supersede_reason" = ? '
+            'WHERE "directive_id" = ? AND "run_id" != ? AND "is_current" = 1',
+            (_rid, datetime.now(timezone.utc).isoformat(),
+             "superseded by cointegration refresh", _did, _rid),
+        )
     conn.commit()
 
 

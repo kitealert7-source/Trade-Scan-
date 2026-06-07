@@ -502,8 +502,20 @@ def verify_tools_timestamp_guard(project_root: Path):
         print(f"[WARN] Tools timestamp guard encountered an error: {e}")
 
 
-def verify_directive_uniqueness_guard(directive_id: str):
-    """Guardrail: Prevent reuse of already executed directive names."""
+def verify_directive_uniqueness_guard(directive_id: str, refresh: bool = False):
+    """Guardrail: Prevent reuse of already executed directive names.
+
+    `refresh=True` (set only by the cointegration refresh entrypoint
+    `tools/refresh_cointegration.py`, via the `--refresh` CLI flag) DELIBERATELY
+    re-runs an existing directive in place: the uniqueness check is skipped so a
+    declared refresh produces a new run_id for the SAME directive identity (no
+    `__E###` variant). The only caller that passes `refresh=True` first validates
+    the target is a cointegration directive, so this cannot relax uniqueness for
+    a genuine new object.
+    """
+    if refresh:
+        print(f"[REFRESH] re-running existing directive in place: {directive_id}")
+        return
     registry = _load_registry()
     if not registry:
         return
@@ -1613,11 +1625,15 @@ def _load_basket_leg_inputs(parsed: dict) -> tuple[dict, dict, str]:
         return leg_data, leg_strategies, "synthetic"
 
 
-def run_single_directive(directive_id, provision_only=False):
-    """Execution logic for a single directive."""
+def run_single_directive(directive_id, provision_only=False, refresh=False):
+    """Execution logic for a single directive.
+
+    `refresh=True` permits an identity-preserving re-run of an existing directive
+    (cointegration pilot) -- see `verify_directive_uniqueness_guard`.
+    """
     ctx = None
-    # 1.1 Uniqueness Check
-    verify_directive_uniqueness_guard(directive_id)
+    # 1.1 Uniqueness Check (skipped for a declared refresh)
+    verify_directive_uniqueness_guard(directive_id, refresh=refresh)
 
     # Phase 5b: basket dispatch (early-return for RECYCLE basket directives;
     # per-symbol flow unchanged below).
@@ -2055,11 +2071,14 @@ def _parse_max_parallel(argv: list[str]) -> int:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python tools/run_pipeline.py <DIRECTIVE_ID> | --all [--max-parallel N] [--provision-only]")
+        print("Usage: python tools/run_pipeline.py <DIRECTIVE_ID> | --all [--max-parallel N] [--provision-only] [--refresh]")
         sys.exit(1)
 
     arg = sys.argv[1]
     provision_only = "--provision-only" in sys.argv[2:]
+    # --refresh: identity-preserving re-run of an existing directive (cointegration
+    # pilot). Single-directive only; set by tools/refresh_cointegration.py.
+    refresh = "--refresh" in sys.argv[2:]
     max_parallel = _parse_max_parallel(sys.argv[2:])
 
     try:
@@ -2110,7 +2129,7 @@ def main():
                 admit_directive(directive_id)
 
             print(f"MASTER PIPELINE EXECUTION -- {directive_id}")
-            run_single_directive(directive_id, provision_only=provision_only)
+            run_single_directive(directive_id, provision_only=provision_only, refresh=refresh)
 
             if not provision_only:
                 # Phase 2: Archive (Move from active_backup/ -> completed/ + move marker)
