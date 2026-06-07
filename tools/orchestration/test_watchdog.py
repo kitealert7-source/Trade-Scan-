@@ -65,7 +65,7 @@ def _write_execution_state(age_seconds: int = 0):
     """Write execution_state.json with last_bar_time offset by age_seconds."""
     tmp = EXEC_STATE.with_suffix(".tmp")
     state = {"last_bar_time": time.time() - age_seconds, "bar_count": 1}
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f)
     import shutil
     shutil.move(str(tmp), str(EXEC_STATE))

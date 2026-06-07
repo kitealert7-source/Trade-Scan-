@@ -124,7 +124,7 @@ def main():
                 try:
                     state_data = json.loads(state_file.read_text(encoding="utf-8"))
                     state_data["artifact_hash"] = a_hash
-                    with open(state_file, "w") as f:
+                    with open(state_file, "w", encoding="utf-8") as f:
                         json.dump(state_data, f, indent=4)
                 except Exception as e:
                     print(f"  [WARN] Failed to inject hash into run_state.json for {rid}: {e}")

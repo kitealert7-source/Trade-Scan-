@@ -9,11 +9,11 @@ from pathlib import Path
 # ----------------------------
 
 def load_yaml(p):
-    with open(p) as f:
+    with open(p, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 def save_yaml(data, p):
-    with open(p, "w") as f:
+    with open(p, "w", encoding="utf-8") as f:
         yaml.dump(data, f, sort_keys=False)
 
 def set_nested(d, key, value):

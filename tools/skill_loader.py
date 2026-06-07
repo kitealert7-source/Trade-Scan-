@@ -18,7 +18,7 @@ def discover_skills():
         return skills
         
     for skill_file in SKILLS_ROOT.glob("*/skill.yaml"):
-        with open(skill_file, "r") as f:
+        with open(skill_file, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         skills[data["name"]] = {
             "config": data,

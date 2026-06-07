@@ -75,7 +75,7 @@ def main():
         try:
             mgr = PipelineStateManager(rid)
             if mgr.state_file.exists():
-                 with open(mgr.state_file, 'r') as f:
+                 with open(mgr.state_file, 'r', encoding="utf-8") as f:
                      data = json.load(f)
                  state = data['current_state']
                  print(f"Checking {rid}: {state}")
@@ -97,7 +97,7 @@ def main():
     
     import json
     def get_state(mgr):
-        with open(mgr.state_file, 'r') as f:
+        with open(mgr.state_file, 'r', encoding="utf-8") as f:
             return json.load(f)['current_state']
 
     v1 = get_state(final_m1)

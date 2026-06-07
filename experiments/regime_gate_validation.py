@@ -151,7 +151,7 @@ def get_broker_specs(df: pd.DataFrame) -> Dict[str, dict]:
     for sym in df["symbol"].unique():
         path = BROKER_SPECS_ROOT / f"{sym}.yaml"
         if path.exists():
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 specs[sym] = yaml.safe_load(f)
         else:
             print(f"  [WARN] Missing broker spec: {sym}")

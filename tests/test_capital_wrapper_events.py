@@ -40,7 +40,7 @@ class TestCapitalWrapperEvents(unittest.TestCase):
             raw = d / "raw"
             raw.mkdir(parents=True)
             rows = [t for t in TRADES if t[0] == sym]
-            with open(raw / "results_tradelevel.csv", "w", newline="") as f:
+            with open(raw / "results_tradelevel.csv", "w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=FIELDS)
                 w.writeheader()
                 for r in rows:
@@ -67,7 +67,7 @@ class TestCapitalWrapperEvents(unittest.TestCase):
 
         broker_specs = {}
         for sym in self.symbols:
-            with open(BROKER_SPECS_ROOT / f"{sym}.yaml", "r") as f:
+            with open(BROKER_SPECS_ROOT / f"{sym}.yaml", "r", encoding="utf-8") as f:
                 broker_specs[sym] = yaml.safe_load(f)
 
         # --- RUN A: Static (no conv_lookup) ---
@@ -149,7 +149,7 @@ class TestCapitalWrapperEvents(unittest.TestCase):
             "trend_label": "bullish",
         }]
         events = sort_events(build_events(trades))
-        with open(BROKER_SPECS_ROOT / "EURUSD.yaml", "r") as f:
+        with open(BROKER_SPECS_ROOT / "EURUSD.yaml", "r", encoding="utf-8") as f:
             broker_specs = {"EURUSD": yaml.safe_load(f)}
         states = run_simulation(events, broker_specs, profiles={
             "TEST": {

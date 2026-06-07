@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tokenize
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -80,21 +81,65 @@ def _arg_is_binary_mode(args: str) -> bool:
     return "b" in m.group(1)
 
 
+def _prose_spans(filepath: Path):
+    """Return [(start, end), ...] (row, col) ranges for COMMENT and STRING tokens.
+
+    Used to suppress regex matches that hit the literal word ``open(`` (or
+    write_text/read_text) inside a comment or string literal — e.g. a docstring
+    reading "next-bar-open (...)" or a comment "# Xetra open (UTC)" — rather than
+    a real I/O call. tokenize yields multi-line spans, so triple-quoted
+    docstrings are covered too. On any tokenize failure we return [] and fall
+    back to plain line-regex behavior: no suppression, and — because a real
+    call's keyword is always a code token, never inside a string/comment — no
+    genuine violation is ever missed.
+    """
+    spans = []
+    try:
+        with open(filepath, "rb") as fb:
+            for tok in tokenize.tokenize(fb.readline):
+                if tok.type in (tokenize.COMMENT, tokenize.STRING):
+                    spans.append((tok.start, tok.end))
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError, OSError):
+        return []
+    return spans
+
+
+def _pos_in_spans(lineno: int, col: int, spans) -> bool:
+    """True iff (lineno [1-based], col [0-based]) falls within any token span."""
+    for (sr, sc), (er, ec) in spans:
+        if (lineno > sr or (lineno == sr and col >= sc)) and \
+           (lineno < er or (lineno == er and col < ec)):
+            return True
+    return False
+
+
 def scan_file(filepath: Path) -> list[tuple[int, str, str]]:
-    """Return list of (lineno, kind, line) tuples for each violation."""
+    """Return list of (lineno, kind, line) tuples for each violation.
+
+    Matches landing inside a comment or string literal are skipped (see
+    _prose_spans) so prose like "# ... open (UTC)" is not mistaken for an
+    unencoded open() call.
+    """
     violations: list[tuple[int, str, str]] = []
+    prose = _prose_spans(filepath)
     try:
         with open(filepath, "r", encoding="utf-8", errors="replace") as f:
             for lineno, line in enumerate(f, start=1):
                 # Pattern 1: bare .read_text()
-                if BARE_READ_TEXT.search(line):
+                for m in BARE_READ_TEXT.finditer(line):
+                    if _pos_in_spans(lineno, m.start(), prose):
+                        continue
                     violations.append((lineno, "read_text", line.rstrip()))
                 # Pattern 2: .write_text(...) without encoding=
                 for m in RE_WRITE_TEXT.finditer(line):
+                    if _pos_in_spans(lineno, m.start(), prose):
+                        continue
                     if not _arg_has_encoding(m.group(1)):
                         violations.append((lineno, "write_text", line.rstrip()))
                 # Pattern 3: open(...) text-mode without encoding=
                 for m in RE_BUILTIN_OPEN.finditer(line):
+                    if _pos_in_spans(lineno, m.start(), prose):
+                        continue
                     args = m.group(1)
                     if _arg_is_binary_mode(args):
                         continue

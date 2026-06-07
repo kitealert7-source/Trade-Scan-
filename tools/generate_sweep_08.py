@@ -443,7 +443,7 @@ def main():
         # Directive
         d_path = os.path.join(BASE, "backtest_directives", "active", f"{name}.txt")
         directive = build_directive(name, is_stop, is_range, exit_h, exit_m, exit_label)
-        with open(d_path, 'w', newline='\n') as f:
+        with open(d_path, 'w', newline='\n', encoding="utf-8") as f:
             f.write(directive)
         print(f"[DIRECTIVE] {name}.txt")
 
@@ -454,7 +454,7 @@ def main():
         # Strategy
         s_path = os.path.join(s_dir, "strategy.py")
         strategy = build_strategy(name, label, desc, is_stop, is_range, exit_h, exit_m, exit_label)
-        with open(s_path, 'w', newline='\n') as f:
+        with open(s_path, 'w', newline='\n', encoding="utf-8") as f:
             f.write(strategy)
         print(f"[STRATEGY] {name}/strategy.py")
         created += 1
