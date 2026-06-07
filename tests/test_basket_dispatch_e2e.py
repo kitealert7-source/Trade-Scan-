@@ -108,13 +108,19 @@ def test_dispatch_returns_true(dispatched):
     assert dispatched["ok"] is True
 
 
-def test_vault_layout(dispatched):
-    from tools.basket_vault import is_basket_vault
+def test_basket_vault_not_auto_written(dispatched):
+    """db87f977 (2026-06-07) removed the DRY_RUN_VAULT/baskets/ auto-write;
+    basket artifacts now live only in TradeScan_State/runs/. The fixture
+    pre-cleans vault_parent, so this asserts the dispatch did NOT recreate
+    the per-run vault dump — guarding the removal from a silent regression."""
+    vault_parent = dispatched["vault_parent"]
     vault_dir = dispatched["vault_dir"]
-    assert vault_dir.is_dir(), f"expected vault at {vault_dir}"
-    assert is_basket_vault(vault_dir), "vault must be detected as basket"
-    assert (vault_dir / "legs" / "EURUSD").is_dir()
-    assert (vault_dir / "legs" / "USDJPY").is_dir()
+    assert not vault_parent.exists(), (
+        f"basket vault parent must NOT be auto-written; found {vault_parent}"
+    )
+    assert not vault_dir.is_dir(), (
+        f"basket vault dir must NOT be auto-written; found {vault_dir}"
+    )
 
 
 def test_basket_sheet_row(dispatched):

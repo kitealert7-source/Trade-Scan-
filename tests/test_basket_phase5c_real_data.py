@@ -9,8 +9,9 @@ Covers:
   - _load_basket_leg_inputs returns 'real' mode when the RESEARCH layer
     is available; falls back to 'synthetic' when symbols missing.
   - End-to-end: _try_basket_dispatch against the canonical 90_PORT_H2
-    directive produces a basket vault + research CSV row WITH real data
-    indicators (compression_5d range non-trivial, trades open).
+    directive opens positions on both legs and appends a basket_sheet row
+    (ledger.db) WITH real data indicators (compression_5d range non-trivial,
+    trades open). No DRY_RUN_VAULT/baskets/ auto-write (removed db87f977).
 
 The 10-window basket_sim bit-for-bit parity gate remains skipped —
 that's Phase 5d ("live data validation gate"). This test asserts the
@@ -153,7 +154,8 @@ def test_load_basket_leg_inputs_falls_back_to_synthetic_for_unknown_symbols(monk
 
 def test_dispatch_against_h2_directive_with_real_data(monkeypatch, tmp_path, request):
     """Full Phase 5c smoke: dispatch produces 'real' mode, opens positions
-    on both legs, writes vault, appends basket_sheet row.
+    on both legs, appends basket_sheet row — and does NOT auto-write a
+    vault (db87f977).
 
     Phase 5b.3 retired the legacy research/basket_runs.csv writer; the
     sink is now ledger.db.basket_sheet."""
@@ -230,9 +232,17 @@ def test_dispatch_against_h2_directive_with_real_data(monkeypatch, tmp_path, req
         dispatched = _try_basket_dispatch(directive_id, provision_only=False)
         assert dispatched is True
 
-        # Vault written
+        # Vault NOT auto-written: db87f977 (2026-06-07) removed the
+        # DRY_RUN_VAULT/baskets/ auto-write. vault_parent was pre-cleaned
+        # above, so this asserts dispatch did not recreate it (regression
+        # guard).
         vault_dir = vault_parent / "H2"
-        assert vault_dir.is_dir()
+        assert not vault_dir.is_dir(), (
+            f"basket vault must NOT be auto-written; found {vault_dir}"
+        )
+        assert not vault_parent.exists(), (
+            f"basket vault parent must NOT be auto-written; found {vault_parent}"
+        )
 
         # basket_sheet row in ledger.db
         from tools.ledger_db import _connect, create_tables

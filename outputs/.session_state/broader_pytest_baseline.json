@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "failed": [
-    "tests/test_basket_dispatch_e2e.py::test_vault_layout",
-    "tests/test_basket_phase5c_real_data.py::test_dispatch_against_h2_directive_with_real_data",
     "tests/test_indicator_registry_sync_hook.py::test_install_sh_installs_pre_push_hook",
     "tests/test_indicator_registry_sync_hook.py::test_pre_push_hook_blocks_when_registry_drifts",
     "tests/test_indicator_registry_sync_hook.py::test_pre_push_hook_passes_when_registry_clean"
   ],
-  "count": 5,
-  "sha": "c9b8a0686dcac6fdc1fa72ee8b730eb3ff8dc609",
-  "updated_at": "2026-06-07T16:29:12+00:00",
-  "rationale": "5 new failures vs bf217717 baseline, none a functional regression. (a) test_basket_dispatch_e2e::test_vault_layout and test_basket_phase5c_real_data::test_dispatch_against_h2_directive_with_real_data assert the DRY_RUN_VAULT/baskets/ vault auto-write intentionally removed by operator directive in db87f977 (2026-06-07: delete baskets/ entirely + disable auto-write); tests encode a removed feature, rewrite/removal tracked. (b) 3x test_indicator_registry_sync_hook fail with WinError 2 (subprocess cannot find bash/sh on this Windows env); the hook is functional - the real pre-push hook and indicator_registry_sync --check both passed live during this session push."
+  "count": 3,
+  "sha": "d19fa5a9ddb7c29527fff803fc3ffb8abf76979d",
+  "updated_at": "2026-06-07T16:44:07+00:00",
+  "rationale": "Basket vault tests rewritten for the removed DRY_RUN_VAULT/baskets/ auto-write (db87f977): test_basket_dispatch_e2e and test_basket_phase5c_real_data now assert the vault is NOT auto-written and PASS, so both are dropped from the baseline. The 3 test_indicator_registry_sync_hook entries are KEPT as acknowledged environment-conditional TDs: they pass where bash/sh is on PATH (e.g. this run) but fail with WinError 2 (no bash) in the session-close environment; the real pre-push hook + indicator_registry_sync --check pass live. They remain in the baseline so the session-close gate does not falsely block on them in the no-bash environment."
 }
