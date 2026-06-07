@@ -39,6 +39,14 @@ def _patch_log_file(monkeypatch, tmp_path):
     # overrides this to record call order, and Phase-4 tests override per-case.
     monkeypatch.setattr(cointegration_daily_runner, "_run_phase4_mps",
                          lambda argv=None: 0)
+    # Safety: the post-Phase-2 freshness assertion opens the REAL production
+    # cointegration.db. Default EVERY test to a no-op so none reads prod state;
+    # the dedicated tests/test_cointegration_freshness_check.py exercises the
+    # check directly against a tmp DB. (emit_to_log is non-tracked, so this
+    # never perturbs the call-order assertions either.)
+    monkeypatch.setattr(
+        cointegration_daily_runner.cointegration_freshness_check,
+        "emit_to_log", lambda *a, **k: None)
 
 
 @pytest.fixture

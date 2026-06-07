@@ -69,7 +69,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tools import cointegration_screen, cointegration_db, cointegration_excel
+from tools import (
+    cointegration_screen,
+    cointegration_db,
+    cointegration_excel,
+    cointegration_freshness_check,
+)
 
 
 LOG_FILE = PROJECT_ROOT / "tmp" / "cointegration_daily.log"
@@ -185,6 +190,17 @@ def main(argv: list[str] | None = None) -> int:
     if rc != 0:
         _log("ABORT after Phase 2 failure")
         return rc
+
+    # Post-Phase-2 freshness assertion (NON-FATAL WARN). Reads the SQLite that
+    # Phase 2 just refreshed and flags any (tf, lookback_days) key whose newest
+    # as_of lags the freshest key by > N days — the silent-staleness alarm the
+    # 4h gap (2026-05-29 → 2026-06-06) lacked. Wrapped so a check bug can never
+    # abort the daily run; the WARN surfaces here and (via invoke_daily_pipeline
+    # .ps1's stdout echo) in the DATA_INGRESS daily pipeline log too.
+    try:
+        cointegration_freshness_check.emit_to_log(_log)
+    except Exception as exc:
+        _log(f"WARN  freshness check errored (non-fatal): {type(exc).__name__}: {exc}")
 
     # Phases 3 + 4: independent NON-FATAL render phases. Both read only the
     # SQLite that Phase 2 just refreshed (NOT each other), so a lock-skip in one
