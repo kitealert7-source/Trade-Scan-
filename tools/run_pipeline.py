@@ -1226,10 +1226,9 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         return False
     path, parsed = dispatch
 
-    # Run the basket through the recycle-rule pipeline and snapshot to
-    # DRY_RUN_VAULT. Vault failure is non-fatal (logged); Path B still runs.
+    # Run the basket through the recycle-rule pipeline.
     run_ctx = _basket_run_pipeline(directive_id, path, parsed)
-    vault_dir = _basket_write_vault_snapshot(directive_id, parsed, run_ctx["result"])
+    vault_dir = None  # DRY_RUN_VAULT/baskets/ auto-write removed 2026-06-07; data lives in TradeScan_State/runs/
 
     # ---- Path B / Phase 5b.2 — discoverable artifacts in the standard layout ----
     # Goal: a basket run shows up alongside per-symbol runs in:
@@ -1253,7 +1252,7 @@ def _try_basket_dispatch(directive_id: str, provision_only: bool) -> bool:
         )
     except Exception as exc:
         # Path B failure must NOT swallow the run — log + continue. The
-        # vault + research CSV still landed; future analysis can recover.
+        # research CSV still landed; future analysis can recover.
         import traceback
         print(f"[BASKET] WARN Path B (standard artifacts) failed: {exc}")
         print(f"[BASKET]   {traceback.format_exc().splitlines()[-1]}")
