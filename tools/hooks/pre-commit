@@ -81,6 +81,18 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+echo "[pre-commit] Verifying tools_manifest.json is in sync with staged guarded tools..."
+python "$REPO_ROOT/tools/lint_guard_manifest_sync.py" --staged
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. A guarded tool changed but tools_manifest.json"
+    echo "  was not regenerated/restaged -- the run_pipeline startup guard would"
+    echo "  hard-block the next pipeline run. Fix:"
+    echo "    python tools/generate_guard_manifest.py"
+    echo "    git add tools/tools_manifest.json"
+    exit 1
+fi
+
 echo "[pre-commit] Verifying engine_abi manifests (triple-gate, layer 1: pre-commit)..."
 python "$REPO_ROOT/tools/abi_audit.py" --pre-commit
 if [ $? -ne 0 ]; then
