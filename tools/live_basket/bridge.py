@@ -31,6 +31,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -172,6 +173,67 @@ class Target:
 # O(n) per append is irrelevant at bridge volumes (target: a few/day).
 # --------------------------------------------------------------------------- #
 
+def _replace_with_retry(src, dst, *, max_attempts: int = 5) -> None:
+    """os.replace with retry on transient Windows locks. A long-running writer
+    (heartbeat every cycle, executions every poll) eventually races Defender /
+    Explorer-preview / AV scanning the destination during the rename: os.replace
+    raises OSError winerror=5 (ACCESS_DENIED) or 32 (SHARING_VIOLATION). Retry a
+    few times with exponential backoff; non-retriable errors (ENOSPC etc.) raise
+    on the first attempt. The atomic-replace SEMANTICS are unchanged -- the final
+    file is still produced by a single os.replace, never a torn write."""
+    backoff = 0.010
+    for attempt in range(max_attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as e:
+            if getattr(e, "winerror", None) not in (5, 32) or attempt == max_attempts - 1:
+                raise
+            time.sleep(backoff)
+            backoff *= 2
+
+
+def cleanup_orphan_tmp(bridge_dir, *, files=None, older_than_s: float = 30.0) -> int:
+    """Remove stale ``*.tmp`` debris left by a hard-kill (SIGKILL / power loss)
+    between tempfile.mkstemp and os.replace. The atomic contract is "the FINAL
+    file is never torn", NOT "no .tmp ever survives a crash" -- post-crash debris
+    is the supervisor's responsibility, swept at daemon/writer startup.
+
+    PREFIX-SCOPED (the decisive guard): pass ``files`` = the bridge filenames
+    THIS writer owns; the sweep then only ever touches tmps of those files, so on
+    a SHARED bridge dir (producer writes target/heartbeat, consumer writes
+    executions) a writer can NEVER delete another writer's in-flight tmp -- even
+    one whose write has stalled (mtime is frozen at create, so age alone cannot
+    distinguish a stalled live tmp from debris). ``files=None`` sweeps every
+    ``*.tmp`` -- use only on a directory this process owns exclusively.
+
+    ``older_than_s`` is a SECONDARY age guard covering a brief same-writer
+    instance overlap during restart: a live tmp's mtime is fresh (writes finish
+    in ms) while crash debris is old. Returns the count removed; a .tmp still
+    locked by an AV scan is left in place (mkstemp names are unique, so a
+    leftover never collides with a live write)."""
+    d = Path(bridge_dir)
+    if not d.is_dir():
+        return 0
+    patterns = ["*.tmp"] if files is None else [f"{Path(f).name}.*.tmp" for f in files]
+    cutoff = time.time() - max(0.0, older_than_s)
+    removed = 0
+    seen = set()
+    for pattern in patterns:
+        for orphan in d.glob(pattern):
+            if orphan in seen:
+                continue
+            seen.add(orphan)
+            try:
+                if older_than_s > 0 and orphan.stat().st_mtime > cutoff:
+                    continue             # too fresh -- may be a live in-flight write
+                orphan.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,7 +243,7 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)            # atomic on POSIX + Windows
+        _replace_with_retry(tmp, path)   # atomic on POSIX + Windows (retries transient locks)
     finally:
         if os.path.exists(tmp):
             try:
@@ -293,5 +355,5 @@ __all__ = [
     "ContractError", "utc_now_iso", "Leg", "Target", "target_hash", "semantic_key",
     "append_jsonl_atomic", "read_latest_target", "read_all_targets",
     "write_heartbeat", "read_heartbeat", "read_executions",
-    "leg_magic", "leg_comment", "parse_leg_comment",
+    "leg_magic", "leg_comment", "parse_leg_comment", "cleanup_orphan_tmp",
 ]

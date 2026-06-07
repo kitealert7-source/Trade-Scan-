@@ -39,7 +39,15 @@ Companion to `outputs/system_reports/01_system_architecture/COINTEGRATION_FIRST_
 
 Under `bridge_dir = <TradeScan_State>/TS_SIGNAL_STATE/h2_live/<basket_id>/`.
 Single writer per file; **every mutation is a whole-file atomic replace**
-(`tmp` + `fsync` + `os.replace`), so a reader never sees a torn file.
+(`tmp` + `fsync` + `os.replace`), so a reader never sees a torn file. Under a
+24/5 daemon the `os.replace` retries transient Windows locks (winerror 5/32 from
+AV / Explorer-preview scanning the destination) with backoff — semantics
+unchanged, the final file is still one atomic replace. A hard-kill between
+`mkstemp` and `replace` can leave `*.tmp` debris; each writer sweeps it at
+startup (`bridge.cleanup_orphan_tmp`) **scoped to the files it owns** (producer →
+`target.jsonl`/`runner_heartbeat.json`, shim → `executions.jsonl`), so a sweep
+can never delete the other writer's in-flight tmp on the shared dir. The contract
+guarantees the *final* file is never torn, not that no `.tmp` survives a crash.
 
 | File | Writer | Semantics |
 |---|---|---|

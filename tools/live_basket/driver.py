@@ -107,6 +107,10 @@ class StreamingBasketRunner:
         self.n_legs = n_legs
         self._seq = 0
         self._last_key = None
+        # lesson 5: sweep this writer's own crash debris at startup (prefix-scoped
+        # so it never touches the consumer's executions tmp on the shared dir)
+        bridge.cleanup_orphan_tmp(self.bridge_dir,
+                                  files=(bridge.TARGET_FILE, bridge.HEARTBEAT_FILE))
         # Restart-clean: restore emission state from the bridge so a re-instantiated
         # driver (watchdog restart) continues the seq and does NOT re-emit the
         # current target. Fresh session (empty bridge) -> starts at seq 0. The

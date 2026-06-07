@@ -34,6 +34,10 @@ class ScriptedRunner:
         self._seq = int(seq_start)
         self._last_key: Optional[tuple] = None
         self._last_seq_written: Optional[int] = None
+        # lesson 5: sweep this writer's own crash debris at startup (prefix-scoped
+        # so it never touches the consumer's executions tmp on the shared dir)
+        bridge.cleanup_orphan_tmp(self.bridge_dir,
+                                  files=(bridge.TARGET_FILE, bridge.HEARTBEAT_FILE))
 
     def step(self, state: str, legs=(), *, bar_ts=None, emitted_at=None):
         """One runner cycle. Appends a target iff the desired position changed,
