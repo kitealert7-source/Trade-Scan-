@@ -185,6 +185,8 @@ One loop, every cycle (including first-after-restart):
 
 Dynamic sizing; recycle / add / harvest mechanics; limit orders / slippage optimization; multi-basket portfolio; an automated fidelity *daemon*; broker-data cross-check; anything validator-shaped. Each maps to a seam above and is added only after V0 is trusted. (The file-bridge runner itself is **in** V0 -- it is the chosen execution path, not deferred.)
 
+> **UPDATE 2026-06-08 — the real `basket_pipeline` runner (the producer) is now IMPLEMENTED and running in observation mode (publishing FLAT targets to the bridge, no shim/orders).** Full wiring, the USD-reference data dependency (§3), the shim bidirectional-open fix (`ea3df25`), validation evidence, and the extension roadmap (more baskets / same strategy on other assets / deferred B2/B3 + hardening) are in **`CADJPYUSDCHF_LIVE_PRODUCER_IMPLEMENTATION_2026-06-08.md`**. Producer committed `821d4bb9`. Shim `--live` gated on operator after the observation window.
+
 ---
 
 ## Promotion-to-live workflow
