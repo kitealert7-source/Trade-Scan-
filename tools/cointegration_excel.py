@@ -148,6 +148,92 @@ def composite_score(conn: sqlite3.Connection, row: dict) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Friendly universe (rule-derived) + cointegration persistence tiers
+# ---------------------------------------------------------------------------
+# Two orthogonal axes surfaced on the diagnostic tabs:
+#   tier             — backtest PERFORMANCE (elite/friendly), rule-derived from
+#                      the MPS into governance/fx_fx_friendly.yaml by
+#                      tools/derive_friendly.py. Refresh monthly/post-backtest.
+#   persistence_tier — current cointegration DURABILITY (how long the 1d×252
+#                      relationship has held), computed live from the DB over
+#                      the COMPLETE universe. Lower bands double as a
+#                      developing-relationship radar.
+
+FX_FX_FRIENDLY_YAML = PROJECT_ROOT / "governance" / "fx_fx_friendly.yaml"
+
+# Persistence bands — FIXED operational day-thresholds, NOT tied to any live
+# metric. Originally informed by the ~7-day median daily half-life (2026-06)
+# but deliberately decoupled: if the half-life regime shifts, revisit these as
+# a conscious decision — they will not silently re-scale.
+PERSISTENCE_BANDS: list[tuple[int, str]] = [   # (min_streak_days, label), desc
+    (90, "entrenched"),
+    (60, "mature"),
+    (30, "established"),
+    (15, "developing"),
+    (10, "emerging"),
+]
+
+
+def _canonical_pair_key(pair_a: str, pair_b: str) -> str:
+    """Order-independent pair key shared with tools/derive_friendly.py."""
+    return "/".join(sorted([str(pair_a).strip(), str(pair_b).strip()]))
+
+
+def load_friendly(path: Path = FX_FX_FRIENDLY_YAML) -> dict:
+    """canonical_key -> record {tier, median_ret_dd, evaluable}. Empty if absent.
+
+    Joined to screener rows by the canonical (order-independent) key so the
+    flag attaches regardless of pair orientation across MPS / DB / yaml.
+    """
+    if not path.is_file():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {r["pair"]: r for r in (data.get("pairs") or []) if r.get("pair")}
+
+
+def friendly_tier(friendly: dict, pair_a: str, pair_b: str) -> str:
+    """'elite' / 'friendly' / '' for a pair, via the canonical key."""
+    rec = friendly.get(_canonical_pair_key(pair_a, pair_b))
+    return rec["tier"] if rec else ""
+
+
+def coint_streak_days(conn: sqlite3.Connection, pair_a: str, pair_b: str,
+                      lookback_days: int = 252, *, lookback: int = 120) -> int:
+    """Current consecutive cointegrated-day streak on the 1d × `lookback_days`
+    window, counting back from the most recent snapshot.
+
+    Smoothed against 1-day flickers: a day counts if regime=='cointegrated' OR
+    (its 5d rolling-median p < 0.05 while regime != 'broken'), so a single raw
+    p-value blip the screener already tagged 'breaking' does not reset a
+    genuinely-stable relationship to zero.
+    """
+    rows = conn.execute(
+        f"""SELECT regime, pvalue_rolling_median_5d FROM {TABLE_NAME}
+            WHERE pair_a = ? AND pair_b = ? AND lookback_days = ? AND tf = '1d'
+            ORDER BY as_of DESC LIMIT ?""",
+        (pair_a, pair_b, int(lookback_days), int(lookback)),
+    ).fetchall()
+    streak = 0
+    for r in rows:
+        regime = r["regime"]
+        pmed = r["pvalue_rolling_median_5d"]
+        smoothed_ok = pmed is not None and pmed < 0.05 and regime != "broken"
+        if regime == "cointegrated" or smoothed_ok:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def persistence_tier(streak_days: int) -> str:
+    """Map a streak (days) to its fixed band label; '' below 10d."""
+    for lo, label in PERSISTENCE_BANDS:
+        if streak_days >= lo:
+            return label
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Conditional-fill helpers
 # ---------------------------------------------------------------------------
 
@@ -830,6 +916,17 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
     # left intact for Summary section 4 + the pivot tests).
     pivoted["coint_window"] = pivoted["agreement"].map(_AGREEMENT_TO_WINDOW)
 
+    # Friendly (performance) + persistence (durability) axes — see helper block.
+    # Appended AFTER the existing columns so column D ("coint_window") and its
+    # default regime filter are undisturbed.
+    friendly = load_friendly()
+    pivoted["tier"] = pivoted.apply(
+        lambda r: friendly_tier(friendly, r["pair_a"], r["pair_b"]) or None, axis=1)
+    _streaks = [coint_streak_days(conn, r["pair_a"], r["pair_b"], 252)
+                for _, r in pivoted.iterrows()]
+    pivoted["coint_streak_days"] = _streaks
+    pivoted["persistence_tier"] = [persistence_tier(s) or None for s in _streaks]
+
     columns = [
         "pair_a", "pair_b",
         "pair_class",                   # NEW 2026-05-23 — FX / IX / CROSS
@@ -841,6 +938,9 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
         "hedge_ratio_252", "hedge_ratio_504",
         "history_depth", "score",
         "methodology",  # NEW 2026-05-30 (C4) — cohort tag (v1_raw_adf / v2_log_eg)
+        "tier",               # NEW — friendly performance tier (elite/friendly)
+        "persistence_tier",   # NEW — cointegration durability band
+        "coint_streak_days",  # NEW — current consecutive cointegrated days (1d×252)
     ]
     for c, h in enumerate(columns, start=1):
         _header_style(ws.cell(row=1, column=c, value=h))
@@ -876,8 +976,8 @@ def _write_today(wb: Workbook, conn: sqlite3.Connection,
                     cell.fill, cell.font = _fill(COLOR_BOOTSTRAP_BG, "000000")
 
     ws.freeze_panes = "D2"
-    #         pair_a pair_b cls  cwin reg2 reg5 p25 p50 hl2 hl5 z25 z50 he2 he5 hd score methodology
-    widths = [10,    10,    10,  12,  13,  13,  14, 14, 18, 18, 18, 18, 14, 14, 14, 10,   14]
+    #         pair_a pair_b cls  cwin reg2 reg5 p25 p50 hl2 hl5 z25 z50 he2 he5 hd score meth tier ptier strk
+    widths = [10,    10,    10,  12,  13,  13,  14, 14, 18, 18, 18, 18, 14, 14, 14, 10,   14,  10,  14,   12]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
@@ -1033,8 +1133,8 @@ def _write_asset_class_tab(
     ws.freeze_panes = "F5"
 
 
-def _write_dual_tf_shortlist(wb: Workbook, df_today: pd.DataFrame,
-                              position: int) -> None:
+def _write_dual_tf_shortlist(wb: Workbook, conn: sqlite3.Connection,
+                              df_today: pd.DataFrame, position: int) -> None:
     """Pairs cointegrated on BOTH 1d × 252 AND 4h × 1500.
 
     Tier C of the 4h integration — the Thread B per-pair deep-dive surface
@@ -1101,12 +1201,15 @@ def _write_dual_tf_shortlist(wb: Workbook, df_today: pd.DataFrame,
         "z_1d_252", "z_4h_1500",
         "hedge_ratio_1d", "hedge_ratio_4h",
         "history_depth",
+        "tier", "persistence_tier", "coint_streak_days",
     ]
     for c, h in enumerate(headers, start=1):
         _header_style(ws.cell(row=4, column=c, value=h))
 
+    friendly = load_friendly()
     for i, r in merged.iterrows():
         excel_row = 5 + i
+        _streak = coint_streak_days(conn, r["pair_a"], r["pair_b"], 252)
         cells_data = [
             r["pair_a"], r["pair_b"], r["pair_class"],
             r["adf_pvalue_1d"], r["adf_pvalue_4h"],
@@ -1114,6 +1217,9 @@ def _write_dual_tf_shortlist(wb: Workbook, df_today: pd.DataFrame,
             r["current_zscore_1d"], r["current_zscore_4h"],
             r["hedge_ratio_1d"], r["hedge_ratio_4h"],
             max(r["history_depth_1d"], r["history_depth_4h"]),
+            friendly_tier(friendly, r["pair_a"], r["pair_b"]) or None,
+            persistence_tier(_streak) or None,
+            _streak,
         ]
         for c, v in enumerate(cells_data, start=1):
             cell = ws.cell(row=excel_row, column=c)
@@ -1140,10 +1246,100 @@ def _write_dual_tf_shortlist(wb: Workbook, df_today: pd.DataFrame,
                     cell.fill, cell.font = zc
 
     ws.freeze_panes = "D5"
-    #          pa pb cls p1d p4h hl1d hl4h z1d z4h hr1d hr4h hd
-    widths = [10, 10, 10, 10, 10, 10,  10,  10, 10, 14, 14,  12]
+    #          pa pb cls p1d p4h hl1d hl4h z1d z4h hr1d hr4h hd  tier ptier strk
+    widths = [10, 10, 10, 10, 10, 10,  10,  10, 10, 14, 14,  12, 10,  14,   12]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
+
+
+def _write_friendly_universe(wb: Workbook, conn: sqlite3.Connection,
+                              df_today: pd.DataFrame, position: int) -> None:
+    """Rule-derived FX-FX 'friendly' universe roster — ELITE / BROAD split.
+
+    Reads governance/fx_fx_friendly.yaml (produced by tools/derive_friendly.py)
+    and renders each pair with its backtest tier + Median Ret/DD AND its live
+    1d × 252 state (regime, z, streak, persistence band), so the operator picks
+    onboarding candidates from one view: filter to a cointegrated/persistent
+    row, sort by z. `in_screen`=no flags a friendly pair absent from today's
+    diagnostic universe. Empty (with a note) when the yaml is absent.
+    """
+    ws = wb.create_sheet("Friendly Universe", position)
+    ws.cell(row=1, column=1, value=(
+        "Friendly Universe — rule-derived FX-FX cointegration-friendly pairs"
+    )).font = Font(bold=True, size=12)
+    ws.merge_cells(start_row=1, end_row=1, start_column=1, end_column=7)
+    ws.cell(row=2, column=1, value=(
+        "Performance tier from MPS backtest (elite = Median Ret/DD >= 0.75, "
+        "friendly = >= 0.50; FX-FX, Evaluable >= 5). The regime/z/streak columns "
+        "are today's live 1d x 252 state. Rule-based & refreshed via "
+        "tools/derive_friendly.py — see Notes."
+    ))
+    ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=2, end_row=2, start_column=1, end_column=7)
+    ws.row_dimensions[2].height = 30
+
+    friendly = load_friendly()
+    if not friendly:
+        ws.cell(row=4, column=1, value=(
+            "(governance/fx_fx_friendly.yaml not found — run "
+            "python tools/derive_friendly.py)"
+        ))
+        ws.cell(row=4, column=1).font = Font(italic=True, color="9C5700")
+        ws.column_dimensions["A"].width = 80
+        return
+
+    # Live 1d × 252 snapshot per canonical pair key.
+    live: dict[str, object] = {}
+    if not df_today.empty:
+        d = df_today[(df_today.tf == "1d") & (df_today.lookback_days == 252)]
+        for _, r in d.iterrows():
+            live[_canonical_pair_key(r["pair_a"], r["pair_b"])] = r
+
+    headers = ["pair", "median_ret_dd", "regime_252", "z_252",
+               "coint_streak_days", "persistence_tier", "in_screen"]
+
+    def _section(start_row: int, title: str, recs: list) -> int:
+        ws.cell(row=start_row, column=1, value=title).font = Font(bold=True, size=11)
+        hdr = start_row + 1
+        for c, h in enumerate(headers, start=1):
+            _header_style(ws.cell(row=hdr, column=c, value=h))
+        for i, rec in enumerate(sorted(recs, key=lambda r: -r.get("median_ret_dd", 0))):
+            row = hdr + 1 + i
+            key = rec["pair"]
+            a, b = key.split("/", 1)
+            lr = live.get(key)
+            streak = coint_streak_days(conn, a, b, 252)
+            regime = lr["regime"] if lr is not None else None
+            z = lr["current_zscore"] if lr is not None else None
+            vals = [
+                key, rec.get("median_ret_dd"), regime,
+                round(float(z), 2) if z is not None and pd.notna(z) else None,
+                streak, persistence_tier(streak) or None,
+                "yes" if lr is not None else "no",
+            ]
+            for c, v in enumerate(vals, start=1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.alignment = Alignment(horizontal="center")
+                cell.border = BORDER
+                if c == 3 and v in _REGIME_FILL:
+                    cell.fill, cell.font = _REGIME_FILL[v]
+                elif c == 4:
+                    zc = _zscore_color(v)
+                    if zc:
+                        cell.fill, cell.font = zc
+        return hdr + 1 + len(recs)
+
+    elite = [r for r in friendly.values() if r.get("tier") == "elite"]
+    broad = [r for r in friendly.values() if r.get("tier") == "friendly"]
+    nxt = _section(4, f"ELITE  (Median Ret/DD >= 0.75)  —  {len(elite)} pairs", elite)
+    _section(nxt + 2,
+             f"BROAD / FRIENDLY  (0.50 <= Median Ret/DD < 0.75)  —  {len(broad)} pairs",
+             broad)
+
+    widths = [16, 14, 14, 10, 18, 16, 10]
+    for c, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = w
+    ws.freeze_panes = "A4"
 
 
 def _write_singles_diagnostic(wb: Workbook, conn: sqlite3.Connection,
@@ -1290,6 +1486,23 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection,
         df.insert(3, "pair_class",
                    df.apply(lambda r: _classify_pair(r["pair_a"], r["pair_b"]),
                             axis=1))
+        # Friendly (performance) + persistence (durability) axes, appended at the
+        # end so the tf/lookback/regime default filter (cols E/F/G) is undisturbed.
+        # Streak is the pair-level 1d×252 durability — computed once per pair.
+        friendly = load_friendly()
+        _streak_cache: dict[tuple, int] = {}
+
+        def _streak_for(a, b):
+            if (a, b) not in _streak_cache:
+                _streak_cache[(a, b)] = coint_streak_days(conn, a, b, 252)
+            return _streak_cache[(a, b)]
+
+        df["tier"] = df.apply(
+            lambda r: friendly_tier(friendly, r["pair_a"], r["pair_b"]) or None, axis=1)
+        df["coint_streak_days"] = df.apply(
+            lambda r: _streak_for(r["pair_a"], r["pair_b"]), axis=1)
+        df["persistence_tier"] = df["coint_streak_days"].apply(
+            lambda s: persistence_tier(s) or None)
     columns = list(df.columns)
     for c, h in enumerate(columns, start=1):
         _header_style(ws.cell(row=1, column=c, value=h))
@@ -1308,8 +1521,8 @@ def _write_history(wb: Workbook, conn: sqlite3.Connection,
             if col == "regime" and v in _REGIME_FILL:
                 cell.fill, cell.font = _REGIME_FILL[v]
     ws.freeze_panes = "A2"
-    #          as_of pa pb cls tf lb  reg p   pmed hl  hr  z   hd
-    widths = [12,   10, 10, 10,  6, 10, 14, 12, 14,  14, 12, 12, 12]
+    #          as_of pa pb cls tf lb  reg p   pmed hl  hr  z   hd  tier strk ptier
+    widths = [12,   10, 10, 10,  6, 10, 14, 12, 14,  14, 12, 12, 12, 10,  12,  14]
     for c, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(c)].width = w
 
@@ -1354,6 +1567,8 @@ def _write_notes(wb: Workbook) -> None:
         "  • Indices & Stocks       : curated FX-equity cross-asset candidates",
         "  • Dual-TF Shortlist      : pairs cointegrated on BOTH 1d × 252 AND 4h × 1500",
         "                             (Thread B per-pair deep-dive surface)",
+        "  • Friendly Universe      : rule-derived FX-FX roster, ELITE/BROAD split",
+        "                             (backtest performance tier + live persistence)",
         "  • All Pairs (Diagnostic) : full pair-pair output, audit-only",
         "  • Singles (Diagnostic)   : full single-symbol output, audit-only",
         "  • History                : last 90 days per pair-window",
@@ -1397,6 +1612,28 @@ def _write_notes(wb: Workbook) -> None:
         "       252d-cointegrated pair. (The underlying field, also shown in the",
         "       Summary \"Window agreement\" section, keeps the BOTH / 252-only /",
         "       504-only / NEITHER labels.)",
+        "",
+        "FRIENDLY TIER + PERSISTENCE COLUMNS (Dual-TF, All Pairs Diagnostic, History)",
+        "  Two ORTHOGONAL axes, each filterable via its own column dropdown:",
+        "  tier (performance)        — rule-derived from the MPS backtest into",
+        "                              governance/fx_fx_friendly.yaml by tools/derive_friendly.py:",
+        "                              FX-FX AND Evaluable>=5 AND Median Ret/DD>=0.50 -> friendly;",
+        "                              >=0.75 -> elite. Rule-based (no fixed N); RE-RUN MONTHLY or",
+        "                              after new backtests. Joined by canonical sorted pair key.",
+        "  persistence_tier          — current consecutive cointegrated-day streak on the 1d x 252",
+        "  (durability)                window, computed LIVE over the COMPLETE universe (smoothed",
+        "                              against 1-day flickers via the 5d rolling-median p-value).",
+        "                              coint_streak_days carries the raw count for precise filtering.",
+        "                              FIXED operational day-bands:",
+        "                                emerging 10-14d | developing 15-29d | established 30-59d |",
+        "                                mature 60-89d | entrenched 90d+",
+        "                              Bands were originally INFORMED BY the ~7-day median half-life",
+        "                              (2026-06) but are NOT mathematically tied to it — revisit them",
+        "                              deliberately if the half-life regime shifts; they do not",
+        "                              silently re-scale. Low bands double as a developing-",
+        "                              relationship radar across the full universe.",
+        "  The 'Friendly Universe' tab is the curated roster (ELITE/BROAD split) with both axes",
+        "  plus live regime/z, for one-view onboarding selection (filter cointegrated, sort by z).",
         "",
         "CORRELATION ≠ COINTEGRATION (spec §1 doctrine)",
         "  Two high-correlation pairs can still have a non-stationary (non-mean-reverting) spread.",
@@ -1447,15 +1684,17 @@ def export_excel(db_path: Path | str = SQLITE_DB,
                  output_path: Path | str = EXCEL_PATH) -> Path:
     """Read DB, build workbook, write to `output_path`.
 
-    Sheet order (2026-05-21):
+    Sheet order:
       0  Summary
       1  Forex (incl. Metals)         [curated]
       2  Crypto                       [curated]
-      3  Indices & Stocks             [deferred placeholder]
-      4  All Pairs (Diagnostic)       [full pair-pair output]
-      5  Singles (Diagnostic)         [full single-symbol output]
-      6  History
-      7  Notes
+      3  Indices & Stocks             [curated FX-equity / deferred]
+      4  Dual-TF Shortlist            [1d×252 ∩ 4h×1500]
+      5  Friendly Universe            [rule-derived FX-FX roster; elite/broad split]
+      6  All Pairs (Diagnostic)       [full pair-pair output]
+      7  Singles (Diagnostic)         [full single-symbol output]
+      8  History
+      9  Notes
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1509,17 +1748,19 @@ def export_excel(db_path: Path | str = SQLITE_DB,
                 pos += 1
 
         # 4 — Dual-TF Shortlist (Thread B per-pair deep-dive surface)
-        _write_dual_tf_shortlist(wb, df_today, position=pos)
+        _write_dual_tf_shortlist(wb, conn, df_today, position=pos)
         pos += 1
 
-        # 5 — All Pairs (Diagnostic)
+        # 5 — Friendly Universe (rule-derived FX-FX roster; elite/broad split)
+        _write_friendly_universe(wb, conn, df_today, position=pos)
+        pos += 1
+
+        # 6 — All Pairs (Diagnostic) — appended after the operator tabs
         _write_today(wb, conn, df_today)
         wb["Today"].title = "All Pairs (Diagnostic)"
 
-        # 6 — Singles (Diagnostic)
-        _write_singles_diagnostic(wb, conn, df_singles, position=pos + 1)
-
-        # 7 — History; 8 — Notes
+        # 7 — Singles (Diagnostic); 8 — History; 9 — Notes (all appended last)
+        _write_singles_diagnostic(wb, conn, df_singles, position=len(wb.sheetnames))
         _write_history(wb, conn)
         _write_notes(wb)
         _atomic_save_workbook(wb, output_path)

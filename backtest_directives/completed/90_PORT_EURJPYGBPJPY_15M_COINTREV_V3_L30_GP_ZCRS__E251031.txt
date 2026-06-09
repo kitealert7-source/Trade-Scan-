@@ -13,11 +13,13 @@ test:
   parameter_mutation: false
   hypothesis_ref: COINTREV_V3_PINE_RATIOZ
   hypothesis_variant: COINTREV_V3_PINE_RATIOZ_EURJPY_GBPJPY_N30_15M_ABS_GP_ZCRS_E251031
-  description: 'Pine z_r reversal port (pine_ratio_zrev_v1_zcross), N=30 / 15M / absolute /
-    always-in-market, EURJPY/GBPJPY. Capital 1000 USD, target_notional_per_leg_usd=1000.
-    Episode test: natural continuous 252d-cointegrated span 2025-10-31 -> 2025-12-26.
-    cointegration_join lookback_days=252 gates (any-span) + routes to the
-    cointegration ledger.'
+  description: 'Pine z_r reversal port (pine_ratio_zrev_v1_zcross), N=30 / 15M / absolute / always-in-market, EURJPY/GBPJPY.
+    Capital 1000 USD, target_notional_per_leg_usd=1000. Episode test: natural continuous 252d-cointegrated span 2025-10-31
+    -> 2025-12-26. cointegration_join lookback_days=252 gates (any-span) + routes to the cointegration ledger.'
+  repeat_override_reason: '[COINT-REFRESH:ENGINE@2026-06-08 mode=recorded directive=90_PORT_EURJPYGBPJPY_15M_COINTREV_V3_L30_GP_ZCRS__E251031]
+    Operator-authorized override: promote EURJPYGBPJPY on recorded cointegrated window (Oct-Dec 2025) despite 11d current
+    span; demo concept-validation'
+  rerun_of: c291acbd4c22e67b4b25b7b1
 symbols:
 - EURJPY
 - GBPJPY
