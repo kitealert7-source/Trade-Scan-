@@ -198,11 +198,17 @@ def _latest_run_for(basket_id: str) -> str:
     return max(cands)[1]
 
 
-def run_refresh(directive_id: str, window_mode: str) -> None:
+def run_refresh(directive_id: str, window_mode: str, reason: str) -> None:
     """Thin wrapper over the existing refresh tool (Phase C step 1). Not golden-
-    tested (it needs MT5/the pipeline); the assembled artifacts ARE."""
+    tested (it needs MT5/the pipeline); the assembled artifacts ARE.
+
+    refresh_cointegration.py requires --category + --reason. current-window
+    refreshes are DATA_FRESH (re-pin to today's cointegrated span); recorded-window
+    refreshes are ENGINE (an operator override of the current-span gate)."""
+    category = "ENGINE" if window_mode == "recorded" else "DATA_FRESH"
     cmd = [sys.executable, str(_TS_ROOT / "tools" / "refresh_cointegration.py"),
-           directive_id, "--window-mode", window_mode]
+           directive_id, "--category", category, "--reason", reason,
+           "--window-mode", window_mode]
     print(f"  PROMOTE_REFRESH  {' '.join(cmd)}", flush=True)
     subprocess.run(cmd, check=True, cwd=str(_TS_ROOT))
 
@@ -217,7 +223,9 @@ def promote(directive_id, run_id=None, *, now=None, window_mode="current",
     legs = derive_legs(dpath)
     basket_id = "".join(s for s, _ in legs)
     if refresh and run_id is None:
-        run_refresh(directive_id, window_mode)
+        reason = (override_reason
+                  or f"Promote {basket_id}: refresh to current 252d cointegrated window")
+        run_refresh(directive_id, window_mode, reason)
         run_id = _latest_run_for(basket_id)
     if run_id is None:
         raise SystemExit("--run-id required (or pass --refresh to create one)")

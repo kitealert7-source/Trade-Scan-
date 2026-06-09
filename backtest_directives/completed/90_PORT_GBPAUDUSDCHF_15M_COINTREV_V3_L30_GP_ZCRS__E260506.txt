@@ -7,17 +7,18 @@ test:
   broker: OctaFx
   timeframe: 15m
   start_date: '2026-05-06'
-  end_date: '2026-06-04'
+  end_date: '2026-06-09'
   research_mode: true
   tuning_allowed: false
   parameter_mutation: false
   hypothesis_ref: COINTREV_V3_PINE_RATIOZ
   hypothesis_variant: COINTREV_V3_PINE_RATIOZ_GBPAUD_USDCHF_N30_15M_ABS_GP_ZCRS_E260506
-  description: 'Pine z_r reversal port (pine_ratio_zrev_v1_zcross), N=30 / 15M / absolute /
-    always-in-market, GBPAUD/USDCHF. Capital 1000 USD, target_notional_per_leg_usd=1000.
-    Episode test: natural continuous 252d-cointegrated span 2026-05-06 -> 2026-06-04.
-    cointegration_join lookback_days=252 gates (any-span) + routes to the
-    cointegration ledger.'
+  description: 'Pine z_r reversal port (pine_ratio_zrev_v1_zcross), N=30 / 15M / absolute / always-in-market, GBPAUD/USDCHF.
+    Capital 1000 USD, target_notional_per_leg_usd=1000. Episode test: natural continuous 252d-cointegrated span 2026-05-06
+    -> 2026-06-04. cointegration_join lookback_days=252 gates (any-span) + routes to the cointegration ledger.'
+  repeat_override_reason: '[COINT-REFRESH:DATA_FRESH@2026-06-09 mode=current directive=90_PORT_GBPAUDUSDCHF_15M_COINTREV_V3_L30_GP_ZCRS__E260506]
+    Promote GBPAUDUSDCHF: refresh to current 252d cointegrated window'
+  rerun_of: 7b47d1a95e7ea634718e7b64
 symbols:
 - GBPAUD
 - USDCHF

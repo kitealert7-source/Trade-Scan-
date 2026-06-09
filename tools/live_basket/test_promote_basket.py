@@ -75,3 +75,46 @@ def test_at_least_one_exemplar_reproducible():
     # guards against a vacuously-green suite if no exemplar data is present.
     assert any(_available(b, rid) for b, _, rid, _, _ in EXEMPLARS), \
         "no exemplar data present — golden test would be vacuous"
+
+
+# ---------------------------------------------------------------------------
+# Regression: --refresh argument construction
+# ---------------------------------------------------------------------------
+# DEFECT (found in live use 2026-06-09, NOT in review): promote_basket --refresh
+# omitted refresh_cointegration.py's REQUIRED --category / --reason, so the very
+# first live refresh aborted (exit 2). The --refresh path was never golden-tested
+# (the golden test uses --run-id). These lock the arg construction so it can't
+# regress — per "every observed failure becomes a fixture".
+import tools.live_basket.promote_basket as _pb   # noqa: E402
+
+
+def test_run_refresh_current_maps_to_data_fresh(monkeypatch):
+    cap = {}
+    monkeypatch.setattr(_pb.subprocess, "run", lambda cmd, **k: cap.__setitem__("cmd", cmd))
+    _pb.run_refresh("90_PORT_X_15M_COINTREV_V3_L30_GP_ZCRS__E1", "current", "onboard X")
+    cmd = cap["cmd"]
+    assert cmd[cmd.index("--category") + 1] == "DATA_FRESH"          # current -> DATA_FRESH
+    assert cmd[cmd.index("--reason") + 1] == "onboard X"             # reason passed through
+    assert cmd[cmd.index("--window-mode") + 1] == "current"
+    assert "90_PORT_X_15M_COINTREV_V3_L30_GP_ZCRS__E1" in cmd        # directive positional present
+
+
+def test_run_refresh_recorded_maps_to_engine(monkeypatch):
+    cap = {}
+    monkeypatch.setattr(_pb.subprocess, "run", lambda cmd, **k: cap.__setitem__("cmd", cmd))
+    _pb.run_refresh("D", "recorded", "operator override")
+    cmd = cap["cmd"]
+    assert cmd[cmd.index("--category") + 1] == "ENGINE"              # recorded (override) -> ENGINE
+    assert cmd[cmd.index("--window-mode") + 1] == "recorded"
+
+
+def test_promote_refresh_passes_default_reason_when_no_override(monkeypatch):
+    # current-window promote with no override -> an auto reason is generated + passed.
+    seen = {}
+    monkeypatch.setattr(_pb, "run_refresh", lambda d, wm, reason: seen.update(wm=wm, reason=reason))
+    monkeypatch.setattr(_pb, "_latest_run_for", lambda b: (_ for _ in ()).throw(SystemExit("stop after refresh")))
+    monkeypatch.setattr(_pb, "directive_path", lambda d: _pb.Path("x"))
+    monkeypatch.setattr(_pb, "derive_legs", lambda p: [("AAA", "long"), ("BBB", "short")])
+    with pytest.raises(SystemExit):
+        _pb.promote("DIR", run_id=None, refresh=True, window_mode="current", dry_run=True)
+    assert seen["wm"] == "current" and seen["reason"]               # non-empty auto reason
