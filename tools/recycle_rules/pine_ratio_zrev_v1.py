@@ -132,6 +132,16 @@ class PineRatioZRevRule(H2RecycleRule):
     #   deployment (and for any future Phase-2 break-inclusive backtest window).
     coint_break_exit: bool = False
     coint_regime_column: str = "coint_regime"
+    # Hard time-stop: force-liquidate after N bars in position regardless of z.
+    # 0 = disabled (canonical default); opt-in per directive.
+    # DECISION (2026-06-09): decision-grade testing demonstrated NO benefit on the
+    # 252-window deployable universe -- 140 canonical run_pipeline backtests
+    # (20 pairs x 7 variants: 0/12/16/20/24/28/32 bars). Every variant lowered
+    # median Ret/DD vs the no-stop baseline (1.62) and cut net return; no variant
+    # improved a majority of pairs (best 8/20 at 6h). Param RETAINED default-off
+    # for future research, NOT adopted. See
+    # outputs/experiments/timestop_sweep_2026-06-09/SUMMARY.md.
+    max_bars_in_trade: int = 0
 
     # Fallback lot
     default_initial_lot: float = 0.01

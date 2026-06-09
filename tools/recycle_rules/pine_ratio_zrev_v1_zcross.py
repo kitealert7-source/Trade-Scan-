@@ -190,7 +190,22 @@ class PineRatioZRevRuleZCross(PineRatioZRevRule):
             return
 
         equilibrium_exit = False
-        if self._basket_open:
+        # HARD TIME-STOP (opt-in via max_bars_in_trade>0): force-liquidate after
+        # N bars in position, then fall through to the FLAT path so the next
+        # +/-z_entry cross opens a fresh cycle (engine handles re-entry natively).
+        if (self._basket_open and self.max_bars_in_trade > 0
+                and self._entry_bar_idx is not None
+                and (i - self._entry_bar_idx) >= self.max_bars_in_trade):
+            self._liquidate(
+                legs, i, bar_ts, bar_closes, leg_float, floating_total,
+                reason="TIMESTOP",
+                extra={"direction": self._basket_direction},
+            )
+            equilibrium_exit = True
+            all_open = False
+            floating_total = 0.0
+            leg_float = {leg.symbol: 0.0 for leg in legs}
+        if self._basket_open and not equilibrium_exit:
             try:
                 zcross_now = bool(legs[0].df.loc[bar_ts, self.zcross_column])
             except (KeyError, ValueError, TypeError):
