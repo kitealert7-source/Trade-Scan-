@@ -153,11 +153,16 @@ def _build_leg_strategies(parsed: dict) -> dict:
     """FRESH leg_strategies with a FRESH shared armed-state per replay call (the entry
     protocol is a 2-bar state machine shared across legs; reuse would pollute it)."""
     shared = PineZRevArmedState()
+    # ZCRS v2 (2026-06-10): entry-fill timing from the directive. Default
+    # next_bar_open (N+2); current_bar_open (N+1) adopted for the deployed
+    # baskets per the canonical EFTN1 sweep (Pine-faithful, 1 bar earlier).
+    et = (parsed["basket"].get("recycle_rule", {}).get("params") or {}).get("entry_fill_timing", "next_bar_open")
     return {
         leg["symbol"]: PineZRevLegStrategy(
             symbol=leg["symbol"],
             position_direction=(+1 if leg["direction"] == "long" else -1),
             armed_state=shared,
+            execution_timing=et,
         )
         for leg in parsed["basket"]["legs"]
     }
