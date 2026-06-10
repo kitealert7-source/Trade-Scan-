@@ -53,13 +53,14 @@ def test_column_budget_not_exceeded():
     assert list(out.columns) == COINTEGRATION_VIEW_COLUMNS
 
 
-def test_column_budget_locked_at_22():
+def test_column_budget_locked_at_24():
     # The cap is asserted explicitly so an accidental addition to
     # COINTEGRATION_VIEW_COLUMNS without a budget bump fails loudly.
     # Bumped 20 -> 21 (2026-06-04): added 'series' variant/sizing filter aid.
     # Bumped 21 -> 22 (2026-06-05): added 'realized_net%'.
-    assert COINTEGRATION_VIEW_BUDGET == 22
-    assert len(COINTEGRATION_VIEW_COLUMNS) == 22
+    # Bumped 22 -> 24 (2026-06-10): added 'span_len' + 'n_spans' before 'cycles'.
+    assert COINTEGRATION_VIEW_BUDGET == 24
+    assert len(COINTEGRATION_VIEW_COLUMNS) == 24
 
 
 def test_series_classification():
@@ -204,6 +205,46 @@ def test_pair_class_new_cols_positioned_after_lookback():
     assert cols.index("all_profitable") == cols.index("coint_friendly") + 1
     assert cols.index("series") == cols.index("all_profitable") + 1
     assert cols.index("run_date") == cols.index("series") + 1
+
+
+def test_span_cols_positioned_immediately_before_cycles():
+    # span_len then n_spans sit directly before 'cycles' (cycles + everything
+    # after shifts right). Order: ...total_trades, span_len, n_spans, cycles.
+    cols = COINTEGRATION_VIEW_COLUMNS
+    assert cols.index("n_spans") == cols.index("span_len") + 1
+    assert cols.index("cycles") == cols.index("n_spans") + 1
+    assert cols.index("span_len") == cols.index("cycles") - 2
+
+
+def test_span_len_sourced_from_continuous_span_obs():
+    # span_len is the per-episode span length, renamed from continuous_span_obs.
+    out = build_cointegration_view_df(_raw([
+        _row("R1", 1.0, "2026-05-28T00:00:00Z", continuous_span_obs=78),
+    ]))
+    assert "span_len" in out.columns
+    assert "continuous_span_obs" not in out.columns  # renamed away
+    assert out.iloc[0]["span_len"] == 78
+
+
+def test_n_spans_counts_per_pair_series_cohort():
+    # Three runs for the same pair+series -> n_spans == 3 across all three rows;
+    # a different series (or different pair) is counted independently.
+    rows = [
+        _row("A0", 1.0, "2026-05-28T00:00:00Z", pair_a="AUDJPY", pair_b="CADJPY",
+             directive_id="90_PORT_AUDJPYCADJPY_15M_X_L30_GP_ZCRS_CXN1__E1"),
+        _row("A1", 1.0, "2026-05-28T00:00:00Z", pair_a="AUDJPY", pair_b="CADJPY",
+             directive_id="90_PORT_AUDJPYCADJPY_15M_X_L30_GP_ZCRS_CXN1__E2"),
+        _row("A2", 1.0, "2026-05-28T00:00:00Z", pair_a="AUDJPY", pair_b="CADJPY",
+             directive_id="90_PORT_AUDJPYCADJPY_15M_X_L30_GP_ZCRS_CXN1__E3"),
+        # Same pair, different series arm -> its own count (1).
+        _row("B0", 1.0, "2026-05-28T00:00:00Z", pair_a="AUDJPY", pair_b="CADJPY",
+             directive_id="90_PORT_AUDJPYCADJPY_15M_X_L30_GP__E1"),
+    ]
+    out = build_cointegration_view_df(_raw(rows))
+    zcrs = out[out["series"] == "GP_ZCRS_CXN1"]
+    gp = out[out["series"] == "GP"]
+    assert set(zcrs["n_spans"].tolist()) == {3}
+    assert set(gp["n_spans"].tolist()) == {1}
 
 
 # ---------- coint_friendly thresholds ----------
