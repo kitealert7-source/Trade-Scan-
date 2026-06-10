@@ -708,6 +708,7 @@ def _instantiate_rule(
             coint_break_exit=bool(params.get("coint_break_exit", False)),
             coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
             max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,
