@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: BROKEN
+- BROKEN: 9 commits not pushed to origin
 
-> Generated: 2026-06-08T00:25:49Z
+> Generated: 2026-06-10T16:38:13Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 6963 directives
+- Completed: 9633 directives
 
 ## Ledgers
 
@@ -29,18 +29,18 @@
 - LIVE: 0 | RETIRED: 0 | LEGACY: 0
 
 ## Vault (DRY_RUN_VAULT)
-- Snapshots: 15 | Latest: `DRY_RUN_2026_06_07__75a53641`
+- Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-07** | Symbols: 221
+- Latest bar: **2026-06-10** | Symbols: 221 | **Stale (>3d): 6**
 
 ## Artifacts
-- Run directories: 3643
+- Run directories: 3875
 
 ## Git Sync
-- Remote: IN SYNC (vs `origin/main`)
-- Working tree: 1 uncommitted
-- Last substantive commit: `adbecf99 test(basket): rewrite vault tests for removed baskets/ auto-write (db87f977)`
+- Remote: **9 commits ahead of origin/feat/cointegration-onboarding** (vs `origin/feat/cointegration-onboarding`)
+- Working tree: 2673 uncommitted
+- Last substantive commit: `4d885658 chore(governance): re-pin recycle-rule hashes after D3 latch-reset`
 
 ## Deferred Maintenance
 
