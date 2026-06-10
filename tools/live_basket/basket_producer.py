@@ -51,6 +51,12 @@ DEFAULT_RUN_ID = "DEMOPRODV0"      # provenance stamp threaded into per_bar_reco
 DEFAULT_FETCH_N = 500              # >> 2*n_window warmup; bounds the O(N^2) replay cost
 DEFAULT_POLL_SECONDS = 60          # < 300s shim heartbeat-staleness guard
 REPLAY_TAIL = 1500                 # offline validation: cap bars for bounded runtime
+# Daily-regime staleness threshold (calendar days). The screener reclassifies
+# the 1d/252 cointegration regime daily; if the newest daily as_of is more than
+# this many days behind the latest 15m bar, the regime is STALE -> we HOLD the
+# last-known value (ffill keeps it) and warn, but do NOT flatten on the miss.
+# 5d absorbs a weekend + a couple of missed screener runs without crying wolf.
+COINT_REGIME_STALE_DAYS = 5
 
 
 # ---- USD-reference derivation (inlined to keep the live producer dependency-light;
@@ -96,6 +102,10 @@ class BasketConfig:
     signal_dir: Path
     run_id: str
     fetch_n: int
+    # Daily cointegration regime lookback (252 / 504) from the directive's
+    # basket.cointegration_join.lookback_days, or None when the directive does
+    # not configure a join (regime gate then has no source -> column omitted).
+    coint_lookback_days: int | None = None
 
 
 def _descriptor_path(basket_id: str) -> Path:
@@ -132,6 +142,8 @@ def derive_basket_config(basket_id: str, *, run_id: str = DEFAULT_RUN_ID,
     if len(legs) != 2:
         raise SystemExit(f"basket {basket_id!r} has {len(legs)} legs; the V0 producer supports exactly 2")
     leg_syms = [leg["symbol"] for leg in legs]
+    cj = (parsed["basket"].get("cointegration_join") or {})
+    coint_lookback_days = cj.get("lookback_days")
     return BasketConfig(
         basket_id=basket_id,
         directive_id=directive_id,
@@ -145,6 +157,7 @@ def derive_basket_config(basket_id: str, *, run_id: str = DEFAULT_RUN_ID,
         signal_dir=_TRADESCAN_STATE / "TS_SIGNAL_STATE" / "h2_live" / basket_id,
         run_id=run_id,
         fetch_n=fetch_n,
+        coint_lookback_days=coint_lookback_days,
     )
 
 
@@ -180,6 +193,13 @@ def _make_replay_fn(cfg: BasketConfig):
     def replay_fn(df_a_prefix: pd.DataFrame, df_b_prefix: pd.DataFrame):
         # PURITY: copy frames (run mutates leg.df) + fresh leg_strategies each call.
         leg_data = {cfg.sym_a: df_a_prefix.copy(), cfg.sym_b: df_b_prefix.copy()}
+        # D3 live cointegration-regime gate: join the DAILY 1d/lookback regime
+        # (ffill-projected onto the 15m grid) onto BOTH legs as `coint_regime`.
+        # One local SQLite read per cycle -- no MT5, no broker rate. The rule's
+        # coint_break_exit gate reads this column; fail-safe 'broken' when absent.
+        regime_daily = _fetch_daily_regime(cfg)
+        for sym in (cfg.sym_a, cfg.sym_b):
+            _attach_coint_regime(leg_data[sym], regime_daily, basket_id=cfg.basket_id)
         result = run_basket_pipeline(
             cfg.parsed, leg_data, _build_leg_strategies(cfg.parsed),
             run_id=cfg.run_id, directive_id=cfg.directive_id,
@@ -193,6 +213,73 @@ def _make_replay_fn(cfg: BasketConfig):
 def _attach_usd_refs(leg_df: pd.DataFrame, ref_frames: dict) -> pd.DataFrame:
     for pair, ref_df in ref_frames.items():
         leg_df[f"usd_ref_{pair}_close"] = ref_df["close"].reindex(leg_df.index, method="ffill")
+    return leg_df
+
+
+# ---- live cointegration-regime join (D3 gate; SQLite read, no MT5/broker rate) -- #
+def _fetch_daily_regime(cfg: BasketConfig) -> pd.Series | None:
+    """Daily 1d/<lookback> `coint_regime` series for this basket's pair.
+
+    REUSES basket_data_loader.load_cointegration_factors_from_db (the same SQL
+    the BACKTEST loader runs) -- no reimplemented query. Returns a date-indexed
+    Series of regime strings, or None when no join is configured / the pair is
+    absent / the DB is missing. None means 'no regime source' -> the caller
+    fail-safes the column to 'broken' (never enter a spread we can't classify).
+
+    A local SQLite read: no MT5 call, no broker rate consumed."""
+    if cfg.coint_lookback_days is None:
+        return None  # directive configured no cointegration_join -> no regime source
+    try:
+        from tools.basket_data_loader import load_cointegration_factors_from_db
+        daily = load_cointegration_factors_from_db(
+            cfg.sym_a, cfg.sym_b, int(cfg.coint_lookback_days),
+        )
+    except FileNotFoundError:
+        print("  PRODUCER_REGIME_WARN  cointegration.db missing -> regime unavailable "
+              "(fail-safe 'broken', no entries)", flush=True)
+        return None
+    except KeyError:
+        print(f"  PRODUCER_REGIME_WARN  pair ({cfg.sym_a},{cfg.sym_b}) not in DB universe "
+              "-> regime unavailable (fail-safe 'broken', no entries)", flush=True)
+        return None
+    if daily is None or daily.empty or "coint_regime" not in daily.columns:
+        return None
+    return daily["coint_regime"].sort_index()
+
+
+def _attach_coint_regime(leg_df: pd.DataFrame, regime_daily: pd.Series | None,
+                         *, basket_id: str = "") -> pd.DataFrame:
+    """ffill-project the DAILY regime onto the leg's intraday (15m) bar index as
+    the `coint_regime` column -- mirrors basket_data_loader.py:843-851 (reindex
+    method='ffill'). Staleness / fail-safe policy (D3):
+
+      * No regime source at all (regime_daily is None/empty) -> the ENTIRE column
+        is 'broken' (fail safe to NOT entering -- never trade a spread we cannot
+        classify).
+      * Regime present but STALE (newest daily as_of > COINT_REGIME_STALE_DAYS
+        behind the latest bar) -> HOLD the last-known regime (ffill already does
+        this) and WARN. NO spurious flatten on a transient miss.
+      * Bars BEFORE the first daily as_of (no prior classification) -> 'broken'
+        (same fail-safe; ffill leaves them NaN, which we fill explicitly)."""
+    idx = leg_df.index
+    if regime_daily is None or len(regime_daily) == 0:
+        leg_df["coint_regime"] = "broken"   # fail-safe: unclassifiable -> no entry
+        return leg_df
+    projected = regime_daily.reindex(idx, method="ffill")
+    # Bars earlier than the first daily classification -> fail-safe 'broken'.
+    projected = projected.where(projected.notna(), other="broken")
+    leg_df["coint_regime"] = projected.astype("object")
+    # Staleness warning (HOLD policy: ffill already carried the last value forward;
+    # we only surface a warning, never alter behaviour on a transient miss).
+    if len(idx) > 0:
+        newest_asof = regime_daily.index.max()
+        latest_bar = idx.max()
+        age_days = (latest_bar.normalize() - newest_asof.normalize()).days
+        if age_days > COINT_REGIME_STALE_DAYS:
+            print(f"  PRODUCER_REGIME_WARN  {basket_id} daily regime STALE: newest "
+                  f"as_of={newest_asof.date()} is {age_days}d behind latest bar "
+                  f"{latest_bar.date()}; HOLDING last-known regime "
+                  f"({regime_daily.iloc[-1]!r})", flush=True)
     return leg_df
 
 

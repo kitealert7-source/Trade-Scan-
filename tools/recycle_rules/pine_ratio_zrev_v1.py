@@ -487,6 +487,18 @@ class PineRatioZRevRule(H2RecycleRule):
             return False
         return isinstance(regime, str) and regime.strip().lower() not in ("", "cointegrated")
 
+    def _regime_is_cointegrated(self, legs: list[BasketLeg], bar_ts: pd.Timestamp) -> bool:
+        """True iff this bar's per-bar `coint_regime` value is exactly
+        'cointegrated' (case/space-insensitive). The mirror of
+        `_regime_break_fires`: a missing column, NaN, or non-string -> False
+        (no re-cointegration evidence). Read-only; never consults the flag (the
+        caller gates on `coint_break_exit`)."""
+        try:
+            regime = legs[0].df.loc[bar_ts, self.coint_regime_column]
+        except (KeyError, ValueError, TypeError):
+            return False
+        return isinstance(regime, str) and regime.strip().lower() == "cointegrated"
+
     def _maybe_break_exit(
         self,
         legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp,
@@ -503,7 +515,24 @@ class PineRatioZRevRule(H2RecycleRule):
         FLAT-state propose path -- guarded by `not self._regime_broken` in every
         variant -- never re-arms an entry into a dead spread. Also clears any
         pending proposal in the shared armed state. No-op (returns False) when
-        the flag is off, so the default path is byte-identical."""
+        the flag is off, so the default path is byte-identical.
+
+        LATCH RESET (re-cointegration re-entry, 2026-06-10): when the flag is on
+        and THIS bar's regime has RETURNED to 'cointegrated', clear the latch so
+        the unchanged z-cross entry can fire a fresh cycle. The DB regime is
+        already hysteresis-classified (5-day persistence: 'cointegrated' needs
+        p<0.05 now AND >=4/5 priors <0.05), so reset only fires after the screener
+        has re-confirmed the spread -- no whipsaw. Gated entirely behind
+        `coint_break_exit`, so the default path is untouched (latch starts False
+        and never moves when the flag is off)."""
+        if not self.coint_break_exit:
+            return False  # whole hook (latch + reset + exit) inert when flag off
+        # Re-cointegration latch reset: a returned-to-cointegrated bar re-enables
+        # entry. Runs BEFORE the break predicate so a 'cointegrated' bar clears
+        # the latch and falls through to the entry/approve path. (A bar cannot be
+        # both 'cointegrated' and a break, so this never masks an exit.)
+        if self._regime_broken and self._regime_is_cointegrated(legs, bar_ts):
+            self._regime_broken = False
         if not self._regime_break_fires(legs, bar_ts):
             return False
         self._regime_broken = True  # latch: never re-enter a broken spread

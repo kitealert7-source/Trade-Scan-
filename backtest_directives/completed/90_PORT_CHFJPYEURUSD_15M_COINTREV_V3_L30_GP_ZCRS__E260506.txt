@@ -68,6 +68,7 @@ basket:
     version: 1
     params:
       entry_fill_timing: current_bar_open
+      coint_break_exit: true
       n_window: 30
       n_meta: 100
       z_entry: 2.0
