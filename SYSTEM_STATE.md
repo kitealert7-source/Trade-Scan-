@@ -1,9 +1,10 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 9 commits not pushed to origin
+## SESSION STATUS: WARNING
+- WARNING: 6 symbol(s) stale (>3 days behind)
+- WARNING: Working tree 2673 uncommitted
 
-> Generated: 2026-06-10T16:38:13Z
+> Generated: 2026-06-10T16:47:35Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -38,9 +39,9 @@
 - Run directories: 3875
 
 ## Git Sync
-- Remote: **9 commits ahead of origin/feat/cointegration-onboarding** (vs `origin/feat/cointegration-onboarding`)
+- Remote: IN SYNC (vs `origin/feat/cointegration-onboarding`)
 - Working tree: 2673 uncommitted
-- Last substantive commit: `4d885658 chore(governance): re-pin recycle-rule hashes after D3 latch-reset`
+- Last substantive commit: `7fe41170 session: closing SYSTEM_STATE snapshot (feature branch; pushes held local per convention)`
 
 ## Deferred Maintenance
 
