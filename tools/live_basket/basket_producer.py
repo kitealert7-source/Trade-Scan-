@@ -32,6 +32,7 @@ if str(_TS_ROOT) not in sys.path:
 from tools.pipeline_utils import parse_directive                       # noqa: E402
 from tools.recycle_strategies import PineZRevArmedState, PineZRevLegStrategy  # noqa: E402
 from tools.basket_pipeline import run_basket_pipeline                   # noqa: E402
+from tools.live_basket import demo_outcome_ledger as _dol               # noqa: E402
 from tools.live_basket.driver import (                                  # noqa: E402
     StreamingBasketRunner, target_sequence_from_records,
 )
@@ -162,6 +163,14 @@ def _build_leg_strategies(parsed: dict) -> dict:
     }
 
 
+# Diagnostic ledger (demo_tradelevel_v1) state — single producer process per basket.
+# The replay returns only per_bar_records; stash recycle_events + per_leg_trades
+# so _run_cycle can emit the per-cycle ledger with NO second engine call.
+_DIAG_STASH: dict = {"recycle_events": [], "per_leg_trades": {}}
+_LEDGER_KEYS: set = set()
+_SCREENER_CON = None
+
+
 def _make_replay_fn(cfg: BasketConfig):
     def replay_fn(df_a_prefix: pd.DataFrame, df_b_prefix: pd.DataFrame):
         # PURITY: copy frames (run mutates leg.df) + fresh leg_strategies each call.
@@ -170,6 +179,8 @@ def _make_replay_fn(cfg: BasketConfig):
             cfg.parsed, leg_data, _build_leg_strategies(cfg.parsed),
             run_id=cfg.run_id, directive_id=cfg.directive_id,
         )
+        _DIAG_STASH["recycle_events"] = list(result.recycle_events)
+        _DIAG_STASH["per_leg_trades"] = result.per_leg_trades
         return result.per_bar_records
     return replay_fn
 
@@ -227,6 +238,19 @@ def _run_cycle(runner: StreamingBasketRunner, mt5, cfg: BasketConfig):
         latest = str(df_a.index[-1]) if len(df_a) else "?"
         print(f"  PRODUCER_NOOP    latest_closed_bar={latest} (no state change / warmup)", flush=True)
 
+    # Diagnostic ledger (demo_tradelevel_v1): emit any newly-completed cycles.
+    # Wrapped — a ledger failure must NEVER break signal generation.
+    try:
+        recs = _dol.assemble_cycles(
+            _DIAG_STASH["recycle_events"], _DIAG_STASH["per_leg_trades"],
+            basket_id=cfg.basket_id, epoch=getattr(cfg, "epoch", 0))
+        n = _dol.emit_new(cfg.signal_dir / "DemoOutcomeLedger.jsonl", recs, _LEDGER_KEYS,
+                          screener_con=_SCREENER_CON, sym_a=cfg.sym_a, sym_b=cfg.sym_b)
+        if n:
+            print(f"  PRODUCER_LEDGER  +{n} cycle(s) -> DemoOutcomeLedger.jsonl", flush=True)
+    except Exception as e:
+        print(f"  PRODUCER_LEDGER_ERROR  {type(e).__name__}: {e}", flush=True)
+
 
 # ---- offline validation / replay (no MT5, no bridge write) --------------------- #
 def _replay_csv(cfg: BasketConfig, sym_to_path: dict) -> int:
@@ -280,6 +304,17 @@ def main() -> int:
     print(f"  PRODUCER_START  basket={cfg.basket_id}  signal_dir={cfg.signal_dir}  "
           f"legs=({cfg.sym_a},{cfg.sym_b})  usd_refs={cfg.usd_ref_symbols}  tf={cfg.mt5_tf_attr}", flush=True)
     runner = StreamingBasketRunner(cfg.signal_dir, cfg.basket_id, _make_replay_fn(cfg), n_legs=2)
+    # Diagnostic ledger: seed dedup keys (survive restart) + open read-only screener DB.
+    global _LEDGER_KEYS, _SCREENER_CON
+    _LEDGER_KEYS = _dol.seed_keys(cfg.signal_dir / "DemoOutcomeLedger.jsonl")
+    try:
+        import sqlite3
+        from tools.cointegration_db import SQLITE_DB
+        _SCREENER_CON = sqlite3.connect(f"file:{SQLITE_DB}?mode=ro", uri=True)
+        print(f"  PRODUCER_LEDGER  schema={_dol.SCHEMA_VERSION} seeded={len(_LEDGER_KEYS)} cycle(s)", flush=True)
+    except Exception as e:
+        print(f"  PRODUCER_LEDGER  screener DB unavailable ({e}); snapshots will be null", flush=True)
+        _SCREENER_CON = None
     mt5 = _connect_mt5()
     _prt.start_telemetry(cfg.basket_id)   # measure-only MT5 rate telemetry -> producer.log
     try:

@@ -157,6 +157,14 @@ class PineRatioZRevRuleZCross(PineRatioZRevRule):
         except (KeyError, ValueError, TypeError):
             signal_value = 0
 
+        # Z-diagnostics (demo_tradelevel_v1): surface the signal z for the demo
+        # outcome ledger. Read-only — never affects entry/exit decisions.
+        _z_col = "pine_zrev_z_centered" if self.entry_mode == "centered" else "pine_zrev_z"
+        try:
+            z_now = float(legs[0].df.loc[bar_ts, _z_col])
+        except (KeyError, ValueError, TypeError):
+            z_now = float("nan")
+
         if all_open and not self._basket_open:
             self._basket_open = True
             self._entry_bar_idx = i
@@ -167,6 +175,13 @@ class PineRatioZRevRuleZCross(PineRatioZRevRule):
                 self._basket_direction = int(legs[0].state.direction or 0)
             entry_lots = {leg.symbol: leg.lot for leg in legs}
             self._entry_lots = entry_lots
+            # Z-diagnostics: pin entry z (the TRIGGER z, not the lagged fill z) +
+            # init the cycle z-excursion trackers from the fill bar.
+            _trigger_z = getattr(self, "_pending_trigger_z", z_now)
+            self._cycle_entry_z = _trigger_z
+            self._cycle_entry_dir = self._basket_direction
+            self._cycle_z_lo = z_now
+            self._cycle_z_hi = z_now
             # Tradelevel enrichment: inherited from baseline rule.
             self._snapshot_cycle_entry_ctx(legs, bar_ts, bar_closes)
             self.recycle_events.append({
@@ -176,6 +191,8 @@ class PineRatioZRevRuleZCross(PineRatioZRevRule):
                 "direction":     self._basket_direction,
                 "entry_r_bar":   self._entry_r_bar,
                 "entry_lots":    entry_lots,
+                "entry_z":       _trigger_z,
+                "entry_fill_z":  z_now,
                 "leg_directions": {l.symbol: l.effective_direction for l in legs},
             })
             if state is not None:
@@ -183,6 +200,10 @@ class PineRatioZRevRuleZCross(PineRatioZRevRule):
 
         # Per-bar excursion tracking for the open cycle (no-op if flat).
         self._update_cycle_excursions(legs, bar_ts, bar_closes)
+        # Z-excursion (demo_tradelevel_v1): track the cycle's z range for the ledger.
+        if self._basket_open and z_now == z_now:  # nan-safe
+            self._cycle_z_lo = min(getattr(self, "_cycle_z_lo", z_now), z_now)
+            self._cycle_z_hi = max(getattr(self, "_cycle_z_hi", z_now), z_now)
 
         # COINTEGRATION-BREAK EXIT (live-safety, opt-in; inert in the
         # all-cointegrated backtest corpus) — fires before the equilibrium exit.
@@ -225,8 +246,24 @@ class PineRatioZRevRuleZCross(PineRatioZRevRule):
                 floating_total = 0.0
                 leg_float = {leg.symbol: 0.0 for leg in legs}
 
+        if equilibrium_exit:
+            # Z-diagnostics (demo_tradelevel_v1): one per-cycle z record at exit.
+            self.recycle_events.append({
+                "bar_ts":    bar_ts,
+                "action":    "CYCLE_Z_DIAG",
+                "entry_z":   getattr(self, "_cycle_entry_z", float("nan")),
+                "exit_z":    z_now,
+                "z_lo":      getattr(self, "_cycle_z_lo", float("nan")),
+                "z_hi":      getattr(self, "_cycle_z_hi", float("nan")),
+                "direction": getattr(self, "_cycle_entry_dir", 0),
+            })
+            self._cycle_entry_z = None
+            self._cycle_z_lo = None
+            self._cycle_z_hi = None
+
         if not all_open and not equilibrium_exit:
             if signal_value in (+1, -1):
+                self._pending_trigger_z = z_now   # demo_tradelevel_v1: z that fired the entry
                 self._maybe_propose(signal_value, bar_ts)
             self._maybe_approve(legs, i, bar_ts)
             self._emit_record(
