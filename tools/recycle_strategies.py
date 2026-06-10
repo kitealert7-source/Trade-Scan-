@@ -490,6 +490,7 @@ class PineZRevLegStrategy:
         *,
         armed_state: PineZRevArmedState | None = None,
         signal_column: str = "pine_zrev_signal",
+        execution_timing: str = "next_bar_open",
     ) -> None:
         """Init.
 
@@ -503,6 +504,11 @@ class PineZRevLegStrategy:
                 for production multi-leg flow.
             signal_column: leg.df column carrying the z_r cross signal.
                 Default matches the column attached by PineRatioZRevRule.
+            execution_timing: "next_bar_open" (default, fill at N+2 open) or
+                "current_bar_open" (opt-in, fill at the fire bar's own open =
+                N+1). When non-default, the fire-phase return dict carries
+                execution_timing through to the engine so the pending entry is
+                consumed on the fire bar instead of being deferred one more bar.
         """
         if position_direction not in (+1, -1):
             raise ValueError(
@@ -513,6 +519,7 @@ class PineZRevLegStrategy:
         self.position_direction = position_direction
         self.armed_state = armed_state if armed_state is not None else PineZRevArmedState()
         self.signal_column = signal_column
+        self.execution_timing = execution_timing
         self.name = f"pine_zrev_{symbol}_pos{'+' if position_direction > 0 else '-'}"
 
     def prepare_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -541,7 +548,10 @@ class PineZRevLegStrategy:
             if state.proposed_direction == 0:
                 return None
             signal = int(self.position_direction) * int(state.proposed_direction)
-            return {"signal": signal}
+            ret = {"signal": signal}
+            if self.execution_timing != "next_bar_open":
+                ret["execution_timing"] = self.execution_timing
+            return ret
         return None
 
     def check_exit(self, ctx) -> bool:

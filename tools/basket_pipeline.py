@@ -148,6 +148,14 @@ _EXTERNAL_CONSUMER_PARAMS: dict[tuple[str, int], frozenset[str]] = {
         "macro_z_window", "macro_sma_window",
         "macro_correlation_window", "macro_correlation_threshold",
     }),
+    # pine_ratio_zrev_v1 family: run_pipeline._build_pine_zrev_legs reads
+    # entry_fill_timing and forwards it to PineZRevLegStrategy.execution_timing
+    # ("next_bar_open" default = N+2 fill; "current_bar_open" = N+1 fill). The
+    # rule dataclass itself never sees this key.
+    ("pine_ratio_zrev_v1", 1):        frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zcross", 1): frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zband", 1):  frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zopp", 1):   frozenset({"entry_fill_timing"}),
 }
 
 
