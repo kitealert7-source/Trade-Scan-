@@ -71,7 +71,7 @@ basket:
       coint_break_exit: true
       n_window: 30
       n_meta: 100
-      z_entry: 2.0
+      z_entry: 2.5
       entry_mode: absolute
       hedge_lock_at_entry: true
       always_in_market: true
