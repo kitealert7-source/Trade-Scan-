@@ -98,6 +98,8 @@ python tools/tests/test_warmup_extension.py
 
 After human approval, launch the multi-stage backtest.
 
+> **New rule? Build it first.** If any directive names a recycle rule not yet pipeline-routable (a NEW rule), STOP and build it via [`/port-strategy`](../port-strategy/SKILL.md) — a new rule needs all 5 wiring points (rule file · `recycle_rules/__init__` · `registry.yaml` · `basket_pipeline._instantiate_rule` · `run_pipeline.LEG_STRATEGY_DISPATCH`), `tests/test_leg_strategy_dispatch.py` must pass, and `generate_guard_manifest.py` re-run — or every directive fails silently with `LegDispatchError`.
+
 // turbo
 
 ```bash
@@ -105,6 +107,8 @@ python tools/run_pipeline.py --all
 ```
 
 *Monitor Stages 1-4. On failure, refer to **Step 5: Failure Handling** below.*
+
+> **Exit 0 ≠ success.** The batch prints `[SUCCESS]` and exits 0 even when EVERY directive failed (`[BATCH] FAILED` per directive) or it paused on a startup guard. ALWAYS verify the real result: scan output for `[BATCH] FAILED` / `Paused`, AND confirm new rows actually landed (MPS / candidates). Never trust the banner.
 
 ### Step 6: Capital Wrapper Execution
 
@@ -196,6 +200,7 @@ On ANY failure:
 ## Appendix B: Protected Infrastructure Policy
 The agent MUST NOT modify the following without an **implementation plan** and **user approval**:
 - `tools/*.py`, `engines/*.py`, `governance/*.py`, `vault/**`, `.agents/workflows/*.md`.
+- **Never write scratch / analysis outputs into governed dirs** (`strategies/`, etc.) — the startup Strategy-Directory-Drift guard pauses the whole batch until reconciled. Put scratch in `tmp/` or `outputs/`.
 
 ## Appendix C: System Contract
 - Deterministic, Ledger-authoritative, Append-only, Fail-fast.
@@ -210,4 +215,6 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| 2026-06-12 | New-rule LegDispatchError; port-strategy had the fix, run path didn't reach it | Added new-rule → /port-strategy routing gate to Step 5 |
+| 2026-06-12 | Batch printed [SUCCESS]/exit-0 while all directives failed or paused on a guard | Added 'exit 0 ≠ success — verify artifacts' to Step 5 |
+| 2026-06-12 | Scratch CSV in strategies/ tripped the drift guard, paused the batch | Added 'no scratch in governed dirs' to Appendix B |
