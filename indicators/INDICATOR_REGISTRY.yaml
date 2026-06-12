@@ -2717,8 +2717,47 @@ indicators:
     - close
     registered_at: '2026-06-12'
     notes: AR(1)/OU fit on log-levels per window; b>=0 -> +inf, b<=-1 -> 1.0 floor. Companion to pine_ratio_zrev_v1_zcross_hl recycle rule.
+  normalized_net_move:
+    module_path: indicators.stats.normalized_net_move
+    category: stats
+    function_name: normalized_net_move
+    classification: Statistical
+    input_requirements:
+    - series: pd.Series of strictly positive prices (log-returns taken internally)
+    parameters:
+      window: int — trailing bars for the net move (default 12)
+      min_vol_obs: int — min return obs before the expanding vol is defined (default 100)
+    default_parameters:
+      window: 12
+      min_vol_obs: 100
+    output_type: Series
+    output_columns:
+    - nnm: float — |trailing net log-return| / (expanding sigma * sqrt(window)); >=0; NaN = warmup/zero-vol (fail-open)
+    output_scale: 0..~5 typical (vol-scaled displacement)
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Net DISPLACEMENT gate (not variance): blocks fading large directional
+      repricings (pine_ratio_zrev_v1_zcross_lm blocks entries when either leg > 2.0).
+      High vol with zero drift scores ~0 -- distinct from volatility-regime measures.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      suitable_for_HTF: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: window
+    warmup: min_vol_obs + window
+    input_columns:
+    - close
+    registered_at: '2026-06-12'
+    notes: Causal normalizer (expanding sigma, ddof=0). Companion to pine_ratio_zrev_v1_zcross_lm recycle rule (LM20 arm).
 registry_summary:
-  total_indicators: 72
+  total_indicators: 73
   by_category:
     momentum_count: 11
     trend_count: 8
@@ -2726,10 +2765,10 @@ registry_summary:
     regime_count: 10
     structure_count: 16
     composite_count: 3
-    statistical_count: 8
+    statistical_count: 9
     macro_count: 2
     price_pattern_count: 2
-  intraday_ready: 49
+  intraday_ready: 50
   daily_ready: 46
   htf_ready: 65
   lookahead_safe: 70
