@@ -2650,6 +2650,7 @@ indicators:
       n_meta: 100
     output_type: DataFrame
     output_columns:
+    - ratio: float — A/B raw price ratio (zero-denominator-safe) — canonical series r_bar averages; consumed by the Hurst entry filter (pine_ratio_zrev_v1_zcross_hf)
     - r_bar: float — rolling mean of A/B over n bars (hedge ratio)
     - spread_r: float — A - r_bar*B (ratio-hedged spread)
     - z_r: float — (spread_r - SMA) / STDEV — Pine-equivalent reversal signal

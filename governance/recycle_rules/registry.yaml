@@ -1075,3 +1075,71 @@ rules:
       default_initial_lot:
         type: float
         default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_hf
+    version: 1
+    description: >
+      Hurst entry-filter overlay on the zero-cross exit variant (2026-06-12,
+      HF55 arm). Identical to pine_ratio_zrev_v1_zcross (entries, hedge lock,
+      sizing, warmup, zcross exit, fill timing) PLUS one entry condition:
+
+        BLOCK the entry proposal when the pair's canonical price ratio is
+        locally persistent -- trailing hurst_window-bar R/S Hurst exponent
+        (indicators.trend.hurst_rs) of the ratio > hurst_block_above at the
+        proposal (signal) bar. The Hurst input is the pine_zrev_ratio column
+        attached by the parent from ratio_hedged_spread_zscore's `ratio`
+        output -- the SAME series the hedge ratio derives from, never an
+        independent reconstruction.
+
+      Hypothesis (operator-approved 2026-06-12): blocking high-persistence
+      entries improves median cycle PnL, win rate, and tail p05 across all
+      pair classes at ~25% fewer cycles; run-level blowup count expected
+      unchanged. Threshold/window optimization explicitly OUT OF SCOPE for
+      this arm (50 / 0.55 operator-fixed). Step-1 PROVISIONAL evidence:
+      tmp/hurst_step1_report.md (421 champion runs / 13,461 cycles).
+
+      Fail-open: NaN/warmup/degenerate H never blocks. Telemetry event on a
+      block: HURST_BLOCK (carries the blocked H value -- distribution of
+      blocked H reconstructable from events). Set hurst_block_above beyond
+      the estimator's reach (e.g. 1e9) to recover exact champion behavior
+      (the parity gate).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_hf.py.
+      Subclasses PineRatioZRevRuleZCross; extends _attach_z_r (computes
+      pine_zrev_hurst from the canonical ratio on the intersected index) and
+      gates _maybe_propose (the proposal bar; mirrors the parent's idle-state
+      guard so the block count = true removed entries).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      hurst_window:
+        type: int
+        default: 50
+      hurst_block_above:
+        type: float
+        default: 0.55
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01

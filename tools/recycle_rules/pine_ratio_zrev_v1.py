@@ -344,6 +344,11 @@ class PineRatioZRevRule(H2RecycleRule):
         for leg in legs:
             leg.df[self.signal_column] = signal_aligned.reindex(leg.df.index, fill_value=0)
             leg.df[self.r_bar_column] = z_data["r_bar"].reindex(leg.df.index)
+            # Canonical raw price ratio (A/B on the intersected index), straight
+            # from ratio_hedged_spread_zscore — single source of truth for any
+            # overlay that measures the ratio itself (e.g. the Hurst entry
+            # filter in pine_ratio_zrev_v1_zcross_hf). Inert for this rule.
+            leg.df["pine_zrev_ratio"] = z_data["ratio"].reindex(leg.df.index)
             leg.df["pine_zrev_z"] = z_data["z_r"].reindex(leg.df.index)
             if self.entry_mode == "centered":
                 leg.df["pine_zrev_z_centered"] = z_data["z_r_centered"].reindex(leg.df.index)
