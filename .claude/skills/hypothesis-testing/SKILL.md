@@ -1,406 +1,307 @@
 ---
 name: hypothesis-testing
-description: Controlled hypothesis-driven re-testing using ranked actionable insights from hypothesis_tester.py
+description: Unified orchestrator for backtest-from-a-hypothesis (single-asset + basket): classify → form → run → analyse → record.
 ---
 
-## Hypothesis Testing Workflow
+# /hypothesis-testing — research orchestrator (single-asset + basket)
 
-Orchestrates bounded, single-variable hypothesis testing against baseline strategies.
-Each hypothesis is a single exclusion derived from structured insight analysis.
-Every pass executes the full Golden Path (`execute-directives.md`) — no shortcuts.
+THE one place a backtest-from-a-hypothesis run starts. One command, one spine, both asset
+classes. Read this, classify the hypothesis, follow the matching branch.
 
-> **This workflow is a SUPERVISOR over execute-directives.md, not a replacement.**
-> Every pipeline run follows the exact same admission, approval, and execution sequence.
+> **Principle:** *Humans decide what to test. The orchestrator determines how to test it
+> rigorously.*
 
----
-
-### Scope & Invariants
-
-- **One insight per pass.** Never combine multiple exclusions.
-- **Each pass starts from baseline (P00).** No chaining — P02 does not build on P01.
-- **Directive-level changes only.** Strategy.py logic is never modified.
-- **No optimization loops.** Fixed budgets, fixed thresholds, no recursive relaxation.
-- **Human gating preserved.** Every pass requires approval before pipeline execution.
-- **No overlapping hypotheses.** Reject any insight whose target field + value range overlaps with a previously tested hypothesis in the same session. Prevents hidden parameter search (e.g. Age 3-5 then Age 3-6).
-- **Hypothesis diversity.** No two consecutive passes may target the same dimension (same `hypothesis_class`). After testing `regime_age_gradient`, the next pass must be a different class (e.g. `session_divergence`, `direction_bias`). Prevents hammering one dimension repeatedly.
+It classifies a human-proposed hypothesis and runs the matching workflow faithfully. It
+never refuses, skips, or pre-rejects.
 
 ---
 
-### Budget Limits
+## 0 · Downstream contract (binds the delegates)
 
-| Budget | Limit | Enforcement |
-|---|---|---|
-| Shadow evaluations per strategy | 10 | Counted in hypothesis_log.json |
-| Pipeline passes per strategy | 4 | Counted in hypothesis_log.json |
-| Global pipeline passes per session | 25 | Counted in hypothesis_log.json |
-
-Shadow rejections do NOT consume pipeline budget.
-Budget is checked BEFORE every shadow evaluation and pipeline execution.
+The delegated skills — [`/generate-directives`](../generate-directives/SKILL.md) (stage 2)
+and [`/execute-directives`](../execute-directives/SKILL.md) (stage 3) — receive a classified
+hypothesis plus a reference run (or a new-corpus signal) and proceed. They **must not** apply
+worth-gates, overlap checks, diversity constraints, past-success thresholds, dead-strategy
+skips, or any pre-validation rejection. On a *technical* blocker (e.g. reference-run folder
+missing, integrity check fails) they report it and halt — they do **not** decline a
+hypothesis on grounds of likelihood, redundancy, or resource priority.
 
 ---
 
-### Prerequisites
+## The spine (every branch runs all five)
 
-- Baseline run (P00) completed through full Golden Path (PORTFOLIO_COMPLETE)
-- `results_tradelevel.csv` exists for baseline
-- `tools/hypothesis_tester.py` available
-- `tools/shadow_filter.py` available
-- `tools/new_pass.py` available
-
-### Baseline Snapshot Lock
-
-**At session start**, before any hypothesis is evaluated, compute and record baseline metrics:
-
-```python
-baseline_snapshot = {
-    "strategy": "<BASELINE_NAME>",
-    "locked_at": "<UTC timestamp>",
-    "total_trades": <N>,
-    "profit_factor": <X>,
-    "sharpe_ratio": <X>,
-    "max_dd_pct": <X>,
-    "net_profit": <X>,
-    "top5_concentration": <X>,
-    "losing_years": [<list>]
-}
+```
+1. classify    ← this skill (the table below)
+2. form        → /generate-directives   (transform vs generator)
+3. run         → /execute-directives     (governed Golden Path)
+4. analyse     ← canonical, vs the LOCKED reference run
+5. record      → research_memory_append.py (incl. nulls)
 ```
 
-This snapshot is written as the first entry in hypothesis_log.json (with `stage: "baseline_lock"`).
-**All comparisons in Steps 1 and 5 use this locked snapshot**, not re-read values.
-If the baseline run folder is modified or re-run during the session, the lock is stale — abort and re-lock.
+Stages 1, 4, 5 are spelled out below; 2 and 3 are owned by the linked skills.
 
 ---
 
-### Step 0: Generate Hypothesis Report
+## 1 · Classify
 
-Run the structured insight extractor on the baseline strategy.
+> **BASKET VARIANTS — the one distinction that picks the comparison table:**
+> **mechanic = rule change on the same legs · architecture = legs change on the same rule.**
+> If both move it is two hypotheses — see "two moving variables" below.
+
+Map the hypothesis to one row. The row selects a formation method (§2) and an analysis
+recipe (§4). Covers both asset classes.
+
+| Hypothesis shape | Branch | Form (§2) | Analyse (§4) |
+|---|---|---|---|
+| Single-asset: exclude/filter trades (regime / session / direction / age) | single-asset-filter | transform · §1.SA insight scan first | §4.single |
+| Single-asset: param / rule change vs a reference run | single-asset-param | transform | §4.single |
+| Basket: recycle rule / rule-param change, same legs | basket-mechanic | transform (new rule → /port-strategy first) | §4.M + §4.S mechanic |
+| Basket: leg-composition change, same rule | basket-architecture | transform | §4.M + §4.S architecture |
+| Basket: entry/exit threshold at corpus scale | basket-cohort | transform → matched-pairs cohort | §4.cohort |
+| Any: no reference run / fresh config | new-corpus | generator (Method B) | §4.M per-run, or §4.cohort once a reference exists |
+
+`transform` = a reference run exists → Method A. `generator` = no reference run → Method B.
+
+**Two moving variables — split, do not refuse.** If the proposal moves two variables, the
+orchestrator does not reject it: it queues two directives (one per variable, sharing the
+reference run) and records both, labelled split siblings. If the human insists on one run
+with two variables, run it as a single hypothesis and note in the conclusion that
+disentanglement is incomplete — recorded, not refused.
+
+### 1.SA Single-asset insight scan (single-asset-filter only)
+
+// turbo
 
 ```bash
-python tools/hypothesis_tester.py --scan <BASELINE_DIRECTIVE_NAME>
+python tools/hypothesis_tester.py --scan <reference_directive_name>
 ```
 
-This outputs ranked, structured insights with eligibility already applied.
-
-**Strategy skip rules (any triggers immediate STOP):**
-- Zero eligible insights → nothing to test
-- Baseline PF < 1.0 AND no single eligible insight has PF > 1.3 with ≥15 trades → dead strategy, exclusion cannot fix it. (If a localized strong bucket exists, the strategy may be salvageable — allow it through.)
-- Baseline total trades < 40 → insufficient data for meaningful exclusion testing
-
-**Present to user:**
-```
-Eligible insights: N
-Top hypothesis: <class> — <description>
-Recommend testing? (yes/no)
-```
-
-User must approve before proceeding. If user says no, **STOP**.
-
-**Batch approval mode (optional):** User may grant batch approval for N passes at once:
-```
-"Approve next 3 passes"
-```
-This pre-authorizes shadow + pipeline execution for the next N hypotheses without per-step prompts.
-All governance gates (admission, registry, rehash) still execute. Results are still presented after each pass for review.
-
-**Batch class freeze:** At batch grant time, record which `hypothesis_class` values are permitted.
-Only insights matching frozen classes execute within the batch. If a different class surfaces as
-top-ranked, the batch pauses and re-prompts. This prevents batch mode from drifting into exploration.
+Prints ranked candidate filters (eligible, plus filtered-out ones *with their reasons* — it
+hides nothing). It is a **proposal tool**: the human picks which candidate to test; the
+orchestrator maps that pick to a directive-level filter in §2. No candidate is pre-rejected
+on the human's behalf, and the orchestrator never refuses to run a filter the human chose.
+The retired `shadow_filter` *rejection* gate is gone — extraction proposes, it does not bind.
 
 ---
 
-### Step 1: Shadow Pre-Validation
+## Scope & invariants (these forbid gating)
 
-For the top-ranked eligible insight, generate a filter spec and run shadow evaluation.
-
-```python
-from tools.hypothesis_tester import extract_structured_insights
-from tools.shadow_filter import evaluate_shadow_filter
-
-# Load baseline trades
-insights = extract_structured_insights(trades, starting_capital)
-eligible = [i for i in insights if i.eligible]
-top = eligible[0]  # top-ranked
-
-# Generate filter spec and evaluate
-spec = top.to_filter_spec()
-result = evaluate_shadow_filter(trades, starting_capital, spec)
-```
-
-**Rejection criteria (ANY triggers reject):**
-
-| Check | Rule |
-|---|---|
-| PF floor | Filtered PF < 1.0 |
-| PnL flip | Baseline positive -> filtered negative |
-| Trade drop (>=150 baseline) | Drop > 30% |
-| Trade drop (<150 baseline) | Drop > 20% |
-| Max DD increase | Filtered DD > baseline DD x 1.2 |
-| Top-5 concentration | Filtered top-5% > baseline top-5% x 1.2 |
-
-> **Note:** Shadow uses DD x 1.2 (lenient gate). Pipeline acceptance (Step 5) uses DD x 1.15 (stricter). This is intentional — shadow is a fast pre-filter, pipeline is the binding evaluation. An insight can pass shadow but still be rejected at pipeline evaluation on DD grounds.
-
-**If shadow REJECTS:**
-1. Log to hypothesis_log.json with `stage: "shadow_prevalidation"`
-2. Increment shadow attempt counter
-3. Move to next eligible insight
-4. If shadow attempt budget (10) exhausted, **STOP** this strategy
-
-**If shadow PASSES:**
-Continue to Step 2.
-
-**Present to user:**
-```
-Shadow result for: <hypothesis>
-  Baseline: PF <X>, Sharpe <X>, Trades <N>
-  Filtered: PF <X>, Sharpe <X>, Trades <N>
-  Trade retention: <X>%
-  Pre-validation: PASS
-Proceed to pipeline execution? (yes/no)
-```
-
-User must approve. If no, move to next insight or **STOP**.
+- **The human chooses what runs.** The orchestrator classifies and executes; it never
+  declines a proposed hypothesis.
+- **One moving variable per directive** (enforced by `/generate-directives`). Two variables
+  → split into two directives (above), never a refusal.
+- **Matched windows** — reference and variant run the same cointegrated spans.
+- **The reference run is locked at session start** (next section); all §4 deltas read the
+  frozen snapshot, never re-read live values.
+- **No gates.** No worth-gate, no pre-validation/overlap/diversity/dead-strategy/pass-budget
+  rejection — anywhere in the spine or its delegates (§0). The only hard limit is the
+  external **20 req/min capacity ceiling**, already owned by the pipeline; this skill neither
+  re-implements nor re-checks it.
+- **Record everything, including nulls** — a no-effect result is a finding.
 
 ---
 
-### Step 2: Create Pass Directive
+## Lock the reference run (session start, once)
 
-Use `new_pass.py` to scaffold the new pass from baseline.
+Lock the comparator so every delta is measured against a frozen baseline. "Reference run" is
+the `/generate-directives` term: the specific prior experiment this comparison is made
+against (a deployed config, a prior hypothesis run, a chosen comparator) — not a "best", not
+a "control". Hold the lock as a session-scoped note (UTC `locked_at` + the snapshot below);
+§4 reads it, §5 cites it.
 
-```bash
-python tools/new_pass.py <BASELINE_NAME> <NEW_PASS_NAME>
-```
+- **Single-asset:** snapshot `total_trades, profit_factor, sharpe_ratio, max_dd_pct,
+  net_profit, top5_concentration, losing_years`.
+- **Basket:** snapshot the reference directive's §4.M `canonical_metrics` (from its parquet).
+- **Cohort:** the reference is a **series tag** (e.g. `GP_ZCRS_CXN1_Z25`) — record the tag;
+  `compare_cohorts.py` reads its rows live from the MPS.
 
-**Naming convention:** `<FAMILY>_<..>_P01`, `P02`, etc. Sequential from baseline P00.
+**Stale lock is advisory, never a halt.** If the reference run is modified or re-run
+mid-session, the orchestrator continues, reports the delta against the now-stale snapshot,
+and notes the stale `locked_at` in the §5 record. The human may re-lock if concerned; the
+orchestrator never refuses a variant on lock-staleness grounds.
 
-**Then apply the hypothesis as a directive-level filter change.** Map the insight to directive YAML:
+---
 
-| Hypothesis Class | Directive Change |
-|---|---|
-| `weak_cell` (Dir x Vol) | Add `market_regime_filter.exclude: [<regime>]` + strategy direction constraint |
-| `weak_cell` (Dir x Trend) | Add `trend_filter.exclude_regime: <value>` + direction constraint |
-| `direction_bias` | Set direction constraint (long_only / short_only) in directive |
-| `session_divergence` | Add session filter constraint to directive |
-| `regime_age_gradient` | Add exact bucket exclusion: e.g. Age 3-5 = `regime_age_filter: {enabled: true, exclude_min: 3, exclude_max: 5}`. No threshold reinterpretation — bucket boundaries are literal. |
-| `late_ny_asymmetry` | Add session + direction constraint to directive |
+## 2 · Form — /generate-directives
 
-**Critical:** Only the directive YAML is edited. Strategy.py is copied unchanged from baseline — `new_pass.py` handles this. The only edit to strategy.py is the automatic name replacement (`new_pass.py` does this).
+[`/generate-directives`](../generate-directives/SKILL.md) owns the formation decision
+(transform a reference run vs generate a new corpus), one-moving-variable, retag, and
+dispatch pre-flight. Hand it the classified intent; it returns validated directives to §3.
 
-Add a comment in the directive describing the hypothesis:
+- A reference run exists → **transform** (Method A), one variable.
+- No reference run → **generator** (Method B).
+- A new recycle rule is needed first → [`/port-strategy`](../port-strategy/SKILL.md), then
+  transform onto it. Do not inline rule-build here.
+
+For basket variants, the directive carries hypothesis linkage under its `test:` block —
+`/generate-directives` injects it during transform:
 
 ```yaml
-# HYPOTHESIS: Exclude <description>
-# SOURCE: hypothesis_tester.py rank #<N>, score <X>
-# BASELINE: <P00_NAME>
+test:
+  hypothesis_ref:     <reference_run_id>
+  hypothesis_variant: <variant_id>
 ```
+
+§4 reads `hypothesis_variant` to label comparison rows back to the hypothesis.
 
 ---
 
-### Step 3: Rehash
+## 3 · Run — /execute-directives
 
-After editing the directive with the filter change:
-
-```bash
-python tools/new_pass.py --rehash <NEW_PASS_NAME>
-```
-
-This:
-1. Cleans stale state
-2. Recomputes directive hash
-3. Updates sweep_registry.yaml
-4. Pre-injects canonical signature into strategy.py
-5. Writes `.approved` marker
-6. Ensures directive is in INBOX
+[`/execute-directives`](../execute-directives/SKILL.md) owns the governed Golden Path
+(admission, new-rule routing, Stages 1–4, capital wrapper, the "exit 0 ≠ success" rule). This
+skill passes the variant directives to it and receives the result — read it in full before
+`run_pipeline.py`.
 
 ---
 
-### Step 4: Execute Golden Path
+## 4 · Analyse — vs the locked reference
 
-**Read `execute-directives.md` in full.** Then execute:
+Run the recipe the classifier chose. No metric is labelled "better" — direction is
+metric-dependent (lower maxDD is better); interpretation is the human's.
 
-```bash
-python tools/run_pipeline.py --all
-```
+### 4.M Canonical basket metrics (one formula everywhere)
 
-This runs the complete governed pipeline:
-- Admission gates (namespace, sweep registry, canonicalizer)
-- Stage 1 (engine execution)
-- Stage 2 (AK Trade Report — now includes Regime Lifecycle sheet)
-- Stage 3 (Master Filter aggregation)
-- Stage 4 (filter_strategies.py)
+The **canonical basket formula** — `tools/basket_hypothesis/canonical_metrics.py` implements it (the snippet below mirrors it); `basket_report.py` in that package emits the §4.S tables. `equity_total_usd.iloc[-1]` is
+truth; **do NOT** derive `net_pct` from MPS `final_realized_usd / stake` (diverges for @4+
+baskets via force-close accounting). `stake_usd` = the directive's `basket.initial_stake_usd`
+(handles 4-leg $2k vs 2-leg $1k). Applied in both the §4.S tables and the §5 record.
 
-Then continue the Golden Path:
+```python
+import pandas as pd
 
-```bash
-python tools/capital_wrapper.py <NEW_PASS_NAME>
-python tools/filter_strategies.py
-```
-
-**Do NOT skip any step.** The hypothesis pass goes through the identical pipeline as any other pass.
-
----
-
-### Step 5: Evaluate Results
-
-Compare the new pass results against baseline (P00).
-
-**Data sources:**
-- Baseline: P00 AK Trade Report or `results_standard.csv` + `results_risk.csv`
-- Result: New pass AK Trade Report
-
-**Acceptance criteria (ALL must pass):**
-
-| Metric | Rule | Notes |
-|---|---|---|
-| Profit Factor | Must not decrease | Strict, no tolerance |
-| Sharpe Ratio | Must not decrease | Strict, no tolerance |
-| Max Drawdown | Must not increase materially | Filtered DD <= baseline DD x 1.15 |
-| Yearwise stability | No new losing year | Year PnL < 0 that was >= 0 in baseline |
-| Trade retention | >= 70% of baseline | Hard floor |
-| Top-5 concentration | Must not increase > 20% | top-5% <= baseline x 1.2 |
-| Single-bucket PnL dominance | No single bucket > 60% of total net PnL | Catches hidden concentration spikes where "improvement" is just one lucky cluster |
-
-**Present to user:**
-
-```
-=== HYPOTHESIS EVALUATION ===
-Strategy:    <NAME>
-Hypothesis:  <description>
-Pass:        <P0X>
-
-                  Baseline    Result     Delta
-Profit Factor:    <X>         <X>        <+/- X>
-Sharpe Ratio:     <X>         <X>        <+/- X>
-Max DD (%):       <X>         <X>        <+/- X>
-Total Trades:     <N>         <N>        <-N (-X%)>
-Top-5 Conc.:      <X>%        <X>%       <+/- X>
-Losing Years:     <list>      <list>     <new?>
-
-Decision: ACCEPT / REJECT (<reason>)
-================================
-```
-
----
-
-### Step 6: Log Results
-
-Append to `TradeScan_State/hypothesis_log.json`:
-
-**First entry per strategy — baseline lock:**
-```json
-{
-    "timestamp": "<UTC>",
-    "strategy": "<BASELINE_NAME>",
-    "stage": "baseline_lock",
-    "baseline": {
-        "total_trades": <N>,
-        "profit_factor": <X>,
-        "sharpe_ratio": <X>,
-        "max_dd_pct": <X>,
-        "net_profit": <X>,
-        "top5_concentration": <X>,
-        "losing_years": [<list>]
+def canonical_metrics(parquet_path: str, stake_usd: float) -> dict:
+    df = pd.read_parquet(parquet_path)
+    final_eq = float(df['equity_total_usd'].iloc[-1])
+    peak_dd  = float((df['peak_equity_usd'] - df['equity_total_usd']).max())
+    return {
+        "final_equity_usd": final_eq,
+        "net_pct":          (final_eq - stake_usd) / stake_usd * 100,
+        "max_dd_usd":       peak_dd,
+        "max_dd_pct":       peak_dd / stake_usd * 100,
+        "ret_dd":           ((final_eq - stake_usd) / stake_usd * 100) /
+                            (peak_dd / stake_usd * 100) if peak_dd > 0 else 0,
+        "recycle_events":   int(df['recycle_executed'].sum()),
+        "bumps":            int((df['skip_reason'] == 'BUMP_INTO_HOLD').sum())
+                            if 'skip_reason' in df.columns else 0,
+        "liquidations":     int((df['skip_reason'] == 'LIQUIDATE_RESET').sum())
+                            if 'skip_reason' in df.columns else 0,
     }
-}
 ```
 
-**Per-pass entry:**
-```json
-{
-    "timestamp": "<UTC>",
-    "strategy": "<BASELINE_NAME>",
-    "pass_id": "<P0X>",
-    "run_id": "<from pipeline>",
-    "hypothesis_class": "<class>",
-    "hypothesis": "<description>",
-    "filter_spec": { ... },
-    "stage": "shadow_prevalidation | pipeline | SKIPPED_OVERLAP | SKIPPED_DIVERSITY",
-    "baseline": "<reference to locked snapshot>",
-    "result": {
-        "total_trades": <N>,
-        "profit_factor": <X>,
-        "sharpe_ratio": <X>,
-        "max_dd_pct": <X>,
-        "net_profit": <X>,
-        "top5_concentration": <X>
-    },
-    "yearwise_check": "PASS/FAIL",
-    "trade_retention_pct": <X>,
-    "decision": "ACCEPT/REJECT/SKIP",
-    "rejection_reason": "<criterion> or null"
-}
+### 4.S Comparison output (mechanic / architecture)
+
 ```
+MECHANIC COMPARISON — <basket_id> [legs], <window>, $<stake> stake
+  Rule   net%      DD%      ret/DD   exit     special events
+  @1     +100.70%  32.51%   3.10     TARGET   (reference)
+  @4     +59.95%   32.51%   1.84     EOD      bumps=5, liq=5
+
+ARCHITECTURE COMPARISON — <rule>, <window>
+  Architecture    stake   net%      DD%      ret/DD   exit     events
+  B1 (EUR+JPY)    $1k     +100.70%  32.51%   3.10     TARGET   30 recyc
+  4-leg single    $2k     +100.03%  25.16%   3.98 ⭐  TARGET   44 recyc
+```
+
+Rank on the human's chosen metric (`ret/DD` for tail-bounded mechanics, `net%` for upside).
+`ret/DD` is scale-invariant — use it when stakes differ across rows.
+
+### 4.cohort Corpus matched-pairs
+
+// turbo
+
+```bash
+python tools/compare_cohorts.py --reference-series <REF_TAG> --variant-series <VAR_TAG>
+```
+
+Inner-joins on `(pair, test_start, test_end)` so every compared row is the same window with
+one variable changed. Output is neutral (medians, per-pair `variant - reference` deltas,
+`variant_higher_pct`, corpus net%/worst/blowups). `matched_pairs=0` → check the series tags /
+KEY columns.
+
+### 4.single Per-run metrics (single-asset)
+
+Compare the new run vs the **locked** reference: PF, Sharpe, max DD%, net profit, trade count,
+top-5 concentration, yearwise PnL (any new losing year). Present the delta table; the human
+adjudicates. No accept/reject thresholds — that was a gate, and it is gone.
 
 ---
 
-### Step 7: Loop or Stop
+## 5 · Record — research memory (incl. nulls)
 
-After logging, check:
+Every branch records its result, including null / no-effect results — a null is evidence.
 
-1. **Per-strategy pipeline budget remaining?** If exhausted (4 passes), **STOP** this strategy.
-2. **Global pipeline budget remaining?** If exhausted (25 passes), **STOP ALL**.
-3. **More eligible insights?** Before selecting the next insight, apply:
-   - **Overlap rejection:** Skip any insight whose `target_field` + value range overlaps with a previously tested hypothesis. Examples: Age 3-6 after Age 3-5 (overlap), Short x Low after Short x Normal (no overlap, different value — allowed).
-   - **Diversity constraint:** Skip insights with the same `hypothesis_class` as the most recently tested pass. Must alternate dimensions. E.g. after `regime_age_gradient`, next must be `weak_cell`, `direction_bias`, `session_divergence`, or `late_ny_asymmetry`.
-   - If all remaining insights fail overlap or diversity checks, **STOP** this strategy.
-4. Return to Step 1 with the next qualifying insight.
-5. **No more eligible insights?** **STOP** this strategy, move to next strategy in queue.
+Present the candidate entry to the human (per `/execute-directives` Step 8: exactly 0 or 1
+candidate, severe template) and get **explicit approval before appending**. Refine the
+wording with the human first; do not append without that approval. This human gate governs
+what is *written* to the permanent ledger (recording hygiene) — it is **not** a worth-gate,
+and never blocks a hypothesis from being *run*, which is never refused.
 
-**Present to user before each new iteration (unless batch-approved):**
+// turbo
+
+```bash
+python tools/research_memory_append.py \
+  --tags <t1>,<t2>,<t3> \
+  --strategy <name_or_omit> \
+  --run-ids <id1>,<id2> \
+  --finding "<what changed>" \
+  --evidence "<≤2 lines, must contain a numeric metric/delta>" \
+  --conclusion "<mechanism — why, not a repeat of finding>" \
+  --implication "<actionable future constraint>"
 ```
-Pass budget: <N>/4 used (this strategy), <N>/25 used (global)
-Next hypothesis: <class> — <description>
-Skipped: <N> (overlap: <N>, diversity: <N>)
-Continue? (yes/no)
-```
+
+Validator: **≥3 tags**, non-empty run-ids, evidence **≤2 lines with at least one digit**; the
+UTC date is stamped for you. Appends to `Trade_Scan/RESEARCH_MEMORY.md`.
+
+**Anti-overclaim discipline (guidance — write the finding honestly):**
+
+- **One moving variable** — the claim attaches to the single thing that changed.
+- **Scope to the cohort tested** — name it: single-asset-filter = the trades matching the
+  filter; basket-mechanic/architecture = the trades in the matched windows; basket-cohort =
+  the matched pairs. Say "on the N matched H1 windows", not "in general".
+- **Never write "disproven" for what was untested.** A null on this cohort is "no detectable
+  effect on <cohort>", not a universal refutation — recorded with its numbers.
 
 ---
 
-### Step 8: Session Summary
+## What this does NOT do
 
-After all strategies are processed (or global budget exhausted):
+- **Does not gate on worth** — no pre-validation/overlap/diversity/dead-strategy/pass-budget
+  rejection, in this skill or its delegates (§0).
+- **Does not embed the delegated skills** — `/generate-directives` (form),
+  `/execute-directives` (Golden Path), `/port-strategy` (rule-build) are called, not inlined.
+- Does not auto-promote — accepted hypotheses go to a separate human-gated promotion.
+- Does not chain accepted changes into the next variant (each variant vs the locked reference).
+
+---
+
+## Loop / session summary
+
+Re-run the spine per variant the human queues (no budget cap). When the human ends the session,
+print the summary and halt:
 
 ```
-=== HYPOTHESIS TESTING SESSION SUMMARY ===
-Strategies evaluated:  <N>
-Total shadow probes:   <N> (rejected: <N>)
-Total pipeline passes: <N> (accepted: <N>, rejected: <N>)
-
-Per-strategy results:
-  <NAME>  P01: ACCEPT (weak_cell, PF +0.12)
-  <NAME>  P02: REJECT (direction_bias, new losing year)
-  <NAME>  P01: REJECT (shadow, PF < 1.0)
+=== HYPOTHESIS SESSION SUMMARY ===
+Reference run locked : <name/tag>  @ <UTC>   (stale: yes/no)
+Variants run         : <N>
+  <branch>  <variant>  → <leader metric / delta>   (recorded: yes / null / held)
   ...
-
-No automatic deployment. Accepted hypotheses require
-human review via promote.md workflow before any execution
-layer changes.
-==========================================
+Recorded to RESEARCH_MEMORY.md : <N> (nulls: <N>)
+No auto-deploy. Promotion is a separate human decision.
+==================================
 ```
 
 ---
 
-### What This Workflow Does NOT Do
+## Related skills
 
-- Does not bypass execute-directives.md
-- Does not call run_pipeline.py outside the Golden Path
-- Does not skip admission gates, approval, or registry steps
-- Does not modify strategy.py logic (directive-level filters only)
-- Does not chain accepted changes into subsequent passes
-- Does not auto-deploy accepted hypotheses
-- Does not perform cross-strategy learning
-- Does not relax thresholds on rejection
-- Does not combine multiple insights into a single pass
-
----
-
-### Relationship to Other Workflows
-
-| Workflow | Relationship |
-|---|---|
-| `execute-directives.md` | **Called by** this workflow for every pipeline pass (Step 4) |
-| `promote.md` | **Called after** this workflow for accepted hypotheses (human decision) |
-| `portfolio-research.md` | Independent — can run on hypothesis pass results post-hoc |
-| `system-health-maintenance.md` | Independent — run if workspace drift detected |
+- **Stage 2 (form):** [`/generate-directives`](../generate-directives/SKILL.md).
+- **Stage 3 (run):** [`/execute-directives`](../execute-directives/SKILL.md).
+- **Conditional:** [`/port-strategy`](../port-strategy/SKILL.md) — build a new recycle rule
+  before transforming onto it.
+- **Alternative:** [`/rerun-backtest`](../rerun-backtest/SKILL.md) — re-run an exact prior
+  config (not a hypothesis).
+- (Retired) `basket-hypothesis-testing` — folded into this orchestrator + `compare_cohorts.py` + `tools/basket_hypothesis/`; its skill dir is now a redirect stub (full prior content in git history).
 
 ---
 
@@ -410,4 +311,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| _repurposed 2026-06-12 — no friction yet_ | | |

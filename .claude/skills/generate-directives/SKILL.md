@@ -120,7 +120,7 @@ which re-checks new-rule routing and "exit 0 ≠ success."
 ## Related skills
 
 - [`/execute-directives`](../execute-directives/SKILL.md) — runs the formed directives (next stage).
-- [`/basket-hypothesis-testing`](../basket-hypothesis-testing/SKILL.md) — orchestrator; calls this skill to form variant directives.
+- [`/hypothesis-testing`](../hypothesis-testing/SKILL.md) — orchestrator; calls this skill (stage 2) to form directives.
 - [`/port-strategy`](../port-strategy/SKILL.md) — build a new recycle rule before transforming onto it.
 
 ## Friction log

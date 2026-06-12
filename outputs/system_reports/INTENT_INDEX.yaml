@@ -297,7 +297,7 @@ intents:
   - id: basket_hypothesis_testing
     priority: 50
     enforcement: soft
-    must_skill: basket-hypothesis-testing
+    must_skill: hypothesis-testing
     requires_subject: true
     reason: "Basket hypothesis tests need the mechanic/architecture routing distinction — conflating the two classes causes wrong variant construction."
     regex_patterns:
