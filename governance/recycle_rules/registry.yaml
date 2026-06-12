@@ -1143,3 +1143,59 @@ rules:
       default_initial_lot:
         type: float
         default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_hl
+    version: 1
+    description: >
+      Local half-life entry-filter overlay on the zero-cross exit variant
+      (2026-06-12, HL120 arm). Identical to pine_ratio_zrev_v1_zcross PLUS one
+      entry condition: BLOCK the proposal when the canonical ratio's rolling
+      AR(1) half-life (indicators.stats.rolling_half_life, hl_window bars on
+      the exec TF) exceeds hl_block_above bars OR the window is non-reverting
+      (+inf). LOCAL statistic by design -- the screener's daily half_life_days
+      (~1,300+ 15m bars) was ruled out for timescale mismatch vs the trade
+      horizon (median hold 14 bars / p95 28). Threshold anchoring: 120 bars
+      ~ 9x median hold; the Step-1 offline 60-120 band was profitable, so do
+      NOT tighten without a new tagged arm. Fail-open on NaN; +inf blocks.
+      Telemetry event: HL_BLOCK (hl value or non_reverting flag). Set
+      hl_block_above to math.inf to recover exact champion behavior (any
+      finite threshold still blocks non-reverting windows).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_hl.py.
+      Subclasses PineRatioZRevRuleZCross; extends _attach_z_r (computes
+      pine_zrev_half_life from the canonical ratio) and gates _maybe_propose
+      (proposal bar; parent idle-state guard mirrored).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      hl_window:
+        type: int
+        default: 100
+      hl_block_above:
+        type: float
+        default: 120.0
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01

@@ -2679,8 +2679,46 @@ indicators:
     - close
     registered_at: '2026-05-24'
     notes: Pine z_r port — companion to pine_ratio_zrev_v1 recycle rule. See indicators/stats/ratio_hedged_spread_zscore.py.
+  rolling_half_life:
+    module_path: indicators.stats.rolling_half_life
+    category: stats
+    function_name: rolling_half_life
+    classification: Statistical
+    input_requirements:
+    - series: pd.Series of strictly positive prices/ratios (log taken internally)
+    parameters:
+      window: int — number of AR(1) (lag, diff) pairs per rolling fit (default 100)
+    default_parameters:
+      window: 100
+    output_type: Series
+    output_columns:
+    - half_life: float — local AR(1) half-life in BARS; +inf = non-reverting window (meaningful); NaN = not estimable (fail-open)
+    output_scale: 1.0..+inf bars (floored at 1.0 for overcorrecting windows)
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: false
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Local mean-reversion SPEED gate for exec-TF MR strategies (e.g.
+      pine_ratio_zrev_v1_zcross_hl blocks entries when HL > 120 bars). LOCAL statistic --
+      distinct from the screener daily half_life_days (252d/1d), which is ~2 orders of
+      magnitude above intraday trade horizons. Thresholds are in bars of the input TF.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      suitable_for_HTF: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: window + 1
+    warmup: window + 1
+    input_columns:
+    - close
+    registered_at: '2026-06-12'
+    notes: AR(1)/OU fit on log-levels per window; b>=0 -> +inf, b<=-1 -> 1.0 floor. Companion to pine_ratio_zrev_v1_zcross_hl recycle rule.
 registry_summary:
-  total_indicators: 71
+  total_indicators: 72
   by_category:
     momentum_count: 11
     trend_count: 8
@@ -2688,10 +2726,10 @@ registry_summary:
     regime_count: 10
     structure_count: 16
     composite_count: 3
-    statistical_count: 7
+    statistical_count: 8
     macro_count: 2
     price_pattern_count: 2
-  intraday_ready: 48
+  intraday_ready: 49
   daily_ready: 46
   htf_ready: 65
   lookahead_safe: 70
