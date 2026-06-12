@@ -388,4 +388,6 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _repurposed 2026-06-12 — no friction yet_ | | |
+| 2026-06-12 | resolve_baseline series lookup missed cointegration_sheet cohorts | Fixed in tools/resolve_baseline.py (searches both sheets) |
+| 2026-06-12 | Bare substring tag match pulled sibling cohorts (Z25 caught Z25_N60/Z25_HF55) | Fixed in tools/resolve_baseline.py (anchored-first match) |
+| 2026-06-12 | compare_cohorts direct invocation crashed (no sys.path bootstrap) | Fixed in tools/compare_cohorts.py (repo-root bootstrap) |
