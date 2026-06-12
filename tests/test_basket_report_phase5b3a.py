@@ -385,17 +385,21 @@ def test_metrics_glossary_includes_basket_extras(tmp_path):
 
 
 def test_recycle_events_jsonl_persists_event_payloads(tmp_path):
-    """raw/recycle_events.jsonl carries the FULL per-event payloads (e.g.
-    HURST_BLOCK h-values), not just the count -- added 2026-06-12 after the
-    HF55 cohort run, where the blocked-H distribution died in memory because
-    only results_basket.csv's recycle_event_count survived the run."""
-    from tools.basket_report import write_per_window_report_artifacts
+    """raw/recycle_events.jsonl carries the FULL per-event payloads inside the
+    schema-v1 envelope (TELEMETRY_GOVERNANCE_PROPOSAL_2026_06_12.md §3) --
+    Research Artifact -- Population Evidence. The writer stamps the envelope;
+    rules stay envelope-ignorant."""
+    from tools.basket_report import (
+        RECYCLE_EVENTS_SCHEMA_VERSION,
+        _RECYCLE_EVENT_REQUIRED_FIELDS,
+        write_per_window_report_artifacts,
+    )
     df = _trades_df([{"symbol": "EURUSD", "pnl_usd": 10.0, "exit_timestamp": "2024-09-10"}])
     events = [
         {"bar_ts": pd.Timestamp("2024-09-10 04:15:00"), "action": "HURST_BLOCK",
          "h": np.float64(0.583), "threshold": 0.55, "direction": np.int64(-1)},
         {"bar_ts": pd.Timestamp("2024-09-10 09:30:00"), "action": "BASKET_OPEN",
-         "direction": 1},
+         "direction": 1, "weird": float("inf")},
     ]
     result = _basket_result(recycle_events=events)
     written = write_per_window_report_artifacts(
@@ -407,11 +411,45 @@ def test_recycle_events_jsonl_persists_event_payloads(tmp_path):
     assert p.is_file() and written["recycle_events"] == p
     lines = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()]
     assert len(lines) == 2
+
+    # Envelope: required fields on EVERY line, identity stamped inline.
+    for rec in lines:
+        for f in _RECYCLE_EVENT_REQUIRED_FIELDS:
+            assert f in rec, f"missing required envelope field {f}"
+        assert rec["schema_version"] == RECYCLE_EVENTS_SCHEMA_VERSION
+        assert rec["run_id"] == "RID01" and rec["directive_id"] == "dir"
+        assert rec["rule_name"] == "H2_recycle" and rec["rule_version"] == 1
+        assert rec["basket_id"] == "H2"
+
     blk = lines[0]
-    assert blk["action"] == "HURST_BLOCK"
-    assert abs(float(blk["h"]) - 0.583) < 1e-12          # numpy float survived
-    assert int(blk["direction"]) == -1                    # numpy int survived
-    assert str(blk["bar_ts"]).startswith("2024-09-10T04:15")  # ISO timestamp
+    assert blk["event_type"] == "HURST_BLOCK"
+    assert str(blk["timestamp"]).startswith("2024-09-10T04:15")   # ISO timestamp
+    assert abs(float(blk["payload"]["h"]) - 0.583) < 1e-12        # numpy float survived
+    assert int(blk["payload"]["direction"]) == -1                 # numpy int survived
+    assert "action" not in blk["payload"] and "bar_ts" not in blk["payload"]
+    # Non-finite floats are nulled (schema bans inf/nan in payloads).
+    assert lines[1]["payload"]["weird"] is None
+
+
+def test_recycle_events_order_and_count_match_emission(tmp_path):
+    """Append-only-within-run expectation (governance §1.3): events written
+    verbatim in emission order; line count == results_basket.csv
+    recycle_event_count."""
+    from tools.basket_report import write_per_window_report_artifacts
+    df = _trades_df([{"symbol": "EURUSD", "pnl_usd": 10.0, "exit_timestamp": "2024-09-10"}])
+    events = [{"action": f"EV_{i}", "seq": i} for i in range(7)]
+    result = _basket_result(recycle_events=events)
+    write_per_window_report_artifacts(
+        out_dir=tmp_path, run_id="RID01", directive_id="dir",
+        basket_result=result, df_trades=df, parsed_directive=_directive(),
+        engine_version="1.5.8",
+    )
+    lines = [json.loads(l) for l in
+             (tmp_path / "raw" / "recycle_events.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["event_type"] for r in lines] == [f"EV_{i}" for i in range(7)]
+    assert [r["payload"]["seq"] for r in lines] == list(range(7))
+    df_b = pd.read_csv(tmp_path / "raw" / "results_basket.csv")
+    assert int(df_b["recycle_event_count"].iloc[0]) == len(lines) == 7
 
 
 def test_recycle_events_jsonl_absent_when_no_events(tmp_path):
