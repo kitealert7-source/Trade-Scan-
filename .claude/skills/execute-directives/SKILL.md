@@ -30,6 +30,9 @@ Before provisioning, you MUST verify data coverage and administrative alignment.
     python tools/namespace_gate.py backtest_directives/INBOX/<DIRECTIVE_ID>.txt
     python tools/sweep_registry_gate.py backtest_directives/INBOX/<DIRECTIVE_ID>.txt
     ```
+    > **Single-asset lens only.** These manual invocations false-FAIL valid basket / COINTREV
+    > directives (`NAMESPACE_PATTERN_INVALID`, `UNKNOWN_STRUCTURE: ['basket']`). Baskets are
+    > validated by the pipeline's basket admission path (`run_pipeline._try_basket_dispatch`).
 
 3.  **Optional Maintenance Check**: If workspace drift is suspected, run the reconciler from the **System Maintenance Workflow** to ensure the `runs/` directory is aligned with `run_registry.json`.
 
@@ -220,3 +223,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-06-12 | New-rule LegDispatchError; port-strategy had the fix, run path didn't reach it | Added new-rule → /port-strategy routing gate to Step 5 |
 | 2026-06-12 | Batch printed [SUCCESS]/exit-0 while all directives failed or paused on a guard | Added 'exit 0 ≠ success — verify artifacts' to Step 5 |
 | 2026-06-12 | Scratch CSV in strategies/ tripped the drift guard, paused the batch | Added 'no scratch in governed dirs' to Appendix B |
+| 2026-06-12 | Manual Step-0 pre-checks false-FAILed valid basket directives | Scoped pre-checks to single-asset in Step 0.2 |
