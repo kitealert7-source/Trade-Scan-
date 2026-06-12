@@ -106,3 +106,30 @@ Evidence: Z=0 dominates: ret/dd mean +0.48 vs baseline +0.42 vs ZOPP +0.44; net%
 Conclusion: Z=0 (exit at the mean) is the optimal exit -- recommended over baseline (~2x less tail at equal ret/dd). ZOPP (ride past the mean to opposite +-1) is RULED OUT: dominated by Z=0 -- overshooting past the mean gives back the reversion profit (net -0.1 vs Z=0 +0.4) and adds DD, no benefit. The 'later exit' hypothesis is falsified for this signal.
 Implication: If the exit is changed, adopt Z=0 (pine_ratio_zrev_v1_zcross), not ZOPP. zopp engine capability kept (opt-in, not adopted). Z=0 adoption (promote zcross to default) is a separate decision, not yet made. Exit experiment cohorts (_GP_ZCRS/_GP_ZOPP) archived as research artifacts.
 ---
+
+---
+2026-06-12 | Tags: cointegration, forced_z_stop, reentry_latch, branch_closure, champion_stands | Strategy: pine_ratio_zrev_v1 (GP_ZCRS_CXN1_Z25 champion) | Run IDs: cohorts GP_ZSTOP_CXN1_Z25 (z_stop=4.0) + GP_ZSTOP3_CXN1_Z25 (z_stop=3.0); n=475 matched pairs each vs champion; no hex run UUIDs in source -- series tags are the pointers
+Finding: A hard |z|-stop exit + re-entry latch (z_stop=4.0 then 3.0; z_entry=2.5 preserved) did NOT improve risk-adjusted performance vs the no-stop champion -- z_stop=4.0 a wash, z_stop=3.0 net-negative on corpus. Because the zcross reference position holds to zero-cross, the latch did not demonstrably bind in a way that altered corpus-level outcomes, so this tested FORCED EXIT, not regime memory.
+Evidence: z_stop=4.0 n=475: stop fired 184/475 dirs (327 fires), forced exit changed Ret/DD in 176/184 (med dRetDD -0.0073), corpus net% 89 vs 89 identical, worst -89.7 both, non-fired set byte-identical to champion.
+z_stop=3.0 n=475: corpus net% 89 vs -29 (-118pp), paired med Ret/DD & net% deltas ~0 (variant better 37%/38%), win% 60 vs 50, worst -89.7 vs -80.1, 0 blowups, trade-freq 100%.
+Conclusion: Forced-exit branch SHELVED -- cutting at z=3.0 or 4.0 adds no risk-adjusted value (4.0 wash, 3.0 worse); the champion's no-stop ride-to-zcross exit stands. The regime-memory hypothesis remains UNTESTED: the re-entry latch did not demonstrably bind, so nothing was learned about suppressing re-entry after a stop.
+Implication: Do NOT add a forced |z|-stop (3.0-4.0) to the champion, and do NOT cite this as 'z-stop disproven' or 'regime memory fails' -- only forced-exit-without-a-binding-latch was tested. A real regime-memory test must make the latch BIND (e.g. flatten the reference at the stop), else it is a no-op.
+---
+
+---
+2026-06-12 | Tags: cointegration, entry_threshold, z40, cohort_specific, champion_stands | Strategy: pine_ratio_zrev_v1 (GP_ZCRS_CXN1_Z25 champion) | Run IDs: cohort GP_ZCRS_CXN1_Z40; n=475 matched pairs vs champion (z_entry 2.5 -> 4.0, all else identical); no hex run UUIDs in source
+Finding: A deeper entry threshold (z_entry=4.0 vs the champion's 2.5; exit/sizing/no-stop identical) collapses trade frequency and degrades the edge -- it does not buy a better fill, it mostly stops trading.
+Evidence: n=475: trade-freq 6% of champion (94% fewer; TOTAL cycles 13521->882, trades 27184->1766), median cycles 15->1 / trades 32->2; corpus net% 89 vs 28 (-61pp); paired med Ret/DD delta -0.030 (Z40 better 44%), net% delta -0.400 (better 42%); win% 60 vs 0.
+maxDD% lower for Z40 (median champ 7.634 vs Z40 1.461; mean 12.13 vs 3.47) only because it barely trades; worst net% -89.7 vs -42.1; 0 blowups. (dMed = median of per-pair deltas, champ minus Z40.)
+Conclusion: Z40 is REJECTED -- pushing entry to z=4.0 removes ~94% of trades and the survivors do not compensate (Ret/DD and net% both worse, corpus net% -61pp). COHORT-SPECIFIC to the COINTREV_V3 GP_ZCRS champion, not a universal law about deep entries.
+Implication: Keep z_entry=2.5 as the champion entry threshold. Frame Z40 as 'too deep for THIS signal/cohort' -- the shallow-band reversion edge lives near 2.5; entering only at 4.0 forfeits it. (The pyramiding analysis re-derives the same 'enter-at-z=4' population and reaches the same verdict.)
+---
+
+---
+2026-06-12 | Tags: cointegration, pyramiding, report_only, survivorship_bias, champion_stands | Strategy: pine_ratio_zrev_v1 (GP_ZCRS_CXN1_Z25 champion) | Run IDs: report-only analysis (tmp/pyramid_report.md); champion GP_ZCRS_CXN1_Z25 n=475 dirs / 13592 cycles; no backtest run
+Finding: Report-only assessment of a secondary 0.5x entry at |z|=4.0 (same zcross exit): expected decision-changing information from a canonical backtest ~= 0, so the branch is REJECTED without further work; the champion stays unchanged (no pyramiding, no stop).
+Evidence: 99.7% in-sample reversion at |z|>=4 (325/326) is a survivorship artifact -- the window gate admits only continuous-cointegrated spans, so counted cycles revert by construction; add P&L +1.29/cycle same-bar -> +0.59 next-bar -> +$0.007/add (t=0.01, p=0.99).
+Add fires on the worst cohort (30.1% vs 61.4% base win-rate at |z|=4) at the 99th-pctile excursion ceiling, with no margin of safety.
+Conclusion: REJECT the pyramiding branch. Strongest argument: the premise and the fatal flaw are the SAME fact -- the 'z=4 reliably reverts' edge is manufactured by the windowed, zcross-only corpus, so the live failure mode the add doubles into (a z=4 that keeps diverging) is structurally absent from every in-corpus test. ZSTOP4 + Z40 already jointly predict this.
+Implication: Do NOT elevate pyramiding to a backtest -- more in-corpus data re-measures the survivorship artifact at higher fidelity, it cannot surface the tail that matters. A real test needs OUT-OF-CORPUS / cointegration-break data. The only unmeasured upside is the opposite (scaling OUT near z-extremes), out of scope here.
+---
