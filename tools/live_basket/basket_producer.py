@@ -161,6 +161,48 @@ def derive_basket_config(basket_id: str, *, run_id: str = DEFAULT_RUN_ID,
     )
 
 
+# ---- PRODUCER_START banner: resolved strategy params --------------------------- #
+# Key recycle-rule params echoed in the PRODUCER_START banner so the running
+# strategy config -- above all z_entry -- is auditable from the log alone, with
+# no inferring from PID start time + the directive file (the 2026-06-11 live
+# z_entry 2.0->2.5 switch was un-confirmable from the producer log). Defaults
+# MIRROR the pine_ratio_zrev family in basket_pipeline._instantiate_rule; a key
+# the directive omits is rendered with a `(default)` marker so a silently-
+# defaulted value stands out. z_entry has NO downstream default (basket_pipeline
+# now RAISES on a missing key) -> an omitted z_entry renders `(UNSET!)`, flagging
+# a directive that will fail on the first cycle.
+_BANNER_PARAM_DEFAULTS: tuple = (
+    ("z_entry", None),                  # required downstream; no silent default
+    ("n_window", 100),
+    ("entry_mode", "centered"),
+    ("coint_break_exit", False),
+    ("entry_fill_timing", "next_bar_open"),
+)
+
+
+def _resolved_key_params(parsed: dict) -> str:
+    """Render the resolved key recycle-rule params for the PRODUCER_START banner.
+
+    Pulls from parsed['basket']['recycle_rule'] (name@version + params). Each
+    listed key shows the directive's value, or -- when the directive omits it --
+    the default basket_pipeline._instantiate_rule will apply, tagged `(default)`.
+    z_entry has no downstream default, so an omitted z_entry renders `(UNSET!)`.
+    """
+    rule = (parsed.get("basket", {}) or {}).get("recycle_rule", {}) or {}
+    params = rule.get("params") or {}
+    name = rule.get("name", "?")
+    version = rule.get("version", 1)
+    toks = []
+    for key, default in _BANNER_PARAM_DEFAULTS:
+        if key in params:
+            toks.append(f"{key}={params[key]}")
+        elif default is None:
+            toks.append(f"{key}=(UNSET!)")
+        else:
+            toks.append(f"{key}={default}(default)")
+    return f"rule={name}@{version} params=[{' '.join(toks)}]"
+
+
 # ---- mechanic wiring (generic; reads from cfg) --------------------------------- #
 def _build_leg_strategies(parsed: dict) -> dict:
     """FRESH leg_strategies with a FRESH shared armed-state per replay call (the entry
@@ -394,7 +436,8 @@ def main() -> int:
 
     cfg.signal_dir.mkdir(parents=True, exist_ok=True)
     print(f"  PRODUCER_START  basket={cfg.basket_id}  signal_dir={cfg.signal_dir}  "
-          f"legs=({cfg.sym_a},{cfg.sym_b})  usd_refs={cfg.usd_ref_symbols}  tf={cfg.mt5_tf_attr}", flush=True)
+          f"legs=({cfg.sym_a},{cfg.sym_b})  usd_refs={cfg.usd_ref_symbols}  tf={cfg.mt5_tf_attr}  "
+          f"{_resolved_key_params(cfg.parsed)}", flush=True)
     runner = StreamingBasketRunner(cfg.signal_dir, cfg.basket_id, _make_replay_fn(cfg), n_legs=2)
     # Diagnostic ledger: seed dedup keys (survive restart) + open read-only screener DB.
     global _LEDGER_KEYS, _SCREENER_CON
