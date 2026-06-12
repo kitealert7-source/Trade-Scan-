@@ -4,3 +4,13 @@ description: Sanity-check after forming a plan or finishing a code change. Invok
 ---
 
 Review the current plan or recent changes in context. Run `git diff HEAD` if useful. Analyse what is missing, risky, or forgotten — then tell the user what you found. Be direct and specific. Only ask the user a question if you genuinely need a piece of information to complete the assessment that you cannot infer from context.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |
