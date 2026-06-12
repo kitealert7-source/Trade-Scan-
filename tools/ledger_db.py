@@ -923,6 +923,57 @@ def query_master_filter(
             _conn.close()
 
 
+def query_master_filter_current(
+    strategy: str | None = None,
+    run_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> pd.DataFrame:
+    """Read Master Filter, keeping only the authoritative (is_current) rows.
+
+    Applies the ``is_current = 1 OR is_current IS NULL`` filter that
+    ``master_filter`` lacks but ``query_baskets`` already has
+    (``ledger_db.py:965``). NULL is treated as current per the schema
+    default (``is_current`` defaults to 1; pre-migration rows are NULL and
+    backfilled to 1 — see ``ledger_db.py:290-296`` / ``:358-362``).
+
+    This is the SQL-level guard that ends the ``find_run_id_for_directive``
+    first-match trap: superseded rows are dropped *before* any row is
+    returned, so a caller can never pick an ``is_current=0`` row by
+    insertion order.
+
+    Args:
+        strategy: optional exact-match constraint on the ``strategy`` column
+            (the per-symbol handle, e.g. ``01_MR_..._P02_EURUSD``).
+        run_id:   optional exact-match constraint on the ``run_id`` column.
+        conn:     optional open connection; one is created if omitted.
+
+    Returns:
+        DataFrame of current rows (empty with no columns if the DB is
+        absent), ordered by ``run_id`` to match ``query_master_filter``.
+    """
+    _conn = conn or _connect()
+    try:
+        if not _resolve_db_path().exists():
+            return pd.DataFrame(columns=MASTER_FILTER_COLUMNS)
+        sql = (
+            'SELECT * FROM master_filter '
+            'WHERE ("is_current" = 1 OR "is_current" IS NULL)'
+        )
+        params: list[Any] = []
+        if strategy is not None:
+            sql += ' AND "strategy" = ?'
+            params.append(strategy)
+        if run_id is not None:
+            sql += ' AND "run_id" = ?'
+            params.append(run_id)
+        sql += ' ORDER BY run_id'
+        df = pd.read_sql_query(sql, _conn, params=params or None)
+        return df
+    finally:
+        if conn is None:
+            _conn.close()
+
+
 def query_mps(
     conn: sqlite3.Connection | None = None,
     sheet: str | None = None,

@@ -6,6 +6,7 @@ __all__ = [
     "STATE_ROOT",
     "RUNS_DIR",
     "STRATEGIES_DIR",
+    "REPO_STRATEGIES_DIR",
     "REGISTRY_DIR",
     "ARCHIVE_DIR",
     "QUARANTINE_DIR",
@@ -21,6 +22,8 @@ __all__ = [
     "resolve_base_strategy_dir",
     "resolve_run_dir",
     "iter_run_dirs",
+    "capsule_path",
+    "strategy_dir",
     "_resolve_repo_root",
     "_resolve_state_root",
 ]
@@ -110,6 +113,14 @@ ARCHIVE_DIR    = STATE_ROOT / "archive"
 QUARANTINE_DIR = STATE_ROOT / "quarantine"
 LOGS_DIR       = STATE_ROOT / "logs"
 BACKTESTS_DIR  = STATE_ROOT / "backtests"
+
+# Executable-intent (SOURCE) strategy home — rooted at the REPO, DISTINCT from
+# STRATEGIES_DIR above (STATE: strategy_ref.json / deployables / robustness
+# reports). PROJECT_ROOT/strategies/<id>/ holds strategy.py + the governed
+# directive.txt snapshot (written by strategy_provisioner). resolve_baseline
+# reads code + the human-keyed continuity-seed from here. Worktree-safe:
+# PROJECT_ROOT resolves to the real repo via path_authority.
+REPO_STRATEGIES_DIR = PROJECT_ROOT / "strategies"
 
 # Logical Aliases (semantic naming — the ONLY valid references for external code)
 # pool     → TradeScan_State/sandbox     (filter output staging area)
@@ -224,6 +235,46 @@ def iter_run_dirs():
             if item.is_dir() and item.name not in seen and (item / "data").exists():
                 seen.add(item.name)
                 yield item.name, item
+
+
+def capsule_path(strategy: str, symbol: str) -> Path:
+    """Build the per-symbol backtest ("capsule") directory path.
+
+    Pure path builder — performs no I/O and does not check existence. The
+    canonical layout is ``backtests/<strategy>_<symbol>`` (verified
+    ``run_stage1.py:895`` + 20+ inline sites). ``strategy`` is the
+    *symbol-agnostic* base directive id; ``symbol`` is the per-run symbol
+    (or concatenated basket symbols, e.g. ``AUDJPYAUDNZD``).
+
+    Args:
+        strategy: symbol-agnostic strategy / directive base id.
+        symbol:   per-run symbol token.
+
+    Returns:
+        ``BACKTESTS_DIR / f"{strategy}_{symbol}"`` — may or may not exist.
+    """
+    return BACKTESTS_DIR / f"{strategy}_{symbol}"
+
+
+def strategy_dir(strategy: str) -> Path:
+    """Build the symbol-agnostic strategy ("executable intent") directory path.
+
+    Pure path builder — performs no I/O and does not check existence. The
+    canonical layout is ``REPO_STRATEGIES_DIR/<strategy>`` (i.e.
+    ``PROJECT_ROOT/strategies/<strategy>``) holding ``strategy.py`` + the
+    governed ``directive.txt`` snapshot. This is the REPO source home — NOT
+    ``STRATEGIES_DIR`` (``STATE_ROOT/strategies``, which holds deployment/eval
+    state: strategy_ref.json, deployables, robustness reports). May be ABSENT
+    for old/curated runs (a curated subset — see RESOLVE_BASELINE_SPEC §17);
+    callers must report absence, never assume presence.
+
+    Args:
+        strategy: symbol-agnostic strategy / directive base id.
+
+    Returns:
+        ``REPO_STRATEGIES_DIR / strategy`` — may or may not exist.
+    """
+    return REPO_STRATEGIES_DIR / strategy
 
 
 def initialize_state_directories():
