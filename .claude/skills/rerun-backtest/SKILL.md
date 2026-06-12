@@ -94,6 +94,15 @@ If the category is ambiguous ("I changed the indicator AND bumped a parameter"),
 
 ## What `finalize` Does
 
+> **Phase-0 update (2026-06-12, commit `570f6c48`):** for a **declared** rerun
+> (`test.repeat_override_reason` present) the `is_current=0` flip on the prior
+> `(strategy,symbol)` rows now happens **automatically at Stage-3**
+> (`_enforce_master_filter_supersession`). So `finalize` is **no longer required for the
+> supersedence flip itself** on declared reruns. It is **still required** for: `--quarantine`
+> (BUG_FIX — auto-supersede does **not** quarantine), superseding a run the auto-path did not
+> cover, and as the audited explicit/fallback path. It is idempotent against already-auto-
+> superseded rows (0 rows flipped, no error).
+
 // turbo
 
 After the pipeline produces a new `run_id`:
@@ -185,17 +194,25 @@ If `rerun_backtest.py` is unavailable, see [`reference/manual_lifecycle.md`](./r
 
 ---
 
-## Stage-3 Non-Idempotency
+## Stage-3 idempotency + Phase-0 supersession
 
-**Stage-3 (`stage3_compiler.py`) does NOT update existing rows** — it only appends new rows. If the old run's row for `<strategy>_<symbol>` already exists in `Strategy_Master_Filter.xlsx` and `ledger.db`, Stage-3 will skip the new run (cardinality gate returns "already written").
+> **Rewritten 2026-06-12 — Phase-0 (`570f6c48`) made the old "remove rows first" guidance
+> obsolete; the prior text mis-described the gate as `(strategy,symbol)`-keyed.**
 
-**Before re-running any directive that previously reached Stage-3:**
+Stage-3's skip gate (`stage3_compiler.py:414`) is keyed by **`run_id`** (idempotency — the same
+`run_id` is never written twice in a pass), **not** by `(strategy,symbol)` cardinality. A rerun
+produces a **new** `run_id` (this is why `finalize` takes distinct `--old-run-id`/`--new-run-id`),
+so its rows are **not** skipped — they reach the writer, and Phase-0 resolves the collision there:
 
-1. Remove old rows from `Strategy_Master_Filter.xlsx` (the `<strategy>_<symbol>` rows)
-2. Confirm via `ledger.db`: `SELECT COUNT(*) FROM master_filter WHERE strategy LIKE '<ID>%'`
-3. Delete stale rows or use `reset_directive.py --to-stage4` for large multi-symbol sets
+- **Declared rerun** (`test.repeat_override_reason` present) → the writer **auto-supersedes** the
+  prior `is_current=1` rows for that `(strategy,symbol)`
+  (`ledger_db._enforce_master_filter_supersession`). **No manual row removal, no pre-clean.**
+- **Undeclared collision** → the writer **raises `MasterFilterCurrencyError` and writes nothing**;
+  run `finalize` (`mark_superseded`) on the prior run first, or declare the rerun.
 
-Skipping this step causes Stage-3 to silently no-op — the pipeline reports "0 rows added" and uses the old (pre-rerun) metrics throughout Stages 4-5.
+`reset_directive.py` resets pipeline **state files only — it does NOT touch `master_filter` /
+`ledger.db`** and is **not** part of rerun row-management. (It is for restarting a directive that
+failed mid-pipeline, unrelated to supersession.)
 
 ---
 
@@ -277,11 +294,11 @@ Keys that DO trigger hash change (require registry update):
 
 ---
 
-## Rerun Contract (LOCKED — 2026-04-17, amended 2026-05-24)
+## Rerun Contract (LOCKED — 2026-04-17, amended 2026-05-24, 2026-06-12)
 
 - **Variant-rotated reruns** — every rerun gets a fresh `__E###` suffix on filename + `test.name`. `test.strategy` stays at the base stem. `repeat_override_reason` is still the only Idea-Gate bypass.
-- **Stage-3 non-idempotent** — compiler appends by `run_id`; old rows must be removed before rerun or Stage-3 silently no-ops.
-- **Stage-4 supersedence required** — old `run_id` must be marked `is_current=0` via `finalize`; no row deletion, no auto-overwrite.
+- **Stage-3 idempotent by `run_id`** *(amended 2026-06-12)* — the compiler skips a *repeated* `run_id`, never a new one; a rerun's new `run_id` writes normally. A collision with a prior `is_current=1` row for the same `(strategy,symbol)` is resolved **at the writer** (Phase-0): auto-supersede for declared reruns, fail-loud otherwise. **No manual row removal** (the prior "remove old rows first" rule is retired).
+- **Supersedence is enforced, not optional** *(amended 2026-06-12)* — for a **declared** rerun the prior `run_id` is auto-marked `is_current=0` at Stage-3 (Phase-0, `570f6c48`); `finalize` remains the path for `--quarantine` (BUG_FIX) and as the explicit/fallback. Append-only: flag `is_current=0`, never delete; no auto-overwrite of row identity or metrics.
 - **Directive = execution window** — `start_date`/`end_date` in the directive are the authority; no silent clamping by the engine.
 - **signal_version lives in test:** — `signal_version` is a child of the `test:` block per `canonical_schema.ALLOWED_NESTED_KEYS["test"]`. Root-level writes collide at the test→root mirror in `pipeline_utils.parse_directive_with_canonical_test` and are also rejected by Stage -0.25 canonicalization. The tool defensively strips any stray root-level key.
 
@@ -289,7 +306,7 @@ Keys that DO trigger hash change (require registry update):
 
 ## System Contract
 
-- `master_filter` is append-only. Reruns never delete — they supersede via `is_current=0`.
+- `master_filter` is append-only. Reruns never delete — they supersede via `is_current=0` (auto at Stage-3 for **declared** reruns since Phase-0 `570f6c48`; via `finalize` otherwise / for `--quarantine`).
 - `is_current=1 AND quarantined=0` is the canonical filter for "live, eligible-for-promotion" rows. `filter_strategies.py` enforces this.
 - `test.repeat_override_reason` is the ONLY sanctioned Idea-Gate bypass. The tool's auto-prefix is machine-parseable for forensic reconstruction.
 - `signal_version` increments are the ONLY sanctioned way to satisfy the Classifier Gate's SIGNAL-diff rule. Never hand-edit it outside this tool.
@@ -304,3 +321,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
 | 2026-05-24 | Basket rerun failed: tool wrote `signal_version` at YAML root (KEY COLLISION at test→root mirror, UNKNOWN_STRUCTURE at -0.25), and same-stem filename was refused by `verify_directive_uniqueness_guard`. | `rerun_backtest.py` now (a) bumps `test.signal_version` only and strips stray root key, (b) auto-rotates `__E###` on filename + `test.name`. Same fix applies to non-basket reruns. Regression test: `tests/test_rerun_backtest.py::test_basket_signal_rerun_no_root_collision`. |
+| 2026-06-12 | Phase-0 auto-supersede (`570f6c48`) made the finalize / "remove rows first" / `reset_directive` rerun guidance stale; Stage-3 gate is `run_id`-keyed (not `(strategy,symbol)`) and `reset_directive` never touches the ledger. | Rewrote Stage-3 §, added a Phase-0 note to `finalize` §, amended the LOCKED Rerun Contract (auto-supersede declared reruns; `finalize` kept for `--quarantine`/fallback). Verified vs `stage3_compiler.py:414` + `reset_directive.py` (no ledger refs). |
