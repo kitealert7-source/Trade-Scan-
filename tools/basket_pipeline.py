@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule, PineRatioZRevRule, PineRatioZRevRuleZBand, PineRatioZRevRuleZCross, PineRatioZRevRuleZOpp  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 + pine_ratio_zrev_v1 + pine_ratio_zrev_v1_zcross + pine_ratio_zrev_v1_zband + pine_ratio_zrev_v1_zopp dispatch)
+from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule, PineRatioZRevRule, PineRatioZRevRuleZBand, PineRatioZRevRuleZCross, PineRatioZRevRuleZStop, PineRatioZRevRuleZOpp  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 + pine_ratio_zrev_v1 + pine_ratio_zrev_v1_zcross + pine_ratio_zrev_v1_zband + pine_ratio_zrev_v1_zopp dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +156,7 @@ _EXTERNAL_CONSUMER_PARAMS: dict[tuple[str, int], frozenset[str]] = {
     ("pine_ratio_zrev_v1_zcross", 1): frozenset({"entry_fill_timing"}),
     ("pine_ratio_zrev_v1_zband", 1):  frozenset({"entry_fill_timing"}),
     ("pine_ratio_zrev_v1_zopp", 1):   frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zstop", 1):  frozenset({"entry_fill_timing"}),
 }
 
 
@@ -248,6 +249,29 @@ def _validate_basket_id_convention(
                 f"(USD-bear spread) or 'BULL' (USD-bull spread), or set "
                 f"bidirectional=true and use 'BIDIR' suffix."
             )
+
+
+def _require_param(params: dict, key: str, rule_name: str, version: int):
+    """Fetch a strategy-defining param — raise (never silently default) if absent.
+
+    Some `recycle_rule.params` keys decide WHICH strategy runs, not just a tuning
+    nicety. `z_entry` (the entry z-threshold) is the canonical case: a silent
+    default (formerly 2.0) means a directive that omits the key runs a *different*
+    strategy than the operator believes, with no error anywhere downstream. Fail
+    loud instead.
+
+    Added 2026-06-11 after a live z_entry 2.0->2.5 switch could not be confirmed
+    from the producer log alone — see basket_producer's PRODUCER_START banner,
+    which now echoes the resolved z_entry for the same audit reason.
+    """
+    if key not in params:
+        raise ValueError(
+            f"recycle_rule.params for {rule_name}@{version} is missing required "
+            f"key {key!r}: this strategy-defining parameter must be set explicitly "
+            f"in the directive YAML (no silent default). Present params: "
+            f"{sorted(params)}."
+        )
+    return params[key]
 
 
 def _instantiate_rule(
@@ -658,7 +682,7 @@ def _instantiate_rule(
         return PineRatioZRevRule(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             entry_mode=str(params.get("entry_mode", "centered")),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
             always_in_market=bool(params.get("always_in_market", True)),
@@ -691,7 +715,7 @@ def _instantiate_rule(
         return PineRatioZRevRuleZCross(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             entry_mode=str(params.get("entry_mode", "centered")),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
             always_in_market=bool(params.get("always_in_market", True)),
@@ -714,6 +738,40 @@ def _instantiate_rule(
             basket_id=basket_id,
         )
 
+    if name == "pine_ratio_zrev_v1_zstop" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZStop, params, name, version)
+        # Hard z-stop overlay on the zero-cross exit variant (2026-06-11). Same
+        # entries / hedge lock / sizing / warmup / zcross exit as
+        # pine_ratio_zrev_v1_zcross. ADDS: liquidate (next_open) when
+        # |z_active| >= z_stop, then LATCH (block re-entry until a zero-cross).
+        # Recycle event tag on a stop: LIQUIDATE_ZSTOP.
+        return PineRatioZRevRuleZStop(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            z_stop=float(params.get("z_stop", 4.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
     if name == "pine_ratio_zrev_v1_zband" and version == 1:
         _validate_recycle_rule_params(PineRatioZRevRuleZBand, params, name, version)
         # Equilibrium-band exit variant of pine_ratio_zrev_v1 (2026-06-01).
@@ -725,7 +783,7 @@ def _instantiate_rule(
         return PineRatioZRevRuleZBand(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             z_exit=float(params.get("z_exit", 1.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
@@ -759,7 +817,7 @@ def _instantiate_rule(
         return PineRatioZRevRuleZOpp(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             z_exit=float(params.get("z_exit", 1.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),

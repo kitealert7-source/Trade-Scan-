@@ -62,6 +62,7 @@ from tools.recycle_rules.h3_spread_v3 import H3SpreadV3Rule
 from tools.recycle_rules.pine_ratio_zrev_v1 import PineRatioZRevRule
 from tools.recycle_rules.pine_ratio_zrev_v1_zband import PineRatioZRevRuleZBand
 from tools.recycle_rules.pine_ratio_zrev_v1_zcross import PineRatioZRevRuleZCross
+from tools.recycle_rules.pine_ratio_zrev_v1_zstop import PineRatioZRevRuleZStop
 from tools.recycle_rules.pine_ratio_zrev_v1_zopp import PineRatioZRevRuleZOpp
 
 __all__ = [
@@ -78,6 +79,7 @@ __all__ = [
     "PineRatioZRevRule",
     "PineRatioZRevRuleZBand",
     "PineRatioZRevRuleZCross",
+    "PineRatioZRevRuleZStop",
     "PineRatioZRevRuleZOpp",
     "RULE_CLASSES",
     "rule_class_for",
@@ -109,6 +111,7 @@ _ALL_RULE_CLASSES = (
     PineRatioZRevRule,
     PineRatioZRevRuleZBand,
     PineRatioZRevRuleZCross,
+    PineRatioZRevRuleZStop,
     PineRatioZRevRuleZOpp,
 )
 

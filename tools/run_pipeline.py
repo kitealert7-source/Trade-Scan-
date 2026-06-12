@@ -1415,6 +1415,7 @@ LEG_STRATEGY_DISPATCH = {
     "cointegration_meanrev_v1_2": _build_coint_trigger_legs,
     "pine_ratio_zrev_v1":         _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zcross":  _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zstop":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zband":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zopp":    _build_pine_zrev_legs,
 }
