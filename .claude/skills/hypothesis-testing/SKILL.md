@@ -153,11 +153,31 @@ against (a deployed config, a prior hypothesis run, a chosen comparator) — not
 a "control". Hold the lock as a session-scoped note (UTC `locked_at` + the snapshot below);
 §4 reads it, §5 cites it.
 
-- **Single-asset:** snapshot `total_trades, profit_factor, sharpe_ratio, max_dd_pct,
-  net_profit, top5_concentration, losing_years`.
-- **Basket:** snapshot the reference directive's §4.M `canonical_metrics` (from its parquet).
-- **Cohort:** the reference is a **series tag** (e.g. `GP_ZCRS_CXN1_Z25`) — record the tag;
-  `compare_cohorts.py` reads its rows live from the MPS.
+**`resolve_baseline` is the authority for *which* run and *what* to lock.** Do not hand-hunt
+`completed/`, `backtests/`, or the MPS for the reference. Call the resolver — it selects the
+**`is_current`** run (never a superseded first-match) and returns its governed homes + the
+locked metrics in one shot:
+
+// turbo
+
+```bash
+python tools/resolve_baseline.py <reference_handle> --json   # run_id | directive name | series tag
+```
+
+Lock from its output:
+- **Single-asset:** the returned `metrics` — `total_trades, profit_factor, sharpe_ratio,
+  max_dd_pct, net_profit, top5_concentration, losing_years`.
+- **Basket:** the returned `metrics` — §4.M `canonical_metrics` (the resolver recomputes them
+  from the run's parquet; never the MPS `net_pct` denominator trap).
+- **Cohort:** pass the **series tag** (e.g. `GP_ZCRS_CXN1_Z25`); the resolver returns the
+  representative member and points to `compare_cohorts.py`, which reads the cohort's rows live
+  from the MPS.
+
+**Graceful degradation — lock what the resolver returns, note the gaps.** For an old or pruned
+reference the resolver yields a *best-available* snapshot with `warnings` (metrics from CSV, a
+`provenance_gap`, an absent capsule). That is **not** a halt: lock the fields present, record the
+resolver's `warnings` next to `locked_at`, and proceed. The resolver never invents a value — an
+`ABSENT` field is locked as absent, not guessed.
 
 **Stale lock is advisory, never a halt.** If the reference run is modified or re-run
 mid-session, the orchestrator continues, reports the delta against the now-stale snapshot,

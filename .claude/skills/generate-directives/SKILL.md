@@ -65,9 +65,23 @@ That gate *is* the decision. The framings below are only *why*:
 
 ## A · Transform the reference run's directives (when a reference run exists)
 
-1. **Source:** the reference run's directives in `backtest_directives/completed/` — the
-   run you're comparing against (e.g. the current deployed config `*GP_ZCRS_CXN1_Z25*`).
-   They already encode that run's validated windows + exact config.
+1. **Source — via `resolve_baseline` (the authority):** do not hand-pick from
+   `backtest_directives/completed/`. Call the resolver; it selects the **`is_current`** run
+   (never a superseded first-match) and returns the executable **seed** — the byte-exact
+   directive — from the run's governed homes:
+
+   // turbo
+
+   ```bash
+   python tools/resolve_baseline.py <reference_handle> --json
+   ```
+
+   Use `seed.path` as the source directive — it already encodes that run's validated windows +
+   exact config. **Graceful degradation:** the resolver walks a fallback ladder
+   (`DIRECTIVE_SOURCE.txt` → `runs/<run_id>/directive.txt` → `strategies/<id>/directive.txt` →
+   `completed/` → git), so `completed/` is still the source for older runs — just reached
+   *through* the resolver, not by hand. If `seed.source` is `ABSENT` (unrecoverable), it says so;
+   surface that rather than guessing a baseline.
 2. **Change ONE variable:** a param (`z_entry: 2.5 → 4.0`, add `z_stop: 3.0`), keeping the
    rule; OR swap `recycle_rule.name` — if that rule isn't pipeline-routable yet, build it
    via [`/port-strategy`](../port-strategy/SKILL.md) **first**.
