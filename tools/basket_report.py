@@ -392,6 +392,31 @@ def _write_per_bar_ledger(
     df.to_parquet(path, engine="pyarrow", index=False)
 
 
+def _json_safe(v: Any) -> Any:
+    """JSON fallback for recycle-event payloads: timestamps → ISO strings,
+    numpy scalars → python natives, everything else → str (never raises)."""
+    if isinstance(v, (pd.Timestamp, datetime)):
+        return v.isoformat()
+    if isinstance(v, np.integer):
+        return int(v)
+    if isinstance(v, np.floating):
+        return float(v)
+    return str(v)
+
+
+def _write_recycle_events(path: Path, events: list[dict[str, Any]]) -> None:
+    """Persist per-event rule telemetry as JSONL (one event per line).
+
+    Before 2026-06-12 only the event COUNT survived a run
+    (results_basket.csv `recycle_event_count`); the payloads died in memory,
+    making post-run event-distribution questions (e.g. the HURST_BLOCK
+    blocked-H histogram, CYCLE_Z_DIAG z-excursions) unanswerable. JSONL keeps
+    the artifact append-streamable and schema-free across rule families."""
+    with path.open("w", encoding="utf-8") as fh:
+        for ev in events:
+            fh.write(json.dumps(ev, default=_json_safe) + "\n")
+
+
 def _write_metrics_glossary(path: Path) -> None:
     """Copy the per-symbol glossary verbatim + append basket-only metric defs.
 
@@ -945,6 +970,15 @@ def write_per_window_report_artifacts(
         p = raw_dir / "results_basket_per_bar.parquet"
         _write_per_bar_ledger(p, per_bar_records, leg_count=len(basket_result.legs))
         paths["per_bar_ledger"] = p
+
+    # raw/recycle_events.jsonl — per-event rule telemetry (HURST_BLOCK,
+    # CYCLE_Z_DIAG, BASKET_OPEN, LIQUIDATE_*, ...). Written whenever the rule
+    # emitted events; complements the count in results_basket.csv.
+    recycle_events = list(getattr(basket_result, "recycle_events", []) or [])
+    if recycle_events:
+        p = raw_dir / "recycle_events.jsonl"
+        _write_recycle_events(p, recycle_events)
+        paths["recycle_events"] = p
 
     # metrics_glossary.csv
     p = raw_dir / "metrics_glossary.csv"

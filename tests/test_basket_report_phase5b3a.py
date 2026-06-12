@@ -382,3 +382,48 @@ def test_metrics_glossary_includes_basket_extras(tmp_path):
     for k in ("recycle_event_count", "harvested_total_usd",
               "final_realized_usd", "exit_reason"):
         assert k in keys
+
+
+def test_recycle_events_jsonl_persists_event_payloads(tmp_path):
+    """raw/recycle_events.jsonl carries the FULL per-event payloads (e.g.
+    HURST_BLOCK h-values), not just the count -- added 2026-06-12 after the
+    HF55 cohort run, where the blocked-H distribution died in memory because
+    only results_basket.csv's recycle_event_count survived the run."""
+    from tools.basket_report import write_per_window_report_artifacts
+    df = _trades_df([{"symbol": "EURUSD", "pnl_usd": 10.0, "exit_timestamp": "2024-09-10"}])
+    events = [
+        {"bar_ts": pd.Timestamp("2024-09-10 04:15:00"), "action": "HURST_BLOCK",
+         "h": np.float64(0.583), "threshold": 0.55, "direction": np.int64(-1)},
+        {"bar_ts": pd.Timestamp("2024-09-10 09:30:00"), "action": "BASKET_OPEN",
+         "direction": 1},
+    ]
+    result = _basket_result(recycle_events=events)
+    written = write_per_window_report_artifacts(
+        out_dir=tmp_path, run_id="RID01", directive_id="dir",
+        basket_result=result, df_trades=df, parsed_directive=_directive(),
+        engine_version="1.5.8",
+    )
+    p = tmp_path / "raw" / "recycle_events.jsonl"
+    assert p.is_file() and written["recycle_events"] == p
+    lines = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 2
+    blk = lines[0]
+    assert blk["action"] == "HURST_BLOCK"
+    assert abs(float(blk["h"]) - 0.583) < 1e-12          # numpy float survived
+    assert int(blk["direction"]) == -1                    # numpy int survived
+    assert str(blk["bar_ts"]).startswith("2024-09-10T04:15")  # ISO timestamp
+
+
+def test_recycle_events_jsonl_absent_when_no_events(tmp_path):
+    """No events -> no file (and no key), matching the per-bar-parquet
+    written-only-when-populated convention."""
+    from tools.basket_report import write_per_window_report_artifacts
+    df = _trades_df([{"symbol": "EURUSD", "pnl_usd": 10.0, "exit_timestamp": "2024-09-10"}])
+    result = _basket_result()
+    written = write_per_window_report_artifacts(
+        out_dir=tmp_path, run_id="RID01", directive_id="dir",
+        basket_result=result, df_trades=df, parsed_directive=_directive(),
+        engine_version="1.5.8",
+    )
+    assert not (tmp_path / "raw" / "recycle_events.jsonl").exists()
+    assert "recycle_events" not in written
