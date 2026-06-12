@@ -1368,15 +1368,17 @@ def export_mps(
         df_candidates = None
         if not df_coint.empty:
             from tools.portfolio.cointegration_view import build_cointegration_view_df
-            df_coint_view = build_cointegration_view_df(df_coint)
-            # Pair-level decision-support shortlist (one row per pair). Separate
-            # grain from the run-level Cointegration tab; same is_current rows.
-            from tools.portfolio.trade_candidates_view import build_trade_candidates_df
             # Current 252d cointegration regime per pair, read from the screener
             # DB (cointegration_daily -- the source behind "All Pairs
             # (Diagnostic)"). Best-effort: a missing/locked screener DB leaves
             # the status column blank rather than aborting MPS regeneration.
+            # Feeds BOTH the candidates tab ("Coint Status (252d)") and the
+            # Cointegration tab's "Current Regime" filter column (2026-06-12).
             regime_map = _latest_coint_regime_map()
+            df_coint_view = build_cointegration_view_df(df_coint, regime_map=regime_map)
+            # Pair-level decision-support shortlist (one row per pair). Separate
+            # grain from the run-level Cointegration tab; same is_current rows.
+            from tools.portfolio.trade_candidates_view import build_trade_candidates_df
             df_candidates = build_trade_candidates_df(df_coint, regime_map=regime_map)
 
         # Atomic, lock-resilient write via the shared SSOT writer: per-PID temp

@@ -77,7 +77,13 @@ COINTEGRATION_VIEW_COLUMNS = [
     "n_spans",           # per-PAIR span count within the (pair_a, pair_b, series) cohort
     "cycles",
     "win_rate",
-    "regime",
+    "Current Regime",    # filter aid: the pair's CURRENT screener regime (252d
+                         # hysteresis state: cointegrated / breaking / broken;
+                         # blank = pair absent from the latest screen). Replaced
+                         # the at-run `regime_state` (2026-06-12) which was
+                         # 'cointegrated' on every row by corpus construction
+                         # (the window gate only admits cointegrated spans) and
+                         # therefore carried zero filter information.
     "methodology",
     "backtest",
 ]
@@ -97,7 +103,6 @@ _RENAME = {
     "trades_total": "total_trades",
     "cycles_completed": "cycles",
     "cycle_win_rate_pct": "win_rate",
-    "regime_state": "regime",
     "methodology_version": "methodology",
 }
 
@@ -245,9 +250,19 @@ def _add_n_spans(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def build_cointegration_view_df(df_raw: pd.DataFrame) -> pd.DataFrame:
+def build_cointegration_view_df(
+    df_raw: pd.DataFrame,
+    regime_map: dict | None = None,
+) -> pd.DataFrame:
     """Project raw cointegration_sheet rows to the lean human view (sorted,
-    ranked, friendly-named). Pure transform; no I/O."""
+    ranked, friendly-named). Pure transform; no I/O.
+
+    `regime_map` (optional): {(pair_a, pair_b): regime} — the CURRENT screener
+    regime per pair (tools.cointegration_db.latest_regime_map; same source as
+    the candidates tab's "Coint Status (252d)"). Populates the "Current Regime"
+    filter column: cointegrated / breaking / broken, blank when the pair is
+    absent from the latest screen. regime_map=None (no screener data supplied)
+    leaves the whole column blank — never an error."""
     if df_raw is None or len(df_raw) == 0:
         return pd.DataFrame(columns=COINTEGRATION_VIEW_COLUMNS)
 
@@ -269,6 +284,12 @@ def build_cointegration_view_df(df_raw: pd.DataFrame) -> pd.DataFrame:
         df["pair"] = df["pair_a"].astype(str) + " / " + df["pair_b"].astype(str)
         df["pair_class"] = [
             _classify_pair(a, b) for a, b in zip(df["pair_a"], df["pair_b"])
+        ]
+        # Current screener regime (blank when unmapped / no map supplied).
+        _rm = regime_map or {}
+        df["Current Regime"] = [
+            _rm.get((str(a), str(b)), "")
+            for a, b in zip(df["pair_a"], df["pair_b"])
         ]
     if "continuous_span_obs" in df.columns:
         df["coint_friendly"] = df["continuous_span_obs"].apply(_friendly_band)

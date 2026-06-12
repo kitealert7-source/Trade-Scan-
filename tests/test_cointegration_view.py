@@ -355,3 +355,35 @@ def test_all_profitable_independent_per_pair():
     by_pair = out.groupby("pair")["all_profitable"].agg(set).to_dict()
     assert by_pair["EURUSD / GBPUSD"] == {"Yes"}
     assert by_pair["AUDUSD / NZDUSD"] == {"No"}
+
+
+def test_current_regime_from_screener_map():
+    """'Current Regime' carries the pair's CURRENT screener regime (filterable:
+    cointegrated / breaking / broken), NOT the at-run regime_state -- which is
+    'cointegrated' on every row by corpus construction and carried zero filter
+    information (operator request 2026-06-12)."""
+    rows = [
+        _row("r1", 2.0, "2026-06-01", pair_a="EURUSD", pair_b="GER40"),
+        _row("r2", 1.0, "2026-06-02", pair_a="AUDJPY", pair_b="AUDNZD"),
+        _row("r3", 0.5, "2026-06-03", pair_a="BTCUSD", pair_b="EUSTX50"),
+    ]
+    regime_map = {
+        ("EURUSD", "GER40"): "cointegrated",
+        ("AUDJPY", "AUDNZD"): "broken",
+        # BTCUSD/EUSTX50 deliberately absent from the screen -> blank.
+    }
+    out = build_cointegration_view_df(pd.DataFrame(rows), regime_map=regime_map)
+    by_pair = dict(zip(out["pair"], out["Current Regime"]))
+    assert by_pair["EURUSD / GER40"] == "cointegrated"
+    assert by_pair["AUDJPY / AUDNZD"] == "broken"
+    assert by_pair["BTCUSD / EUSTX50"] == ""
+    # The stale at-run column must NOT survive into the view.
+    assert "regime" not in out.columns
+    assert "regime_state" not in out.columns
+
+
+def test_current_regime_blank_without_map():
+    """No regime_map (screener DB unavailable) -> whole column blank, never an
+    error -- mirrors the candidates tab's best-effort contract."""
+    out = build_cointegration_view_df(pd.DataFrame([_row("r1", 2.0, "2026-06-01")]))
+    assert list(out["Current Regime"]) == [""]
