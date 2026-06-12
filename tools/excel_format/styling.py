@@ -401,6 +401,27 @@ def _style_portfolio_sheet(ws, path, col_map, max_col, max_row):
             if _quar_col is not None:
                 print(f"    [FILTER] Hid {_hidden_quar} additional CORE/WATCH rows with quarantine_status set")
 
+        # Cointegration tab: pre-select Current Regime=cointegrated (operator
+        # request 2026-06-12) so the sheet opens showing only pairs the daily
+        # screener currently confirms in-regime. Clear the column-V filter in
+        # Excel to see breaking / broken / unscreened rows. Same mechanics as
+        # the CORE/WATCH pre-filter: filter spec + explicit row hiding (openpyxl
+        # writes filter metadata but Excel does not re-apply it on open).
+        if ws.title == "Cointegration" and "current regime" in _headers_lower:
+            from openpyxl.worksheet.filters import FilterColumn, Filters
+            _cr_idx = _headers_lower.index("current regime")
+            _fc = FilterColumn(colId=_cr_idx)
+            _fc.filters = Filters(filter=["cointegrated"])
+            ws.auto_filter.filterColumn.append(_fc)
+            _cr_col = _cr_idx + 1  # 1-based
+            _hidden_cr = 0
+            for _r in range(2, max_row + 1):
+                _val = str(ws.cell(row=_r, column=_cr_col).value or "")
+                if _val != "cointegrated":
+                    ws.row_dimensions[_r].hidden = True
+                    _hidden_cr += 1
+            print(f"    [FILTER] Pre-selected Current Regime=cointegrated (hidden {_hidden_cr} rows)")
+
 
 def _style_strategy_sheet(ws, path, max_col, max_row):
     """Strategy-profile per-sheet actions: freeze at A2, auto-filter, and
