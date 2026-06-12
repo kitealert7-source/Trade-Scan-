@@ -783,36 +783,86 @@ def _is_nan(v: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _query_cointegration_current() -> "Any":
+    """``cointegration_sheet`` is_current=1 rows as a DataFrame (empty on any
+    failure). Self-contained reader — ledger_db has no cointegration query
+    helper and this keeps the resolver's dependency surface unchanged. The DB
+    path is resolved at CALL time from ``config.path_authority`` so test
+    fixtures that monkeypatch ``TRADE_SCAN_STATE`` are honored."""
+    import sqlite3
+
+    import pandas as pd
+
+    import config.path_authority as pa
+
+    db = Path(pa.TRADE_SCAN_STATE) / "ledger.db"
+    if not db.exists():
+        return pd.DataFrame()
+    conn = sqlite3.connect(str(db))
+    try:
+        return pd.read_sql_query(
+            'SELECT * FROM cointegration_sheet WHERE "is_current" = 1', conn
+        )
+    except Exception:  # noqa: BLE001  (absent table = empty cohort view)
+        return pd.DataFrame()
+    finally:
+        conn.close()
+
+
+def _series_cohort_rows(df: "Any", handle: str) -> "Any":
+    """Cohort rows for a series tag, ANCHORED-FIRST.
+
+    A bare substring match contaminates cohorts whose tag is a prefix of a
+    sibling's (e.g. handle ``...Z25`` also matching ``...Z25_N60`` /
+    ``...Z25_HF55`` rows). Prefer rows where the tag is immediately followed
+    by the episode suffix (``__E``) or the end of the directive_id; fall back
+    to the plain substring match only when the anchored form matches nothing
+    (preserves resolution for older naming schemes without the suffix)."""
+    ids = df["directive_id"].astype(str)
+    anchored = ids.str.contains(re.escape(handle) + r"(?:__E|$)", na=False, regex=True)
+    if anchored.any():
+        return df[anchored]
+    return df[ids.str.contains(re.escape(handle), na=False)]
+
+
 def _resolve_series(handle: str) -> BaselineResult:
     """Resolve a bare series / cohort tag to a single representative reference.
 
-    Picks the top-``ret_dd`` member of the cohort (basket_sheet rows whose
-    directive_id contains the tag), flags ``is_cohort=true``, and points to
-    ``compare_cohorts.py``. Does NOT return the full cohort (that is
-    compare_cohorts' job).
+    Searches BOTH cohort homes — ``basket_sheet`` first (legacy behavior),
+    then ``cointegration_sheet`` (COINTREV episode corpora route there, not to
+    the basket view). Picks the top-``ret_dd`` member of the matched cohort,
+    flags ``is_cohort=true``, and points to ``compare_cohorts.py``. Does NOT
+    return the full cohort (that is compare_cohorts' job).
     """
     result = BaselineResult(handle=handle)
+    warnings: list[str] = []
+
+    candidates: list[tuple[str, Any]] = []
     try:
         from tools.ledger_db import query_baskets
 
-        bdf = query_baskets(current_only=True)
+        candidates.append(("basket_sheet", query_baskets(current_only=True)))
     except Exception as exc:  # noqa: BLE001
-        ref = BaselineReference(handle=handle, resolved=False)
-        ref.warnings.append(f"series resolution failed (basket view): {exc!r}")
-        result.references.append(ref)
-        return result
+        warnings.append(f"series resolution failed (basket view): {exc!r}")
+    candidates.append(("cointegration_sheet", _query_cointegration_current()))
 
-    if bdf.empty or "directive_id" not in bdf.columns:
-        ref = BaselineReference(handle=handle, resolved=False)
-        ref.warnings.append("no basket cohort rows available for series tag")
-        result.references.append(ref)
-        return result
+    cohort = None
+    sheet = None
+    for sheet_name, df in candidates:
+        if df is None or df.empty or "directive_id" not in df.columns:
+            continue
+        rows = _series_cohort_rows(df, handle)
+        if not rows.empty:
+            cohort, sheet = rows, sheet_name
+            break
 
-    mask = bdf["directive_id"].astype(str).str.contains(re.escape(handle), na=False)
-    cohort = bdf[mask]
-    if cohort.empty:
+    if cohort is None:
         ref = BaselineReference(handle=handle, resolved=False)
-        ref.warnings.append(f"series tag {handle!r} matched no cohort member")
+        ref.warnings.extend(warnings)
+        ref.warnings.append(
+            f"series tag {handle!r} matched no cohort member "
+            f"(searched basket_sheet + cointegration_sheet)"
+        )
         result.references.append(ref)
         return result
 
@@ -832,11 +882,36 @@ def _resolve_series(handle: str) -> BaselineResult:
         ref = rep_result.references[0]
     else:
         ref = BaselineReference(handle=handle, resolved=False)
+
+    # Cointegration cohorts: the run-id spine reads master_filter /
+    # basket_sheet and may not know this run. Degrade gracefully to the
+    # cohort row itself — it carries the canonical metrics the lock needs.
+    if not ref.resolved and sheet == "cointegration_sheet":
+        ref = BaselineReference(handle=handle, resolved=True)
+        ref.run_id = rep_handle
+        ref.strategy = str(rep.get("directive_id"))
+        ref.run_type = "basket"
+        ref.is_current = True
+        ref.metrics = {
+            k: rep.get(k)
+            for k in (
+                "canonical_net_pct", "canonical_ret_dd", "canonical_max_dd_pct",
+                "canonical_max_dd_pct_vs_stake", "cycle_win_rate_pct",
+                "cycles_completed", "trades_total", "realized_net_pct",
+            )
+            if k in cohort.columns
+        }
+        ref.warnings.append(
+            "representative built from its cointegration_sheet row "
+            "(run-id spine found no master_filter/basket_sheet entry)"
+        )
+
     ref.handle = handle
     ref.is_cohort = True
+    ref.warnings.extend(warnings)
     ref.note = (
-        f"series tag → representative (top ret_dd) of {len(cohort)} cohort members; "
-        f"use compare_cohorts.py for matched-pairs analysis"
+        f"series tag → representative (top ret_dd) of {len(cohort)} cohort "
+        f"members ({sheet}); use compare_cohorts.py for matched-pairs analysis"
     )
     result.references.append(ref)
     return result

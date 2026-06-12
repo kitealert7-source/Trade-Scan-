@@ -399,3 +399,98 @@ def test_superseded_followed_to_successor(env):
     ref = rb.resolve_baseline(old).references[0]
     assert ref.resolved
     assert ref.run_id == succ
+
+
+# ---------------------------------------------------------------------------
+# Series-tag (cohort) resolution — cointegration_sheet + anchored matching
+# (frictions #1/#2 from the 2026-06-12 HF55 hypothesis session)
+# ---------------------------------------------------------------------------
+
+_COINT_COLS = [
+    "run_id", "directive_id", "pair_a", "pair_b", "is_current",
+    "canonical_net_pct", "canonical_ret_dd", "canonical_max_dd_pct",
+    "cycle_win_rate_pct", "cycles_completed", "trades_total",
+]
+
+
+def _make_coint_sheet(db_path: Path, rows: list[dict]) -> None:
+    """Add a minimal cointegration_sheet to the temp ledger."""
+    conn = sqlite3.connect(str(db_path))
+    cols_sql = ", ".join(f'"{c}" TEXT' for c in _COINT_COLS)
+    conn.execute(f"CREATE TABLE cointegration_sheet ({cols_sql})")
+    for r in rows:
+        placeholders = ", ".join("?" for _ in _COINT_COLS)
+        conn.execute(
+            f'INSERT INTO cointegration_sheet ({", ".join(_COINT_COLS)}) '
+            f"VALUES ({placeholders})",
+            tuple(r.get(c) for c in _COINT_COLS),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_series_tag_resolves_from_cointegration_sheet(env):
+    """A COINTREV cohort tag (rows only in cointegration_sheet, not
+    basket_sheet) resolves to the top-ret_dd member with the row's canonical
+    metrics — previously returned 'matched no cohort member'."""
+    from tools.resolve_baseline import resolve_baseline
+
+    _make_ledger(env.db, [])  # master_filter exists but is empty
+    _make_coint_sheet(env.db, [
+        {"run_id": "a" * 24,
+         "directive_id": "90_PORT_AAABBB_15M_X_V3_L30_GP_ZCRS_CXN1_Z25__E240101",
+         "pair_a": "AAA", "pair_b": "BBB", "is_current": 1,
+         "canonical_net_pct": "5.0", "canonical_ret_dd": "0.5",
+         "canonical_max_dd_pct": "4.0", "cycle_win_rate_pct": "60",
+         "cycles_completed": "10", "trades_total": "20"},
+        {"run_id": "b" * 24,
+         "directive_id": "90_PORT_CCCDDD_15M_X_V3_L30_GP_ZCRS_CXN1_Z25__E240202",
+         "pair_a": "CCC", "pair_b": "DDD", "is_current": 1,
+         "canonical_net_pct": "9.0", "canonical_ret_dd": "2.5",
+         "canonical_max_dd_pct": "3.0", "cycle_win_rate_pct": "70",
+         "cycles_completed": "12", "trades_total": "24"},
+    ])
+
+    res = resolve_baseline("GP_ZCRS_CXN1_Z25")
+    assert res.resolved, res.to_dict()
+    ref = res.references[0]
+    assert ref.is_cohort is True
+    assert "cointegration_sheet" in (ref.note or "")
+    assert "of 2 cohort members" in (ref.note or "")
+    # top ret_dd member wins (2.5 > 0.5)
+    assert ref.run_id == "b" * 24
+    assert float(ref.metrics["canonical_ret_dd"]) == 2.5
+
+
+def test_series_tag_anchored_excludes_sibling_cohorts(env):
+    """A tag that is a prefix of a sibling cohort's tag (Z25 vs Z25_HF55)
+    must match ONLY the anchored rows — bare substring matching previously
+    pulled 944 rows into a 475-row cohort lock."""
+    from tools.resolve_baseline import resolve_baseline
+
+    _make_ledger(env.db, [])
+    base = "90_PORT_AAABBB_15M_X_V3_L30_GP_ZCRS_CXN1_Z25"
+    _make_coint_sheet(env.db, [
+        {"run_id": "a" * 24, "directive_id": base + "__E240101",
+         "pair_a": "AAA", "pair_b": "BBB", "is_current": 1,
+         "canonical_net_pct": "1.0", "canonical_ret_dd": "0.5",
+         "canonical_max_dd_pct": "4.0", "cycle_win_rate_pct": "60",
+         "cycles_completed": "10", "trades_total": "20"},
+        {"run_id": "c" * 24, "directive_id": base + "_HF55__E240101",
+         "pair_a": "AAA", "pair_b": "BBB", "is_current": 1,
+         "canonical_net_pct": "2.0", "canonical_ret_dd": "9.9",
+         "canonical_max_dd_pct": "2.0", "cycle_win_rate_pct": "65",
+         "cycles_completed": "8", "trades_total": "16"},
+    ])
+
+    res = resolve_baseline("GP_ZCRS_CXN1_Z25")
+    ref = res.references[0]
+    # The sibling (higher ret_dd) must NOT be selected: anchored match only.
+    assert "of 1 cohort members" in (ref.note or ""), ref.note
+    assert ref.run_id == "a" * 24
+
+    # And the sibling tag itself resolves to its own single row.
+    res2 = resolve_baseline("GP_ZCRS_CXN1_Z25_HF55")
+    ref2 = res2.references[0]
+    assert "of 1 cohort members" in (ref2.note or "")
+    assert ref2.run_id == "c" * 24
