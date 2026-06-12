@@ -1,10 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: 6 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 2673 uncommitted
+- WARNING: Working tree 4166 uncommitted
 
-> Generated: 2026-06-10T16:47:35Z
+> Generated: 2026-06-12T08:00:48Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 9633 directives
+- Completed: 11127 directives
 
 ## Ledgers
 
@@ -33,22 +32,22 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-10** | Symbols: 221 | **Stale (>3d): 6**
+- Latest bar: **2026-06-12** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3875
+- Run directories: 5363
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/feat/cointegration-onboarding`)
-- Working tree: 2673 uncommitted
-- Last substantive commit: `7fe41170 session: closing SYSTEM_STATE snapshot (feature branch; pushes held local per convention)`
+- Working tree: 4166 uncommitted
+- Last substantive commit: `08975a34 feat(live_basket): echo resolved recycle-rule params in PRODUCER_START banner`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- (none — no drift signals exceed threshold this session)
+- [SIZE] RESEARCH_MEMORY.md 35 KB / 135 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
