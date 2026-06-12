@@ -250,11 +250,11 @@ architecture.
      `governance/recycle_rules/registry.yaml`, dispatch wiring in
      `tools/basket_pipeline.py::_instantiate_rule`, tests). The rule
      MUST be pipeline-routable before any backtest — NOT optional.
-   - Author a variant directive from the baseline directive: same legs,
-     same stake, same window, only `recycle_rule.version` (and any new
-     rule-specific params) differ. **Insert `hypothesis_ref` and
-     `hypothesis_variant` under the directive's `test:` block** so the
-     directive carries linkage back to the hypothesis YAML.
+   - Form the variant directive(s) via
+     [`/generate-directives`](../generate-directives/SKILL.md) — it owns the
+     transform-vs-generator decision, one-moving-variable, and retag. **Insert
+     `hypothesis_ref` and `hypothesis_variant` under the directive's `test:`
+     block** so the directive carries linkage back to the hypothesis YAML.
    - Run through pipeline via [`/execute-directives`](../execute-directives/SKILL.md).
 
 3. **Parity gate (3.G)** if any in-process probe motivated the variant
@@ -293,8 +293,8 @@ initial_stake_usd + harvest_threshold_usd), shared window.
    (scale-invariant) and `net%` (already normalized).
 
 2. **For each architecture:**
-   - Author directive (basket.legs + initial_stake_usd +
-     harvest_threshold_usd) with the shared rule. **Insert
+   - Form the directive(s) via
+     [`/generate-directives`](../generate-directives/SKILL.md). **Insert
      `hypothesis_ref` and `hypothesis_variant` under the directive's
      `test:` block** so the directive carries linkage back to the
      hypothesis YAML.
@@ -461,6 +461,7 @@ Flagged items become next-session tasks. Not auto-fixed.
 
 | Sub-task | Delegates to |
 |---|---|
+| Forming directives from a hypothesis | [`/generate-directives`](../generate-directives/SKILL.md) |
 | Building a new rule class | [`/port-strategy`](../port-strategy/SKILL.md) |
 | Running directives through pipeline | [`/execute-directives`](../execute-directives/SKILL.md) |
 | Re-test of previously-tested config | [`/rerun-backtest`](../rerun-backtest/SKILL.md) |

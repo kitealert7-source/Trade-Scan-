@@ -15,6 +15,7 @@ to use** + **when NOT to use** + **related skills**.
 
 | If you're about to ... | Reach for |
 |---|---|
+| Form directive(s) from a hypothesis (before running) | `/generate-directives` |
 | Run a directive end-to-end | `/execute-directives` |
 | Re-run a previously tested strategy | `/rerun-backtest` |
 | Combine 2+ runs into a portfolio | `/run-composite-portfolio` |
@@ -45,7 +46,8 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
-| `execute-directives` | A directive (`.txt`) is sitting in `directives/active/` and you want to run it through the governed pipeline (Stages 0 → 4) | The directive is a re-test of a prior strategy → use `/rerun-backtest` instead | `port-strategy` (created the directive), `promote` (LIVE-ifies the result) |
+| `generate-directives` | You have a hypothesis but no directive yet — form the directive(s) by transforming a reference run vs the corpus generator, before running | The directive(s) already exist → go straight to `/execute-directives` | `execute-directives` (next stage), `basket-hypothesis-testing` (caller), `port-strategy` (new rule) |
+| `execute-directives` | A directive (`.txt`) is sitting in `directives/active/` and you want to run it through the governed pipeline (Stages 0 → 4) | The directive is a re-test of a prior strategy → use `/rerun-backtest` instead | `generate-directives` (formed the directive), `port-strategy` (created the rule), `promote` (LIVE-ifies the result) |
 | `rerun-backtest` | A previously-tested strategy needs re-execution due to data refresh, indicator change, engine update, parameter tweak, or bug fix | First run of a brand-new strategy → use `/execute-directives` after `/port-strategy` | `execute-directives`, `update-vault` |
 | `run-composite-portfolio` | You have 2+ completed runs and want to combine them into a single composite portfolio with capital wrappers + robustness suite | Single-strategy run → not needed; portfolio_evaluator handles single-run portfolios automatically | `portfolio-research` (selecting which runs), `uniform-risk-capital-simulation` |
 
