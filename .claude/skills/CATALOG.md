@@ -21,6 +21,7 @@ to use** + **when NOT to use** + **related skills**.
 | Combine 2+ runs into a portfolio | `/run-composite-portfolio` |
 | Build a new strategy or port from Pine | `/port-strategy` |
 | Adversarially challenge a finalized design before scaling | `/design-challenge` |
+| Sanity-check a plan or a staged change | `/sanity` |
 | Promote a strategy to LIVE | `/promote` |
 | Snapshot the workspace as a vault entry | `/update-vault` |
 | Add or remove a strategy from the active selection | `/portfolio-selection-add` / `/portfolio-selection-remove` |
@@ -88,6 +89,7 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
+| `sanity` | After agreeing a plan or staging a change — a fast "what's missing / risky / forgotten?" read over the plan or `git diff HEAD`. Fine to run proactively, unprompted | A finalized *research design* about to consume durable state → `/design-challenge` (heavier; ontology / population / analog errors gates can't catch). A whole-session backward sweep before close → `/session-retro` | `design-challenge` (research-design altitude), `session-retro` (session altitude), `session-close` |
 | `session-start` | Start of every non-trivial session — reads SYSTEM_STATE + RESEARCH_MEMORY + git log to surface top 3 infra + top 3 research priorities | Already have working context → skip; trivial read-only sessions → skip | `session-close` (sibling pair), `system-health-maintenance`, `skill-maintenance` |
 | `session-retro` | Immediately before `/session-close` on any substantive session — convert observed friction, robustness/resilience gaps, missed opportunities, and measured future-pressure trends into routed, capped follow-ups (Execute/Monitor/Ignore) + one HIGH ROI pick | Trivial read-only / Q&A session; mid-task pause | `session-close` (commits what it stages), `session-start` (reads its HIGH ROI + MONITOR outputs), `skill-maintenance` (audits friction rows it creates) |
 | `session-close` | Ending a work session — commit, push, document, regenerate `SYSTEM_STATE.md` snapshot, run periodic skills if it's the weekend | Mid-task pause (resuming same session) → skip; trivial read-only session → skip | All maintenance skills (called from §8b) |

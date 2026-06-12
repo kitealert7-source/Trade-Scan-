@@ -231,6 +231,7 @@ session has no retro. Do not manufacture findings.
 | [`/session-start`](../session-start/SKILL.md) | Sibling bookend at the other end of the session; the HIGH ROI pick is intended as the next start's first task (session-start does not yet auto-read the MONITOR list — see design notes) |
 | [`/skill-maintenance`](../skill-maintenance/SKILL.md) | Audits the friction-log rows retro creates for format compliance |
 | [`SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md) | The per-skill friction-log flow retro routes Execute-friction into |
+| [`/sanity`](../sanity/SKILL.md) | Point-in-time check over one plan or change; retro is the whole-session backward sweep before close |
 
 ---
 

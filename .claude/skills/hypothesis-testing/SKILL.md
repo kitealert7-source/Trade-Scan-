@@ -1,12 +1,33 @@
 ---
 name: hypothesis-testing
-description: Unified orchestrator for backtest-from-a-hypothesis (single-asset + basket): classify → form → run → analyse → record.
+description: >
+  Research orchestrator — run when the user wants to test a hypothesis,
+  try a rule change, compare a variant, filter trades, or test any
+  backtest idea. Covers single-asset and basket strategies. Triggers on
+  "test if", "I want to try", "hypothesis", "compare this variant",
+  "does X improve", "backtest this idea", /hypothesis-testing.
 ---
 
 # /hypothesis-testing — research orchestrator (single-asset + basket)
 
 THE one place a backtest-from-a-hypothesis run starts. One command, one spine, both asset
 classes. Read this, classify the hypothesis, follow the matching branch.
+
+> **ENTRYPOINT CONTRACT.** If the user provides a finalized hypothesis and asks to test it,
+> this skill **MUST** be invoked first. Do not route directly to `/generate-directives`,
+> `/execute-directives`, or analysis from a cold start — the orchestrator owns classification,
+> reference-locking (§Lock the reference run), and the §5 record step that those delegates
+> assume have already happened. Bypassing it *looks* faster and silently drops those steps.
+
+> **ORCHESTRATOR OWNERSHIP.** Any change to `/generate-directives`, `/execute-directives`, the
+> canonical analysis tools (`tools/basket_hypothesis/`, `tools/compare_cohorts.py`), or the
+> research-memory procedure (`tools/research_memory_append.py`) **requires review of this
+> skill** in the same change — the spine (§The spine) and §0 downstream contract must keep
+> matching what the delegates actually do, or the orchestrator drifts from reality.
+> [`/rerun-backtest`](../rerun-backtest/SKILL.md) is a **divert target, not a spine delegate**,
+> but the same rule binds it: if its **category taxonomy**
+> (`DATA_FRESH`/`SIGNAL`/`ENGINE`/`PARAMETER`/`BUG_FIX`) or its supersede-vs-compare contract
+> changes, the §1.0 divert table must be reviewed in the same change.
 
 > **Principle:** *Humans decide what to test. The orchestrator determines how to test it
 > rigorously.*
@@ -43,6 +64,29 @@ Stages 1, 4, 5 are spelled out below; 2 and 3 are owned by the linked skills.
 ---
 
 ## 1 · Classify
+
+### 1.0 Rerun divert — check before the table
+
+Screen first for *"re-evaluation of an existing config, not a new variant."* If any row matches,
+**route to [`/rerun-backtest`](../rerun-backtest/SKILL.md)** — it owns the supersession + gate
+plumbing this orchestrator deliberately does **not** carry (Idea-Gate bypass, `__E###` rotation,
+Stage-3 row cleanup, `is_current=0` finalize).
+
+| Signal | rerun category | Why it's a rerun, not a hypothesis |
+|---|---|---|
+| Same config, more / fresher bars ("does it still hold on recent data") | `DATA_FRESH` | No moving variable — the data moved, not the rule. |
+| Engine / indicator code changed, directive byte-identical | `ENGINE` / `SIGNAL` | The config didn't change; the implementation did. |
+| Prior run was semantically wrong; old rows must be retired | `BUG_FIX` | Goal is to *supersede* the old row, not *compare* against it. |
+
+**The tell is supersession vs. comparison.** A hypothesis makes a NEW retagged variant that
+*coexists* with the reference (§2 transform forces a disjoint retag); a rerun *replaces* the old
+row. Old result **retired** → rerun. Old result **compared** → stay here.
+
+A `PARAMETER` tweak is either: "keep both, compare" → stay (single-asset-param / basket-mechanic);
+"old value obsolete, re-baseline" → `/rerun-backtest --category PARAMETER`. Unclear → ask, don't guess.
+
+The divert is **routing, not rejection** — the hypothesis still runs, through the skill with the
+right ledger semantics; the no-gates invariant (§Scope) is intact.
 
 > **BASKET VARIANTS — the one distinction that picks the comparison table:**
 > **mechanic = rule change on the same legs · architecture = legs change on the same rule.**
@@ -86,8 +130,8 @@ The retired `shadow_filter` *rejection* gate is gone — extraction proposes, it
 
 ## Scope & invariants (these forbid gating)
 
-- **The human chooses what runs.** The orchestrator classifies and executes; it never
-  declines a proposed hypothesis.
+- **The human chooses what runs. The orchestrator never declines a finalized hypothesis.**
+  It classifies and executes — that is the whole of its authority.
 - **One moving variable per directive** (enforced by `/generate-directives`). Two variables
   → split into two directives (above), never a refusal.
 - **Matched windows** — reference and variant run the same cointegrated spans.
@@ -119,6 +163,18 @@ a "control". Hold the lock as a session-scoped note (UTC `locked_at` + the snaps
 mid-session, the orchestrator continues, reports the delta against the now-stale snapshot,
 and notes the stale `locked_at` in the §5 record. The human may re-lock if concerned; the
 orchestrator never refuses a variant on lock-staleness grounds.
+
+**Stale *baseline* (not just stale lock) → re-baseline via /rerun-backtest first.**
+Lock-staleness (the reference was re-run mid-session) is advisory, above. But if the reference
+run is stale in *data or engine* terms — more bars now exist, or the engine changed since it ran
+— a fresh variant compared against it is not apples-to-apples. Offer to re-baseline the reference
+through [`/rerun-backtest`](../rerun-backtest/SKILL.md) (`DATA_FRESH` / `ENGINE`), then lock the
+new run as the reference (re-lock steps below). The human decides; the orchestrator never forces it.
+
+**To re-lock mid-session:** re-run the snapshot commands for the reference run, overwrite the
+session note's values, and update `locked_at` to the current UTC. Document the re-lock
+timestamp in the session summary so it is clear which baseline was used for subsequent
+comparisons.
 
 ---
 
@@ -299,8 +355,9 @@ No auto-deploy. Promotion is a separate human decision.
 - **Stage 3 (run):** [`/execute-directives`](../execute-directives/SKILL.md).
 - **Conditional:** [`/port-strategy`](../port-strategy/SKILL.md) — build a new recycle rule
   before transforming onto it.
-- **Alternative:** [`/rerun-backtest`](../rerun-backtest/SKILL.md) — re-run an exact prior
-  config (not a hypothesis).
+- **Divert (§1.0):** [`/rerun-backtest`](../rerun-backtest/SKILL.md) — re-run / re-baseline an
+  existing config (`DATA_FRESH` · `ENGINE` · `BUG_FIX`, or a re-baseline `PARAMETER`). It
+  *supersedes* the old row; this skill *compares*. Screen for it before classifying.
 - (Retired) `basket-hypothesis-testing` — folded into this orchestrator + `compare_cohorts.py` + `tools/basket_hypothesis/`; its skill dir is now a redirect stub (full prior content in git history).
 
 ---

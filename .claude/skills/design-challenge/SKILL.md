@@ -177,6 +177,7 @@ not keep digging past the envelope to manufacture a finding.
 | [`/execute-directives`](../execute-directives/SKILL.md) | design-challenge gates the probe→scale step that precedes a large run |
 | [`/session-retro`](../session-retro/SKILL.md) | Audits whether PROCEED designs honoured their pre-registered kill-criterion (the loop) |
 | [`/hypothesis-testing`](../hypothesis-testing/SKILL.md) | Sibling research skill at a *later* lifecycle point (re-test of an existing baseline) |
+| [`/sanity`](../sanity/SKILL.md) | The *lightweight* counterpart — a quick "what's missing?" over any plan or change. design-challenge is the heavy, durable-state-gating research-design review |
 
 ---
 
