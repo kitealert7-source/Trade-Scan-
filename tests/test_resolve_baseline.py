@@ -494,3 +494,23 @@ def test_series_tag_anchored_excludes_sibling_cohorts(env):
     ref2 = res2.references[0]
     assert "of 1 cohort members" in (ref2.note or "")
     assert ref2.run_id == "c" * 24
+
+
+def test_reports_carries_recycle_events_pointer(env):
+    """Telemetry pointer (TELEMETRY_GOVERNANCE_PROPOSAL_2026_06_12.md §6):
+    reports.recycle_events = path when the capsule has the artifact, None
+    (ABSENT, informative) when it does not -- never a resolution failure."""
+    from tools.resolve_baseline import _resolve_reports
+
+    cap = env.backtests / "90_X_S01_V1_P00_EURUSD"
+    (cap / "raw").mkdir(parents=True)
+    # without the artifact -> None, and resolution still works
+    r = _resolve_reports("basket", cap, "90_X_S01_V1_P00")
+    assert r["recycle_events"] is None
+    # with the artifact -> absolute path
+    ev = cap / "raw" / "recycle_events.jsonl"
+    ev.write_text('{"schema_version": 1, "event_type": "X", "timestamp": null, '
+                  '"rule_name": "r", "rule_version": 1, "run_id": "a", '
+                  '"directive_id": "d", "payload": {}}\n', encoding="utf-8")
+    r2 = _resolve_reports("basket", cap, "90_X_S01_V1_P00")
+    assert r2["recycle_events"] == str(ev)

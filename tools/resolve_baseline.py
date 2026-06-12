@@ -670,15 +670,26 @@ def _num(v: Any) -> float | None:
 
 
 def _resolve_reports(run_type: str, bdir: Path, base: str) -> dict[str, str | None]:
-    """Locate strategy_card / basket_report / report_md within the capsule."""
+    """Locate strategy_card / basket_report / report_md / recycle_events
+    within the capsule."""
     reports: dict[str, str | None] = {
         "strategy_card": None,
         "basket_report": None,
         "report_md": None,
+        # Rule telemetry (Research Artifact — Population Evidence; see
+        # TELEMETRY_GOVERNANCE_PROPOSAL_2026_06_12.md §6). Pointer only —
+        # None = ABSENT, which is informative (pre-telemetry run or a run
+        # with no events) and NEVER a resolution failure. A reproducible
+        # research baseline = seed + rule code + canonical metrics +
+        # telemetry-when-applicable.
+        "recycle_events": None,
     }
     card = bdir / "STRATEGY_CARD.md"
     if card.is_file():
         reports["strategy_card"] = str(card)
+    ev = bdir / "raw" / "recycle_events.jsonl"
+    if ev.is_file():
+        reports["recycle_events"] = str(ev)
     # REPORT_*.md and BASKET_REPORT_*.md (named after the base directive id).
     try:
         if bdir.is_dir():
