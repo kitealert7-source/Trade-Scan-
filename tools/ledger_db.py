@@ -64,6 +64,20 @@ def _resolve_mps_path() -> Path:
     from config.path_authority import TRADE_SCAN_STATE
     return TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
 
+
+class MasterFilterCurrencyError(Exception):
+    """Raised when a master_filter write would land rows for a NEW run_id whose
+    (strategy, symbol) already has an is_current=1 row from a DIFFERENT run_id,
+    and the new run did NOT declare a rerun (no test.repeat_override_reason).
+
+    This is the UNDECLARED-collision FAIL-LOUD path of Phase-0 supersession
+    enforcement (governance "Option C"). The writer raises rather than mutate:
+    the operator must either run rerun_backtest finalize (mark_superseded) or
+    declare the rerun. master_filter is an Invariant #1/#2 append-only ledger,
+    so an accidental two-current state is never silently flipped.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Schema definitions — column names match Excel exactly
 # ---------------------------------------------------------------------------
@@ -511,8 +525,35 @@ def upsert_master_filter(
 def upsert_master_filter_df(
     conn: sqlite3.Connection,
     df: pd.DataFrame,
+    supersede_for: dict[str, bool] | None = None,
 ) -> None:
-    """Bulk upsert a DataFrame into master_filter. Preserves unspecified columns."""
+    """Bulk upsert a DataFrame into master_filter. Preserves unspecified columns.
+
+    Phase-0 supersession enforcement (governance "Option C")
+    --------------------------------------------------------
+    ``supersede_for`` maps each NEW run_id present in ``df`` to whether that
+    run is an authorized (declared) rerun — ``rerun_authorized = bool(
+    test.repeat_override_reason)`` in the run's governed directive snapshot.
+    When provided, AFTER the INSERT loop and BEFORE the single commit, for each
+    new run the writer scans the (strategy, symbol) pairs that run contributes
+    to ``df`` and looks for PRIOR ``is_current=1`` rows for the same
+    (strategy, symbol) belonging to a DIFFERENT run_id:
+
+      * authorized (True)  -> AUTO-SUPERSEDE those prior rows in-place
+        (is_current=0, superseded_by=<new run_id>, superseded_at=<utc iso>,
+        supersede_reason='AUTO_SUPERSEDE: declared rerun (stage3)'). Per-
+        (strategy, symbol) scope — NOT whole-run; an old run's other symbols
+        that the new run does not cover stay is_current=1.
+      * not authorized (False) -> raise MasterFilterCurrencyError listing each
+        (strategy, symbol, old_run_id, new_run_id), mutating NOTHING.
+      * no collision / same run_id only -> no-op (backward compatible /
+        idempotent; the run_id!=new filter excludes the run's own rows).
+
+    The supersession UPDATEs share the transaction with the INSERTs (single
+    commit below): if the insert loop raised, the caller's surrounding
+    transaction never committed and no supersession persists. ``supersede_for=
+    None`` (backfill / re-export / other callers) leaves behaviour unchanged.
+    """
     if df.empty:
         return
     all_cols = [c for c in MASTER_FILTER_COLUMNS if c in df.columns]
@@ -529,7 +570,98 @@ def upsert_master_filter_df(
     for _, row in df.iterrows():
         values = [_py_val(row.get(c)) for c in all_cols]
         conn.execute(sql, values)
+
+    if supersede_for:
+        _enforce_master_filter_supersession(conn, df, supersede_for)
+
     conn.commit()
+
+
+def _enforce_master_filter_supersession(
+    conn: sqlite3.Connection,
+    df: pd.DataFrame,
+    supersede_for: dict[str, bool],
+) -> None:
+    """Phase-0 supersession core for upsert_master_filter_df.
+
+    Pre-commit (caller commits once after this returns). Inspects only the rows
+    in ``df`` whose run_id is a key of ``supersede_for`` (the NEW runs of this
+    write); ``df`` may also carry the full existing master, which is ignored
+    here. Raises MasterFilterCurrencyError on any UNDECLARED collision after
+    issuing NO mutation (collision detection is a full pass before any UPDATE),
+    so the FAIL-LOUD path leaves the transaction clean for the caller's
+    rollback.
+    """
+    from datetime import datetime, timezone
+
+    if not {"run_id", "strategy", "symbol"}.issubset(df.columns):
+        # Without identity columns we cannot scope per (strategy, symbol);
+        # nothing to enforce. (stage3 always supplies all three.)
+        return
+
+    ts = datetime.now(timezone.utc).isoformat()
+    reason = "AUTO_SUPERSEDE: declared rerun (stage3)"
+
+    # Plan first (detect-all-before-mutate): build the supersede actions and
+    # the undeclared collisions in one pass, so an UNDECLARED collision raises
+    # before any UPDATE is issued.
+    to_supersede: list[tuple[str, str, str]] = []   # (strategy, symbol, new_run_id)
+    collisions: list[tuple[str, str, str, str]] = []  # (strategy, symbol, old, new)
+    seen_pairs: set[tuple[str, str, str]] = set()
+
+    for new_run_id, authorized in supersede_for.items():
+        sub = df[df["run_id"].astype(str) == str(new_run_id)]
+        for _, row in sub.iterrows():
+            strategy = _py_val(row.get("strategy"))
+            symbol = _py_val(row.get("symbol"))
+            if strategy is None or symbol is None:
+                continue
+            key = (str(new_run_id), str(strategy), str(symbol))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            prior = conn.execute(
+                'SELECT DISTINCT "run_id" FROM master_filter '
+                'WHERE "strategy" = ? AND "symbol" = ? AND "run_id" != ? '
+                'AND ("is_current" = 1 OR "is_current" IS NULL)',
+                (strategy, symbol, str(new_run_id)),
+            ).fetchall()
+            for prow in prior:
+                old_run_id = prow[0]
+                if authorized:
+                    to_supersede.append((str(strategy), str(symbol), str(new_run_id)))
+                else:
+                    collisions.append(
+                        (str(strategy), str(symbol), str(old_run_id), str(new_run_id))
+                    )
+
+    if collisions:
+        lines = "\n".join(
+            f"  - strategy={s!r} symbol={sym!r} old_run_id={old} new_run_id={new}"
+            for (s, sym, old, new) in collisions
+        )
+        raise MasterFilterCurrencyError(
+            "Undeclared master_filter rerun collision — a NEW run lands rows for "
+            "(strategy, symbol) that already have an is_current=1 row from a "
+            "DIFFERENT run_id, but the new run did not declare a rerun "
+            "(no test.repeat_override_reason).\n"
+            f"{lines}\n"
+            "Nothing was mutated. Resolve by either:\n"
+            "  (a) running rerun_backtest finalize (mark_superseded) on the prior "
+            "run, or\n"
+            "  (b) declaring the rerun (set test.repeat_override_reason in the new "
+            "run's directive) and re-running stage3."
+        )
+
+    for strategy, symbol, new_run_id in to_supersede:
+        conn.execute(
+            'UPDATE master_filter SET '
+            '"is_current" = 0, "superseded_by" = ?, '
+            '"superseded_at" = ?, "supersede_reason" = ? '
+            'WHERE "strategy" = ? AND "symbol" = ? AND "run_id" != ? '
+            'AND ("is_current" = 1 OR "is_current" IS NULL)',
+            (new_run_id, ts, reason, strategy, symbol, new_run_id),
+        )
 
 
 def upsert_mps_row(

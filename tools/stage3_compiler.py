@@ -280,6 +280,32 @@ def enforce_strategy_persistence(run_id: str):
         print(f"  [WARN] Non-compliant files in runs/{run_id}: {sorted(extra)}")
         # raise RuntimeError(f"Non-compliant files in runs/{run_id}: {sorted(extra)}")
 
+def _read_rerun_authorized(run_id: str) -> bool:
+    """True iff the run's governed directive snapshot declares a rerun.
+
+    Reads runs/<run_id>/directive.txt (the write-once governed snapshot) and
+    returns bool(test.repeat_override_reason). Used to authorize Phase-0
+    master_filter AUTO-SUPERSEDE of a prior is_current=1 row for the same
+    (strategy, symbol). Defaults to False (FAIL-LOUD on collision) when the
+    snapshot is absent or unreadable — a missing declaration is treated as
+    "not declared", never silently as a sanctioned rerun.
+    """
+    directive_path = RUNS_DIR / run_id / "directive.txt"
+    try:
+        if not directive_path.exists():
+            return False
+        import yaml
+        parsed = yaml.safe_load(directive_path.read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
+            return False
+        test_block = parsed.get("test") or {}
+        if not isinstance(test_block, dict):
+            return False
+        return bool(test_block.get("repeat_override_reason"))
+    except Exception as e:
+        print(f"  [WARN] rerun-auth read failed for runs/{run_id}/directive.txt: {e}. Treating as undeclared.")
+        return False
+
 def discover_completed_runs():
     runs = []
     rejected = []
@@ -364,7 +390,12 @@ def _compile_stage3_locked(strategy_filter, master_filter_path):
     added = []
     skipped = []
     new_rows = []
-    
+    # Phase-0 supersession map: NEW run_id -> rerun_authorized (declared rerun).
+    # Built only for runs whose rows we actually add this pass; passed to the
+    # bulk upsert so the writer can AUTO-SUPERSEDE prior is_current=1 rows for
+    # declared reruns and FAIL LOUD on undeclared collisions.
+    supersede_for: dict[str, bool] = {}
+
     for run in runs:
         run_id = str(run["metadata"].get("run_id"))
         strategy = run["metadata"].get("strategy_name")
@@ -392,6 +423,7 @@ def _compile_stage3_locked(strategy_filter, master_filter_path):
         
         enforce_strategy_persistence(run_id)
         new_rows.append(row_data)
+        supersede_for[run_id] = _read_rerun_authorized(run_id)
         added.append({"strategy": strategy, "run_id": run_id})
         print(f"  Added: {strategy} [{run_id[:8]}]")
     
@@ -431,7 +463,10 @@ def _compile_stage3_locked(strategy_filter, master_filter_path):
         from tools.ledger_db import _connect, create_tables, upsert_master_filter_df
         _db_conn = _connect()
         create_tables(_db_conn)
-        upsert_master_filter_df(_db_conn, df_master)
+        # Phase-0 supersession enforcement: df_master carries old + new rows, but
+        # supersede_for keys only the NEW runs of this pass, so the writer scopes
+        # the supersede/collision check to this batch's (strategy, symbol) pairs.
+        upsert_master_filter_df(_db_conn, df_master, supersede_for=supersede_for)
         _db_conn.close()
         print(f"  [LEDGER_DB] Synced {len(df_master)} rows to ledger.db")
 
