@@ -1,12 +1,8 @@
 {
   "schema_version": 1,
-  "failed": [
-    "tests/test_indicator_registry_sync_hook.py::test_install_sh_installs_pre_push_hook",
-    "tests/test_indicator_registry_sync_hook.py::test_pre_push_hook_blocks_when_registry_drifts",
-    "tests/test_indicator_registry_sync_hook.py::test_pre_push_hook_passes_when_registry_clean"
-  ],
-  "count": 3,
-  "sha": "d19fa5a9ddb7c29527fff803fc3ffb8abf76979d",
-  "updated_at": "2026-06-07T16:44:07+00:00",
-  "rationale": "Basket vault tests rewritten for the removed DRY_RUN_VAULT/baskets/ auto-write (db87f977): test_basket_dispatch_e2e and test_basket_phase5c_real_data now assert the vault is NOT auto-written and PASS, so both are dropped from the baseline. The 3 test_indicator_registry_sync_hook entries are KEPT as acknowledged environment-conditional TDs: they pass where bash/sh is on PATH (e.g. this run) but fail with WinError 2 (no bash) in the session-close environment; the real pre-push hook + indicator_registry_sync --check pass live. They remain in the baseline so the session-close gate does not falsely block on them in the no-bash environment."
+  "failed": [],
+  "count": 0,
+  "sha": "184ccb6a6c9a7fee803967ec4ab4ac1f459b18b7",
+  "updated_at": "2026-06-13T15:59:46+00:00",
+  "rationale": "indicator_registry_sync_hook pre-push hook tests now pass (fixed in a prior commit; baseline refresh to lock in)"
 }
