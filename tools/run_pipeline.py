@@ -1419,6 +1419,7 @@ LEG_STRATEGY_DISPATCH = {
     "pine_ratio_zrev_v1_zcross_hl": _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zcross_lm": _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zcross_hflm": _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zcross_zavg": _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zstop":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zband":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zopp":    _build_pine_zrev_legs,

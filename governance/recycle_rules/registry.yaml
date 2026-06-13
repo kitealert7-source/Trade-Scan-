@@ -1327,3 +1327,59 @@ rules:
       default_initial_lot:
         type: float
         default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_zavg
+    version: 1
+    description: >
+      2-bar z-average entry-trigger variant of the zero-cross champion (2026-06-13,
+      ZAVG2 arm). Identical to pine_ratio_zrev_v1_zcross (exits, hedge lock, sizing,
+      warmup, fill timing) with ONE change to the ENTRY trigger: the +/- z_entry cross
+      fires on the TRAILING zavg_window-bar MEAN of z_active instead of the single bar.
+      The EXIT stays on the RAW single-bar z (inherited zcross sign-change), so this
+      isolates the entry-trigger smoothing.
+
+      Hypothesis (operator-directed 2026-06-13): smoothing the entry over 2 bars rejects
+      single-bar threshold spikes (the live real-time-noise failure mode of the 2026-06
+      demo) and enters deeper on sustained moves. The settled-data cost (skipping shallow
+      quick-revert crossings) vs the live noise-rejection benefit is the empirical
+      question; the backtest measures the SETTLED side only. zavg_window=2 operator-fixed;
+      no sweeps. Step-1 report-only evidence: AVG_CONFIRMED-vs-SINGLE_ONLY stratification
+      on the _LIVEWK deployed pairs (PROVISIONAL).
+
+      Parity: zavg_window=1 recovers the single-bar trigger -> byte-identical to
+      pine_ratio_zrev_v1_zcross (the parity gate).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_zavg.py. Subclasses
+      PineRatioZRevRuleZCross; overrides _attach_z_r to recompute the entry signal from
+      the rolling mean-z cross (exit column untouched).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      zavg_window:
+        type: int
+        default: 2
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01

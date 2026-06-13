@@ -66,6 +66,7 @@ from tools.recycle_rules.pine_ratio_zrev_v1_zcross_hf import PineRatioZRevRuleZC
 from tools.recycle_rules.pine_ratio_zrev_v1_zcross_hl import PineRatioZRevRuleZCrossHL
 from tools.recycle_rules.pine_ratio_zrev_v1_zcross_lm import PineRatioZRevRuleZCrossLM
 from tools.recycle_rules.pine_ratio_zrev_v1_zcross_hflm import PineRatioZRevRuleZCrossHFLM
+from tools.recycle_rules.pine_ratio_zrev_v1_zcross_zavg import PineRatioZRevRuleZCrossZAvg
 from tools.recycle_rules.pine_ratio_zrev_v1_zstop import PineRatioZRevRuleZStop
 from tools.recycle_rules.pine_ratio_zrev_v1_zopp import PineRatioZRevRuleZOpp
 
@@ -87,6 +88,7 @@ __all__ = [
     "PineRatioZRevRuleZCrossHL",
     "PineRatioZRevRuleZCrossLM",
     "PineRatioZRevRuleZCrossHFLM",
+    "PineRatioZRevRuleZCrossZAvg",
     "PineRatioZRevRuleZStop",
     "PineRatioZRevRuleZOpp",
     "RULE_CLASSES",
@@ -123,6 +125,7 @@ _ALL_RULE_CLASSES = (
     PineRatioZRevRuleZCrossHL,
     PineRatioZRevRuleZCrossLM,
     PineRatioZRevRuleZCrossHFLM,
+    PineRatioZRevRuleZCrossZAvg,
     PineRatioZRevRuleZStop,
     PineRatioZRevRuleZOpp,
 )
