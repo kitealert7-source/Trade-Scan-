@@ -1259,3 +1259,71 @@ rules:
       default_initial_lot:
         type: float
         default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_hflm
+    version: 1
+    description: >
+      HF-intersect-LM entry filter (2026-06-12, HFLM arm). Identical to
+      pine_ratio_zrev_v1_zcross PLUS one entry condition that blocks ONLY when
+      TWO independent detectors AGREE: Hurst(ratio, hurst_window) >
+      hurst_block_above AND max-leg normalized_net_move(lm_window) >
+      lm_block_above. Either alone does NOT block.
+
+      Hypothesis (overlap analysis 2026-06-12, 12,685 champion entries): HF55
+      and LM20 are largely DISTINCT (Jaccard 0.18) but their INTERSECTION is
+      the toxic core -- BOTH group 6.9% of entries, mean -8.22 / median -1.14
+      vs near-break-even single-flag groups. The intersection isolates the bad
+      population neither filter catches alone without killing good entries;
+      surgical (bounded relocation) and inherits HF persistence. 0.55 / 2.0 /
+      50 / 12 operator-fixed; no sweeps. Fail-open on NaN (stricter than the
+      single arms -- BOTH estimates must be present). Telemetry: BOTH_BLOCK.
+      Set EITHER threshold beyond reach (math.inf) to recover champion
+      behavior (the AND can never fire).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_hflm.py.
+      Subclasses PineRatioZRevRuleZCross; extends _attach_z_r (Hurst on the
+      canonical ratio + per-leg displacement) and gates _maybe_propose on the
+      AND (proposal bar; parent idle-state guard mirrored).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      hurst_window:
+        type: int
+        default: 50
+      hurst_block_above:
+        type: float
+        default: 0.55
+      lm_window:
+        type: int
+        default: 12
+      lm_block_above:
+        type: float
+        default: 2.0
+      lm_min_vol_obs:
+        type: int
+        default: 100
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
