@@ -81,3 +81,10 @@ Local half-life entry block (AR(1) W=100, >120 bars/non-reverting) REJECTED corp
 Displacement gate ('don't fade >2-sigma trailing leg repricings') is the best single corpus-wide arm -- but did NOT rescue FX-IDX, the class that motivated it. Corpus net% 89/181/188 (champ/HF55/LM20), blowups 0, worst -87.0 (improved); FX-IDX -48 -> -50 vs HL120's +36. Block-condition PERSISTENCE determines relocation quality: ~hours-long displacement spikes relocate entries into the same repricing episode (FX-IDX unmoved), while ~25h H/HL conditions outlast it (FX-IDX rescued). Only observable in-pipeline. Adoption menu: LM20 corpus-wide (net/tails) vs HF55 (DD compression); 4 classes x 4 different winners = selection trap -- class-scoped mixes need out-of-corpus validation. Entry-filter detector-STATISTIC family CLOSED; persistence-duration effects identified as the remaining open mechanism. ---.
 ---
 
+---
+2026-06-13 | Tags: cointegration, entry_trigger, z_average, champion_stands | Strategy: pine_ratio_zrev_v1_zcross_zavg | Run IDs: cohort GP_ZCRS_CXN1_Z25_ZAVG2 n=475 matched vs GP_ZCRS_CXN1_Z25
+Finding: 2-bar z-average entry trigger (mean(z,2) cross +/-2.5) vs the single-bar zcross champion; exit/sizing/window/threshold identical.
+Evidence: n=475: corpus net% 89 -> -223; med Ret/DD 0.014->0.007, net% 0.20->0.12; trades 32->24 (73% freq); win 60->58; 0 blowups; only 45% pairs improve.
+Conclusion: Averaging KEEPS the persistent/deep extreme (poor-reversion, fat-tail loser population) and SKIPS the sharp single-bar crossing (the reversion edge) -- it inverts entry quality.
+Implication: Do NOT smooth/persist/average the entry trigger; the edge IS the sharp crossing (3rd confirm: persistence N+2/3 + HF55 Hurst + ZAVG2). The live over-trade is real-time threshold NOISE -> fix is producer bar-settlement, which a settled backtest cannot validate.
+---
