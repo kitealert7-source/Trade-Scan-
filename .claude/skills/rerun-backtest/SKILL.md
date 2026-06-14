@@ -37,8 +37,14 @@ python tools/rerun_backtest.py prepare 15_MR_FX_1H_ASRANGE_SESSFILT_S01_V1_P00 \
 python tools/rerun_backtest.py prepare 9b3e1a2c4d5f \
     --category SIGNAL --reason "Added liquidity-sweep filter to CHOCH entry model"
 
-# 2. Dispatch the pipeline against the freshly-prepared directive
-python tools/run_pipeline.py backtest_directives/INBOX/<STRATEGY_ID>.txt
+# 2. RUN via the governed Golden Path — hand off to /execute-directives.
+#    It runs the pipeline AND the capital wrapper + candidate promotion +
+#    research-suggestion steps, and enforces "exit 0 != success". A bare
+#    single-file dispatch runs Stages 1-4 + promotion but SKIPS the capital
+#    wrapper + governance verification — so the new run_id under-populates.
+#      /execute-directives   →   python tools/run_pipeline.py --all
+#    (the freshly-prepared INBOX directive is the only one queued, so --all
+#     picks up exactly this rerun.)
 
 # 3. Finalize — flag old run's master_filter rows as superseded
 python tools/rerun_backtest.py finalize \
@@ -64,9 +70,69 @@ If the category is ambiguous ("I changed the indicator AND bumped a parameter"),
 
 ## Pre-Conditions
 
-1. The strategy has a directive in one of: `backtest_directives/completed/`, `active_backup/`, `active/`, or `archive/`. The tool searches most-recent-first across all four.
+1. The strategy has a recoverable source directive. **Authentic source = the per-run artifact snapshot — look in `TradeScan_State/backtests/<directive_name>/DIRECTIVE_SOURCE.txt` first, then `runs/<run_id>/directive.txt`** (see *Authentic artifact source* below). The tool's `prepare` *currently* locates the source by most-recent-mtime scan of `backtest_directives/completed/` → `active_backup/` → `active/` → `archive/`; prefer `resolve_baseline`, which walks the snapshot ladder (`backtests/` first) and returns the directive directly.
 2. No open INBOX entry for the same strategy (use `--force` to overwrite if stale).
 3. For `BUG_FIX`, confirm with the human that the old run's result really is wrong before proceeding — quarantining is permanent for analytics purposes (rows stay in the DB, but `filter_strategies.py` never promotes them again).
+
+---
+
+## Authentic artifact source — look in `backtests/` first, then `runs/`
+
+A rerun's source directive (and the code that ran) is recovered from the per-run artifact
+snapshots — **not** by mtime-scanning `completed/`. Look in this order (the same ladder
+`resolve_baseline` walks); recent runs' source artifacts increasingly land in `backtests/`, so
+**look there first** — it is the most complete and the most natural to hit, since it is keyed
+by the directive name (the usual rerun target).
+
+**1 — `backtests/<directive_name>/` — look here first.** Keyed by **directive name**; the
+recent-vintage canonical artifact home.
+
+| File | Contents |
+|---|---|
+| `DIRECTIVE_SOURCE.txt` | byte-exact directive that produced the run — the config to clone (resolver's top rung) |
+| `RECYCLE_RULE_SOURCE.py` *(basket)* | the exact leg-rule code that ran |
+| `STRATEGY_CARD.md`, `BASKET_REPORT_*.md` / `REPORT_*.md` | human-readable run summary |
+| `metadata/`, `raw/` | results (`raw/results_tradelevel.csv`, …) |
+
+**2 — `runs/<run_id>/` — run_id-keyed companion.** When you hold the `run_id` hash, this carries
+the same directive plus full sha256 provenance.
+
+| File | Contents |
+|---|---|
+| `directive.txt` | byte-exact directive snapshot |
+| `strategy.py` *(single-asset)* | exact strategy code — write-once (Invariant #4) |
+| `basket_code/` *(basket)* | `recycle_strategies.py` + `recycle_rules/*.py` + `code_manifest.json` |
+| `manifest.json` | sha256 provenance: `strategy_hash`, `engine_version`, per-leg data + broker-spec sha256, artifact sha256, `execution_mode`, `basket_id` |
+
+**3 — fallback:** `strategies/<id>/directive.txt` → `completed/` → git.
+
+**Why this beats the `completed/` mtime-scan:** these snapshots are keyed to the **exact run**
+(by directive name or run_id — the provenance a `run_id`-targeted rerun otherwise discards),
+**immutable**, and **sha256-verified** (`runs/.../manifest.json`). You recover the directive
+*and* the code that actually ran — not a most-recent-mtime guess that may have landed on a
+superseded `__E###` variant.
+
+**`resolve_baseline` walks this exact ladder** — prefer it over hand-scanning:
+
+// turbo
+
+```bash
+python tools/resolve_baseline.py <run_id | directive_name | series_tag> --json
+# ladder: backtests/<name>/DIRECTIVE_SOURCE.txt → runs/<run_id>/directive.txt
+#         → strategies/<id>/directive.txt → completed/ → git   (selects the is_current run)
+```
+
+**Coverage caveat:** source capture is recent-vintage — `DIRECTIVE_SOURCE.txt` +
+`RECYCLE_RULE_SOURCE.py` are present for ~83% of `backtests/` entries (7,302 / 8,845): basket +
+recent runs. Older single-asset `backtests/` entries are **report-only** (no source capture) —
+for those the strategy code is in `runs/<run_id>/strategy.py` and the directive falls back to
+`completed/`. The captured set grows as new runs land in `backtests/`.
+
+> **Tool gap (open):** `prepare` still resolves its source by most-recent-mtime scan of
+> `completed/` (`rerun_backtest.py:142-155`), not via `backtests/` / `runs/` / `resolve_baseline`.
+> Until that migration lands, when you target a specific run, **verify the cloned directive
+> matches `backtests/<name>/DIRECTIVE_SOURCE.txt` (or `runs/<run_id>/directive.txt`)** before
+> dispatching.
 
 ---
 
@@ -89,6 +155,34 @@ If the category is ambiguous ("I changed the indicator AND bumped a parameter"),
 9. **Write to `backtest_directives/INBOX/<base>__E###.txt`**.
 10. **Audit-log** the event to `outputs/logs/rerun_audit.jsonl`.
 11. **Print next-step commands** (pipeline dispatch + finalize invocation template).
+
+---
+
+## Run — hand off to `/execute-directives` (do not bare-dispatch)
+
+`prepare` only stages the directive. The actual run goes through
+[`/execute-directives`](../execute-directives/SKILL.md) — the same governed Golden Path the
+`/hypothesis-testing` spine uses for its run stage — so the new `run_id` is populated
+**everywhere** (MPS / candidates, research index, plus the capital profiles for single-asset
+reruns) and the governance checks fire ("exit 0 ≠ success", new-rule routing). A bare
+`run_pipeline.py <single file>` runs Stages 1-4 + candidate promotion but **skips the capital
+wrapper (Step 6) and the verification / research steps** — the new run lands under-populated.
+
+**Ownership split (mirrors the orchestrator spine):**
+
+| Stage | Owner | What |
+|---|---|---|
+| prepare | this skill | gate bypass + `__E###` rotation + `signal_version` bump → INBOX |
+| **run** | **`/execute-directives`** | governed Golden Path: run + capital wrapper + promotion + research + "exit 0 ≠ success" |
+| finalize | this skill | supersession (`is_current=0`) / `--quarantine` |
+
+**A rerun is not a new strategy** — so `/execute-directives`' strategy-*authoring* steps
+(Step 1 new_pass creation, Step 2 GENESIS/PATCH/CLONE strategy-admission, Step 3 human
+approval) are N/A. **But Step 0 (Directive Admission Gate) still applies** — a `DATA_FRESH` /
+extended-`end_date` rerun **must clear the temporal-coverage check** (MASTER_DATA covers the
+new window) before dispatch, and Step 4 warmup still runs. The exception is `SIGNAL` /
+`BUG_FIX`, where the provisioner patches `strategy.py` and the rerun's **Provisioner 2-Pass
+Cycle** (below) applies — let it resolve, then continue the Golden Path.
 
 ---
 
@@ -274,7 +368,8 @@ Keys that DO trigger hash change (require registry update):
 
 | Workflow                         | When to use                                            |
 |----------------------------------|--------------------------------------------------------|
-| `/execute-directives`            | Dispatch the prepared INBOX directive through pipeline |
+| `/execute-directives`            | **Runs the prepared INBOX directive** through the governed Golden Path (run + capital wrapper + promotion + research). The run step delegates here — do not bare-dispatch. |
+| `/hypothesis-testing`            | Upstream orchestrator — diverts an *exact re-run* here (§1.0). Use it instead when you want to **compare** a variant (keep both rows), not **supersede** the old one. |
 | `/pipeline-state-cleanup`        | Quarterly archival of superseded rows to parquet       |
 | `/promote`                       | Promote the new run_id to LIVE after verification      |
 
@@ -284,6 +379,9 @@ Keys that DO trigger hash change (require registry update):
 
 | File                           | Location                                         |
 |--------------------------------|--------------------------------------------------|
+| Artifact snapshot — **look first** | `TradeScan_State/backtests/<directive_name>/` — `DIRECTIVE_SOURCE.txt` + `RECYCLE_RULE_SOURCE.py` (basket) + `raw/` |
+| Artifact snapshot — run_id companion | `TradeScan_State/runs/<run_id>/` — `directive.txt` + `strategy.py` \| `basket_code/` + `manifest.json` (sha256) |
+| Baseline resolver (`is_current`) | `tools/resolve_baseline.py`                    |
 | Rerun tool                     | `tools/rerun_backtest.py`                        |
 | Ledger DB + mark_superseded    | `tools/ledger_db.py`                             |
 | Idea Gate (Stage -0.20)        | `tools/orchestration/admission_controller.py`   |
