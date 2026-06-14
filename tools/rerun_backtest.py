@@ -156,6 +156,55 @@ def _find_directive(strategy_name: str) -> Path:
     return candidates[0]
 
 
+def _display_path(p: Path) -> str:
+    """Path for display / audit — repo-relative when under PROJECT_ROOT, else
+    absolute. The resolve_baseline seed lives in TradeScan_State (a sibling
+    repo), so a bare ``relative_to(PROJECT_ROOT)`` would raise ValueError."""
+    try:
+        return str(p.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(p)
+
+
+def _resolve_source_via_baseline(handle: str) -> tuple[Path, str | None] | None:
+    """Resolve the source directive via ``resolve_baseline`` — the is_current
+    authority — rather than a most-recent-mtime guess.
+
+    ``resolve_baseline`` selects the ``is_current`` run (never a superseded
+    first-match) and returns that run's exact seed directive from the per-run
+    snapshot ladder: ``backtests/<name>/DIRECTIVE_SOURCE.txt`` ->
+    ``runs/<run_id>/directive.txt`` -> ``strategies/<id>/directive.txt`` ->
+    ``completed/`` -> git.
+
+    Returns ``(seed_path, run_id)`` only when the resolver yields exactly one
+    authoritative reference whose seed file exists on disk; otherwise ``None``
+    so the caller falls back to the legacy mtime scan (covers old runs with no
+    snapshot, no ledger row, or an ambiguous multi-symbol base). Never raises —
+    any resolver failure degrades to ``None``.
+    """
+    try:
+        from tools.resolve_baseline import resolve_baseline
+
+        result = resolve_baseline(handle)
+    except Exception:
+        return None
+    resolved = [r for r in result.references if getattr(r, "resolved", False)]
+    if len(resolved) != 1:
+        return None
+    ref = resolved[0]
+    seed = getattr(ref, "seed", None) or {}
+    seed_path = seed.get("path")
+    if not seed_path:
+        return None
+    p = Path(seed_path)
+    try:
+        if not p.is_file():
+            return None
+    except OSError:
+        return None
+    return p, ref.run_id
+
+
 def _strip_e_suffix(name: str) -> str:
     """Return ``name`` with any trailing ``__E###`` removed."""
     return _E_SUFFIX_RE.sub("", name)
@@ -279,13 +328,27 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         print(f"ERROR: {e}")
         return 1
 
-    # 2. Locate original directive.
-    try:
-        src_path = _find_directive(strategy)
-    except FileNotFoundError as e:
-        print(f"ERROR: {e}")
-        return 1
-    print(f"  Source directive: {src_path.relative_to(PROJECT_ROOT)}")
+    # 2. Locate the source directive. Prefer resolve_baseline (the is_current
+    #    authority + the exact per-run seed) over the legacy most-recent-mtime
+    #    scan, which can pick a superseded variant when file timestamps churn
+    #    (NAS / worktree mirroring). Fall back to the mtime scan when the
+    #    resolver can't pin a single authoritative seed.
+    src_path = None
+    via_baseline = _resolve_source_via_baseline(orig_run_id or strategy)
+    if via_baseline is not None:
+        src_path, resolved_run_id = via_baseline
+        # A bare-name target carries no originating run_id; the resolver found
+        # the is_current run, so capture it for the rerun_of breadcrumb + audit.
+        if orig_run_id is None and resolved_run_id:
+            orig_run_id = resolved_run_id
+        print(f"  Source directive (resolve_baseline, is_current): {_display_path(src_path)}")
+    if src_path is None:
+        try:
+            src_path = _find_directive(strategy)
+        except FileNotFoundError as e:
+            print(f"ERROR: {e}")
+            return 1
+        print(f"  Source directive (mtime-scan fallback): {_display_path(src_path)}")
 
     # 3. Parse.
     try:
@@ -383,7 +446,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         "end_date_after": new_end,
         "signal_version_before": old_sv,
         "signal_version_after": new_sv,
-        "directive_source": str(src_path.relative_to(PROJECT_ROOT)),
+        "directive_source": _display_path(src_path),
         "directive_destination": str(dest_path.relative_to(PROJECT_ROOT)),
     })
 

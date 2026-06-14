@@ -156,6 +156,12 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(rerun_backtest, "_SEARCH_DIRS",
                         (completed, active_backup, active, archive))
     monkeypatch.setattr(rerun_backtest, "AUDIT_LOG_PATH", audit_log)
+    # Isolate from the real ledger: by default these tests exercise the
+    # mtime-scan fallback. The resolve_baseline-first path (F1) queries the
+    # live ledger.db, so it is neutralized here and covered explicitly in
+    # test_prepare_prefers_resolve_baseline_seed_over_mtime (which re-patches).
+    monkeypatch.setattr(rerun_backtest, "_resolve_source_via_baseline",
+                        lambda handle: None)
 
     return {
         "root": tmp_path,
@@ -379,6 +385,59 @@ def test_legacy_root_signal_version_defensively_stripped(sandbox):
     # test.signal_version was 1; bumped to 2. The stray root=7 is ignored when
     # test value exists (only used as fallback when test had no SV at all).
     assert parsed["test"]["signal_version"] == 2
+
+
+# ── prepare: resolve_baseline source resolution (F1) ───────────────────────
+
+def test_prepare_prefers_resolve_baseline_seed_over_mtime(sandbox, monkeypatch):
+    """F1: prepare must clone the resolve_baseline (is_current) seed, not the
+    most-recent-mtime file in completed/. The completed/ decoy carries a
+    distinct signal_version so we can prove which source was actually used."""
+    base = "90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100"
+    # Decoy the mtime scan would pick (SV=5 → would bump to 6).
+    decoy = _BASKET_DIRECTIVE.format(name=base, strategy=base).replace(
+        "signal_version: 1", "signal_version: 5")
+    _seed(sandbox["completed"], base, decoy)
+    # Authentic is_current seed (e.g. runs/<id>/directive.txt) with SV=1.
+    seed_dir = sandbox["root"] / "runs" / "abc123def456abc123def456"
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    seed_path = seed_dir / "directive.txt"
+    seed_path.write_text(_BASKET_DIRECTIVE.format(name=base, strategy=base),
+                         encoding="utf-8")
+
+    # Override the fixture's None-stub: pin the resolver to the authentic seed.
+    monkeypatch.setattr(
+        rerun_backtest, "_resolve_source_via_baseline",
+        lambda handle: (seed_path, "abc123def456abc123def456"),
+    )
+
+    rc = _prepare(base, category="SIGNAL",
+                  reason="Resolver-seed regression — must clone is_current, not mtime")
+    assert rc == 0
+    parsed = yaml.safe_load(
+        (sandbox["inbox"] / f"{base}__E001.txt").read_text(encoding="utf-8"))
+    # Came from the resolver seed (SV 1 → bumped to 2), NOT the decoy (5 → 6).
+    assert parsed["test"]["signal_version"] == 2
+    # The resolved run_id is captured as provenance for a bare-name target.
+    assert parsed["test"]["rerun_of"] == "abc123def456abc123def456"
+    assert "origin=abc123def456abc123def456" in parsed["test"]["repeat_override_reason"]
+
+
+def test_prepare_falls_back_to_mtime_when_resolver_returns_none(sandbox):
+    """When resolve_baseline can't pin a seed (fixture stub returns None), the
+    legacy mtime scan still resolves the source — zero regression."""
+    base = "15_MR_FX_1H_PINBAR_S01_V1_P00"
+    _seed(sandbox["completed"], base, _NON_BASKET_DIRECTIVE.format(name=base, strategy=base))
+
+    rc = _prepare(base, category="DATA_FRESH",
+                  reason="Resolver absent; mtime fallback must still find the directive")
+    assert rc == 0
+    out = sandbox["inbox"] / f"{base}__E001.txt"
+    assert out.exists()
+    parsed = yaml.safe_load(out.read_text(encoding="utf-8"))
+    # No originating run_id (bare-name target, resolver returned None) → breadcrumb absent.
+    assert "rerun_of" not in parsed["test"]
+    assert "origin=directive-clone" in parsed["test"]["repeat_override_reason"]
 
 
 # ── prepare: dry-run ───────────────────────────────────────────────────────
