@@ -157,11 +157,14 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                         (completed, active_backup, active, archive))
     monkeypatch.setattr(rerun_backtest, "AUDIT_LOG_PATH", audit_log)
     # Isolate from the real ledger: by default these tests exercise the
-    # mtime-scan fallback. The resolve_baseline-first path (F1) queries the
-    # live ledger.db, so it is neutralized here and covered explicitly in
-    # test_prepare_prefers_resolve_baseline_seed_over_mtime (which re-patches).
+    # mtime-scan fallback. The resolve_baseline-first path (F1) and the
+    # basket-sheet path (F1b) both query the live ledger.db, so they are
+    # neutralized here and covered explicitly in their own tests (which
+    # re-patch _resolve_source_via_baseline / _query_basket_sheets_current).
     monkeypatch.setattr(rerun_backtest, "_resolve_source_via_baseline",
                         lambda handle: None)
+    monkeypatch.setattr(rerun_backtest, "_query_basket_sheets_current",
+                        lambda handle: [])
 
     return {
         "root": tmp_path,
@@ -438,6 +441,68 @@ def test_prepare_falls_back_to_mtime_when_resolver_returns_none(sandbox):
     # No originating run_id (bare-name target, resolver returned None) → breadcrumb absent.
     assert "rerun_of" not in parsed["test"]
     assert "origin=directive-clone" in parsed["test"]["repeat_override_reason"]
+
+
+# ── prepare: basket-sheet source resolution (F1b) ──────────────────────────
+
+def test_prepare_resolves_basket_via_sheet(sandbox, monkeypatch):
+    """F1b: a COINTREV / basket directive (absent from master_filter) resolves
+    to its is_current seed through the basket sheets, not the mtime scan. The
+    completed/ decoy carries a distinct signal_version to prove the source."""
+    base = "90_PORT_GBPAUDUSDCHF_15M_COINTREV_V3_L30_GP_ZCRS_CXN1_Z25"
+    # Decoy the mtime scan would pick (SV=9).
+    decoy = _BASKET_DIRECTIVE.format(name=base, strategy=base).replace(
+        "signal_version: 1", "signal_version: 9")
+    _seed(sandbox["completed"], base, decoy)
+    # Authentic is_current seed inside the capsule (backtests_path/DIRECTIVE_SOURCE.txt).
+    capsule = sandbox["root"] / "backtests" / f"{base}_GBPAUDUSDCHF"
+    capsule.mkdir(parents=True, exist_ok=True)
+    (capsule / "DIRECTIVE_SOURCE.txt").write_text(
+        _BASKET_DIRECTIVE.format(name=base, strategy=base), encoding="utf-8")
+    # Basket-sheet lookup returns the is_current row pointing at the capsule.
+    monkeypatch.setattr(
+        rerun_backtest, "_query_basket_sheets_current",
+        lambda handle: [{"run_id": "feeddeadbeef0123feeddead",
+                         "directive_id": base,
+                         "backtests_path": str(capsule)}],
+    )
+
+    rc = _prepare(base, category="ENGINE",
+                  reason="Engine-bump rerun of cointegration basket; confirm is_current seed")
+    assert rc == 0
+    parsed = yaml.safe_load(
+        (sandbox["inbox"] / f"{base}__E001.txt").read_text(encoding="utf-8"))
+    # From the capsule seed (ENGINE does not bump SV; capsule SV=1), NOT the decoy (9).
+    assert parsed["test"]["signal_version"] == 1
+    # Provenance captured from the basket-sheet run_id.
+    assert parsed["test"]["rerun_of"] == "feeddeadbeef0123feeddead"
+    assert "origin=feeddeadbeef0123feeddead" in parsed["test"]["repeat_override_reason"]
+
+
+def test_resolve_target_basket_run_id_via_sheet(monkeypatch):
+    """A basket run_id (absent from master_filter) resolves to its directive_id
+    through the basket sheets, instead of raising."""
+    class _FakeCursor:
+        def fetchone(self):
+            return None  # not in master_filter
+
+    class _FakeConn:
+        def execute(self, *a, **k):
+            return _FakeCursor()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rerun_backtest, "_connect", lambda: _FakeConn())
+    monkeypatch.setattr(
+        rerun_backtest, "_query_basket_sheets_current",
+        lambda handle: [{"run_id": handle,
+                         "directive_id": "90_PORT_GBPAUDUSDCHF_15M_COINTREV_V3_L30"}],
+    )
+
+    strat, rid = rerun_backtest._resolve_target("feeddeadbeef0123feeddead")
+    assert strat == "90_PORT_GBPAUDUSDCHF_15M_COINTREV_V3_L30"
+    assert rid == "feeddeadbeef0123feeddead"
 
 
 # ── prepare: dry-run ───────────────────────────────────────────────────────

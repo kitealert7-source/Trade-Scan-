@@ -116,13 +116,13 @@ CATEGORIES = {
     },
     "PARAMETER": {
         "description": ("Numeric parameter tweak. Classifier treats as "
-                        "PARAMETER → passes without SV bump."),
+                        "PARAMETER -> passes without SV bump."),
         "bump_signal_version": False,
         "extend_end_date": True,
     },
     "ENGINE": {
         "description": ("Backtest engine code changed; directive unchanged. "
-                        "No classifier diff → passes."),
+                        "No classifier diff -> passes."),
         "bump_signal_version": False,
         "extend_end_date": True,
     },
@@ -205,6 +205,93 @@ def _resolve_source_via_baseline(handle: str) -> tuple[Path, str | None] | None:
     return p, ref.run_id
 
 
+def _state_root() -> Path:
+    """``TradeScan_State`` root resolved at call time so test fixtures that
+    monkeypatch ``config.path_authority.TRADE_SCAN_STATE`` are honored."""
+    import config.path_authority as pa
+
+    return Path(pa.TRADE_SCAN_STATE)
+
+
+def _state_runs_dir() -> Path:
+    """``TradeScan_State/runs`` (see ``_state_root``)."""
+    return _state_root() / "runs"
+
+
+def _query_basket_sheets_current(handle: str) -> list[dict[str, Any]]:
+    """is_current ``cointegration_sheet`` / ``basket_sheet`` rows matching
+    ``handle`` by ``directive_id`` or ``run_id``.
+
+    Baskets live in these sheets, NOT ``master_filter``, so ``resolve_baseline``
+    and the legacy ``_resolve_target`` master_filter lookup cannot reach them
+    (F1b). Read-only; DB path resolved at call time from ``config.path_authority``
+    so test fixtures monkeypatching ``TRADE_SCAN_STATE`` are honored. Returns
+    ``[]`` on any failure (caller degrades to the next tier)."""
+    import sqlite3
+
+    import config.path_authority as pa
+
+    db = Path(pa.TRADE_SCAN_STATE) / "ledger.db"
+    if not db.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    try:
+        for table in ("cointegration_sheet", "basket_sheet"):
+            try:
+                cur = conn.execute(
+                    f'SELECT * FROM "{table}" '
+                    "WHERE is_current = 1 AND (directive_id = ? OR run_id = ?) "
+                    "LIMIT 8",
+                    (handle, handle),
+                )
+                rows.extend(dict(r) for r in cur.fetchall())
+            except sqlite3.Error:
+                continue
+    finally:
+        conn.close()
+    return rows
+
+
+def _resolve_basket_source(handle: str) -> tuple[Path, str | None] | None:
+    """Resolve a basket directive (COINTREV / basket corpus) to its is_current
+    seed (F1b) — the basket counterpart of ``_resolve_source_via_baseline``,
+    since baskets are absent from ``master_filter``.
+
+    Matches ``handle`` (directive_id or run_id) among is_current basket-sheet
+    rows, then reads the exact seed from the per-run snapshot:
+    ``runs/<run_id>/directive.txt`` -> ``<backtests_path>/DIRECTIVE_SOURCE.txt``
+    -> ``completed/<directive_id>.txt``. Returns ``(seed_path, run_id)`` or
+    ``None``. Never raises."""
+    try:
+        rows = _query_basket_sheets_current(handle)
+    except Exception:
+        return None
+    for row in rows:
+        run_id = str(row.get("run_id") or "").strip() or None
+        did = str(row.get("directive_id") or "").strip()
+        btp = str(row.get("backtests_path") or "").strip()
+        candidates: list[Path] = []
+        if run_id:
+            candidates.append(_state_runs_dir() / run_id / "directive.txt")
+        if btp:
+            bp = Path(btp)
+            if not bp.is_absolute():
+                # The DB stores backtests_path relative to the state root.
+                bp = _state_root() / btp
+            candidates.append(bp / "DIRECTIVE_SOURCE.txt")
+        if did:
+            candidates.append(DIRECTIVES_ROOT / "completed" / f"{did}.txt")
+        for c in candidates:
+            try:
+                if c.is_file():
+                    return c, run_id
+            except OSError:
+                continue
+    return None
+
+
 def _strip_e_suffix(name: str) -> str:
     """Return ``name`` with any trailing ``__E###`` removed."""
     return _E_SUFFIX_RE.sub("", name)
@@ -254,12 +341,21 @@ def _resolve_target(target: str) -> tuple[str, str | None]:
         ).fetchone()
     finally:
         conn.close()
-    if row is None:
-        raise ValueError(
-            f"Target {target!r} is neither a valid strategy name nor a "
-            f"known run_id in master_filter. Check with ledger_db --stats."
-        )
-    return row[0], target
+    if row is not None:
+        return row[0], target
+
+    # Basket run_id: baskets live in cointegration_sheet / basket_sheet, not
+    # master_filter (F1b). Resolve the directive_id from the is_current row.
+    for brow in _query_basket_sheets_current(target):
+        did = str(brow.get("directive_id") or "").strip()
+        if did:
+            return did, target
+
+    raise ValueError(
+        f"Target {target!r} is neither a valid strategy name nor a known "
+        f"run_id in master_filter or the basket / cointegration sheets. "
+        f"Check with ledger_db --stats."
+    )
 
 
 def _build_override_reason(category: str, user_reason: str,
@@ -342,6 +438,15 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         if orig_run_id is None and resolved_run_id:
             orig_run_id = resolved_run_id
         print(f"  Source directive (resolve_baseline, is_current): {_display_path(src_path)}")
+    if src_path is None:
+        # Baskets (COINTREV / basket corpus) aren't in master_filter, so the
+        # resolver above can't reach them — resolve via the basket sheets (F1b).
+        via_basket = _resolve_basket_source(orig_run_id or strategy)
+        if via_basket is not None:
+            src_path, resolved_run_id = via_basket
+            if orig_run_id is None and resolved_run_id:
+                orig_run_id = resolved_run_id
+            print(f"  Source directive (basket sheet, is_current): {_display_path(src_path)}")
     if src_path is None:
         try:
             src_path = _find_directive(strategy)

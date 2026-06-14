@@ -70,7 +70,7 @@ If the category is ambiguous ("I changed the indicator AND bumped a parameter"),
 
 ## Pre-Conditions
 
-1. The strategy has a recoverable source directive. **Authentic source = the per-run artifact snapshot — look in `TradeScan_State/backtests/<directive_name>/DIRECTIVE_SOURCE.txt` first, then `runs/<run_id>/directive.txt`** (see *Authentic artifact source* below). `prepare` resolves the source via `resolve_baseline` (the `is_current` authority) first, and falls back to the most-recent-mtime scan of `backtest_directives/completed/` → `active_backup/` → `active/` → `archive/` only when the resolver can't pin a single seed (baskets, old/grandfathered runs).
+1. The strategy has a recoverable source directive. **Authentic source = the per-run artifact snapshot — look in `TradeScan_State/backtests/<directive_name>/DIRECTIVE_SOURCE.txt` first, then `runs/<run_id>/directive.txt`** (see *Authentic artifact source* below). `prepare` resolves the source via `resolve_baseline` (single-asset `is_current`) first, then via the basket sheets for baskets (`_resolve_basket_source` — F1b), and falls back to the most-recent-mtime scan of `backtest_directives/completed/` → `active_backup/` → `active/` → `archive/` only when neither pins a seed (old/grandfathered runs).
 2. No open INBOX entry for the same strategy (use `--force` to overwrite if stale).
 3. For `BUG_FIX`, confirm with the human that the old run's result really is wrong before proceeding — quarantining is permanent for analytics purposes (rows stay in the DB, but `filter_strategies.py` never promotes them again).
 
@@ -132,11 +132,14 @@ for those the strategy code is in `runs/<run_id>/strategy.py` and the directive 
 > (`is_current` + the exact per-run seed) **first**, falling back to the mtime scan of `completed/`
 > only when the resolver can't pin a single seed. A bare-name target now also captures the
 > resolved `is_current` run_id as the `rerun_of` breadcrumb.
-> **Basket caveat (F1b — open):** baskets live in `basket_sheet`, not `master_filter`, so
-> `resolve_baseline`'s name/run_id lookup does not yet resolve them — **basket reruns still use
-> the mtime fallback.** For a basket, verify the cloned directive matches
-> `backtests/<name>/DIRECTIVE_SOURCE.txt` before dispatching. (Extending the resolver to index
-> baskets by name/run_id is the open follow-up.)
+> **Baskets (F1b landed 2026-06-14):** baskets live in `cointegration_sheet` / `basket_sheet`,
+> not `master_filter`, so `resolve_baseline` can't reach them — `prepare` resolves baskets via a
+> dedicated basket-sheet tier (`_resolve_basket_source`): match the `is_current` row by
+> `directive_id` / `run_id`, then read the seed from `runs/<run_id>/directive.txt` →
+> `<backtests_path>/DIRECTIVE_SOURCE.txt` → `completed/`. Both a basket **name** and an
+> **`is_current` run_id** resolve (a basket run_id, absent from `master_filter`, maps to its
+> directive via the sheets too). A **superseded** basket run_id is not matched — use the
+> directive name or the current run_id; it otherwise falls through to the mtime scan.
 
 ---
 
