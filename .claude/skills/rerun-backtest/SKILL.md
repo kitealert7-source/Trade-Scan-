@@ -208,6 +208,7 @@ wrapper (Step 6) and the verification / research steps** — the new run lands u
 | prepare | this skill | gate bypass + `__E###` rotation + `signal_version` bump → INBOX |
 | **run** | **`/execute-directives`** | governed Golden Path: run + capital wrapper + promotion + research + "exit 0 ≠ success" |
 | finalize | this skill | supersession (`is_current=0`) / `--quarantine` |
+| **retire** | **`/pipeline-state-cleanup`** | trim the predecessor: archive its row → cold parquet + prune its heavy artifacts (per batch, *after* the run) — see *Retire* below |
 
 **A rerun is not a new strategy** — so `/execute-directives`' strategy-*authoring* steps
 (Step 1 new_pass creation, Step 2 GENESIS/PATCH/CLONE strategy-admission, Step 3 human
@@ -244,6 +245,37 @@ After the pipeline produces a new `run_id`:
 3. Audit-logs the flip to `outputs/logs/rerun_audit.jsonl`.
 
 **Append-only invariant preserved** — superseded rows are flagged, never deleted. `filter_strategies.py` filters out `is_current=0` and `quarantined=1` rows from promotion eligibility.
+
+---
+
+## Retire — trim the predecessor (Phase C)
+
+A rerun *replaces* its predecessor; once the new run exists the old run's heavy artifacts are
+dead weight — it's `is_current=0`, never promoted, never executed, never a rollback target (that
+is the prior *live* config). **Retire it, per batch, strictly *after* the batch's v1.5.10 runs
+land:**
+
+1. **Archive the row → cold parquet.** Append the superseded run's compact metrics to
+   `TradeScan_State/retired/retired_runs.parquet` (`run_id`, `directive_id`, `engine_version`,
+   pair, `test_start/end`, net%/ret_dd/maxDD/trades, `supersede_reason`, `retired_at`). This is a
+   queryable **"what-we-tried-and-retired"** table — it feeds the **F19 don't-re-test guard**
+   without keeping artifacts.
+2. **Drop the live row + prune the artifacts** via
+   [`/pipeline-state-cleanup`](../pipeline-state-cleanup/SKILL.md)'s authorized operator-cleanup
+   path (the ONLY sanctioned ledger-row drop — Invariant #2). **Archive BEFORE drop** → it is a
+   *move* to cold storage, never a destroy. Heavy artifacts (`runs/<run_id>/`,
+   `backtests/<name>/`) are pruned; the cold row keeps the numbers.
+
+**Why not earlier:** the predecessor's `directive` + `RECYCLE_RULE_SOURCE.py` are the rerun's
+**seed** (the live `recycle_rules/` registry may have drifted, so the capsule snapshot is the only
+faithful rule). They must survive until *their own* rerun consumes them — retire is **after**
+Phase B, never before.
+
+> **Tool support pending:** the `retire` step (cold-archive writer + authorized drop + artifact
+> prune) and the **drift check** (count `is_current=0` runs with un-pruned artifacts not yet in
+> `retired_runs.parquet`, surfaced in `/session-close`) are pending tool work in
+> `/pipeline-state-cleanup`. Until they land, run retire by hand per batch (exact-`run_id` scope +
+> backup discipline); the LOCKED contract below makes it a required part of every rerun.
 
 ---
 
@@ -433,6 +465,7 @@ Keys that DO trigger hash change (require registry update):
 - **Directive = execution window** — `start_date`/`end_date` in the directive are the authority; no silent clamping by the engine.
 - **signal_version lives in test:** — `signal_version` is a child of the `test:` block per `canonical_schema.ALLOWED_NESTED_KEYS["test"]`. Root-level writes collide at the test→root mirror in `pipeline_utils.parse_directive_with_canonical_test` and are also rejected by Stage -0.25 canonicalization. The tool defensively strips any stray root-level key.
 - **Cross-skill contract with `/hypothesis-testing`** *(added 2026-06-14)* — the category taxonomy (`DATA_FRESH`/`SIGNAL`/`ENGINE`/`PARAMETER`/`BUG_FIX`) and the supersede-vs-compare boundary are **shared** with the [`/hypothesis-testing`](../hypothesis-testing/SKILL.md) §1.0 divert table, which routes reruns based on them. If either changes here, **review and update `/hypothesis-testing` §1.0 in the same change** — a one-sided edit silently drifts the two skills apart. (Reciprocal of the ownership note in `/hypothesis-testing` §0.)
+- **Retirement is part of the rerun** *(added 2026-06-14)* — a rerun is **not complete until its predecessor is retired**: its row archived to `TradeScan_State/retired/retired_runs.parquet` and its heavy artifacts pruned, via [`/pipeline-state-cleanup`](../pipeline-state-cleanup/SKILL.md)'s authorized drop (archive-BEFORE-drop; the only sanctioned ledger-row removal under Invariant #2). Applies to **all** rerun categories. The predecessor's seed (directive + `RECYCLE_RULE_SOURCE.py`) is retired only *after* its rerun consumes it. Keeps the live ledger trim; the cold archive is the don't-re-test record. Enforcement = the `retire` tool step + the `/session-close` drift check (pending).
 
 ---
 
