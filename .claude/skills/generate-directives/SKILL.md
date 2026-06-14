@@ -130,6 +130,10 @@ passes at different thresholds stay disjoint. The backtest-window convention pas
 Stage → `backtest_directives/INBOX/` → [`/execute-directives`](../execute-directives/SKILL.md),
 which re-checks new-rule routing and "exit 0 ≠ success."
 
+When Method B's `--output-dir` writes a `*_staging/` dir, that dir is **regenerable scratch**
+— [`/execute-directives`](../execute-directives/SKILL.md) Step 5 deletes it once the batch is
+verified (consumption authority = the ledger, not `completed/`). Don't hand-curate or archive it.
+
 ## Implementation caveats (current tooling — NOT doctrine)
 
 *As of 2026-06-14:* `generate_cointrev_v3_directives.py`'s recycle-rule params are now

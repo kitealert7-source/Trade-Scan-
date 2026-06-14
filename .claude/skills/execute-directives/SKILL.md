@@ -115,6 +115,21 @@ python tools/run_pipeline.py --all
 
 > **Exit 0 ≠ success.** The batch prints `[SUCCESS]` and exits 0 even when EVERY directive failed (`[BATCH] FAILED` per directive) or it paused on a startup guard. ALWAYS verify the real result: scan output for `[BATCH] FAILED` / `Paused`, AND confirm new rows actually landed (MPS / candidates). Never trust the banner.
 
+> **Post-batch staging cleanup.** When the directives came from a generated staging dir
+> (generate-directives Method B stages to `backtest_directives/<name>_staging/` → you copy
+> into `INBOX/`), that staging dir is **spent once the batch is verified** — delete it.
+> Directives are **regenerable scratch** (the generator is deterministic) and any that
+> produced a run are preserved in `backtests/<name>/DIRECTIVE_SOURCE.txt` + the ledger, so
+> the staging copies are pure redundancy; left alone they accumulate (a single sweep can be
+> 475 files). **Consumption authority = the ledger** — a `run_id` landed for the
+> directive_id — NOT `backtest_directives/completed/`, which is *itself* regenerable and
+> gets wiped, so a completed/-match only confirms consumption *immediately* post-batch, not
+> later. The trigger is "batch consumed," which is **independent of retirement**: a fresh
+> corpus with no predecessor still leaves spent staging, so this step lives here (batch
+> lifecycle), NOT in `retire_runs.py` (which fires only on supersession). Remove empty
+> staging shells on sight. (The sibling retire-lifecycle concern — retiring a superseded
+> *predecessor* cohort — is owned by `tools/state_lifecycle/retire_runs.py`, a separate trigger.)
+
 ### Step 6: Capital Wrapper Execution
 
 Simulate equity paths across the three active capital profiles:
@@ -224,3 +239,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-06-12 | Batch printed [SUCCESS]/exit-0 while all directives failed or paused on a guard | Added 'exit 0 ≠ success — verify artifacts' to Step 5 |
 | 2026-06-12 | Scratch CSV in strategies/ tripped the drift guard, paused the batch | Added 'no scratch in governed dirs' to Appendix B |
 | 2026-06-12 | Manual Step-0 pre-checks false-FAILed valid basket directives | Scoped pre-checks to single-asset in Step 0.2 |
+| 2026-06-14 | Generated staging dirs piled up spent (11 dirs / ~2.4k directives) after batches consumed them; completed/-gate unreliable once completed/ is wiped | Added 'post-batch staging cleanup' to Step 5 — ledger is consumption authority, trigger is batch-consumed (not retire) |
