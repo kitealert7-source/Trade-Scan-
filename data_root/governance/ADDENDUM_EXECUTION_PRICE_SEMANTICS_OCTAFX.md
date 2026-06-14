@@ -11,6 +11,35 @@ It introduces **execution price semantics** for OctaFX-derived datasets and reso
 
 ---
 
+## AMENDMENT — 2026-06-14 (cost-column policy; supersedes spread=0 in §4 / §4.1 / §6)
+
+**Direction-aware execution restored.** This amendment REVERSES the EXECv2 "spread = 0 /
+engines MUST NOT read cost columns" rules below. The execution PRICE construction is
+unchanged (RESEARCH OHLC remain ASK = bid + spread, §3; `execution_model_version` stays
+`octafx_exec_v3.0`); only the cost-column policy + engine contract change:
+
+1. The RESEARCH `spread` column now carries the **per-bar embedded spread in PRICE units**
+   (= the exact offset added to OHLC in §3.1), **NOT 0**. `commission_cash` and `slippage`
+   stay 0 (broker constants applied at the engine layer).
+2. Engines **MUST read** the `spread` column to fill **direction-aware**, restoring §1's
+   stated intent ("Execution occurs at ASK for BUY and BID for SELL"): a BUY fills at the
+   ask (the OHLC price); a SELL fills at the **bid (= ask − spread)**. The prior uniform-ask
+   embedding made buys AND sells execute at the ask, silently refunding the round-trip
+   spread (charged $0). This corrects it.
+
+**Execution-impact declaration (§8):** every OctaFX RESEARCH backtest now charges ~one
+round-trip spread per trade (previously $0 — the round-trip cancelled). Backward-compatible:
+`spread = 0` rows remain a no-op. Provenance: `execution_model_version` unchanged (price
+construction identical) — the data change is signalled by the regenerated `research_sha256`.
+Engine side (Trade_Scan): single-asset engine v1_5_10 + basket `evaluate_bar` (via
+`engine_abi.v1_5_9`) + the `pine_ratio` rule family read the column; `spread=0` is byte-identical
+to the frozen stack, so existing runs and live execution are unaffected until RESEARCH is regenerated.
+
+**Approval:** operator-blessed 2026-06-14 — direction-aware execution is the canonical OctaFx
+semantics going forward.
+
+---
+
 ## 1. Motivation
 
 OctaFX (MT4/MT5) provides OHLC prices in **BID terms** with an explicit `spread` column.
