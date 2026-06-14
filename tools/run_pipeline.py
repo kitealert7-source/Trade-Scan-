@@ -1423,6 +1423,7 @@ LEG_STRATEGY_DISPATCH = {
     "pine_ratio_zrev_v1_zstop":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zband":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zopp":    _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_session_window": _build_pine_zrev_legs,
 }
 
 CONTINUOUS_HOLD_RULES = frozenset({

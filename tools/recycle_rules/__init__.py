@@ -69,6 +69,7 @@ from tools.recycle_rules.pine_ratio_zrev_v1_zcross_hflm import PineRatioZRevRule
 from tools.recycle_rules.pine_ratio_zrev_v1_zcross_zavg import PineRatioZRevRuleZCrossZAvg
 from tools.recycle_rules.pine_ratio_zrev_v1_zstop import PineRatioZRevRuleZStop
 from tools.recycle_rules.pine_ratio_zrev_v1_zopp import PineRatioZRevRuleZOpp
+from tools.recycle_rules.pine_ratio_zrev_v1_session_window import PineRatioZRevRuleSessionWindow
 
 __all__ = [
     "CointegrationMeanRevV1_2Rule",
@@ -91,6 +92,7 @@ __all__ = [
     "PineRatioZRevRuleZCrossZAvg",
     "PineRatioZRevRuleZStop",
     "PineRatioZRevRuleZOpp",
+    "PineRatioZRevRuleSessionWindow",
     "RULE_CLASSES",
     "rule_class_for",
 ]
@@ -128,6 +130,7 @@ _ALL_RULE_CLASSES = (
     PineRatioZRevRuleZCrossZAvg,
     PineRatioZRevRuleZStop,
     PineRatioZRevRuleZOpp,
+    PineRatioZRevRuleSessionWindow,
 )
 
 RULE_CLASSES: dict[tuple[str, int], type] = {
