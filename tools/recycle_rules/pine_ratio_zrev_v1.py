@@ -59,10 +59,28 @@ from tools.recycle_rules.h2_recycle import H2RecycleRule
 from tools.recycle_rules.h2_recycle_v3 import _build_ref_closes
 from tools.recycle_strategies import PineZRevArmedState
 from indicators.stats.ratio_hedged_spread_zscore import ratio_hedged_spread_zscore
+from engines.execution_fill import exec_fill, bar_spread
 
 
 _RULE_NAME = "pine_ratio_zrev_v1"
 _RULE_VERSION = 1
+
+
+def _directional_exit_prices(legs: list[BasketLeg], bar_ts: pd.Timestamp,
+                             raw_prices: dict[str, float]) -> dict[str, float]:
+    """v1.5.10 RESTORATION (OctaFx addendum line-17): direction-aware EXIT fills.
+    A long leg exits by SELLING -> bid (= raw - spread); a short leg exits by
+    BUYING -> ask (raw, unchanged). Per-leg spread is read from the leg's RESEARCH
+    `spread` column at bar_ts; spread=0 -> no-op (byte-identical to pre-restoration)."""
+    out: dict[str, float] = {}
+    for leg in legs:
+        raw = raw_prices[leg.symbol]
+        try:
+            sp = bar_spread(leg.df.loc[bar_ts])
+        except (KeyError, ValueError, TypeError):
+            sp = 0.0
+        out[leg.symbol] = exec_fill(raw, is_sell=(leg.effective_direction == 1), spread=sp)
+    return out
 
 
 @dataclass
@@ -799,6 +817,21 @@ class PineRatioZRevRule(H2RecycleRule):
                 "PineRatioZRevRule._liquidate: basket_runner is None. "
                 "Did __init__ skip the back-reference injection?"
             )
+
+        # v1.5.10 RESTORATION: direction-aware EXIT fills. Long leg exit=SELL (bid),
+        # short leg exit=BUY (ask). Recompute realized PnL at the fill prices so
+        # exit_price + pnl_usd + the LIQUIDATE event all reflect the actual fill.
+        # Gated on a price change so spread=0 stays byte-identical to v1.2 output.
+        _adj_closes = _directional_exit_prices(legs, bar_ts, bar_closes)
+        if _adj_closes != bar_closes:
+            bar_closes = _adj_closes
+            _ref_closes = _build_ref_closes(legs, bar_ts)
+            leg_float = {
+                leg.symbol: (_leg_pnl_usd_universal(leg, bar_closes[leg.symbol], _ref_closes)
+                             if leg.state.in_pos else 0.0)
+                for leg in legs
+            }
+            floating_total = sum(leg_float.values())
 
         realized_pnl = floating_total
         self.realized_total += realized_pnl

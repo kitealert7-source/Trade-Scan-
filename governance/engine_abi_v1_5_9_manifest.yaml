@@ -21,7 +21,7 @@ recon_date: '2026-05-13'
 recon_doc: tmp/ABI_RECON_v1_5_9.md
 exports:
 - name: evaluate_bar
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: function
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -29,7 +29,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: ContextView
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: class
   consumed_by:
   - TS_Execution.harness.replay
@@ -40,7 +40,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: BarState
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: dataclass
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -48,7 +48,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: EngineConfig
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: dataclass
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -56,7 +56,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: resolve_engine_config
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: function
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -64,7 +64,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: resolve_exit
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: function
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -72,7 +72,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: finalize_force_close
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: function
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -80,7 +80,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: ENGINE_ATR_MULTIPLIER
-  source_module: engine_dev.universal_research_engine.v1_5_9.evaluate_bar
+  source_module: engine_dev.universal_research_engine.v1_5_10.evaluate_bar
   type: constant
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -88,7 +88,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: run_execution_loop
-  source_module: engine_dev.universal_research_engine.v1_5_9.execution_loop
+  source_module: engine_dev.universal_research_engine.v1_5_10.execution_loop
   type: function
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -96,7 +96,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: ENGINE_VERSION
-  source_module: engine_dev.universal_research_engine.v1_5_9.execution_loop
+  source_module: engine_dev.universal_research_engine.v1_5_10.execution_loop
   type: constant
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -104,7 +104,7 @@ exports:
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
 - name: ENGINE_STATUS
-  source_module: engine_dev.universal_research_engine.v1_5_9.execution_loop
+  source_module: engine_dev.universal_research_engine.v1_5_10.execution_loop
   type: constant
   consumed_by:
   - Trade_Scan.tests.test_engine_abi_v1_5_9
@@ -162,4 +162,4 @@ exports:
   consumer_count: 3
   last_verified_commit: 790d1b2d8caca89560d394ae147a267726c59369
   last_verified_utc: '2026-05-13T10:17:41Z'
-manifest_sha256: 6709dee625bd19666be6b1202d381371995cd5b0a8ff725a78fb2d09c69f7400
+manifest_sha256: 1f596cdf10d2326ef264e97ccf0ba1a9a03bc89127932ca5f78a7f3843c7988f

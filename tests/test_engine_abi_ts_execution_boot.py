@@ -70,7 +70,8 @@ def test_execution_adapter_imports_compile(ts_execution_on_path):
 def test_main_imports_compile(ts_execution_on_path):
     """main.py imports ContextView + apply_regime_model via engine_abi.v1_5_9."""
     from engine_abi.v1_5_9 import ContextView, apply_regime_model
-    from engine_dev.universal_research_engine.v1_5_9.evaluate_bar import (
+    # ABI re-points its source to v1_5_10 (direction-aware, B' 2026-06-14)
+    from engine_dev.universal_research_engine.v1_5_10.evaluate_bar import (
         ContextView as src_ContextView,
     )
     from engines.regime_state_machine import apply_regime_model as src_arm

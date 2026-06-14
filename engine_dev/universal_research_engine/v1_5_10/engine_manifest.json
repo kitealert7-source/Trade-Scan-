@@ -5,10 +5,11 @@
     "vaulted": false,
     "freeze_date": null,
     "predecessor": "v1_5_8 (FROZEN 2026-04-20)",
-    "timestamp_utc": "2026-06-14T02:27:11.690851+00:00",
+    "timestamp_utc": "2026-06-14T03:02:30.679920+00:00",
     "adds": [
-        "Direction-aware execution (RESTORATION of OctaFx addendum line-17, NOT a new cost model): SELL fills at bid (= ask - per-bar RESEARCH spread column); BUY fills at ask. P&L formula (exit-entry)*dir*units UNCHANGED.",
-        "SELL-side fills = {short entry} + {long exit: SL/TP/partial/signal/forced}; all other fills stay at ask."
+        "Direction-aware execution (RESTORATION of OctaFx addendum line-17, NOT a new cost model) in BOTH execution_loop.py (single-asset) and evaluate_bar.py (basket leg engine): SELL fills at bid (= ask - per-bar RESEARCH spread); BUY fills at ask. P&L formula unchanged.",
+        "evaluate_bar.py added (direction-aware copy of frozen v1.5.9) so engine_abi.v1_5_9 can re-point its source here (B'); frozen v1.5.9 preserved on disk for reproducibility.",
+        "SELL-side fills = {short entry} + {long exit: SL/TP/partial/signal/forced}."
     ],
     "invariants": [
         "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
@@ -21,6 +22,7 @@
     ],
     "file_hashes": {
         "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "evaluate_bar.py": "04DC2A68BC1A8E06348A97DA2E5C80907116371C99D79342ACB1E94218CF2336",
         "execution_emitter_stage1.py": "AF137FFDE29D1E68EB97AC459BC6C93B7AE642A0A9E1F20625E97A6D33DD620F",
         "execution_loop.py": "0E55F4F325AE27F079F49CDE0ECC8B171262DFBCE3C91D1F433959F7A85A86CD",
         "main.py": "47825FA2F0526B26179A3B147789454C1DA5F7A4325D56241DCDA46558E4E74C",

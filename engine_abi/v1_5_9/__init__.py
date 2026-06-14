@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from engine_dev.universal_research_engine.v1_5_9.evaluate_bar import (
+from engine_dev.universal_research_engine.v1_5_10.evaluate_bar import (
     BarState,
     ContextView,
     ENGINE_ATR_MULTIPLIER,
@@ -27,7 +27,7 @@ from engine_dev.universal_research_engine.v1_5_9.evaluate_bar import (
     resolve_engine_config,
     resolve_exit,
 )
-from engine_dev.universal_research_engine.v1_5_9.execution_loop import (
+from engine_dev.universal_research_engine.v1_5_10.execution_loop import (
     ENGINE_STATUS,
     ENGINE_VERSION,
     run_execution_loop,

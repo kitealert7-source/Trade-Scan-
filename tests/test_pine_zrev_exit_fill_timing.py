@@ -63,7 +63,7 @@ def _ohlc_gapped(close, idx):
     low = np.minimum(openp, close) * 0.99950
     return pd.DataFrame(
         {"open": openp, "high": high, "low": low, "close": close,
-         "volume": 1000.0, "spread": 0.00002}, index=idx,
+         "volume": 1000.0, "spread": 0.0}, index=idx,
     )
 
 
