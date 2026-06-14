@@ -378,7 +378,7 @@ No auto-deploy. Promotion is a separate human decision.
 - **Divert (§1.0):** [`/rerun-backtest`](../rerun-backtest/SKILL.md) — re-run / re-baseline an
   existing config (`DATA_FRESH` · `ENGINE` · `BUG_FIX`, or a re-baseline `PARAMETER`). It
   *supersedes* the old row; this skill *compares*. Screen for it before classifying.
-- (Retired) `basket-hypothesis-testing` — folded into this orchestrator + `compare_cohorts.py` + `tools/basket_hypothesis/`; its skill dir is now a redirect stub (full prior content in git history).
+- (Retired) `basket-hypothesis-testing` — folded into this orchestrator + `compare_cohorts.py` + `tools/basket_hypothesis/`; its skill dir is archived under `.claude/skills/archive/basket-hypothesis-testing/` (full prior content there + in git history).
 
 ---
 
