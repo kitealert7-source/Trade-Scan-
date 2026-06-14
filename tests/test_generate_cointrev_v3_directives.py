@@ -399,6 +399,79 @@ def test_default_confirmation_is_5():
 
 
 # ---------------------------------------------------------------------------
+# Section E.bis — directive-driven recycle-rule params (operator 2026-06-14)
+# The directive guides the experiment; z_entry / n_window / etc. are no longer
+# hardcoded. Defaults stay byte-identical (locked by the tests above).
+# ---------------------------------------------------------------------------
+
+
+def test_z_entry_is_directive_driven_and_tagged():
+    import yaml
+    # default 2.0 -> z_entry: 2.0 in params, stem ends at the exit tag (no _Z)
+    name_d, body_d = _render_directive(
+        "AUDJPY", "AUDNZD", "2024-01-09", "2024-02-20",
+        rule_name="pine_ratio_zrev_v1_zcross", exit_tag="_ZCRS")
+    pd_ = yaml.safe_load(body_d)
+    assert pd_["basket"]["recycle_rule"]["params"]["z_entry"] == 2.0
+    assert name_d.split("__E")[0].endswith("_ZCRS")  # no z tag after the exit tag
+    # z=2.5 -> z_entry: 2.5 in params + _Z25 after the exit tag (the GP_ZCRS..._Z25 convention)
+    name_z, body_z = _render_directive(
+        "AUDJPY", "AUDNZD", "2024-01-09", "2024-02-20",
+        rule_name="pine_ratio_zrev_v1_zcross", exit_tag="_ZCRS",
+        z_entry=2.5, z_tag="_Z25")
+    pz = yaml.safe_load(body_z)
+    assert pz["basket"]["recycle_rule"]["params"]["z_entry"] == 2.5
+    assert name_z.split("__E")[0].endswith("_ZCRS_Z25")
+    assert "_Z25" in pz["test"]["name"]
+
+
+def test_n_window_is_directive_driven_in_params_and_name():
+    import yaml
+    _, body = _render_directive(
+        "EURUSD", "USDJPY", "2024-01-07", "2024-01-15", n_window=40)
+    p = yaml.safe_load(body)
+    assert p["basket"]["recycle_rule"]["params"]["n_window"] == 40
+    assert "_N40_15M_ABS" in p["test"]["hypothesis_variant"]  # variant token tracks n_window
+    assert "N=40 / 15M / absolute" in p["test"]["description"]  # description tracks it too
+
+
+def test_generate_derives_z_tag_from_z_entry(tmp_coint_db, tmp_path):
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, "EURUSD", "USDJPY", series)
+    written = generate_directives(
+        tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+        output_dir=tmp_path / "z25", z_entry=2.5)
+    assert written and all("_Z25" in p.stem for p in written)
+    base = generate_directives(
+        tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+        output_dir=tmp_path / "z20")  # default 2.0 -> no _Z tag
+    assert base and all("_Z" not in p.stem for p in base)
+
+
+def test_since_floor_filters_spans(tmp_coint_db, tmp_path):
+    """--since keeps only spans entering on/after the floor (per-pair windows
+    preserved, not clipped): a future floor drops all, a past floor keeps all."""
+    series = _series("2024-01-01", ["cointegrated"] * 15 + ["broken"] * 3)
+    _seed_pair(tmp_coint_db, "EURUSD", "USDJPY", series)  # span entry = 2024-01-07
+    base = generate_directives(tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+                               output_dir=tmp_path / "base")
+    future = generate_directives(tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+                                 output_dir=tmp_path / "fut", since="2099-01-01")
+    past = generate_directives(tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+                               output_dir=tmp_path / "past", since="1900-01-01")
+    assert len(base) >= 1 and len(future) == 0 and len(past) == len(base)
+
+
+def test_invalid_z_entry_and_n_window_raise(tmp_coint_db, tmp_path):
+    with pytest.raises(ValueError, match="z_entry"):
+        generate_directives(tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+                            output_dir=tmp_path, dry_run=True, z_entry=0)
+    with pytest.raises(ValueError, match="n_window"):
+        generate_directives(tf="1d", lookback_days=252, N=5, db_path=tmp_coint_db,
+                            output_dir=tmp_path, dry_run=True, n_window=0)
+
+
+# ---------------------------------------------------------------------------
 # Section F — gate-compatibility verification (CR-EXIT-FIX 2026-05-30, F1)
 # ---------------------------------------------------------------------------
 #

@@ -114,6 +114,16 @@ DEFAULT_LOOKBACK_DAYS = 252
 DEFAULT_TF = "1d"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "backtest_directives" / "cointrev_v3_staging"
 
+# Recycle-rule params — DIRECTIVE-DRIVEN, not hardcoded (operator 2026-06-14: the
+# directive guides the experiment; a next pass at z_entry=3.0 is a flag, not a
+# template edit). Defaults reproduce the historical template byte-for-byte
+# (z_entry=2.0 -> no _Z tag, body unchanged); a non-default value flips a cohort
+# tag so passes at a different threshold land disjoint (same role as _P / _N / _GP).
+DEFAULT_Z_ENTRY = 2.0
+DEFAULT_N_WINDOW = 30
+DEFAULT_N_META = 100
+DEFAULT_ENTRY_MODE = "absolute"
+
 # Methodology cohort we enumerate. v1_raw_adf was retired 2026-05-30 in
 # favour of v2_log_eg (log-prices + Engle-Granger/MacKinnon critical
 # values); we only want spans produced by the current math.
@@ -332,7 +342,7 @@ TEMPLATE = """test:
   parameter_mutation: false
   hypothesis_ref: COINTREV_V3_PINE_RATIOZ
   hypothesis_variant: {variant}
-  description: 'Pine z_r reversal port ({rule_name}), N=30 / 15M / absolute /
+  description: 'Pine z_r reversal port ({rule_name}), N={n_window} / 15M / {entry_mode} /
     always-in-market, {a}/{b}. Capital 1000 USD, target_notional_per_leg_usd=1000.
     Episode test: natural continuous {lookback_days}d-cointegrated span {start} -> {end}.
     cointegration_join lookback_days={lookback_days} gates (any-span) + routes to the
@@ -384,10 +394,10 @@ basket:
     name: {rule_name}
     version: 1
     params:
-      n_window: 30
-      n_meta: 100
-      z_entry: 2.0
-      entry_mode: absolute
+      n_window: {n_window}
+      n_meta: {n_meta}
+      z_entry: {z_entry}
+      entry_mode: {entry_mode}
       hedge_lock_at_entry: true
       always_in_market: true
       initial_notional_usd: 1000.0
@@ -469,8 +479,13 @@ def _render_directive(
     exit_tag: str = "",
     p_tag: str = "",
     n_tag: str = "",
+    z_tag: str = "",
     tf_tag: str = "",
     sizing_mode: str = "granular_parity",
+    z_entry: float = DEFAULT_Z_ENTRY,
+    n_window: int = DEFAULT_N_WINDOW,
+    n_meta: int = DEFAULT_N_META,
+    entry_mode: str = DEFAULT_ENTRY_MODE,
 ) -> tuple[str, str]:
     """Return (filename_stem, yaml_body) for a single span.
 
@@ -511,8 +526,12 @@ def _render_directive(
     bid = f"{pair_a}{pair_b}"
     yymmdd = _yymmdd(entry_date)
     s_tag = _SIZING_TAG[sizing_mode]
-    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}{n_tag}{s_tag}{exit_tag}{tf_tag}__E{yymmdd}"
-    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N30_15M_ABS{p_tag}{n_tag}{s_tag}{exit_tag}{tf_tag}_E{yymmdd}"
+    # Name tokens for the parameterized recycle-rule values. Defaults reproduce
+    # the historical literals (n_window=30 -> N30, entry_mode=absolute -> ABS,
+    # z_entry=2.0 -> z_tag=""), so the baseline stem is byte-identical.
+    em_token = "ABS" if entry_mode == "absolute" else entry_mode.upper()
+    name = f"90_PORT_{bid}_15M_COINTREV_V3_L30{p_tag}{n_tag}{s_tag}{exit_tag}{z_tag}{tf_tag}__E{yymmdd}"
+    variant = f"COINTREV_V3_PINE_RATIOZ_{pair_a}_{pair_b}_N{n_window}_15M_{em_token}{p_tag}{n_tag}{s_tag}{exit_tag}{z_tag}{tf_tag}_E{yymmdd}"
     # Non-default sizing injects extra recycle_rule.params lines; the default
     # "notional" path renders extra_params="" so the body is byte-identical to
     # the pre-2026-06-04 template (baseline-arm fidelity is load-bearing).
@@ -533,6 +552,10 @@ def _render_directive(
         bid=bid,
         rule_name=rule_name,
         lookback_days=lookback_days,
+        n_window=n_window,
+        n_meta=n_meta,
+        z_entry=z_entry,
+        entry_mode=entry_mode,
         extra_params=extra_params,
     )
     return name, body
@@ -655,6 +678,11 @@ def generate_directives(
     p_threshold: float | None = None,
     sizing_mode: str = "granular_parity",
     exit_variant: str = "baseline",
+    z_entry: float = DEFAULT_Z_ENTRY,
+    n_window: int = DEFAULT_N_WINDOW,
+    n_meta: int = DEFAULT_N_META,
+    entry_mode: str = DEFAULT_ENTRY_MODE,
+    since: str | None = None,
 ) -> list[Path]:
     """Read cointegration_daily, enumerate look-ahead-safe spans, and emit
     one directive YAML per qualifying span.
@@ -689,6 +717,12 @@ def generate_directives(
         raise ValueError(
             f"exit_variant must be one of {tuple(EXIT_VARIANTS)}, got {exit_variant!r}"
         )
+    if z_entry <= 0:
+        raise ValueError(f"z_entry must be > 0, got {z_entry!r}")
+    if n_window < 1:
+        raise ValueError(f"n_window must be >= 1, got {n_window!r}")
+    if n_meta < 1:
+        raise ValueError(f"n_meta must be >= 1, got {n_meta!r}")
     # Exit variant -> recycle_rule.name + name tag (e.g. zcross -> _ZCRS). Baseline
     # leaves both at their pre-flag defaults so existing cohorts stay byte-identical.
     rule_name, exit_tag = EXIT_VARIANTS[exit_variant]
@@ -708,6 +742,11 @@ def generate_directives(
     # 4h -> _TF4H. Appended LAST (after exit_tag) so existing cohorts' leading
     # tag sequence is unchanged. Same cohort-tag role as _P / _N / _GP / _ZCRS.
     tf_tag = "" if tf == DEFAULT_TF else f"_TF{tf.upper()}"
+    # Encode non-default z_entry as a _Z<int(z*10)> cohort tag (2.5 -> _Z25,
+    # 3.0 -> _Z30); default 2.0 -> no tag so existing cohorts stay byte-identical.
+    # Same collision-prevention role as _P / _N / _GP — the directive's
+    # recycle_rule.params carry the literal value; the tag keeps cohorts disjoint.
+    z_tag = "" if z_entry == DEFAULT_Z_ENTRY else f"_Z{int(round(z_entry * 10))}"
 
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_OUTPUT_DIR
     db_path = Path(db_path) if db_path is not None else Path(SQLITE_DB)
@@ -740,6 +779,13 @@ def generate_directives(
                 p_threshold=p_threshold,
             )
             for entry_date, exit_date, ncoint in spans_confirmation_safe(series, N=N):
+                # Date floor (the backtest-window convention passes 2024-01-01):
+                # keep only spans ENTERING on/after `since`. Spans are computed over
+                # the FULL screener history first (look-ahead-safe N-confirmation
+                # preserved) then filtered — each span keeps its own per-pair
+                # [entry,exit] window; it is NOT clipped to a fixed range.
+                if since is not None and entry_date < since:
+                    continue
                 spans_per_pair.append(
                     (pair_a, pair_b, entry_date, exit_date, ncoint)
                 )
@@ -797,7 +843,8 @@ def generate_directives(
         name, body = _render_directive(
             pair_a, pair_b, entry_date, exit_date, lookback_days=lookback_days,
             rule_name=rule_name, exit_tag=exit_tag,
-            p_tag=p_tag, n_tag=n_tag, tf_tag=tf_tag, sizing_mode=sizing_mode,
+            p_tag=p_tag, n_tag=n_tag, z_tag=z_tag, tf_tag=tf_tag, sizing_mode=sizing_mode,
+            z_entry=z_entry, n_window=n_window, n_meta=n_meta, entry_mode=entry_mode,
         )
         out_path = output_dir / f"{name}.txt"
         out_path.write_text(body, encoding="utf-8")
@@ -920,6 +967,39 @@ def _parser() -> argparse.ArgumentParser:
             "the cointegration window are unchanged."
         ),
     )
+    # Directive-driven recycle-rule params (operator 2026-06-14: not hardcoded).
+    p.add_argument(
+        "--z-entry", type=float, default=DEFAULT_Z_ENTRY,
+        help=(
+            f"MR entry z-score threshold -> recycle_rule.params.z_entry "
+            f"(default: {DEFAULT_Z_ENTRY}). Non-default appends a _Z<int(z*10)> "
+            f"cohort tag (2.5 -> _Z25, 3.0 -> _Z30) so passes at different "
+            f"thresholds land disjoint; default 2.0 stays untagged."
+        ),
+    )
+    p.add_argument(
+        "--n-window", type=int, default=DEFAULT_N_WINDOW,
+        help=f"MR z-score lookback window -> recycle_rule.params.n_window + the "
+             f"_N<n> name token (default: {DEFAULT_N_WINDOW}).",
+    )
+    p.add_argument(
+        "--n-meta", type=int, default=DEFAULT_N_META,
+        help=f"Meta lookback -> recycle_rule.params.n_meta (default: {DEFAULT_N_META}).",
+    )
+    p.add_argument(
+        "--entry-mode", type=str, default=DEFAULT_ENTRY_MODE,
+        help=f"Entry mode -> recycle_rule.params.entry_mode + name token "
+             f"(default: {DEFAULT_ENTRY_MODE} -> ABS).",
+    )
+    p.add_argument(
+        "--since", type=str, default=None,
+        help=(
+            "Date floor YYYY-MM-DD: keep only spans whose entry_date is on/after "
+            "it. Spans are enumerated over full history (look-ahead-safe) then "
+            "filtered; each per-pair [entry,exit] window is preserved, NOT clipped. "
+            "The backtest-window convention passes 2024-01-01."
+        ),
+    )
     return p
 
 
@@ -935,6 +1015,11 @@ def main(argv: list[str] | None = None) -> int:
         p_threshold=args.p_threshold,
         sizing_mode=args.sizing_mode,
         exit_variant=args.exit_variant,
+        z_entry=args.z_entry,
+        n_window=args.n_window,
+        n_meta=args.n_meta,
+        entry_mode=args.entry_mode,
+        since=args.since,
     )
     return 0
 

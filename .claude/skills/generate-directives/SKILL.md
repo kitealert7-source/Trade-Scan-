@@ -103,13 +103,20 @@ That gate *is* the decision. The framings below are only *why*:
 // turbo
 
 ```bash
-python tools/generate_cointrev_v3_directives.py --exit-variant <baseline|zcross|zband|zopp> --sizing-mode <granular_parity|notional|notional_ctl> [--lookback 252] --dry-run
+python tools/generate_cointrev_v3_directives.py \
+    --exit-variant <baseline|zcross|zband|zopp> --sizing-mode <granular_parity|notional|notional_ctl> \
+    --z-entry <2.0|2.5|3.0|...> --n-window <30|...> --since <YYYY-MM-DD> [--lookback 252] --dry-run
 ```
 
 Enumerates qualifying continuous-cointegrated spans (look-ahead-safe, N=5) and emits one
-directive per span. `--dry-run` prints the span count; drop it to write staging. The
-generator **cannot reproduce an arbitrary reference run's config** without template edits
-(see *Implementation caveats*) — which is *why* a comparison transforms instead.
+directive per span. `--dry-run` prints the span count; drop it to write staging. The recycle-rule
+params are **directive-driven** — `--z-entry`, `--n-window`, `--n-meta`, `--entry-mode` (the
+directive guides the experiment; nothing is hardcoded). Defaults reproduce the historical baseline
+**byte-identically**; a non-default `z_entry` flips a `_Z<int(z*10)>` cohort tag (2.5 -> `_Z25`) so
+passes at different thresholds stay disjoint. The backtest-window convention passes
+**`--since 2024-01-01`** — keeps only spans entering on/after the floor, each per-pair
+`[entry,exit]` window preserved (NOT clipped); cf. [`/rerun-backtest`](../rerun-backtest/SKILL.md)
+"Backtest date window" + [[feedback_test_window_must_match_signal_class]].
 
 ## Validate directive integrity (before any run)
 
@@ -125,12 +132,12 @@ which re-checks new-rule routing and "exit 0 ≠ success."
 
 ## Implementation caveats (current tooling — NOT doctrine)
 
-*As of 2026-06-12:*
-- `generate_cointrev_v3_directives.py` hardcodes `z_entry=2.0, n_window=30,
-  entry_mode=absolute` (no CLI flags). It therefore **cannot reproduce an arbitrary
-  reference run** without editing the template (≈ lines 387–390) — a Protected-
-  Infrastructure change (plan + approval). If it later gains CLI flags for these, this
-  caveat is obsolete; the doctrine above is not.
+*As of 2026-06-14:* `generate_cointrev_v3_directives.py`'s recycle-rule params are now
+**flags** — `--z-entry` / `--n-window` / `--n-meta` / `--entry-mode` (+ `--since` for the
+date bound). Defaults reproduce the historical template byte-for-byte; non-default `z_entry`
+gets a `_Z<int(z*10)>` cohort tag. (Supersedes the prior "hardcoded z_entry=2.0, edit the
+template" caveat — that template edit is no longer needed.) Note: it still **cannot reproduce
+the `CXN1` token** — that is applied by a separate naming module, not the generator.
 
 ## Anti-patterns
 
