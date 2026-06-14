@@ -165,6 +165,32 @@ for those the strategy code is in `runs/<run_id>/strategy.py` and the directive 
 
 ---
 
+## Backtest date window — rerun convention
+
+A rerun runs on the standard recent window, derived from data availability — **not** blindly
+from the source directive's original dates:
+
+- **Single-asset:** `start_date` = **2024-01-01**, or the first available bar on/after it (in
+  practice **2024-01-02** — 2024-01-01 is a market holiday, no FX bars); `end_date` = the
+  **latest available bar** (`min(latest_date)` across the directive's symbols, from
+  `data_root/MASTER_DATA/freshness_index.json`). This is exactly what
+  `config/backtest_dates.py::resolve_dates(tf, stage="extended")` /
+  `governance/preflight.py::resolve_data_range()` already return.
+- **Cointegration / basket:** the window is **not** a single 2024→max range — each test is one
+  pre-computed cointegrated **span**. Re-run only the spans whose entry falls **within
+  [2024-01-01, max]** (drop any with `entry_date < 2024-01-01`); each in-range span stays a
+  **separate test** on its own `[entry_date, exit_date]` window. A fixed 2024→max window would
+  be **rejected by `window_validity_gate.py`** (the window must be contained in one cointegrated
+  span — see [[feedback_test_window_must_match_signal_class]]).
+
+> **Tool support pending — apply by hand for now.** `prepare` today sets `end_date = today` and
+> never sets `start_date` (`rerun_backtest.py:474-479`). Auto-setting the single-asset
+> `[2024-01-02, max]` window and filtering cointegration spans to the range are **pending tool
+> changes** (out of the current skills-only scope). Until they land, set the window per this
+> convention when forming / reviewing the rerun directive.
+
+---
+
 ## Run — hand off to `/execute-directives` (do not bare-dispatch)
 
 `prepare` only stages the directive. The actual run goes through
@@ -272,7 +298,7 @@ After `finalize`:
 
 ## Variant Naming Rule (__E### rotation)
 
-A rerun lands as a **new directive variant** of the same family — same `test.strategy` (the base stem), but a freshly allocated `__E###` suffix on the filename and `test.name`. The Idea Gate (-0.20) still bypasses on `test.repeat_override_reason`; the suffix is what satisfies `verify_directive_uniqueness_guard` at `run_pipeline.py:483`, which refuses to re-execute a directive_id already in the registry.
+A rerun lands as a **new directive variant** of the same family — same `test.strategy` (the base stem), but a freshly allocated `__E###` suffix on the filename and `test.name`. The Idea Gate (-0.20) still bypasses on `test.repeat_override_reason`; the suffix is what satisfies `verify_directive_uniqueness_guard` at `run_pipeline.py:505`, which refuses to re-execute a directive_id already in the registry.
 
 Example:
 

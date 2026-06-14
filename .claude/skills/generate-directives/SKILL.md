@@ -46,6 +46,16 @@ hypothesis
    the *same* cointegrated spans.
 5. **A formed directive is unverified until proven** (one-moving-variable + dispatch
    pre-flight). Forming ≠ running.
+6. **Backtest window convention.** Single-asset directives span `[2024-01-02, max-available]`
+   (`config/backtest_dates.py::resolve_dates(tf, stage="extended")`; 2024-01-02 = the first bar
+   on/after the 2024-01-01 floor, since 01-01 is a market holiday). Cointegration directives stay
+   **per-span** — bounded to cointegrated spans with `entry_date ≥ 2024-01-01`, each a separate
+   test on its own `[entry_date, exit_date]` window (a fixed 2024→max window is rejected by
+   `window_validity_gate`, which requires containment in one cointegrated span — #4 above /
+   [[feedback_test_window_must_match_signal_class]]). Apply the **same** window to reference and
+   variant; when transforming a reference whose window predates this convention, re-baseline both
+   to it so the comparison stays matched. *(Doc convention; tool auto-set / generator `--since`
+   are pending — see [`/rerun-backtest`](../rerun-backtest/SKILL.md) "Backtest date window".)*
 
 ## The decision (the centerpiece)
 

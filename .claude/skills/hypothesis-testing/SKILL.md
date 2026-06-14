@@ -135,6 +135,14 @@ The retired `shadow_filter` *rejection* gate is gone — extraction proposes, it
 - **One moving variable per directive** (enforced by `/generate-directives`). Two variables
   → split into two directives (above), never a refusal.
 - **Matched windows** — reference and variant run the same cointegrated spans.
+- **Backtest date window (convention)** — the matched window follows the standard recent
+  range: **single-asset** runs `[2024-01-01 → first-available-bar (≈ 2024-01-02), latest-
+  available-bar]` (= `config/backtest_dates.py::resolve_dates(tf, stage="extended")`);
+  **cointegration** stays span-based — only cointegrated spans with `entry_date ≥ 2024-01-01`,
+  each a separate test (a fixed 2024→max window is rejected by `window_validity_gate`, which
+  requires containment in a cointegrated span — cf. [[feedback_test_window_must_match_signal_class]]).
+  Reference and variant share the identical window. *(Doc convention; tool auto-set is a pending
+  change — see [`/rerun-backtest`](../rerun-backtest/SKILL.md) "Backtest date window".)*
 - **The reference run is locked at session start** (next section); all §4 deltas read the
   frozen snapshot, never re-read live values.
 - **No gates.** No worth-gate, no pre-validation/overlap/diversity/dead-strategy/pass-budget
