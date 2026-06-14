@@ -18,6 +18,11 @@
       "status": "FROZEN",
       "canonical": true,
       "note": "Canonical frozen engine. Adds ctx.unrealized_r_intrabar + ctx.entry_price for intrabar-aware BE. Byte-equivalent to v1.5.7 for no-hook strategies. Frozen 2026-04-20."
+    },
+    "v1_5_10": {
+      "status": "EXPERIMENTAL",
+      "canonical": false,
+      "note": "Direction-aware execution (RESTORATION of OctaFx addendum line-17): SELL fills at bid (= ask - per-bar RESEARCH spread), BUY at ask. P&L formula unchanged. Byte-identical to v1.5.8 on spread=0 data. Successor to v1.5.8; active_engine intentionally stays v1.5.8 until basket parity (Phase 2) + RESEARCH embed (Phase 3). Created 2026-06-14."
     }
   }
 }
