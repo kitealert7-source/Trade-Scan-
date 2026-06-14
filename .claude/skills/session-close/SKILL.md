@@ -60,6 +60,7 @@ Print the detection summary:
 ```
 PHASE 1 — DETECT (<UTC>)
   Pipeline runs completed   : YES / NO     (N new run_ids)
+  Reruns / retirements      : YES / NO     ← signal for 3.D (drift-check)
   SKILL.md modified         : YES / NO     (list: <slugs>)        ← signal for 3.6
   Skills invoked            : YES / NO     (list: <names>; informational only)
   Day of week               : <day>         (informational; weekend prompts in 3.9 backlog)
@@ -98,6 +99,7 @@ CORE — always runs (HARD-TXN + HARD-GATE):
 EPILOGUE — conditional (signal-gated):
   3.A  Idea-gate sources refresh             ← pipeline runs = YES
   3.B  Ledger DB export                       ← pipeline runs = YES
+  3.D  Retire drift-check                      ← reruns/retirements this session
   3.6  Skill-maintenance audit                ← SKILL.md modified in session commits
   3.9  Deferred Maintenance emission          ← always (writes Deferred Maintenance section)
   3.C  Active Charter sync                    ← charter heading present in SYSTEM_STATE
@@ -352,6 +354,30 @@ If `SYSTEM_STATE.md` contains a `#### Active Charter — ` heading inside `### M
 
 4. Do not commit separately. The edit will be captured in 3.10's `session: closing SYSTEM_STATE snapshot` commit because the regen preserves the Manual block.
 
+### 3.D Retire drift-check [conditional: reruns or retirements this session]
+
+If this session ran any reruns (`/rerun-backtest`) or retirements
+(`tools/state_lifecycle/retire_runs.py`), verify no predecessor was superseded but
+left **un-retired** — i.e. rerun **Phase C** (archive row → cold parquet + prune
+artifacts) was skipped. See [`/rerun-backtest`](../rerun-backtest/SKILL.md) "Retire".
+Skip entirely if no rerun/retire happened this session.
+
+// turbo
+
+```bash
+python tools/state_lifecycle/retire_runs.py --drift-check
+```
+
+- **count == 0** → clean; nothing to surface.
+- **count > 0** → add a `### Manual` entry under `## Deferred Maintenance` in
+  `SYSTEM_STATE.md` (persists across the 3.10 regen):
+  `[DRIFT] retire backlog — <N> superseded run(s) reran but not retired → python tools/state_lifecycle/retire_runs.py --run-ids <ids> --execute (rerun Phase C)`.
+
+Read-only; **never blocks close** — it surfaces a deferred-maintenance backlog, not
+a failure. Runs BEFORE 3.10 so the entry lands in the closing snapshot. (The check
+scans every superseded ledger row, so it is gated on rerun/retire activity to keep
+non-rerun closes fast.)
+
 ### 3.10 Regenerate SYSTEM_STATE.md — FINAL [ALWAYS]
 
 ```bash
@@ -501,6 +527,7 @@ PHASE 4 — SUMMARY (<UTC>)
   Conditional substeps:
     [RAN/SKIP] 3.A  Idea-gate refresh
     [RAN/SKIP] 3.B  Ledger DB export
+    [RAN/SKIP] 3.D  Retire drift-check
     [RAN/SKIP] 3.6  Skill-maintenance audit
     [RAN/SKIP] 3.9  Weekend periodic skills (list which subskills ran)
 
@@ -544,6 +571,10 @@ git commit -m "session: idea gate refresh"
 
 # 3.B Ledger DB export (CONDITIONAL: pipeline runs)
 python tools/ledger_db.py --export
+
+# 3.D Retire drift-check (CONDITIONAL: reruns/retirements this session) — read-only
+#     count>0 -> add a ## Deferred Maintenance ### Manual entry; never blocks close
+python tools/state_lifecycle/retire_runs.py --drift-check
 
 # 3.4 Enforcement system health — exit 2 blocks, exit 1 note warnings (ALWAYS)
 python tools/audit_intent_index.py --all
