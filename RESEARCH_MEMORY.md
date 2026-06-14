@@ -88,3 +88,35 @@ Evidence: n=475: corpus net% 89 -> -223; med Ret/DD 0.014->0.007, net% 0.20->0.1
 Conclusion: Averaging KEEPS the persistent/deep extreme (poor-reversion, fat-tail loser population) and SKIPS the sharp single-bar crossing (the reversion edge) -- it inverts entry quality.
 Implication: Do NOT smooth/persist/average the entry trigger; the edge IS the sharp crossing (3rd confirm: persistence N+2/3 + HF55 Hurst + ZAVG2). The live over-trade is real-time threshold NOISE -> fix is producer bar-settlement, which a settled backtest cannot validate.
 ---
+
+---
+2026-06-14 | Tags: cointegration, session-filter, GP_ZCRS, window-robustness | Strategy: pine_ratio_zrev_v1_session_window | Run IDs: 76a7ced597b38643ddec57c2, ce332badd5a599683f0242e3
+Finding: Session overlay (enter 00:00-21:00 UTC, force-flat at NY close, flat overnight) vs the 24h GP_ZCRS_Z25 v1.5.10 cointegration baseline, conditioned on ROBUST 24h winners (Ret/DD>=1.0, >=30 trades, >=20d window): only 7 of 476 pairs qualify; 34 of 41 nominal winners are <20d/<30-trade short-window artifacts.
+Evidence: Robust winners 7: session improved 2 (both index: GBPUSD/GER40 2.27->2.58, NAS100/US30 1.31->1.48), worsened 5 (crypto ETHUSD/GBPAUD 3.72->3.02, BTCUSD/EUSTX50 3.36->2.01).
+Conclusion: Overlay does not reliably help even the good pairs (5/7 worse); the cointegration edge needs the full MR reversion (often overnight), which force-flat cuts short. Only positive is a weak, inconsistent index-cross effect (indices quiet overnight). Naive top-Ret/DD candidate lists are dominated by short-window artifacts.
+Implication: Reject session-flat as a corpus/class overlay. Narrow optional follow-up: overnight-flat on index-cross pairs only. Separately: add a min-window/min-trades guard to candidate ranking - the corpus high-Ret/DD tail is mostly thin spans.
+---
+
+---
+2026-06-14 | Tags: cointegration, entry-filter, HF55, cost-dominated | Strategy: pine_ratio_zrev_v1_zcross_hf | Run IDs: 76a7ced597b38643ddec57c2, 59f4834c433f6bd506719add
+Finding: HF55 Hurst entry filter (block entry when ratio Hurst>0.55) on the GP_ZCRS_Z25 v1.5.10 cointegration baseline, 476 matched pairs.
+Evidence: net% -2.89->-2.20 (median +0.17, 52% up), maxDD 9.59->8.44 (79% up), blowups 2->1, trades 32->24; but win% flat (mean -0.85), profitable-pair frac 25%->26%, median net gain 0.19 < spread saved 0.79.
+Conclusion: HF55 reduces the bleed via tail-risk cut (blocks trending/diverging entries) + spread saved from ~25% fewer trades, NOT trade selection: flat win% means no per-trade edge, and it cut net-positive trades too. Strategy stays net-negative; 6/7 robust 24h winners worse.
+Implication: No entry filter fixes a per-trade-edge<cost (over-trading) problem. Next: frequency/timescale (higher trade TF), not another filter.
+---
+
+---
+2026-06-14 | Tags: cointegration, timeframe, frequency, over-trading | Strategy: pine_ratio_zrev_v1_zcross | Run IDs: 76a7ced597b38643ddec57c2, 9f9577ccb5de2affd3a0deb5
+Finding: Re-ran the GP_ZCRS_Z25 v1.5.10 cointegration baseline on 1H instead of 15m (same spans, same params: z_entry=2.5/n_window=30/granular_parity) to test the over-trading/cost diagnosis. 466 matched pairs.
+Evidence: Trades 34->8 (4x fewer), blowups 2->0, maxDD 9.7->6.6, mean net% -7.3->-1.2; BUT median 0.00 is a thin-span artifact (52% of spans <10 trades); robust spans (>=20tr,>=20d, n=128) still -3.05 median, 38% net-pos; 1H beats 15m on 80% of robust spans.
+Conclusion: Frequency is the right lever (cost cut 4x, tail risk gone, 1H>15m on 80% of robust spans) but NOT sufficient: even at 1H the active spans over-trade, per-trade edge still < spread. Strategy goes from bleeding (-7.3% mean) to slow leak (-1.2% mean), not profit. The break-even median is a thin-span illusion (window-robustness lesson).
+Implication: Test 4H to find the frequency floor. If 4H lands at the same ~-3% robust-span floor, the edge is too thin to beat retail spreads at any frequency on this universe; pivot to cost-per-trade (instrument selection) or the ~10% robust subset.
+---
+
+---
+2026-06-14 | Tags: cointegration, timeframe, frequency, frequency-floor | Strategy: pine_ratio_zrev_v1_zcross | Run IDs: 76a7ced597b38643ddec57c2, 4e3c9f40391c29f1e355a451
+Finding: Completed the frequency sweep 15m/1H/4H on the GP_ZCRS_Z25 v1.5.10 cointegration baseline (same spans/params) to locate the cost-vs-sample sweet spot of the over-trading diagnosis.
+Evidence: Robust-span (>=20tr,>=20d) median net%: 15m -10.26 -> 1H -3.05 -> 4H -4.61 (robust n: 204/128/9); median trades 32/8/2; blowups 3/0/0; all-span mean net% -7.46/-1.17/-0.03.
+Conclusion: Frequency lever EXHAUSTED at 1H: 15m->1H cuts over-trading loss + kills blowups, but 4H collapses the sample (median 2 trades, only 9 robust spans) and robust net% gets WORSE. The all-span mean->0 is a thin-span artifact. NO timeframe is profitable; best rung (1H) still -3.05% on robust spans. Per-trade edge too thin to beat the spread at any frequency.
+Implication: Frequency arc CLOSED. Only remaining lever that can flip the SIGN is execution-side: earn the spread (passive limit buy@bid/sell@ask) vs pay it. Next: limit-fill engine model, fills validated on 5m bars.
+---
