@@ -50,7 +50,7 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 
 ---
 
-## Critical Invariants (key 10 — full list of 31 in AGENT.md)
+## Critical Invariants (key 10 — full list of 32 in AGENT.md)
 
 1. **Fail-Fast** — any failure aborts the pipeline; never silently continue
 2. **Append-Only Ledgers (pipeline-driven)** — `Strategy_Master_Filter.xlsx` and `Master_Portfolio_Sheet.xlsx` are append-only for *automated* mutation; no Stage-N tool or evaluator may delete or overwrite rows. **Exception:** operator-driven cleanup via `tools/state_lifecycle/repair_integrity.py --action drop` is authorized to drop rows whose disk artifacts the operator has already deleted — the operator's `rm -rf` is the signal of intent, not an automated decision. See `.claude/skills/pipeline-state-cleanup/SKILL.md` Critical Authority Note for the full workflow

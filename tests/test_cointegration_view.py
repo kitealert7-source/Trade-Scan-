@@ -36,6 +36,7 @@ def _row(run_id, ret_dd, completed, pair_a="EURUSD", pair_b="GER40",
         "trades_total": 42, "cycles_completed": 11, "cycle_win_rate_pct": 55.0,
         "regime_state": "cointegrated",
         "continuous_span_obs": continuous_span_obs,
+        "fragment_count": 3,
         "backtests_path": f"backtests/{run_id}_X",
         "methodology_version": methodology_version,
     }
@@ -53,13 +54,15 @@ def test_column_budget_not_exceeded():
     assert list(out.columns) == COINTEGRATION_VIEW_COLUMNS
 
 
-def test_column_budget_locked_at_22():
+def test_column_budget_locked_at_23():
     # The cap is asserted explicitly so an accidental addition to
     # COINTEGRATION_VIEW_COLUMNS without a budget bump fails loudly.
     # Bumped 20 -> 21 (2026-06-04): added 'series' variant/sizing filter aid.
     # Bumped 21 -> 22 (2026-06-05): added 'realized_net%'.
-    assert COINTEGRATION_VIEW_BUDGET == 22
-    assert len(COINTEGRATION_VIEW_COLUMNS) == 22
+    # Bumped 22 -> 23 (2026-06-15): restored 'spans' (fragment_count = number of
+    # distinct cointegrated spans/periods) — operator-added column dropped by export.
+    assert COINTEGRATION_VIEW_BUDGET == 23
+    assert len(COINTEGRATION_VIEW_COLUMNS) == 23
 
 
 def test_series_classification():

@@ -91,6 +91,15 @@ GUARD_FILES = [
     "basket_runner.py",
     "basket_data_loader.py",
     "basket_schema.py",
+    # ── MPS view-layer projections (added 2026-06-15). The column-set SSOT for
+    #    the operator-facing Cointegration tab + trade-candidates shortlist.
+    #    Excel is a VIEWING LAYER ONLY (AGENT.md #32), regenerated from ledger.db
+    #    on every --export-mps; these modules define what the regenerate emits,
+    #    so a silent column drop/rename must freeze execution until the manifest
+    #    is re-blessed. Guards against the 2026-06-15 'spans'-column loss, where a
+    #    manually-added xlsx column was wiped because it lived only in the view. ──
+    "portfolio/cointegration_view.py",
+    "portfolio/trade_candidates_view.py",
 ]
 
 

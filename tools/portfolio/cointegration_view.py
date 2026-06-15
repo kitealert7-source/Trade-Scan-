@@ -65,6 +65,7 @@ COINTEGRATION_VIEW_COLUMNS = [
     "max drawdown %",
     "final_equity_usd",
     "total_trades",
+    "spans",             # fragment_count — number of distinct cointegrated spans/periods in the window
     "cycles",
     "win_rate",
     "regime",
@@ -73,7 +74,7 @@ COINTEGRATION_VIEW_COLUMNS = [
 ]
 
 # Hard cap on the human view (enforcement: the budget test asserts this).
-COINTEGRATION_VIEW_BUDGET = 22  # +realized_net% (2026-06-05)
+COINTEGRATION_VIEW_BUDGET = 23  # +realized_net% (2026-06-05); +spans/fragment_count (2026-06-15)
 
 # DB column -> friendly display header.
 _RENAME = {
@@ -84,6 +85,7 @@ _RENAME = {
     "canonical_max_dd_pct": "max drawdown %",
     "canonical_final_equity_usd": "final_equity_usd",
     "trades_total": "total_trades",
+    "fragment_count": "spans",
     "cycles_completed": "cycles",
     "cycle_win_rate_pct": "win_rate",
     "regime_state": "regime",
