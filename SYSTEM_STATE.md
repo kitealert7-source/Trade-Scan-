@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 3 uncommitted
+- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-06-14T17:32:51Z
+> Generated: 2026-06-15T03:05:03Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -32,22 +32,22 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-14** | Symbols: 221
+- Latest bar: **2026-06-15** | Symbols: 221
 
 ## Artifacts
 - Run directories: 9789
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/feat/cointegration-onboarding`)
-- Working tree: 3 uncommitted
-- Last substantive commit: `54c6d346 docs(governance): v1.5.10 direction-aware cost-column policy amendment`
+- Working tree: 2 uncommitted
+- Last substantive commit: `99b69730 session: closing SYSTEM_STATE snapshot`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [CALENDAR] Sunday — weekly cadence slot for `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 (run before close to land in the closing snapshot)
+- (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
