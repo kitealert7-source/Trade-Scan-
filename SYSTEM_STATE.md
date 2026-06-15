@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-06-08T00:25:49Z
+> Generated: 2026-06-15T14:52:32Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 6963 directives
+- Completed: 1492 directives
 
 ## Ledgers
 
@@ -29,25 +29,25 @@
 - LIVE: 0 | RETIRED: 0 | LEGACY: 0
 
 ## Vault (DRY_RUN_VAULT)
-- Snapshots: 15 | Latest: `DRY_RUN_2026_06_07__75a53641`
+- Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-07** | Symbols: 221
+- Latest bar: **2026-06-15** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3643
+- Run directories: 12872
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: 1 uncommitted
-- Last substantive commit: `adbecf99 test(basket): rewrite vault tests for removed baskets/ auto-write (db87f977)`
+- Working tree: 2 uncommitted
+- Last substantive commit: `fc30f0c4 state(corpus): corrected BB-adaptive-width re-run directives (497x3) + hypothesis spec`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- (none — no drift signals exceed threshold this session)
+- [SIZE] RESEARCH_MEMORY.md 32 KB / 116 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
@@ -69,3 +69,6 @@
 
 #### COINTREV live exit gap — DEPLOYMENT BLOCKER (found 2026-06-05)
 COINTREV has **no cointegration-break exit** — a live position hangs on a broken spread with no stop (`DATA_END` backtests backstop doesn't exist live). **Follow-ups:** (a) `realized_net%` + `cycles≥1` ranking fix — DONE 2026-06-06 (`feat/coint-realized-net-and-break-exit`); (b) `coint_break_exit` gate — MERGED to main 2026-06-06 (capability now on main); remains a go-live prerequisite to ENABLE on the live runner (+ `coint_regime` feed). See `[[project_cointegration_exit_gap_and_cycle_metric]]`.
+
+#### Engine-identity contradictory stamp — NON-BLOCKING defect (classified 2026-06-15)
+A single basket/cointegration run emits TWO different `engine_version` values: the `cointegration_sheet` DB row stamps the **compute** (`engine_abi.v1_5_9` → "1.5.9", `run_pipeline.py:1106`/`:979`) while `run_metadata.json` stamps from `get_engine_version()` (override/registry, `:700`) — so under an `ENGINE_VERSION_OVERRIDE` the metadata can read "1.5.10" for a run that actually computed on v1_5_9. **Non-blocking** (the compute is correct and common-mode; within-batch deltas hold) but the stamp can mislabel. Authority = the imported compute module, never the stamp/override/registry. **Remediation chartered** — chip `task_edc22e4d` (2026-06-15): consolidate every emitted engine identity within an execution path onto the actual compute, **per-path** (basket hardcoded-compute vs single-strategy resolved-engine), **no** global substitution of `get_engine_version()` without proving semantic equivalence, plus a convergence regression test (`run_metadata.engine_version == DB row == imported ENGINE_VERSION` regardless of override). Doctrine: `[[engine-identity-is-compute-not-stamp]]`.
