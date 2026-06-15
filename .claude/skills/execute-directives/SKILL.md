@@ -106,6 +106,18 @@ python tools/run_pipeline.py --all
 
 *Monitor Stages 1-4. On failure, refer to **Step 5: Failure Handling** below.*
 
+### Step 5.5: Produced-Output Assertion (anti-silent-no-op)
+
+The `[BATCH] All directives processed successfully` and `[SUCCESS]` banners fire on **absence-of-exception**, NOT on work actually done. A batch can return "successfully" having produced nothing.
+
+After the batch returns, for **each directive admitted this batch** confirm:
+1. A `backtests/<run dir>` was created, AND
+2. `>= 1` new ledger row landed.
+
+If the produced-backtest-dir count is `0` (or `< admitted-directive-count`), **STOP** and treat it as a silent no-op — do **NOT** proceed to promotion (Steps 6–7) or report mission-complete. Common cause: a cloned / retired-cohort re-run whose `run_id`s were superseded or retired, so the dispatcher produced nothing (observed 2026-06-15).
+
+*This is the **canonical** home for the produced-output guard. Other skills reference this step rather than restating it.*
+
 ### Step 6: Capital Wrapper Execution
 
 Simulate equity paths across the three active capital profiles:
@@ -152,6 +164,8 @@ Newly promoted this run    : <N>
 Physically migrated        : <N>
 ===================================
 ```
+
+> **Silent no-op flag:** If `Total strategies evaluated` is `0` while directives were admitted this batch, flag it explicitly (per Step 5.5) instead of reporting a clean result.
 
 ### Step 8: Research Suggestion Layer
 

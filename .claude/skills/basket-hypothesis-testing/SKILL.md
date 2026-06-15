@@ -140,6 +140,7 @@ PHASE 2 — ROUTE
 ALWAYS:
   3.0  Sweep slot pre-reservation
   3.M  Canonical metrics convention (declared, applied throughout)
+  3.E  Variant-effect gate (per variant, after 3.M extraction)
   3.L  hypothesis_log.json append per variant
   3.S  At-a-glance summary table (Phase 4)
   3.D  Current-best declaration (Phase 4)
@@ -217,6 +218,47 @@ def canonical_metrics(parquet_path: str, stake_usd: float) -> dict:
   parquet's running peak vs current equity), divided by stake. Single
   convention across the whole skill.
 
+### 3.E Variant-effect gate [ALWAYS]
+
+Run this **per variant, AFTER 3.M metric extraction, BEFORE 3.S/3.L**.
+A two-tier gate that proves the variant actually exercised the
+hypothesis before any comparison matrix is trusted. Do NOT collapse the
+two tiers — they guard different failure modes.
+
+**The asymmetry:** hard-gate on **params**
+(`control_params == test_params`), review-gate on **behavior**
+(`control_behavior == test_behavior`).
+
+**Tier 1 — HARD GATE (BLOCK).** If the hypothesis-differing param(s)
+named in `yaml.variants[].*`, *as instantiated on the variant run*,
+equal the control's value (i.e. the param never reached the rule),
+BLOCK with:
+
+```
+VARIANT PARAMS DID NOT TAKE EFFECT — test_params == control_params;
+suspect dispatcher/_instantiate_rule wiring
+```
+
+and refuse to emit the comparison matrix. This is an IMPLEMENTATION
+failure, not a research result. (2026-06-15 BB-adaptive 994-pair run
+silently executed as fixed-z because the adaptive params never reached
+the rule.)
+
+**Tier 2 — REVIEW GATE (ESCALATE, do NOT auto-block).** If the params
+DIFFER but the behavior is byte-identical to control — `trade_count`
+AND `final_equity` AND `recycle_events` all equal — ESCALATE FOR
+REVIEW:
+
+```
+TEST behavior == CONTROL despite differing params — verify the variant
+legitimately produced no effect (threshold never crossed / regime never
+triggered / params collapse to identical behavior) vs. a subtle bug.
+```
+
+Behavioral identity is EVIDENCE, not proof: a variant can legitimately
+produce no effect, so this tier surfaces a suspicious outcome for human
+review rather than failing the run.
+
 ### 3.V MPS visibility flag [conditional: baseline NOT in MPS]
 
 v1 surfaces the gap; does NOT auto-backfill. Decision tree:
@@ -241,7 +283,9 @@ architecture.
 
 1. **Baseline status.** Confirm baseline run exists with `baseline_rule`
    (parquet present). If not, run baseline first via
-   [`/execute-directives`](../execute-directives/SKILL.md).
+   [`/execute-directives`](../execute-directives/SKILL.md). If a known-
+   authoritative baseline FAILS to reproduce, audit provenance first
+   (see 3.G "Provenance-first on reproduction failure").
 
 2. **For each variant rule:**
    - If the variant rule class **doesn't exist yet** → call
@@ -256,6 +300,9 @@ architecture.
      `hypothesis_variant` under the directive's `test:` block** so the
      directive carries linkage back to the hypothesis YAML.
    - Run through pipeline via [`/execute-directives`](../execute-directives/SKILL.md).
+     Assert produced-backtest-dir-count == submitted-directive-count
+     before Phase 4 — a green `[BATCH]` banner with 0 produced dirs is a
+     silent no-op (see [`/execute-directives`](../execute-directives/SKILL.md) Step 5.5).
 
 3. **Parity gate (3.G)** if any in-process probe motivated the variant
    — mandatory before trusting the pipeline matrix as deployment evidence.
@@ -299,6 +346,12 @@ initial_stake_usd + harvest_threshold_usd), shared window.
      `test:` block** so the directive carries linkage back to the
      hypothesis YAML.
    - Run through pipeline via [`/execute-directives`](../execute-directives/SKILL.md).
+     Assert produced-backtest-dir-count == submitted-directive-count
+     before Phase 4 — a green `[BATCH]` banner with 0 produced dirs is a
+     silent no-op (see [`/execute-directives`](../execute-directives/SKILL.md) Step 5.5).
+     If a known-authoritative baseline/parity reference FAILS to
+     reproduce, audit provenance first (see 3.G "Provenance-first on
+     reproduction failure").
 
 3. **Extract canonical metrics (3.M)** for each architecture (with each
    directive's own `stake_usd`).
@@ -338,6 +391,16 @@ If parity fails → fix the divergence before trusting any in-process
 result. The 2026-05-16 H2_recycle@4 parity gate (commit `703a6cf`) is
 the reference exemplar: byte-perfect on the F window, all 10-window
 counts matched to byte precision after.
+
+**Provenance-first on reproduction failure.** When a previously-
+authoritative baseline or parity reference FAILS to reproduce (metrics
+moved / parity drift), audit provenance BEFORE touching strategy or
+rule logic: compare `data_vintage` / `parquet_sha256` and the engine
+stamp of the new run vs the reference. A dataset-level change (e.g. a
+normalization applied to the research data) presents identically to a
+logic bug but is found in one step, not four (2026-06-15). See memory
+`feedback_provenance_audit_before_diagnosis` /
+`feedback_reproduction_truth_check`.
 
 ### 3.L hypothesis_log.json append [ALWAYS]
 
@@ -546,6 +609,12 @@ python -c "from tools.sweep_registry_gate import _hash_signature, reserve_sweep_
   calling them
 - Building modules speculatively (v1 ships with zero — let real friction
   drive the first extraction)
+- Trusting a comparison matrix without confirming the variant's params
+  took effect (hard) and, if behavior is identical, without reviewing
+  whether that is a real no-effect (review) — 2026-06-15 BB-adaptive ran
+  as fixed-z because the params never reached the rule.
+- Diagnosing strategy logic when a baseline fails to reproduce, before
+  auditing `data_vintage` / `parquet_sha256` / engine stamp.
 
 ---
 
@@ -556,3 +625,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
 | _v1 skeleton 2026-05-17 — no friction yet_ | | |
+| 2026-06-15 | Variant ran as control silently (params never reached rule) -> matrix trusted | Added 3.E gate: hard-block param==control, review behavior==control |

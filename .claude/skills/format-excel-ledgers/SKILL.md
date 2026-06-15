@@ -9,6 +9,8 @@ Applies strict styling, column ordering, number formatting, and filter pre-selec
 
 > **Presentation-layer only.** No data mutation. Safe to run at any time.
 
+> **Invariant #32 — viewing layer only.** The MPS/FSP column set is defined in CODE, not in the workbook. NEVER hand-add a column to the xlsx: `ledger_db.py --export-mps` (and this formatter's regenerate path) rebuild the tabs wholesale from the DB and silently WIPE any manually-added column (the `spans`/`fragment_count` loss, 2026-06-15). To add/change a displayed column, edit the code-defined projections under `tools/portfolio/*_view.py` (e.g. `cointegration_view.py`, `trade_candidates_view.py`), then re-run this skill.
+
 ---
 
 ## When to Run
@@ -85,6 +87,8 @@ Confirm to the human:
 | `tools/filter_strategies.py` | Writes FSP — run formatter after |
 | `tools/reconcile_portfolio_master_sheet.py` | Writes MPS — run formatter after |
 | `tools/portfolio_evaluator.py` | Writes MPS — run formatter after |
+| `tools/portfolio/cointegration_view.py` | Code-defined column projection for the cointegration MPS tab — edit here to add/remove a displayed column (never the xlsx) |
+| `tools/portfolio/trade_candidates_view.py` | Code-defined column projection for the trade-candidates tab |
 
 ---
 

@@ -40,7 +40,12 @@ The highest-value signals are in no log — only you saw them happen:
 3. **Pipeline failures / retries** — stages that failed, re-ran, or stalled
 4. **Recovery actions** — resets, rollbacks, FSM repair, manual cleanups
 5. **Agent observations** — fragility / ambiguity you noticed while working
-6. **Logs (corroboration ONLY, never primary):** `.claude/logs/violations.jsonl`,
+6. **Skill fitness signal** — did any skill *invoked* this session block progress,
+   require workarounds, omit an important operational step, reference obsolete
+   procedures, or otherwise diverge from how the work actually had to be performed?
+   (Highest-value skill signal — it rarely shows in any log; this session 5 skills
+   needed content updates and it took an operator prompt to surface them.)
+7. **Logs (corroboration ONLY, never primary):** `.claude/logs/violations.jsonl`,
    `outputs/.session_state/pipeline_telemetry/*.jsonl`. v1 may skip these —
    in exploration / architecture / direction-change sessions the violation
    log is noise ≫ signal.
@@ -108,6 +113,7 @@ Give every finding exactly one disposition:
 | Resilience gap | a [`FAILURE_PLAYBOOK.md`](../../../FAILURE_PLAYBOOK.md) entry, or a diagnostic / lineage-tool task |
 | Missed opportunity | a MEMORY entry (so it is not re-missed), or a proposed invariant |
 | Future pressure (actionable now) | `## Deferred Maintenance` with a lead-time, or a task with a trigger condition |
+| Skill used this session underfit how the work had to be done (divergence, omission, obsolescence, or correct-but-impractical) | one-line fix → that skill's `## Friction log`; deeper gap (or ≥2 skills misfired) → a **task** to run a targeted skill audit. **Do NOT audit skill content inline.** |
 
 **EXECUTE priority tag:** `IMMEDIATE` (next session) · `SHORT` (1–2 weeks) ·
 `STRATEGIC` (architecture-level; never self-applied — proposal only).
@@ -209,6 +215,7 @@ session has no retro. Do not manufacture findings.
 - **Self-applying a Protected-Infra change** — robustness guards are *proposals*; invariant 6 needs plan + approval.
 - **Committing here** — session-retro stages; `/session-close` commits.
 - **Exceeding the envelope** — more than ~15 findings means you are auditing, not retrospecting.
+- **Auditing skill content inline** — retro *detects* a skill-fitness signal and *routes* it (friction-log or a skill-audit task); the per-skill content review is a separate task (that's auditing, not retrospecting).
 
 ---
 
@@ -242,3 +249,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 |---|---|---|
 | 2026-06-06 | Two-terminal mismatch: API attached silently to wrong terminal64.exe; ~30 min diagnosis | Task: add single-terminal preflight assertion to live basket session start |
 | 2026-06-06 | Safety classifier intermittent outage blocked all Python/Edit/PowerShell for ~15 min; no way to distinguish recovering vs permanently down | Pattern noted: ping with `echo` first; fall back to `sed` for file edits if Python blocked |
+| 2026-06-15 | Skill content gaps not surfaced by retro; operator prompted the 5-skill audit | Added 'Skill fitness signal' evidence + act-sink + anti-pattern (detect+route) |

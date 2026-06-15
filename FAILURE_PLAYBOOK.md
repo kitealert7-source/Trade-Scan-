@@ -918,3 +918,20 @@ print("ok:", ok, mt5.last_error())
 
 ---
 
+### Cloned / Retired-Cohort Re-run Reports Success But Produces 0 Backtests — Diagnostic — 2026-06-15
+
+**Context:** re-running a directive cloned from a RETIRED cohort (CXN1 → CXNCHK, to re-baseline an old
+result on current data) archived to `completed/` and printed `[BATCH] All directives processed
+successfully` while producing ZERO new backtest dirs and zero `cointegration_sheet` rows. The batch
+looks successful; the verification it was meant to support (here: confirming a pre-normalisation
+cohort was clean) silently yields nothing. Not root-caused on 2026-06-15 — suspected an admission /
+data-prep / window-validity skip specific to re-admitting a cloned-from-retired directive.
+
+**Diagnostic:** treat as a variant of "Basket Episode Silently Missing From Corpus" (above); run that
+procedure, and additionally check whether the cloned directive's window/series collides with a
+superseded (`is_current=0`) row or trips `window_validity_gate`. **Rule:** never trust a "success"
+batch that added 0 new backtest dirs — assert the produced-dir count explicitly against the directive
+count before relying on the result.
+
+---
+

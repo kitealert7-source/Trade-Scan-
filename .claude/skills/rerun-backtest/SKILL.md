@@ -40,6 +40,11 @@ python tools/rerun_backtest.py prepare 9b3e1a2c4d5f \
 # 2. Dispatch the pipeline against the freshly-prepared directive
 python tools/run_pipeline.py backtest_directives/INBOX/<STRATEGY_ID>.txt
 
+# 2b. VERIFY the rerun actually produced output (the [BATCH] success banner does NOT guarantee it)
+#     Assert new backtest dir(s) exist AND new ledger rows landed.
+#     If 0 dirs / 0 rows -> STOP, do NOT finalize: the cohort likely resolved to 0 members
+#     or pointed at retired/superseded run_ids. (see /execute-directives Step 5.5)
+
 # 3. Finalize — flag old run's master_filter rows as superseded
 python tools/rerun_backtest.py finalize \
     --old-run-id <original_run_id> \
@@ -157,6 +162,7 @@ After `finalize`:
 2. **Forgetting `finalize`** — the new run_id will sit alongside the old one in `master_filter` with no supersession link. Downstream analytics will see both and may double-count. Always finalize once the new run_id is visible.
 3. **Wrong category picked** — a `DATA_FRESH` label on what's actually a SIGNAL change will be caught by the Classifier Gate's content-hash check when it goes into production. If you hit a Stage -0.21 block, re-run `prepare` with `--category SIGNAL`.
 4. **Using `--quarantine` for non-BUG_FIX** — this permanently excludes the row from promotion. Only use when the prior result is provably wrong (not just "suboptimal").
+5. **Trusting the `[BATCH]` success banner on a cloned/retired-cohort rerun** — `run_pipeline` can report `All directives processed successfully` while producing 0 backtest dirs and 0 ledger rows when the cloned cohort points at retired/superseded run_ids. Always check produced-dir-count == directive-count before finalize (2026-06-15).
 
 ---
 

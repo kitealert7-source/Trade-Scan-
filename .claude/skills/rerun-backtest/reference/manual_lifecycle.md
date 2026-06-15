@@ -30,8 +30,8 @@ The safe manual sequence for ENGINE or DATA_FRESH reruns:
    - First run may pause at EXPERIMENT_DISCIPLINE if provisioner patches strategy.py
    - If so: touch approved again, then run again (second run bypasses via baseline age)
 
-7. FINALIZE
-   - Mark old run_id as superseded in master_filter (is_current=0)
-   - Set is_current=1 on new run_id
-   - Or use: python tools/rerun_backtest.py finalize --old-run-id <old> --new-run-id <new> --reason "<why>"
+7. FINALIZE (always via the tool — do NOT hand-edit master_filter, and note retire_runs.py was REMOVED)
+   python tools/rerun_backtest.py finalize --old-run-id <old> --new-run-id <new> --reason "<why>"
+   - Under the hood this calls ledger_db.mark_superseded (sets old is_current=0, superseded_by, ...)
+   - Only if rerun_backtest.py is unavailable, replicate that exact UPDATE manually
 ```
