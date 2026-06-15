@@ -1,0 +1,110 @@
+id: BB_ADAPTIVE_WIDTH_V1
+title: "Bollinger-on-absolute adaptive entry band vs fixed |z|>2.5 on cointegration baskets"
+class: mechanic
+status: ACTIVE   # PROPOSED -> ACTIVE at orchestrator invocation 2026-06-15
+created: 2026-06-15
+author: "agent (Claude Opus 4.8)"
+supersedes: null
+
+motivation: |
+  Bollinger-on-PRICE == the z-score (touch band <=> z=+-k; revert-to-mid <=> z=0). No
+  new mechanism, no fat-tail fix. The genuinely different idea is a sigma-ADAPTIVE WIDTH
+  on the z-score ITSELF: entry when |z| > k*sigma_M(z), mid fixed at 0 (absolute mode,
+  NO mean-detrend), generic textbook k=2.0 / M=20. The band WIDENS when z's local
+  volatility spikes (= the cointegration spread breaking/trending), WITHHOLDING entry
+  into breakdowns where a fixed |z|>2.5 fires into them -- directly targeting the
+  fat-tail / blowup constraint that neither fixed-z nor BB-on-price addresses.
+
+  Grounding (our research): on v1.5.10 the edge lives INSIDE the spread (median net%
+  +0.17 -> -2.37 once charged; only 7/476 pairs robust -- see
+  project_cointegration_baseline_v1510_spread_verdict). Blowup-safety is the binding
+  constraint, so this is judged on whether the adaptive width CUTS blowups net of cost.
+
+  Discovery framing (operator-set falsification order): test the GENERIC, un-tuned band
+  FIRST. If a generic BB(20,2) beats the hand-tuned fixed 2.5 DESPITE a tuning handicap
+  (it averages a ~2.0 band, looser than 2.5), the concept has merit. Calibration
+  (normalized thr = 2.5*sigma_M(z)/mean(sigma_M(z)), or tuned k/M) is a CONTINGENT Exp2,
+  out of scope here. Full design + the exact rule patch:
+  outputs/system_reports/06_strategy_research/BB_ADAPTIVE_WIDTH_TRIGGER_EXP1_DESIGN.md.
+
+  SCALE NOTE: this is a corpus-wide A/B across the 497-pair cointegration cohort -- the
+  single variant below is realized as up-to-497 window-matched directive clones (one per
+  pair), NOT a single basket. The skill's per-basket comparison is therefore applied as a
+  COHORT AGGREGATE (TEST-CONTROL per pair). Per the falsification-first discipline, a
+  REPRESENTATIVE SUBSET is run first; the full cohort follows only if the subset survives.
+
+baseline:
+  # Representative exemplar of the existing 497-pair Z25 (z=2.5) control cohort, run
+  # 2026-06-14 on v1.5.10 (already run_id-stamped). Each control pair is the per-pair
+  # control for its ADP clone.
+  directive: 90_PORT_ETHUSDGBPAUD_15M_COINTREV_V3_L30_GP_ZCRS_Z25__E240925
+  rule: "pine_ratio_zrev_v1_zcross@1"   # absolute, n_window=30, z_entry=2.5 (fixed band)
+  parquet_path: "../TradeScan_State/backtests/90_PORT_ETHUSDGBPAUD_15M_COINTREV_V3_L30_GP_ZCRS_Z25__E240925_ETHUSDGBPAUD/raw"
+  key_metrics:                          # exemplar run_id 28e7277b05881ff25a591bb5; cohort = 497 pairs
+    net_pct: TBD                        # extracted per-pair at Phase 4 (canonical_metrics)
+    max_dd_pct: TBD
+    ret_dd: TBD
+    stake_usd: 1000.0
+
+variants:
+  - id: BB_ADAPTIVE_WIDTH_V1_ADP
+    rule: "pine_ratio_zrev_v1_zcross@1" # SAME rule@version; adaptive_width is an ADDITIVE
+                                        # in-place param (W1=in-place patch + hash regen),
+                                        # NOT a version bump.
+    rule_build_required: false          # rule patched additively + verified byte-identical
+                                        # (18/18 tests + smoke); hashes regenerated; hash-gate 7/7.
+    architecture:
+      basket_id: COHORT_497             # realized as window-matched clones, one per cointegration pair
+      legs: []                           # per-pair, inherited verbatim from each control directive
+    stake_usd: 1000.0
+    harvest_target_usd: 1000000.0
+    window:
+      start: per-pair                    # each clone inherits its control's cointegrated span (window-matched)
+      end:   per-pair
+    rule_params:
+      n_window: 30
+      entry_mode: absolute
+      z_entry: 2.0                       # neutral; IGNORED when adaptive_width=true
+      adaptive_width: true
+      bb_k: 2.0                          # textbook, un-tuned
+      bb_m: 20                           # textbook rolling-std window M
+      sizing_mode: granular_parity
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    blowup_count: "< baseline"          # HEADLINE: fewer catastrophic blowups across the cohort
+  must_not_be_worse_on:
+    median_ret_dd: ">= 0.9 * baseline"  # central edge preserved (not just blowup-trimming by killing all trades)
+    survival: "not-BLOWN"
+  # Interpretation guard (per design doc): BB(20,2) averages a ~2.0 band (looser than 2.5),
+  # so a WIN is decisive; a LOSS is soft -- check whether it is trade-count inflation (looser
+  # level) vs genuine adaptivity failure before concluding (avoid a false-negative kill).
+
+evidence_required:
+  class: multi-window-cohort            # per-pair single-window backtests, matched to control; subset-first then full
+  parity_gate: not_applicable           # no in-process basket_sim/tmp probe motivated this; runs through the pipeline emitter
+  reason: |
+    Hypothesis motivated by design reasoning + the spread-dominance research, not a
+    basket_sim/tmp probe -> 3.G parity gate does not apply. Evidence = per-pair
+    TEST-CONTROL deltas on matched windows; a representative subset first (falsification-
+    first), the full 497 cohort only if the subset is promising.
+
+session_links:
+  prior_session_commits: []             # control cohort run 2026-06-14; rule patch this session (uncommitted at draft time)
+  research_doc: "outputs/system_reports/06_strategy_research/BB_ADAPTIVE_WIDTH_TRIGGER_EXP1_DESIGN.md"
+  memory_refs:
+    - bb-adaptive-width-trigger-exp1
+    - project_cointegration_baseline_v1510_spread_verdict
+    - project_pine_zrev_zcross_exit_variant
+    - dual-passive-basket-entry-dead
+
+decision:
+  outcome: TBD
+  decided_at: null
+  decided_by: null
+  evidence_actual:
+    class_achieved: null
+    canonical_metrics: {}
+  reasoning: null
+  supersedes: null
