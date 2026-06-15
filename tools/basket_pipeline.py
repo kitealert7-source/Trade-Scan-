@@ -652,6 +652,14 @@ def _instantiate_rule(
             n_meta=int(params.get("n_meta", 100)),
             z_entry=float(params.get("z_entry", 2.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band (2026-06-15). MUST be wired
+            # here: _validate_recycle_rule_params accepts these fields, but the
+            # constructor previously dropped them, so a directive's
+            # adaptive_width silently no-op'd (ran as a FIXED z_entry band) and
+            # required_warmup_bars lost its +bb_m cushion. See line-85 comment.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
             always_in_market=bool(params.get("always_in_market", True)),
             initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
@@ -684,6 +692,10 @@ def _instantiate_rule(
             n_meta=int(params.get("n_meta", 100)),
             z_entry=float(params.get("z_entry", 2.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
             always_in_market=bool(params.get("always_in_market", True)),
             initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
@@ -717,6 +729,10 @@ def _instantiate_rule(
             z_entry=float(params.get("z_entry", 2.0)),
             z_exit=float(params.get("z_exit", 1.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
             always_in_market=bool(params.get("always_in_market", True)),
             initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
@@ -750,6 +766,10 @@ def _instantiate_rule(
             z_entry=float(params.get("z_entry", 2.0)),
             z_exit=float(params.get("z_exit", 1.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
             hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
             always_in_market=bool(params.get("always_in_market", True)),
             initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),

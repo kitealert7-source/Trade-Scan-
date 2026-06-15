@@ -162,3 +162,39 @@ def test_validation_rejects_private_field_in_yaml():
     }
     with pytest.raises(ValueError, match="_basket_open"):
         _instantiate_rule(rule_cfg)
+
+
+# ---------- Wiring (not just validation) --------------------------------
+# Regression guard for the 2026-06-15 silent-no-op: adaptive_width/bb_k/bb_m
+# PASSED validation (they are known dataclass fields) but the pine constructor
+# branches dropped them, so a BB-adaptive directive ran as a FIXED z_entry band
+# across a full 994-pair corpus before the gap was caught. Validation-acceptance
+# is necessary but NOT sufficient — these assert the value reaches the rule.
+
+@pytest.mark.parametrize("rule_name", [
+    "pine_ratio_zrev_v1",
+    "pine_ratio_zrev_v1_zcross",
+    "pine_ratio_zrev_v1_zband",
+    "pine_ratio_zrev_v1_zopp",
+])
+def test_pine_adaptive_band_params_are_wired(rule_name):
+    """adaptive_width/bb_k/bb_m must flow through _instantiate_rule to the rule
+    instance (not silently default), and warmup must become adaptive-aware."""
+    rule_cfg = {
+        "name": rule_name,
+        "version": 1,
+        "params": {
+            "n_window": 30,
+            "entry_mode": "absolute",
+            "z_entry": 2.0,
+            "adaptive_width": True,
+            "bb_k": 2.5,
+            "bb_m": 20,
+        },
+    }
+    rule = _instantiate_rule(rule_cfg)
+    assert rule.adaptive_width is True, f"{rule_name}: adaptive_width not wired"
+    assert rule.bb_k == 2.5, f"{rule_name}: bb_k silently defaulted (not wired)"
+    assert rule.bb_m == 20, f"{rule_name}: bb_m not wired"
+    # warmup must gain the +bb_m cushion once adaptive (2*n_window + bb_m).
+    assert rule.required_warmup_bars() == 2 * 30 + 20

@@ -89,6 +89,16 @@ class PineRatioZRevRule(H2RecycleRule):
     # Default 10000 matches Pine Strategy's `notional = 10000` default.
     target_notional_per_leg_usd: float = 10000.0
 
+    # --- Adaptive Bollinger-width entry (Exp1, 2026-06-15; default OFF) ---
+    # When True AND entry_mode == "absolute", the fixed +/- z_entry band is
+    # replaced by an adaptive band on the z-series itself: entry when |z|
+    # crosses k*sigma_M(z), sigma_M = rolling std(z, M). Mid stays 0 (no
+    # mean-detrend; absolute mode, NOT centered). Generic/un-tuned k=2.0, M=20.
+    # Default False => every existing corpus row stays byte-identical.
+    adaptive_width: bool = False
+    bb_k: float = 2.0          # Bollinger multiplier (k for k*sigma)
+    bb_m: int = 20             # rolling window M for sigma_M(z)
+
     # --- Leg-sizing mode (2026-06-02 sizing bake-off) ---
     # Default "notional" preserves the notional-balanced behavior byte-for-byte
     # (parity gate). Alternatives are evaluated full-universe, pilot-first.
@@ -201,7 +211,14 @@ class PineRatioZRevRule(H2RecycleRule):
         """
         if self.entry_mode == "centered":
             return self.n_window + self.n_meta
-        return 2 * self.n_window
+        # Absolute mode floor is 2*n_window (mirrors the _attach_z_r assertion).
+        # For (n_window=30, bb_m=20) that ALREADY yields enough valid z for
+        # sigma_20; the +bb_m below is a conservative cushion (load-bearing only
+        # if bb_m > n_window+1), NOT a correctness requirement for (30,20).
+        base = 2 * self.n_window
+        if self.adaptive_width:
+            base += self.bb_m
+        return base
 
     def __post_init__(self) -> None:
         # Validate params
@@ -223,6 +240,20 @@ class PineRatioZRevRule(H2RecycleRule):
             raise ValueError(
                 f"PineRatioZRevRule.z_entry must be > 0, got {self.z_entry!r}."
             )
+        if self.adaptive_width:
+            if self.entry_mode != "absolute":
+                raise ValueError(
+                    f"PineRatioZRevRule.adaptive_width=True requires "
+                    f"entry_mode='absolute', got {self.entry_mode!r}."
+                )
+            if self.bb_k <= 0:
+                raise ValueError(
+                    f"PineRatioZRevRule.bb_k must be > 0, got {self.bb_k!r}."
+                )
+            if self.bb_m < 2:
+                raise ValueError(
+                    f"PineRatioZRevRule.bb_m must be >= 2, got {self.bb_m!r}."
+                )
         if self.initial_notional_usd <= 0:
             raise ValueError(
                 f"PineRatioZRevRule.initial_notional_usd must be > 0, "
@@ -276,6 +307,16 @@ class PineRatioZRevRule(H2RecycleRule):
             "harvest_reason":               None,
         }
 
+    # ---- Adaptive Bollinger-width band (Exp1; only when adaptive_width) ----
+
+    def _adaptive_band(self, z_series: pd.Series) -> pd.Series:
+        """Bollinger-on-absolute band width = bb_k * rolling_std(z, bb_m).
+        Population std (ddof=0) to match the repo z convention; zero std -> NaN
+        (no cross fires that bar); NaN during the first bb_m-1 valid-z bars."""
+        z_std = z_series.rolling(window=self.bb_m, min_periods=self.bb_m).std(ddof=0)
+        z_std = z_std.replace(0, np.nan)
+        return self.bb_k * z_std
+
     # ---- z_r attach (one-time on first apply) ----------------------------
 
     def _attach_z_r(self, legs: list[BasketLeg]) -> None:
@@ -294,11 +335,13 @@ class PineRatioZRevRule(H2RecycleRule):
         cross from above -z_entry → long spread (+1).
         """
         common_idx = legs[0].df.index.intersection(legs[1].df.index)
-        if len(common_idx) < self.n_window * 2:
+        _floor = self.n_window * 2 + (self.bb_m if self.adaptive_width else 0)
+        if len(common_idx) < _floor:
+            _extra = f" + bb_m ({self.bb_m})" if self.adaptive_width else ""
             raise RuntimeError(
                 f"PineRatioZRevRule._attach_z_r: intersected leg index has "
-                f"only {len(common_idx)} bars; need at least 2 * n_window "
-                f"({2 * self.n_window}) for valid z_r warmup. "
+                f"only {len(common_idx)} bars; need at least 2 * n_window{_extra} "
+                f"({_floor}) for valid z_r warmup. "
                 f"len_a={len(legs[0].df)}, len_b={len(legs[1].df)}."
             )
 
@@ -318,12 +361,25 @@ class PineRatioZRevRule(H2RecycleRule):
         else:
             z_active = z_data["z_r"]
 
+        # Entry band: fixed +/- z_entry (control), or adaptive Bollinger-on-
+        # absolute width k*sigma_M(z) (Exp1, absolute only; mid 0 in both).
+        # adaptive_width=False -> scalars +/- z_entry -> byte-identical control.
+        if self.adaptive_width and self.entry_mode == "absolute":
+            _band = self._adaptive_band(z_active)
+            band_pos, band_neg = _band, -_band
+        else:
+            band_pos, band_neg = self.z_entry, -self.z_entry
+
         # Cross detection (same as Pine ta.cross logic):
         # Cross UP through +z_entry  → SHORT_SPREAD (-1): z_r is HIGH, A is rich
         # Cross DN through -z_entry  → LONG_SPREAD  (+1): z_r is LOW, A is cheap
         prev_z = z_active.shift(1)
-        crossed_up = (prev_z <= self.z_entry) & (z_active > self.z_entry)
-        crossed_dn = (prev_z >= -self.z_entry) & (z_active < -self.z_entry)
+        if self.adaptive_width and self.entry_mode == "absolute":
+            prev_pos, prev_neg = band_pos.shift(1), band_neg.shift(1)
+        else:
+            prev_pos, prev_neg = band_pos, band_neg
+        crossed_up = (prev_z <= prev_pos) & (z_active > band_pos)
+        crossed_dn = (prev_z >= prev_neg) & (z_active < band_neg)
 
         signal_aligned = pd.Series(0, index=z_active.index, dtype="int64")
         signal_aligned[crossed_dn] = +1   # LONG_SPREAD
