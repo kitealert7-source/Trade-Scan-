@@ -50,7 +50,7 @@ from config.path_authority import REAL_REPO_ROOT, TS_EXECUTION  # noqa: E402
 _GOVERNANCE_DIR = REAL_REPO_ROOT / "governance"
 _ABI_PKG_DIR = REAL_REPO_ROOT / "engine_abi"
 
-_SUPPORTED_ABIS = ("v1_5_9",)
+_SUPPORTED_ABIS = ("v1_5_9", "v1_5_10")
 
 # Maps the leading segment of a `consumed_by` dotted path to a filesystem root.
 _REPO_ROOTS = {
