@@ -1,7 +1,7 @@
 id: BB_ADAPTIVE_WIDTH_V1
 title: "Bollinger-on-absolute adaptive entry band vs fixed |z|>2.5 on cointegration baskets"
 class: mechanic
-status: ACTIVE   # PROPOSED -> ACTIVE at orchestrator invocation 2026-06-15
+status: COMPLETED   # PROPOSED -> ACTIVE 2026-06-15 (invocation) -> COMPLETED 2026-06-16 (decision filled)
 created: 2026-06-15
 author: "agent (Claude Opus 4.8)"
 supersedes: null
@@ -100,11 +100,43 @@ session_links:
     - dual-passive-basket-entry-dead
 
 decision:
-  outcome: TBD
-  decided_at: null
-  decided_by: null
+  outcome: REJECT   # registered generic k=2.0 variant REJECTED; level-matched k=2.5 sibling is a CONDITIONAL pass -> Exp2
+  decided_at: 2026-06-15T20:06:58Z   # evidence settled at corpus commit fc30f0c4; formalized into this YAML 2026-06-16
+  decided_by: operator
   evidence_actual:
-    class_achieved: null
-    canonical_metrics: {}
-  reasoning: null
-  supersedes: null
+    class_achieved: >
+      multi-window cohort -- 475-476 window-matched single-window backtests per arm
+      (full 497-pair cointegration cohort minus ~21-22 tainted/thin drops), is_current=1
+      in cointegration_sheet (TradeScan_State/ledger.db). Corrected re-run AFTER the
+      _instantiate_rule fixed-z wiring fix (commit 374b061a); tainted pre-fix runs were
+      deleted. All arms uncharged engine_abi.v1_5_9 (uniform stamp; within-batch deltas valid).
+    canonical_metrics:
+      # cohort medians; "blowups" = pairs with max-DD >= 50% of stake. Representative run_ids cited.
+      FXD25_control_fixed_2p5:   { n: 476, median_ret_dd: 0.000, median_net_pct: 0.00, median_trades: 32, blowups_dd_ge_50pct: 20, run_id_example: 9f77f28947b6f6382fd5394c }
+      BBK20_generic_k2p0_ADP:    { n: 475, median_ret_dd: 0.116, median_net_pct: 0.44, median_trades: 62, blowups_dd_ge_50pct: 30, run_id_example: 67f856d04d7290194fdde0cd }
+      BBK25_levelmatched_k2p5:   { n: 475, median_ret_dd: 0.064, median_net_pct: 0.25, median_trades: 42, blowups_dd_ge_50pct: 17, run_id_example: dbfc12ea6d22f87574704abc }
+  reasoning: |
+    REGISTERED variant (BB_ADAPTIVE_WIDTH_V1_ADP, generic k=2.0 = corpus BBK20 arm) FAILS
+    the pre-registered acceptance test: must_beat_baseline blowup_count "< baseline" is
+    VIOLATED (30 vs 20 high-DD pairs, DD >= 50% of stake) and it over-trades ~1.94x (median
+    62 vs 32). The looser ~2.0 average band fires more often -- including into the breakdowns
+    it was meant to withhold from -- exactly the "soft loss = trade-count inflation" failure
+    mode the design doc flagged. The generic, un-tuned hypothesis is therefore REJECTED.
+
+    A LEVEL-MATCHED sibling arm added during execution -- BBK25 (k=2.5, M=20) -- PASSES
+    acceptance: blowups cut 20 -> 17, median ret/dd +0.064 (not worse than the ~0.0 baseline),
+    only ~1.3x trades, no DD penalty. This confirms the underlying concept (an adaptive
+    sigma-band CAN trim the fat-tail blowups that are the binding constraint) but ONLY when
+    the level is held at the existing threshold -- you cannot also loosen the average level.
+    BBK25 is the operator-kept arm and the carry-forward to Exp2 (calibration: normalized
+    thr = 2.5*sigma_M(z)/mean(sigma_M(z)), or tuned k/M). Exp2 is OPTIONAL / OPEN, not committed.
+
+    CAVEATS: (1) uncharged engine_abi.v1_5_9 -> absolute net% is spread-optimistic; only the
+    within-batch deltas are load-bearing (engine-version stamp consolidation is a separate
+    in-progress chip, task_edc22e4d). (2) On charged v1.5.10 the cointegration baseline edge
+    sits inside the spread (median net negative), so this verdict establishes blowup-REDUCTION,
+    not net-of-cost profitability. (3) Effect is modest (3 fewer blowups of ~475 pairs).
+    (4) Nothing promoted to production; the rule patch is additive / default-off. (5) Realized
+    control was FXD25 (uncharged v1_5_9, level-matched fixed 2.5), NOT the v1.5.10 Z25 baseline
+    listed above -- that plan was superseded by the uncharged corpus re-run.
+  supersedes: null   # no deployment promotion; BBK25 is a conditional pass pending Exp2
