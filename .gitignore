@@ -86,7 +86,14 @@ backtest_directives/active/*.txt
 backtest_directives/ACTIVE/
 backtest_directives/active_backup/
 !backtest_directives/active/README.md
-# Completed directives: tracked (they are the specification record)
+# Completed directives: NOT tracked. Since 60862b4c every basket run self-contains a
+# byte-identical DIRECTIVE_SOURCE.txt + RECYCLE_RULE_SOURCE.py under
+# TradeScan_State/backtests/<run>/, so the git corpus is redundant and only re-churned
+# git history on each cohort regen (~18k blob versions for a ~1.5k working set).
+# Use /* + negation so the one legacy straggler with no run-folder home stays tracked
+# (git is its only spec copy).
+backtest_directives/completed/*
+!backtest_directives/completed/90_PORT_H2_5M_RECYCLE_S01_V1_P00.txt
 # *.admitted: 0-byte pipeline markers, no value in git
 *.admitted
 # Episode staging: scratch pre-INBOX corpus generation, regenerable via the
