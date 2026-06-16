@@ -78,4 +78,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-05-22 | Phase 1 referenced removed `tmp/hydrate_sandbox.py`; one-time bootstrap | Removed Phase 1 entirely; renumbered Phases 2–5 → 1–4 |
 | 2026-05-29 | Manual ledger flip via name LIKE over-touched 9 rows (5 orphans); needed restore | Added ledger-retirement safety note: scope by exact run_id; back up + AND-guard |
 | 2026-06-15 | id LIKE over-matched (SQL `_`=wildcard, 986 vs 476); empty-portfolio block | Added corpus-purge + empty-portfolio-block + LIKE-escape (`_`/IN) notes |
-| 2026-06-16 | Empty-portfolio block forced manual per-`directive_id` deletes on a stood-down fleet | `--allow-empty-shield` (commit `4da44451`); rewrote corpus-purge → keep-set-driven `lineage_pruner`; retired the manual `directive_id` step |
+| 2026-06-16 | Empty-portfolio block forced manual per-directive_id deletes, stood-down fleet | `--allow-empty-shield` (4da44451); keep-set-driven prune; manual step retired |
