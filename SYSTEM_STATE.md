@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: 7 symbol(s) stale (>3 days behind)
 
-> Generated: 2026-06-16T15:09:18Z
+> Generated: 2026-06-16T15:14:25Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -40,7 +40,7 @@
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `ea3fdeb3 docs(CLAUDE): add Research Discovery Principle (orient with vault, decide from canonical)`
+- Last substantive commit: `2413d293 docs(skill): add live git-state check to session-start (step 1.8)`
 
 ## Deferred Maintenance
 
