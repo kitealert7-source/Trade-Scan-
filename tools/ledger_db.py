@@ -41,6 +41,7 @@ from tools.portfolio.cointegration_schema import (
     COINTEGRATION_NUMERIC_COLUMNS,
     COINTEGRATION_SHEET_COLUMNS,
 )
+from tools.portfolio.comparison_schema import COMPARISON_COLUMNS
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -446,6 +447,26 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         'CREATE INDEX IF NOT EXISTS idx_coint_current '
         'ON cointegration_sheet(is_current)'
+    )
+
+    # Comparison ledger (deployability provenance, 2026-06-16): append-only,
+    # self-certifying record that two SPECIFIC runs were compared to support a
+    # decision. Stores which runs (left/right + reason) + a tri-state
+    # certification computed at write time from each run's cointegration_sheet
+    # witnesses (effective_input_sha256 = data, engine stamp = engine,
+    # directive_sha256 = the intended delta). Certifies (yes/no/indeterminate);
+    # it does NOT gate. SSOT: tools/portfolio/comparison_schema.py. All-TEXT, so
+    # _col_def yields TEXT for every column; no numeric/is_current special-casing.
+    cmp_cols = ",\n        ".join(_col_def(c) for c in COMPARISON_COLUMNS)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS comparison (
+            {cmp_cols},
+            PRIMARY KEY ("comparison_id")
+        )
+    """)
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_comparison_pair '
+        'ON comparison(left_run_id, right_run_id)'
     )
 
     # Portfolio Control — user decision store for promote/disable
