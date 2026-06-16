@@ -1,16 +1,18 @@
-"""Deployability provenance (2026-06-16): the `comparison` ledger certifies that
-two SPECIFIC runs were apples-to-apples, so "can I trust left > right enough to
-deploy?" is a single ledger lookup, not forensics.
+"""Deployability provenance (2026-06-16): the `comparison` ledger is EVIDENCE --
+a row exists IFF two certified runs were a valid, apples-to-apples basis for a
+decision. There is no status column; existence is the certification.
 
-These tests lock the success criterion AND the tri-state honesty: a missing
-witness must read `indeterminate`, never `yes` -- the exact failure mode (a green
-signal that guarantees the wrong thing) this whole audit exists to prevent.
+    comparison row exists  ->  deployment evidence exists
+    comparison row absent  ->  deployment evidence does not exist
+
+These tests lock the refusal discipline: invalid evidence is NOT representable.
 """
 import sqlite3
 
 import pytest
 
 from tools.ledger_db import create_tables, upsert_cointegration_row
+from tools.portfolio.comparison_schema import COMPARISON_COLUMNS
 from tools.portfolio.comparison_writer import certify_comparison, ComparisonError
 
 _D = "d" * 64  # an effective_input_sha256 value
@@ -22,98 +24,112 @@ def _conn(tmp_path):
     return conn
 
 
-def _seed(conn, run_id, *, eff, engine_v="1.5.9", engine_abi="engine_abi.v1_5_9", dsha):
-    """Insert a minimal cointegration_sheet row carrying the three witnesses."""
+def _seed(conn, run_id, *, eff=_D, engine_v="1.5.9", engine_abi="engine_abi.v1_5_9",
+          dsha, is_current=1):
+    """Seed a cointegration_sheet run. Default = certified (current + witness-complete)."""
     upsert_cointegration_row(conn, {
         "run_id": run_id,
         "effective_input_sha256": eff,
         "engine_version": engine_v,
         "engine_abi": engine_abi,
         "directive_sha256": dsha,
+        "is_current": is_current,
     })
 
 
-def test_same_data_same_engine_diff_directive_is_comparable(tmp_path):
-    """The success criterion: identical effective data + engine, intended directive
-    delta -> comparable=yes, answerable in one query."""
+def _count(conn):
+    return conn.execute("SELECT COUNT(*) FROM comparison").fetchone()[0]
+
+
+def test_existence_is_the_certification_no_status_column():
+    """The design: a row's existence certifies it; there is no comparable/status col."""
+    assert "comparison_id" in COMPARISON_COLUMNS
+    for forbidden in ("comparable", "data_match", "engine_match", "directive_differs"):
+        assert forbidden not in COMPARISON_COLUMNS
+
+
+def test_valid_comparison_is_recorded_as_evidence(tmp_path):
     conn = _conn(tmp_path)
-    _seed(conn, "BBK25", eff=_D, dsha="dir_bbk25")
-    _seed(conn, "FXD25", eff=_D, dsha="dir_fxd25")
-    cert = certify_comparison(conn, "BBK25", "FXD25", "deployability: BBK25 vs FXD25")
-    assert cert["data_match"] == "yes"
-    assert cert["engine_match"] == "yes"
-    assert cert["directive_differs"] == "yes"
-    assert cert["comparable"] == "yes"
-    # the deployability lookup
-    got = conn.execute(
-        "SELECT comparable FROM comparison WHERE left_run_id='BBK25' AND right_run_id='FXD25'"
-    ).fetchone()
-    assert got[0] == "yes"
+    _seed(conn, "BBK25", dsha="dir_bbk25")
+    _seed(conn, "FXD25", dsha="dir_fxd25")
+    row = certify_comparison(conn, "BBK25", "FXD25", "deployability: BBK25 vs FXD25")
+    assert row["left_run_id"] == "BBK25" and row["right_run_id"] == "FXD25"
+    # existence == certification: the deployment-evidence lookup finds it
+    assert conn.execute(
+        "SELECT 1 FROM comparison WHERE left_run_id='BBK25' AND right_run_id='FXD25'"
+    ).fetchone() is not None
     conn.close()
 
 
-def test_different_data_is_not_comparable(tmp_path):
-    """Data-drift (turnover #1 of BB-adaptive): caught as comparable=no."""
+def test_refuses_different_data_and_writes_nothing(tmp_path):
+    """Data-drift (BB turnover #1): not apples-to-apples -> refused, no row."""
     conn = _conn(tmp_path)
     _seed(conn, "L", eff=_D, dsha="dir_L")
-    _seed(conn, "R", eff="e" * 64, dsha="dir_R")  # different effective data
-    cert = certify_comparison(conn, "L", "R", "x")
-    assert cert["data_match"] == "no"
-    assert cert["comparable"] == "no"
+    _seed(conn, "R", eff="e" * 64, dsha="dir_R")
+    with pytest.raises(ComparisonError):
+        certify_comparison(conn, "L", "R", "x")
+    assert _count(conn) == 0
     conn.close()
 
 
-def test_different_engine_is_not_comparable(tmp_path):
-    """Engine-confound: different engine stamp -> comparable=no."""
+def test_refuses_different_engine(tmp_path):
+    """Engine-confound (BB turnover #2): refused."""
     conn = _conn(tmp_path)
-    _seed(conn, "L", eff=_D, engine_v="1.5.9", dsha="dir_L")
-    _seed(conn, "R", eff=_D, engine_v="1.5.10", dsha="dir_R")
-    cert = certify_comparison(conn, "L", "R", "x")
-    assert cert["engine_match"] == "no"
-    assert cert["comparable"] == "no"
+    _seed(conn, "L", engine_v="1.5.9", dsha="dir_L")
+    _seed(conn, "R", engine_v="1.5.10", dsha="dir_R")
+    with pytest.raises(ComparisonError):
+        certify_comparison(conn, "L", "R", "x")
+    assert _count(conn) == 0
     conn.close()
 
 
-def test_missing_data_witness_is_indeterminate_not_yes(tmp_path):
-    """The anti-pattern guard: a NULL witness must NEVER read as comparable."""
+def test_refuses_identical_directive(tmp_path):
+    """No intended delta (same directive / self-comparison): not a comparison."""
     conn = _conn(tmp_path)
-    _seed(conn, "L", eff=None, dsha="dir_L")   # pre-witness run (e.g. < 2026-06-16)
-    _seed(conn, "R", eff=_D, dsha="dir_R")
-    cert = certify_comparison(conn, "L", "R", "x")
-    assert cert["data_match"] == "indeterminate"
-    assert cert["comparable"] == "indeterminate"   # NOT "yes"
+    _seed(conn, "L", dsha="same")
+    _seed(conn, "R", dsha="same")
+    with pytest.raises(ComparisonError):
+        certify_comparison(conn, "L", "R", "x")
+    assert _count(conn) == 0
     conn.close()
 
 
-def test_same_directive_is_not_a_valid_comparison(tmp_path):
-    """No intended delta (same directive / self-comparison) -> comparable=no."""
+def test_refuses_non_current_run(tmp_path):
+    """The 'right run' rule: a superseded (is_current=0) run is NOT certified."""
     conn = _conn(tmp_path)
-    _seed(conn, "L", eff=_D, dsha="same_dir")
-    _seed(conn, "R", eff=_D, dsha="same_dir")
-    cert = certify_comparison(conn, "L", "R", "x")
-    assert cert["directive_differs"] == "no"
-    assert cert["comparable"] == "no"
+    _seed(conn, "CUR", dsha="dir_cur", is_current=1)
+    _seed(conn, "OLD", dsha="dir_old", is_current=0)
+    with pytest.raises(ComparisonError):
+        certify_comparison(conn, "CUR", "OLD", "x")
+    assert _count(conn) == 0
     conn.close()
 
 
-def test_unknown_run_id_fatals(tmp_path):
-    """A comparison referencing a run absent from the ledger is rejected loudly."""
+def test_refuses_witness_incomplete_run(tmp_path):
+    """A run with a NULL identity witness cannot be evidence (e.g. pre-2026-06-16)."""
     conn = _conn(tmp_path)
-    _seed(conn, "L", eff=_D, dsha="dir_L")
+    _seed(conn, "OK", dsha="dir_ok")
+    _seed(conn, "NOWIT", eff=None, dsha="dir_nowit")  # NULL effective_input_sha256
+    with pytest.raises(ComparisonError):
+        certify_comparison(conn, "OK", "NOWIT", "x")
+    assert _count(conn) == 0
+    conn.close()
+
+
+def test_refuses_unknown_run(tmp_path):
+    conn = _conn(tmp_path)
+    _seed(conn, "L", dsha="dir_L")
     with pytest.raises(ComparisonError):
         certify_comparison(conn, "L", "GHOST", "x")
+    assert _count(conn) == 0
     conn.close()
 
 
-def test_append_only_idempotent(tmp_path):
-    """Identical (left, right, reason) is one immutable row, not a duplicate."""
+def test_idempotent_single_row(tmp_path):
     conn = _conn(tmp_path)
-    _seed(conn, "L", eff=_D, dsha="dir_L")
-    _seed(conn, "R", eff=_D, dsha="dir_R")
+    _seed(conn, "L", dsha="dir_L")
+    _seed(conn, "R", dsha="dir_R")
     certify_comparison(conn, "L", "R", "same reason")
     certify_comparison(conn, "L", "R", "same reason")
-    n = conn.execute(
-        "SELECT COUNT(*) FROM comparison WHERE left_run_id='L' AND right_run_id='R'"
-    ).fetchone()[0]
-    assert n == 1
+    assert _count(conn) == 1
     conn.close()

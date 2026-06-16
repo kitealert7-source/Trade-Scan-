@@ -449,14 +449,13 @@ def create_tables(conn: sqlite3.Connection) -> None:
         'ON cointegration_sheet(is_current)'
     )
 
-    # Comparison ledger (deployability provenance, 2026-06-16): append-only,
-    # self-certifying record that two SPECIFIC runs were compared to support a
-    # decision. Stores which runs (left/right + reason) + a tri-state
-    # certification computed at write time from each run's cointegration_sheet
-    # witnesses (effective_input_sha256 = data, engine stamp = engine,
-    # directive_sha256 = the intended delta). Certifies (yes/no/indeterminate);
-    # it does NOT gate. SSOT: tools/portfolio/comparison_schema.py. All-TEXT, so
-    # _col_def yields TEXT for every column; no numeric/is_current special-casing.
+    # Comparison ledger (deployability provenance, 2026-06-16): append-only
+    # EVIDENCE table. A row's EXISTENCE is its certification -- the writer
+    # (tools/portfolio/comparison_writer.py) REFUSES to write unless both runs are
+    # certified (is_current=1 AND witness-complete) and the comparison is sound
+    # (same effective_input_sha256, same engine stamp, differing directive_sha256).
+    # Invalid evidence is not representable; there is no status/tri-state column.
+    # SSOT: tools/portfolio/comparison_schema.py. All-TEXT (no numeric special-case).
     cmp_cols = ",\n        ".join(_col_def(c) for c in COMPARISON_COLUMNS)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS comparison (
