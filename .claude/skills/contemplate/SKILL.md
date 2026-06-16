@@ -15,3 +15,13 @@ Pause and ask:
 - Is there any reasoned concern that genuinely deserves attention?
 
 Report only what emerges from reflection. Describe the consideration and why it merits attention. Change nothing.
+
+---
+
+## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
+| _none yet_ | | |

@@ -35,6 +35,7 @@ approval, then lands at most one commit on `apply`.
 | Every `<skill>/reference/*.md` (existence of referenced files) | Cross-skill semantic consistency beyond format/link integrity |
 | Every `<skill>/friction_archive.md` (overflow file presence) | The doctrine docs themselves (`SELF_IMPROVEMENT.md`, `CONVENTIONS.md`, `CATALOG.md`) |
 | Doctrine pointers in SKILL.md back to `../SELF_IMPROVEMENT.md` etc. | |
+| Slash-command registration & frontmatter loadability (disk skill set ↔ session's live skill list) | Plugin / marketplace skills (namespaced `plugin:skill`); harness internals beyond the available-skills list |
 
 ---
 
@@ -55,6 +56,8 @@ approval, then lands at most one commit on `apply`.
 | 11 | Frontmatter `name:` matches the folder slug | skill conventions | hard |
 | 12 | All relative `./reference/<file>.md` links resolve on disk | filesystem | hard |
 | 13 | If a pointer to `./friction_archive.md` exists, file must resolve | filesystem | hard |
+| 14 | Frontmatter loadable: `---` block with non-empty `name:` AND `description:` (precondition for slash-command registration) | harness discovery | hard |
+| 15 | Every on-disk skill slug is present in the session's live available-skills list (created-but-not-loaded → `/<slug>` unexecutable until reload) | harness discovery | hard |
 
 **Hard** = blocks the audit "clean" verdict; surfaced as auto-fixable
 or as needs-operator-decision.
@@ -88,6 +91,34 @@ For each `SKILL.md`, extract every relative markdown link matching
 `./reference/<file>.md` or `./friction_archive.md`. Verify each
 referenced file exists on disk. Missing → check 12 / 13 violation.
 
+## Step 4b — Slash-command registration & load check
+
+New skills do not always register automatically — a freshly created
+`SKILL.md` only becomes an executable `/<slug>` once the harness has
+(re-)scanned the skills directory. This step confirms each on-disk
+skill is both well-formed and actually loaded.
+
+1. **Loadability (check 14, disk):** for each `SKILL.md`, confirm a
+   well-formed frontmatter block delimited by `---` with a non-empty
+   `name:` and `description:`. Malformed YAML or a missing `name:`
+   makes the harness skip the skill silently → no slash command.
+2. **Live registration (check 15, disk ↔ session):** compare the
+   on-disk slug set from Step 1 against the skills enumerated in this
+   session's available-skills system-reminder — the authoritative list
+   of what the harness has loaded. Restrict to project skills (bare
+   names, not namespaced `plugin:skill` entries).
+   - On disk, absent from the live list → **created-but-not-loaded**;
+     `/<slug>` will not run until the session reloads / restarts. This
+     is the reliable direction and the one this check exists for.
+   - In the live list as a bare name with no folder on disk → usually a
+     built-in or user-global skill (e.g. `deep-research`, `verify`) and
+     expected; flag as stale registration ONLY if the name was recently
+     a project skill (e.g. a rename whose old slug still lingers).
+
+Check 15 reads live session state, so it is the only check that proves
+executability rather than mere well-formedness. Its remedy is
+operational (reload / restart) — never "fix" it by editing files.
+
 ## Step 5 — Produce the review report
 
 Print the report to the operator. Format:
@@ -106,6 +137,11 @@ Auto-fixable (will land on `apply`):
   [<skill>] #2 missing protocol pointer
     INSERT below `## Friction log` line:
       Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
+
+Registration / load (checks 14–15):
+  [<skill>] #15 on disk but NOT in live skill list → reload/restart to register /<skill>
+  [<skill>] #14 frontmatter missing `name:`/`description:` → harness cannot register it
+  (or: all N on-disk skills loaded and registered ✓)
 
 Needs operator decision (NOT auto-fixable):
   [<skill>] #5 pending row 2026-05-12 "<friction>" has no Edit landed
@@ -146,6 +182,10 @@ For each approved auto-fixable finding:
 - **Pending friction with no Edit landed** → flag as
   needs-operator-decision; do NOT hand-write the missing Edit text
   (guessing produces fake history).
+- **Frontmatter missing `name:`/`description:` (check 14)** → flag as
+  needs-operator-decision; do NOT invent a name or description.
+- **Created-but-not-loaded (check 15)** → not a file fix; report the
+  reload/restart remedy and exclude it from the commit.
 
 Stage every affected file by explicit path (no `-A`). Single commit:
 
