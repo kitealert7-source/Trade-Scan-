@@ -189,8 +189,8 @@ def test_single_strategy_selected_engine_is_loadable_and_consistent(monkeypatch)
 def test_single_strategy_unresolvable_engine_fails_loud(monkeypatch):
     """A requested engine with no loadable main.py ABORTS (no silent v1_5_6)."""
     from tools.run_stage1 import run_engine_logic
-    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.10")   # v1_5_10 has no main.py
-    assert get_engine_version() == "1.5.10"
+    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "9.9.9")   # v9_9_9 does not exist (1.5.10 is now a real, loadable engine)
+    assert get_engine_version() == "9.9.9"
     with pytest.raises(RuntimeError, match="no loadable run-engine module"):
         run_engine_logic(None, None)
 

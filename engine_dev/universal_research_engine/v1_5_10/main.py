@@ -38,8 +38,8 @@ run_execution_loop = mod.run_execution_loop
 from engines.indicator_warmup_resolver import resolve_strategy_warmup, extract_indicators_from_strategy
 
 ENGINE_NAME = "Universal_Research_Engine"
-ENGINE_VERSION = "1.5.8"
-__version__ = "1.5.8"
+ENGINE_VERSION = "1.5.10"
+__version__ = "1.5.10"
 
 
 def load_strategy(strategy_id: str):
