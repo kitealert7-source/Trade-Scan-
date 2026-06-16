@@ -2,9 +2,8 @@
 
 ## SESSION STATUS: WARNING
 - WARNING: 7 symbol(s) stale (>3 days behind)
-- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-06-16T08:46:33Z
+> Generated: 2026-06-16T15:09:18Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -13,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 1 directives
+- Completed: 28 directives
 
 ## Ledgers
 
@@ -36,12 +35,12 @@
 - Latest bar: **2026-06-16** | Symbols: 221 | **Stale (>3d): 7**
 
 ## Artifacts
-- Run directories: 3316
+- Run directories: 3343
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: 2 uncommitted
-- Last substantive commit: `968b5e6a session: closing SYSTEM_STATE snapshot`
+- Working tree: clean
+- Last substantive commit: `ea3fdeb3 docs(CLAUDE): add Research Discovery Principle (orient with vault, decide from canonical)`
 
 ## Deferred Maintenance
 
