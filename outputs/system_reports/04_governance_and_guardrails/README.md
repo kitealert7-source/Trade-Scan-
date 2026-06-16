@@ -9,6 +9,6 @@ Read before changing governance gates, registry logic, naming conventions, or an
 | `RUN_REGISTRY_EXECUTION_MODEL_IMPLEMENTATION_REPORT.md` | Before touching registry logic (`PLANNED → RUNNING → COMPLETE/FAILED` transitions). |
 | `RESRCH_INFRA_HARDENING_SUMMARY.md` | Context on Phase 2 hardening — dynamic engine registry, orchestrator integration. |
 | `STATE_ROOT_SEPARATION_REPORT.md` | Before moving any files between Trade_Scan and TradeScan_State. Defines authority boundaries. |
-| `EXECUTION_CAPSULE_CONTRACT.md` | **Before re-adding `backtest_directives/completed/` to git.** Defines why a run folder with `DIRECTIVE_SOURCE.txt` + `RECYCLE_RULE_SOURCE.py` is the authoritative spec home, so the corpus may be untracked. |
+| `governance/SOP/EXECUTION_CAPSULE_CONTRACT.md` (cross-ref) | **Before re-adding `backtest_directives/completed/` to git.** Defines why a run folder with `DIRECTIVE_SOURCE.txt` + `RECYCLE_RULE_SOURCE.py` is the authoritative spec home, so the corpus may be untracked. Lives in `governance/SOP/` with the other `*_CONTRACT.md`. |
 
 **Recommended reading order:** GUARDRAILS → NAMING → RUN_REGISTRY → STATE_ROOT

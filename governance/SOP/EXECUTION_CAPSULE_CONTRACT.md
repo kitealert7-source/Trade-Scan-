@@ -87,4 +87,5 @@ contract: spec durability tracks run relevance.
 - `.gitignore` — `backtest_directives/completed/*` rule (points back here).
 - Untrack commit `a0a1bccc`; emitter commit `60862b4c`.
 - Snapshot Immutability (AGENT.md invariant #4) — the capsule is the per-run analogue.
-- `08_pipeline_audit/ARTIFACT_STORAGE_AUDIT_2026_03_24.md` — broader artifact-storage map.
+- `outputs/system_reports/08_pipeline_audit/ARTIFACT_STORAGE_AUDIT_2026_03_24.md` — broader artifact-storage map.
+- Sibling contracts in this folder: `ENGINE_VAULT_CONTRACT.md`, `ORCHESTRATION_CONTRACT.md`, `STRATEGY_PLUGIN_CONTRACT.md`.

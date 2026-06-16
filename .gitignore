@@ -93,7 +93,7 @@ backtest_directives/active_backup/
 # Use /* + negation so the one legacy straggler with no run-folder home stays tracked
 # (git is its only spec copy).
 # >>> CONTRACT before re-adding the corpus: reproducibility was NOT lost. See
-# outputs/system_reports/04_governance_and_guardrails/EXECUTION_CAPSULE_CONTRACT.md
+# governance/SOP/EXECUTION_CAPSULE_CONTRACT.md
 backtest_directives/completed/*
 !backtest_directives/completed/90_PORT_H2_5M_RECYCLE_S01_V1_P00.txt
 # *.admitted: 0-byte pipeline markers, no value in git
