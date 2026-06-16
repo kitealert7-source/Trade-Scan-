@@ -624,5 +624,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _v1 skeleton 2026-05-17 — no friction yet_ | | |
 | 2026-06-15 | Variant ran as control silently (params never reached rule) -> matrix trusted | Added 3.E gate: hard-block param==control, review behavior==control |

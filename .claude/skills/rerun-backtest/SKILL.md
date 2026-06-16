@@ -309,4 +309,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| 2026-05-24 | Basket rerun failed: tool wrote `signal_version` at YAML root (KEY COLLISION at test→root mirror, UNKNOWN_STRUCTURE at -0.25), and same-stem filename was refused by `verify_directive_uniqueness_guard`. | `rerun_backtest.py` now (a) bumps `test.signal_version` only and strips stray root key, (b) auto-rotates `__E###` on filename + `test.name`. Same fix applies to non-basket reruns. Regression test: `tests/test_rerun_backtest.py::test_basket_signal_rerun_no_root_collision`. |
+| 2026-05-24 | Basket rerun wrote `signal_version` at root (collision); same-stem name refused | Bump `test.signal_version` only + strip root key; auto-rotate `__E###` suffix |

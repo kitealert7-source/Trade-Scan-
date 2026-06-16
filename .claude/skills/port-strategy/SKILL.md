@@ -198,4 +198,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
 | 2026-06-04 | New recycle rule: 2 wasted full-universe runs (LegDispatchError, manifest hash) | Added recycle-rule wiring + manifest-regen rows to failure-mode lookup |
-| 2026-06-15 | New rule param on dataclass+unit tests but not _instantiate_rule ctor -> 994-pair corpus ran as fixed default | Per-pine wiring integration test added (374b061a); param-wiring meta-test task spawned |
+| 2026-06-15 | Rule param on dataclass+tests but not _instantiate_rule ctor; corpus ran default | Per-pine wiring integration test (374b061a); param-wiring meta-test task spawned |

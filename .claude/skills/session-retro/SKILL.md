@@ -247,6 +247,6 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| 2026-06-06 | Two-terminal mismatch: API attached silently to wrong terminal64.exe; ~30 min diagnosis | Task: add single-terminal preflight assertion to live basket session start |
-| 2026-06-06 | Safety classifier intermittent outage blocked all Python/Edit/PowerShell for ~15 min; no way to distinguish recovering vs permanently down | Pattern noted: ping with `echo` first; fall back to `sed` for file edits if Python blocked |
+| 2026-06-06 | Two-terminal mismatch: API attached to wrong terminal64.exe; ~30 min to find | Task: add single-terminal preflight assertion to live basket session start |
+| 2026-06-06 | Safety classifier outage blocked Python/Edit/PowerShell ~15 min; status unclear | Pattern: ping with `echo` first; fall back to `sed` edits if Python blocked |
 | 2026-06-15 | Skill content gaps not surfaced by retro; operator prompted the 5-skill audit | Added 'Skill fitness signal' evidence + act-sink + anti-pattern (detect+route) |

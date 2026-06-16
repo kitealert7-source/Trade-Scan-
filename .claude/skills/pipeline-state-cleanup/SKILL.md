@@ -70,6 +70,6 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| 2026-05-22 | Phase 1 referenced `tmp/hydrate_sandbox.py` which no longer exists; was a one-time pipeline-restructure bootstrap, not recurring infrastructure | Removed Phase 1 entirely; renumbered Phases 2–5 → 1–4 |
-| 2026-05-29 | Manual ledger flip used a strategy-name LIKE → over-touched 9 rows (5 were orphans); needed backup recovery | Added "Manual ledger-retirement safety" note: scope by exact run_ids/missing-disk; back up + AND-guard |
-| 2026-06-15 | Directive-id LIKE over-matched (986 vs 476 rows: SQL `_` is a wildcard); pruner blocked on stood-down empty portfolio (no keep-set) | Added "Cointegration-corpus purge" + "Empty-portfolio block" notes; extended LIKE caution (escape `_`/use `IN (...)`); added Phase 4 viewing-layer caution |
+| 2026-05-22 | Phase 1 referenced removed `tmp/hydrate_sandbox.py`; one-time bootstrap | Removed Phase 1 entirely; renumbered Phases 2–5 → 1–4 |
+| 2026-05-29 | Manual ledger flip via name LIKE over-touched 9 rows (5 orphans); needed restore | Added ledger-retirement safety note: scope by exact run_id; back up + AND-guard |
+| 2026-06-15 | id LIKE over-matched (SQL `_`=wildcard, 986 vs 476); empty-portfolio block | Added corpus-purge + empty-portfolio-block + LIKE-escape (`_`/IN) notes |
