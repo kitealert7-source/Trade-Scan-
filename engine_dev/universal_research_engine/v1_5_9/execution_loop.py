@@ -1,5 +1,5 @@
 # =============================================================================
-# Engine v1.5.9 — EXPERIMENTAL — execution loop (extraction shell).
+# Engine v1.5.9 — FROZEN — execution loop (extraction shell).
 #
 # v1.5.9 is the v1.5.8 per-bar block lifted into a standalone callable
 # (evaluate_bar()) so the same per-bar logic can be reused from a streaming
@@ -18,7 +18,7 @@
 # Acceptance: byte-identical backtest output to v1.5.8.
 # =============================================================================
 """
-Universal Research Engine v1.5.9 — Execution Loop (EXPERIMENTAL).
+Universal Research Engine v1.5.9 — Execution Loop (FROZEN).
 
 Same contract as v1.5.8.  Per-bar logic is dispatched to evaluate_bar.py.
 """
@@ -51,8 +51,8 @@ __all__ = [
 ]
 
 ENGINE_VERSION    = "1.5.9"
-ENGINE_STATUS     = "EXPERIMENTAL"
-ENGINE_FREEZE_DATE = None  # EXPERIMENTAL engines do not have a freeze date.
+ENGINE_STATUS     = "FROZEN"
+ENGINE_FREEZE_DATE = "2026-05-08"  # Frozen; matches engine_manifest.json freeze_date.
 
 
 def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dict[str, Any]]:

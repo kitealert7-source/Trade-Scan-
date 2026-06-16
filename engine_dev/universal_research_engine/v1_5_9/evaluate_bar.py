@@ -1,5 +1,5 @@
 # =============================================================================
-# Engine v1.5.9 — EXPERIMENTAL — extraction of v1.5.8 per-bar block.
+# Engine v1.5.9 — FROZEN — extraction of v1.5.8 per-bar block.
 #
 # Purpose:
 #   Lift the per-bar logic of v1.5.8's run_execution_loop() into a standalone
@@ -25,7 +25,7 @@
 #     27_MR_XAUUSD_1H_PINBAR_S01_V1_P05     (cross-archetype)
 # =============================================================================
 """
-Universal Research Engine v1.5.9 — Per-bar Evaluator (EXPERIMENTAL).
+Universal Research Engine v1.5.9 — Per-bar Evaluator (FROZEN).
 Strategy-agnostic. Provides ctx per STRATEGY_PLUGIN_CONTRACT.md.
 
 Hook contract (inherited from v1.5.8, unchanged):
