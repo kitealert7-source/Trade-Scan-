@@ -148,9 +148,18 @@ def execution_pid_exists() -> bool:
     return False
 
 
-def build_execution_shield() -> set:
+def build_execution_shield(allow_empty: bool = False) -> set:
     """
-    Returns set of strategy IDs currently deployed in TS_Execution/portfolio.yaml
+    Returns the set of strategy IDs currently deployed in TS_Execution/portfolio.yaml.
+
+    This is an ADDITIVE shield on top of the ledger-sourced keep-set (build_keep_runs:
+    FSP / MPS / cointegration_sheet is_current=1 / PORTFOLIO_COMPLETE), NOT the keep-set
+    itself. A MISSING or MALFORMED portfolio.yaml is always fatal — the shield cannot be
+    confirmed, so pruning is unsafe. An EMPTY-but-valid portfolio (a deliberately
+    stood-down fleet, 0 LIVE) is a VALID state, not a corruption: with allow_empty=True it
+    yields an empty shield (nothing deployed -> nothing to shield), letting keep-set-driven
+    corpus pruning run on an idle fleet. Default (allow_empty=False) keeps the empty case a
+    hard BLOCK so nothing changes for the normal live-fleet path.
     """
     portfolio_path = _TS_EXECUTION / "portfolio.yaml"
     if not portfolio_path.exists():
@@ -161,6 +170,11 @@ def build_execution_shield() -> set:
             data = yaml.safe_load(f)
         strategies = data.get("portfolio", {}).get("strategies", []) or []
         if not strategies:
+            if allow_empty:
+                print("[WARN] portfolio.yaml is empty (stood-down fleet, 0 LIVE); "
+                      "proceeding with an EMPTY execution shield (--allow-empty-shield). "
+                      "Keep-set protection is unchanged (ledger-sourced).")
+                return set()
             print("[BLOCK] portfolio.yaml parsed but no strategies found")
             sys.exit(1)
         return {
@@ -484,9 +498,9 @@ def _collect_directive_targets(directives_dir: Path, keep_runs: set) -> list:
     return out
 
 
-def scan_and_map(keep_runs: set, active_portfolios: set) -> dict:
+def scan_and_map(keep_runs: set, active_portfolios: set, allow_empty_shield: bool = False) -> dict:
     """Map the filesystem strictly to identify quaratine candidates."""
-    execution_set = build_execution_shield()
+    execution_set = build_execution_shield(allow_empty=allow_empty_shield)
 
     # Build broader folder protection set:
     #   - Master_Portfolio_Sheet portfolio_ids (active_portfolios)
@@ -692,6 +706,7 @@ def main():
     parser.add_argument("--execute", action="store_true", help="Acknowledge destructive move and bypass dry-run.")
     parser.add_argument("--dry-run", action="store_true", help="Explicit dry-run (default behaviour — no mutations). Mutually exclusive with --execute.")
     parser.add_argument("--force-unlock", action="store_true", help="Bypass TS_Execution safety check. Use only when certain TS_Execution is not running.")
+    parser.add_argument("--allow-empty-shield", action="store_true", help="Permit an empty (stood-down, 0-LIVE) portfolio.yaml to yield an empty execution shield instead of blocking, so keep-set-driven corpus pruning can run on an idle fleet. Keep-set is ledger-sourced; a MISSING/malformed portfolio.yaml still blocks.")
     args = parser.parse_args()
 
     if args.dry_run and args.execute:
@@ -708,7 +723,7 @@ def main():
 
     verify_referential_integrity(keep_runs, active_portfolios, basket_run_info)
     
-    targets = scan_and_map(keep_runs, active_portfolios)
+    targets = scan_and_map(keep_runs, active_portfolios, allow_empty_shield=args.allow_empty_shield)
     
     dry_run_simulation(keep_runs, active_portfolios, targets)
     
