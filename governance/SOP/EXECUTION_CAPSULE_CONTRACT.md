@@ -13,8 +13,13 @@ it was not. This contract is the answer to that exact question.
 > **`RECYCLE_RULE_SOURCE.py`** constitutes an **immutable execution capsule** and is the
 > **authoritative byte-level home of the executed specification**.
 
-The capsule is self-contained: the spec *and* the code that executed it travel with the
-results. Reproduction = re-run the capsule. Nothing outside the capsule is required.
+The capsule is self-contained *as a provenance record*: the spec *and* the code that executed
+it travel with the results, so reproduction starts from the capsule and needs nothing further
+**from git or the corpus**. What the capsule guarantees is **spec provenance and execution
+provenance** — *what* was run and *how* — not eternal executability under arbitrary future
+environments. Actually re-running the capsule still depends on the runtime environment, engine
+compatibility, and market-data availability; those are environmental preconditions, not
+something the capsule is meant to pin.
 
 ### What a capsule contains
 
