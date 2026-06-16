@@ -2,8 +2,9 @@
 
 ## SESSION STATUS: WARNING
 - WARNING: 7 symbol(s) stale (>3 days behind)
+- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-06-16T08:17:49Z
+> Generated: 2026-06-16T08:46:33Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,8 +40,8 @@
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `8857f863 skills: maintenance audit 2026-06-16 â€” 1 soft fix (friction-log char cap)`
+- Working tree: 2 uncommitted
+- Last substantive commit: `968b5e6a session: closing SYSTEM_STATE snapshot`
 
 ## Deferred Maintenance
 
