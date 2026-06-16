@@ -99,6 +99,20 @@ COINTEGRATION_SHEET_COLUMNS = [
     "methodology_version",    # v1_raw_adf (legacy) | v2_log_eg (post-C3) | ...
     # --- realized performance (2026-06-05, canonical-3) ---
     "realized_net_pct",       # Σ strategy-cycle PnL / stake (excl. floating + DATA_END boundary)
+    # --- effective input identity (data-provenance hardening, 2026-06-16) ---
+    # Single deterministic DECISION witness. Two rows answer "did these runs
+    # consume the same effective input DATA?" via WHERE effective_input_sha256=?
+    # -- in seconds, with NO manifest, run folder, or JSON parse. Folded SOLELY
+    # from the already-computed per-leg leg_data_sha256 values (canonical sorted
+    # "SYM=hash" -> sha256; see tools/basket_provenance.effective_input_sha256);
+    # the per-leg breakdown stays in runs/<id>/manifest.json for forensic detail.
+    # SCOPE LIMIT (do NOT over-read as "reproducible"): attests DATA identity
+    # ONLY. It does NOT prove rule-code identity (strategy_code_sha256 is NULL for
+    # baskets) or sizing identity (broker_spec_sha256) -- both DELIBERATELY remain
+    # manifest-only (adjacent gaps, out of scope for this change). For full
+    # effective-input identity, combine with directive_sha256 + engine_version +
+    # engine_abi. Nullable: pre-2026-06-16 rows and provenance-failed runs are NULL.
+    "effective_input_sha256",
 ]
 
 # REAL-typed columns. Everything else is TEXT; is_current is special-cased in

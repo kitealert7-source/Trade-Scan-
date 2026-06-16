@@ -195,6 +195,34 @@ def leg_data_sha256(df) -> str:
     return hashlib.sha256(schema + rows).hexdigest()
 
 
+def effective_input_sha256(leg_data_hashes: dict | None) -> str | None:
+    """Single deterministic DECISION witness for the engine-consumed leg DATA,
+    folded SOLELY from the already-computed per-leg `leg_data_sha256` values.
+
+    Introduces no new provenance: it is a canonical fold of the existing per-leg
+    data hashes -- sorted by upper-cased symbol, rendered "SYM=hash" joined by
+    ";", then sha256 of the UTF-8 string. Two runs share this scalar IFF every
+    leg's loaded-data hash matches, so "did these two runs consume the same
+    effective input data?" becomes a single ledger equality
+    (`WHERE effective_input_sha256 = ?`) with no JSON parse, no manifest, no run
+    folder.
+
+    SCOPE (do NOT over-read): attests DATA identity ONLY. It does NOT attest
+    rule-code identity (`strategy_code_sha256` is NULL for baskets) or sizing
+    identity (`broker_spec_sha256`); those remain in runs/<id>/manifest.json. For
+    a full "same effective input" determination, combine with directive_sha256 +
+    engine_version + engine_abi. Returns None for an empty/None mapping (the
+    ledger column stays NULL -- provenance never aborts a run).
+    """
+    if not leg_data_hashes:
+        return None
+    canonical = ";".join(
+        f"{str(sym).upper()}={leg_data_hashes[sym]}"
+        for sym in sorted(leg_data_hashes, key=lambda s: str(s).upper())
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def broker_spec_sha256(symbol: str) -> str | None:
     """Canonical (LF-normalized) sha256 of a leg symbol's resolved OctaFx broker
     spec — the exact YAML that GP sizing reads via load_broker_spec for

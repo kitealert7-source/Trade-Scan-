@@ -50,6 +50,13 @@ def build_cointegration_row(
     stake_usd: float,
     n_obs: int | None = None,
     parquet_sha256: str | None = None,
+    # Single deterministic DATA witness folded from the per-leg leg_data_sha256
+    # (tools/basket_provenance.effective_input_sha256). Promotes the existing
+    # manifest witness into the authoritative ledger so two rows answer
+    # "same effective input data?" via a scalar equality. Nullable pass-through;
+    # the caller computes it from the run's input_provenance. DATA-axis only --
+    # see the schema column comment for the scope limit.
+    effective_input_sha256: str | None = None,
     # engine_version is REQUIRED (no default): a cointegration row must always
     # record the COMPUTE engine, and omission must be a loud TypeError at the
     # call site, never a silent NULL into the corpus (the writer ALSO enforces
@@ -110,6 +117,7 @@ def build_cointegration_row(
         "directive_sha256": directive_hash,
         "data_vintage": data_vintage,
         "parquet_sha256": parquet_sha256,
+        "effective_input_sha256": effective_input_sha256,
         "vault_path": vault_path,
         "backtests_path": backtests_path,
         # metrics (caller-computed via canonical_metrics)

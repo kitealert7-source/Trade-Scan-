@@ -1127,6 +1127,14 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                     _n_obs = None
                 _pq_sha = _hl.sha256(_parquet_p.read_bytes()).hexdigest()
                 _trades_total = sum(len(t) for t in result.per_leg_trades.values())
+                # Promote the existing per-leg DATA witness (the manifest's
+                # leg_data_sha256, already computed for input_provenance) into the
+                # authoritative ledger as ONE comparison scalar, so two rows answer
+                # "same effective input data?" via WHERE effective_input_sha256=?
+                # (DATA axis only; None-safe -> NULL, never aborts the row).
+                from tools.basket_provenance import effective_input_sha256 as _eff_input_sha256
+                _inp_prov = artifact_ctx.get("input_provenance") or {}
+                _eff_input = _eff_input_sha256(_inp_prov.get("leg_data_sha256"))
                 _coint_row = build_cointegration_row(
                     parsed=parsed, directive_path=path, run_id=run_id,
                     directive_id=directive_id, directive_hash=_content_hash,
@@ -1135,6 +1143,7 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                     trades_total=_trades_total,
                     completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
+                    effective_input_sha256=_eff_input,
                     engine_version=_basket_compute_engine_version(),
                     engine_abi=_basket_engine_abi(),
                 )
