@@ -343,6 +343,7 @@ def _seed_coint_row(tmp_path, run_id, directive_id, basket_id, *,
         "canonical_final_equity_usd": 1125.0,
         "trades_total": 42,
         "methodology_version": "v1_raw_adf",
+        "engine_version": "1.5.9",
     })
     if make_valid:
         # backtests-aware validity: parquet present even though runs/<id>/ is not.
