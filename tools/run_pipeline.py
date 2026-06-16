@@ -881,9 +881,24 @@ def _basket_compute_engine_version() -> str:
     Single source so the four stamp sites cannot drift; locked by
     tests/test_engine_identity_convergence.py. Doctrine:
     memory ``engine_identity_is_compute_not_stamp``.
+
+    Imports from ``tools.basket_runner`` (NOT directly from engine_abi) on
+    purpose: basket_runner is the ONE module that imports the basket compute
+    ABI, so the stamp reads the EXACT symbol the compute path uses. A future
+    engine promotion that re-points basket_runner moves this stamp with it --
+    there is no second independent ``from engine_abi.v1_5_X`` to forget.
     """
-    from engine_abi.v1_5_9 import ENGINE_VERSION
+    from tools.basket_runner import ENGINE_VERSION
     return str(ENGINE_VERSION)
+
+
+def _basket_engine_abi() -> str:
+    """The ABI module path of the basket compute, from the same single source
+    as ``_basket_compute_engine_version()``. The cointegration_sheet row carries
+    BOTH engine_version and engine_abi; both must move together on an engine
+    promotion, so both derive from ``tools.basket_runner``."""
+    from tools.basket_runner import ENGINE_ABI
+    return str(ENGINE_ABI)
 
 
 def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
@@ -1121,6 +1136,7 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                     completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
                     engine_version=_basket_compute_engine_version(),
+                    engine_abi=_basket_engine_abi(),
                 )
                 append_cointegration_row(_coint_row)
                 # Writer is sink-only (DB, WAL-safe under parallel workers).
@@ -1186,7 +1202,12 @@ def _basket_finalize_state_machine(state_mgr, run_id: str, path,
         manifest_payload = {
             "run_id": run_id,
             "strategy_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "engine_version": _input_prov.get("engine_version"),
+            # Engine stamp comes DIRECTLY from the compute source, NOT off the
+            # (best-effort, can-be-None) input_provenance block -- a provenance
+            # hashing hiccup must never yield engine_version: null in the
+            # manifest (Fail-Fast / no silent mislabel). input_provenance still
+            # carries its own copy alongside the data/broker-spec hashes.
+            "engine_version": _basket_compute_engine_version(),
             "input_provenance": _input_prov,
             "artifacts": artifacts_manifest,
             "timestamp": datetime.now(timezone.utc).isoformat(),

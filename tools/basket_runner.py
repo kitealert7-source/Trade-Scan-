@@ -37,6 +37,7 @@ import pandas as pd
 
 from engine_abi.v1_5_9 import (
     BarState,
+    ENGINE_VERSION,
     EngineConfig,
     StrategyProtocol,
     apply_regime_model,
@@ -45,7 +46,22 @@ from engine_abi.v1_5_9 import (
     resolve_engine_config,
 )
 
-__all__ = ["BasketLeg", "BasketRule", "BasketRunner"]
+# SINGLE SOURCE OF TRUTH for the basket ENGINE IDENTITY. basket_runner is the
+# ONE module that imports the basket compute ABI (the `from engine_abi.v1_5_9`
+# line above); ENGINE_VERSION re-exported here IS that module's version. EVERY
+# basket engine STAMP must derive from these symbols, never from a second
+# independent `from engine_abi.v1_5_X import` or get_engine_version() -- that is
+# how a stamp drifts from the compute (in EITHER direction). Consumers:
+# run_pipeline._basket_compute_engine_version() (backtest stamps) and the
+# live_basket producers (heartbeat stamp). If a future engine promotion bumps
+# the import above, ENGINE_VERSION/ENGINE_ABI follow automatically and every
+# stamp moves with the compute. Locked by tests/test_engine_identity_convergence.py.
+# Doctrine: memory engine_identity_is_compute_not_stamp.
+ENGINE_ABI = "engine_abi.v1_5_9"
+
+__all__ = [
+    "BasketLeg", "BasketRule", "BasketRunner", "ENGINE_VERSION", "ENGINE_ABI",
+]
 
 
 # ---------------------------------------------------------------------------

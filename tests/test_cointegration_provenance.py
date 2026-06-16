@@ -113,6 +113,7 @@ def test_default_methodology_is_v2_log_eg(tmp_path, monkeypatch):
         directive_hash="h", backtests_path="backtests/z", vault_path="",
         canonical=_CANON, trades_total=1,
         completed_at_utc="2026-05-30T00:00:00Z", stake_usd=1000.0,
+        engine_version="1.5.9",
     )
 
     assert row["methodology_version"] == "v2_log_eg"
@@ -130,6 +131,7 @@ def test_build_row_override_window(tmp_path, monkeypatch):
         directive_hash="h", backtests_path="backtests/y", vault_path="",
         canonical=_CANON, trades_total=5,
         completed_at_utc="2026-05-28T00:00:00Z", stake_usd=1000.0,
+        engine_version="1.5.9",
     )
 
     assert row["window_validation_status"] == "OVERRIDE"

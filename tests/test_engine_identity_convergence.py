@@ -1,126 +1,254 @@
 """Regression: engine-identity convergence within an execution path.
 
-Charter task_edc22e4d (2026-06-15). Within ANY execution path, every emitted
-``engine_version`` must equal the ACTUAL compute that ran, regardless of
-``ENGINE_VERSION_OVERRIDE``. The two paths consolidate INDEPENDENTLY:
+Charter task_edc22e4d (2026-06-15) + bulletproofing pass (2026-06-16). Within
+ANY execution path, every emitted ``engine_version`` must equal the ACTUAL
+compute that ran, regardless of ``ENGINE_VERSION_OVERRIDE``. The two paths
+consolidate INDEPENDENTLY:
 
-  * BASKET -- compute is hardcoded to ``engine_abi.v1_5_9`` (basket_runner.py;
-    ``engine_abi/`` exposes only v1_5_9). Every basket stamp (manifest /
-    input_provenance, run_metadata.json, STRATEGY_CARD.md, the
-    cointegration_sheet row) must equal ``engine_abi.v1_5_9.ENGINE_VERSION`` and
-    must NEVER consult ``get_engine_version()`` -- that helper honors the
-    override, which is INERT for basket compute, so it would mislabel the run.
+  * BASKET -- compute is hardcoded to ``engine_abi.v1_5_9`` via
+    ``tools.basket_runner`` (the ONE module that imports the ABI). It re-exports
+    ENGINE_VERSION + ENGINE_ABI as the SINGLE SOURCE; every basket stamp
+    (manifest/input_provenance, run_metadata.json, STRATEGY_CARD.md, the
+    cointegration_sheet row, the live heartbeat) derives from those symbols and
+    NEVER from ``get_engine_version()`` (override-honored -> would mislabel) nor
+    a second independent ``from engine_abi.v1_5_X`` (would drift on a bump).
 
   * SINGLE-STRATEGY -- the engine is LEGITIMATELY selected by
-    ``get_engine_version()`` (registry active_engine / override), which ALSO
-    drives the dynamic compute import in ``run_engine_logic``. Selection and
-    stamp are one source, so stamp == loaded compute by construction. The one
-    failure mode -- a requested engine with no ``main.py`` -- must FAIL LOUD,
-    never silently fall back to v1_5_6 under the requested label.
+    ``get_engine_version()``, which ALSO drives the dynamic compute import in
+    ``run_engine_logic`` -- AND that import is verified against the loaded
+    module's own ENGINE_VERSION, so a folder whose name lies about its version
+    (v1_5_3 ships the 1.5.4 engine) fails loud instead of mislabelling. A
+    requested engine with no module / no run_engine / no emitter fails loud too.
 
 Doctrine: memory ``engine_identity_is_compute_not_stamp``.
 """
-import importlib
+import ast
 import inspect
 import json
+import types
+from pathlib import Path
 
 import pytest
 
-from engine_abi.v1_5_9 import ENGINE_VERSION as BASKET_COMPUTE_VERSION
+import tools.basket_runner as basket_runner
+from engine_abi.v1_5_9 import ENGINE_VERSION as ABI_ENGINE_VERSION
 from tools.pipeline_utils import get_engine_version
 
 
-# ---------------------------------------------------------------------------
-# BASKET PATH -- stamp MUST be the hardcoded compute, override-inert.
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# BASKET PATH -- single-source, override-inert, every surface on the compute.
+# ===========================================================================
+
+def test_basket_single_source_chain():
+    """basket_runner is THE single source: its ENGINE_VERSION IS the ABI's, and
+    the run_pipeline helpers derive from basket_runner (not a 2nd ABI import)."""
+    import tools.run_pipeline as rp
+    # basket_runner re-exports the exact ABI compute identity.
+    assert basket_runner.ENGINE_VERSION == ABI_ENGINE_VERSION
+    assert basket_runner.ENGINE_ABI == "engine_abi.v1_5_9"
+    # The stamp helpers read basket_runner, not engine_abi directly.
+    assert rp._basket_compute_engine_version() == str(basket_runner.ENGINE_VERSION)
+    assert rp._basket_engine_abi() == str(basket_runner.ENGINE_ABI)
+    helper_src = inspect.getsource(rp._basket_compute_engine_version)
+    assert "from tools.basket_runner import ENGINE_VERSION" in helper_src, (
+        "the basket stamp must derive from basket_runner (single source), not a "
+        "second independent `from engine_abi.v1_5_X import` that could drift")
+
 
 def test_basket_compute_version_is_override_inert(monkeypatch):
-    """The basket compute identity is the hardcoded ABI version and does not move
-    with the override that ``get_engine_version()`` honors."""
+    """The basket compute identity does not move with the override that
+    ``get_engine_version()`` honors."""
     import tools.run_pipeline as rp
     monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.10")
-    # The override IS honored by the shared selector (the would-be liar)...
-    assert get_engine_version() == "1.5.10"
-    # ...but the basket compute identity is inert to it.
-    assert rp._basket_compute_engine_version() == str(BASKET_COMPUTE_VERSION)
+    assert get_engine_version() == "1.5.10"          # selector honors override...
+    assert rp._basket_compute_engine_version() == str(ABI_ENGINE_VERSION)  # ...stamp does not
     assert rp._basket_compute_engine_version() != "1.5.10"
 
 
-def test_basket_manifest_and_run_metadata_converge_on_compute(monkeypatch, tmp_path):
-    """Acceptance criterion: run_metadata.engine_version == manifest
-    engine_version == imported ABI ENGINE_VERSION, even under an override."""
+def test_basket_all_four_writers_echo_compute(monkeypatch, tmp_path):
+    """Value-level (alias/literal-proof) coverage of ALL FOUR basket stamp
+    surfaces: under an override, each persisted artifact reads the compute."""
     import tools.run_pipeline as rp
     from tools.basket_provenance import basket_input_provenance
-    from tools.basket_report import _write_run_metadata
+    from tools.basket_report import _write_run_metadata, write_basket_strategy_card
+    import tools.portfolio.cointegration_provenance as cp
+
     monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.10")
-
     compute = rp._basket_compute_engine_version()
+    abi = rp._basket_engine_abi()
+    assert compute == str(ABI_ENGINE_VERSION) != "1.5.10"
 
-    # manifest source (input_provenance block folded into manifest.json)
+    # (1) manifest / input_provenance
     ip = basket_input_provenance({}, compute)
-    assert ip["engine_version"] == compute == str(BASKET_COMPUTE_VERSION)
+    assert ip["engine_version"] == compute
 
-    # run_metadata.json source
+    # (2) run_metadata.json
     p = tmp_path / "run_metadata.json"
     _write_run_metadata(
         p, run_id="r", directive_id="d", basket_id="b",
         parsed_directive={}, engine_version=compute, leg_symbols=[],
     )
-    rm = json.loads(p.read_text(encoding="utf-8"))
-    assert rm["engine_version"] == compute == str(BASKET_COMPUTE_VERSION)
+    assert json.loads(p.read_text(encoding="utf-8"))["engine_version"] == compute
+
+    # (3) STRATEGY_CARD.md
+    card = write_basket_strategy_card(
+        tmp_path / "card", directive_id="d", run_id="r",
+        parsed_directive={}, engine_version=compute,
+    )
+    card_text = card.read_text(encoding="utf-8")
+    assert f"**Engine:** {compute}" in card_text and "1.5.10" not in card_text
+
+    # (4) cointegration_sheet row (window-validity gate stubbed out)
+    fake_wv = types.SimpleNamespace(
+        span_start="2024-01-01", span_end="2024-06-01", continuous_span_obs=100,
+        fragment_count=1, pct_cointegrated=0.9, regime_state="OK",
+        ledger_window_status="VALID",
+    )
+    monkeypatch.setattr(cp, "evaluate_window_validity", lambda _p: fake_wv)
+    legs = [{"symbol": "EURUSD", "lot": 0.01, "direction": "long"},
+            {"symbol": "USDJPY", "lot": 0.01, "direction": "short"}]
+    row = cp.build_cointegration_row(
+        parsed={"basket": {"legs": legs}, "test": {}},
+        directive_path=tmp_path / "directive.txt", run_id="r", directive_id="d",
+        directive_hash="h", backtests_path="bt", vault_path="v", canonical={},
+        trades_total=0, completed_at_utc="2026-06-16T00:00:00Z", stake_usd=1000.0,
+        engine_version=compute, engine_abi=abi,
+    )
+    assert row["engine_version"] == compute
+    assert row["engine_abi"] == abi == str(basket_runner.ENGINE_ABI)
 
 
-def test_basket_dispatch_sites_never_consult_get_engine_version():
-    """Static guard against re-introducing the leak. The basket dispatch helpers
-    must stamp via ``_basket_compute_engine_version()`` and never via
-    ``get_engine_version()``. A future 'DRY-up' onto the override-honored
-    selector (the original 2026-06-15 defect) fails here first."""
+def _basket_dispatch_functions():
+    """All module-level functions in tools.run_pipeline whose name starts with
+    `_basket_` -- the basket dispatch surface the AST guard scans."""
     import tools.run_pipeline as rp
-
-    stamping_helpers = [
-        rp._basket_write_tradelevel_and_report,  # input_provenance + run_metadata + card
-        rp._basket_persist_run_record,           # cointegration_sheet row
-    ]
-    for fn in stamping_helpers:
-        src = inspect.getsource(fn)
-        assert "_basket_compute_engine_version(" in src, (
-            f"{fn.__name__} must stamp engine_version via "
-            "_basket_compute_engine_version()")
-        assert "get_engine_version" not in src, (
-            f"{fn.__name__} must NOT consult get_engine_version() for a basket "
-            "stamp (override-honored -> mislabels the hardcoded v1_5_9 compute)")
-
-    # The manifest writer reads engine_version off input_provenance (already the
-    # compute); it must not independently consult the override-honored selector.
-    assert "get_engine_version" not in inspect.getsource(
-        rp._basket_finalize_state_machine)
+    tree = ast.parse(Path(rp.__file__).read_text(encoding="utf-8"))
+    return [n for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name.startswith("_basket_")]
 
 
-# ---------------------------------------------------------------------------
-# SINGLE-STRATEGY PATH -- stamp follows the ACTUAL loaded engine; mis-resolve
-# must fail loud rather than silently mislabel.
-# ---------------------------------------------------------------------------
+def test_basket_dispatch_ast_guard_fail_closed():
+    """Fail-CLOSED structural guard (replaces the old fail-open 2-function
+    substring scan). Across EVERY ``_basket_*`` function in tools.run_pipeline:
+      - no reference to ``get_engine_version`` (the override-honored selector);
+      - every ``engine_version=`` kwarg / dict-entry value is a call to
+        ``_basket_compute_engine_version()`` -- never a literal, alias, or other;
+      - every ``engine_abi=`` kwarg / dict-entry value is a call to
+        ``_basket_engine_abi()``.
+    A NEW stamp helper, an aliased import, or a hardcoded literal all fail here."""
+    KW_HELPER = {"engine_version": "_basket_compute_engine_version",
+                 "engine_abi": "_basket_engine_abi"}
+    violations = []
+    for fn in _basket_dispatch_functions():
+        for node in ast.walk(fn):
+            # (a) no override-honored selector anywhere in the basket surface
+            if isinstance(node, ast.Name) and node.id == "get_engine_version":
+                violations.append(f"{fn.name}: references get_engine_version")
+            if isinstance(node, ast.Attribute) and node.attr == "get_engine_version":
+                violations.append(f"{fn.name}: references .get_engine_version")
+            # (b) call kwargs: engine_version=/engine_abi= must be the helper call
+            if isinstance(node, ast.keyword) and node.arg in KW_HELPER:
+                want = KW_HELPER[node.arg]
+                v = node.value
+                if not (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
+                        and v.func.id == want):
+                    violations.append(
+                        f"{fn.name}: {node.arg}= must be {want}(), got {ast.dump(v)[:60]}")
+            # (c) dict entries: "engine_version"/"engine_abi" keys likewise
+            if isinstance(node, ast.Dict):
+                for k, v in zip(node.keys, node.values):
+                    if isinstance(k, ast.Constant) and k.value in KW_HELPER:
+                        want = KW_HELPER[k.value]
+                        if not (isinstance(v, ast.Call) and isinstance(v.func, ast.Name)
+                                and v.func.id == want):
+                            violations.append(
+                                f"{fn.name}: dict '{k.value}' must be {want}(), "
+                                f"got {ast.dump(v)[:60]}")
+    assert not violations, "basket engine-stamp guard violations:\n" + "\n".join(violations)
 
-def test_single_strategy_selected_engine_is_loadable_and_stamped(monkeypatch):
-    """With no override, ``get_engine_version()`` names the engine that BOTH
-    stamps the run (``_emit_build_metadata``) AND is dynamically imported by
-    ``run_engine_logic`` -- so the stamp equals the loaded compute. Guard that
-    the selected engine actually loads (selection == compute, no silent
-    substitution)."""
+
+# ===========================================================================
+# SINGLE-STRATEGY PATH -- stamp == the loaded module's OWN version; mis-resolve
+# (missing, version-skewed, or no run_engine) fails loud.
+# ===========================================================================
+
+def test_single_strategy_selected_engine_is_loadable_and_consistent(monkeypatch):
+    """No override: get_engine_version() names an engine whose module loads AND
+    declares the SAME version (selection == stamp == compute, verified)."""
+    import importlib
     monkeypatch.delenv("ENGINE_VERSION_OVERRIDE", raising=False)
     ver = get_engine_version()
     mod = importlib.import_module(
         f"engine_dev.universal_research_engine.v{ver.replace('.', '_')}.main")
-    assert hasattr(mod, "run_engine"), (
-        f"engine v{ver} selected by get_engine_version() must expose run_engine")
+    assert hasattr(mod, "run_engine")
+    declared = getattr(mod, "ENGINE_VERSION", None) or getattr(mod, "__version__", None)
+    assert str(declared) == str(ver), (
+        f"active engine v{ver} module declares {declared!r} -- folder/version skew")
 
 
 def test_single_strategy_unresolvable_engine_fails_loud(monkeypatch):
-    """A requested engine with no loadable main.py must ABORT, never silently run
-    v1_5_6 while keeping the requested label. v1_5_10 ships no main.py today, so
-    an override onto it is the canonical mis-resolve case."""
+    """A requested engine with no loadable main.py ABORTS (no silent v1_5_6)."""
     from tools.run_stage1 import run_engine_logic
-    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.10")
+    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.10")   # v1_5_10 has no main.py
     assert get_engine_version() == "1.5.10"
     with pytest.raises(RuntimeError, match="no loadable run-engine module"):
         run_engine_logic(None, None)
+
+
+def test_single_strategy_folder_version_skew_fails_loud(monkeypatch):
+    """A folder whose module declares a DIFFERENT version than its name must
+    abort rather than stamp the folder name onto the other engine's compute.
+    v1_5_3/main.py ships ENGINE_VERSION='1.5.4' -- the live skew case."""
+    from tools.run_stage1 import run_engine_logic
+    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.3")
+    assert get_engine_version() == "1.5.3"
+    with pytest.raises(RuntimeError, match="disagrees with the engine's own identity"):
+        run_engine_logic(None, None)
+
+
+# ===========================================================================
+# LIVE BASKET PRODUCER -- the heartbeat records the compute engine.
+# ===========================================================================
+
+def test_live_heartbeat_carries_compute_engine(tmp_path):
+    """The bridge faithfully records engine_version, and the producer (driver)
+    wires it from the basket single-source."""
+    import tools.live_basket.bridge as bridge
+    import tools.live_basket.driver as driver
+    rec = bridge.write_heartbeat(
+        tmp_path, "basketX", "2026-06-16T00:00:00Z",
+        engine_version=str(basket_runner.ENGINE_VERSION),
+    )
+    assert rec["engine_version"] == str(basket_runner.ENGINE_VERSION)
+    assert bridge.read_heartbeat(tmp_path)["engine_version"] == str(basket_runner.ENGINE_VERSION)
+    # Producer wiring: the StreamingBasketRunner heartbeat call stamps the engine
+    # from the basket single-source. Assert the wiring is present in the module
+    # (both the single-source import and the engine_version= on a heartbeat call).
+    drv_src = inspect.getsource(driver)
+    assert "from tools.basket_runner import ENGINE_VERSION" in drv_src
+    assert "write_heartbeat" in drv_src and "engine_version=" in drv_src
+    drv_tree = ast.parse(drv_src)
+    heartbeat_calls = [
+        n for n in ast.walk(drv_tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "write_heartbeat"
+    ]
+    assert heartbeat_calls, "driver must write a heartbeat"
+    assert all(any(k.arg == "engine_version" for k in c.keywords) for c in heartbeat_calls), (
+        "every driver write_heartbeat call must stamp engine_version (the compute)")
+
+
+# ===========================================================================
+# WRITER CONTRACTS -- a basket engine stamp can never be omitted/NULL.
+# ===========================================================================
+
+def test_cointegration_writer_requires_engine_version():
+    """engine_version is a REQUIRED corpus field (NULL -> fatal write reject) AND
+    a required build_cointegration_row arg (omission -> loud TypeError, not a
+    silent NULL). engine_abi keeps a fallback default but the production caller
+    single-sources it (locked by the AST guard, not by being a required param)."""
+    from tools.portfolio.cointegration_ledger_writer import REQUIRED_FIELDS
+    from tools.portfolio.cointegration_provenance import build_cointegration_row
+    assert "engine_version" in REQUIRED_FIELDS
+    params = inspect.signature(build_cointegration_row).parameters
+    assert params["engine_version"].default is inspect.Parameter.empty

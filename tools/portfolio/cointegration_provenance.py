@@ -50,7 +50,15 @@ def build_cointegration_row(
     stake_usd: float,
     n_obs: int | None = None,
     parquet_sha256: str | None = None,
-    engine_version: str | None = None,
+    # engine_version is REQUIRED (no default): a cointegration row must always
+    # record the COMPUTE engine, and omission must be a loud TypeError at the
+    # call site, never a silent NULL into the corpus (the writer ALSO enforces
+    # it via REQUIRED_FIELDS). The caller sources it from the basket
+    # single-source (run_pipeline._basket_compute_engine_version). engine_abi
+    # keeps a fallback default, but the production caller passes the matching
+    # single-source value (run_pipeline._basket_engine_abi), so the two engine
+    # fields move together on a promotion. See engine_identity_is_compute_not_stamp.
+    engine_version: str,
     engine_abi: str = "engine_abi.v1_5_9",
     classifier_version: str | None = None,
     data_vintage: str | None = None,

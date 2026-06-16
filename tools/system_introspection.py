@@ -673,6 +673,7 @@ _GATE_TEST_SUITE = (
     "tests/test_sweep_registry_gate_regex.py",
     "tests/test_fvg_session_infra_regressions.py",
     "tests/test_sweep_registry_td004_regression.py",
+    "tests/test_engine_identity_convergence.py",
 )
 
 

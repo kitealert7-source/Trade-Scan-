@@ -123,12 +123,18 @@ echo "[pre-commit] Running gate test suite..."
 #       auto-heal corruption guard. Sweep lineage / strategy identity /
 #       experiment trust depend on this; a regression silently rewrites
 #       a sibling sweep slot's directive_name + signature_hash.
+#   - test_engine_identity_convergence.py -- engine-identity convergence:
+#       every emitted engine_version stamp == the actual compute engine,
+#       override-inert; basket compute/stamp single-sourced; single-strategy
+#       stamp verified against the loaded module. A regression here re-opens
+#       the 2026-06-15 contradictory-stamp defect (mislabelled engine identity).
 python -m pytest \
     tests/test_idea_evaluation_gate.py \
     tests/test_namespace_gate_regex.py \
     tests/test_sweep_registry_gate_regex.py \
     tests/test_fvg_session_infra_regressions.py \
     tests/test_sweep_registry_td004_regression.py \
+    tests/test_engine_identity_convergence.py \
     -q --maxfail=1 2>&1
 if [ $? -ne 0 ]; then
     echo ""

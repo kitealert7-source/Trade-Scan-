@@ -76,8 +76,15 @@ guarantees the *final* file is never torn, not that no `.tmp` survives a crash.
 **Heartbeat** (separate liveness):
 ```json
 { "schema_version": 1, "basket_id": "…", "bar_ts": "…",
-  "beat_at": "2026-06-05T14:00:01.9Z", "last_target_seq": 43 }
+  "beat_at": "2026-06-05T14:00:01.9Z", "last_target_seq": 43,
+  "engine_version": "1.5.9" }
 ```
+`engine_version` (additive, `schema_version` unchanged) is the COMPUTE engine
+that produced the live targets — the basket single-source
+(`tools.basket_runner.ENGINE_VERSION`), so a live signal is reconcilable to an
+engine identity, parity with backtest `run_metadata`/`manifest`. `null` when the
+heartbeat writer is not the compute-bearing producer. Consumers ignore unknown
+keys, so this is back-compatible.
 
 **Execution record** (shim → log):
 ```json

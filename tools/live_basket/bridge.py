@@ -287,15 +287,24 @@ def read_all_targets(bridge_dir) -> list:
 
 
 def write_heartbeat(bridge_dir, basket_id: str, bar_ts, *,
-                    beat_at: Optional[str] = None, last_target_seq=None) -> dict:
+                    beat_at: Optional[str] = None, last_target_seq=None,
+                    engine_version: Optional[str] = None) -> dict:
     """Overwrite the SEPARATE liveness file every runner cycle (Review #4:
-    liveness must not be inferred from target age)."""
+    liveness must not be inferred from target age).
+
+    `engine_version` (additive, back-compatible) records the COMPUTE engine that
+    produced the live targets, so a live-produced signal is reconcilable to an
+    engine identity -- parity with backtest run_metadata/manifest. The producer
+    passes it from the basket single-source (tools.basket_runner.ENGINE_VERSION);
+    None when the writer is not the compute-bearing producer. Consumers ignore
+    the key, so SCHEMA_VERSION is unchanged. See engine_identity_is_compute_not_stamp."""
     rec = {
         "schema_version": SCHEMA_VERSION,
         "basket_id": basket_id,
         "bar_ts": bar_ts,
         "beat_at": beat_at or utc_now_iso(),
         "last_target_seq": last_target_seq,
+        "engine_version": engine_version,
     }
     _atomic_write_bytes(Path(bridge_dir) / HEARTBEAT_FILE,
                         (json.dumps(rec, separators=(",", ":")) + "\n").encode("utf-8"))

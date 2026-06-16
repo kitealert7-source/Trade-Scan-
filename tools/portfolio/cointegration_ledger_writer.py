@@ -57,6 +57,13 @@ REQUIRED_FIELDS = (
     # silently enter the corpus without a methodology cohort tag — every
     # row must declare 'v1_raw_adf' (legacy), 'v2_log_eg' (post-C3), etc.
     "methodology_version",
+    # engine_version added 2026-06-16 (engine-identity convergence). Mandatory
+    # so a row can never enter the corpus without recording the COMPUTE engine.
+    # A None/blank stamp is now a FATAL write rejection rather than a silent
+    # NULL. The orchestrator sources it from the basket compute single-source
+    # (run_pipeline._basket_compute_engine_version). See memory
+    # engine_identity_is_compute_not_stamp.
+    "engine_version",
 )
 
 

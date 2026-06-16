@@ -414,6 +414,36 @@ def _find_baseline_csv(strategy_id: str) -> Path | None:
     return None
 
 
+def _resolve_replay_run_engine(strategy_id: str):
+    """Resolve the run_engine callable for the replay pass, matching the engine
+    the BASELINE was COMPUTED on (its run_metadata.json engine_version), so the
+    replay measures data/logic drift -- NOT cross-engine drift.
+
+    Previously hardcoded `v1_5_6.main.run_engine`: when the baseline was computed
+    on a different engine (today's registry engine is v1_5_8), the replay-fidelity
+    comparison (pnl_drift_pct / ts_match_pct) measured cross-engine drift and a
+    promotion gate could pass/fail for the wrong reason. Falls back to the active
+    engine (get_engine_version) when the baseline carries no stamp; never
+    hardcodes a version. See engine_identity_is_compute_not_stamp.
+
+    Returns (run_engine_callable, resolved_version_str)."""
+    from tools.pipeline_utils import get_engine_version
+    ver = None
+    baseline_csv = _find_baseline_csv(strategy_id)
+    if baseline_csv is not None:
+        meta = baseline_csv.parent.parent / "metadata" / "run_metadata.json"
+        if meta.is_file():
+            try:
+                ver = json.loads(meta.read_text(encoding="utf-8")).get("engine_version")
+            except Exception:
+                ver = None
+    if not ver:
+        ver = get_engine_version()
+    module_path = f"engine_dev.universal_research_engine.v{str(ver).replace('.', '_')}.main"
+    mod = importlib.import_module(module_path)
+    return mod.run_engine, str(ver)
+
+
 def _load_regime_tf_map() -> dict:
     """Load regime timeframe mapping from config."""
     if not _REGIME_TF_MAP_PATH.exists():
@@ -573,7 +603,7 @@ def _run_replay_pass(strategy_id: str, symbol: str, tf: str,
         return -1
 
     try:
-        from engine_dev.universal_research_engine.v1_5_6.main import run_engine
+        run_engine, _replay_ver = _resolve_replay_run_engine(strategy_id)
         trades = run_engine(df_window, strategy)
     except Exception as e:
         result.add("replay_engine", "FAIL", f"run_engine() failed: {e}")

@@ -137,7 +137,13 @@ class StreamingBasketRunner:
             self._seq += 1
             self._last_key = key
             written = t
-        bridge.write_heartbeat(self.bridge_dir, self.basket_id, bar_ts, last_target_seq=self._seq - 1)
+        # Stamp the COMPUTE engine (basket single-source) so the live path
+        # records which engine produced the targets -- parity with backtest
+        # run_metadata/manifest. See engine_identity_is_compute_not_stamp.
+        from tools.basket_runner import ENGINE_VERSION as _basket_engine_version
+        bridge.write_heartbeat(self.bridge_dir, self.basket_id, bar_ts,
+                               last_target_seq=self._seq - 1,
+                               engine_version=str(_basket_engine_version))
         return written
 
 

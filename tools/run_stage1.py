@@ -400,6 +400,30 @@ def run_engine_logic(df, strategy):
             f"engine_identity_is_compute_not_stamp."
         ) from exc
 
+    # Bind the STAMP to the loaded module's OWN declared identity, not the
+    # trusted-but-unverified folder name. get_engine_version() returns the
+    # registry/override STRING and _emit_build_metadata stamps that same string;
+    # if the folder name disagrees with the module's ENGINE_VERSION the run would
+    # be stamped v{engine_ver} while computing on a different engine. (The v1_5_3
+    # folder ships the 1.5.4 engine -- a real, present-today skew.) Abort rather
+    # than mislabel. See engine_identity_is_compute_not_stamp.
+    _loaded_ver = getattr(engine_mod, "ENGINE_VERSION", None) \
+        or getattr(engine_mod, "__version__", None)
+    if _loaded_ver is not None and str(_loaded_ver) != str(engine_ver):
+        raise RuntimeError(
+            f"Engine selection resolved folder v{engine_ver}, but its module "
+            f"'{module_path}' declares ENGINE_VERSION={_loaded_ver!r}. The folder "
+            f"name disagrees with the engine's own identity -- the run would be "
+            f"STAMPED v{engine_ver} but COMPUTED on v{_loaded_ver}. Aborting to "
+            f"prevent a mislabel. Fix the registry/override to name the version "
+            f"the module actually is. See engine_identity_is_compute_not_stamp."
+        )
+    if not hasattr(engine_mod, "run_engine"):
+        raise RuntimeError(
+            f"Engine v{engine_ver} module '{module_path}' exposes no run_engine() "
+            f"entry point; cannot execute. See engine_identity_is_compute_not_stamp."
+        )
+
     return engine_mod.run_engine(df, strategy)
 
 
@@ -446,10 +470,20 @@ def _emit_resolve_emitter_and_capabilities(engine_ver, trades):
 
     try:
         emitter_mod = importlib.import_module(module_path)
-    except ModuleNotFoundError:
-         print(f"    [WARN] Dynamic emitter resolution failed for {module_path}. Using fallback.")
-         from engine_dev.universal_research_engine.v1_5_6.execution_emitter_stage1 import emit_stage1, RawTradeRecord, Stage1Metadata
-         PartialLegRecord = None
+    except ModuleNotFoundError as exc:
+        # Same anti-mislabel contract as run_engine_logic: the EMIT/schema layer
+        # must match the compute engine. Silently substituting the v1_5_6 emitter
+        # while the trades were computed on v{engine_ver} produces artifacts whose
+        # schema/identity disagree with the run's stamped engine_version. Fail
+        # fast rather than emit under the wrong layer. (All shipped engines
+        # v1_5_6..v1_5_9 carry an emitter; a missing one is a real wiring error.)
+        raise RuntimeError(
+            f"Engine v{engine_ver} has no execution_emitter_stage1 at "
+            f"'{module_path}': {exc}. Refusing to silently emit under the v1_5_6 "
+            f"emitter while computing on v{engine_ver} (schema/identity mismatch). "
+            f"Add the emitter or correct the engine selection. See "
+            f"engine_identity_is_compute_not_stamp."
+        ) from exc
     else:
         emit_stage1 = emitter_mod.emit_stage1
         RawTradeRecord = emitter_mod.RawTradeRecord

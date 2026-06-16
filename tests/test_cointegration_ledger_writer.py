@@ -43,6 +43,7 @@ def _good_row(tmp_path, run_id="COINT0001"):
         "canonical_final_equity_usd": 1125.0,
         "trades_total": 42,
         "methodology_version": "v1_raw_adf",
+        "engine_version": "1.5.9",
     }
 
 
