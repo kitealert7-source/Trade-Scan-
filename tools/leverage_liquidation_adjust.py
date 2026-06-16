@@ -60,6 +60,37 @@ def liquidation_adjusted(
     return {"net_pct": net_pct, "max_dd_pct": max_dd_pct, "ret_dd": ret_dd, "liquidated": False}
 
 
+def liquidation_adjusted_from_dd(
+    *,
+    net_pct: float,
+    max_dd_pct: float,
+    ret_dd: float,
+) -> dict:
+    """Apply the liquidation floor using MAX DRAWDOWN as the insolvency
+    discriminant — for callers that do NOT have the per-bar equity artifact.
+
+    A run whose max drawdown exceeded 100% of stake had its trough equity go
+    below zero (trough = peak*(1 - maxDD/100); peak > 0, so trough < 0 IFF
+    maxDD > 100 — independent of whether DD is measured vs stake or peak), i.e.
+    it would have been liquidated. This is the LEDGER-AVAILABLE equivalent of
+    ``min_equity_usd < 0``: the cointegration_sheet retains canonical metrics +
+    trade-level results but NOT the per-bar equity curve, so the artifact-based
+    ``min_equity_usd`` cannot be read for those runs. It also catches the
+    "dipped insolvent intra-run then recovered to a positive final" case (e.g.
+    net -50.8% / maxDD 119.7% / final +$491) that a final-equity test would miss.
+
+    Floors to net=-100 / maxDD=100 / ret_dd=-1 when insolvent; otherwise passes
+    through unchanged. NaN/None max_dd_pct -> pass through (NaN > 100 is False).
+    """
+    insolvent = max_dd_pct is not None and max_dd_pct > 100.0
+    return liquidation_adjusted(
+        net_pct=net_pct,
+        max_dd_pct=max_dd_pct,
+        ret_dd=ret_dd,
+        min_equity_usd=(-1.0 if insolvent else 0.0),
+    )
+
+
 def min_equity_usd(directive_id: str, basket_id: str, backtests_dir: Path | None = None) -> float | None:
     """Intra-run minimum equity from the per-bar basket artifact, or None if the
     artifact is absent. The discriminant for the liquidation floor: < 0 => the
@@ -78,4 +109,4 @@ def min_equity_usd(directive_id: str, basket_id: str, backtests_dir: Path | None
     return float(col.min())
 
 
-__all__ = ["liquidation_adjusted", "min_equity_usd", "DEFAULT_STAKE_USD"]
+__all__ = ["liquidation_adjusted", "liquidation_adjusted_from_dd", "min_equity_usd", "DEFAULT_STAKE_USD"]

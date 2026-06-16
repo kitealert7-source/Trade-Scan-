@@ -19,6 +19,9 @@
         "unrealized_r (close-based) is UNCHANGED from v1.5.7 \u2014 additive only",
         "spread=0 (all RESEARCH until the CLEAN->RESEARCH embed regen) -> byte-equivalent to v1.5.8."
     ],
+    "known_limitations": [
+        "NO margin-call / liquidation (inherited from v1.5.8/v1.5.9; this is a fill-price-only change). Under leveraged sizing (granular_parity / vol_parity) a basket can run to NEGATIVE equity intra-run instead of being liquidated at the stake, so modeled net%/maxDD% can exceed 100% or show a fictitious recovery. Backtest-FIDELITY only: live trades at fixed 0.01 lot are broker-margined and notional sizing is mathematically bounded (the floor is a no-op there). MITIGATION (required for leveraged cohorts, e.g. the granular_parity cointegration baseline): analysis-layer floor tools/leverage_liquidation_adjust.py -> net=-100 / maxDD=100 / ret_dd=-1 when maxDD>100% (trough equity < 0), wired into tools/cointegration_aggregator.py. Ref: outputs/system_reports/06_strategy_research/SZVP_LEVERAGE_FORENSIC.md (2026-06-04)."
+    ],
     "file_hashes": {
         "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
         "execution_emitter_stage1.py": "AF137FFDE29D1E68EB97AC459BC6C93B7AE642A0A9E1F20625E97A6D33DD620F",
