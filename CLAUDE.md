@@ -95,6 +95,14 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 
 ---
 
+## Research Discovery Principle
+
+To find which workflows, tools, governance artifacts, reports, audits, failure procedures, or repositories are relevant, **consult the TS_Obsidian_Vault nav layer first to *scope* the search** — falling back to broad repository exploration when the vault is silent, stale, or unverified.
+
+**Orient with the vault; decide and act only from canonical artifacts.** The vault is an advisory map (Invariant #31), never an authority — confirm every relevant-looking hit against its canonical source before acting, and heed each map's `verified:` date (session-start §1.7 flags drift). Orienting on a map is not concluding from it: a derived/advisory layer can be confidently wrong while the canonical layer holds the truth.
+
+---
+
 ## Path & Encoding Rules (ENFORCED BY PRE-COMMIT HOOK)
 
 `config/path_authority.py` — single source of truth for repo + sibling resolution. **Always import siblings from here**, never compute inline. `config/state_paths.py` is a compatibility wrapper that delegates to path_authority.
