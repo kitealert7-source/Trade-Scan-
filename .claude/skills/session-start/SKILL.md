@@ -94,6 +94,26 @@ Read line 1's first token: `PASS` (nothing to do) or `WATCH` (the named vault ma
 Advisory only — the vault is a subordinate map layer (Invariant #31), never a blocker. The `[ -f ]`
 guard also no-ops cleanly from a worktree (where `../` does not resolve to the container folder).
 
+### 1.8 Repo + working-tree state (LIVE — catch drift since last close)
+
+// turbo
+```bash
+echo "--- Trade_Scan ($(git rev-parse --abbrev-ref HEAD)) ---"
+git status -sb | head -10
+echo "unpushed: $(git rev-list --count @{u}..HEAD 2>/dev/null || echo '?')"
+for r in ../DATA_INGRESS ../TS_Execution ../TradeScan_State; do
+  [ -d "$r/.git" ] && { echo "--- $(basename "$r") ($(git -C "$r" rev-parse --abbrev-ref HEAD 2>/dev/null)) ---"; git -C "$r" status -s | head -6; }
+done
+```
+Confirm BEFORE acting: on `main` (not a leftover feature branch from a prior/parallel session), working
+tree clean OR every dirty entry understood, 0 unpushed, siblings not mid-edit. The closing SYSTEM_STATE
+snapshot reports git state AT LAST CLOSE — this is the **LIVE** state, which differs when a parallel
+session or external process mutated the tree after close (e.g. 2026-06-16: unexplained `D outputs/*`
+deletions + an uncommitted `DATA_INGRESS broker_specs/*.yaml` state appeared post-close). A
+dirty/divergent tree at startup is a FLAG — reconcile it before research, and never commit changes you
+didn't make without confirming intent (Invariant #2 append-only / "if you didn't create it, surface
+it"). (`[ -d ]` guards no-op from a worktree where `../` doesn't resolve to the sibling.)
+
 ---
 
 ## Phase 2 — Synthesize priorities
