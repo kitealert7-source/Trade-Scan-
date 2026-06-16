@@ -11,12 +11,17 @@ Anything absent from these central lists is mathematically defined as "abandoned
 
 **Manual ledger-retirement safety (2026-05-29):** when the Phase-1/2 tools cannot durably retire a stale ledger row — e.g. `portfolio_sheet` has no `is_current`/`quarantine_status` column, so a Portfolios/SAC row can only be removed by a DB delete, and `repair_integrity`'s Portfolios/SAC arm is Excel-only (wiped on next export) — and you fall back to a direct `ledger.db` edit: (1) back up `ledger.db` first (timestamped `bak_*`); (2) scope the `is_current=0`/DELETE by the EXACT target `run_id`s or the missing-disk criterion, NEVER a strategy-name `LIKE` (a broad LIKE over-touched 9 `master_filter` rows when only 5 were orphans) — and note that even a directive-id `LIKE` over-matches because SQL treats `_` as a single-character wildcard: `directive_id LIKE '%GP_ZCRS_Z25_%'` matched 986 rows, not 476 (2026-06-15). Always enumerate exact `run_id`s/`directive_id`s in an `IN (...)` list, or escape underscores with `LIKE ... ESCAPE`; never trust a bare name `LIKE` even when it looks specific; (3) use an idempotent `AND is_current=1` guard; (4) re-export MPS so the change reaches the pruner's keep-set.
 
-**Cointegration-corpus purge (archive-to-SQL + delete) (2026-06-15):** operator-directed sequence to retire-and-delete a cointegration cohort. This path is operator-directed and bypasses `lineage_pruner` by design (see Phase 2 "Empty-portfolio block" — the pruner cannot run on a stood-down fleet). Exact 5-step sequence:
-1. Back up `ledger.db` to a timestamped `bak_<ts>`.
-2. `UPDATE cointegration_sheet SET is_current=0 WHERE run_id IN (<exact ids>) AND is_current=1` — the row's canonical metrics ARE the SQL archive, so no separate export of results is needed.
-3. `python tools/ledger_db.py --export-mps` to push `is_current=0` into the keep-set view. (See Phase 4 caution: `--export-mps` regenerates tabs wholesale.)
-4. Delete/quarantine the backtest dirs scoped by EXACT `directive_id` (NOT `lineage_pruner` — see Phase 2 "Empty-portfolio block").
-5. `python tools/format_excel_artifact.py --profile portfolio`.
+**Cointegration-corpus keep-set propagation (2026-06-16 — AUTHORITATIVE).** Operator-directed retirement of a cointegration cohort that propagates ONE keep-set decision deterministically across all four surfaces — ledger, Excel, artifacts, directives — with no per-`directive_id` hand-work. The keep-set IS the `is_current=1` set; everything else retires.
+
+> **RETIRED — do NOT use:** the former step *"delete/quarantine the backtest dirs scoped by EXACT `directive_id` (NOT `lineage_pruner`)"*. As of commit `4da44451`, `lineage_pruner` runs on a stood-down fleet via `--allow-empty-shield`, so artifact + directive pruning is keep-set-driven, never manual-by-`directive_id`.
+
+Sanctioned sequence (verify each step's counts before the next):
+1. **Declare** the keep-set in the ledger. Back up `ledger.db` first (timestamped `bak_<ts>`), then flip `is_current` scoped by EXACT `run_id`s in an `IN (...)` list — NEVER a bare name/`directive_id` `LIKE` (`_` is a SQL single-char wildcard; `GP_ZCRS_Z25_` matched 986 vs 476, 2026-06-15), always `AND is_current=1`:
+   `UPDATE cointegration_sheet SET is_current=0 WHERE run_id IN (<non-keep ids>) AND is_current=1`
+2. **Excel view:** `python tools/ledger_db.py --export-mps` then `python tools/format_excel_artifact.py --profile portfolio` (`--export-mps` regenerates tabs wholesale — Phase 4 caution).
+3. **Clear the integrity gate** (one-time, only if `lineage_pruner` Phase-1B reports orphan keep-rows): `python tools/state_lifecycle/repair_integrity.py` (dry-run) → `--execute` (drops authorized orphans whose disk is already gone — operator `rm` is the signal, invariant #2).
+4. **Artifacts + directives:** `python tools/state_lifecycle/lineage_pruner.py --allow-empty-shield` (DRY-RUN — confirm `KEEP_RUNS`, the quarantine counts, and `[PASS] No KEEP_RUNS ID appears in delete list`) → `python tools/state_lifecycle/lineage_pruner.py --execute --allow-empty-shield` (quarantines non-keep runs + directives to `TradeScan_State/quarantine/`; reversible). NOTE: quarantined directives can include git-tracked `backtest_directives/archive/` entries — moving them is a repo change.
+5. **(OPTIONAL) ledger compaction** — only to physically remove `is_current=0` rows from the live table (they are otherwise retained in-place as the SQL archive): back up `ledger.db` → dump the rows to `TradeScan_State/_retired_cointegration/retired_rows_<ts>.parquet` + a `RETIRE_MANIFEST_<ts>.json` → `DELETE FROM cointegration_sheet WHERE is_current=0` → re-run step 2. Append-only preserved by the backup + parquet archive.
 
 ### Phase 1: Diagnose & Repair Structural Decay
 
@@ -34,7 +39,7 @@ Evaluate the physical tracking geometries strictly across Master and Filtered li
 python tools/state_lifecycle/lineage_pruner.py
 ```
 
-**Note — Empty-portfolio block:** when execution is stood down, `portfolio.yaml` has zero strategies and `lineage_pruner.py` exits with `[BLOCK] portfolio.yaml parsed but no strategies found` (`lineage_pruner.py:164`). The lineage pruner is keep-set-driven and cannot run without a populated portfolio — for deletions during a stood-down fleet, use the operator-directed corpus-purge / manual-retirement path above (scope by exact `run_id`s/`directive_id`s, back up `ledger.db` first).
+**Note — Empty-portfolio block (RESOLVED 2026-06-16, commit `4da44451`):** when execution is stood down, `portfolio.yaml` has zero strategies. Previously `lineage_pruner.py` hard-exited (`[BLOCK] portfolio.yaml parsed but no strategies found`, `lineage_pruner.py:164`). It now accepts **`--allow-empty-shield`**, which treats an empty-but-valid `portfolio.yaml` as an empty execution shield (nothing deployed → nothing to shield) and proceeds keep-set-driven — the keep-set is ledger-sourced (FSP/MPS/`cointegration_sheet is_current=1`/PORTFOLIO_COMPLETE), independent of `portfolio.yaml`. A MISSING/malformed `portfolio.yaml` still blocks. So a stood-down-fleet prune appends `--allow-empty-shield` to the Phase 2/3 commands below (and uses the keep-set propagation sequence above), NOT a manual `directive_id` delete.
 
 ### Phase 3: Execute Formal Lineage Cleanup
 
@@ -73,3 +78,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-05-22 | Phase 1 referenced removed `tmp/hydrate_sandbox.py`; one-time bootstrap | Removed Phase 1 entirely; renumbered Phases 2–5 → 1–4 |
 | 2026-05-29 | Manual ledger flip via name LIKE over-touched 9 rows (5 orphans); needed restore | Added ledger-retirement safety note: scope by exact run_id; back up + AND-guard |
 | 2026-06-15 | id LIKE over-matched (SQL `_`=wildcard, 986 vs 476); empty-portfolio block | Added corpus-purge + empty-portfolio-block + LIKE-escape (`_`/IN) notes |
+| 2026-06-16 | Empty-portfolio block forced manual per-`directive_id` deletes on a stood-down fleet | `--allow-empty-shield` (commit `4da44451`); rewrote corpus-purge → keep-set-driven `lineage_pruner`; retired the manual `directive_id` step |
