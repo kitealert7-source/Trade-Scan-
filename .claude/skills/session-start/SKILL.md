@@ -80,6 +80,20 @@ else:
 "
 ```
 
+### 1.7 Vault nav-layer freshness (advisory)
+
+// turbo
+```bash
+if [ -f ../TS_Obsidian_Vault/system/_sync.py ]; then
+  python ../TS_Obsidian_Vault/system/_sync.py --summary
+else
+  echo "(vault nav layer absent - skipped)"
+fi
+```
+Read line 1's first token: `PASS` (nothing to do) or `WATCH` (the named vault maps need review).
+Advisory only — the vault is a subordinate map layer (Invariant #31), never a blocker. The `[ -f ]`
+guard also no-ops cleanly from a worktree (where `../` does not resolve to the container folder).
+
 ---
 
 ## Phase 2 — Synthesize priorities
@@ -99,6 +113,7 @@ Apply the triage tables below. Pick the top 3 from each side. Skip tiers with no
 | WATCH | SESSION STATUS = WARNING | SYSTEM_STATE.md | Decide if it blocks research |
 | WATCH | Intent-index warnings (dead / misclassified) | last audit output | `python tools/audit_intent_index.py --all` |
 | WATCH | Directives lingering in `active/` from prior session | 1.5 | Confirm state or `python tools/reset_directive.py <ID>` |
+| WATCH | Vault nav-layer DRIFT/STALE | 1.7 | Review the named maps; bump `verified:` (advisory — never blocks research) |
 
 ### Research triage
 
@@ -143,6 +158,7 @@ Last close : <date + short-hash of last session-close commit>
   • RESEARCH_MEMORY.md <N> KB  →  compact_research_memory.py before infra work
   • Active Charter STALE (>14d)  →  update sessions log or supersede
   • Weekend  →  /repo-cleanup-refactor and /pipeline-state-cleanup eligible
+  • Vault maps DRIFT/STALE  →  review + re-verify  (advisory; ../TS_Obsidian_Vault/system/_sync.py)
 
 =========================================================
 Suggested first task: <Infra #1 if BLOCKER; else Active Charter focus if present and FRESH; else Research #1>
@@ -190,4 +206,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| 2026-06-16 | Vault nav-layer could silently drift from canonical | Added §1.7 advisory `_sync.py --summary` check |
