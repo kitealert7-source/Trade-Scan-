@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 2 uncommitted
+- WARNING: 7 symbol(s) stale (>3 days behind)
 
-> Generated: 2026-06-15T14:52:32Z
+> Generated: 2026-06-16T08:17:49Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +12,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 1492 directives
+- Completed: 1 directives
 
 ## Ledgers
 
@@ -32,22 +32,22 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-15** | Symbols: 221
+- Latest bar: **2026-06-16** | Symbols: 221 | **Stale (>3d): 7**
 
 ## Artifacts
-- Run directories: 12872
+- Run directories: 3316
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: 2 uncommitted
-- Last substantive commit: `fc30f0c4 state(corpus): corrected BB-adaptive-width re-run directives (497x3) + hypothesis spec`
+- Working tree: clean
+- Last substantive commit: `8857f863 skills: maintenance audit 2026-06-16 â€” 1 soft fix (friction-log char cap)`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 32 KB / 116 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [SIZE] RESEARCH_MEMORY.md 34 KB / 124 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
@@ -62,7 +62,7 @@
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
-- **Broader-pytest baseline:** 3 acknowledged failure(s) (last refreshed 2026-06-07 @ d19fa5a9). Tests: test_install_sh_installs_pre_push_hook, test_pre_push_hook_blocks_when_registry_, test_pre_push_hook_passes_when_registry_. Verify via `python tools/check_broader_pytest_baseline.py` (run by §9b).
+- **Broader-pytest baseline:** clean (0 acknowledged failures). Last refreshed 2026-06-16T08:14:14+00:00 @ ae7e29ae.
 
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
