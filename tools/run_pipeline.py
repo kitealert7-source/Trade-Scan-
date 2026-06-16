@@ -866,6 +866,26 @@ def _basket_write_vault_snapshot(directive_id: str, parsed, result):
         return None
 
 
+def _basket_compute_engine_version() -> str:
+    """Authoritative engine identity for EVERY basket-run stamp.
+
+    Baskets compute on the hardcoded ``engine_abi.v1_5_9`` ABI (basket_runner.py
+    imports it directly; ``engine_abi/`` exposes only v1_5_9). A basket run's
+    engine identity is therefore DEFINED by that module's ``ENGINE_VERSION`` and
+    is INERT to ``ENGINE_VERSION_OVERRIDE`` (proven byte-identical compute under
+    override 1.5.9 vs 1.5.10). Every basket stamp -- manifest/input_provenance,
+    run_metadata.json, STRATEGY_CARD.md, the cointegration_sheet row -- MUST
+    route through here, NEVER through ``get_engine_version()`` (which honors the
+    override/registry and would mislabel a basket as an engine it never ran on).
+
+    Single source so the four stamp sites cannot drift; locked by
+    tests/test_engine_identity_convergence.py. Doctrine:
+    memory ``engine_identity_is_compute_not_stamp``.
+    """
+    from engine_abi.v1_5_9 import ENGINE_VERSION
+    return str(ENGINE_VERSION)
+
+
 def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
     """Path B / Phase 5b.2 first half: initialize PipelineStateManager, create
     the backtests/ + runs/ folders, write the dual-location tradelevel CSV,
@@ -918,9 +938,8 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
     input_provenance = None
     try:
         from tools.basket_provenance import basket_input_provenance
-        from engine_abi.v1_5_9 import ENGINE_VERSION as _eng_ver
         input_provenance = basket_input_provenance(
-            run_ctx.get("leg_data") or {}, str(_eng_ver),
+            run_ctx.get("leg_data") or {}, _basket_compute_engine_version(),
         )
     except Exception as exc:
         print(f"[BASKET] WARN input provenance failed: {exc}")
@@ -967,7 +986,6 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
             write_per_window_report_artifacts,
             write_basket_strategy_card,
         )
-        from engine_abi.v1_5_9 import ENGINE_VERSION as _engine_version
         stake = float(parsed.get("basket", {}).get("initial_stake_usd", 1000.0))
         written = write_per_window_report_artifacts(
             out_dir=backtests_dir.parent,  # parent of raw/ is the directive folder
@@ -976,7 +994,7 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
             basket_result=result,
             df_trades=df_trades,
             parsed_directive=parsed,
-            engine_version=str(_engine_version),
+            engine_version=_basket_compute_engine_version(),
             starting_equity=stake,
         )
         print(f"[BASKET] Per-window report: {len(written)} files "
@@ -992,7 +1010,7 @@ def _basket_write_tradelevel_and_report(directive_id: str, parsed, run_ctx):
             directive_id=directive_id,
             run_id=run_id,
             parsed_directive=parsed,
-            engine_version=str(_engine_version),
+            engine_version=_basket_compute_engine_version(),
         )
         print(f"[BASKET] STRATEGY_CARD.md: {card_path.name}")
     except Exception as exc:
@@ -1082,7 +1100,6 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
             from tools.portfolio.cointegration_provenance import build_cointegration_row
             from tools.portfolio.cointegration_ledger_writer import append_cointegration_row
             from tools.basket_hypothesis.canonical_metrics import canonical_metrics
-            from engine_abi.v1_5_9 import ENGINE_VERSION as _coint_engine_ver
             import hashlib as _hl
             if not _parquet_p.is_file():
                 print("[COINT] WARN no per-bar parquet; skipping cointegration ledger row")
@@ -1103,7 +1120,7 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                     trades_total=_trades_total,
                     completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
-                    engine_version=str(_coint_engine_ver),
+                    engine_version=_basket_compute_engine_version(),
                 )
                 append_cointegration_row(_coint_row)
                 # Writer is sink-only (DB, WAL-safe under parallel workers).

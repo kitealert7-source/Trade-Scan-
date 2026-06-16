@@ -370,21 +370,36 @@ def load_strategy(strategy_id: str, run_id: str = None):
 
 
 def run_engine_logic(df, strategy):
-    """Run engine via main orchestration layer."""
+    """Run engine via main orchestration layer.
+
+    The engine module is resolved from ``get_engine_version()`` (registry
+    active_engine, or ENGINE_VERSION_OVERRIDE) -- the SAME value that stamps the
+    run's engine_version in ``_emit_build_metadata``. Resolution and stamp are
+    one source, so a single-strategy run can never label itself as an engine it
+    did not compute on. A previous silent fallback to v1_5_6 on
+    ModuleNotFoundError broke that contract (it ran v1_5_6 compute while the
+    stamp kept the requested version); it is now a fail-fast (Invariant #1) so a
+    mis-resolved engine ABORTS rather than mislabeling. Doctrine:
+    memory ``engine_identity_is_compute_not_stamp``.
+    """
     import importlib
     engine_ver = get_engine_version()
     # Normalize version string for path (e.g. 1.5.4 -> v1_5_4)
     engine_path = f"v{engine_ver.replace('.', '_')}"
     module_path = f"engine_dev.universal_research_engine.{engine_path}.main"
-    
+
     try:
         engine_mod = importlib.import_module(module_path)
-    except ModuleNotFoundError:
-         # Fallback for local folder execution
-         print(f"    [WARN] Dynamic engine resolution failed for {module_path}. Using fallback path.")
-         from engine_dev.universal_research_engine.v1_5_6.main import run_engine
-         return run_engine(df, strategy)
-         
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            f"Engine v{engine_ver} (resolved from registry active_engine / "
+            f"ENGINE_VERSION_OVERRIDE) has no loadable run-engine module at "
+            f"'{module_path}': {exc}. Refusing to silently fall back to v1_5_6 "
+            f"and mislabel this run as v{engine_ver}. Point engine selection at a "
+            f"version that ships main.py, or add the engine. See "
+            f"engine_identity_is_compute_not_stamp."
+        ) from exc
+
     return engine_mod.run_engine(df, strategy)
 
 
