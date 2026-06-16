@@ -82,6 +82,7 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 | Research infrastructure or filters | `outputs/system_reports/06_strategy_research/RESEARCH_INFRASTRUCTURE_AUDIT.md` |
 | Backtest dates, warm-up, regime | `outputs/system_reports/06_strategy_research/BACKTEST_DATE_POLICY_AND_DATA_FLOW.md` |
 | Artifact provenance or storage | `outputs/system_reports/08_pipeline_audit/ARTIFACT_STORAGE_AUDIT_2026_03_24.md` |
+| Why a directive corpus may be untracked from git | `outputs/system_reports/04_governance_and_guardrails/EXECUTION_CAPSULE_CONTRACT.md` |
 | Directive state, lifecycle, cleanup | `outputs/system_reports/10_State Lifecycle Management/Workflow_Design.md` |
 | Promoting a strategy to LIVE | `.claude/skills/promote/SKILL.md` |
 | Deployment doctrine (historical) | `outputs/system_reports/11_deployment_and_burnin/README.md` (index) |
