@@ -51,11 +51,13 @@ Operational entry points are the primary interfaces for system interaction.
 
 | Entrypoint | Purpose | Primary Stages | Primary Artifacts |
 | :--- | :--- | :--- | :--- |
-| `run_pipeline.py` | Full directive execution | Stage 0 → Stage 3A | `results_tradelevel.csv`, `Strategy_Master_Filter.xlsx` |
-| `run_portfolio_analysis.py` | Governance-grade portfolio simulation | Stage 4 | `portfolio_summary.json` |
-| `capital_wrapper.py` | Capital model simulation across profiles | Post-Stage-4 | `summary_metrics.json`, `profile_comparison.json` |
-| `post_process_capital.py` | Capital utilization metrics enrichment | Post-Capital | `profile_comparison.json` (enriched) |
-| `format_excel_artifact.py` | Decoupled Excel styling applied to generated ledgers | Post-Pipeline Workflow | Formatted `.xlsx` artifacts |
+| `tools/run_pipeline.py` | Full directive execution | Stage 0 → Stage 4 | `results_tradelevel.csv`, `Strategy_Master_Filter.xlsx` |
+| `tools/exec_preflight.py` | Standalone preflight governance gate | Stage 0 | `portfolio_summary.json` (indirect) |
+| `tools/run_portfolio_analysis.py` | Governance-grade portfolio simulation | Stage 4 | `portfolio_summary.json` |
+| `tools/capital_wrapper.py` | Capital model simulation across profiles | Post-Stage-4 | `summary_metrics.json`, `profile_comparison.json` |
+| `tools/post_process_capital.py` | Capital utilization metrics enrichment | Post-Capital | `profile_comparison.json` (enriched) |
+| `tools/format_excel_artifact.py` | Decoupled Excel styling applied to generated ledgers | Post-Pipeline Workflow | Formatted `.xlsx` artifacts |
+| `tools/system_preflight.py` | System health / registry readiness validation | Operational readiness | Health diagnostics |
 
 ---
 
@@ -79,13 +81,14 @@ Gate | Layer | Protection Provided
 
 ## SECTION 5 — Execution Engine Components
 
-The engine layer (currently **Universal Research Engine v1.5.3**) ensures that bar-by-bar simulation is 100% deterministic and reproducible.
+The engine layer (currently **Universal Research Engine v1.5.8**, canonical and active) ensures that bar-by-bar simulation is 100% deterministic and reproducible. The consumer ABI surface is governed by `engine_abi.v1_5_9`, which is the active ABI consumed by `TS_Execution` and basket runner consumers.
 
 - **`engines/filter_stack.py`**: The authoritative gatekeeper for trade entry and exit signals. It enforces regime-aware execution logic.
-- **`execution_loop.py`**: (Located in `engine_dev/`) The core iterator that processes historical bars and emits trade events.
-- **`capital_wrapper`**: A deterministic event-based simulator that applies capital and risk constraints post-execution. Emits structured deployable artifacts per capital profile.
-- **`portfolio_evaluator`**: Cross-instrument engine that reconciles individual symbol results into a unified portfolio view.
-- **`post_process_capital.py`**: Enriches `profile_comparison.json` with utilization-based capital insights per profile.
+- **`tools/exec_preflight.py`**: CLI wrapper for governance preflight that binds `governance/preflight.py` into the execution flow.
+- **`engine_dev/universal_research_engine/v1_5_8/execution_loop.py`**: The core iterator that processes historical bars and emits trade events.
+- **`engine_abi/v1_5_9/__init__.py`**: The active ABI manifest and exporter surface used by external consumers.
+- **`tools/capital_wrapper.py`**: A deterministic event-based simulator that applies capital and risk constraints post-execution. Emits structured deployable artifacts per capital profile.
+- **`tools/post_process_capital.py`**: Enriches `profile_comparison.json` with utilization-based capital insights per profile.
 
 ### Capital Profiles (Current -- v3.0 Retail Amateur Model, 2026-04-16)
 
@@ -269,4 +272,4 @@ The system is governed by **25 codified invariants** (see `AGENT.md` SYSTEM INVA
 7. **Scratch Script Placement**: All ad-hoc agent scripts go to `/tmp/` only. The repository root is reserved for governed toolset artifacts.
 
 ---
-**Status**: Top-Level Authority Map | **Version**: 2.0.1 | **Last Updated**: 2026-03-25
+**Status**: Top-Level Authority Map | **Version**: 2.0.2 | **Last Updated**: 2026-06-17
