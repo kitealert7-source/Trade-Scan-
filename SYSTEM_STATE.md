@@ -1,22 +1,22 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: 7 symbol(s) stale (>3 days behind)
+## SESSION STATUS: BROKEN
+- BROKEN: 15 commits not pushed to origin
 
-> Generated: 2026-06-16T15:14:25Z
+> Generated: 2026-06-17T13:42:35Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
 ## Engine
-- **Version:** 1.5.8 | **Status:** FROZEN | **Manifest:** VALID
+- **Version:** 1.5.10 | **Status:** FROZEN | **Manifest:** VALID
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 28 directives
+- Completed: 31 directives
 
 ## Ledgers
 
-- **Master Filter:** 1257 rows
+- **Master Filter:** 1259 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
@@ -32,15 +32,15 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-16** | Symbols: 221 | **Stale (>3d): 7**
+- Latest bar: **2026-06-17** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3343
+- Run directories: 3348
 
 ## Git Sync
-- Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `2413d293 docs(skill): add live git-state check to session-start (step 1.8)`
+- Remote: **15 commits ahead of origin/main** (vs `origin/main`)
+- Working tree: 1 uncommitted
+- Last substantive commit: `bb15c768 feat(engine): Phase C -- promote v1.5.10 to canonical single-asset engine`
 
 ## Deferred Maintenance
 
@@ -76,5 +76,5 @@ COINTREV has **no cointegration-break exit** — a live position hangs on a brok
 #### Engine-identity contradictory stamp — RESOLVED + BULLETPROOFED 2026-06-16 (charter task_edc22e4d, commits `22112c5b` + hardening `4f5ac8fb`, branch `fix/engine-identity-convergence`)
 Per-path consolidation landed, then an adversarial 5-dimension audit drove a full bulletproofing pass (operator: "everything, all paths"): gate-enforced lock (pre-commit roster + `_GATE_TEST_SUITE`), single-source basket ABI via `basket_runner` re-export (kills drift both directions), single-strategy verifies the loaded module's own ENGINE_VERSION (catches the live `v1_5_3`→1.5.4 folder skew), cointegration writer requires engine_version, AST+behavioral guard over all 4 basket surfaces, live-heartbeat + pre-promote-replay engine stamps. Locked by `tests/test_engine_identity_convergence.py` (11 cases, in the commit gate). Details: `[[engine-identity-is-compute-not-stamp]]`. **Basket:** all four stamps (manifest/input_provenance, run_metadata.json, STRATEGY_CARD.md, cointegration_sheet row) route through the new single source `run_pipeline.py:_basket_compute_engine_version()` = `engine_abi.v1_5_9.ENGINE_VERSION`, override-inert. Investigation finding: the *committed* basket dispatch was ALREADY converged on the compute (1.5.9); the "1.5.10" in run 28e7277b's `manifest.json` was a transient 2026-06-14 working-tree relic (operator's active v1_5_10 work), not reproducible with committed code — so the basket change is a drift-lock, behaviour unchanged. **Single-strategy (the genuinely-live divergence):** `run_stage1.py:run_engine_logic` silently fell back to v1_5_6 compute while keeping the requested label on `ModuleNotFoundError` (live under override=1.5.10; v1_5_10 ships no `main.py`) — now fail-fast. The shared `get_engine_version()` was left untouched (charter constraint honoured). Doctrine: `[[engine-identity-is-compute-not-stamp]]`.
 
-#### Baskets promoted to CHARGED v1.5.10 — Phase B flip DONE 2026-06-17 (supersedes the "v1.5.9 / behaviour-unchanged" status above)
-The single-source basket ABI now resolves to **`engine_abi.v1_5_10`** (charged), not v1.5.9. `basket_runner` re-points via `config.engine_authority.CANONICAL_ENGINE_ABI`; direction-aware spread is charged at the fast-path entry (`basket_runner._run_fast_path`) and the PineZRev `_liquidate` exit (cycle-aware via `effective_direction`); round-trip pays exactly one spread/leg/side; strict no-op at spread=0 (byte-identical to v1.5.9). The 2026-06-16 "1.5.10 was a transient relic / basket behaviour unchanged" note is **deliberately reversed** — v1.5.10 is now the **FROZEN canonical basket compute** (vaulted `vault/engines/Universal_Research_Engine/v1_5_10/`, manifest `vaulted:true`/`FROZEN`/`freeze_date:2026-06-17`). `active_engine` stays **v1_5_8** (single-asset = Phase C, separate). Positive proof `tests/test_v1510_fast_path_charge.py`; convergence gate re-proves stamp==compute==1.5.10. Commits `363c8179` (flip) + `cd2e229b` (promotion). The cost regime of NEW basket runs is now `spread_charged`. Refs: `[[project-v1_5_10-canonical-readiness]]`, `outputs/system_reports/01_system_architecture/V1_5_10_CANONICAL_FLIP_DESIGN.md`.
+#### Baskets promoted to CHARGED v1.5.10 — Phase B (baskets) + Phase C (single-asset active_engine) flips DONE 2026-06-17 (supersedes the "v1.5.9 / behaviour-unchanged" + "active_engine stays v1_5_8" status)
+The single-source basket ABI now resolves to **`engine_abi.v1_5_10`** (charged), not v1.5.9. `basket_runner` re-points via `config.engine_authority.CANONICAL_ENGINE_ABI`; direction-aware spread is charged at the fast-path entry (`basket_runner._run_fast_path`) and the PineZRev `_liquidate` exit (cycle-aware via `effective_direction`); round-trip pays exactly one spread/leg/side; strict no-op at spread=0 (byte-identical to v1.5.9). The 2026-06-16 "1.5.10 was a transient relic / basket behaviour unchanged" note is **deliberately reversed** — v1.5.10 is now the **FROZEN canonical basket compute** (vaulted `vault/engines/Universal_Research_Engine/v1_5_10/`, manifest `vaulted:true`/`FROZEN`/`freeze_date:2026-06-17`). `active_engine` is now **v1_5_10** (single-asset Phase C flip DONE 2026-06-17, commit bb15c768; single-asset runs self-report the cost regime via run_stage1 `spread_model`/`spread_coverage_pct`, charging trade-level-proven). Positive proof `tests/test_v1510_fast_path_charge.py`; convergence gate re-proves stamp==compute==1.5.10. Commits `363c8179` (flip) + `cd2e229b` (promotion). The cost regime of NEW basket runs is now `spread_charged`. Refs: `[[project-v1_5_10-canonical-readiness]]`, `outputs/system_reports/01_system_architecture/V1_5_10_CANONICAL_FLIP_DESIGN.md`.
