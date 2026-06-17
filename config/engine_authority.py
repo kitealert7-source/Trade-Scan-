@@ -75,7 +75,7 @@ def normalize_engine_token(token: str, style: str = "underscore") -> str:
 # --- The TWO switches for the whole system (today). A staged convergence
 #     (UNIFIED_ENGINE_AUTHORITY_PLAN.md §4) flips these; the gate proves neither
 #     silently diverges from the real compute. ---
-CANONICAL_ENGINE_ABI = "engine_abi.v1_5_9"           # basket compute ABI
+CANONICAL_ENGINE_ABI = "engine_abi.v1_5_10"          # basket compute ABI (Phase B flip 2026-06-17)
 CANONICAL_SINGLE_ASSET_ENGINE = "v1_5_8"             # single-asset engine
 
 # Derived dotted forms (parsed from the two switches above — never hand-set).

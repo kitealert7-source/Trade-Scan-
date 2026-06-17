@@ -59,6 +59,7 @@ from tools.recycle_rules.h2_recycle import H2RecycleRule
 from tools.recycle_rules.h2_recycle_v3 import _build_ref_closes
 from tools.recycle_strategies import PineZRevArmedState
 from indicators.stats.ratio_hedged_spread_zscore import ratio_hedged_spread_zscore
+from engines.execution_fill import bar_spread, exec_fill
 
 
 _RULE_NAME = "pine_ratio_zrev_v1"
@@ -812,7 +813,29 @@ class PineRatioZRevRule(H2RecycleRule):
                 "Did __init__ skip the back-reference injection?"
             )
 
-        realized_pnl = floating_total
+        # v1.5.10 direction-aware EXIT charge (fast path bypasses evaluate_bar, so
+        # it charges here). Recompute ref rates exactly as apply() does, then charge
+        # each OPEN leg's exit fill: a long position exits by SELLING -> bid
+        # (close - spread); a short exits by BUYING -> ask (raw). Side keyed on
+        # leg.effective_direction (CYCLE-AWARE: PineZRev legs flip sign per cycle --
+        # using leg.direction here would re-introduce the 2026-05-24 leg_direction_flip
+        # bug). No-op at spread<=0/absent -> byte-identical to frozen v1.5.9. Entry
+        # (basket_runner) + this exit together pay exactly one spread per leg.
+        _ref_closes = _build_ref_closes(legs, bar_ts)
+        charged_exit: dict[str, float] = {}
+        charged_leg_float: dict[str, float] = {}
+        for leg in legs:
+            raw_close = bar_closes[leg.symbol]
+            if leg.state.in_pos:
+                px = exec_fill(raw_close, is_sell=(leg.effective_direction == 1),
+                               spread=bar_spread(leg.df.loc[bar_ts]))
+                charged_exit[leg.symbol] = px
+                charged_leg_float[leg.symbol] = _leg_pnl_usd_universal(leg, px, _ref_closes)
+            else:
+                charged_exit[leg.symbol] = raw_close
+                charged_leg_float[leg.symbol] = 0.0
+
+        realized_pnl = sum(charged_leg_float.values())
         self.realized_total += realized_pnl
 
         for leg in legs:
@@ -822,12 +845,12 @@ class PineRatioZRevRule(H2RecycleRule):
                 "entry_index":    leg.state.entry_index,
                 "entry_price":    leg.state.entry_price,
                 "exit_index":     i,
-                "exit_price":     bar_closes[leg.symbol],
+                "exit_price":     charged_exit[leg.symbol],
                 "direction":      leg.effective_direction,
                 "lot":             leg.lot,
                 "exit_source":    f"PINE_ZREV_{reason}",
                 "exit_timestamp": bar_ts,
-                "pnl_usd":         leg_float.get(leg.symbol, 0.0),
+                "pnl_usd":         charged_leg_float.get(leg.symbol, 0.0),
             }
             # Enrich in place — adds r_multiple, mfe/mae prices + R units,
             # atr_entry, risk_distance, initial_stop_price, vol/trend/regime

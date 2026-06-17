@@ -35,7 +35,9 @@ from typing import Any, Protocol
 
 import pandas as pd
 
-from engine_abi.v1_5_9 import (
+from engines.execution_fill import bar_spread, exec_fill
+
+from engine_abi.v1_5_10 import (
     BarState,
     ENGINE_VERSION,
     EngineConfig,
@@ -65,11 +67,11 @@ from engine_abi.v1_5_9 import (
 # compute-binding by verification, not dispatch -- UNIFIED_ENGINE_AUTHORITY_PLAN.md.
 from config.engine_authority import CANONICAL_ENGINE_ABI as ENGINE_ABI
 
-assert ENGINE_ABI == "engine_abi.v1_5_9", (
+assert ENGINE_ABI == "engine_abi.v1_5_10", (
     "basket ENGINE_ABI diverged from the static import target at "
-    f"basket_runner.py:38 (got {ENGINE_ABI!r}, expected 'engine_abi.v1_5_9'). "
+    f"basket_runner.py:38 (got {ENGINE_ABI!r}, expected 'engine_abi.v1_5_10'). "
     "The authority constant and the :38 import must name the same module; flip "
-    "them together (see UNIFIED_ENGINE_AUTHORITY_PLAN.md Phase B)."
+    "them together (Phase B re-point, V1_5_10_CANONICAL_FLIP_DESIGN.md §3a)."
 )
 
 __all__ = [
@@ -484,17 +486,25 @@ class BasketRunner:
         for leg, view in zip(self.legs, leg_views):
             entry_row = view.iloc[fill_idx]
             entry_open = float(entry_row.get("open", entry_row["close"]))
+            # v1.5.10 direction-aware entry fill (fast path bypasses evaluate_bar,
+            # so it charges here): long (BUY) at ask (raw), short (SELL) at bid
+            # (= ask - per-bar embedded spread). No-op at spread=0 -> byte-identical
+            # to frozen v1.5.9. Mirrors engine_abi.v1_5_10 evaluate_bar._exec_fill.
+            fill_price = exec_fill(entry_open, is_sell=(leg.direction == -1),
+                                   spread=bar_spread(entry_row))
             leg.state.in_pos = True
             leg.state.direction = leg.direction
             leg.state.entry_index = fill_idx
-            leg.state.entry_price = entry_open
-            leg.state.trade_high = entry_open
-            leg.state.trade_low = entry_open
+            leg.state.entry_price = fill_price
+            # Seed extremes + initial stop from the CHARGED fill (not raw open),
+            # else MFE/MAE enrichment + finalize_force_close desync fast-vs-engine.
+            leg.state.trade_high = fill_price
+            leg.state.trade_low = fill_price
             # Minimal entry_market_state — matches what the engine populates
             # for finalize_force_close to read. Optional fields stay absent;
             # the rule does not consult any of them.
             leg.state.entry_market_state = {
-                "initial_stop_price": entry_open,
+                "initial_stop_price": fill_price,
                 "fill_bar_idx":       fill_idx,
                 "signal_bar_idx":     fill_idx - 1,
             }

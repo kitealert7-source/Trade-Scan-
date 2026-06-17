@@ -170,29 +170,40 @@ def test_basket_runner_inner_join_index_subsets_legs():
     assert out["USDJPY"] == []
 
 
-def test_basket_runner_uses_only_engine_abi_v1_5_9():
-    """Static guard: basket_runner.py imports only from engine_abi.v1_5_9.
+def test_basket_runner_imports_engine_only_via_abi():
+    """Static guard: basket_runner.py reaches engine COMPUTE only via engine_abi
+    (the canonical ABI), never via a direct engine_dev.* import. The shared
+    direction-aware fill helper `engines.execution_fill` is the one permitted
+    engines.* import — a leaf utility (pandas-only), not engine compute. It carries
+    the v1.5.10 fast-path spread charge (V1_5_10_CANONICAL_FLIP_DESIGN §3b), which
+    must use the shared module rather than the ABI's private _exec_fill.
 
-    Detects accidental regressions to direct engine_dev imports. The plan's
-    binding rule is `tools/basket_runner.py` may not bypass the ABI.
+    Detects accidental regressions to direct engine_dev imports / ABI bypass.
     """
     import ast
     from pathlib import Path
+    ALLOWED_ENGINES = {"engines.execution_fill"}
     src = (Path(__file__).resolve().parent.parent / "tools" / "basket_runner.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     direct_engine_imports: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             m = node.module or ""
-            if m.startswith("engine_dev.") or (m.startswith("engines") and not m.startswith("engine_abi")):
+            if m.startswith("engine_dev.") or (
+                m.startswith("engines") and not m.startswith("engine_abi")
+                and m not in ALLOWED_ENGINES
+            ):
                 direct_engine_imports.append(m)
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.startswith("engine_dev.") or (
-                    alias.name.startswith("engines") and not alias.name.startswith("engine_abi")
+                nm = alias.name
+                if nm.startswith("engine_dev.") or (
+                    nm.startswith("engines") and not nm.startswith("engine_abi")
+                    and nm not in ALLOWED_ENGINES
                 ):
-                    direct_engine_imports.append(alias.name)
+                    direct_engine_imports.append(nm)
     assert direct_engine_imports == [], (
-        "basket_runner.py must import from engine_abi.v1_5_9 only. "
-        f"Found illegal imports: {direct_engine_imports}"
+        "basket_runner.py must reach engine compute only via engine_abi (plus the "
+        f"allowed leaf helper {sorted(ALLOWED_ENGINES)}). Found illegal imports: "
+        f"{direct_engine_imports}"
     )

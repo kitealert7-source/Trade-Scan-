@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 
 import tools.basket_runner as basket_runner
-from engine_abi.v1_5_9 import ENGINE_VERSION as ABI_ENGINE_VERSION
+from engine_abi.v1_5_10 import ENGINE_VERSION as ABI_ENGINE_VERSION
 from tools.pipeline_utils import get_engine_version
 from config.engine_authority import (
     CANONICAL_ENGINE_ABI,
@@ -55,7 +55,9 @@ def test_basket_single_source_chain():
     import tools.run_pipeline as rp
     # basket_runner re-exports the exact ABI compute identity.
     assert basket_runner.ENGINE_VERSION == ABI_ENGINE_VERSION
-    assert basket_runner.ENGINE_ABI == "engine_abi.v1_5_9"
+    assert basket_runner.ENGINE_ABI == "engine_abi.v1_5_10"
+    # Positive lock (Phase B): literal v1.5.10 so an accidental revert to v1_5_9 fails loud.
+    assert str(basket_runner.ENGINE_VERSION) == "1.5.10"
     # The stamp helpers read basket_runner, not engine_abi directly.
     assert rp._basket_compute_engine_version() == str(basket_runner.ENGINE_VERSION)
     assert rp._basket_engine_abi() == str(basket_runner.ENGINE_ABI)
@@ -69,10 +71,10 @@ def test_basket_compute_version_is_override_inert(monkeypatch):
     """The basket compute identity does not move with the override that
     ``get_engine_version()`` honors."""
     import tools.run_pipeline as rp
-    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.10")
-    assert get_engine_version() == "1.5.10"          # selector honors override...
+    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "9.9.9")
+    assert get_engine_version() == "9.9.9"          # selector honors override...
     assert rp._basket_compute_engine_version() == str(ABI_ENGINE_VERSION)  # ...stamp does not
-    assert rp._basket_compute_engine_version() != "1.5.10"
+    assert rp._basket_compute_engine_version() != "9.9.9"  # (1.5.10 is now REAL basket compute)
 
 
 def test_basket_all_four_writers_echo_compute(monkeypatch, tmp_path):
@@ -83,10 +85,10 @@ def test_basket_all_four_writers_echo_compute(monkeypatch, tmp_path):
     from tools.basket_report import _write_run_metadata, write_basket_strategy_card
     import tools.portfolio.cointegration_provenance as cp
 
-    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.10")
+    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "9.9.9")
     compute = rp._basket_compute_engine_version()
     abi = rp._basket_engine_abi()
-    assert compute == str(ABI_ENGINE_VERSION) != "1.5.10"
+    assert compute == str(ABI_ENGINE_VERSION) != "9.9.9"
 
     # (1) manifest / input_provenance
     ip = basket_input_provenance({}, compute)
@@ -106,7 +108,7 @@ def test_basket_all_four_writers_echo_compute(monkeypatch, tmp_path):
         parsed_directive={}, engine_version=compute,
     )
     card_text = card.read_text(encoding="utf-8")
-    assert f"**Engine:** {compute}" in card_text and "1.5.10" not in card_text
+    assert f"**Engine:** {compute}" in card_text and "9.9.9" not in card_text
 
     # (4) cointegration_sheet row (window-validity gate stubbed out)
     fake_wv = types.SimpleNamespace(
