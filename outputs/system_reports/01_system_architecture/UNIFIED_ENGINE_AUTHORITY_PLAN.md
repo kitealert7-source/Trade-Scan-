@@ -353,9 +353,14 @@ Phase A (land the authority INERT, §5) is authorizable **only when all four ite
 explicitly closed.** Phases B/C/D are **not** covered by this gate — each needs its own approval
 (they alter compute semantics + research baselines).
 
+> **Item 1 re-scope (operator, 2026-06-17):** Phase A must not be held hostage to a v1_5_10 snapshot
+> that does not yet exist in frozen form. Item 1 is split — **Phase A prerequisite:** v1_5_9 vault
+> (satisfied); **Phase C prerequisite:** v1_5_10 vault before canonicalization. Item 1 is therefore
+> **satisfied for Phase A purposes.**
+
 | # | Gate item | Closure criterion | Status (2026-06-17) |
 |---|---|---|---|
-| 1 | **Vault** | `vault/.../v1_5_9` *and* `.../v1_5_10` snapshots exist + hash-verified | **PARTIAL** — v1_5_9 vaulted + byte-verified (closure pass 2026-06-17); v1_5_10 **deferred** to Phase C (§7.1.1). |
+| 1 | **Vault** | **Phase A:** v1_5_9 vaulted + hash-verified. **Phase C:** v1_5_10 vaulted before canonicalization. | **SATISFIED for Phase A** — v1_5_9 vaulted + byte-verified (2026-06-17). v1_5_10 re-scoped to a **Phase C prerequisite** (§7.1.1, §4 Phase C), not a Phase A blocker. |
 | 2 | **CI matrix** | `abi_audit.yml` `paths:`, identity-test step, and last_verified commit all cover v1_5_10 | **CLOSED** — all 3 wiring fixes applied (closure pass 2026-06-17, §7.1.2). |
 | 3 | **Selectability gate** | a commit-blocking assertion makes a non-canonical/absent `active_engine` fail closed | **CLOSED (specified)** — §7.1.3. |
 | 4 | **Phase A rollback** | a documented, side-effect-free revert restoring byte-identical pre-Phase-A state | **CLOSED (specified)** — §7.1.4. |
@@ -375,10 +380,12 @@ and hash-verified; DR can locate every retained/canonical engine.
 **Status (2026-06-17):** **v1_5_9 DONE** — `vault/engines/Universal_Research_Engine/v1_5_9/` created
 from the canonical `engine_dev/.../v1_5_9/` source (8 files; `__pycache__` excluded per §3/§5), every
 file sha256 byte-identical to source; the package manifest's pre-existing `vaulted:true` is now
-honest. **v1_5_10 DEFERRED** (operator, 2026-06-17): do **not** vault v1_5_10 until (i) basket
-convergence (Phase B) is complete, (ii) v1_5_10 compute is frozen, and (iii) Phase C is approaching —
-so the snapshot captures the engine actually intended for recovery, not a still-mutating
-experimental build (vaulting now would risk a stale snapshot needing re-vaulting).
+honest. **Item 1 is SATISFIED for Phase A purposes** (operator, 2026-06-17). **v1_5_10 vault =
+Phase C prerequisite** (before canonicalization, per §4 Phase C; *not* a Phase A blocker): do **not**
+vault v1_5_10 until (i) basket convergence (Phase B) is complete, (ii) v1_5_10 compute is frozen, and
+(iii) Phase C is approaching — so the snapshot captures the engine actually intended for recovery,
+not a still-mutating experimental build (vaulting now would risk a stale snapshot needing
+re-vaulting).
 
 #### 7.1.2 CI remediation (item 2) — `.github/workflows/abi_audit.yml`
 (a) add `engine_dev/universal_research_engine/v1_5_10/**` to **both** the `push.paths` and
@@ -426,6 +433,97 @@ charging, no corpus/ledger/`master_filter` mutation — so rollback is clean and
 
 **Rollback trigger:** any post-merge failure of the convergence gate, `abi_audit`, or a basket/
 single-asset parity mismatch.
+
+### 7.2 Phase A Authorization Assessment (2026-06-17)
+
+*Assessment only — Phase A is **not** executed here. The go/no-go decision rests with the operator.*
+
+**1. Current gate status**
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Vault (Phase A scope) | **SATISFIED** — v1_5_9 vaulted + byte-verified; v1_5_10 re-scoped to a Phase C prerequisite. |
+| 2 | CI matrix | **CLOSED** — wiring applied + locally validated (gate suite 79✓, engine-ABI identity tests 48✓ incl. v1_5_10, abi_audit both OK, YAML valid). First GitHub Actions run on next triggering push. |
+| 3 | Selectability gate | **SPECIFIED** (§7.1.3) — implemented *as part of* Phase A's atomic commit; not a pre-req. |
+| 4 | Phase A rollback | **DOCUMENTED** (§7.1.4). |
+
+All four are at or above the operator-set bar → **the gate is met for Phase A.**
+
+**2. Remaining blockers to Phase A**
+
+None gate-defined. Two implementation *must-includes* (inside the Phase A commit) + one minor residual:
+- **Graft-(g) dryrun waiver (required):** `strategy_dryrun_validator.py:29` imports `ContextView` from
+  v1_5_6 — outside the authority. Assertion (g) requires authority-inclusion or an explicit
+  `# WAIVER:` constant. *Recommended: waiver* — it is a deliberately-pinned structural dry-run import
+  (v1_5_6 is the FROZEN reference engine), not the run engine.
+- **Atomic landing (required):** the convergence-test extension (assertions a–g + byte-equivalence
+  anchor) lands in the **same commit** as the basket_runner:60 / selector edits (§5 step 5).
+- **CI-in-GitHub (minor residual):** item 2's wiring is locally validated; its first real GitHub
+  Actions execution is on the next triggering push — recommend pushing the closure-pass commit so CI
+  exercises the v1_5_10 path before Phase A merges.
+
+**Verified non-blocker (the design's highest-risk assumption):** changing `basket_runner.py:60` from
+the `"engine_abi.v1_5_9"` literal to `from config.engine_authority import CANONICAL_ENGINE_ABI as
+ENGINE_ABI` does **not** trip the AST guard — `test_basket_dispatch_ast_guard_fail_closed` scans only
+`tools.run_pipeline._basket_*` functions (`_basket_dispatch_functions()` parses run_pipeline only),
+never basket_runner:60. The one value assertion on `basket_runner.ENGINE_ABI`
+(`test_basket_single_source_chain:48`) stays green because the authority constant still equals
+`"engine_abi.v1_5_9"`. `abi_audit` consumed-by is unchanged (the :38 import is untouched; the
+authority imports no engine).
+
+**3. Exact implementation blast radius**
+
+1 new file + 4 edits + 1 test extension; **one atomic commit; INERT** (byte-identical compute/stamps
+before & after):
+- **NEW** `config/engine_authority.py` — stdlib-only: `CANONICAL_ENGINE_ABI="engine_abi.v1_5_9"`,
+  `CANONICAL_SINGLE_ASSET_ENGINE="v1_5_8"`, two derived dotted constants, `normalize_engine_token()`.
+  Imports no engine.
+- **EDIT** `tools/basket_runner.py:60` — `ENGINE_ABI` sourced from `CANONICAL_ENGINE_ABI` + a
+  post-:38 module-load assertion. Line :38 import literal + `__all__` (:62-64) unchanged; refresh the
+  SSOT comment (:49-59).
+- **EDIT** `config/engine_registry.json` — ADD a `v1_5_9` entry to `engines{}` (`canonical:false`,
+  `FROZEN`, basket/TS_Execution-pinned). `active_engine` STAYS `v1_5_8`.
+- **EDIT** `config/engine_loader.py:8` (`get_active_engine`) + `tools/pipeline_utils.py:213`
+  (`get_engine_version`) — non-override value sourced via the authority normalizer (underscored /
+  dotted respectively); `ENGINE_VERSION_OVERRIDE` semantics unchanged. (pipeline_utils' legacy
+  v1.5.6 fallback becomes dead — optional cleanup.)
+- **EDIT** `tests/test_engine_identity_convergence.py` — add `test_selection_surfaces_converge_on_authority`
+  (assertions a–g, incl. the §7.1.3 selectability checks + graft-g waiver) + the byte-equivalence
+  anchor test.
+- **Untouched:** `run_stage1` / `run_pipeline` / `stage_symbol_execution` runtime logic; the :38
+  static import; `abi_audit` consumed-by; no dynamic-import surface; no corpus/ledger writes.
+
+**4. Rollback procedure** (per §7.1.4)
+
+Single `git revert <phase-A-commit>` (one atomic commit) — removes `engine_authority.py`, restores
+basket_runner:60 / the two selectors, drops the v1_5_9 `engines{}` entry, removes the new tests. The
+:38 import never moved, so basket compute is identical either way. Verify: a basket + a single-asset
+run byte-identical to the §5-step-6 pre-Phase-A baseline (run in reverse); `abi_audit` + convergence
+gate + `system_preflight` green. **No data unwind** — INERT, nothing charged/superseded/written.
+
+**5. Recommended decision: GO (conditional)**
+
+Design adversarially studied + approved; doctrine preserved literally (verification-not-dispatch, :38
+untouched); INERT landing is byte-identical and reversible by one revert with no data unwind; blast
+radius is 1 file + 4 small edits + 1 test; the single highest-risk assumption (AST-guard scope) is
+verified a false alarm; all gate prerequisites met. **Conditions on execution:** (a) include the
+graft-g dryrun waiver; (b) land atomically with the gate extension; (c) confirm §5-step-6
+byte-identical parity; (d) push so CI exercises the v1_5_10 path at/before merge. Phases B/C/D remain
+separately gated and are **not** part of this recommendation.
+
+### 7.3 CI Infrastructure — `engine_abi audit` dormant defect (recorded + deferred 2026-06-17)
+
+**Classification (operator-accepted):** pre-existing **dormant CI defect** · **NON-BLOCKING** for Phase B · **NON-BLOCKING** for promotion · **FUTURE hardening item**.
+
+**Finding (root cause):** `.github/workflows/abi_audit.yml` fails-closed at its "Checkout TS_Execution (sibling)" step because `secrets.SIBLING_REPO_TOKEN` was never provisioned (the sibling checkout, `:60-62`, has no `GITHUB_TOKEN` fallback — unlike the Trade_Scan checkout at `:55`). All downstream steps — the v1_5_10 identity test and the audit itself — are then **skipped**.
+
+**Evidence:**
+- **Never succeeded — 0 / 5 runs green** since the workflow's creation (2026-05-13, `6210c70f`); the 5th run is PR #3. By contrast `regression` is **28 / 28** → CI infra is otherwise healthy; the defect is isolated to this workflow's sibling dependency.
+- **Identical root cause since creation:** the two earliest runs (`6210c70f` 2026-05-13, `fa7f1f8d` 2026-05-14) and PR #3 all fail at the same "Checkout TS_Execution (sibling)" step. The workflow shipped with this dependency from commit one.
+- **Local + runtime gates remain functional:** the pre-commit `abi_audit` (layer 1; resolves the real sibling via `path_authority`) and the runtime import assertion (layer 3) DO verify the cross-repo `consumed_by` and pass for **both** v1_5_9 and v1_5_10. The advertised triple-gate is, in practice, a functioning **double-gate** (pre-commit + runtime); only the redundant CI layer (layer 2) is dark.
+- `SIBLING_REPO_TOKEN` is referenced **only** inside `abi_audit.yml` — undocumented elsewhere in the repo.
+
+**Disposition: DEFERRED.** Does not affect compute correctness (verified locally). Remediation when convenient (operator/admin only): provision a read-scoped `SIBLING_REPO_TOKEN` for TS_Execution in repo Actions secrets — restores layer 2 without weakening fail-closed. **Do not** weaken the workflow's fail-closed sibling checkout. Re-open only if new evidence shows compute-correctness impact.
 
 ---
 
