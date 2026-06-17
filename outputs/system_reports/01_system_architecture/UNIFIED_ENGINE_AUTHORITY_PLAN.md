@@ -1,12 +1,16 @@
-# Unified Engine Authority — Design & Implementation Plan
+# Unified Engine Authority (Trade_Scan-internal) — Design & Implementation Plan
 
-> **Goal:** establish a **single, compute-binding engine authority shared across all execution
-> paths**, so "which engine runs" has exactly one answer that can never silently diverge or
-> mislabel — across single-asset *and* basket backtests.
+> **Goal:** establish a **single engine authority for all *Trade_Scan* execution paths** —
+> single-asset *and* basket backtests — so "which engine runs *in Trade_Scan*" has exactly one
+> answer that can never silently diverge or mislabel. The authority is **compute-binding by
+> enforcement** (gate-verified, not a runtime dispatcher — see the *Architectural invariant* below).
 >
-> **Status: DESIGN — protected-infra (Invariant #6), STOP-level.** Every change here touches
-> `config/`, `tools/`, `engine_dev/`, `governance/` — implementation plan + explicit human approval
-> before any edit. **Lands INERT** (no engine activation, no charging) unless separately approved.
+> **Status: DESIGN APPROVED 2026-06-17 — implementation NOT yet authorized.** The operator approved
+> Architecture C, this design, and the phase ordering (A→B→C→D). Implementation stays STOP-level
+> protected-infra (Invariant #6) — every change touches `config/`, `tools/`, `engine_dev/`,
+> `governance/`. **Phase A is authorizable only when the four-item gate in §7.1 is explicitly
+> closed**; Phases B/C/D require *separate* approval gates (they alter compute semantics + research
+> baselines). **Lands INERT** (no engine activation, no charging) when authorized.
 >
 > **Authored** 2026-06-17 from a multi-agent design study (4 investigators mapping the selection
 > surface + a 3-architecture judge panel). Companion to
@@ -14,6 +18,47 @@
 > *compute/charge* layer (how the basket engine actually charges spread); **this** doc is the
 > *selection* layer (how every path names the one canonical engine). They compose.
 > Related memory: `[[engine_identity_is_compute_not_stamp]]`, `[[project-v1_5_10-canonical-readiness]]`.
+
+---
+
+## Architectural invariant — compute-binding by *verification*, not *dispatch*  (read first)
+
+This is the conceptual core of why Architecture C stays faithful to
+`[[engine_identity_is_compute_not_stamp]]`, and the lens for reading the phrase "compute-binding"
+everywhere below. The authority does **not** determine compute. It declares the *expected*
+identity; a fail-closed gate proves that expectation equals the *real* compute:
+
+```
+static import           →  real compute       basket: basket_runner.py:38  from engine_abi.v1_5_9 import (…)
+                                               single-asset: module dynamically imported in run_stage1.run_engine_logic
+config/engine_authority →  expected identity   name constants only — imports NO engine
+convergence gate        →  proves  expected identity == real compute
+```
+
+`config/engine_authority.py` is stdlib-only (no engine import). The gate (graft-e, §2d) asserts the
+authority constant resolves to the **real imported module's own `ENGINE_VERSION`**
+(`importlib.import_module(CANONICAL_ENGINE_ABI).ENGINE_VERSION == basket_runner.ENGINE_VERSION ==
+CANONICAL_ENGINE_VERSION_DOTTED`), and the existing `run_stage1.py:410-420` guard already aborts on
+stamp-vs-loaded-module skew. The authority **never resolves, dispatches, or returns** an engine —
+that is the *rejected* Architecture A/B. So "compute-binding authority" is shorthand for **"a name
+authority whose binding to compute is gate-verified."**
+
+*Precise scope of the proof:* the gate verifies against the imported module's declared
+`ENGINE_VERSION` attribute — a faithful proxy because `basket_runner.py:38` statically imports that
+very module and the byte-equivalence anchor (graft 3) pins the actual compute. It is **not** a
+runtime compute introspection, and this doc does not claim one.
+
+## Scope — Trade_Scan-internal, *not* platform-wide
+
+"Unified Engine Authority" governs **Trade_Scan only**. It does **not** govern the **TS_Execution
+live ABI**, which is independently pinned to **v1_5_9** (`TS_Execution/portfolio.yaml:6`; allow-list
+`_SUPPORTED_ABIS=('v1_5_3','v1_5_9')` at `TS_Execution/src/phase0_validation.py:30` — v1_5_10 is
+**not** permitted and appears **zero** times in that repo, fail-closed). The end-state
+research(v1.5.10)/live(v1.5.9) split is **intentional**: after convergence there is **one** engine
+authority *inside* Trade_Scan but **two** across the ecosystem (research + live), by design. A
+future reader must treat that divergence as designed — **not** a bug to reconcile. The Phase-D
+end-state assertion (§4) binds only the **two Trade_Scan constants**; it never references
+TS_Execution's pin.
 
 ---
 
@@ -196,10 +241,13 @@ steps, each a *one-file name flip in the authority* plus the per-path *compute* 
   still consume it — **retire ≠ delete**). Add the **end-state gate assertion**: both authority
   constants resolve to the **same** `ENGINE_VERSION` → true single-engine, anti-ambiguity locked.
 
-**Cross-repo boundary (hard):** TS_Execution stays pinned **v1_5_9** (its own allow-list
-`phase0_validation _SUPPORTED_ABIS=('v1_5_3','v1_5_9')` doesn't even permit v1_5_10). The authority
-is **Trade_Scan-internal** and must never drive the live ABI. Research(v1.5.10)/live(v1.5.9)
-divergence is intended and must be documented.
+**Cross-repo boundary (hard) — see the *Scope* callout at the top of this doc.** TS_Execution stays
+pinned **v1_5_9** (its own allow-list `_SUPPORTED_ABIS=('v1_5_3','v1_5_9')`,
+`phase0_validation.py:30`, doesn't even permit v1_5_10 — fail-closed). The authority is
+**Trade_Scan-internal** and must never drive the live ABI. After convergence there is **one**
+authority *inside* Trade_Scan but **two** across the ecosystem (research v1.5.10 + live v1.5.9);
+that divergence is **intended, fail-closed on the live side, and must be treated as designed — not
+a bug.**
 
 ---
 
@@ -240,13 +288,26 @@ consumed-by re-point; **no** corpus becomes mixed-regime (inert). All protected 
   selectability is enforced only by module existence. Setting v1_5_8 `canonical:false` is
   documentary. *Optional future hardening:* a `selectable-allowlist` gate asserting
   `active_engine == CANONICAL_SINGLE_ASSET_ENGINE`. (Already covered by gate assertion (d).)
-- **CI gates only v1_5_9** (`.github/workflows/abi_audit.yml`), not v1_5_10 — the local pre-commit
-  hook covers both (`_SUPPORTED_ABIS:53`), but **extend the CI matrix to v1_5_10 before** it becomes
-  canonical, else the new canonical has weaker enforcement than the retired one.
-- **v1_5_9 vault liability:** the manifest claims `vaulted:true` but **no `vault/.../v1_5_9` dir
-  exists** (and v1_5_10 is unvaulted too). Disaster-recovery (`ENGINE_VAULT_CONTRACT §8`) would fail
-  to find it. Correct the claim or create the snapshot before formalizing v1_5_9's frozen/retired
-  status — and vault v1_5_10 before the active_engine flip (Phase C).
+- **CI enforcement is v1_5_9-skewed in *wiring*, though `abi_audit` already covers both ABIs**
+  (verified 2026-06-17). `tools/abi_audit.py:53` is `_SUPPORTED_ABIS=('v1_5_9','v1_5_10')` and the CI
+  audit step runs with no `--abi-version`, so it audits **both** by default. The real gaps are three
+  specific wiring issues in `.github/workflows/abi_audit.yml`: (i) the `paths:` triggers list
+  `engine_dev/.../v1_5_9/**` but **not** `v1_5_10/**` (a v1_5_10 engine-source edit won't trigger CI;
+  the `engine_abi/**` + `engine_abi_*_manifest.yaml` globs are version-agnostic and *do* trigger);
+  (ii) the identity-test step runs `test_engine_abi_v1_5_9.py` only — `test_engine_abi_v1_5_10.py`
+  **exists but is never invoked**; (iii) the last_verified auto-commit stages only the v1_5_9
+  manifest, so v1_5_10's `last_verified` is never committed. **Close all three before v1_5_10 becomes
+  canonical** (gate item 2, §7.1), else the new canonical has weaker CI than the retired engine.
+- **Vault liability (verified 2026-06-17):** `vault/engines/Universal_Research_Engine/` holds
+  v1.2.0…v1_5_8 but **no `v1_5_9` and no `v1_5_10` dir**. v1_5_9 is the **live-pinned** ABI
+  (TS_Execution) and v1_5_10 is the canonical successor, so both genuinely need snapshots — "mark it
+  unvaulted" is not an option for an engine the live system depends on. (The governance ABI
+  manifests carry no `vaulted` field; `engine_registry.json:5 vaulted:true` is scoped to active
+  v1_5_8. The v1_5_9 *package* manifest `engine_dev/.../v1_5_9/engine_manifest.json` did claim
+  `vaulted:true` while no vault dir existed — **made honest by the 2026-06-17 closure pass**, §7.1.1.)
+  Disaster-recovery (`ENGINE_VAULT_CONTRACT`) would otherwise fail to find v1_5_9/v1_5_10. **Vault
+  before formalizing v1_5_9 frozen/retired and before the Phase-C active_engine flip** (gate item 1,
+  §7.1; v1_5_9 done, v1_5_10 deferred) — via the vault contract, not improvised.
 - **`strategy_dryrun_validator.py:29`** v1_5_6 ContextView is outside the authority — graft (g)
   forces an explicit waiver-or-inclusion so it can't silently desync.
 - **Single-asset mixed-regime** (Phase C) is the single-asset analogue of the basket hazard — do not
@@ -257,17 +318,114 @@ consumed-by re-point; **no** corpus becomes mixed-regime (inert). All protected 
 
 ---
 
-## 7. Open decisions for the operator
+## 7. Operator decisions — RESOLVED 2026-06-17
 
-1. **"Compute-binding" interpretation:** accept **C** (static import + gate-bound name authority —
-   recommended, doctrine-faithful), or prefer **B** (a real module that *returns* the engine, at the
-   cost of an `abi_audit` re-point + AST-guard extension)? C is my strong recommendation.
-2. **Convergence depth & sequence:** land the authority inert (Phase A) now; then basket (Phase B,
-   gated on the flip doc) then single-asset (Phase C) — confirm baskets-first.
-3. **Single-asset re-baseline scope:** which shortlist of the 353 is_current master_filter rows gets
-   re-priced charged (re-pricing all is wasteful and risks reviving retired strategies)?
-4. **Pre-existing gaps to fix now or waive:** v1_5_9/v1_5_10 vault gap; CI v1_5_10 matrix; the
-   no-allow-list-teeth for selectability.
+The four open decisions were reviewed and decided by the operator (governance review, 2026-06-17).
+Recorded here as the authoritative resolution; the design above is **approved as written**.
+Resolution **approves the design** but does **not** authorize implementation: Phase A remains
+STOP-level protected-infra (Invariant #6), authorizable only when the **§7.1 Phase A Authorization
+Gate** (four items) is explicitly closed. Phases B/C/D require *separate* gates.
+
+1. **Architecture — RESOLVED: Architecture C.** Static engine imports + a stdlib-only name
+   authority + the fail-closed convergence gate. B (return-a-handle module) and A (dynamic
+   resolver) rejected — both relocate/dynamize the import the doctrine deliberately fixed. This
+   resolves the "compute-binding interpretation" question: C is compute-binding *by verification,
+   not dispatch* — see the **Architectural invariant** at the top.
+2. **Phase ordering — RESOLVED: A → B → C → D exactly as written, baskets-first.** Selection
+   convergence (**this** doc) and charging convergence (`V1_5_10_CANONICAL_FLIP_DESIGN.md`, the
+   compute layer) stay **separate, separately-gated change sets — never one commit.** Phase A
+   (authority, INERT) lands and bakes before any charging phase.
+3. **Single-asset re-baseline scope — RESOLVED: selected shortlist only.** Re-price **only the
+   selected shortlist**, never all 353 is_current rows — re-pricing all is wasteful and risks
+   reviving retired strategies, recreating the mixed-regime problem already eliminated elsewhere.
+   Provenance is carried concretely by the Phase-C `master_filter` cost-regime column (C-i) +
+   supersession of each uncharged twin by pair+span — not a free, untracked re-baseline.
+4. **Pre-existing gaps + Phase A gate — RESOLVED: see §7.1.** The operator (2026-06-17) set these
+   as the **Phase A authorization gate** — all must be explicitly closed before Phase A is
+   authorized — and added a fourth item (a Phase A rollback procedure). Governing principle: no
+   "canonical" engine may ship **weaker recovery or CI enforcement than the engine it retires.** The
+   four items (vault · CI matrix · selectability gate · Phase A rollback) and their closure status
+   are tracked in **§7.1**.
+
+### 7.1 Phase A Authorization Gate (operator-set, 2026-06-17)
+
+Phase A (land the authority INERT, §5) is authorizable **only when all four items below are
+explicitly closed.** Phases B/C/D are **not** covered by this gate — each needs its own approval
+(they alter compute semantics + research baselines).
+
+| # | Gate item | Closure criterion | Status (2026-06-17) |
+|---|---|---|---|
+| 1 | **Vault** | `vault/.../v1_5_9` *and* `.../v1_5_10` snapshots exist + hash-verified | **PARTIAL** — v1_5_9 vaulted + byte-verified (closure pass 2026-06-17); v1_5_10 **deferred** to Phase C (§7.1.1). |
+| 2 | **CI matrix** | `abi_audit.yml` `paths:`, identity-test step, and last_verified commit all cover v1_5_10 | **CLOSED** — all 3 wiring fixes applied (closure pass 2026-06-17, §7.1.2). |
+| 3 | **Selectability gate** | a commit-blocking assertion makes a non-canonical/absent `active_engine` fail closed | **CLOSED (specified)** — §7.1.3. |
+| 4 | **Phase A rollback** | a documented, side-effect-free revert restoring byte-identical pre-Phase-A state | **CLOSED (specified)** — §7.1.4. |
+
+Items 1 & 2 are **execution actions** (they mutate the engine vault + the CI workflow).
+**Executed in the Infrastructure Closure Pass, 2026-06-17** (operator-authorized): item 2 fully;
+item 1 for **v1_5_9 only** — v1_5_10 vaulting is deliberately deferred (§7.1.1). This pass is **not**
+Phase A: the authority itself remains unauthorized (the gate is *closer to* — not yet — met).
+
+#### 7.1.1 Vault remediation (item 1)
+Snapshot v1_5_9 and v1_5_10 per `ENGINE_VAULT_CONTRACT` (use the `update-vault` workflow — do not
+improvise the layout): materialize `vault/engines/Universal_Research_Engine/v1_5_9/` and
+`.../v1_5_10/` from their `engine_dev/universal_research_engine/<ver>/` sources + manifests, then run
+`verify_engine_integrity` and confirm the manifest hashes match. **Acceptance:** both dirs present
+and hash-verified; DR can locate every retained/canonical engine.
+
+**Status (2026-06-17):** **v1_5_9 DONE** — `vault/engines/Universal_Research_Engine/v1_5_9/` created
+from the canonical `engine_dev/.../v1_5_9/` source (8 files; `__pycache__` excluded per §3/§5), every
+file sha256 byte-identical to source; the package manifest's pre-existing `vaulted:true` is now
+honest. **v1_5_10 DEFERRED** (operator, 2026-06-17): do **not** vault v1_5_10 until (i) basket
+convergence (Phase B) is complete, (ii) v1_5_10 compute is frozen, and (iii) Phase C is approaching —
+so the snapshot captures the engine actually intended for recovery, not a still-mutating
+experimental build (vaulting now would risk a stale snapshot needing re-vaulting).
+
+#### 7.1.2 CI remediation (item 2) — `.github/workflows/abi_audit.yml`
+(a) add `engine_dev/universal_research_engine/v1_5_10/**` to **both** the `push.paths` and
+`pull_request.paths` lists; (b) add `tests/test_engine_abi_v1_5_10.py` to the "Run identity tests"
+step; (c) generalize the last_verified commit step to also stage
+`governance/engine_abi_v1_5_10_manifest.yaml` (or glob `governance/engine_abi_*_manifest.yaml`). The
+audit step itself already covers both ABIs (default = all `_SUPPORTED_ABIS`), so no
+audit-invocation change is needed. **Acceptance:** a v1_5_10 source/manifest/test change triggers CI
+and runs its identity test, and v1_5_10's `last_verified` is committed on push to main.
+
+**Status (2026-06-17): DONE** — all three applied to `.github/workflows/abi_audit.yml`: (a)
+`engine_dev/universal_research_engine/v1_5_10/**` added to **both** `paths:` lists; (b)
+`tests/test_engine_abi_v1_5_10.py` added to the "Run identity tests" step; (c) the last_verified
+commit step now globs `governance/engine_abi_*_manifest.yaml` (covers the v1_5_10 manifest too).
+
+#### 7.1.3 Selectability gate (item 3 — specification)
+Today nothing reads `engine_registry.json engines{}.canonical` (verified — it is documentary), so
+"non-selectable" has no teeth. Add a fail-closed assertion to
+`tests/test_engine_identity_convergence.py` (the same commit-blocking + SESSION-STATUS suite the
+convergence gate already lives in), promoting §6's optional hardening to **required**:
+- `engine_registry.active_engine == CANONICAL_SINGLE_ASSET_ENGINE`;
+- the `engines{}` entry for `active_engine` exists and has `canonical: true`;
+- **exactly one** engine entry has `canonical: true` (no second canonical single-asset engine).
+
+This is *verification, not a runtime dispatcher* (consistent with the Architectural invariant): a
+commit that points `active_engine` at a non-canonical or absent engine fails the gate. No runtime
+code reads the flag — the gate is the enforcement.
+
+#### 7.1.4 Phase A rollback procedure (item 4)
+Phase A lands as **one atomic commit** (§5 step 6) and is **INERT** — no engine activation, no
+charging, no corpus/ledger/`master_filter` mutation — so rollback is clean and side-effect-free:
+1. **Revert:** `git revert <phase-A-commit>` (single commit → single revert). This removes
+   `config/engine_authority.py`, restores `basket_runner.py:60` to its literal `ENGINE_ABI`,
+   restores the two single-asset selectors to their pre-authority string source, drops the added
+   v1_5_9 `engines{}` entry, and removes `test_selection_surfaces_converge_on_authority` + the
+   byte-equivalence anchor test. The `:38` static import never changed, so basket compute is
+   identical either way.
+2. **Verify byte-identity:** re-run a basket run + a single-asset run and confirm stamps + compute
+   are byte-identical to the pre-Phase-A baseline captured in §5 step 6 (the same parity check that
+   gated the landing, run in reverse); `abi_audit --pre-commit` (both ABIs) + the convergence gate
+   (now without the new assertion) + `system_preflight` all green.
+3. **No data unwind:** because Phase A is inert there are **no** charged runs, superseded rows, or
+   ledger writes to reverse — rollback touches code only. (This is precisely why B/C/D need separate
+   gates and their *own* rollback designs: they are not side-effect-free.)
+
+**Rollback trigger:** any post-merge failure of the convergence gate, `abi_audit`, or a basket/
+single-asset parity mismatch.
 
 ---
 
