@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-17T14:28:05Z
+> Generated: 2026-06-17T15:45:32Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -39,7 +39,7 @@
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `d98a4770 Merge PR #3: v1.5.10 canonical promotion (basket + single-asset)`
+- Last substantive commit: `c9a44a19 chore(rules): re-bless rule_code_hashes.yaml -- pine_ratio_zrev_v1 Phase B change`
 
 ## Deferred Maintenance
 
