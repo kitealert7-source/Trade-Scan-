@@ -227,9 +227,12 @@ def get_engine_version(engine_path=None):
         if registry_path.exists():
             with open(registry_path, encoding="utf-8") as f:
                 reg = json.load(f)
-            active = reg.get("active_engine", "")  # e.g. "v1_5_7"
+            active = reg.get("active_engine", "")  # e.g. "v1_5_8"
             if active:
-                return active.lstrip("v").replace("_", ".")
+                # One normalizer, shared with config.engine_loader.get_active_engine,
+                # so the dotted/underscored conventions draw from a single source.
+                from config.engine_authority import normalize_engine_token
+                return normalize_engine_token(active, "dotted")
         # Legacy fallback: hardcoded v1.5.6 path
         engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_6/main.py"
 

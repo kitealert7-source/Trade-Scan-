@@ -33,6 +33,16 @@ import pytest
 import tools.basket_runner as basket_runner
 from engine_abi.v1_5_9 import ENGINE_VERSION as ABI_ENGINE_VERSION
 from tools.pipeline_utils import get_engine_version
+from config.engine_authority import (
+    CANONICAL_ENGINE_ABI,
+    CANONICAL_ENGINE_VERSION_DOTTED,
+    CANONICAL_SINGLE_ASSET_ENGINE,
+    CANONICAL_SINGLE_ASSET_VERSION_DOTTED,
+    DRYRUN_CONTEXTVIEW_ENGINE,
+    DRYRUN_CONTEXTVIEW_WAIVER,
+    normalize_engine_token,
+)
+from config.engine_loader import get_active_engine
 
 
 # ===========================================================================
@@ -252,3 +262,96 @@ def test_cointegration_writer_requires_engine_version():
     assert "engine_version" in REQUIRED_FIELDS
     params = inspect.signature(build_cointegration_row).parameters
     assert params["engine_version"].default is inspect.Parameter.empty
+
+
+# ===========================================================================
+# UNIFIED ENGINE AUTHORITY (Phase A) -- every selection surface names the ONE
+# config.engine_authority, and that name resolves to the REAL compute. Doctrine:
+# compute-binding by VERIFICATION, not dispatch (UNIFIED_ENGINE_AUTHORITY_PLAN.md;
+# config.engine_authority imports NO engine).
+# ===========================================================================
+
+def test_selection_surfaces_converge_on_authority(monkeypatch):
+    """Assertions a-g: every engine-selection surface == the single authority,
+    and the authority name resolves to the real imported module's own
+    ENGINE_VERSION (compute-bound, not just a string)."""
+    import importlib
+    import re
+    monkeypatch.delenv("ENGINE_VERSION_OVERRIDE", raising=False)
+    repo_root = Path(basket_runner.__file__).resolve().parent.parent
+
+    # (a) basket ENGINE_ABI is the authority constant (value-level).
+    assert basket_runner.ENGINE_ABI == CANONICAL_ENGINE_ABI
+
+    # (b) the basket_runner:38 STATIC import target == the authority (AST-level:
+    #     the literal the doctrine fixes, proven without importing).
+    tree = ast.parse(Path(basket_runner.__file__).read_text(encoding="utf-8"))
+    abi_imports = [
+        n.module for n in ast.walk(tree)
+        if isinstance(n, ast.ImportFrom) and (n.module or "").startswith("engine_abi.")
+    ]
+    assert abi_imports == [CANONICAL_ENGINE_ABI], (
+        f"basket_runner static engine_abi import {abi_imports} must be exactly "
+        f"[{CANONICAL_ENGINE_ABI!r}] (the authority)")
+
+    # (c) single-asset selectors (no override) both resolve to the authority, in
+    #     their respective conventions, via the one normalizer.
+    assert get_active_engine() == CANONICAL_SINGLE_ASSET_ENGINE
+    assert get_active_engine() == normalize_engine_token(CANONICAL_SINGLE_ASSET_ENGINE, "underscore")
+    assert get_engine_version() == CANONICAL_SINGLE_ASSET_VERSION_DOTTED
+
+    # (d) the registry's active_engine == the authority single-asset engine.
+    reg = json.loads((repo_root / "config" / "engine_registry.json").read_text(encoding="utf-8"))
+    assert normalize_engine_token(reg["active_engine"], "underscore") == CANONICAL_SINGLE_ASSET_ENGINE
+
+    # (e) [graft] version cross-check -- the authority NAME resolves to the REAL
+    #     imported module's ENGINE_VERSION. THIS makes the authority compute-bound.
+    abi_mod = importlib.import_module(CANONICAL_ENGINE_ABI)
+    assert abi_mod.ENGINE_VERSION == str(basket_runner.ENGINE_VERSION) == CANONICAL_ENGINE_VERSION_DOTTED
+    sa_mod = importlib.import_module(
+        f"engine_dev.universal_research_engine.{CANONICAL_SINGLE_ASSET_ENGINE}.main")
+    sa_declared = getattr(sa_mod, "ENGINE_VERSION", None) or getattr(sa_mod, "__version__", None)
+    assert str(sa_declared) == CANONICAL_SINGLE_ASSET_VERSION_DOTTED
+
+    # (f) [graft] symbol superset -- the canonical ABI exports >= the 8 symbols the
+    #     basket statically imports, so a future one-file flip can't break the
+    #     import surface.
+    BASKET_SYMBOLS = {
+        "BarState", "ENGINE_VERSION", "EngineConfig", "StrategyProtocol",
+        "apply_regime_model", "evaluate_bar", "finalize_force_close",
+        "resolve_engine_config",
+    }
+    abi_all = set(getattr(abi_mod, "__all__", []) or dir(abi_mod))
+    assert BASKET_SYMBOLS <= abi_all, (
+        f"{CANONICAL_ENGINE_ABI} missing basket symbols: {BASKET_SYMBOLS - abi_all}")
+
+    # (g) [graft] dryrun waiver -- the dryrun ContextView surface is pinned to the
+    #     authority's declared dryrun engine AND an explicit waiver is present (it
+    #     is intentionally outside canonical-engine selection).
+    assert DRYRUN_CONTEXTVIEW_WAIVER is True
+    dv_src = (repo_root / "tools" / "strategy_dryrun_validator.py").read_text(encoding="utf-8")
+    ctxview_modules = [
+        n.module for n in ast.walk(ast.parse(dv_src))
+        if isinstance(n, ast.ImportFrom) and any(a.name == "ContextView" for a in n.names)
+    ]
+    assert len(ctxview_modules) == 1, f"expected one ContextView import, got {ctxview_modules}"
+    m = re.search(r"v\d+_\d+_\d+", ctxview_modules[0] or "")
+    assert m and m.group(0) == DRYRUN_CONTEXTVIEW_ENGINE, (
+        f"dryrun ContextView import {ctxview_modules[0]!r} drifted from the waived "
+        f"engine {DRYRUN_CONTEXTVIEW_ENGINE!r}; update config.engine_authority if intentional")
+
+
+def test_canonical_engines_declare_their_label_versions():
+    """Anchor (graft 3): each canonical-set engine module declares the version its
+    FOLDER LABEL claims, so retiring/relabelling can never silently stamp the
+    wrong compute. Full compute byte-equivalence (v1.5.8==v1.5.9 output;
+    v1.5.10==v1.5.9 @spread=0) is covered by tests/test_engine_abi_v1_5_9.py,
+    tests/test_engine_abi_v1_5_10.py, and tests/test_basket_runner_phase2.py."""
+    import importlib
+    EXPECT = {"v1_5_8": "1.5.8", "v1_5_9": "1.5.9", "v1_5_10": "1.5.10"}
+    for label, dotted in EXPECT.items():
+        mod = importlib.import_module(f"engine_dev.universal_research_engine.{label}.main")
+        declared = getattr(mod, "ENGINE_VERSION", None) or getattr(mod, "__version__", None)
+        assert str(declared) == dotted, (
+            f"engine folder {label} declares {declared!r}, expected {dotted!r} -- "
+            "folder/label/version skew")

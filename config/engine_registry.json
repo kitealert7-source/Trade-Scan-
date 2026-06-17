@@ -19,6 +19,11 @@
       "canonical": true,
       "note": "Canonical frozen engine. Adds ctx.unrealized_r_intrabar + ctx.entry_price for intrabar-aware BE. Byte-equivalent to v1.5.7 for no-hook strategies. Frozen 2026-04-20."
     },
+    "v1_5_9": {
+      "status": "FROZEN",
+      "canonical": false,
+      "note": "Basket compute ABI + TS_Execution live pin; NOT single-asset selectable; byte-identical compute to v1.5.8 (docstring-only diff). Vaulted 2026-06-17. Authority: config/engine_authority.CANONICAL_ENGINE_ABI."
+    },
     "v1_5_10": {
       "status": "EXPERIMENTAL",
       "canonical": false,

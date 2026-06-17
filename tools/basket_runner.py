@@ -57,7 +57,20 @@ from engine_abi.v1_5_9 import (
 # the import above, ENGINE_VERSION/ENGINE_ABI follow automatically and every
 # stamp moves with the compute. Locked by tests/test_engine_identity_convergence.py.
 # Doctrine: memory engine_identity_is_compute_not_stamp.
-ENGINE_ABI = "engine_abi.v1_5_9"
+#
+# ENGINE_ABI is sourced from config.engine_authority (the canonical-engine NAME
+# authority, which imports no engine) and asserted == the `:38` static import
+# target above. The two can never silently disagree: a one-sided edit (changing
+# :38 OR the authority but not both) fails closed at module load. This is
+# compute-binding by verification, not dispatch -- UNIFIED_ENGINE_AUTHORITY_PLAN.md.
+from config.engine_authority import CANONICAL_ENGINE_ABI as ENGINE_ABI
+
+assert ENGINE_ABI == "engine_abi.v1_5_9", (
+    "basket ENGINE_ABI diverged from the static import target at "
+    f"basket_runner.py:38 (got {ENGINE_ABI!r}, expected 'engine_abi.v1_5_9'). "
+    "The authority constant and the :38 import must name the same module; flip "
+    "them together (see UNIFIED_ENGINE_AUTHORITY_PLAN.md Phase B)."
+)
 
 __all__ = [
     "BasketLeg", "BasketRule", "BasketRunner", "ENGINE_VERSION", "ENGINE_ABI",
