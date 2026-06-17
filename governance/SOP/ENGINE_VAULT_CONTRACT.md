@@ -315,9 +315,11 @@ A canonical promotion is **CLOSED** only when ALL hold:
 6. **CI** green, or any non-blocking dormant defect explicitly recorded.
 7. **Trackers** the promotion resolved are closed or annotated.
 8. **Rollback recorded** — the exact revert (config-only for a flip).
-9. **Promotion record created** — a row appended to the §13 log capturing: promoted version,
-   prior canonical version, promotion commit(s), merge commit, vault snapshot, rollback path,
-   promotion date.
+9. **Promotion record created** — a durable, committed record file at
+   `governance/promotions/<date>__<promoted-version>.md` (the authoritative closure record —
+   NOT `SYSTEM_STATE`), capturing: promoted version, prior canonical version, promotion
+   commit(s), merge commit, vault snapshot, rollback path, promotion date, and the §12 gate
+   result. A one-row summary is also appended to the §13 index.
 
 Do not declare CLOSED with any item open — record open ones as dated follow-ups.
 
@@ -325,11 +327,12 @@ Do not declare CLOSED with any item open — record open ones as dated follow-up
 
 ## 13. Canonical Promotion Log (append-only)
 
-One row per canonical promotion (§12 item 9). Append-only — never edit a prior row.
+One row per canonical promotion (§12 item 9), each indexing a durable record file under
+`governance/promotions/<date>__<promoted>.md`. Append-only — never edit a prior row.
 
 | Date | Promoted | Prior canonical | Promotion commit(s) | Merge | Vault snapshot | Rollback path |
 |---|---|---|---|---|---|---|
-| 2026-06-17 | v1_5_10 | v1_5_8 | `bb15c768` (single-asset flip) + `06839158` (freeze); basket Phase B `363c8179`/`cd2e229b`; R9 self-ID `24c4b7e8` | `d98a4770` (PR #3) | `DR_BASELINE_2026_06_17_v1_5_10` | `git revert` the config commits (`engine_registry.json` / `engine_authority.py`) or the merge `d98a4770` |
+| [2026-06-17](../promotions/2026-06-17__v1_5_10.md) | v1_5_10 | v1_5_8 | `bb15c768` (single-asset flip) + `06839158` (freeze); basket Phase B `363c8179`/`cd2e229b`; R9 self-ID `24c4b7e8` | `d98a4770` (PR #3) | `DR_BASELINE_2026_06_17_v1_5_10` | `git revert` the config commits (`engine_registry.json` / `engine_authority.py`) or the merge `d98a4770` |
 
 ---
 
