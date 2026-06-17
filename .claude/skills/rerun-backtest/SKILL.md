@@ -15,6 +15,8 @@ Use this when the pipeline previously evaluated a strategy and you need to run i
 | `ENGINE`     | Backtest engine code changed; directive is byte-identical.           |
 | `BUG_FIX`    | Prior run's result was semantically wrong — old rows get quarantined.|
 
+> **When NOT to use this skill:** if the goal is to verify that a new engine version is correctly wired end-to-end (e.g. confirm charge path, stamp, ledger row on a fresh run), use `/execute-directives` instead. That is a *fresh run*, not a rerun of a prior result. The ENGINE category here means "the directive is unchanged and you want to re-evaluate the same strategy under a different engine" — it still requires a prior run to supersede. If there is no prior run to supersede, you are in `/execute-directives`.
+
 Without this skill, the admission controller's **Idea-Evaluation Gate (Stage -0.20)** refuses the directive with `REPEAT_FAILED` and the **Classifier Gate (Stage -0.21)** blocks indicator changes that don't bump `signal_version`. This skill does the plumbing so legitimate reruns go through first try.
 
 ---
@@ -310,3 +312,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
 | 2026-05-24 | Basket rerun wrote `signal_version` at root (collision); same-stem name refused | Bump `test.signal_version` only + strip root key; auto-rotate `__E###` suffix |
+| 2026-06-17 | ENGINE-category engine-verify run routed here instead of execute-directives; "verify wiring on existing strategy" reads as ENGINE rerun but is a fresh run | Add "when NOT to use" contrast vs execute-directives to the ENGINE category row |

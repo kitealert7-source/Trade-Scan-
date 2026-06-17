@@ -918,6 +918,36 @@ print("ok:", ok, mt5.last_error())
 
 ---
 
+### detect_strategy_drift: DRIFT_ORPHAN Blocks Pipeline Re-run — Recovery — 2026-06-17
+
+**Context:** a failed or aborted first pipeline attempt leaves a planning-stub directory at
+`TradeScan_State/strategies/<DIRECTIVE_ID>/` containing only `engine_resolution.json`
+(no `strategy.py`, `portfolio_evaluation/`, or `deployable/` subdirs). On the next pipeline
+run, `detect_strategy_drift` fires with a DRIFT_ORPHAN error, blocking execution.
+
+**Root cause:** the stub dir is created during engine-resolution planning before Stage 1 executes.
+If Stage 1 fails or is aborted, the dir exists but contains no strategy artifacts, so the drift
+guard classifies it as an orphaned-but-not-cleaned strategy.
+
+**Recovery (< 2 min):**
+
+```bash
+# 1. Confirm it is a planning stub (only engine_resolution.json, nothing else)
+ls TradeScan_State/strategies/<DIRECTIVE_ID>/
+
+# 2. Remove the stub
+rm -rf TradeScan_State/strategies/<DIRECTIVE_ID>/
+
+# 3. Re-run the pipeline
+python tools/run_pipeline.py <DIRECTIVE_ID>
+```
+
+**Do NOT:**
+- Delete any dir that contains `strategy.py` or `portfolio_evaluation/` — those are real artifacts.
+- Apply `repair_integrity --action drop` here — this is a stale planning stub, not a ledger orphan.
+
+---
+
 ### Cloned / Retired-Cohort Re-run Reports Success But Produces 0 Backtests — Diagnostic — 2026-06-15
 
 **Context:** re-running a directive cloned from a RETIRED cohort (CXN1 → CXNCHK, to re-baseline an old

@@ -64,6 +64,8 @@ python tools/new_pass.py --rehash <new_pass>
 
 Skip to Step 5 after `--rehash` completes.
 
+> **Cross-TF clone:** `new_pass.py` clones `strategy.py` verbatim and only rewrites `name` — it does NOT update the `timeframe` class attribute. For any cross-TF clone, after scaffolding, hand-edit `strategy.py` (~line 32) to set the correct `timeframe` value before running `--rehash`. Skipping this causes `Timeframe Mismatch` at preflight.
+
 > **Legacy path (GENESIS_MODE only — brand new family):**
 > Use `python tools/run_pipeline.py --all --provision-only` to generate the skeleton,
 > implement check_entry/check_exit, then follow the EXPERIMENT_DISCIPLINE cycle.
@@ -105,6 +107,8 @@ python tools/run_pipeline.py --all
 ```
 
 *Monitor Stages 1-4. On failure, refer to **Step 5: Failure Handling** below.*
+
+> **Stage outcome checkpoint (required):** Read and confirm each stage's output before advancing to Step 5.5 or any subsequent workflow action. Do NOT advance on `[SUCCESS]` or `[BATCH]` banners alone — those fire on absence-of-exception, not on work actually done. Advancing workflow state without reviewing Stage 1-4 outcomes causes missed failures regardless of execution mode (foreground or background).
 
 ### Step 5.5: Produced-Output Assertion (anti-silent-no-op)
 
@@ -224,4 +228,5 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| 2026-06-17 | Cross-TF clone: new_pass.py doesn't update `timeframe` class attr → Timeframe Mismatch at preflight; must hand-edit strategy.py ~line 32 then --rehash | Add cross-TF note to Step 1 |
+| 2026-06-17 | Step 5 lacked explicit Stage 1-4 outcome checkpoint; workflow state advanced without reviewing intermediate results, causing missed failures | Add required checkpoint note to Step 5 |
