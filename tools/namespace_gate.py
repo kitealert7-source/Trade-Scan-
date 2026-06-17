@@ -5,13 +5,14 @@ Enforces:
 1. Strategy naming pattern.
 2. Token dictionary membership.
 3. Alias normalization (no alias token allowed in committed names).
-4. filename == test.strategy (strict); test.name == filename OR filename + '__<RUN_SUFFIX>'.
+4. filename == test.name; test.name == test.strategy OR test.strategy + '__<RUN_SUFFIX>'.
 5. Idea registry existence + FAMILY match.
 
-Run suffix convention: test.name may carry a run-context suffix of the form __[A-Z0-9]+
-(e.g. __E152, __ROBUST, __MC1000) to distinguish re-runs under different engines or
-configurations without creating new sweep registry entries. The directive filename and
-test.strategy remain the stable namespace identity.
+Run suffix convention: a /rerun-backtest variant carries a run-context suffix of the form
+__[A-Z0-9]+ (e.g. __E152, __ROBUST, __MC1000) on BOTH the filename and test.name, to
+distinguish re-runs under different engines or configurations without creating new sweep
+registry entries. test.strategy stays at the base (the stable namespace identity); the
+filename tracks test.name. See .claude/skills/rerun-backtest/SKILL.md "Variant Naming Rule".
 """
 
 from __future__ import annotations
@@ -160,23 +161,28 @@ def _extract_name_fields(parsed_directive: dict[str, Any], directive_path: Path)
             "must all be present."
         )
 
-    # filename must always equal test.strategy (stable namespace identity).
-    if file_stem != test_strategy:
-        raise NamespaceValidationError(
-            "NAMESPACE_IDENTITY_MISMATCH: Require filename == test.strategy. "
-            f"Found filename='{file_stem}', test.strategy='{test_strategy}'."
-        )
-
-    # test.name must equal filename exactly, OR filename + '__<RUN_SUFFIX>'
-    # where RUN_SUFFIX matches [A-Z0-9]+ (e.g. __E152, __ROBUST, __MC1000).
-    if test_name != file_stem:
-        suffix = test_name[len(file_stem):]
-        if not _RUN_SUFFIX_RE.fullmatch(suffix):
+    # Governed identity (reconciles the namespace contract with /rerun-backtest):
+    #   * test.strategy is the immutable namespace BASE anchor.
+    #   * test.name is the base OR base + a '__<RUN_SUFFIX>' run-context tag that
+    #     /rerun-backtest rotates per variant (e.g. __E152, __ROBUST, __MC1000).
+    #   * the filename always tracks test.name — a rotated rerun variant carries
+    #     the suffix on BOTH the filename and test.name while test.strategy stays
+    #     at the base (see .claude/skills/rerun-backtest/SKILL.md "Variant Naming
+    #     Rule"). So the filename is matched against test.name, not test.strategy.
+    if test_name != test_strategy:
+        suffix = test_name[len(test_strategy):]
+        if not test_name.startswith(test_strategy) or not _RUN_SUFFIX_RE.fullmatch(suffix):
             raise NamespaceValidationError(
-                "NAMESPACE_IDENTITY_MISMATCH: test.name must equal filename or "
-                "filename + '__<RUN_SUFFIX>' where RUN_SUFFIX is [A-Z0-9]+. "
-                f"Found filename='{file_stem}', test.name='{test_name}'."
+                "NAMESPACE_IDENTITY_MISMATCH: test.name must equal test.strategy or "
+                "test.strategy + '__<RUN_SUFFIX>' where RUN_SUFFIX is [A-Z0-9]+. "
+                f"Found test.strategy='{test_strategy}', test.name='{test_name}'."
             )
+
+    if file_stem != test_name:
+        raise NamespaceValidationError(
+            "NAMESPACE_IDENTITY_MISMATCH: Require filename == test.name. "
+            f"Found filename='{file_stem}', test.name='{test_name}'."
+        )
 
     return file_stem, test_name, test_strategy
 

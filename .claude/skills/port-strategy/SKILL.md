@@ -88,7 +88,7 @@ If you discover any other tool deriving root from `Path(__file__).parent.parent`
 
 ## Directive contract
 
-- `test.name`, `test.strategy`, and the directive filename stem must all be the namespaced ID.
+- For a **fresh build**, `test.name`, `test.strategy`, and the directive filename stem are all the same namespaced ID. (The one exception is a `/rerun-backtest` variant: it rotates a `__E###` suffix onto the filename **and** `test.name` while `test.strategy` stays at the base — see [`rerun-backtest`](../rerun-backtest/SKILL.md) "Variant Naming Rule". Both admission gates recognize that layout.)
 - `start_date` / `end_date` quoted strings (`"2025-08-22"`).
 - `indicators:` list must match strategy.py's STRATEGY_SIGNATURE indicators.
 - For 1D timeframes: add `session_reset: none` under `trade_management` (default `utc_day` clears pending entries → 0 trades).
@@ -199,3 +199,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 |---|---|---|
 | 2026-06-04 | New recycle rule: 2 wasted full-universe runs (LegDispatchError, manifest hash) | Added recycle-rule wiring + manifest-regen rows to failure-mode lookup |
 | 2026-06-15 | Rule param on dataclass+tests but not _instantiate_rule ctor; corpus ran default | Per-pine wiring integration test (374b061a); param-wiring meta-test task spawned |
+| 2026-06-17 | Directive-contract line asserted Model-A identity (filename==test.strategy) as universal; contradicted /rerun-backtest variant rule + blocked basket/single-asset reruns | Scoped line to fresh-build + cross-ref rerun "Variant Naming Rule"; fixed both gates (_is_already_namespaced, namespace_gate) to Model B |
