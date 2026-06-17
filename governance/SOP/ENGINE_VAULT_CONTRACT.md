@@ -155,6 +155,12 @@ retains a mix of dotted (`v1.5.2`, `v1.5.3`, `v1.5.4`, `v1.5.6`) and underscored
 (`v1_5_7`, `v1_5_8`) directories from successive promotions. Both conventions resolve
 identically; do not rename existing vaulted directories (immutability rule §6).
 
+> **Note (2026-06-17 — CURRENT canonical):** The canonical engine is now **v1.5.10**
+> (`active_engine=v1_5_10`; charged direction-aware spread; single-asset **and** basket).
+> Promoted 2026-06-17 via PR #3 (merge `d98a4770`) — see §12 (closure) + §13 (log). The
+> 2026-04-21 note below is **HISTORICAL**: the canonical advanced v1.5.6 → v1.5.8
+> (2026-04-20) → v1.5.10 (2026-06-17); superseded engines are retained for replay only.
+>
 > **Note (2026-04-21):** The canonical FROZEN engine is **v1.5.6**, residing in
 > `engine_dev/universal_research_engine/v1_5_6/` with vault copy at
 > `vault/engines/Universal_Research_Engine/v1.5.6/`. v1.5.6 adds exec-TF clock fields
@@ -276,6 +282,51 @@ of all captured files.
 - `vault/snapshots/` → point-in-time workspace archive (broader scope)
 
 These are complementary, not redundant.
+
+---
+
+## 12. Canonical Promotion Closure (Definition of Done)
+
+§4 *vaults* a version (archival). This section governs **canonical promotion** — making a
+vaulted version the *active/canonical compute* (`config/engine_registry.json` `active_engine`
++ `canonical`; `config/engine_authority.py`) — and the gate that must pass before a promotion
+is declared **CLOSED**.
+
+**Vault promotion ≠ canonical promotion.** A version may be vaulted + FROZEN without being
+canonical (v1_5_10 was vaulted 2026-06-17 while `active_engine` stayed v1_5_8). Flipping
+canonical re-baselines all future runs on that path — a behavior change, not an archival event.
+
+A canonical promotion is **CLOSED** only when ALL hold:
+
+1. **Flip committed** — `active_engine` + `canonical` moved; exactly-one-canonical holds;
+   `engine_authority` constant matches; convergence gate + abi-audit green.
+2. **Vaulted** — engine vault (§4) byte-verified; workspace snapshot (§11) taken AFTER the
+   flip, from a clean tree.
+3. **Integrated** — merged to `main`; promotion branches deleted (local + remote); `main` in
+   sync with origin.
+4. **Ledger/provenance consistent** — no orphan rows (`repair_integrity --action drop`);
+   cost-regime self-ID present on new runs; if any recycle rule / strategy.py changed,
+   `rule_code_hashes.yaml` re-blessed (human `generate_recycle_rule_hashes.py`).
+5. **Durable docs name the NEW canonical** — `SYSTEM_STATE`, **this contract's §7 note**, the
+   canonical-flip design doc, and memory. A stale canonical reference is a closure FAIL.
+6. **CI** green, or any non-blocking dormant defect explicitly recorded.
+7. **Trackers** the promotion resolved are closed or annotated.
+8. **Rollback recorded** — the exact revert (config-only for a flip).
+9. **Promotion record created** — a row appended to the §13 log capturing: promoted version,
+   prior canonical version, promotion commit(s), merge commit, vault snapshot, rollback path,
+   promotion date.
+
+Do not declare CLOSED with any item open — record open ones as dated follow-ups.
+
+---
+
+## 13. Canonical Promotion Log (append-only)
+
+One row per canonical promotion (§12 item 9). Append-only — never edit a prior row.
+
+| Date | Promoted | Prior canonical | Promotion commit(s) | Merge | Vault snapshot | Rollback path |
+|---|---|---|---|---|---|---|
+| 2026-06-17 | v1_5_10 | v1_5_8 | `bb15c768` (single-asset flip) + `06839158` (freeze); basket Phase B `363c8179`/`cd2e229b`; R9 self-ID `24c4b7e8` | `d98a4770` (PR #3) | `DR_BASELINE_2026_06_17_v1_5_10` | `git revert` the config commits (`engine_registry.json` / `engine_authority.py`) or the merge `d98a4770` |
 
 ---
 
