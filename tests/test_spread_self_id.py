@@ -29,6 +29,7 @@ from tools.basket_provenance import (
     execution_cost_model,
     leg_spread_coverage_pct,
     min_spread_coverage_pct,
+    single_asset_cost_model,
 )
 from tools.ledger_db import create_tables, upsert_cointegration_row
 from tools.portfolio.cointegration_provenance import build_cointegration_row
@@ -117,6 +118,31 @@ def test_unknown_abi_is_visibly_unspecified_not_silently_mislabeled():
 def test_none_abi_is_null():
     assert execution_cost_model(None) is None
     assert execution_cost_model("") is None
+
+
+# --- single_asset_cost_model (DERIVED from engine_version, single-asset axis) -
+
+def test_single_asset_v1_5_10_maps_to_charged():
+    # The single-asset execution_loop charges direction-aware spread at v1.5.10.
+    assert single_asset_cost_model("1.5.10") == "spread_charged_diraware_v1_5_10"
+
+
+def test_single_asset_charged_label_matches_basket():
+    # A charged single-asset run must read identically to a charged basket leg
+    # so one `LIKE 'spread_charged%'` filter spans both paths.
+    assert single_asset_cost_model("1.5.10") == execution_cost_model("engine_abi.v1_5_10")
+
+
+def test_single_asset_pre_v1_5_10_is_none_applied():
+    # Every uncharged single-asset engine (the FROZEN v1.5.8 default + older)
+    # keeps the backward-compatible 'none_applied' it always carried.
+    assert single_asset_cost_model("1.5.8") == "none_applied"
+    assert single_asset_cost_model("1.5.6") == "none_applied"
+
+
+def test_single_asset_blank_version_is_none_applied():
+    assert single_asset_cost_model(None) == "none_applied"
+    assert single_asset_cost_model("") == "none_applied"
 
 
 def test_current_basket_compute_self_reports_a_recognized_regime():

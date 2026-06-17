@@ -314,6 +314,21 @@ def execution_cost_model(engine_abi: str | None) -> str | None:
     return _COST_MODEL_BY_ABI.get(str(engine_abi), f"unspecified:{engine_abi}")
 
 
+def single_asset_cost_model(engine_version: str | None) -> str:
+    """Cost regime for a SINGLE-ASSET run, DERIVED from the engine_version the
+    loaded execution module self-reported (compute, not an independent stamp --
+    see engine_identity_is_compute_not_stamp). Direction-aware spread charging
+    landed in the single-asset execution_loop at v1.5.10; every prior single-asset
+    engine (v1.5.8 / .6 / .3) applies no spread. Reuses the basket charged-label
+    verbatim so a charged single-asset run reads identically to a charged basket
+    leg (`LIKE 'spread_charged%'`). Unknown/blank version -> 'none_applied' (the
+    conservative, backward-compatible default every pre-v1.5.10 run already
+    carried). A future charged single-asset engine adds its version here."""
+    if str(engine_version or "").strip() == "1.5.10":
+        return _COST_MODEL_BY_ABI["engine_abi.v1_5_10"]
+    return "none_applied"
+
+
 def basket_input_provenance(leg_data: dict, engine_version: str) -> dict:
     """Build the reproducibility-identity block written into the run manifest:
     the engine version + a per-leg DATA hash + a per-leg BROKER-SPEC hash + a
