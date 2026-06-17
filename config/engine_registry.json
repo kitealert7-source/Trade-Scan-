@@ -1,7 +1,7 @@
 {
-  "active_engine": "v1_5_8",
+  "active_engine": "v1_5_10",
   "status": "FROZEN",
-  "freeze_date": "2026-04-20",
+  "freeze_date": "2026-06-17",
   "vaulted": true,
   "engines": {
     "v1_5_6": {
@@ -16,13 +16,18 @@
     },
     "v1_5_8": {
       "status": "FROZEN",
-      "canonical": true,
-      "note": "Canonical frozen engine. Adds ctx.unrealized_r_intrabar + ctx.entry_price for intrabar-aware BE. Byte-equivalent to v1.5.7 for no-hook strategies. Frozen 2026-04-20."
+      "canonical": false,
+      "note": "Prior single-asset canonical (superseded by v1_5_10 for single-asset -- Phase C flip 2026-06-17). Adds ctx.unrealized_r_intrabar + ctx.entry_price for intrabar-aware BE. Byte-equivalent to v1.5.7 for no-hook strategies. Frozen 2026-04-20."
+    },
+    "v1_5_9": {
+      "status": "FROZEN",
+      "canonical": false,
+      "note": "Basket compute ABI + TS_Execution live pin; NOT single-asset selectable; byte-identical compute to v1.5.8 (docstring-only diff). Vaulted 2026-06-17. Authority: config/engine_authority.CANONICAL_ENGINE_ABI."
     },
     "v1_5_10": {
-      "status": "EXPERIMENTAL",
-      "canonical": false,
-      "note": "Direction-aware execution (RESTORATION of OctaFx addendum line-17): SELL fills at bid (= ask - per-bar RESEARCH spread), BUY at ask. P&L formula unchanged. Byte-identical to v1.5.8 on spread=0 data. Successor to v1.5.8; active_engine intentionally stays v1.5.8 until basket parity (Phase 2) + RESEARCH embed (Phase 3). Created 2026-06-14."
+      "status": "FROZEN",
+      "canonical": true,
+      "note": "FROZEN 2026-06-17 -- canonical compute for BOTH basket (engine_abi.v1_5_10) AND single-asset (Phase C flip 2026-06-17): direction-aware spread charging (basket fast-path entry + rule exit; single-asset execution_loop). Byte-identical to v1.5.8/v1.5.9 at spread=0. active_engine = v1_5_10; canonical:true = the single-asset selectable engine. Vaulted 2026-06-17."
     }
   }
 }

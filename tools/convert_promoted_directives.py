@@ -326,16 +326,26 @@ def _is_already_namespaced(path: Path, data: dict[str, Any]) -> bool:
         return False
     t_name = str(test_block.get("name", "")).strip()
     t_strategy = str(test_block.get("strategy", "")).strip()
-    # Stable identity: filename must match test.strategy (the immutable namespace anchor).
-    # test.name may carry an optional __SUFFIX run-context tag (e.g. __E152) — still namespaced.
-    if path.stem != t_strategy:
+    if not t_name or not t_strategy:
         return False
+    # Governed identity (reconciles two naming contracts):
+    #   * test.strategy is the immutable namespace BASE anchor.
+    #   * test.name is the base OR the base + a run-context suffix (e.g. __E152)
+    #     that /rerun-backtest rotates per variant.
+    #   * the filename always tracks test.name — a freshly rotated rerun variant
+    #     carries the suffix on BOTH the filename and test.name while test.strategy
+    #     stays at the base (see .claude/skills/rerun-backtest/SKILL.md
+    #     "Variant Naming Rule"). Match the filename against test.name, not
+    #     test.strategy.
     if t_name != t_strategy:
-        # Allow test.name = test.strategy + '__' + SUFFIX (uppercase alphanum)
+        if not t_name.startswith(t_strategy):
+            return False
         suffix = t_name[len(t_strategy):]
         if not re.fullmatch(r"__[A-Z0-9]+", suffix):
             return False
-    return bool(re.fullmatch(r"(C_)?\d{2}_.+", path.stem))
+    if path.stem != t_name:
+        return False
+    return bool(re.fullmatch(r"(C_)?\d{2}_.+", t_strategy))
 
 
 def convert_promoted(

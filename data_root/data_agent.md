@@ -41,6 +41,17 @@ The agent must NOT request this permission again unless explicitly revoked.
 
 ---
 
+> **Orientation aid — ADVISORY, NOT governance.** A read-only navigation layer over the multi-repo
+> operation lives in the vault: this domain's deep map is
+> `../TS_Obsidian_Vault/system/repos/anti-gravity-data-root.md` (master-data architecture, the
+> dayfirst timestamp trap, freshness index, recovery trust boundaries) and the front door is
+> `../TS_Obsidian_Vault/system/00-START-HERE.md`. Use it to *scope* a search before exploring the
+> filesystem. It is **subordinate to every SOP and addendum above** and carries **no authority** — on
+> any conflict the canon (ANTI_GRAVITY_SOP_v17) prevails; confirm against canonical before acting and
+> mind the map's `verified:` date. Not part of the mandatory bootstrap; reading it is optional.
+
+---
+
 ## 1. Anti Gravity Data Root (MANDATORY)
 
 All market data MUST live under:

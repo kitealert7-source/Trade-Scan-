@@ -25,6 +25,7 @@ on:
       - 'tests/test_engine_abi_*.py'
       - 'engines/**'
       - 'engine_dev/universal_research_engine/v1_5_9/**'
+      - 'engine_dev/universal_research_engine/v1_5_10/**'
       - '.github/workflows/abi_audit.yml'
   pull_request:
     paths:
@@ -34,6 +35,7 @@ on:
       - 'tests/test_engine_abi_*.py'
       - 'engines/**'
       - 'engine_dev/universal_research_engine/v1_5_9/**'
+      - 'engine_dev/universal_research_engine/v1_5_10/**'
       - '.github/workflows/abi_audit.yml'
 
 jobs:
@@ -75,7 +77,7 @@ jobs:
 
       - name: Run identity tests
         working-directory: Trade_Scan
-        run: python -m pytest tests/test_engine_abi_v1_5_9.py tests/test_engine_abi_ts_execution_boot.py -v
+        run: python -m pytest tests/test_engine_abi_v1_5_9.py tests/test_engine_abi_v1_5_10.py tests/test_engine_abi_ts_execution_boot.py -v
 
       - name: Audit (PR — read-only)
         if: github.event_name == 'pull_request'
@@ -91,12 +93,12 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: Trade_Scan
         run: |
-          if git diff --quiet -- governance/engine_abi_v1_5_9_manifest.yaml; then
+          if git diff --quiet -- governance/engine_abi_*_manifest.yaml; then
             echo "No last_verified updates to commit."
             exit 0
           fi
           git config user.name  "abi-ci-bot"
           git config user.email "abi-ci-bot@users.noreply.github.com"
-          git add governance/engine_abi_v1_5_9_manifest.yaml
+          git add governance/engine_abi_*_manifest.yaml
           git commit -m "abi-ci: refresh last_verified_commit/utc"
           git push

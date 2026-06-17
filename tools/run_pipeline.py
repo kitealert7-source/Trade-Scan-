@@ -1135,6 +1135,19 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                 from tools.basket_provenance import effective_input_sha256 as _eff_input_sha256
                 _inp_prov = artifact_ctx.get("input_provenance") or {}
                 _eff_input = _eff_input_sha256(_inp_prov.get("leg_data_sha256"))
+                # R9 self-ID: a basket charges purely off the per-bar `spread`
+                # column, so the row self-reports BOTH whether that column was
+                # populated (measured min-across-legs coverage) and whether the
+                # compute charges it at all (cost model DERIVED from the imported
+                # ABI via the basket_runner SSOT -- override-inert, as honest as
+                # engine_abi). Together: "genuinely charged on real-spread data".
+                # None-safe -> NULL, never aborts the row.
+                from tools.basket_provenance import (
+                    min_spread_coverage_pct as _min_spread_cov,
+                    execution_cost_model as _exec_cost_model,
+                )
+                _spread_cov = _min_spread_cov(_inp_prov.get("spread_coverage_pct"))
+                _cost_model = _exec_cost_model(_basket_engine_abi())
                 _coint_row = build_cointegration_row(
                     parsed=parsed, directive_path=path, run_id=run_id,
                     directive_id=directive_id, directive_hash=_content_hash,
@@ -1144,6 +1157,8 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                     completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
                     effective_input_sha256=_eff_input,
+                    spread_coverage_pct=_spread_cov,
+                    execution_cost_model=_cost_model,
                     engine_version=_basket_compute_engine_version(),
                     engine_abi=_basket_engine_abi(),
                 )
@@ -2115,6 +2130,22 @@ def _parse_max_parallel(argv: list[str]) -> int:
     return 1
 
 
+def normalize_directive_arg(arg: str) -> str:
+    """Normalize the single-directive CLI arg to a bare directive_id.
+
+    Accepts a bare id ('90_PORT_..._E001'), a bare id with extension
+    ('...E001.txt'), or a full / relative path
+    ('backtest_directives/INBOX/...E001.txt', including Windows backslashes).
+    Returns the bare stem the admission + state machinery keys on.
+
+    Without basename normalization a path-form arg keeps its directory prefix,
+    so find_directive_path() nests it into a non-existent path and the run
+    aborts at admission with 'Directive ... not found in INBOX' -- the
+    full-path form documented in the /rerun-backtest SKILL Quick Reference.
+    """
+    return Path(arg).name.replace(".txt", "")
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python tools/run_pipeline.py <DIRECTIVE_ID> | --all [--max-parallel N] [--provision-only] [--refresh]")
@@ -2155,7 +2186,7 @@ def main():
             _report_data_freshness()
             print("\n[SUCCESS] Batch Pipeline Completed Successfully.")
         else:
-            directive_id = arg.replace(".txt", "")
+            directive_id = normalize_directive_arg(arg)
             directive_id = prepare_single_directive_for_execution(
                 directive_id=directive_id,
                 active_dir=ACTIVE_DIR,

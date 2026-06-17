@@ -972,6 +972,13 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
       run_metadata.json: provenance fields only (content_hash, git_commit,
       execution_model, schema_version). Always writes — no silent skip."""
     # Phase E — runs-side enrichment
+    # R9 self-ID: cost regime DERIVED from the engine's self-reported
+    # engine_version (compute, not a stamp) + the MEASURED spread coverage of the
+    # consumed bars -- the single-asset analogue of the basket cost-regime record.
+    from tools.basket_provenance import single_asset_cost_model, leg_spread_coverage_pct
+    _spread_cov = leg_spread_coverage_pct(df)
+    _engine_ver = None  # captured from the engine metadata in Phase E below
+
     meta_path = out_folder / "run_metadata.json"
     if meta_path.exists():
         with open(meta_path, 'r+', encoding='utf-8') as f:
@@ -991,11 +998,13 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
             data['trend_filter_enabled'] = trend_filter_enabled
             data['git_commit'] = git_commit
             data['schema_version'] = "1.3.0"
+            _engine_ver = data.get('engine_version')
             data['execution_model'] = {
                 'order_type':       directive_dict.get('order_placement', {}).get('type', 'market'),
                 'execution_timing': directive_dict.get('order_placement', {}).get('execution_timing', 'next_bar_open'),
                 'slippage_model':   'actual_per_trade',
-                'spread_model':     'none_applied',
+                'spread_model':         single_asset_cost_model(_engine_ver),
+                'spread_coverage_pct':  _spread_cov,
             }
 
             # Tracking blocked bars
@@ -1026,7 +1035,8 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
         'order_type':       directive_dict.get('order_placement', {}).get('type', 'market'),
         'execution_timing': directive_dict.get('order_placement', {}).get('execution_timing', 'next_bar_open'),
         'slippage_model':   'actual_per_trade',
-        'spread_model':     'none_applied',
+        'spread_model':         single_asset_cost_model(_engine_ver or ui_data.get('engine_version')),
+        'spread_coverage_pct':  _spread_cov,
     }
     ui_data['schema_version'] = "1.3.0"
     with open(ui_meta_run_metadata, 'w', encoding='utf-8') as f:
