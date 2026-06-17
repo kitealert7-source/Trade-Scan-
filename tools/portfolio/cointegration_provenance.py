@@ -57,6 +57,15 @@ def build_cointegration_row(
     # the caller computes it from the run's input_provenance. DATA-axis only --
     # see the schema column comment for the scope limit.
     effective_input_sha256: str | None = None,
+    # R9 cost-regime self-ID (2026-06-17). Both nullable pass-throughs; the
+    # caller computes them from the run's input_provenance + the basket compute
+    # ABI. spread_coverage_pct = MEASURED min-across-legs % of consumed bars
+    # carrying spread>0 (catches the spread=0 acquisition gap); execution_cost_model
+    # = the cost regime DERIVED from the imported ABI (uncharged v1_5_9 vs charged
+    # v1_5_10). Together they let a row self-certify "genuinely charged on
+    # real-spread data". See engine_identity_is_compute_not_stamp.
+    spread_coverage_pct: float | None = None,
+    execution_cost_model: str | None = None,
     # engine_version is REQUIRED (no default): a cointegration row must always
     # record the COMPUTE engine, and omission must be a loud TypeError at the
     # call site, never a silent NULL into the corpus (the writer ALSO enforces
@@ -118,6 +127,8 @@ def build_cointegration_row(
         "data_vintage": data_vintage,
         "parquet_sha256": parquet_sha256,
         "effective_input_sha256": effective_input_sha256,
+        "spread_coverage_pct": _f(spread_coverage_pct),
+        "execution_cost_model": execution_cost_model,
         "vault_path": vault_path,
         "backtests_path": backtests_path,
         # metrics (caller-computed via canonical_metrics)

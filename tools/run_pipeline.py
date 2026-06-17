@@ -1135,6 +1135,19 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                 from tools.basket_provenance import effective_input_sha256 as _eff_input_sha256
                 _inp_prov = artifact_ctx.get("input_provenance") or {}
                 _eff_input = _eff_input_sha256(_inp_prov.get("leg_data_sha256"))
+                # R9 self-ID: a basket charges purely off the per-bar `spread`
+                # column, so the row self-reports BOTH whether that column was
+                # populated (measured min-across-legs coverage) and whether the
+                # compute charges it at all (cost model DERIVED from the imported
+                # ABI via the basket_runner SSOT -- override-inert, as honest as
+                # engine_abi). Together: "genuinely charged on real-spread data".
+                # None-safe -> NULL, never aborts the row.
+                from tools.basket_provenance import (
+                    min_spread_coverage_pct as _min_spread_cov,
+                    execution_cost_model as _exec_cost_model,
+                )
+                _spread_cov = _min_spread_cov(_inp_prov.get("spread_coverage_pct"))
+                _cost_model = _exec_cost_model(_basket_engine_abi())
                 _coint_row = build_cointegration_row(
                     parsed=parsed, directive_path=path, run_id=run_id,
                     directive_id=directive_id, directive_hash=_content_hash,
@@ -1144,6 +1157,8 @@ def _basket_persist_run_record(directive_id: str, path, parsed,
                     completed_at_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     stake_usd=_stake_usd, n_obs=_n_obs, parquet_sha256=_pq_sha,
                     effective_input_sha256=_eff_input,
+                    spread_coverage_pct=_spread_cov,
+                    execution_cost_model=_cost_model,
                     engine_version=_basket_compute_engine_version(),
                     engine_abi=_basket_engine_abi(),
                 )

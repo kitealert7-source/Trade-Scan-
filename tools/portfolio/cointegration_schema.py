@@ -113,6 +113,32 @@ COINTEGRATION_SHEET_COLUMNS = [
     # effective-input identity, combine with directive_sha256 + engine_version +
     # engine_abi. Nullable: pre-2026-06-16 rows and provenance-failed runs are NULL.
     "effective_input_sha256",
+    # --- cost-regime self-identification (R9 self-ID half, 2026-06-17) ---
+    # Closes "runs don't record which cost regime applied": the basket engine
+    # charges purely off the per-bar `spread` column, but nothing recorded
+    # whether that column was POPULATED (data axis) or whether the COMPUTE even
+    # charges it (engine axis) -- the prior `execution_model_version` lived in
+    # the RESEARCH preamble (CSV `comment="#"`) with 0 code readers. These two
+    # make a run self-describing on cost:
+    #   spread_coverage_pct  -- MEASURED min-across-legs % of consumed bars with
+    #                           spread>0 (catches the XAU spread=0 acquisition
+    #                           gap that silently zero-charged a leg -- the exact
+    #                           failure that motivated R9). REAL, nullable.
+    #   execution_cost_model -- DERIVED from the imported compute ABI via the
+    #                           basket_runner SSOT (override-inert, as honest as
+    #                           engine_abi -- NOT an independently-set stamp):
+    #                           spread_uncosted_roundtrip_v1_5_9 vs
+    #                           spread_charged_diraware_v1_5_10. Makes "did this
+    #                           row charge?" a direct query, not v1_5_9=uncharged
+    #                           tribal knowledge. TEXT, nullable. (The uncharged
+    #                           token avoids the substring "charged" so the
+    #                           charged filter below cannot match it.)
+    # Together: WHERE execution_cost_model LIKE 'spread_charged%' AND
+    # spread_coverage_pct >= 99  ==  the "genuinely charged, decision-grade"
+    # filter the v1.5.10 canonical flip must certify rows against. Nullable:
+    # pre-2026-06-17 rows and provenance-failed runs are NULL ("pre-self-ID").
+    "spread_coverage_pct",
+    "execution_cost_model",
 ]
 
 # REAL-typed columns. Everything else is TEXT; is_current is special-cased in
@@ -134,6 +160,7 @@ COINTEGRATION_NUMERIC_COLUMNS = {
     "cycles_completed",
     "trades_total",
     "realized_net_pct",
+    "spread_coverage_pct",
 }
 
 __all__ = [

@@ -243,15 +243,91 @@ def broker_spec_sha256(symbol: str) -> str | None:
         return None
 
 
+# --- R9 cost-regime self-identification (2026-06-17) -------------------------
+# The basket engine charges purely off the per-bar `spread` column. Two facts
+# were previously unrecorded on a run: whether that column was POPULATED (data
+# axis) and whether the COMPUTE charges it at all (engine axis). The old
+# `execution_model_version` lived in the RESEARCH preamble (CSV comment="#")
+# with 0 code readers, so a run never recorded which cost regime applied. These
+# helpers measure the data axis and derive the engine axis honestly from the
+# imported compute -- see memory engine_identity_is_compute_not_stamp.
+
+def leg_spread_coverage_pct(df) -> float | None:
+    """MEASURED % (0-100) of a leg's consumed bars carrying a populated spread
+    (>0). None when the frame is empty or has no `spread` column -- the engine
+    charges off this column, so coverage<100 flags bars whose spread cost the
+    engine could NOT have applied (the XAU spread=0 acquisition gap that
+    motivated R9). Best-effort: a measurement hiccup returns None, never aborts
+    a run (mirrors the leg_data_sha256 / broker_spec_sha256 contract)."""
+    try:
+        if df is None:
+            return None
+        cols = getattr(df, "columns", None)
+        # NB: `cols or []` would raise on a pandas Index (ambiguous truth value)
+        # and the spread col would silently read as absent -> coverage NULL.
+        if cols is None or "spread" not in list(cols):
+            return None
+        n = len(df)
+        if n == 0:
+            return None
+        import pandas as pd  # local: keep module import light for non-data callers
+
+        s = pd.to_numeric(df["spread"], errors="coerce")
+        nonzero = int((s > 0).sum())
+        return round(100.0 * nonzero / n, 6)
+    except Exception:
+        return None
+
+
+def min_spread_coverage_pct(per_leg: dict | None) -> float | None:
+    """Fold per-leg coverage to the BINDING (worst) leg: a basket is only as
+    spread-faithful as its least-covered leg, so one spread=0 leg drags the
+    whole row's self-reported coverage down. None when no leg reports coverage
+    (the ledger column stays NULL -- provenance never aborts a run)."""
+    if not per_leg:
+        return None
+    vals = [v for v in per_leg.values() if v is not None]
+    return min(vals) if vals else None
+
+
+# Map the imported basket compute ABI -> a human-readable cost regime. The ABI
+# string is sourced from the basket_runner SSOT (override-inert), so this label
+# is exactly as honest as engine_abi itself -- it is DERIVED from the compute,
+# never an independently-set stamp that could drift (the failure mode
+# engine_identity_is_compute_not_stamp warns about). An unmapped ABI returns a
+# visible `unspecified:<abi>` rather than silently mislabeling.
+#
+# Label scheme: the UNCHARGED token deliberately avoids the substring "charged"
+# (so a naive `LIKE '%charged%'` does NOT match "uncharged") -- the charged
+# regime is cleanly isolated by `execution_cost_model LIKE 'spread_charged%'`.
+_COST_MODEL_BY_ABI = {
+    "engine_abi.v1_5_9": "spread_uncosted_roundtrip_v1_5_9",
+    "engine_abi.v1_5_10": "spread_charged_diraware_v1_5_10",
+}
+
+
+def execution_cost_model(engine_abi: str | None) -> str | None:
+    """Cost regime DERIVED from the imported compute ABI (basket_runner SSOT).
+    None for a None/blank ABI; `unspecified:<abi>` for an unmapped one."""
+    if not engine_abi:
+        return None
+    return _COST_MODEL_BY_ABI.get(str(engine_abi), f"unspecified:{engine_abi}")
+
+
 def basket_input_provenance(leg_data: dict, engine_version: str) -> dict:
     """Build the reproducibility-identity block written into the run manifest:
-    the engine version + a per-leg DATA hash + a per-leg BROKER-SPEC hash.
+    the engine version + a per-leg DATA hash + a per-leg BROKER-SPEC hash + a
+    per-leg SPREAD-COVERAGE measurement.
 
     broker_spec_sha256 pins the sizing substrate (usd_per_pu / lot_step /
     min_lot) that GP sizing reads per leg; the OctaFx spec YAML self-updates
     daily, so without it a run's sizing tier is non-reproducible once the spec
     drifts. Additive: a None value means no spec file was on disk for that leg
-    (that leg's sizing would itself have been rejected at run time)."""
+    (that leg's sizing would itself have been rejected at run time).
+
+    spread_coverage_pct is the per-leg MEASURED % of consumed bars with
+    spread>0 (folded to the binding-leg minimum on the ledger row); it makes a
+    run self-report whether its cost basis was actually present in the data."""
     legs = leg_data or {}
     return {
         "engine_version": str(engine_version),
@@ -260,6 +336,9 @@ def basket_input_provenance(leg_data: dict, engine_version: str) -> dict:
         },
         "broker_spec_sha256": {
             str(sym): broker_spec_sha256(str(sym)) for sym in legs
+        },
+        "spread_coverage_pct": {
+            str(sym): leg_spread_coverage_pct(df) for sym, df in legs.items()
         },
     }
 
