@@ -1,6 +1,8 @@
 # v1.5.10 Canonical Flip — Implementation Design (Phase 2)
 
-> **Status: DESIGN — NOT APPROVED FOR EXECUTION.** This document specifies *how* to make
+> **Status: EXECUTED 2026-06-17 — Phase B flip + promotion DONE** (commits `363c8179` flip, `cd2e229b` vault/FROZEN). Scope as run: §3 charge surgery + §5 promotion (vault v1_5_10 + EXPERIMENTAL→FROZEN). The LM/HF cherry-pick (P2/§6) and the corpus re-run (Phase 3/§7) were **explicitly OUT OF SCOPE** (operator: operational correctness, not viability). Positive proof: `tests/test_v1510_fast_path_charge.py`. A rerun↔namespace contract conflict surfaced during full-pipeline verification (basket reruns via `run_pipeline` mis-route through the auto-namespace-migration) — **chipped separately** (`task_f7f42597`), NOT part of this promotion. Below is the original design.
+>
+> **Original status: DESIGN — NOT APPROVED FOR EXECUTION.** This document specifies *how* to make
 > `engine_abi.v1_5_10` (direction-aware spread charging) the canonical basket compute. Every
 > code change it describes touches **protected infrastructure** (`tools/`, `engines/`,
 > `engine_dev/`, `governance/`) and is a **STOP-level gate** under AGENT.md Invariant #6 —
