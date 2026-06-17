@@ -25,9 +25,9 @@
       "note": "Basket compute ABI + TS_Execution live pin; NOT single-asset selectable; byte-identical compute to v1.5.8 (docstring-only diff). Vaulted 2026-06-17. Authority: config/engine_authority.CANONICAL_ENGINE_ABI."
     },
     "v1_5_10": {
-      "status": "EXPERIMENTAL",
+      "status": "FROZEN",
       "canonical": false,
-      "note": "Direction-aware execution (RESTORATION of OctaFx addendum line-17): SELL fills at bid (= ask - per-bar RESEARCH spread), BUY at ask. P&L formula unchanged. Byte-identical to v1.5.8 on spread=0 data. Successor to v1.5.8; active_engine intentionally stays v1.5.8 until basket parity (Phase 2) + RESEARCH embed (Phase 3). Created 2026-06-14."
+      "note": "FROZEN 2026-06-17 -- canonical BASKET compute (Phase B flip): basket_runner computes via engine_abi.v1_5_10 with direction-aware spread charging (fast-path entry + rule exit). Byte-identical to v1.5.8/v1.5.9 at spread=0. active_engine intentionally STAYS v1_5_8 -- single-asset is Phase C, separately gated; canonical:false here = NOT the single-asset selectable engine. Vaulted 2026-06-17."
     }
   }
 }
