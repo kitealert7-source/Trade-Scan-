@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 15 commits not pushed to origin
+## SESSION STATUS: OK
 
-> Generated: 2026-06-17T13:42:35Z
+> Generated: 2026-06-17T14:28:05Z
 >
 > Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
 
@@ -12,7 +11,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 31 directives
+- Completed: 29 directives
 
 ## Ledgers
 
@@ -22,7 +21,7 @@
   - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
   - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
 
-- **Candidates (FPS):** 381 rows — CORE: 15, FAIL: 242, RESERVE: 26, WATCH: 98
+- **Candidates (FPS):** 379 rows — CORE: 15, FAIL: 240, RESERVE: 26, WATCH: 98
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -35,12 +34,12 @@
 - Latest bar: **2026-06-17** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3348
+- Run directories: 3346
 
 ## Git Sync
-- Remote: **15 commits ahead of origin/main** (vs `origin/main`)
-- Working tree: 1 uncommitted
-- Last substantive commit: `bb15c768 feat(engine): Phase C -- promote v1.5.10 to canonical single-asset engine`
+- Remote: IN SYNC (vs `origin/main`)
+- Working tree: clean
+- Last substantive commit: `d98a4770 Merge PR #3: v1.5.10 canonical promotion (basket + single-asset)`
 
 ## Deferred Maintenance
 

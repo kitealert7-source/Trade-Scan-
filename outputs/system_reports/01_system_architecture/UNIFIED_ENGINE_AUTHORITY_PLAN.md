@@ -5,7 +5,7 @@
 > answer that can never silently diverge or mislabel. The authority is **compute-binding by
 > enforcement** (gate-verified, not a runtime dispatcher — see the *Architectural invariant* below).
 >
-> **Status: DESIGN APPROVED 2026-06-17 — implementation NOT yet authorized.** The operator approved
+> **Status: DESIGN APPROVED 2026-06-17 — implementation NOT yet authorized. **[EXECUTION UPDATE 2026-06-17 — superseded: Phases A→B→C ALL EXECUTED and merged to `main` via PR #3 (merge `d98a4770`). `active_engine`=v1_5_10; v1.5.10 is the single canonical charged compute for both paths. Text below is the original plan.]**** The operator approved
 > Architecture C, this design, and the phase ordering (A→B→C→D). Implementation stays STOP-level
 > protected-infra (Invariant #6) — every change touches `config/`, `tools/`, `engine_dev/`,
 > `governance/`. **Phase A is authorizable only when the four-item gate in §7.1 is explicitly
