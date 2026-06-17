@@ -105,22 +105,27 @@ commit touches those paths; `pine_ratio_zrev_v1.py` 3-way merges cleanly and **r
 BB-adaptive-width feature** — 12 refs preserved). See §6 for the full conflict-resolution recipe,
 including the **`max_bars_in_trade=` / `exit_fill_timing=` TypeError trap**.
 
-### P3 — The DATA long-pole (the REAL Phase-3 gate)
-**The "XAU spread gap" framing was wrong.** On-disk measurement (completeness lens) found a
-**systemic 2024 FX spread hole: ~34% nonzero-spread coverage across *every* FX pair checked**
-(EURUSD/USDJPY/GBPUSD/AUDUSD/USDCHF/USDCAD), vs ~100% for 2016-2023 and 2025-2026. Cross-referenced
-to the live ledger: **~565 of 2377 `is_current=1` rows (~24%) fall in or overlap 2024 → cannot
-reach `spread_coverage_pct >= 99` no matter how perfectly the charge is wired.**
+### P3 — The DATA gate (2024 RESOLVED; residual is 2026 current-year edge)
+**CORRECTED 2026-06-17** (DATA_INGRESS audit `reports/SPREAD_2024_FX_GATE_AUDIT_2026-06-17.md` +
+independent on-disk re-measurement). The earlier "systemic 2024 FX spread hole (~34%, ~565
+uncertifiable rows)" was a **5-minute-layer measurement error.** The completeness audit read the
+basket loader's *default* timeframe (5m, `basket_data_loader.py:157,325`), but the cointegration
+corpus is **100% 15m** — verified: all 2377 `is_current=1` rows are `timeframe='15m'`, and
+`run_pipeline.py:1649` passes the directive's 15m. **15m 2024 RESEARCH carries real, per-bar spread
+for every FX pair, every month (100% nonzero across RAW+CLEAN+RESEARCH).** All **565** rows whose
+window overlaps 2024 simulate to **`spread_coverage_pct = 100`**. **No backfill was needed or done**
+(the chip correctly measured, did not mutate clean append-only data). The 5m FX 2024 gap is real
+(capture began ~2024-09) but the 15m flip never reads the 5m layer.
 
-A flip on spread=0 data charges **$0** and is byte-identical to v1.5.8 (engine manifest invariant:
-spread=0 → byte-equivalent) — **cosmetically "done," actually inert.** This is the binding
-constraint, not the code.
+**Residual (smaller, well-understood) — 2026, not 2024.** The only coverage shortfall is the live
+ingest year: 2026 is partial-zero at its recent edge (§9 Forward-Median doesn't fire on a partial
+year), so the most-recent-window rows land just under 99 and rise as 2026 fills. Of the 2377-row
+universe ~2162 (91%) already reach ≥99; the <99 rows are 2026-edge windows. **1172 rows overlap
+2026** (vs 565 / 2024).
 
-**Decision required (operator):** for the selected re-run universe's windows, either
-**(a)** re-ingest/backfill the 2024 spread column via DATA_INGRESS CLEAN→RESEARCH regen, or
-**(b)** exclude 2024 windows from the re-run scope and document the uncertifiable population.
-Per `[[feedback-mr-corpus-screening-universe]]` the requirement is uniform spread across the
-**selected ~20 pairs' windows**, not the whole corpus — audit those windows specifically.
+**Action (much lighter than a backfill):** once the selected re-run universe is fixed, check whether
+its recorded windows include 2026 edges; those specific rows may need a re-run after 2026 ingest
+catches up, or exclusion. **2024 is no longer a gate**, and there is nothing to backfill.
 
 ### P4 — spread>0 parity fixtures (the charge's proof-of-life)
 `exec_fill`/`bar_spread` are no-ops at spread=0, so **every existing parity test passes whether or
@@ -318,8 +323,7 @@ convergence + abi_audit) AND the P3 data decision is made.
   future operator doesn't "complete" the flip by bumping the live pin.
 - **Load-bearing doc updates (in the flip change-set):** `SYSTEM_STATE.md:77` (asserts baskets are
   v1.5.9 override-inert "behaviour unchanged" — becomes FALSE) and `:71` (floor scope); a
-  RESEARCH_MEMORY/MEMORY entry recording baskets→charged v1.5.10 + the ~24% uncertifiable-window
-  consequence.
+  RESEARCH_MEMORY/MEMORY entry recording baskets→charged v1.5.10 + the cost-regime change.
 - **Comparison ledger is an empty, manually-driven table** (0 rows; `comparison_writer` not invoked
   in any run path). Do **not** present it as the live comparability guard unless a step actually
   populates it. Either wire `comparison_writer` into the rerun driver to emit (uncharged-twin,
@@ -331,9 +335,10 @@ convergence + abi_audit) AND the P3 data decision is made.
 
 ## 9. Open decisions for the operator
 
-1. **DATA (P3) — the gate:** backfill 2024 FX spread via DATA_INGRESS regen, or exclude 2024
-   windows + accept the ~24% uncertifiable population? (Determines whether the flip charges anything
-   real.)
+1. **DATA (P3) — RESOLVED for 2024** (corrected 2026-06-17): the 2024 "gate" was a 5m-vs-15m
+   measurement error; 15m 2024 is 100% real spread, all 565 rows → coverage 100. No backfill.
+   Residual is only 2026-edge coverage on whichever re-run windows are 2026 (1172 rows overlap
+   2026) — a current-year characteristic that self-heals as 2026 ingests.
 2. **Scope of "the flip":** basket-compute only (recommended), or also flip `active_engine` for the
    single-strategy path?
 3. **v1_5_10 status:** promote EXPERIMENTAL→FROZEN as part of this, or flip the basket compute onto
@@ -351,7 +356,7 @@ convergence + abi_audit) AND the P3 data decision is made.
 P0  Human approval (Invariant #6)                                    [STOP]
 P1  FF feat/r9-spread-self-id → main; assert 289c9c76 ∈ main         [gate: merge-base]
 P2  Cherry-pick 28a80cc8 + 0082b0bb (§6); assert comparison files survive
-P3  DATA decision: backfill 2024 FX spread OR scope-exclude (§2 P3)  [the real gate]
+P3  DATA: 2024 CLEARED (15m clean); only check 2026-edge windows in re-run scope (§2 P3)
 P4  Author spread>0 parity fixtures + the 3 new tests (§4)           [must FAIL pre-fix]
 ─── ATOMIC FLIP COMMIT (§3) ──────────────────────────────────────
     3a re-point  + 3b entry charge + 3c rule-exit charge
@@ -384,7 +389,10 @@ P4  Author spread>0 parity fixtures + the 3 new tests (§4)           [must FAIL
 - abi_audit: `tools/abi_audit.py:53,222-254,278-312`; `governance/engine_abi_v1_5_10_manifest.yaml`.
 - Cherry-pick: HF=`28a80cc8`, LM=`0082b0bb`; deletion danger `git diff main..onboarding`
   (comparison_schema/writer `deleted file mode`); TypeError trap `basket_pipeline.py _instantiate_rule`.
-- DATA: 2024 FX RESEARCH ~34% coverage; ~565/2377 `is_current=1` rows in/overlap 2024.
+- DATA (corrected 2026-06-17): corpus is 100% 15m; 15m 2024 RESEARCH = 100% spread (all 565
+  2024-overlap rows → coverage 100); the ~34% figure was a 5m-layer measurement error. Residual =
+  2026-edge windows (1172 rows overlap 2026). Ref:
+  `DATA_INGRESS/reports/SPREAD_2024_FX_GATE_AUDIT_2026-06-17.md`.
 - Live safety: `tools/live_basket/driver.py:37-59,143`; TS_Execution `portfolio.yaml:6`,
   `phase0_validation.py:30`, `strategy_loader.py:154`.
 - Operator surface: `trade_candidates_view.py:58,113`.
