@@ -2130,6 +2130,22 @@ def _parse_max_parallel(argv: list[str]) -> int:
     return 1
 
 
+def normalize_directive_arg(arg: str) -> str:
+    """Normalize the single-directive CLI arg to a bare directive_id.
+
+    Accepts a bare id ('90_PORT_..._E001'), a bare id with extension
+    ('...E001.txt'), or a full / relative path
+    ('backtest_directives/INBOX/...E001.txt', including Windows backslashes).
+    Returns the bare stem the admission + state machinery keys on.
+
+    Without basename normalization a path-form arg keeps its directory prefix,
+    so find_directive_path() nests it into a non-existent path and the run
+    aborts at admission with 'Directive ... not found in INBOX' -- the
+    full-path form documented in the /rerun-backtest SKILL Quick Reference.
+    """
+    return Path(arg).name.replace(".txt", "")
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python tools/run_pipeline.py <DIRECTIVE_ID> | --all [--max-parallel N] [--provision-only] [--refresh]")
@@ -2170,7 +2186,7 @@ def main():
             _report_data_freshness()
             print("\n[SUCCESS] Batch Pipeline Completed Successfully.")
         else:
-            directive_id = arg.replace(".txt", "")
+            directive_id = normalize_directive_arg(arg)
             directive_id = prepare_single_directive_for_execution(
                 directive_id=directive_id,
                 active_dir=ACTIVE_DIR,
