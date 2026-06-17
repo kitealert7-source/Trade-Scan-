@@ -76,11 +76,11 @@ def normalize_engine_token(token: str, style: str = "underscore") -> str:
 #     (UNIFIED_ENGINE_AUTHORITY_PLAN.md §4) flips these; the gate proves neither
 #     silently diverges from the real compute. ---
 CANONICAL_ENGINE_ABI = "engine_abi.v1_5_10"          # basket compute ABI (Phase B flip 2026-06-17)
-CANONICAL_SINGLE_ASSET_ENGINE = "v1_5_8"             # single-asset engine
+CANONICAL_SINGLE_ASSET_ENGINE = "v1_5_10"            # single-asset engine (Phase C flip 2026-06-17)
 
 # Derived dotted forms (parsed from the two switches above — never hand-set).
-CANONICAL_ENGINE_VERSION_DOTTED = normalize_engine_token(CANONICAL_ENGINE_ABI, "dotted")               # "1.5.9"
-CANONICAL_SINGLE_ASSET_VERSION_DOTTED = normalize_engine_token(CANONICAL_SINGLE_ASSET_ENGINE, "dotted")  # "1.5.8"
+CANONICAL_ENGINE_VERSION_DOTTED = normalize_engine_token(CANONICAL_ENGINE_ABI, "dotted")               # "1.5.10"
+CANONICAL_SINGLE_ASSET_VERSION_DOTTED = normalize_engine_token(CANONICAL_SINGLE_ASSET_ENGINE, "dotted")  # "1.5.10"
 
 # --- Graft-(g) waiver: the dryrun structural surface, intentionally outside the
 #     authority. tools/strategy_dryrun_validator.py imports ContextView from this
