@@ -32,6 +32,7 @@ to use** + **when NOT to use** + **related skills**.
 | Run an operational retrospective before closing | `/session-retro` |
 | End a work session cleanly | `/session-close` |
 | Register a long-running Windows daemon | `/launch-windows-supervised-task` |
+| Check git state across all repos ("what mess would I leave?") | `/git-hygiene` |
 | Periodic repo hygiene + code DRY | `/repo-cleanup-refactor` |
 | Cleanup of pipeline artifacts (runs/, backtests/, etc.) | `/pipeline-state-cleanup` |
 | System health audit / governance maintenance | `/system-health-maintenance` |
@@ -79,6 +80,7 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
+| `git-hygiene` | After a heavy session, weekly, or any time git state feels unclear — answers "what mess would I leave?" across all 4 repos in ~30s | Don't use for code DRY / artifact cleanup → those are `repo-cleanup-refactor` / `pipeline-state-cleanup` | `session-close`, `repo-cleanup-refactor` |
 | `repo-cleanup-refactor` | Weekend before close, Monday before starting, or after major phase completion. Worktrees, stale branches, root-untracked files, cross-repo state orphans, code DRY (duplicate-function extraction) | Mid-task / mid-pipeline → too disruptive | `session-close` (calls this from §8b.i), `pipeline-state-cleanup` |
 | `pipeline-state-cleanup` | Drift-triggered: large MPS delta (≳ 10 new entries), many backtests added (≳ 20), unusual `runs/` growth (≳ 50), or stale strategy folders noticed during work. Lineage-aware prune of `TradeScan_State/runs/`, `backtests/`, `sandbox/`, `strategies/` against the authoritative ledgers | No drift → calendar-running this wastes effort | `session-close` (calls this from §8b.ii), `system-health-maintenance` |
 | `system-health-maintenance` | System health audit + workspace hygiene + recovery operations + vault management — non-authoritative governance tooling | Authoritative pipeline work → use `/execute-directives` instead | `pipeline-state-cleanup`, `repo-cleanup-refactor`, `session-close` |

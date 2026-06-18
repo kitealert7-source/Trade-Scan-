@@ -1,0 +1,158 @@
+# git-hygiene
+
+**Purpose:** answer "what git mess would I leave behind if I stopped now?" across all repos.
+One screenful. ~30 seconds. No side effects.
+
+---
+
+## Repos to check
+
+Run all checks against each of these (skip silently if `.git` directory absent):
+
+```
+Trade_Scan      (current dir)
+DATA_INGRESS    ../DATA_INGRESS
+TS_Execution    ../TS_Execution
+TradeScan_State ../TradeScan_State
+```
+
+---
+
+## Checks
+
+Run all six in parallel via a single bash block:
+
+```bash
+python -c "
+import subprocess, sys
+
+REPOS = [
+    ('Trade_Scan',    '.'),
+    ('DATA_INGRESS',  '../DATA_INGRESS'),
+    ('TS_Execution',  '../TS_Execution'),
+    ('TradeScan_State', '../TradeScan_State'),
+]
+
+def git(repo, *args):
+    r = subprocess.run(['git', '-C', repo] + list(args),
+                       capture_output=True, text=True)
+    return r.stdout.strip()
+
+def git_lines(repo, *args):
+    out = git(repo, *args)
+    return [l for l in out.splitlines() if l.strip()] if out else []
+
+action, cleanup, watch = [], [], []
+
+for name, path in REPOS:
+    import os
+    if not os.path.isdir(os.path.join(path, '.git')):
+        continue
+
+    # 1. Branch
+    branch = git(path, 'rev-parse', '--abbrev-ref', 'HEAD')
+    if branch and branch != 'main':
+        action.append(f'{name}: on branch \"{branch}\" (not main)')
+
+    # 2. Dirty working tree
+    dirty = git_lines(path, 'status', '--porcelain')
+    if dirty:
+        action.append(f'{name}: {len(dirty)} uncommitted change(s)')
+
+    # 3. Unpushed commits
+    try:
+        count = git(path, 'rev-list', '--count', '@{u}..HEAD')
+        if count and int(count) > 0:
+            subjects = git_lines(path, 'log', '--oneline', f'-{count}', '@{u}..HEAD')
+            action.append(f'{name}: {count} unpushed commit(s) — {subjects[0] if subjects else \"\"}')
+    except Exception:
+        pass
+
+    # 4. Unmerged local branches
+    unmerged = git_lines(path, 'branch', '--no-merged', 'main')
+    for b in unmerged:
+        b = b.strip().lstrip('* ')
+        cleanup.append(f'{name}: local branch \"{b}\" not merged to main')
+
+    # 5. Stale remote branches (merged into main, not main/HEAD itself)
+    stale = git_lines(path, 'branch', '-r', '--merged', 'main')
+    for b in stale:
+        b = b.strip()
+        if 'origin/main' in b or 'origin/HEAD' in b:
+            continue
+        cleanup.append(f'{name}: remote branch \"{b}\" merged, can delete')
+
+    # 6. Untracked root artifacts (top-level only)
+    untracked = git_lines(path, 'ls-files', '--others', '--exclude-standard', '--directory')
+    untracked += git_lines(path, 'ls-files', '--others', '--exclude-standard')
+    # filter to root-level only
+    root_untracked = [f for f in untracked if '/' not in f.rstrip('/')]
+    if root_untracked:
+        watch.append(f'{name}: {len(root_untracked)} untracked root file(s): {\" \".join(root_untracked[:3])}')
+
+# Emit
+any_output = False
+if action:
+    print('ACTION')
+    for i in action: print(f'  - {i}')
+    any_output = True
+if cleanup:
+    print('CLEANUP')
+    for i in cleanup: print(f'  - {i}')
+    any_output = True
+if watch:
+    print('WATCH')
+    for i in watch: print(f'  - {i}')
+    any_output = True
+if not any_output:
+    print('All clean.')
+"
+```
+
+---
+
+## Output format
+
+Print only non-empty buckets. If all buckets empty, print `All clean.`
+
+```
+ACTION          ← must resolve before stopping work
+  - repo: issue
+
+CLEANUP         ← safe deletions, low urgency
+  - repo: issue
+
+WATCH           ← note only, no action required
+  - repo: issue
+```
+
+**Hard cap: one screenful.** If any bucket would exceed ~8 items, truncate with `(+N more)`.
+
+---
+
+## Constraints
+
+- **Read-only.** No commits, no pushes, no deletes.
+- **No context loading.** Do not read SYSTEM_STATE, RESEARCH_MEMORY, or any project doc.
+- **No interpretation.** Print facts; do not recommend strategies or next research steps.
+- **Silent skips.** Repo absent / no upstream set / detached HEAD → skip without warning.
+
+---
+
+## When to invoke
+
+- End of a heavy session before closing
+- Weekly on Monday before starting work
+- Any time git state feels unclear
+
+## Related skills
+
+- `/session-close` — commits, pushes, and closes the session properly (run this first)
+- `/session-start` — broader orientation including research + infra priorities
+
+---
+
+## Friction log
+
+| Date | Friction (1 line) | Edit landed |
+|---|---|---|
