@@ -1,10 +1,13 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-06-17T15:45:32Z
+> Generated: 2026-06-18T15:04:01Z
 >
-> Read at session start. Regenerate at session end (`python tools/system_introspection.py`).
+> SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
+> If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
+> Ephemeral content only. Durable entries (invariant proposals, code-cited decisions) belong in `INVARIANT_PROPOSALS.md`.
 
 ## Engine
 - **Version:** 1.5.10 | **Status:** FROZEN | **Manifest:** VALID
@@ -31,22 +34,22 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-17** | Symbols: 221
+- Latest bar: **2026-06-18** | Symbols: 221
 
 ## Artifacts
 - Run directories: 3346
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `c9a44a19 chore(rules): re-bless rule_code_hashes.yaml -- pine_ratio_zrev_v1 Phase B change`
+- Working tree: 2 uncommitted
+- Last substantive commit: `7eabee1e skills: maintenance audit 2026-06-18 â€” 2 fixes, 0 archive actions`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 34 KB / 124 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
