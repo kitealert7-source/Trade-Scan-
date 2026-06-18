@@ -114,6 +114,53 @@ dirty/divergent tree at startup is a FLAG — reconcile it before research, and 
 didn't make without confirming intent (Invariant #2 append-only / "if you didn't create it, surface
 it"). (`[ -d ]` guards no-op from a worktree where `../` doesn't resolve to the sibling.)
 
+### 1.9 Live basket pre-check (CONDITIONAL — skip for research-only sessions)
+
+**Run this section only when the session involves live basket execution** (basket_producer.py is
+running or about to start, or any `check_entry()` / API order flow is in scope).
+
+Three mandatory assertions before ANY API order is placed. All three must pass; any failure is a
+STOP — do not proceed with live basket interaction:
+
+```python
+# Paste into python or run as: python -c "..."
+import subprocess, sys
+
+procs = subprocess.run(
+    ['tasklist', '/FI', 'IMAGENAME eq terminal64.exe', '/NH', '/FO', 'CSV'],
+    capture_output=True, text=True
+).stdout.strip().splitlines()
+running = [p for p in procs if 'terminal64.exe' in p.lower()]
+
+print(f"(1) terminal64.exe count: {len(running)}")
+if len(running) != 1:
+    print("FAIL — expected exactly 1 terminal64.exe; got", len(running))
+    print("If count > 1: close all but the trading terminal and retry.")
+    sys.exit(1)
+print("    PASS")
+
+# (2) + (3): run from TS_Execution
+import importlib.util, pathlib
+ts_exec = pathlib.Path(__file__).resolve().parents[3] / 'TS_Execution'
+# Or just remind the operator:
+print()
+print("(2) Login + trade_mode: confirm active account matches allow-list in TS_Execution config.")
+print("(3) trade_allowed: confirm MT5 terminal shows 'Trade' (not 'Expert' disabled or read-only).")
+print()
+print("If MT5 IPC dead → FAILURE_PLAYBOOK.md section 'MT5 API Pipe Dead'")
+```
+
+**Condensed checklist (memorise — faster than running the script):**
+1. Exactly **one** `terminal64.exe` in Task Manager — the trading terminal, not a stale second instance.
+2. Active account login + `trade_mode` matches TS_Execution allow-list (usually `DEMO` account during
+   boarding; check `TS_Execution/config/` or the session's `basket_producer` log).
+3. `trade_allowed == True` visible in MT5 terminal (top bar shows green "Trade" indicator, not
+   read-only mode).
+
+**Why this gate exists:** 2026-06-06 incident — API silently attached to a *second* `terminal64.exe`
+(a stale instance from a prior session). All IPC calls succeeded, but order flow went to the wrong
+account. ~30 min to isolate. The fix is trivially cheap; the failure mode is expensive.
+
 ---
 
 ## Phase 2 — Synthesize priorities

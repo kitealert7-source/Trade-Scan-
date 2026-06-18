@@ -81,11 +81,11 @@ Gate | Layer | Protection Provided
 
 ## SECTION 5 — Execution Engine Components
 
-The engine layer (currently **Universal Research Engine v1.5.8**, canonical and active) ensures that bar-by-bar simulation is 100% deterministic and reproducible. The consumer ABI surface is governed by `engine_abi.v1_5_9`, which is the active ABI consumed by `TS_Execution` and basket runner consumers.
+The engine layer (currently **Universal Research Engine v1.5.10**, canonical and active) ensures that bar-by-bar simulation is 100% deterministic and reproducible. The consumer ABI surface is governed by `engine_abi.v1_5_9`, which is the active ABI consumed by `TS_Execution` and basket runner consumers.
 
 - **`engines/filter_stack.py`**: The authoritative gatekeeper for trade entry and exit signals. It enforces regime-aware execution logic.
 - **`tools/exec_preflight.py`**: CLI wrapper for governance preflight that binds `governance/preflight.py` into the execution flow.
-- **`engine_dev/universal_research_engine/v1_5_8/execution_loop.py`**: The core iterator that processes historical bars and emits trade events.
+- **`engine_dev/universal_research_engine/v1_5_10/execution_loop.py`**: The core iterator that processes historical bars and emits trade events.
 - **`engine_abi/v1_5_9/__init__.py`**: The active ABI manifest and exporter surface used by external consumers.
 - **`tools/capital_wrapper.py`**: A deterministic event-based simulator that applies capital and risk constraints post-execution. Emits structured deployable artifacts per capital profile.
 - **`tools/post_process_capital.py`**: Enriches `profile_comparison.json` with utilization-based capital insights per profile.
@@ -272,4 +272,4 @@ The system is governed by **25 codified invariants** (see `AGENT.md` SYSTEM INVA
 7. **Scratch Script Placement**: All ad-hoc agent scripts go to `/tmp/` only. The repository root is reserved for governed toolset artifacts.
 
 ---
-**Status**: Top-Level Authority Map | **Version**: 2.0.2 | **Last Updated**: 2026-06-17
+**Status**: Top-Level Authority Map | **Version**: 2.0.3 | **Last Updated**: 2026-06-18
