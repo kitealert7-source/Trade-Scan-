@@ -69,11 +69,18 @@ for name, path in REPOS:
     if dirty:
         action.append(f'{name}: {len(dirty)} uncommitted change(s)')
 
-    # 4. Unmerged local branches
+    # 4. Unmerged local branches → always WATCH (skill cannot know if safe to delete)
     unmerged = git_lines(path, 'branch', '--no-merged', 'main')
     for b in unmerged:
         b = b.strip().lstrip('* ')
-        cleanup.append(f'{name}: local branch \"{b}\" not merged to main')
+        ahead = git(path, 'rev-list', '--count', f'main..{b}')
+        try:
+            ahead = int(ahead)
+        except Exception:
+            ahead = 0
+        has_remote = bool(git(path, 'branch', '-r', '--list', f'origin/{b}').strip())
+        suffix = f', remote exists' if has_remote else ''
+        watch.append(f'{name}: unmerged branch \"{b}\" ({ahead} commit(s) ahead{suffix})')
 
     # 5. Stale remote branches (merged into main, not main/HEAD itself)
     stale = git_lines(path, 'branch', '-r', '--merged', 'main')
@@ -120,12 +127,17 @@ Print only non-empty buckets. If all buckets empty, print `All clean.`
 ACTION          ← must resolve before stopping work
   - repo: issue
 
-CLEANUP         ← safe deletions, low urgency
+CLEANUP         ← deterministic safe deletions (merged remote branches only)
   - repo: issue
 
-WATCH           ← note only, no action required
-  - repo: issue
+WATCH           ← human decision required; includes ALL unmerged local branches
+  - repo: unmerged branch "feature/foo" (1 commit ahead)
+  - repo: unmerged branch "feature/bar" (8 commits ahead, remote exists)
 ```
+
+**Unmerged branches are always WATCH, never CLEANUP.** The skill knows *not merged*;
+it does not know *safe to delete*. A 1-commit branch can be abandoned or active.
+Commit count and remote-exists are severity signals for prioritisation — the human decides.
 
 **Hard cap: one screenful.** If any bucket would exceed ~8 items, truncate with `(+N more)`.
 
@@ -158,3 +170,4 @@ WATCH           ← note only, no action required
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
 | 2026-06-18 | Feature branch alone flagged as ACTION; only actionable when combined with unpushed work | branch+unpushed combined into single check; feature-branch-only demoted to CLEANUP |
+| 2026-06-18 | feat/cointegration-onboarding (70 commits) surfaced as CLEANUP alongside 1-commit stale branches — no commit count, no severity signal, no way to distinguish active merge candidate from abandoned stub | All unmerged local branches moved to WATCH; commit count and remote-exists flag added to every entry |
