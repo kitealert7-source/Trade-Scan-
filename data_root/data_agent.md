@@ -52,6 +52,21 @@ The agent must NOT request this permission again unless explicitly revoked.
 
 ---
 
+## Repo boundary — store, not pipeline
+
+This repo is the **data store**. It holds data; it does not contain the code that ingests or rebuilds it.
+
+| What you need | Where to look |
+|---|---|
+| Market data files (RAW / CLEAN / RESEARCH) | **Here** — `Anti_Gravity_DATA_ROOT/MASTER_DATA/` |
+| Code that ingests or rebuilds data | **DATA_INGRESS** — the daily pipeline that writes into this root |
+| Fix for missing or stale data | Run the DATA_INGRESS pipeline (`engines/ops/daily_pipeline.py`) |
+| Staleness check | `freshness_index.json` at this repo root |
+
+If you are about to run or modify code here to fix data: stop — the pipeline code lives in DATA_INGRESS.
+
+---
+
 ## 1. Anti Gravity Data Root (MANDATORY)
 
 All market data MUST live under:
