@@ -1,3 +1,8 @@
+---
+name: git-hygiene
+description: Read-only multi-repo git state check — uncommitted, unpushed, branches, untracked (one screenful).
+---
+
 # git-hygiene
 
 **Purpose:** answer "what git mess would I leave behind if I stopped now?" across all repos.
@@ -166,6 +171,8 @@ Commit count and remote-exists are severity signals for prioritisation — the h
 ---
 
 ## Friction log
+
+Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
