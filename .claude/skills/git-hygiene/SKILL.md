@@ -49,24 +49,25 @@ for name, path in REPOS:
     if not os.path.isdir(os.path.join(path, '.git')):
         continue
 
-    # 1. Branch
+    # 1+3. Branch + unpushed (combined — feature branch alone is not a problem)
     branch = git(path, 'rev-parse', '--abbrev-ref', 'HEAD')
+    try:
+        count = int(git(path, 'rev-list', '--count', '@{u}..HEAD') or '0')
+    except Exception:
+        count = 0
     if branch and branch != 'main':
-        action.append(f'{name}: on branch \"{branch}\" (not main)')
+        if count > 0:
+            action.append(f'{name}: branch \"{branch}\" + {count} unpushed commit(s)')
+        else:
+            cleanup.append(f'{name}: on branch \"{branch}\" (all pushed)')
+    elif count > 0:
+        subjects = git_lines(path, 'log', '--oneline', f'-{count}', '@{u}..HEAD')
+        action.append(f'{name}: {count} unpushed commit(s) on main -- {subjects[0] if subjects else \"\"}')
 
     # 2. Dirty working tree
     dirty = git_lines(path, 'status', '--porcelain')
     if dirty:
         action.append(f'{name}: {len(dirty)} uncommitted change(s)')
-
-    # 3. Unpushed commits
-    try:
-        count = git(path, 'rev-list', '--count', '@{u}..HEAD')
-        if count and int(count) > 0:
-            subjects = git_lines(path, 'log', '--oneline', f'-{count}', '@{u}..HEAD')
-            action.append(f'{name}: {count} unpushed commit(s) — {subjects[0] if subjects else \"\"}')
-    except Exception:
-        pass
 
     # 4. Unmerged local branches
     unmerged = git_lines(path, 'branch', '--no-merged', 'main')
@@ -156,3 +157,4 @@ WATCH           ← note only, no action required
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
+| 2026-06-18 | Feature branch alone flagged as ACTION; only actionable when combined with unpushed work | branch+unpushed combined into single check; feature-branch-only demoted to CLEANUP |
