@@ -22,7 +22,7 @@ This document provides a comprehensive classification of all top-level folders a
 
 | Folder / File | Category | Architectural Role |
 | :--- | :--- | :--- |
-| .agents/, .claude/, .skills/ | **SOURCE** | Agentic workflows and skill definitions. |
+| .claude/, .skills/ | **SOURCE** | `.claude/` = agent skills + workflows. `.skills/` = the **runtime skill registry** loaded by `tools/skill_loader.py` (e.g. `backtest_execution` → Stage-1 via `stage_symbol_execution`); do NOT delete. (`.agents/` was retired in the 2026-04-20 consolidation.) |
 | .git/, .gitignore | **SOURCE** | Version control infrastructure. |
 | AGENT.md, README.md | **SOURCE** | System documentation and agent instructions (25 codified SYSTEM INVARIANTS). |
 | RESEARCH_MEMORY.md | **SOURCE** | Active research log and cross-conversation context. |

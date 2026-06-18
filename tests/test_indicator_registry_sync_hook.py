@@ -518,10 +518,44 @@ def test_session_close_skill_documents_step_6b():
 # These tests pin two things:
 #   - tools/hooks/install.sh actually installs the pre-push hook
 #   - the installed hook blocks a `git push` when the registry has drift
+#
+# ENVIRONMENT-CONDITIONAL -- READ BEFORE "FIXING" OR REFRESHING THE BASELINE.
+# The three tests below shell out to `sh` (install.sh + the hook scripts):
+#   - sh/bash on PATH (Git Bash, CI, dev shell)  -> they RUN and PASS.
+#   - no POSIX shell on PATH (headless session-close on Windows)
+#     -> subprocess.run(["sh", ...]) raises FileNotFoundError/[WinError 2] -> FAIL.
+# This is EXPECTED, not a regression: the real pre-push hook + indicator_registry_
+# sync.py --check work live (exercised on every push). The three are recorded as
+# acknowledged failures in outputs/.session_state/broader_pytest_baseline.json so
+# the no-shell session-close gate matches the baseline and does NOT falsely block.
+# DO NOT run `check_broader_pytest_baseline.py --update-baseline` to drop them
+# because a shell-equipped session shows them green -- they fail again with no
+# shell, and removing them re-opens the false-block. See the baseline `rationale`
+# field (set 2026-06-07) for the full note.
 
 
 PRE_PUSH_SCRIPT = PROJECT_ROOT / "tools" / "hooks" / "pre-push"
 INSTALL_SCRIPT = PROJECT_ROOT / "tools" / "hooks" / "install.sh"
+
+
+def _fail_fast_if_no_shell() -> None:
+    """Convert the cryptic [WinError 2] into an explicit, self-explaining failure.
+
+    FAILS (does not skip) on purpose: these tests are acknowledged failures in
+    broader_pytest_baseline.json so the no-shell session-close gate matches the
+    baseline exactly. Skipping would drop them from the failed set and turn them
+    into a permanent 'improvement -- refresh the baseline' nudge on every run --
+    the opposite of what the baseline rationale intends. See the §11 header.
+    """
+    if shutil.which("sh") is None:
+        pytest.fail(
+            "ENVIRONMENT-CONDITIONAL: needs a POSIX shell (`sh`, e.g. Git Bash) on "
+            "PATH; none found here. This is an ACKNOWLEDGED baseline failure, NOT a "
+            "regression -- the live pre-push hook works (it runs on every push). Do "
+            "NOT refresh broader_pytest_baseline.json to drop it on a shell-equipped "
+            "run; it fails again where no shell exists. See the §11 header in this file.",
+            pytrace=False,
+        )
 
 
 def _seed_hook_install_tree(repo: Path) -> None:
@@ -541,10 +575,13 @@ def _seed_hook_install_tree(repo: Path) -> None:
 
 
 def test_install_sh_installs_pre_push_hook(fake_repo):
-    """`tools/hooks/install.sh` extended in Patch 2 must install both
+    """ENVIRONMENT-CONDITIONAL (needs `sh` on PATH; acknowledged baseline TD -- see §11 header).
+
+    `tools/hooks/install.sh` extended in Patch 2 must install both
     pre-commit and pre-push. Document-level guard against the loop
     over `HOOK_NAMES` getting dropped by a future refactor.
     """
+    _fail_fast_if_no_shell()
     _seed_hook_install_tree(fake_repo)
 
     install_path = fake_repo / "tools" / "hooks" / "install.sh"
@@ -568,11 +605,14 @@ def test_install_sh_installs_pre_push_hook(fake_repo):
 
 
 def test_pre_push_hook_blocks_when_registry_drifts(fake_repo):
-    """The installed pre-push hook exits 1 when indicator registry drift
+    """ENVIRONMENT-CONDITIONAL (needs `sh` on PATH; acknowledged baseline TD -- see §11 header).
+
+    The installed pre-push hook exits 1 when indicator registry drift
     exists. We invoke the hook script directly (rather than running an
     actual `git push`) so the test is robust to Windows shell quirks and
     doesn't need a remote.
     """
+    _fail_fast_if_no_shell()
     _seed_hook_install_tree(fake_repo)
     # Run install.sh first so the hook is in place.
     subprocess.run(
@@ -608,10 +648,13 @@ def test_pre_push_hook_blocks_when_registry_drifts(fake_repo):
 
 
 def test_pre_push_hook_passes_when_registry_clean(fake_repo):
-    """The installed pre-push hook exits 0 when disk and registry are in
+    """ENVIRONMENT-CONDITIONAL (needs `sh` on PATH; acknowledged baseline TD -- see §11 header).
+
+    The installed pre-push hook exits 0 when disk and registry are in
     sync. Sanity check — without this the hook would block every push,
     not just drifted ones.
     """
+    _fail_fast_if_no_shell()
     _seed_hook_install_tree(fake_repo)
     subprocess.run(
         ["sh", str(fake_repo / "tools" / "hooks" / "install.sh")],

@@ -13,6 +13,8 @@ This workflow executes directives in `backtest_directives/INBOX/` to produce aut
 - Directive YAML file(s) in `backtest_directives/INBOX/`
 - AGENT.md (Failure Playbook) exists at project root
 
+> **No directives yet?** Form them via [`/generate-directives`](../generate-directives/SKILL.md) (it owns the transform-a-reference-run vs corpus-generator decision), then return here.
+
 > **Supervised posture:** On failure, consult `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TABLE.md`. Flexible scopes (F02 exploratory, F19 re-run, tool sequencing, Tier 1 ambiguity) use `[ANNOUNCE] <SCENARIO> | risk: ... | action: ...` and PROCEED. STRICT STOP preserved for F10 pre-traceback, F03/F04 cleanup without `--dry-run`, governance scopes (F05/F06/F08/F13/F15/F16), and system invariants.
 
 ---
@@ -28,6 +30,9 @@ Before provisioning, you MUST verify data coverage and administrative alignment.
     python tools/namespace_gate.py backtest_directives/INBOX/<DIRECTIVE_ID>.txt
     python tools/sweep_registry_gate.py backtest_directives/INBOX/<DIRECTIVE_ID>.txt
     ```
+    > **Single-asset lens only.** These manual invocations false-FAIL valid basket / COINTREV
+    > directives (`NAMESPACE_PATTERN_INVALID`, `UNKNOWN_STRUCTURE: ['basket']`). Baskets are
+    > validated by the pipeline's basket admission path (`run_pipeline._try_basket_dispatch`).
 
 3.  **Optional Maintenance Check**: If workspace drift is suspected, run the reconciler from the **System Maintenance Workflow** to ensure the `runs/` directory is aligned with `run_registry.json`.
 
@@ -100,6 +105,8 @@ python tools/tests/test_warmup_extension.py
 
 After human approval, launch the multi-stage backtest.
 
+> **New rule? Build it first.** If any directive names a recycle rule not yet pipeline-routable (a NEW rule), STOP and build it via [`/port-strategy`](../port-strategy/SKILL.md) — a new rule needs all 5 wiring points (rule file · `recycle_rules/__init__` · `registry.yaml` · `basket_pipeline._instantiate_rule` · `run_pipeline.LEG_STRATEGY_DISPATCH`), `tests/test_leg_strategy_dispatch.py` must pass, and `generate_guard_manifest.py` re-run — or every directive fails silently with `LegDispatchError`.
+
 // turbo
 
 ```bash
@@ -121,6 +128,20 @@ After the batch returns, for **each directive admitted this batch** confirm:
 If the produced-backtest-dir count is `0` (or `< admitted-directive-count`), **STOP** and treat it as a silent no-op — do **NOT** proceed to promotion (Steps 6–7) or report mission-complete. Common cause: a cloned / retired-cohort re-run whose `run_id`s were superseded or retired, so the dispatcher produced nothing (observed 2026-06-15).
 
 *This is the **canonical** home for the produced-output guard. Other skills reference this step rather than restating it.*
+
+> **Post-batch staging cleanup.** When the directives came from a generated staging dir
+> (generate-directives Method B stages to `backtest_directives/<name>_staging/` → you copy
+> into `INBOX/`), that staging dir is **spent once the batch is verified** — delete it.
+> Directives are **regenerable scratch** (the generator is deterministic) and any that
+> produced a run are preserved in `backtests/<name>/DIRECTIVE_SOURCE.txt` + the ledger, so
+> the staging copies are pure redundancy; left alone they accumulate (a single sweep can be
+> 475 files). **Consumption authority = the ledger** — a `run_id` landed for the
+> directive_id — NOT `backtest_directives/completed/`, which is *itself* regenerable and
+> gets wiped, so a completed/-match only confirms consumption *immediately* post-batch, not
+> later. The trigger is "batch consumed," which is **independent of retirement**: a fresh
+> corpus with no predecessor still leaves spent staging, so this step lives here (batch
+> lifecycle), NOT in `retire_runs.py` (which fires only on supersession). Remove empty
+> staging shells on sight.
 
 ### Step 6: Capital Wrapper Execution
 
@@ -214,6 +235,7 @@ On ANY failure:
 ## Appendix B: Protected Infrastructure Policy
 The agent MUST NOT modify the following without an **implementation plan** and **user approval**:
 - `tools/*.py`, `engines/*.py`, `governance/*.py`, `vault/**`, `.agents/workflows/*.md`.
+- **Never write scratch / analysis outputs into governed dirs** (`strategies/`, etc.) — the startup Strategy-Directory-Drift guard pauses the whole batch until reconciled. Put scratch in `tmp/` or `outputs/`.
 
 ## Appendix C: System Contract
 - Deterministic, Ledger-authoritative, Append-only, Fail-fast.
@@ -228,5 +250,10 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
+| 2026-06-12 | New-rule LegDispatchError; port-strategy had the fix, run path didn't reach it | Added new-rule → /port-strategy routing gate to Step 5 |
+| 2026-06-12 | Batch printed [SUCCESS]/exit-0 while all directives failed or paused on a guard | Added 'exit 0 ≠ success — verify artifacts' to Step 5 |
+| 2026-06-12 | Scratch CSV in strategies/ tripped the drift guard, paused the batch | Added 'no scratch in governed dirs' to Appendix B |
+| 2026-06-12 | Manual Step-0 pre-checks false-FAILed valid basket directives | Scoped pre-checks to single-asset in Step 0.2 |
+| 2026-06-14 | Generated staging dirs piled up spent (11 dirs / ~2.4k directives) after batches consumed them; completed/-gate unreliable once completed/ is wiped | Added 'post-batch staging cleanup' to Step 5 — ledger is consumption authority, trigger is batch-consumed (not retire) |
 | 2026-06-17 | Cross-TF clone: new_pass.py doesn't update `timeframe` class attr → Timeframe Mismatch at preflight; must hand-edit strategy.py ~line 32 then --rehash | Add cross-TF note to Step 1 |
 | 2026-06-17 | Step 5 lacked explicit Stage 1-4 outcome checkpoint; workflow state advanced without reviewing intermediate results, causing missed failures | Add required checkpoint note to Step 5 |

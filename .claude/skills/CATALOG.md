@@ -15,18 +15,19 @@ to use** + **when NOT to use** + **related skills**.
 
 | If you're about to ... | Reach for |
 |---|---|
+| Form directive(s) from a hypothesis (before running) | `/generate-directives` |
 | Run a directive end-to-end | `/execute-directives` |
 | Re-run a previously tested strategy | `/rerun-backtest` |
 | Combine 2+ runs into a portfolio | `/run-composite-portfolio` |
 | Build a new strategy or port from Pine | `/port-strategy` |
 | Contemplate a finalized design once more before it commits | `/contemplate` |
+| Sanity-check a plan or a staged change | `/sanity` |
 | Promote a strategy to LIVE | `/promote` |
 | Snapshot the workspace as a vault entry | `/update-vault` |
 | Add or remove a strategy from the active selection | `/portfolio-selection-add` / `/portfolio-selection-remove` |
 | Analyze the candidate pool | `/portfolio-research` |
 | Format the FSP/MPS spreadsheets | `/format-excel-ledgers` |
-| Test a hypothesis on existing runs (single-strategy directive-filter exclusion) | `/hypothesis-testing` |
-| Test a hypothesis on a basket strategy (mechanic / architecture) | `/basket-hypothesis-testing` |
+| Test a hypothesis — single-asset or basket (classify → form → run → analyse → record) | `/hypothesis-testing` |
 | Run capital wrappers at uniform risk | `/uniform-risk-capital-simulation` |
 | Start a new session and orient to priorities | `/session-start` |
 | Run an operational retrospective before closing | `/session-retro` |
@@ -46,8 +47,9 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
-| `execute-directives` | A directive (`.txt`) is sitting in `directives/active/` and you want to run it through the governed pipeline (Stages 0 → 4) | The directive is a re-test of a prior strategy → use `/rerun-backtest` instead | `port-strategy` (created the directive), `promote` (LIVE-ifies the result) |
-| `rerun-backtest` | A previously-tested strategy needs re-execution due to data refresh, indicator change, engine update, parameter tweak, or bug fix | First run of a brand-new strategy → use `/execute-directives` after `/port-strategy` | `execute-directives`, `update-vault` |
+| `generate-directives` | You have a hypothesis but no directive yet — form the directive(s) by transforming a reference run vs the corpus generator, before running | The directive(s) already exist → go straight to `/execute-directives` | `execute-directives` (next stage), `hypothesis-testing` (orchestrator/caller), `port-strategy` (new rule) |
+| `execute-directives` | A directive (`.txt`) is sitting in `backtest_directives/INBOX/` and you want to run it through the governed pipeline (Stages 0 → 4) | The directive is a re-test of a prior strategy → use `/rerun-backtest` instead | `generate-directives` (formed the directive), `port-strategy` (created the rule), `promote` (LIVE-ifies the result) |
+| `rerun-backtest` | A previously-tested strategy (single-asset **or** cointegration/basket) needs re-execution due to data refresh, indicator change, engine update, parameter tweak, or bug fix | First run of a brand-new strategy → use `/execute-directives` after `/port-strategy`; want to **compare** a variant (keep both rows) → `/hypothesis-testing` | `execute-directives`, `hypothesis-testing`, `update-vault` |
 | `run-composite-portfolio` | You have 2+ completed runs and want to combine them into a single composite portfolio with capital wrappers + robustness suite | Single-strategy run → not needed; portfolio_evaluator handles single-run portfolios automatically | `portfolio-research` (selecting which runs), `uniform-risk-capital-simulation` |
 
 ### 2. Strategy lifecycle
@@ -72,8 +74,7 @@ to use** + **when NOT to use** + **related skills**.
 | Skill | When | When NOT | Related |
 |---|---|---|---|
 | `contemplate` | Deliberation on a design is exhausted — experiments designed, hypothesis formalized, alternatives weighed — and it is about to scale or write durable state; you want one brief reflective pass before committing | Cheap work where running is cheaper than contemplating; using it as a gate, reviewer, or verdict engine — it reports what it found, never what to do; errors the mechanical gates already own | `port-strategy` (produces the design), `execute-directives` (the scaled run it precedes), `session-retro` (backward, session-scoped reflection), `hypothesis-testing` (later lifecycle point) |
-| `hypothesis-testing` | Single-strategy hypothesis via directive-filter exclusion (regime cell, direction bias, session, age-gradient, weak-cell) on a baseline that has actionable `hypothesis_tester.py` insights | Basket-strategy hypothesis (mechanic / architecture) → use `/basket-hypothesis-testing`; no actionable insights ranked → don't synthesize one | `rerun-backtest`, `execute-directives`, `basket-hypothesis-testing` (sibling for basket scope) |
-| `basket-hypothesis-testing` | Basket-strategy hypothesis test — v1 scope is **mechanic** (different rule class on same architecture, e.g. `H2_recycle@1` vs `@4`) or **architecture** (different leg compositions with same rule, e.g. B1 vs B2 vs 4-leg). Orchestrator: Detect → Route → Execute → Summarize; delegates to `/execute-directives` and `/port-strategy` | Single-strategy directive-filter exclusion → use `/hypothesis-testing`; parameter sweep / composite / regime-gate / multi-window classes → not in v1 scope yet (deferred) | `hypothesis-testing` (sibling for single-strategy scope), `execute-directives` (called per variant), `port-strategy` (called when new rule class needed), `run-composite-portfolio` (future composite class) |
+| `hypothesis-testing` | THE entry for any backtest-from-a-hypothesis run — **single-asset** (directive-filter exclusion, or param/rule change) **or basket** (mechanic / architecture / corpus-cohort). Classifies the hypothesis, then drives form (`/generate-directives`) → run (`/execute-directives`) → canonical analysis → record (`RESEARCH_MEMORY.md`). Humans decide what to test; it never gates on worth | Re-running an *exact* prior config (no hypothesis) → `/rerun-backtest` | `generate-directives` (form), `execute-directives` (run), `port-strategy` (new rule), `tools/compare_cohorts.py` (cohort analysis) |
 | `uniform-risk-capital-simulation` | Need to compare capital profiles on a fixed dataset with `risk_per_trade` held uniform across all profiles | Default capital_wrapper run (per-profile risk varies) → use the standard `run-composite-portfolio` flow | `run-composite-portfolio` |
 
 ### 5. Maintenance & cleanup (periodic — see `session-close §8b`)
@@ -90,6 +91,7 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
+| `sanity` | After agreeing a plan or staging a change — a fast "what's missing / risky / forgotten?" read over the plan or `git diff HEAD`. Fine to run proactively, unprompted | A finalized *research design* about to consume durable state → `/design-challenge` (heavier; ontology / population / analog errors gates can't catch). A whole-session backward sweep before close → `/session-retro` | `design-challenge` (research-design altitude), `session-retro` (session altitude), `session-close` |
 | `session-start` | Start of every non-trivial session — reads SYSTEM_STATE + RESEARCH_MEMORY + git log to surface top 3 infra + top 3 research priorities | Already have working context → skip; trivial read-only sessions → skip | `session-close` (sibling pair), `system-health-maintenance`, `skill-maintenance` |
 | `session-retro` | Immediately before `/session-close` on any substantive session — convert observed friction, robustness/resilience gaps, missed opportunities, and measured future-pressure trends into routed, capped follow-ups (Execute/Monitor/Ignore) + one HIGH ROI pick | Trivial read-only / Q&A session; mid-task pause | `session-close` (commits what it stages), `session-start` (reads its HIGH ROI + MONITOR outputs), `skill-maintenance` (audits friction rows it creates) |
 | `session-close` | Ending a work session — commit, push, document, regenerate `SYSTEM_STATE.md` snapshot, run periodic skills if it's the weekend | Mid-task pause (resuming same session) → skip; trivial read-only session → skip | All maintenance skills (called from §8b) |

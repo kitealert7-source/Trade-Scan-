@@ -62,7 +62,14 @@ from tools.recycle_rules.h3_spread_v3 import H3SpreadV3Rule
 from tools.recycle_rules.pine_ratio_zrev_v1 import PineRatioZRevRule
 from tools.recycle_rules.pine_ratio_zrev_v1_zband import PineRatioZRevRuleZBand
 from tools.recycle_rules.pine_ratio_zrev_v1_zcross import PineRatioZRevRuleZCross
+from tools.recycle_rules.pine_ratio_zrev_v1_zcross_hf import PineRatioZRevRuleZCrossHF
+from tools.recycle_rules.pine_ratio_zrev_v1_zcross_hl import PineRatioZRevRuleZCrossHL
+from tools.recycle_rules.pine_ratio_zrev_v1_zcross_lm import PineRatioZRevRuleZCrossLM
+from tools.recycle_rules.pine_ratio_zrev_v1_zcross_hflm import PineRatioZRevRuleZCrossHFLM
+from tools.recycle_rules.pine_ratio_zrev_v1_zcross_zavg import PineRatioZRevRuleZCrossZAvg
+from tools.recycle_rules.pine_ratio_zrev_v1_zstop import PineRatioZRevRuleZStop
 from tools.recycle_rules.pine_ratio_zrev_v1_zopp import PineRatioZRevRuleZOpp
+from tools.recycle_rules.pine_ratio_zrev_v1_session_window import PineRatioZRevRuleSessionWindow
 
 __all__ = [
     "CointegrationMeanRevV1_2Rule",
@@ -78,7 +85,14 @@ __all__ = [
     "PineRatioZRevRule",
     "PineRatioZRevRuleZBand",
     "PineRatioZRevRuleZCross",
+    "PineRatioZRevRuleZCrossHF",
+    "PineRatioZRevRuleZCrossHL",
+    "PineRatioZRevRuleZCrossLM",
+    "PineRatioZRevRuleZCrossHFLM",
+    "PineRatioZRevRuleZCrossZAvg",
+    "PineRatioZRevRuleZStop",
     "PineRatioZRevRuleZOpp",
+    "PineRatioZRevRuleSessionWindow",
     "RULE_CLASSES",
     "rule_class_for",
 ]
@@ -109,7 +123,14 @@ _ALL_RULE_CLASSES = (
     PineRatioZRevRule,
     PineRatioZRevRuleZBand,
     PineRatioZRevRuleZCross,
+    PineRatioZRevRuleZCrossHF,
+    PineRatioZRevRuleZCrossHL,
+    PineRatioZRevRuleZCrossLM,
+    PineRatioZRevRuleZCrossHFLM,
+    PineRatioZRevRuleZCrossZAvg,
+    PineRatioZRevRuleZStop,
     PineRatioZRevRuleZOpp,
+    PineRatioZRevRuleSessionWindow,
 )
 
 RULE_CLASSES: dict[tuple[str, int], type] = {

@@ -100,7 +100,8 @@ backtest_directives/completed/*
 *.admitted
 # Episode staging: scratch pre-INBOX corpus generation, regenerable via the
 # episode generator. Not a spec record (completed/ is). Do not track.
-backtest_directives/cointrev_v3_staging/
+# Glob covers the base dir plus arm-suffixed variants (_hf55_, _hl120_, _lm20_, ...).
+backtest_directives/cointrev_v3_*staging/
 
 # Data artifacts
 *.parquet

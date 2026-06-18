@@ -69,6 +69,38 @@ python tools/format_excel_artifact.py --file "C:\Users\faraw\Documents\TradeScan
 
 ---
 
+## Retire superseded runs (post-rerun, batch) — cold-archive + prune
+
+Invoked by [`/rerun-backtest`](../rerun-backtest/SKILL.md) **Phase C**, per batch, after a rerun
+batch's new runs land. Unlike Phases 1–4 (which prune what is **absent** from the ledgers), retire
+targets runs that are **present but superseded** (`is_current=0`, with a live successor) — trimming
+the predecessor once its rerun has consumed its seed (directive + `RECYCLE_RULE_SOURCE.py`).
+
+Per batch, scoped to the EXACT predecessor `run_id`s:
+
+1. **Archive → cold parquet.** Append each superseded run's compact row to
+   `TradeScan_State/retired/retired_runs.parquet` (schema below). Append-only; this is the
+   queryable retired-results / **don't-re-test** base (feeds the F19 guard without artifacts).
+2. **Drop the live row** via the authorized path (`repair_integrity.py --action drop`), scoped by
+   **exact `run_id`s + an `AND is_current=0` guard — never a name `LIKE`** (cf. the *Manual
+   ledger-retirement safety* note above; back up `ledger.db` first). **Archive-BEFORE-drop** makes
+   it a *move*, not a destroy — the ONLY sanctioned ledger-row removal (Invariant #2). For baskets,
+   the target sheet is `cointegration_sheet` / `basket_sheet` (not `master_filter`).
+3. **Prune heavy artifacts** (`runs/<run_id>/`, `backtests/<name>/`) via the lineage pruner
+   (→ `quarantine/`, then deletable in bulk). The cold row keeps the numbers.
+
+**Cold-archive schema (`retired_runs.parquet`):** `run_id, directive_id, source_sheet
+(master_filter | cointegration_sheet | basket_sheet), engine_version, pair_or_symbol, test_start,
+test_end, net_pct, ret_dd, max_dd_pct, trades, cycles, supersede_reason, superseded_by,
+retired_at_utc`.
+
+> **Tool support pending:** a `--retire-batch <run_ids>` mode wrapping steps 1–3 atomically, plus a
+> **drift check** (count `is_current=0` runs with on-disk artifacts not in `retired_runs.parquet`,
+> surfaced in `/session-close`), are pending. Until built, run steps 1–3 by hand per batch with the
+> exact-`run_id` scoping + backup discipline above.
+
+---
+
 ## Friction log
 
 Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).

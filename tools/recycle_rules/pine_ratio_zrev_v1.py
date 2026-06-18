@@ -66,6 +66,23 @@ _RULE_NAME = "pine_ratio_zrev_v1"
 _RULE_VERSION = 1
 
 
+def _directional_exit_prices(legs: list[BasketLeg], bar_ts: pd.Timestamp,
+                             raw_prices: dict[str, float]) -> dict[str, float]:
+    """v1.5.10 RESTORATION (OctaFx addendum line-17): direction-aware EXIT fills.
+    A long leg exits by SELLING -> bid (= raw - spread); a short leg exits by
+    BUYING -> ask (raw, unchanged). Per-leg spread is read from the leg's RESEARCH
+    `spread` column at bar_ts; spread=0 -> no-op (byte-identical to pre-restoration)."""
+    out: dict[str, float] = {}
+    for leg in legs:
+        raw = raw_prices[leg.symbol]
+        try:
+            sp = bar_spread(leg.df.loc[bar_ts])
+        except (KeyError, ValueError, TypeError):
+            sp = 0.0
+        out[leg.symbol] = exec_fill(raw, is_sell=(leg.effective_direction == 1), spread=sp)
+    return out
+
+
 @dataclass
 class PineRatioZRevRule(H2RecycleRule):
     """Pine z_r reversal rule — always-in-market.
@@ -143,6 +160,16 @@ class PineRatioZRevRule(H2RecycleRule):
     #   deployment (and for any future Phase-2 break-inclusive backtest window).
     coint_break_exit: bool = False
     coint_regime_column: str = "coint_regime"
+    # Hard time-stop: force-liquidate after N bars in position regardless of z.
+    # 0 = disabled (canonical default); opt-in per directive.
+    # DECISION (2026-06-09): decision-grade testing demonstrated NO benefit on the
+    # 252-window deployable universe -- 140 canonical run_pipeline backtests
+    # (20 pairs x 7 variants: 0/12/16/20/24/28/32 bars). Every variant lowered
+    # median Ret/DD vs the no-stop baseline (1.62) and cut net return; no variant
+    # improved a majority of pairs (best 8/20 at 6h). Param RETAINED default-off
+    # for future research, NOT adopted. See
+    # outputs/experiments/timestop_sweep_2026-06-09/SUMMARY.md.
+    max_bars_in_trade: int = 0
 
     # Fallback lot
     default_initial_lot: float = 0.01
@@ -391,6 +418,11 @@ class PineRatioZRevRule(H2RecycleRule):
         for leg in legs:
             leg.df[self.signal_column] = signal_aligned.reindex(leg.df.index, fill_value=0)
             leg.df[self.r_bar_column] = z_data["r_bar"].reindex(leg.df.index)
+            # Canonical raw price ratio (A/B on the intersected index), straight
+            # from ratio_hedged_spread_zscore — single source of truth for any
+            # overlay that measures the ratio itself (e.g. the Hurst entry
+            # filter in pine_ratio_zrev_v1_zcross_hf). Inert for this rule.
+            leg.df["pine_zrev_ratio"] = z_data["ratio"].reindex(leg.df.index)
             leg.df["pine_zrev_z"] = z_data["z_r"].reindex(leg.df.index)
             if self.entry_mode == "centered":
                 leg.df["pine_zrev_z_centered"] = z_data["z_r_centered"].reindex(leg.df.index)
@@ -534,6 +566,18 @@ class PineRatioZRevRule(H2RecycleRule):
             return False
         return isinstance(regime, str) and regime.strip().lower() not in ("", "cointegrated")
 
+    def _regime_is_cointegrated(self, legs: list[BasketLeg], bar_ts: pd.Timestamp) -> bool:
+        """True iff this bar's per-bar `coint_regime` value is exactly
+        'cointegrated' (case/space-insensitive). The mirror of
+        `_regime_break_fires`: a missing column, NaN, or non-string -> False
+        (no re-cointegration evidence). Read-only; never consults the flag (the
+        caller gates on `coint_break_exit`)."""
+        try:
+            regime = legs[0].df.loc[bar_ts, self.coint_regime_column]
+        except (KeyError, ValueError, TypeError):
+            return False
+        return isinstance(regime, str) and regime.strip().lower() == "cointegrated"
+
     def _maybe_break_exit(
         self,
         legs: list[BasketLeg], i: int, bar_ts: pd.Timestamp,
@@ -550,7 +594,24 @@ class PineRatioZRevRule(H2RecycleRule):
         FLAT-state propose path -- guarded by `not self._regime_broken` in every
         variant -- never re-arms an entry into a dead spread. Also clears any
         pending proposal in the shared armed state. No-op (returns False) when
-        the flag is off, so the default path is byte-identical."""
+        the flag is off, so the default path is byte-identical.
+
+        LATCH RESET (re-cointegration re-entry, 2026-06-10): when the flag is on
+        and THIS bar's regime has RETURNED to 'cointegrated', clear the latch so
+        the unchanged z-cross entry can fire a fresh cycle. The DB regime is
+        already hysteresis-classified (5-day persistence: 'cointegrated' needs
+        p<0.05 now AND >=4/5 priors <0.05), so reset only fires after the screener
+        has re-confirmed the spread -- no whipsaw. Gated entirely behind
+        `coint_break_exit`, so the default path is untouched (latch starts False
+        and never moves when the flag is off)."""
+        if not self.coint_break_exit:
+            return False  # whole hook (latch + reset + exit) inert when flag off
+        # Re-cointegration latch reset: a returned-to-cointegrated bar re-enables
+        # entry. Runs BEFORE the break predicate so a 'cointegrated' bar clears
+        # the latch and falls through to the entry/approve path. (A bar cannot be
+        # both 'cointegrated' and a break, so this never masks an exit.)
+        if self._regime_broken and self._regime_is_cointegrated(legs, bar_ts):
+            self._regime_broken = False
         if not self._regime_break_fires(legs, bar_ts):
             return False
         self._regime_broken = True  # latch: never re-enter a broken spread

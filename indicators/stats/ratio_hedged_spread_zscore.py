@@ -48,6 +48,11 @@ def ratio_hedged_spread_zscore(
 
     Returns:
         DataFrame with columns (indexed by a_close.index):
+            ratio:        A / B (zero-denominator-safe raw price ratio) — the
+                          canonical ratio series r_bar is averaged from.
+                          Exposed so downstream consumers (e.g. the Hurst
+                          entry filter) measure the SAME series the hedge
+                          ratio derives from, never a reconstruction.
             r_bar:        Rolling mean of A/B over N bars (the hedge ratio)
             spread_r:     A - r_bar * B (the ratio-hedged spread series)
             z_r:          (spread_r - SMA(spread_r, N)) / STDEV(spread_r, N)
@@ -101,6 +106,7 @@ def ratio_hedged_spread_zscore(
 
     result = pd.DataFrame(
         {
+            "ratio": ratio,
             "r_bar": r_bar,
             "spread_r": spread_r,
             "z_r": z_r,

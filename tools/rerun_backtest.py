@@ -116,13 +116,13 @@ CATEGORIES = {
     },
     "PARAMETER": {
         "description": ("Numeric parameter tweak. Classifier treats as "
-                        "PARAMETER → passes without SV bump."),
+                        "PARAMETER -> passes without SV bump."),
         "bump_signal_version": False,
         "extend_end_date": True,
     },
     "ENGINE": {
         "description": ("Backtest engine code changed; directive unchanged. "
-                        "No classifier diff → passes."),
+                        "No classifier diff -> passes."),
         "bump_signal_version": False,
         "extend_end_date": True,
     },
@@ -154,6 +154,142 @@ def _find_directive(strategy_name: str) -> Path:
     # rerun once already and both old and new copies exist).
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
+
+
+def _display_path(p: Path) -> str:
+    """Path for display / audit — repo-relative when under PROJECT_ROOT, else
+    absolute. The resolve_baseline seed lives in TradeScan_State (a sibling
+    repo), so a bare ``relative_to(PROJECT_ROOT)`` would raise ValueError."""
+    try:
+        return str(p.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(p)
+
+
+def _resolve_source_via_baseline(handle: str) -> tuple[Path, str | None] | None:
+    """Resolve the source directive via ``resolve_baseline`` — the is_current
+    authority — rather than a most-recent-mtime guess.
+
+    ``resolve_baseline`` selects the ``is_current`` run (never a superseded
+    first-match) and returns that run's exact seed directive from the per-run
+    snapshot ladder: ``backtests/<name>/DIRECTIVE_SOURCE.txt`` ->
+    ``runs/<run_id>/directive.txt`` -> ``strategies/<id>/directive.txt`` ->
+    ``completed/`` -> git.
+
+    Returns ``(seed_path, run_id)`` only when the resolver yields exactly one
+    authoritative reference whose seed file exists on disk; otherwise ``None``
+    so the caller falls back to the legacy mtime scan (covers old runs with no
+    snapshot, no ledger row, or an ambiguous multi-symbol base). Never raises —
+    any resolver failure degrades to ``None``.
+    """
+    try:
+        from tools.resolve_baseline import resolve_baseline
+
+        result = resolve_baseline(handle)
+    except Exception:
+        return None
+    resolved = [r for r in result.references if getattr(r, "resolved", False)]
+    if len(resolved) != 1:
+        return None
+    ref = resolved[0]
+    seed = getattr(ref, "seed", None) or {}
+    seed_path = seed.get("path")
+    if not seed_path:
+        return None
+    p = Path(seed_path)
+    try:
+        if not p.is_file():
+            return None
+    except OSError:
+        return None
+    return p, ref.run_id
+
+
+def _state_root() -> Path:
+    """``TradeScan_State`` root resolved at call time so test fixtures that
+    monkeypatch ``config.path_authority.TRADE_SCAN_STATE`` are honored."""
+    import config.path_authority as pa
+
+    return Path(pa.TRADE_SCAN_STATE)
+
+
+def _state_runs_dir() -> Path:
+    """``TradeScan_State/runs`` (see ``_state_root``)."""
+    return _state_root() / "runs"
+
+
+def _query_basket_sheets_current(handle: str) -> list[dict[str, Any]]:
+    """is_current ``cointegration_sheet`` / ``basket_sheet`` rows matching
+    ``handle`` by ``directive_id`` or ``run_id``.
+
+    Baskets live in these sheets, NOT ``master_filter``, so ``resolve_baseline``
+    and the legacy ``_resolve_target`` master_filter lookup cannot reach them
+    (F1b). Read-only; DB path resolved at call time from ``config.path_authority``
+    so test fixtures monkeypatching ``TRADE_SCAN_STATE`` are honored. Returns
+    ``[]`` on any failure (caller degrades to the next tier)."""
+    import sqlite3
+
+    import config.path_authority as pa
+
+    db = Path(pa.TRADE_SCAN_STATE) / "ledger.db"
+    if not db.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    try:
+        for table in ("cointegration_sheet", "basket_sheet"):
+            try:
+                cur = conn.execute(
+                    f'SELECT * FROM "{table}" '
+                    "WHERE is_current = 1 AND (directive_id = ? OR run_id = ?) "
+                    "LIMIT 8",
+                    (handle, handle),
+                )
+                rows.extend(dict(r) for r in cur.fetchall())
+            except sqlite3.Error:
+                continue
+    finally:
+        conn.close()
+    return rows
+
+
+def _resolve_basket_source(handle: str) -> tuple[Path, str | None] | None:
+    """Resolve a basket directive (COINTREV / basket corpus) to its is_current
+    seed (F1b) — the basket counterpart of ``_resolve_source_via_baseline``,
+    since baskets are absent from ``master_filter``.
+
+    Matches ``handle`` (directive_id or run_id) among is_current basket-sheet
+    rows, then reads the exact seed from the per-run snapshot:
+    ``runs/<run_id>/directive.txt`` -> ``<backtests_path>/DIRECTIVE_SOURCE.txt``
+    -> ``completed/<directive_id>.txt``. Returns ``(seed_path, run_id)`` or
+    ``None``. Never raises."""
+    try:
+        rows = _query_basket_sheets_current(handle)
+    except Exception:
+        return None
+    for row in rows:
+        run_id = str(row.get("run_id") or "").strip() or None
+        did = str(row.get("directive_id") or "").strip()
+        btp = str(row.get("backtests_path") or "").strip()
+        candidates: list[Path] = []
+        if run_id:
+            candidates.append(_state_runs_dir() / run_id / "directive.txt")
+        if btp:
+            bp = Path(btp)
+            if not bp.is_absolute():
+                # The DB stores backtests_path relative to the state root.
+                bp = _state_root() / btp
+            candidates.append(bp / "DIRECTIVE_SOURCE.txt")
+        if did:
+            candidates.append(DIRECTIVES_ROOT / "completed" / f"{did}.txt")
+        for c in candidates:
+            try:
+                if c.is_file():
+                    return c, run_id
+            except OSError:
+                continue
+    return None
 
 
 def _strip_e_suffix(name: str) -> str:
@@ -205,12 +341,21 @@ def _resolve_target(target: str) -> tuple[str, str | None]:
         ).fetchone()
     finally:
         conn.close()
-    if row is None:
-        raise ValueError(
-            f"Target {target!r} is neither a valid strategy name nor a "
-            f"known run_id in master_filter. Check with ledger_db --stats."
-        )
-    return row[0], target
+    if row is not None:
+        return row[0], target
+
+    # Basket run_id: baskets live in cointegration_sheet / basket_sheet, not
+    # master_filter (F1b). Resolve the directive_id from the is_current row.
+    for brow in _query_basket_sheets_current(target):
+        did = str(brow.get("directive_id") or "").strip()
+        if did:
+            return did, target
+
+    raise ValueError(
+        f"Target {target!r} is neither a valid strategy name nor a known "
+        f"run_id in master_filter or the basket / cointegration sheets. "
+        f"Check with ledger_db --stats."
+    )
 
 
 def _build_override_reason(category: str, user_reason: str,
@@ -279,13 +424,36 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         print(f"ERROR: {e}")
         return 1
 
-    # 2. Locate original directive.
-    try:
-        src_path = _find_directive(strategy)
-    except FileNotFoundError as e:
-        print(f"ERROR: {e}")
-        return 1
-    print(f"  Source directive: {src_path.relative_to(PROJECT_ROOT)}")
+    # 2. Locate the source directive. Prefer resolve_baseline (the is_current
+    #    authority + the exact per-run seed) over the legacy most-recent-mtime
+    #    scan, which can pick a superseded variant when file timestamps churn
+    #    (NAS / worktree mirroring). Fall back to the mtime scan when the
+    #    resolver can't pin a single authoritative seed.
+    src_path = None
+    via_baseline = _resolve_source_via_baseline(orig_run_id or strategy)
+    if via_baseline is not None:
+        src_path, resolved_run_id = via_baseline
+        # A bare-name target carries no originating run_id; the resolver found
+        # the is_current run, so capture it for the rerun_of breadcrumb + audit.
+        if orig_run_id is None and resolved_run_id:
+            orig_run_id = resolved_run_id
+        print(f"  Source directive (resolve_baseline, is_current): {_display_path(src_path)}")
+    if src_path is None:
+        # Baskets (COINTREV / basket corpus) aren't in master_filter, so the
+        # resolver above can't reach them — resolve via the basket sheets (F1b).
+        via_basket = _resolve_basket_source(orig_run_id or strategy)
+        if via_basket is not None:
+            src_path, resolved_run_id = via_basket
+            if orig_run_id is None and resolved_run_id:
+                orig_run_id = resolved_run_id
+            print(f"  Source directive (basket sheet, is_current): {_display_path(src_path)}")
+    if src_path is None:
+        try:
+            src_path = _find_directive(strategy)
+        except FileNotFoundError as e:
+            print(f"ERROR: {e}")
+            return 1
+        print(f"  Source directive (mtime-scan fallback): {_display_path(src_path)}")
 
     # 3. Parse.
     try:
@@ -383,7 +551,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         "end_date_after": new_end,
         "signal_version_before": old_sv,
         "signal_version_after": new_sv,
-        "directive_source": str(src_path.relative_to(PROJECT_ROOT)),
+        "directive_source": _display_path(src_path),
         "directive_destination": str(dest_path.relative_to(PROJECT_ROOT)),
     })
 

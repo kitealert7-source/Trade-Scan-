@@ -151,7 +151,7 @@ intents:
     enforcement: soft
     must_skill: rerun-backtest
     requires_subject: true
-    reason: "Re-run requires ledger cleanup + reset_directive before pipeline re-entry; skipping causes stale rows."
+    reason: "Re-runs need the audited Idea-Gate override + __E### variant rotation; the prior run is auto-superseded at Stage-3 (Phase-0) for declared reruns, or via finalize for BUG_FIX/--quarantine -- not manual ledger cleanup/reset_directive."
     # Pre-fix, the tag `rerun` (weight 3) substring-matched on any prompt
     # mentioning the intent name itself ("rerun_backtest") or unrelated
     # contexts ("rerun a query"), firing the soft hint as noise. The
@@ -297,7 +297,7 @@ intents:
   - id: basket_hypothesis_testing
     priority: 50
     enforcement: soft
-    must_skill: basket-hypothesis-testing
+    must_skill: hypothesis-testing
     requires_subject: true
     reason: "Basket hypothesis tests need the mechanic/architecture routing distinction — conflating the two classes causes wrong variant construction."
     regex_patterns:
@@ -472,6 +472,28 @@ intents:
       - {tag: "skill_maintenance", weight: 3}
       - {tag: "skill_audit", weight: 3}
       - {tag: "friction_log", weight: 2}
+
+  - id: sanity_check
+    priority: 20
+    enforcement: soft
+    must_skill: sanity
+    suppress_on_infra: true
+    reason: "A fast read over a finalized plan or staged change — what is missing, risky, or forgotten — caught before it costs a run or a commit."
+    # sanity has no natural subject — it's a review action over the current
+    # plan/diff. suppress_on_infra catches meta-tooling prompts about the
+    # sanity skill itself ("refactor the sanity skill", "delete sanity entry").
+    # Regex kept to tight exact phrases so generic "missing"/"forgot" usage
+    # doesn't leak the hint. Lowest priority (20) so a real workflow skill
+    # always wins on overlap.
+    regex_patterns:
+      - "(?i)\\bsanity[- ]?check\\b"
+      - "(?i)\\bam\\s+i\\s+missing\\s+(any\\s*thing|something)\\b"
+      - "(?i)\\b(did|have)\\s+i\\s+miss(ed)?\\s+(a\\s+step|any\\s*thing|something)\\b"
+      - "(?i)\\banything\\s+(i\\s+)?forgot\\b"
+      - "(?i)\\bsecond\\s+opinion\\b"
+    semantic_tags:
+      - {tag: "sanity_check", weight: 3}
+      - {tag: "second_opinion", weight: 3}
 
   # ---------- MEMORY HINTS (Task C, 09_incident_reports/ENFORCEMENT_PLAN_2026-05-27_CLOSED.md) ----------
   # Early-warning advisories that surface a specific memory entry before

@@ -274,6 +274,33 @@ _INTERNAL_OR_VESTIGIAL_BY_RULE: dict[tuple[str, int], frozenset[str]] = {
     ("pine_ratio_zrev_v1_zcross", 1): frozenset({"signal_column", "r_bar_column", "zcross_column"}),
     ("pine_ratio_zrev_v1_zband", 1): frozenset({"signal_column", "r_bar_column", "zband_column"}),
     ("pine_ratio_zrev_v1_zopp", 1): frozenset({"signal_column", "r_bar_column"}),
+    # 2026-06-08 branch additions: same column-name pattern as the originals.
+    ("pine_ratio_zrev_v1_zcross_zavg", 1): frozenset({"signal_column", "r_bar_column", "zcross_column", "zavg_column"}),
+    ("pine_ratio_zrev_v1_zcross_hf", 1): frozenset({"signal_column", "r_bar_column", "zcross_column", "hurst_column"}),
+    ("pine_ratio_zrev_v1_zcross_hl", 1): frozenset({"signal_column", "r_bar_column", "zcross_column", "hl_column"}),
+    ("pine_ratio_zrev_v1_zcross_lm", 1): frozenset({"signal_column", "r_bar_column", "zcross_column", "lm_column"}),
+    ("pine_ratio_zrev_v1_zcross_hflm", 1): frozenset({"signal_column", "r_bar_column", "zcross_column", "hurst_column", "lm_column"}),
+    ("pine_ratio_zrev_v1_zstop", 1): frozenset({"signal_column", "r_bar_column", "zcross_column"}),
+    ("pine_ratio_zrev_v1_session_window", 1): frozenset({"signal_column", "r_bar_column", "zcross_column"}),
+}
+
+
+# Rules that call _require_param() for a mandatory directive param need that
+# param supplied when _capture_wired_kwargs() calls _instantiate_rule() with
+# an otherwise-empty params dict. Values are arbitrary sentinels — the test
+# only captures kwarg NAMES, not values.
+_REQUIRED_PARAMS_FOR_WIRING_TEST: dict[tuple[str, int], dict] = {
+    ("pine_ratio_zrev_v1", 1):                  {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zcross", 1):           {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zcross_zavg", 1):      {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zcross_hf", 1):        {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zcross_hl", 1):        {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zcross_lm", 1):        {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zcross_hflm", 1):      {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zstop", 1):            {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_session_window", 1):   {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zband", 1):            {"z_entry": 2.0},
+    ("pine_ratio_zrev_v1_zopp", 1):             {"z_entry": 2.0},
 }
 
 
@@ -299,8 +326,12 @@ def _capture_wired_kwargs(name: str, version: int, cls: type) -> set[str]:
 
     Spies on the rule class __init__ so we observe exactly what the dispatcher
     branch passes — independent of param values or __post_init__ — then
-    restores the original __init__. Called with empty params so the dispatcher
-    supplies every kwarg from its own defaults.
+    restores the original __init__. Called with minimal required params so any
+    _require_param() gates pass; the dispatcher then supplies all remaining
+    kwargs from its own defaults. Required params are named in
+    _REQUIRED_PARAMS_FOR_WIRING_TEST — add an entry there for any new rule
+    that adds a _require_param() gate (the sentinel value is irrelevant; only
+    the kwarg NAME is captured).
     """
     captured: dict[str, object] = {}
     original_init = cls.__init__
@@ -309,9 +340,10 @@ def _capture_wired_kwargs(name: str, version: int, cls: type) -> set[str]:
         captured["kwargs"] = set(kwargs)
         captured["args"] = args
 
+    minimal_params = _REQUIRED_PARAMS_FOR_WIRING_TEST.get((name, version), {})
     cls.__init__ = _spy
     try:
-        _instantiate_rule({"name": name, "version": version, "params": {}})
+        _instantiate_rule({"name": name, "version": version, "params": minimal_params})
     finally:
         cls.__init__ = original_init
 

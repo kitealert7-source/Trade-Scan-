@@ -5,7 +5,7 @@
 # a rule's code legitimately changed AND its version was bumped (append-
 # only), or to accept an intended in-place fix.
 schema_version: 1
-generated_at: '2026-06-17T15:41:00+00:00'
+generated_at: '2026-06-18T00:00:00+00:00'
 hashes:
   H2_recycle@1: ca1a918688a404b64679ed25b32093d42076ba40a3e5bdab5e2883402d16169d
   H2_recycle@2: 9c2b8d3dc1e359a0998b6d2792deb9af97b8ac77332346717a51fa5b59e3723f
@@ -17,7 +17,14 @@ hashes:
   H3_spread@2: 61b13c40bdcb0ef2f0ca499a87e29a2aa4fb3a829652f1991bab2b5c10ac2063
   H3_spread@3: 716e48ec17bcf28dddb641fbe69f74327284b6aa4314bef17ef717096bd7167f
   cointegration_meanrev_v1_2@1: 115dcc381afee1b941a11c82e4ca9e1a72ad9c2464188a75762ce01d85873a63
-  pine_ratio_zrev_v1@1: f009c0c85bc1846a90e9892ea14d59c398d7e5f452b83ac4878fb72cc8592bff
+  pine_ratio_zrev_v1@1: 63ef34b9b00607c51b950f9a1e2db30f733e8a892b0ff88a603cf74cac133c7f
+  pine_ratio_zrev_v1_session_window@1: 4f85b1f95558c5677408568ae4f68f86dc744c8e04accaab5202d0a4694bacb9
   pine_ratio_zrev_v1_zband@1: 3043bbe4e29e2b0b1fdcc4242527eee85149ef1e9448fe5dc1b729ca4694974a
-  pine_ratio_zrev_v1_zcross@1: 1f2a197978092c7d30ec7bb66d5a1040fc870fd8e6d37f74c804ed1b05d79969
+  pine_ratio_zrev_v1_zcross@1: 4dc678169324dd5fe8607d6ed976d2c6efcb57adb25f9c3d19a4f3cfd3d32885
+  pine_ratio_zrev_v1_zcross_hf@1: 96fff014b405bd32e1fb28b654bc575e687376fe08d48fe943ed6e804f978861
+  pine_ratio_zrev_v1_zcross_hflm@1: b45e2f29f99d17f7d5c983763ebee587e832bd759a9744922c8ebf2ca91fee93
+  pine_ratio_zrev_v1_zcross_hl@1: 99e0b917b7d76495056a278f259129801a42afdb74999d73e47d2e8ff45dd8c7
+  pine_ratio_zrev_v1_zcross_lm@1: f926df2726c2783e4ecd11e3d7e4c3638b96c85e689aabd45fd2c44ac6370cf8
+  pine_ratio_zrev_v1_zcross_zavg@1: 4e79c543f93d21e93bdb15ee222ca66f9e1b12f09fa7486fbe1595052584a226
   pine_ratio_zrev_v1_zopp@1: bb220b56ee63dd7d675004aa656cae33f04c3183e6ee5454b8e6d76fc2677c7d
+  pine_ratio_zrev_v1_zstop@1: 0c1c3b4646f350f39eaac6623b4863e002b09a91901f243a777a1cc18d334895

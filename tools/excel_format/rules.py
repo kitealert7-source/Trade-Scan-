@@ -109,6 +109,9 @@ FORMAT_MAP = {
     "sharpe": FMT_FLOAT,
     "profit_factor": FMT_FLOAT,
     "total_trades": FMT_INT,
+    # Cointegration tab span columns (2026-06-10) — integer counts.
+    "span_len": FMT_INT,   # per-episode cointegrated-span obs length
+    "n_spans": FMT_INT,    # per-(pair, series) cohort span count
     "sqn": FMT_FLOAT,
     "edge_quality": FMT_FLOAT,
     "peak_dd_ratio": FMT_FLOAT,

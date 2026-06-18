@@ -141,7 +141,7 @@ Apply the triage tables below. Pick the top 3 from each side. Skip tiers with no
 |---|---|---|---|
 | RESUME | `NEXT:` lines in RESEARCH_MEMORY.md | 1.4 | Pick up the active arc |
 | RESUME | Directives in `inbox/` ready to run | 1.5 | `/execute-directives` |
-| OPEN | Open hypothesis arcs | 1.4 | `/hypothesis-testing` or `/basket-hypothesis-testing` |
+| OPEN | Open hypothesis arcs | 1.4 | `/hypothesis-testing` |
 | OPEN | "pending" items in MEMORY.md | MEMORY.md | Per-item action |
 | PENDING | Portfolio composition gaps | MEMORY.md | `/portfolio-research` then `/portfolio-selection-add` |
 | PENDING | Deferred from last session-close Phase 4 | git log -1 | Pick up noted continuation |

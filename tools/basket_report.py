@@ -42,6 +42,7 @@ Numeric conventions:
 from __future__ import annotations
 
 import json
+import math
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -390,6 +391,86 @@ def _write_per_bar_ledger(
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
     df.to_parquet(path, engine="pyarrow", index=False)
+
+
+def _json_safe(v: Any) -> Any:
+    """JSON fallback for recycle-event payloads: timestamps → ISO strings,
+    numpy scalars → python natives, everything else → str (never raises)."""
+    if isinstance(v, (pd.Timestamp, datetime)):
+        return v.isoformat()
+    if isinstance(v, np.integer):
+        return int(v)
+    if isinstance(v, np.floating):
+        return float(v)
+    return str(v)
+
+
+# Schema version stamped on every persisted recycle event (TELEMETRY
+# GOVERNANCE: outputs/system_reports/04_governance_and_guardrails/
+# TELEMETRY_GOVERNANCE_PROPOSAL_2026_06_12.md §3). v0 = the pre-envelope
+# inline format written 2026-06-12 (HF60/HL120/LM20 cohorts) — never
+# rewritten; consumers up-convert in memory via
+# tools.summarize_recycle_events.load_recycle_events.
+RECYCLE_EVENTS_SCHEMA_VERSION = 1
+
+_RECYCLE_EVENT_REQUIRED_FIELDS = (
+    "schema_version", "event_type", "timestamp",
+    "rule_name", "rule_version", "run_id", "directive_id", "payload",
+)
+
+
+def _write_recycle_events(
+    path: Path,
+    events: list[dict[str, Any]],
+    *,
+    run_id: str,
+    directive_id: str,
+    rule_name: str,
+    rule_version: int,
+    basket_id: str | None = None,
+) -> None:
+    """Persist per-event rule telemetry as JSONL — schema v1 envelope.
+
+    Classification: Research Artifact — Population Evidence (canonical metrics
+    answer "did it improve"; this artifact answers "WHICH entries changed and
+    WHY"). The writer owns the envelope; rules stay envelope-ignorant (they
+    emit plain dicts with an `action` key — ownership table §1.2).
+
+    Envelope per line: schema_version, event_type (from `action`), timestamp
+    (from `bar_ts`, ISO-8601), rule identity, run/directive identity (stamped
+    inline because cross-run concatenation is the dominant research workflow),
+    basket_id, payload (all remaining rule-emitted fields, order preserved).
+
+    Serialization guards (writer's domain, not a payload mutation): pandas/
+    numpy types via _json_safe; non-finite floats -> null (schema bans
+    inf/nan; rules signal them with explicit flags, e.g. HL_BLOCK's
+    `non_reverting`). Events are written VERBATIM in emission order — no
+    drops, no reordering (append-only-within-run expectation, §1.3)."""
+    with path.open("w", encoding="utf-8") as fh:
+        for ev in events:
+            ev = dict(ev)  # never mutate the rule's own event list
+            etype = ev.pop("action", "UNKNOWN")
+            ts = ev.pop("bar_ts", None)
+            if hasattr(ts, "isoformat"):
+                ts = ts.isoformat()
+            elif ts is not None:
+                ts = str(ts)
+            payload = {
+                k: (None if isinstance(v, float) and not math.isfinite(v) else v)
+                for k, v in ev.items()
+            }
+            rec = {
+                "schema_version": RECYCLE_EVENTS_SCHEMA_VERSION,
+                "event_type":     str(etype),
+                "timestamp":      ts,
+                "rule_name":      rule_name,
+                "rule_version":   int(rule_version),
+                "run_id":         run_id,
+                "directive_id":   directive_id,
+                "basket_id":      basket_id,
+                "payload":        payload,
+            }
+            fh.write(json.dumps(rec, default=_json_safe) + "\n")
 
 
 def _write_metrics_glossary(path: Path) -> None:
@@ -945,6 +1026,21 @@ def write_per_window_report_artifacts(
         p = raw_dir / "results_basket_per_bar.parquet"
         _write_per_bar_ledger(p, per_bar_records, leg_count=len(basket_result.legs))
         paths["per_bar_ledger"] = p
+
+    # raw/recycle_events.jsonl — per-event rule telemetry (HURST_BLOCK,
+    # CYCLE_Z_DIAG, BASKET_OPEN, LIQUIDATE_*, ...). Written whenever the rule
+    # emitted events; complements the count in results_basket.csv.
+    recycle_events = list(getattr(basket_result, "recycle_events", []) or [])
+    if recycle_events:
+        p = raw_dir / "recycle_events.jsonl"
+        _write_recycle_events(
+            p, recycle_events,
+            run_id=run_id, directive_id=directive_id,
+            rule_name=str(getattr(basket_result, "rule_name", "") or ""),
+            rule_version=int(getattr(basket_result, "rule_version", 0) or 0),
+            basket_id=str(basket_result.basket_id),
+        )
+        paths["recycle_events"] = p
 
     # metrics_glossary.csv
     p = raw_dir / "metrics_glossary.csv"

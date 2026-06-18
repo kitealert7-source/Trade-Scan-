@@ -29,6 +29,14 @@ Filter aids (2026-06-01):
   check to the N-run reality (median 8 runs/pair, up to 39): a hardcoded
   baseline-vs-zcross pairing silently ignored every run beyond those two.
   Plain English: the pair never had a losing or break-even run.
+- `span_len` (2026-06-10): per-EPISODE cointegrated-span length, sourced from
+  the ledger's `continuous_span_obs` -- the count of aligned daily observation
+  rows in the latest continuous cointegrated span (the gate's _Span.n_rows), NOT
+  a calendar-day count. One value per row.
+- `n_spans` (2026-06-10): per-PAIR span COUNT within the (pair_a, pair_b, series)
+  cohort -- how many cointegrated spans/episodes that pair has in its variant
+  arm. Same value repeated across that cohort's rows. Both sit immediately
+  before `cycles`.
 """
 from __future__ import annotations
 
@@ -66,19 +74,28 @@ COINTEGRATION_VIEW_COLUMNS = [
     "final_equity_usd",
     "total_trades",
     "spans",             # fragment_count — number of distinct cointegrated spans/periods in the window
+    "span_len",          # per-EPISODE cointegrated-span length (continuous_span_obs)
+    "n_spans",           # per-PAIR span count within the (pair_a, pair_b, series) cohort
     "cycles",
     "win_rate",
-    "regime",
+    "Current Regime",    # filter aid: the pair's CURRENT screener regime (252d
+                         # hysteresis state: cointegrated / breaking / broken;
+                         # blank = pair absent from the latest screen). Replaced
+                         # the at-run `regime_state` (2026-06-12) which was
+                         # 'cointegrated' on every row by corpus construction
+                         # (the window gate only admits cointegrated spans) and
+                         # therefore carried zero filter information.
     "methodology",
     "backtest",
 ]
 
 # Hard cap on the human view (enforcement: the budget test asserts this).
-COINTEGRATION_VIEW_BUDGET = 23  # +realized_net% (2026-06-05); +spans/fragment_count (2026-06-15)
+COINTEGRATION_VIEW_BUDGET = 25  # +spans/fragment_count (2026-06-15); +span_len, +n_spans (2026-06-10)
 
 # DB column -> friendly display header.
 _RENAME = {
     "lookback_days": "lookback",
+    "continuous_span_obs": "span_len",
     "canonical_ret_dd": "return_dd_ratio",
     "canonical_net_pct": "net_pct",
     "realized_net_pct": "realized_net%",
@@ -88,7 +105,6 @@ _RENAME = {
     "fragment_count": "spans",
     "cycles_completed": "cycles",
     "cycle_win_rate_pct": "win_rate",
-    "regime_state": "regime",
     "methodology_version": "methodology",
 }
 
@@ -215,9 +231,40 @@ def _add_all_profitable(df: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
-def build_cointegration_view_df(df_raw: pd.DataFrame) -> pd.DataFrame:
+def _add_n_spans(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-PAIR span COUNT within the (pair_a, pair_b, series) cohort.
+
+    For each row, the number of rows sharing the same (pair_a, pair_b, series)
+    triple -- i.e. how many distinct cointegrated spans (episodes) that pair has
+    in its variant/sizing cohort. The same count is repeated across every row of
+    that cohort. `series` (the variant tag derived from directive_id) is part of
+    the key so the GP / GP_ZOPP / GP_ZCRS_CXN1 arms are counted independently --
+    a pair's span count in one cohort is not conflated with another's.
+
+    Pairs with no series tag still get a count (key falls back to whatever the
+    series value is, including 'base' / '?'). Missing key columns -> NA column."""
+    needed = {"pair_a", "pair_b", "series"}
+    if not needed.issubset(df.columns):
+        df["n_spans"] = pd.NA
+        return df
+    key_cols = ["pair_a", "pair_b", "series"]
+    df["n_spans"] = df.groupby(key_cols, dropna=False)["series"].transform("size")
+    return df
+
+
+def build_cointegration_view_df(
+    df_raw: pd.DataFrame,
+    regime_map: dict | None = None,
+) -> pd.DataFrame:
     """Project raw cointegration_sheet rows to the lean human view (sorted,
-    ranked, friendly-named). Pure transform; no I/O."""
+    ranked, friendly-named). Pure transform; no I/O.
+
+    `regime_map` (optional): {(pair_a, pair_b): regime} — the CURRENT screener
+    regime per pair (tools.cointegration_db.latest_regime_map; same source as
+    the candidates tab's "Coint Status (252d)"). Populates the "Current Regime"
+    filter column: cointegrated / breaking / broken, blank when the pair is
+    absent from the latest screen. regime_map=None (no screener data supplied)
+    leaves the whole column blank — never an error."""
     if df_raw is None or len(df_raw) == 0:
         return pd.DataFrame(columns=COINTEGRATION_VIEW_COLUMNS)
 
@@ -240,6 +287,12 @@ def build_cointegration_view_df(df_raw: pd.DataFrame) -> pd.DataFrame:
         df["pair_class"] = [
             _classify_pair(a, b) for a, b in zip(df["pair_a"], df["pair_b"])
         ]
+        # Current screener regime (blank when unmapped / no map supplied).
+        _rm = regime_map or {}
+        df["Current Regime"] = [
+            _rm.get((str(a), str(b)), "")
+            for a, b in zip(df["pair_a"], df["pair_b"])
+        ]
     if "continuous_span_obs" in df.columns:
         df["coint_friendly"] = df["continuous_span_obs"].apply(_friendly_band)
     if "backtests_path" in df.columns:
@@ -252,6 +305,7 @@ def build_cointegration_view_df(df_raw: pd.DataFrame) -> pd.DataFrame:
         df["series"] = df["directive_id"].apply(_classify_series)
 
     df = _add_all_profitable(df)
+    df = _add_n_spans(df)
 
     df = df.rename(columns=_RENAME)
     df.insert(0, "rank", range(1, len(df) + 1))

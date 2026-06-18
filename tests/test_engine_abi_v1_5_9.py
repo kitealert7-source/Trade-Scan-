@@ -29,8 +29,11 @@ import yaml
 from engine_abi import v1_5_9 as abi
 
 # Direct source-module imports — what the ABI re-exports must be `is`-identical to.
-from engine_dev.universal_research_engine.v1_5_9 import evaluate_bar as _eb
-from engine_dev.universal_research_engine.v1_5_9 import execution_loop as _el
+# engine_abi.v1_5_9 re-points its evaluate_bar/execution_loop source to v1_5_10
+# (direction-aware execution restoration, B' 2026-06-14); frozen v1_5_9 is
+# preserved on disk for reproducibility but no longer the ABI source.
+from engine_dev.universal_research_engine.v1_5_10 import evaluate_bar as _eb
+from engine_dev.universal_research_engine.v1_5_10 import execution_loop as _el
 from engines import concurrency_gate as _cg
 from engines import regime_state_machine as _rsm
 from engines import protocols as _proto

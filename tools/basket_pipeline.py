@@ -33,7 +33,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.basket_schema import validate_basket_block
-from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule, PineRatioZRevRule, PineRatioZRevRuleZBand, PineRatioZRevRuleZCross, PineRatioZRevRuleZOpp  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 + pine_ratio_zrev_v1 + pine_ratio_zrev_v1_zcross + pine_ratio_zrev_v1_zband + pine_ratio_zrev_v1_zopp dispatch)
+from tools.recycle_rules import CointegrationMeanRevV1_2Rule, H2CompressionRecycleRule, H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3, H2RecycleRuleV4, H2RecycleRuleV5, H3SpreadV1Rule, H3SpreadV2Rule, H3SpreadV3Rule, PineRatioZRevRule, PineRatioZRevRuleZBand, PineRatioZRevRuleZCross, PineRatioZRevRuleZCrossHF, PineRatioZRevRuleZCrossHL, PineRatioZRevRuleZCrossLM, PineRatioZRevRuleZCrossHFLM, PineRatioZRevRuleZCrossZAvg, PineRatioZRevRuleZStop, PineRatioZRevRuleZOpp, PineRatioZRevRuleSessionWindow  # noqa: F401  (kept imports for adversarial/legacy tests + v2/v3/v4/v5/H3_spread @1/@2/@3 + cointegration_meanrev_v1_2 + pine_ratio_zrev_v1 + pine_ratio_zrev_v1_zcross + pine_ratio_zrev_v1_zcross_hf + pine_ratio_zrev_v1_zband + pine_ratio_zrev_v1_zopp + pine_ratio_zrev_v1_session_window dispatch)
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +148,21 @@ _EXTERNAL_CONSUMER_PARAMS: dict[tuple[str, int], frozenset[str]] = {
         "macro_z_window", "macro_sma_window",
         "macro_correlation_window", "macro_correlation_threshold",
     }),
+    # pine_ratio_zrev_v1 family: run_pipeline._build_pine_zrev_legs reads
+    # entry_fill_timing and forwards it to PineZRevLegStrategy.execution_timing
+    # ("next_bar_open" default = N+2 fill; "current_bar_open" = N+1 fill). The
+    # rule dataclass itself never sees this key.
+    ("pine_ratio_zrev_v1", 1):        frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zcross", 1): frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zcross_hf", 1): frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zcross_hl", 1): frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zcross_lm", 1): frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zcross_hflm", 1): frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zcross_zavg", 1): frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zband", 1):  frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zopp", 1):   frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_zstop", 1):  frozenset({"entry_fill_timing"}),
+    ("pine_ratio_zrev_v1_session_window", 1): frozenset({"entry_fill_timing"}),
 }
 
 
@@ -240,6 +255,29 @@ def _validate_basket_id_convention(
                 f"(USD-bear spread) or 'BULL' (USD-bull spread), or set "
                 f"bidirectional=true and use 'BIDIR' suffix."
             )
+
+
+def _require_param(params: dict, key: str, rule_name: str, version: int):
+    """Fetch a strategy-defining param — raise (never silently default) if absent.
+
+    Some `recycle_rule.params` keys decide WHICH strategy runs, not just a tuning
+    nicety. `z_entry` (the entry z-threshold) is the canonical case: a silent
+    default (formerly 2.0) means a directive that omits the key runs a *different*
+    strategy than the operator believes, with no error anywhere downstream. Fail
+    loud instead.
+
+    Added 2026-06-11 after a live z_entry 2.0->2.5 switch could not be confirmed
+    from the producer log alone — see basket_producer's PRODUCER_START banner,
+    which now echoes the resolved z_entry for the same audit reason.
+    """
+    if key not in params:
+        raise ValueError(
+            f"recycle_rule.params for {rule_name}@{version} is missing required "
+            f"key {key!r}: this strategy-defining parameter must be set explicitly "
+            f"in the directive YAML (no silent default). Present params: "
+            f"{sorted(params)}."
+        )
+    return params[key]
 
 
 def _instantiate_rule(
@@ -650,7 +688,7 @@ def _instantiate_rule(
         return PineRatioZRevRule(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             entry_mode=str(params.get("entry_mode", "centered")),
             # Adaptive Bollinger-width entry band (2026-06-15). MUST be wired
             # here: _validate_recycle_rule_params accepts these fields, but the
@@ -674,6 +712,7 @@ def _instantiate_rule(
             granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
             coint_break_exit=bool(params.get("coint_break_exit", False)),
             coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,
@@ -690,7 +729,7 @@ def _instantiate_rule(
         return PineRatioZRevRuleZCross(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             entry_mode=str(params.get("entry_mode", "centered")),
             # Adaptive Bollinger-width entry band — see base-rule branch above.
             adaptive_width=bool(params.get("adaptive_width", False)),
@@ -710,6 +749,287 @@ def _instantiate_rule(
             granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
             coint_break_exit=bool(params.get("coint_break_exit", False)),
             coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_zcross_zavg" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZCrossZAvg, params, name, version)
+        # 2-bar z-average entry-trigger variant of the zero-cross champion
+        # (2026-06-13, ZAVG2 arm). Same exits / hedge lock / sizing / warmup /
+        # fill timing as pine_ratio_zrev_v1_zcross. ONLY the ENTRY trigger changes:
+        # the +/- z_entry cross fires on the trailing zavg_window-bar MEAN of
+        # z_active instead of the single bar (exit stays on raw z). zavg_window=1
+        # recovers exact champion behavior (the parity gate).
+        return PineRatioZRevRuleZCrossZAvg(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            zavg_window=int(params.get("zavg_window", 2)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_zcross_hf" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZCrossHF, params, name, version)
+        # Hurst entry-filter overlay on the zero-cross exit variant (2026-06-12,
+        # HF55 arm). Same entries / exits / hedge lock / sizing / warmup as
+        # pine_ratio_zrev_v1_zcross. ADDS: block the entry proposal when the
+        # canonical ratio's trailing R/S Hurst (hurst_window bars) exceeds
+        # hurst_block_above at the signal bar. Fail-open on NaN/warmup.
+        # Telemetry event on a block: HURST_BLOCK (carries the blocked H).
+        return PineRatioZRevRuleZCrossHF(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            hurst_window=int(params.get("hurst_window", 50)),
+            hurst_block_above=float(params.get("hurst_block_above", 0.55)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_zcross_hl" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZCrossHL, params, name, version)
+        # Local half-life entry-filter overlay on the zero-cross exit variant
+        # (2026-06-12, HL120 arm). Same entries / exits / sizing as
+        # pine_ratio_zrev_v1_zcross. ADDS: block the entry proposal when the
+        # canonical ratio's rolling AR(1) half-life (hl_window bars) exceeds
+        # hl_block_above bars or is non-reverting (+inf). Fail-open on NaN.
+        # Telemetry event on a block: HL_BLOCK.
+        return PineRatioZRevRuleZCrossHL(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            hl_window=int(params.get("hl_window", 100)),
+            hl_block_above=float(params.get("hl_block_above", 120.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_zcross_lm" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZCrossLM, params, name, version)
+        # Leg-displacement entry-filter overlay (2026-06-12, LM20 arm). Same
+        # entries / exits / sizing as pine_ratio_zrev_v1_zcross. ADDS: block
+        # the entry proposal when EITHER leg's vol-scaled trailing lm_window-bar
+        # net move exceeds lm_block_above ("don't fade large directional
+        # repricings"). Fail-open on NaN. Telemetry event: MOVE_BLOCK.
+        return PineRatioZRevRuleZCrossLM(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            lm_window=int(params.get("lm_window", 12)),
+            lm_block_above=float(params.get("lm_block_above", 2.0)),
+            lm_min_vol_obs=int(params.get("lm_min_vol_obs", 100)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_zcross_hflm" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZCrossHFLM, params, name, version)
+        # HF-intersect-LM entry filter (2026-06-12, HFLM arm). Blocks ONLY when
+        # BOTH detectors agree: Hurst(ratio) > hurst_block_above AND max-leg
+        # net move > lm_block_above. Either alone does not block. Fail-open on
+        # NaN. Telemetry event: BOTH_BLOCK.
+        return PineRatioZRevRuleZCrossHFLM(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            hurst_window=int(params.get("hurst_window", 50)),
+            hurst_block_above=float(params.get("hurst_block_above", 0.55)),
+            lm_window=int(params.get("lm_window", 12)),
+            lm_block_above=float(params.get("lm_block_above", 2.0)),
+            lm_min_vol_obs=int(params.get("lm_min_vol_obs", 100)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_zstop" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleZStop, params, name, version)
+        # Hard z-stop overlay on the zero-cross exit variant (2026-06-11). Same
+        # entries / hedge lock / sizing / warmup / zcross exit as
+        # pine_ratio_zrev_v1_zcross. ADDS: liquidate (next_open) when
+        # |z_active| >= z_stop, then LATCH (block re-entry until a zero-cross).
+        # Recycle event tag on a stop: LIQUIDATE_ZSTOP.
+        return PineRatioZRevRuleZStop(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            z_stop=float(params.get("z_stop", 4.0)),
+            run_id=run_id,
+            directive_id=directive_id,
+            basket_id=basket_id,
+        )
+
+    if name == "pine_ratio_zrev_v1_session_window" and version == 1:
+        _validate_recycle_rule_params(PineRatioZRevRuleSessionWindow, params, name, version)
+        # Intraday UTC session-window overlay on the zero-cross exit variant
+        # (2026-06-14). Same entries / hedge lock / sizing / warmup / zcross exit as
+        # pine_ratio_zrev_v1_zcross. ADDS: entries FILL only when the fill bar's UTC
+        # hour is in [entry_open_hour, force_flat_hour); ALL positions force-flat at
+        # force_flat_hour (daily "go flat at NY close"). entry_open_hour=0,
+        # force_flat_hour=24 recovers exact champion behavior (parity). Force-flat
+        # recycle event tag: LIQUIDATE_SESSION_FLAT.
+        return PineRatioZRevRuleSessionWindow(
+            n_window=int(params.get("n_window", 100)),
+            n_meta=int(params.get("n_meta", 100)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
+            entry_mode=str(params.get("entry_mode", "centered")),
+            # Adaptive Bollinger-width entry band — see base-rule branch above.
+            adaptive_width=bool(params.get("adaptive_width", False)),
+            bb_k=float(params.get("bb_k", 2.0)),
+            bb_m=int(params.get("bb_m", 20)),
+            hedge_lock_at_entry=bool(params.get("hedge_lock_at_entry", True)),
+            always_in_market=bool(params.get("always_in_market", True)),
+            initial_notional_usd=float(params.get("initial_notional_usd", 1000.0)),
+            default_initial_lot=float(params.get("default_initial_lot", 0.01)),
+            target_notional_per_leg_usd=float(params.get("target_notional_per_leg_usd", 10000.0)),
+            sizing_mode=str(params.get("sizing_mode", "notional")),
+            beta_cap_lo=float(params.get("beta_cap_lo", 0.25)),
+            beta_cap_hi=float(params.get("beta_cap_hi", 4.0)),
+            target_risk_usd=float(params.get("target_risk_usd", 1000.0)),
+            atr_window=int(params.get("atr_window", 14)),
+            coint_beta_column=str(params.get("coint_beta_column", "coint_hedge_ratio")),
+            granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
+            coint_break_exit=bool(params.get("coint_break_exit", False)),
+            coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
+            exit_fill_timing=str(params.get("exit_fill_timing", "bar_close")),
+            entry_open_hour=int(params.get("entry_open_hour", 0)),
+            force_flat_hour=int(params.get("force_flat_hour", 21)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,
@@ -726,7 +1046,7 @@ def _instantiate_rule(
         return PineRatioZRevRuleZBand(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             z_exit=float(params.get("z_exit", 1.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
             # Adaptive Bollinger-width entry band — see base-rule branch above.
@@ -747,6 +1067,7 @@ def _instantiate_rule(
             granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
             coint_break_exit=bool(params.get("coint_break_exit", False)),
             coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,
@@ -763,7 +1084,7 @@ def _instantiate_rule(
         return PineRatioZRevRuleZOpp(
             n_window=int(params.get("n_window", 100)),
             n_meta=int(params.get("n_meta", 100)),
-            z_entry=float(params.get("z_entry", 2.0)),
+            z_entry=float(_require_param(params, "z_entry", name, version)),
             z_exit=float(params.get("z_exit", 1.0)),
             entry_mode=str(params.get("entry_mode", "centered")),
             # Adaptive Bollinger-width entry band — see base-rule branch above.
@@ -784,6 +1105,7 @@ def _instantiate_rule(
             granular_parity_max_k=int(params.get("granular_parity_max_k", 8)),
             coint_break_exit=bool(params.get("coint_break_exit", False)),
             coint_regime_column=str(params.get("coint_regime_column", "coint_regime")),
+            max_bars_in_trade=int(params.get("max_bars_in_trade", 0)),
             run_id=run_id,
             directive_id=directive_id,
             basket_id=basket_id,

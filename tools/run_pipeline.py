@@ -1447,12 +1447,14 @@ def _build_pine_zrev_legs(parsed, rule_block, bar_seconds):
     from tools.recycle_strategies import (
         PineZRevArmedState, PineZRevLegStrategy,
     )
+    et = (rule_block.get("params") or {}).get("entry_fill_timing", "next_bar_open")
     shared_armed_state = PineZRevArmedState()
     return {
         leg["symbol"]: PineZRevLegStrategy(
             symbol=leg["symbol"],
             position_direction=+1 if leg["direction"] == "long" else -1,
             armed_state=shared_armed_state,
+            execution_timing=et,
         )
         for leg in parsed["basket"]["legs"]
     }
@@ -1475,8 +1477,15 @@ LEG_STRATEGY_DISPATCH = {
     "cointegration_meanrev_v1_2": _build_coint_trigger_legs,
     "pine_ratio_zrev_v1":         _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zcross":  _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zcross_hf": _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zcross_hl": _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zcross_lm": _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zcross_hflm": _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zcross_zavg": _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_zstop":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zband":   _build_pine_zrev_legs,
     "pine_ratio_zrev_v1_zopp":    _build_pine_zrev_legs,
+    "pine_ratio_zrev_v1_session_window": _build_pine_zrev_legs,
 }
 
 CONTINUOUS_HOLD_RULES = frozenset({

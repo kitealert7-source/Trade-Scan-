@@ -10,10 +10,11 @@ single source of truth for:
 - *What happened* (decision block filled at orchestrator close)
 - *Lineage* (top-level `supersedes` links to predecessor hypotheses)
 
-The `/basket-hypothesis-testing` orchestrator reads this file at Phase 1,
-generates directives at Phase 3 (one per variant), and writes the
-decision back at Phase 4. See
-[`../../.claude/skills/basket-hypothesis-testing/SKILL.md`](../../.claude/skills/basket-hypothesis-testing/SKILL.md).
+The `/hypothesis-testing` orchestrator may consume this document as the hypothesis
+input for a basket test. **Under the unified orchestrator this formal hypothesis-doc is
+optional** — the retired basket skill required it as a Phase-1 gate; that gate was dropped
+(humans decide what to test). See
+[`../../.claude/skills/hypothesis-testing/SKILL.md`](../../.claude/skills/hypothesis-testing/SKILL.md).
 
 ---
 
@@ -101,8 +102,8 @@ evidence_required:
   reason: <text block explaining the evidence choice>
 ```
 
-`class` semantics — see §4.D in
-[`../../.claude/skills/basket-hypothesis-testing/SKILL.md`](../../.claude/skills/basket-hypothesis-testing/SKILL.md).
+`class` semantics — see the analysis section (§4) in
+[`../../.claude/skills/hypothesis-testing/SKILL.md`](../../.claude/skills/hypothesis-testing/SKILL.md).
 
 ## Session links
 

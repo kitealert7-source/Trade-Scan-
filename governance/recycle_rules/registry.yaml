@@ -1021,3 +1021,424 @@ rules:
       default_initial_lot:
         type: float
         default: 0.01
+
+  - name: pine_ratio_zrev_v1_zstop
+    version: 1
+    description: >
+      Hard z-stop overlay on the zero-cross exit variant (2026-06-11). Identical
+      to pine_ratio_zrev_v1_zcross (entries, hedge lock, sizing, warmup, zcross
+      exit) PLUS a hard stop:
+
+        liquidate (next_open) the moment |z_active| >= z_stop (default 4.0), then
+        LATCH -- no new entry is approved until a zero-cross (sign change of z)
+        confirms the spread has mean-reverted. The next +/- z_entry cross after
+        the reset opens a fresh cycle.
+
+      Hypothesis: capping the adverse excursion (and refusing to re-enter the
+      still-diverged spread until it crosses back through zero) reduces tail loss
+      / improves risk-adjusted return vs the zcross champion. Default z_stop is
+      finite (4.0); set it beyond the data's reach to recover exact champion
+      behavior (the parity gate). Recycle event tag on a stop: LIQUIDATE_ZSTOP.
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zstop.py.
+      Subclasses PineRatioZRevRuleZCross; adds a |z|>=z_stop deferred (next_open)
+      exit + a re-entry latch (SET on stop, RESET on zero-cross, gated in
+      _maybe_approve), inert when |z| never reaches z_stop.
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      z_stop:
+        type: float
+        default: 4.0
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+
+  - name: pine_ratio_zrev_v1_session_window
+    version: 1
+    description: >
+      Intraday UTC session-window overlay on the zero-cross exit variant
+      (2026-06-14). Identical to pine_ratio_zrev_v1_zcross (entries, hedge lock,
+      sizing, warmup, zcross exit, fill timing) PLUS one behavioral change:
+
+        entries FILL only when the fill bar's UTC hour is in
+        [entry_open_hour, force_flat_hour) (default 0..21 = Asian open -> NY close),
+        and ALL open positions force-liquidate to flat the moment a bar's UTC hour
+        reaches force_flat_hour (daily "go flat at NY close"), staying flat until the
+        next day's entry_open_hour.
+
+      Hypothesis: trading only the Asian-open -> NY-close window and going flat
+      overnight reduces overnight tail risk at the cost of cutting not-yet-reverted
+      MR cycles short. Bar timestamps are UTC-naive; DST is NOT modelled (NY close
+      pinned at 21:00 UTC). entry_open_hour=0, force_flat_hour=24 recovers exact
+      champion behavior (the parity gate). Force-flat recycle event tag:
+      LIQUIDATE_SESSION_FLAT.
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_session_window.py.
+      Subclasses PineRatioZRevRuleZCross; gates entry approval on the fill bar's hour
+      (_maybe_approve) and force-flats via the forced-exit hook (_maybe_break_exit),
+      inheriting the zcross apply() unchanged.
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      entry_open_hour:
+        type: int
+        default: 0
+      force_flat_hour:
+        type: int
+        default: 21
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_hf
+    version: 1
+    description: >
+      Hurst entry-filter overlay on the zero-cross exit variant (2026-06-12,
+      HF55 arm). Identical to pine_ratio_zrev_v1_zcross (entries, hedge lock,
+      sizing, warmup, zcross exit, fill timing) PLUS one entry condition:
+
+        BLOCK the entry proposal when the pair's canonical price ratio is
+        locally persistent -- trailing hurst_window-bar R/S Hurst exponent
+        (indicators.trend.hurst_rs) of the ratio > hurst_block_above at the
+        proposal (signal) bar. The Hurst input is the pine_zrev_ratio column
+        attached by the parent from ratio_hedged_spread_zscore's `ratio`
+        output -- the SAME series the hedge ratio derives from, never an
+        independent reconstruction.
+
+      Hypothesis (operator-approved 2026-06-12): blocking high-persistence
+      entries improves median cycle PnL, win rate, and tail p05 across all
+      pair classes at ~25% fewer cycles; run-level blowup count expected
+      unchanged. Threshold/window optimization explicitly OUT OF SCOPE for
+      this arm (50 / 0.55 operator-fixed). Step-1 PROVISIONAL evidence:
+      tmp/hurst_step1_report.md (421 champion runs / 13,461 cycles).
+
+      Fail-open: NaN/warmup/degenerate H never blocks. Telemetry event on a
+      block: HURST_BLOCK (carries the blocked H value -- distribution of
+      blocked H reconstructable from events). Set hurst_block_above beyond
+      the estimator's reach (e.g. 1e9) to recover exact champion behavior
+      (the parity gate).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_hf.py.
+      Subclasses PineRatioZRevRuleZCross; extends _attach_z_r (computes
+      pine_zrev_hurst from the canonical ratio on the intersected index) and
+      gates _maybe_propose (the proposal bar; mirrors the parent's idle-state
+      guard so the block count = true removed entries).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      hurst_window:
+        type: int
+        default: 50
+      hurst_block_above:
+        type: float
+        default: 0.55
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_hl
+    version: 1
+    description: >
+      Local half-life entry-filter overlay on the zero-cross exit variant
+      (2026-06-12, HL120 arm). Identical to pine_ratio_zrev_v1_zcross PLUS one
+      entry condition: BLOCK the proposal when the canonical ratio's rolling
+      AR(1) half-life (indicators.stats.rolling_half_life, hl_window bars on
+      the exec TF) exceeds hl_block_above bars OR the window is non-reverting
+      (+inf). LOCAL statistic by design -- the screener's daily half_life_days
+      (~1,300+ 15m bars) was ruled out for timescale mismatch vs the trade
+      horizon (median hold 14 bars / p95 28). Threshold anchoring: 120 bars
+      ~ 9x median hold; the Step-1 offline 60-120 band was profitable, so do
+      NOT tighten without a new tagged arm. Fail-open on NaN; +inf blocks.
+      Telemetry event: HL_BLOCK (hl value or non_reverting flag). Set
+      hl_block_above to math.inf to recover exact champion behavior (any
+      finite threshold still blocks non-reverting windows).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_hl.py.
+      Subclasses PineRatioZRevRuleZCross; extends _attach_z_r (computes
+      pine_zrev_half_life from the canonical ratio) and gates _maybe_propose
+      (proposal bar; parent idle-state guard mirrored).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      hl_window:
+        type: int
+        default: 100
+      hl_block_above:
+        type: float
+        default: 120.0
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_lm
+    version: 1
+    description: >
+      Leg-displacement entry-filter overlay on the zero-cross exit variant
+      (2026-06-12, LM20 arm). Identical to pine_ratio_zrev_v1_zcross PLUS one
+      entry condition: BLOCK the proposal when EITHER leg's vol-scaled
+      trailing lm_window-bar NET move (indicators.stats.normalized_net_move,
+      per-leg closes, causal expanding sigma) exceeds lm_block_above.
+
+      Hypothesis: "don't fade large directional repricings" -- the structural
+      variable behind the HF (persistence) and HL (reversion-speed)
+      detectors. Champion-corpus characterization (13,064 entries): cycle PnL
+      deteriorates monotonically with this statistic in ALL FOUR pair
+      classes; the >=2-sigma bucket is net-negative in every class.
+      12 / 2.0 operator-fixed; no sweeps. Fail-open on NaN (warmup /
+      zero-vol). Telemetry event: MOVE_BLOCK (mm value + driving leg). Set
+      lm_block_above to math.inf to recover exact champion behavior.
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_lm.py.
+      Subclasses PineRatioZRevRuleZCross; extends _attach_z_r (per-leg
+      pine_zrev_legmove from leg closes on the intersected index) and gates
+      _maybe_propose (proposal bar; parent idle-state guard mirrored).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      lm_window:
+        type: int
+        default: 12
+      lm_block_above:
+        type: float
+        default: 2.0
+      lm_min_vol_obs:
+        type: int
+        default: 100
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_hflm
+    version: 1
+    description: >
+      HF-intersect-LM entry filter (2026-06-12, HFLM arm). Identical to
+      pine_ratio_zrev_v1_zcross PLUS one entry condition that blocks ONLY when
+      TWO independent detectors AGREE: Hurst(ratio, hurst_window) >
+      hurst_block_above AND max-leg normalized_net_move(lm_window) >
+      lm_block_above. Either alone does NOT block.
+
+      Hypothesis (overlap analysis 2026-06-12, 12,685 champion entries): HF55
+      and LM20 are largely DISTINCT (Jaccard 0.18) but their INTERSECTION is
+      the toxic core -- BOTH group 6.9% of entries, mean -8.22 / median -1.14
+      vs near-break-even single-flag groups. The intersection isolates the bad
+      population neither filter catches alone without killing good entries;
+      surgical (bounded relocation) and inherits HF persistence. 0.55 / 2.0 /
+      50 / 12 operator-fixed; no sweeps. Fail-open on NaN (stricter than the
+      single arms -- BOTH estimates must be present). Telemetry: BOTH_BLOCK.
+      Set EITHER threshold beyond reach (math.inf) to recover champion
+      behavior (the AND can never fire).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_hflm.py.
+      Subclasses PineRatioZRevRuleZCross; extends _attach_z_r (Hurst on the
+      canonical ratio + per-leg displacement) and gates _maybe_propose on the
+      AND (proposal bar; parent idle-state guard mirrored).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      hurst_window:
+        type: int
+        default: 50
+      hurst_block_above:
+        type: float
+        default: 0.55
+      lm_window:
+        type: int
+        default: 12
+      lm_block_above:
+        type: float
+        default: 2.0
+      lm_min_vol_obs:
+        type: int
+        default: 100
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
+
+  - name: pine_ratio_zrev_v1_zcross_zavg
+    version: 1
+    description: >
+      2-bar z-average entry-trigger variant of the zero-cross champion (2026-06-13,
+      ZAVG2 arm). Identical to pine_ratio_zrev_v1_zcross (exits, hedge lock, sizing,
+      warmup, fill timing) with ONE change to the ENTRY trigger: the +/- z_entry cross
+      fires on the TRAILING zavg_window-bar MEAN of z_active instead of the single bar.
+      The EXIT stays on the RAW single-bar z (inherited zcross sign-change), so this
+      isolates the entry-trigger smoothing.
+
+      Hypothesis (operator-directed 2026-06-13): smoothing the entry over 2 bars rejects
+      single-bar threshold spikes (the live real-time-noise failure mode of the 2026-06
+      demo) and enters deeper on sustained moves. The settled-data cost (skipping shallow
+      quick-revert crossings) vs the live noise-rejection benefit is the empirical
+      question; the backtest measures the SETTLED side only. zavg_window=2 operator-fixed;
+      no sweeps. Step-1 report-only evidence: AVG_CONFIRMED-vs-SINGLE_ONLY stratification
+      on the _LIVEWK deployed pairs (PROVISIONAL).
+
+      Parity: zavg_window=1 recovers the single-bar trigger -> byte-identical to
+      pine_ratio_zrev_v1_zcross (the parity gate).
+
+      Implementation: tools/recycle_rules/pine_ratio_zrev_v1_zcross_zavg.py. Subclasses
+      PineRatioZRevRuleZCross; overrides _attach_z_r to recompute the entry signal from
+      the rolling mean-z cross (exit column untouched).
+    params:
+      n_window:
+        type: int
+        default: 100
+      n_meta:
+        type: int
+        default: 100
+      z_entry:
+        type: float
+        default: 2.0
+      entry_mode:
+        type: str
+        default: "centered"
+      hedge_lock_at_entry:
+        type: bool
+        default: true
+      always_in_market:
+        type: bool
+        default: true
+      zavg_window:
+        type: int
+        default: 2
+      initial_notional_usd:
+        type: float
+        default: 1000.0
+      target_notional_per_leg_usd:
+        type: float
+        default: 10000.0
+      default_initial_lot:
+        type: float
+        default: 0.01
