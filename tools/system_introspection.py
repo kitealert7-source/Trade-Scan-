@@ -1030,7 +1030,9 @@ def render_markdown(
     lines.append("")
     lines.append(f"> Generated: {_now_utc()}")
     lines.append(">")
-    lines.append("> Read at session start. Regenerate at session end (`python tools/system_introspection.py`).")
+    lines.append("> SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).")
+    lines.append("> If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.")
+    lines.append("> Ephemeral content only. Durable entries (invariant proposals, code-cited decisions) belong in `INVARIANT_PROPOSALS.md`.")
     lines.append("")
 
     # ── Engine

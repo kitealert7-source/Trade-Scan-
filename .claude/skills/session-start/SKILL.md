@@ -15,9 +15,11 @@ Run all reads before synthesizing. Each is < 5 s.
 
 ### 1.1 System preflight
 
+Regenerate the snapshot first so nothing stale is read downstream (this one write is authorized infrastructure maintenance, not a research mutation):
+
 // turbo
 ```bash
-python tools/system_preflight.py 2>&1 | tail -8
+python tools/system_introspection.py && python tools/system_preflight.py 2>&1 | tail -8
 ```
 Extract: `SESSION STATUS` line, any `WARN` or `ERROR` lines.
 
@@ -235,7 +237,7 @@ Suggested first task: <Infra #1 if BLOCKER; else Active Charter focus if present
 
 ## Constraints
 
-- **Read-only.** No file mutations, no commits, no pipeline runs, no directive admission.
+- **Read-only** except §1.1 which regenerates `SYSTEM_STATE.md` (authorized infrastructure snapshot — not a research mutation). No commits, no pipeline runs, no directive admission.
 - **Fast.** Full skill in under 2 minutes. If a read is slow, skip it and note the omission.
 - **Honest about gaps.** No `NEXT:` entries → say so; do not invent tasks.
 - **BROKEN is always Infra #1.** If SESSION STATUS = BROKEN, surface it first and recommend pausing research until resolved.

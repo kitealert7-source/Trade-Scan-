@@ -1376,8 +1376,8 @@ class _PassthroughStrategy:
 # ────────────────────────────────────────────────────────────────────────
 # Leg-strategy dispatch — single source of truth
 # (2026-06-01: replaces the inline if/elif chain that produced the ZBND
-# silent-fallthrough bug. See SYSTEM_STATE.md [INVARIANT_PROPOSAL] entry
-# 2026-06-01 and [[mechanism-port-integration-points]] memory.)
+# silent-fallthrough bug. See INVARIANT_PROPOSALS.md INVAR-001
+# and [[mechanism-port-integration-points]] memory.)
 #
 # Every recycle rule registered in governance/recycle_rules/registry.yaml
 # MUST be in exactly ONE of:
