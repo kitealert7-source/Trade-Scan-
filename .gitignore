@@ -28,6 +28,7 @@ data_root/SYSTEM_FACTORS/
 data_root/governance/last_successful_daily_run.json
 data_root/EXTERNAL_DATA/
 data_root/JPY_SYNTH/
+data_root/.research_regen_backup/
 
 # Strategy snapshots (runtime mirrors)
 strategies/
@@ -153,6 +154,8 @@ archive/**/*.docx
 # ===== Backups =====
 *.backup
 *.r*_backup_*
+# Stale capital-sim wrapper backups (live tools/capital_wrapper.py is tracked; history holds all versions)
+archive/tools/capital_wrapper_backups/
 *.scaling_backup_*
 *.uniform_backup_*
 *.uniform_multi_backup_*
