@@ -95,13 +95,25 @@ for name, path in REPOS:
             continue
         cleanup.append(f'{name}: remote branch \"{b}\" merged, can delete')
 
-    # 6. Untracked root artifacts (top-level only)
+    # 6. Untracked non-ignored artifacts (root + nested). --directory collapses a
+    #    wholly-untracked dir to one entry (e.g. outputs/cointegration_screener_v1/);
+    #    a single --directory call also avoids double-counting files inside such dirs.
+    #    --exclude-standard already drops gitignored output, so what remains is
+    #    genuinely non-ignored: root files are the classic stray-file mess; nested
+    #    dirs/files are accumulating output that likely wants gitignoring (2026-06-19:
+    #    an 8.6MB outputs/cointegration_screener_v1/ sat untracked, invisible to the
+    #    old root-only filter). Summarised to respect the one-screenful cap.
     untracked = git_lines(path, 'ls-files', '--others', '--exclude-standard', '--directory')
-    untracked += git_lines(path, 'ls-files', '--others', '--exclude-standard')
-    # filter to root-level only
-    root_untracked = [f for f in untracked if '/' not in f.rstrip('/')]
-    if root_untracked:
-        watch.append(f'{name}: {len(root_untracked)} untracked root file(s): {\" \".join(root_untracked[:3])}')
+    if untracked:
+        root   = [f for f in untracked if '/' not in f.rstrip('/')]
+        nested = [f for f in untracked if '/' in f.rstrip('/')]
+        parts = []
+        if root:
+            parts.append(f'{len(root)} root: {\" \".join(root[:3])}')
+        if nested:
+            more = f' (+{len(nested)-3} more)' if len(nested) > 3 else ''
+            parts.append(f'{len(nested)} nested: {\" \".join(nested[:3])}{more}')
+        watch.append(f'{name}: untracked -- ' + '; '.join(parts))
 
 # Emit
 any_output = False
@@ -178,3 +190,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 |---|---|---|
 | 2026-06-18 | Feature branch alone flagged as ACTION; only actionable when combined with unpushed work | branch+unpushed combined into single check; feature-branch-only demoted to CLEANUP |
 | 2026-06-18 | feat/cointegration-onboarding (70 commits) surfaced as CLEANUP alongside 1-commit stale branches — no commit count, no severity signal, no way to distinguish active merge candidate from abandoned stub | All unmerged local branches moved to WATCH; commit count and remote-exists flag added to every entry |
+| 2026-06-19 | Untracked check was root-level-only → missed an 8.6MB nested outputs/cointegration_screener_v1/ + a nested scratch harness (Infra-#1 cleanup found them via session-start §1.8, not this skill); also double-counted files in untracked dirs | Check 6 now reports root + nested non-ignored untracked (single --directory call, summarised + capped) |
