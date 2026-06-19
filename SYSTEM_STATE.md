@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
-- WARNING: Working tree 2 uncommitted
+- WARNING: Working tree 3 uncommitted
 
-> Generated: 2026-06-19T03:44:08Z
+> Generated: 2026-06-19T11:03:31Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -14,7 +14,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 29 directives
+- Completed: 34 directives
 
 ## Ledgers
 
@@ -34,28 +34,29 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-18** | Symbols: 221
+- Latest bar: **2026-06-19** | Symbols: 221
 
 ## Artifacts
 - Run directories: 3346
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: 2 uncommitted
-- Last substantive commit: `c8763bbc session: closing SYSTEM_STATE snapshot`
+- Working tree: 3 uncommitted
+- Last substantive commit: `8f0689ee docs(research-memory): limit-order probe + min-viable-spread entries`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- (none — no drift signals exceed threshold this session)
+- [SIZE] RESEARCH_MEMORY.md 32 KB / 154 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced). Promote to BUILD after ≥1 gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence (shipped 2026-06-07, ba3b82cf) doubled daily upserts (1860+126 vs 930+64 rows) and added ~80–180s/run (screener block ~3 min now). Promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `tools/refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass field to authorize refreshes (debt-marked in code + plan, operator-flagged). Promote to BUILD (dedicated refresh-intent signal) when a 2nd refresh use-case (baskets / master_filter) needs the auth path. First seen 2026-06-07.
+- [MONITOR] RESEARCH_MEMORY.md size — 36 KB / 40 KB ceiling (154 lines), 90% of cap. Promote (run `tools/compact_research_memory.py --dry-run` then `--apply`, `ARCHIVE_BEFORE=2026-05-22`) when >38 KB. First seen 2026-06-19.
 - [SKILL_REFACTOR] Changes D+F deferred — session-close §3.3 → repo-cleanup-refactor §1d; system-health-maintenance §5/§6 overlap removal. Detail: backlog report.
 - [DRIFT] pipeline-state-cleanup deferred — 19 orphan MPS::Baskets rows + lineage_pruner blocked (TS_Execution was live). Run off-hours; procedure in backlog report.
 - [NEXT-FOCUS] ★FULL 5-BASKET FLEET LIVE on canonical z=2.5 (2026-06-19). All 5 cointegration baskets (CADJPYUSDCHF/CHFJPYEURUSD/EURJPYGBPJPY/GBPAUDUSDCHF/EURJPYUSDJPY) signal-driven + HEALTHY on OctaFX-Demo 213872531; TS_Basket_Supervisor RE-ENABLED (5-min daemon, crash-survival). **Substrate hardened — immutable deployment descriptors:** the 06-16 corpus prune had deleted all 5 baskets' directives from `backtest_directives/completed/` (live producers read from there → would SystemExit on cold-start). FIX (operator-approved, protected-infra): producer now reads `strategy_pool/<ID>/directive.txt` (prune-immune, deployment-owned) first, falls back to completed/; promotion co-locates it; consistency-gated on directive_id. Canonical config = z_entry=2.5 + coint_break_exit=true + entry_fill_timing=current_bar_open (the LAST-DEPLOYED 06-13 config; vault z=2.0 snapshot was stale — reconstructed from producer.log banner, faithfulness-verified). See [[immutable-deployment-descriptors]], [[restore-source-fidelity-gap]]. Entry regime-gated: only EURJPYGBPJPY currently 'cointegrated'; other 4 'breaking' → FLAT until re-cointegration. OPEN: (a) provenance smell — canonical directive keeps ID while params changed (signature should fold params); (b) promotion run receipts ALSO pruned (golden test can't run — same artifact-loss class); (c) weekend-flat policy (see DECISION below); (d) collect live evidence (regime-gated).
