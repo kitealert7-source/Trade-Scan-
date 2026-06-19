@@ -28,6 +28,7 @@ to use** + **when NOT to use** + **related skills**.
 | Analyze the candidate pool | `/portfolio-research` |
 | Format the FSP/MPS spreadsheets | `/format-excel-ledgers` |
 | Test a hypothesis — single-asset or basket (classify → form → run → analyse → record) | `/hypothesis-testing` |
+| Discover actionable research ideas from vault; check for contradictions + archive candidates | `/vault-discovery` |
 | Run capital wrappers at uniform risk | `/uniform-risk-capital-simulation` |
 | Start a new session and orient to priorities | `/session-start` |
 | Run an operational retrospective before closing | `/session-retro` |
@@ -73,6 +74,7 @@ to use** + **when NOT to use** + **related skills**.
 
 | Skill | When | When NOT | Related |
 |---|---|---|---|
+| `vault-discovery` | Before designing a directive (check if vault already frames the idea); session start `--quick` scan; after a major vault ingest; periodic `--deep` contradiction audit | Mid-pipeline execution → not needed; writing directives or tracking execution → wrong skill (read-only) | `hypothesis-testing` (acts on Tier 1 ideas), `generate-directives` (forms the directive), `session-start` (complements `--quick`) |
 | `contemplate` | Deliberation on a design is exhausted — experiments designed, hypothesis formalized, alternatives weighed — and it is about to scale or write durable state; you want one brief reflective pass before committing | Cheap work where running is cheaper than contemplating; using it as a gate, reviewer, or verdict engine — it reports what it found, never what to do; errors the mechanical gates already own | `port-strategy` (produces the design), `execute-directives` (the scaled run it precedes), `session-retro` (backward, session-scoped reflection), `hypothesis-testing` (later lifecycle point) |
 | `hypothesis-testing` | THE entry for any backtest-from-a-hypothesis run — **single-asset** (directive-filter exclusion, or param/rule change) **or basket** (mechanic / architecture / corpus-cohort). Classifies the hypothesis, then drives form (`/generate-directives`) → run (`/execute-directives`) → canonical analysis → record (`RESEARCH_MEMORY.md`). Humans decide what to test; it never gates on worth | Re-running an *exact* prior config (no hypothesis) → `/rerun-backtest` | `generate-directives` (form), `execute-directives` (run), `port-strategy` (new rule), `tools/compare_cohorts.py` (cohort analysis) |
 | `uniform-risk-capital-simulation` | Need to compare capital profiles on a fixed dataset with `risk_per_trade` held uniform across all profiles | Default capital_wrapper run (per-profile risk varies) → use the standard `run-composite-portfolio` flow | `run-composite-portfolio` |

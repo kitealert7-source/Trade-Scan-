@@ -294,6 +294,23 @@ intents:
       - {tag: "filter_exclusion", weight: 3}
       - {tag: "direction_bias", weight: 2}
 
+  - id: vault_discovery
+    priority: 35
+    enforcement: soft
+    must_skill: vault-discovery
+    suppress_on_infra: true
+    reason: "Vault research-ideas and concepts accumulate independently from Trade_Scan findings; discovery runs prevent re-investigating settled questions and surface actionable ideas."
+    regex_patterns:
+      - "(?i)\\bvault[- ]?discovery\\b"
+      - "(?i)\\b(check|scan|search|interrogate)\\s+(the\\s+)?vault\\s+(ideas?|research|concepts?)\\b"
+      - "(?i)\\b(what'?s?|are\\s+there|any)\\s+(vault|research[- ]idea)s?\\s+(worth|to)\\s+(test|try|look\\s+at)\\b"
+      - "(?i)\\b(research[- ]ideas?|vault\\s+concepts?)\\s+(worth|ready\\s+to)\\s+test(ing)?\\b"
+    semantic_tags:
+      - {tag: "vault_discovery", weight: 3}
+      - {tag: "vault_ideas", weight: 3}
+      - {tag: "research_ideas", weight: 2}
+      - {tag: "vault_concepts", weight: 2}
+
   - id: basket_hypothesis_testing
     priority: 50
     enforcement: soft
