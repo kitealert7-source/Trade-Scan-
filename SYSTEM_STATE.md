@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-06-19T16:39:55Z
+> Generated: 2026-06-19T17:16:45Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -41,8 +40,8 @@
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: 1 uncommitted
-- Last substantive commit: `7eceac30 fix(git-hygiene): suppress empty untracked dirs from Check 6`
+- Working tree: clean
+- Last substantive commit: `40775856 docs(freeze-charter): refine scope + log engine-stamp drift for post-freeze`
 
 ## Deferred Maintenance
 
