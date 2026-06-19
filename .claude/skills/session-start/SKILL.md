@@ -276,3 +276,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
 | 2026-06-16 | Vault nav-layer could silently drift from canonical | Added §1.7 advisory `_sync.py --summary` check |
+| 2026-06-19 | §1.9 live pre-check verifies process health, not directive-config fidelity | Task: §1.9 to diff strategy_pool directive vs latest producer.log PRODUCER_START banner |

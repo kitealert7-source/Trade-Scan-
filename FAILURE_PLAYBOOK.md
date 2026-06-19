@@ -965,3 +965,68 @@ count before relying on the result.
 
 ---
 
+### Historical Log Tail Read As Current Operational State — Diagnostic — 2026-06-19
+
+**Symptom:** a log or state file (daemon.log, storm_guard.json, a runner heartbeat, a position
+snapshot) shows what looks like an ACTIVE failure — a restart storm, repeated RESTART/ABORT
+lines, a non-flat position — and you start diagnosing/remediating it. The entries are real but
+STALE: from a prior run hours or days ago, not the current one.
+
+**Root cause:** append-only logs and last-write state files carry no "this is current" marker on
+the tail. After a gap (process stopped, task disabled, machine off), the newest lines on disk
+describe the LAST active session and read identically to a live event. On 2026-06-19 ~5 tool-calls
+were spent disproving a supervisor "restart storm" that was actually 2026-06-14 data (storm_guard
+epochs were 5 days old; the daemon had cleanly adopted the fleet with no restarts).
+
+**Diagnostic — establish CURRENCY before concluding an active failure (correlate THREE clocks):**
+1. **Newest evidence timestamp** — the file `mtime` AND the timestamp inside the last line.
+   Convert any epoch: `python -c "import datetime,sys;print(datetime.datetime.utcfromtimestamp(float(sys.argv[1])))" <epoch>`.
+2. **Process start time** — is the owning process running, and since when?
+   (`Get-Process -Id <pid>`; `Get-CimInstance Win32_Process` CreationDate / CommandLine.)
+3. **Scheduler last-run time** — `Get-ScheduledTaskInfo <task>` LastRunTime / LastTaskResult
+   (267009 = 0x41301 = SCHED_S_TASK_RUNNING = still alive).
+Correlate all three. If the newest entry predates the current process start (or the task has not
+fired since), the "failure" is history — do not remediate it.
+
+**Rule:** NOT supervisor-specific. Any daemon / restart / storm / position diagnosis must first
+prove the evidence is current. Fixing it once for one log just moves the trap to the next one.
+
+---
+
+### Live Basket Directive Loss / Config Drift — Recovery — 2026-06-19
+
+**Symptom:** a live basket producer fails to cold-start (`SystemExit: directive not found`), OR a
+basket runs but its config does not match what was last deployed (wrong z_entry, missing
+coint_break_exit, etc.). Triggered 2026-06-19 when the 2026-06-16 corpus prune deleted all 5 live
+baskets' directives from `backtest_directives/completed/`.
+
+**Deterministic recovery path (the exercised 2026-06-19 sequence — follow in order):**
+1. **Detect loss** — audit the runtime-artifact chain per basket (descriptor → directive → regime
+   feed). Pattern: `tmp/audit_basket_runtime_artifacts.py` (descriptor present? directive
+   resolvable? vault capsule present? coint regime present?).
+2. **Locate restore source** — the immutable copy is `strategy_pool/<ID>/directive.txt`
+   (deployment-owned, prune-immune since 2026-06-19); fall back to the vault capsule
+   `DRY_RUN_VAULT/<vault_ref>/<ID>/directive.txt`.
+3. **VERIFY FIDELITY (MANDATORY — do not skip).** A restore source EXISTING is not proof it
+   matches the LAST-DEPLOYED config. Cross-check the candidate against runtime evidence: the
+   `PRODUCER_START` banner in the basket's `producer.log` is the authority for what actually ran
+   (z_entry / coint_break_exit / entry_fill_timing). The vault snapshot can be stale — it was:
+   vault z=2.0 vs live z=2.5. See `[[restore-source-fidelity-gap]]`.
+4. **Reconstruct (only if no faithful source survives)** — apply the producer.log banner's param
+   deltas onto the closest base directive; faithfulness-gate the result by re-running the
+   producer's own `_resolved_key_params()` and asserting it reproduces the logged banner.
+5. **Deploy** — write the canonical directive to `strategy_pool/<ID>/directive.txt` (durable) +
+   `completed/<id>.txt` (fallback); restart the producer; confirm the new `PRODUCER_START` banner
+   shows `directive_src=[strategy_pool ...]` and the intended params.
+6. **Validate against the live fleet** — confirm reconcile (a wrong-config open position
+   liquidates under the corrected mechanic) and that the broker is in the expected state
+   (`positions_get` — Invariant #3, the broker is the truth, not the log).
+
+**Do NOT:** trust a restored directive without the step-3 fidelity check; restore from vault
+assuming it equals the last-deployed config; conclude "restorable = safe" from existence alone.
+
+**See also:** `[[immutable-deployment-descriptors]]`, `[[restore-source-fidelity-gap]]`,
+INVAR-002 (prune-vs-dependency guard).
+
+---
+
