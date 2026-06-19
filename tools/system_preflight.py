@@ -112,6 +112,8 @@ class PreflightCheck:
         self._check_root()
         # Step 2 & 3: Runs & Manifests
         self._check_runs()
+        # Step 3b: Protected-run referential integrity (PORTFOLIO_COMPLETE artifacts present)
+        self._check_protected_run_artifacts()
         # Step 4: Registry
         self._check_registry()
         # Step 5: Portfolios
@@ -179,6 +181,52 @@ class PreflightCheck:
             self.report("RUNS", "RED", f"{corrupt_count} runs failed manifest hash verification.")
         else:
             self.report("RUNS", "GREEN", f"All {total} run containers valid and verified.")
+
+    def _check_protected_run_artifacts(self):
+        """Tripwire for the 'protected run with no artifacts' breach class.
+
+        Every protected / PORTFOLIO_COMPLETE directive's run_ids MUST have
+        artifacts on disk (runs/ or sandbox/). A protected run_id with no
+        artifact is a silent referential-integrity breach: it blocks the
+        lineage_pruner (Phase 1B FAIL) and lurks undetected until someone runs
+        the pruner by hand. Origin seen 2026-06-19 — pipeline-validation / test
+        residue: engine-promotion runs that hit PORTFOLIO_COMPLETE and persisted
+        ledger rows, then had their run artifacts removed without clearing FSM
+        state. Surfacing it here makes the breach visible at session-start.
+
+        Reuses lineage_pruner._collect_portfolio_complete_runs() as the canonical
+        protected-set definition so this tripwire cannot drift from what the
+        pruner actually protects. Fail-soft: any scan error degrades to a single
+        YELLOW note rather than crashing preflight.
+        """
+        try:
+            from tools.state_lifecycle.lineage_pruner import _collect_portfolio_complete_runs
+            protected_runs, _protected_dirs = _collect_portfolio_complete_runs()
+        except SystemExit:
+            self.report("REF_INTEGRITY", "YELLOW", "protected-run scan aborted (SystemExit) — skipped")
+            return
+        except Exception as e:
+            self.report("REF_INTEGRITY", "YELLOW", f"protected-run scan unavailable ({type(e).__name__}: {e})")
+            return
+
+        orphans = []
+        for rid in sorted(protected_runs):
+            tier, _path = resolve_run_location(rid)
+            # Mirror lineage_pruner Phase-1B: an artifact counts only when it
+            # lives in runs/ or sandbox/. quarantine/None both mean "no live
+            # artifact" for a protected run -> referential breach.
+            if tier not in ("runs", "sandbox"):
+                orphans.append(rid)
+
+        if not orphans:
+            self.report("REF_INTEGRITY", "GREEN",
+                        f"{len(protected_runs)} protected run(s): all artifacts present")
+        else:
+            shown = ", ".join(orphans[:5]) + (" ..." if len(orphans) > 5 else "")
+            self.report("REF_INTEGRITY", "YELLOW",
+                        f"{len(orphans)} protected/PORTFOLIO_COMPLETE run(s) missing artifacts "
+                        f"(blocks lineage_pruner; likely pipeline-test residue) — clear via "
+                        f"'python -m tools.reset_directive <id> --reason ...' or restore artifacts: {shown}")
 
     def _check_registry(self):
         reg_path = REGISTRY_DIR / "run_registry.json"
@@ -582,6 +630,7 @@ class PreflightCheck:
                             print(f"    → {verb}: {cmd}{suffix}")
 
         print_category("RUNS")
+        print_category("REF_INTEGRITY")
         print_category("REGISTRY")
         print_category("PORTFOLIOS")
         print_category("LEDGER")
