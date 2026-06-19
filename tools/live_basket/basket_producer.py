@@ -106,10 +106,36 @@ class BasketConfig:
     # basket.cointegration_join.lookback_days, or None when the directive does
     # not configure a join (regime gate then has no source -> column omitted).
     coint_lookback_days: int | None = None
+    # Which on-disk home the directive was resolved from (provenance for the
+    # PRODUCER_START banner): the deployment-owned strategy_pool copy (immutable,
+    # prune-immune) or the legacy prune-exposed completed/ corpus fallback.
+    directive_source: str = "?"
 
 
 def _descriptor_path(basket_id: str) -> Path:
     return _TRADESCAN_STATE / "strategy_pool" / basket_id / "descriptor.json"
+
+
+def _resolve_directive_path(descriptor_path: Path, directive_id: str) -> tuple[Path, str]:
+    """Resolve the directive, PREFERRING the immutable deployment-owned copy
+    co-located with the descriptor over the prune-exposed research corpus.
+
+    `strategy_pool/<ID>/directive.txt` is written at promotion time
+    (promote_basket.py) and lives in the deployment-owned pool -- the corpus prune
+    never touches it. `backtest_directives/completed/<id>.txt` is a research-corpus
+    artifact the prune MAY delete: it did on 2026-06-16, silently breaking every
+    live basket producer (the directive resolved to a missing file -> SystemExit).
+    The completed/ path is kept only as a fallback for baskets promoted before the
+    co-located copy existed. Returns (path, human-readable source label)."""
+    owned = descriptor_path.parent / "directive.txt"
+    if owned.exists():
+        return owned, "strategy_pool (deployment-owned, immutable)"
+    legacy = _DIRECTIVES_DIR / (directive_id + ".txt")
+    if legacy.exists():
+        return legacy, "completed (legacy corpus, prune-exposed)"
+    raise SystemExit(
+        f"directive not found for basket dir {descriptor_path.parent.name!r}: neither "
+        f"deployment-owned {owned} nor legacy {legacy} exists; restore from the vault capsule")
 
 
 def _timeframe_attr(parsed: dict) -> str:
@@ -134,10 +160,18 @@ def derive_basket_config(basket_id: str, *, run_id: str = DEFAULT_RUN_ID,
         raise SystemExit(f"no promoted descriptor for basket {basket_id!r}: {dpath}")
     desc = json.loads(dpath.read_text(encoding="utf-8"))
     directive_id = desc["directive_id"]
-    directive_path = _DIRECTIVES_DIR / (directive_id + ".txt")
-    if not directive_path.exists():
-        raise SystemExit(f"directive not found for {basket_id!r}: {directive_path}")
+    directive_path, directive_source = _resolve_directive_path(dpath, directive_id)
     parsed = parse_directive(directive_path)
+    # Consistency gate: the resolved directive must NAME the descriptor's
+    # directive_id. Guards a stale/mismatched co-located copy from silently driving
+    # the basket (the 2026-06-19 lesson: a restore source can exist yet not match
+    # the intended config).
+    resolved_strategy = parsed.get("test", {}).get("strategy")
+    if resolved_strategy != directive_id:
+        raise SystemExit(
+            f"directive consistency FAIL for {basket_id!r}: resolved directive "
+            f"test.strategy={resolved_strategy!r} != descriptor directive_id={directive_id!r} "
+            f"(source={directive_source}, path={directive_path})")
     legs = parsed["basket"]["legs"]
     if len(legs) != 2:
         raise SystemExit(f"basket {basket_id!r} has {len(legs)} legs; the V0 producer supports exactly 2")
@@ -158,6 +192,7 @@ def derive_basket_config(basket_id: str, *, run_id: str = DEFAULT_RUN_ID,
         run_id=run_id,
         fetch_n=fetch_n,
         coint_lookback_days=coint_lookback_days,
+        directive_source=directive_source,
     )
 
 
@@ -437,6 +472,7 @@ def main() -> int:
     cfg.signal_dir.mkdir(parents=True, exist_ok=True)
     print(f"  PRODUCER_START  basket={cfg.basket_id}  signal_dir={cfg.signal_dir}  "
           f"legs=({cfg.sym_a},{cfg.sym_b})  usd_refs={cfg.usd_ref_symbols}  tf={cfg.mt5_tf_attr}  "
+          f"directive_src=[{cfg.directive_source}]  "
           f"{_resolved_key_params(cfg.parsed)}", flush=True)
     runner = StreamingBasketRunner(cfg.signal_dir, cfg.basket_id, _make_replay_fn(cfg), n_legs=2)
     # Diagnostic ledger: seed dedup keys (survive restart) + open read-only screener DB.

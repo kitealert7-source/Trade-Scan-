@@ -109,3 +109,66 @@ def test_banner_reflects_real_promoted_directive_z_entry():
     # Whatever the directive resolves to today, the value (not a stale default)
     # is what the banner shows.
     assert "(UNSET!)" not in s
+
+
+# ---- Part B (2026-06-19): immutable deployment-owned directive read-path -------- #
+# Lesson: the 2026-06-16 corpus prune deleted backtest_directives/completed/<id>.txt
+# for all 5 live baskets, silently breaking their producers (directive -> missing
+# file -> SystemExit). The producer now reads the prune-immune strategy_pool copy
+# first; completed/ is a fallback only.
+
+def test_read_path_prefers_strategy_pool():
+    """A real promoted basket resolves its directive from the deployment-owned
+    strategy_pool home (not the prune-exposed completed/ corpus)."""
+    cfg = generic.derive_basket_config("CADJPYUSDCHF")
+    assert "strategy_pool" in cfg.directive_source
+    assert str(cfg.directive_path).replace("\\", "/").endswith(
+        "strategy_pool/CADJPYUSDCHF/directive.txt")
+
+
+def test_resolve_directive_prefers_owned_then_legacy_then_raises(tmp_path, monkeypatch):
+    """_resolve_directive_path: owned (strategy_pool) wins over legacy (completed);
+    legacy is the fallback; neither present is a loud SystemExit (never silent)."""
+    import pytest
+    monkeypatch.setattr(generic, "_DIRECTIVES_DIR", tmp_path / "completed")
+    (tmp_path / "completed").mkdir()
+    desc = tmp_path / "pool" / "descriptor.json"
+    desc.parent.mkdir()
+    desc.write_text("{}", encoding="utf-8")
+
+    # neither present -> raise (the 2026-06-16 failure must be loud)
+    with pytest.raises(SystemExit):
+        generic._resolve_directive_path(desc, "ID_X")
+
+    # legacy only -> legacy wins, labelled prune-exposed
+    (tmp_path / "completed" / "ID_X.txt").write_text("y", encoding="utf-8")
+    path, src = generic._resolve_directive_path(desc, "ID_X")
+    assert path == tmp_path / "completed" / "ID_X.txt"
+    assert "completed" in src
+
+    # owned present -> owned wins over legacy
+    (desc.parent / "directive.txt").write_text("z", encoding="utf-8")
+    path2, src2 = generic._resolve_directive_path(desc, "ID_X")
+    assert path2 == desc.parent / "directive.txt"
+    assert "strategy_pool" in src2
+
+
+def test_consistency_gate_rejects_mismatched_directive(tmp_path, monkeypatch):
+    """The read-path consistency gate: if the resolved directive's test.strategy
+    does not match the descriptor's directive_id, derive_basket_config fails fast
+    (a restore source can exist yet carry the wrong config -- the 2026-06-19 lesson)."""
+    import json as _json
+    import pytest
+    # point the producer's strategy_pool at a temp basket whose directive names a
+    # DIFFERENT strategy than the descriptor's directive_id.
+    pool = tmp_path / "strategy_pool" / "TESTBASKET"
+    pool.mkdir(parents=True)
+    (pool / "descriptor.json").write_text(_json.dumps({"directive_id": "WANTED_ID"}), encoding="utf-8")
+    (pool / "directive.txt").write_text(
+        "test:\n  name: OTHER_ID\n  strategy: OTHER_ID\n  timeframe: 15m\n"
+        "basket:\n  basket_id: TESTBASKET\n  legs:\n"
+        "  - {symbol: AAA, direction: long, lot: 0.01}\n"
+        "  - {symbol: BBB, direction: short, lot: 0.01}\n", encoding="utf-8")
+    monkeypatch.setattr(generic, "_TRADESCAN_STATE", tmp_path)
+    with pytest.raises(SystemExit, match="consistency FAIL"):
+        generic.derive_basket_config("TESTBASKET")

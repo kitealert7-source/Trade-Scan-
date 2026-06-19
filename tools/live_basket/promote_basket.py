@@ -253,6 +253,13 @@ def promote(directive_id, run_id=None, *, now=None, window_mode="current",
 
     pool_dir.mkdir(parents=True, exist_ok=True)
     (pool_dir / "descriptor.json").write_text(json.dumps(descriptor, indent=2), encoding="utf-8")
+    # Co-locate the directive with the descriptor as the IMMUTABLE deployment-owned
+    # spec. The live producer (basket_producer.derive_basket_config) reads THIS in
+    # preference to backtest_directives/completed/<id>.txt, so a corpus prune of the
+    # research directive can never again silently break a running basket -- the
+    # 2026-06-16 failure mode where the prune deleted all 5 live baskets' directives.
+    # Same byte source the vault snapshot uses (assemble_vault copies the same dpath).
+    shutil.copy2(dpath, pool_dir / "directive.txt")
     with open(pool_dir / "history.jsonl", history_mode, encoding="utf-8") as f:
         f.write(json.dumps(history) + "\n")
     assemble_vault(vault_dir, run_dir, dpath, legs, meta)

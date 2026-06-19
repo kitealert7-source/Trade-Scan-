@@ -77,6 +77,25 @@ def test_at_least_one_exemplar_reproducible():
         "no exemplar data present — golden test would be vacuous"
 
 
+@pytest.mark.parametrize("basket,directive_id,run_id,promoted_at,window", EXEMPLARS)
+def test_promote_colocates_immutable_directive(tmp_path, basket, directive_id, run_id, promoted_at, window):
+    """Part A (2026-06-19): promotion writes an immutable directive.txt BESIDE the
+    descriptor, so the live producer never again depends on the prune-exposed
+    backtest_directives/completed/<id>.txt (the 2026-06-16 failure deleted all 5
+    live baskets' directives there). Lock the co-location + that the co-located
+    directive NAMES the descriptor's directive_id (the producer read-path
+    consistency gate relies on this)."""
+    if not _available(basket, run_id):
+        pytest.skip(f"{basket}: run receipt or descriptor not present")
+    r = promote(directive_id, run_id, now=promoted_at, window_mode=window,
+                dry_run=True, out_dir=str(tmp_path))
+    colocated = Path(r["descriptor"]).parent / "directive.txt"
+    assert colocated.is_file(), "promotion must co-locate directive.txt beside descriptor.json"
+    from tools.pipeline_utils import parse_directive
+    assert parse_directive(colocated)["test"]["strategy"] == directive_id, \
+        "co-located directive must name the descriptor's directive_id"
+
+
 # ---------------------------------------------------------------------------
 # Regression: --refresh argument construction
 # ---------------------------------------------------------------------------
