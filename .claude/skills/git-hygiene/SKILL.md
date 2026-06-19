@@ -102,8 +102,11 @@ for name, path in REPOS:
     #    genuinely non-ignored: root files are the classic stray-file mess; nested
     #    dirs/files are accumulating output that likely wants gitignoring (2026-06-19:
     #    an 8.6MB outputs/cointegration_screener_v1/ sat untracked, invisible to the
-    #    old root-only filter). Summarised to respect the one-screenful cap.
-    untracked = git_lines(path, 'ls-files', '--others', '--exclude-standard', '--directory')
+    #    old root-only filter). --no-empty-directory drops empty untracked dirs (never
+    #    commit candidates -- git cannot track them; they were noise, e.g. an empty
+    #    backtest_directives/archive/v1_legacy_corpus/ leftover). Summarised to respect
+    #    the one-screenful cap. Net: a finding here means someone should actually look.
+    untracked = git_lines(path, 'ls-files', '--others', '--exclude-standard', '--directory', '--no-empty-directory')
     if untracked:
         root   = [f for f in untracked if '/' not in f.rstrip('/')]
         nested = [f for f in untracked if '/' in f.rstrip('/')]
@@ -191,3 +194,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-06-18 | Feature branch alone flagged as ACTION; only actionable when combined with unpushed work | branch+unpushed combined into single check; feature-branch-only demoted to CLEANUP |
 | 2026-06-18 | feat/cointegration-onboarding (70 commits) surfaced as CLEANUP alongside 1-commit stale branches — no commit count, no severity signal, no way to distinguish active merge candidate from abandoned stub | All unmerged local branches moved to WATCH; commit count and remote-exists flag added to every entry |
 | 2026-06-19 | Untracked check was root-level-only → missed an 8.6MB nested outputs/cointegration_screener_v1/ + a nested scratch harness (Infra-#1 cleanup found them via session-start §1.8, not this skill); also double-counted files in untracked dirs | Check 6 now reports root + nested non-ignored untracked (single --directory call, summarised + capped) |
+| 2026-06-19 | Nested-untracked surfacing then flagged an empty leftover dir (backtest_directives/archive/v1_legacy_corpus/) — not a commit candidate, pure noise | Added --no-empty-directory to Check 6; empty untracked dirs suppressed → a finding now means "someone should actually look" |
