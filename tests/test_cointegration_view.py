@@ -54,15 +54,17 @@ def test_column_budget_not_exceeded():
     assert list(out.columns) == COINTEGRATION_VIEW_COLUMNS
 
 
-def test_column_budget_locked_at_25():
+def test_column_budget_locked_at_24():
     # The cap is asserted explicitly so an accidental addition to
     # COINTEGRATION_VIEW_COLUMNS without a budget bump fails loudly.
     # Bumped 20 -> 21 (2026-06-04): added 'series' variant/sizing filter aid.
     # Bumped 21 -> 22 (2026-06-05): added 'realized_net%'.
     # Bumped 22 -> 24 (2026-06-10): added 'span_len' + 'n_spans' before 'cycles'.
     # Bumped 24 -> 25 (2026-06-15): restored 'spans' (fragment_count).
-    assert COINTEGRATION_VIEW_BUDGET == 25
-    assert len(COINTEGRATION_VIEW_COLUMNS) == 25
+    # Bumped 25 -> 24 (2026-06-20): removed 'all_profitable' (redundant badge;
+    #   superseded by AutoFilter on coint_friendly / n_spans / return_dd_ratio).
+    assert COINTEGRATION_VIEW_BUDGET == 24
+    assert len(COINTEGRATION_VIEW_COLUMNS) == 24
 
 
 def test_series_classification():
@@ -204,8 +206,7 @@ def test_pair_class_new_cols_positioned_after_lookback():
     cols = COINTEGRATION_VIEW_COLUMNS
     assert cols.index("pair_class") == cols.index("lookback") + 1
     assert cols.index("coint_friendly") == cols.index("pair_class") + 1
-    assert cols.index("all_profitable") == cols.index("coint_friendly") + 1
-    assert cols.index("series") == cols.index("all_profitable") + 1
+    assert cols.index("series") == cols.index("coint_friendly") + 1
     assert cols.index("run_date") == cols.index("series") + 1
 
 
@@ -299,64 +300,6 @@ def _runs(pair_a, pair_b, nets, test_start="2025-01-01", test_end="2025-03-01"):
              net_pct=net, test_start=test_start, test_end=test_end)
         for i, net in enumerate(nets)
     ]
-
-
-def test_all_profitable_Yes_when_every_run_positive():
-    out = build_cointegration_view_df(_raw(
-        _runs("EURUSD", "GBPUSD", [5.0, 3.0, 0.1, 12.0])
-    ))
-    assert set(out["all_profitable"].tolist()) == {"Yes"}
-
-
-def test_all_profitable_No_when_any_run_negative():
-    # One losing run among many winners drops the whole pair to No.
-    out = build_cointegration_view_df(_raw(
-        _runs("EURUSD", "GBPUSD", [5.0, 3.0, -0.4, 12.0])
-    ))
-    assert set(out["all_profitable"].tolist()) == {"No"}
-
-
-def test_all_profitable_No_when_any_run_break_even():
-    # Break-even (0.0) is not > 0, so it counts against the pair.
-    out = build_cointegration_view_df(_raw(
-        _runs("EURUSD", "GBPUSD", [5.0, 0.0, 3.0])
-    ))
-    assert set(out["all_profitable"].tolist()) == {"No"}
-
-
-def test_all_profitable_single_run_pair_gets_verdict_not_blank():
-    # The retired both_profitable left single-variant pairs blank; every pair
-    # now gets a Yes/No verdict.
-    yes = build_cointegration_view_df(_raw(_runs("EURUSD", "GBPUSD", [2.0])))
-    no = build_cointegration_view_df(_raw(_runs("AUDUSD", "NZDUSD", [-2.0])))
-    assert yes.iloc[0]["all_profitable"] == "Yes"
-    assert no.iloc[0]["all_profitable"] == "No"
-
-
-def test_all_profitable_spans_all_windows():
-    # One pair, two windows: window A all-positive, window B has a loser. The
-    # screen is across ALL windows, so every row of the pair is labelled No.
-    rows = (
-        _runs("EURUSD", "GBPUSD", [5.0, 3.0],
-              test_start="2025-01-01", test_end="2025-03-01") +
-        _runs("EURUSD", "GBPUSD", [4.0, -1.0],
-              test_start="2025-04-01", test_end="2025-06-01")
-    )
-    out = build_cointegration_view_df(_raw(rows))
-    assert set(out["all_profitable"].tolist()) == {"No"}
-
-
-def test_all_profitable_independent_per_pair():
-    # Two distinct pairs get independent verdicts; the merge must not collapse
-    # one pair's outcome onto the other.
-    rows = (
-        _runs("EURUSD", "GBPUSD", [5.0, 3.0]) +
-        _runs("AUDUSD", "NZDUSD", [5.0, -1.0])
-    )
-    out = build_cointegration_view_df(_raw(rows))
-    by_pair = out.groupby("pair")["all_profitable"].agg(set).to_dict()
-    assert by_pair["EURUSD / GBPUSD"] == {"Yes"}
-    assert by_pair["AUDUSD / NZDUSD"] == {"No"}
 
 
 def test_current_regime_from_screener_map():

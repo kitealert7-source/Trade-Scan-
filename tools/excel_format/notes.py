@@ -543,16 +543,8 @@ def _notes_write_cointegration_section(ws, _w, r, fonts):
          "post-onset 1-7 day windows from the v2 generation rule) carry low span "
          "at test_end and land as WEAK even when the underlying pair has had long "
          "stable cointegration arcs elsewhere. Do NOT dismiss WEAK wholesale — "
-         "condition on all_profitable=Yes to find robust short-window edges. "
+         "rank by return_dd_ratio to find robust short-window edges. "
          "Lifetime-peak alternative is a separate column candidate, not built."),
-        ("all_profitable",
-         "Per (pair_a, pair_b) pair across ALL its runs — every parameter "
-         "variant (P02/P03, lookbacks) AND every test window: Yes iff every "
-         "current row has canonical_net_pct > 0, else No. Every pair gets a "
-         "verdict (no blanks). Cross-run robustness filter: replaces the "
-         "retired 2-variant both_profitable, which ignored every run beyond "
-         "baseline+zcross (median 8 runs/pair today, up to 39). Plain English: "
-         "the pair never had a losing or break-even run."),
     ]
     for col_name, definition in filter_aids:
         _w(r, 1, col_name, normal); _w(r, 2, definition, normal); r += 1
@@ -565,7 +557,8 @@ def _notes_write_cointegration_section(ws, _w, r, fonts):
         ("1. Methodology",
          "methodology = v2_log_eg (drops legacy v1_raw_adf rows — different math)"),
         ("2. Robustness",
-         "all_profitable = Yes (keeps only pairs profitable across every run/window)"),
+         "n_spans >= 2 (recurred at least twice — excludes one-off episodes like "
+         "the BTCUSD/EUSTX50 single-span trap)"),
         ("3. Design target",
          "pair_class IN {FX, IDX} for the cointegration design target, "
          "OR Cross/Crypto/Metals for cross-class exploration"),

@@ -50,9 +50,10 @@ import pandas as pd
 # tell v1_raw_adf legacy rows apart from v2_log_eg / v2_log_adf post-correction
 # rows — the two are NOT comparable head-to-head (different EG vs raw-ADF
 # criticals, log vs raw spread). See COINTEGRATION_SCREEN_MATH_V2.md.
-# pair_class / coint_friendly added 2026-06-01; all_profitable added 2026-06-02
-# (replaced both_profitable — see module docstring): filter aids for cross-run
-# robustness screening of the cointegration corpus.
+# pair_class / coint_friendly added 2026-06-01. all_profitable REMOVED 2026-06-20
+# (redundant 'never lost' badge; superseded by AutoFilter on coint_friendly /
+# n_spans / return_dd_ratio per the Cointegration Research Universe funnel —
+# outputs/system_reports/06_strategy_research/COINTEGRATION_RESEARCH_UNIVERSE_REPORT_v1.md).
 COINTEGRATION_VIEW_COLUMNS = [
     "rank",
     "pair",
@@ -60,7 +61,6 @@ COINTEGRATION_VIEW_COLUMNS = [
     "lookback",
     "pair_class",        # filter aid: structural taxonomy
     "coint_friendly",    # filter aid: screener-span band
-    "all_profitable",    # filter aid: every run of the pair profitable
     "series",            # filter aid: variant/sizing tag (base, GP, GPN, ZCRS, SZVP, P03, ...)
     "run_date",
     "test_start",
@@ -90,7 +90,7 @@ COINTEGRATION_VIEW_COLUMNS = [
 ]
 
 # Hard cap on the human view (enforcement: the budget test asserts this).
-COINTEGRATION_VIEW_BUDGET = 25  # +spans/fragment_count (2026-06-15); +span_len, +n_spans (2026-06-10)
+COINTEGRATION_VIEW_BUDGET = 24  # -all_profitable (2026-06-20); +spans/fragment_count (2026-06-15); +span_len, +n_spans (2026-06-10)
 
 # DB column -> friendly display header.
 _RENAME = {
@@ -196,41 +196,6 @@ def _classify_series(directive_id) -> str:
     return tag.lstrip("_") if tag else "base"
 
 
-def _add_all_profitable(df: pd.DataFrame) -> pd.DataFrame:
-    """Per (pair_a, pair_b) pair across ALL its runs — every parameter variant
-    and every test window: "Yes" iff every current row has
-    canonical_net_pct > 0, else "No".
-
-    Replaces the retired `both_profitable`, which only compared the baseline
-    and zcross variants within a single window. With a median of 8 runs/pair
-    today — parameter variants (P02/P03, lookbacks) plus a growing set of
-    end-date windows — the 2-variant check ignored every run beyond those two.
-    `all_profitable` generalises to whatever N runs exist now or later: a pair
-    is "Yes" only if it never produced a losing or break-even run. Every pair
-    gets a verdict (no blanks). NaN and 0.0 net both count as not-profitable."""
-    needed = {"pair_a", "pair_b", "canonical_net_pct"}
-    if not needed.issubset(df.columns):
-        df["all_profitable"] = pd.NA
-        return df
-
-    net = pd.to_numeric(df["canonical_net_pct"], errors="coerce")
-    profitable = net > 0  # NaN and break-even (0.0) are not profitable
-
-    key_cols = ["pair_a", "pair_b"]
-    work = pd.DataFrame({
-        **{c: df[c] for c in key_cols},
-        "profitable": profitable,
-    })
-    agg = work.groupby(key_cols, dropna=False)["profitable"].all().reset_index()
-    agg["all_profitable"] = agg["profitable"].map({True: "Yes", False: "No"})
-
-    merged = df.merge(
-        agg[key_cols + ["all_profitable"]],
-        on=key_cols, how="left",
-    )
-    return merged
-
-
 def _add_n_spans(df: pd.DataFrame) -> pd.DataFrame:
     """Per-PAIR span COUNT within the (pair_a, pair_b, series) cohort.
 
@@ -304,7 +269,6 @@ def build_cointegration_view_df(
     if "directive_id" in df.columns:
         df["series"] = df["directive_id"].apply(_classify_series)
 
-    df = _add_all_profitable(df)
     df = _add_n_spans(df)
 
     df = df.rename(columns=_RENAME)
