@@ -545,6 +545,14 @@ def _notes_write_cointegration_section(ws, _w, r, fonts):
          "stable cointegration arcs elsewhere. Do NOT dismiss WEAK wholesale — "
          "rank by return_dd_ratio to find robust short-window edges. "
          "Lifetime-peak alternative is a separate column candidate, not built."),
+        ("universe",
+         "Cointegration Research Universe membership (per pair, across all arms). "
+         "'elite' = survives the eliminate-first funnel: coint_friendly in "
+         "{FRIENDLY,STRONG} AND n_spans >= 2 (recurred) AND >= 5 runs AND no "
+         "blowup span (max drawdown % < 100) AND median return_dd_ratio > 0. "
+         "Else 'all'. The MPS DEFAULTS this AutoFilter to 'elite' (~36 pairs); "
+         "pick (Select All) to see every pair. Dynamic -- regenerates each MPS "
+         "export as the corpus grows. Ref: COINTEGRATION_RESEARCH_UNIVERSE_REPORT_v1.md."),
     ]
     for col_name, definition in filter_aids:
         _w(r, 1, col_name, normal); _w(r, 2, definition, normal); r += 1
@@ -554,11 +562,12 @@ def _notes_write_cointegration_section(ws, _w, r, fonts):
     _w(r, 1, "Suggested filter sequence (Excel autofilter)", bold); r += 1
     _w(r, 1, "Step", bold); _w(r, 2, "Filter", bold); r += 1
     for step, desc in [
-        ("1. Methodology",
+        ("1. Universe",
+         "universe = elite (the sheet's DEFAULT) — the ~36-pair eliminate-first "
+         "research universe (friendly + recurred + reliable + no-blowup + edge); "
+         "pick (Select All) in the dropdown for 'all' pairs"),
+        ("2. Methodology",
          "methodology = v2_log_eg (drops legacy v1_raw_adf rows — different math)"),
-        ("2. Robustness",
-         "n_spans >= 2 (recurred at least twice — excludes one-off episodes like "
-         "the BTCUSD/EUSTX50 single-span trap)"),
         ("3. Design target",
          "pair_class IN {FX, IDX} for the cointegration design target, "
          "OR Cross/Crypto/Metals for cross-class exploration"),

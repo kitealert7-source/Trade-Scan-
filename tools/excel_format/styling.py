@@ -401,26 +401,29 @@ def _style_portfolio_sheet(ws, path, col_map, max_col, max_row):
             if _quar_col is not None:
                 print(f"    [FILTER] Hid {_hidden_quar} additional CORE/WATCH rows with quarantine_status set")
 
-        # Cointegration tab: pre-select Current Regime=cointegrated (operator
-        # request 2026-06-12) so the sheet opens showing only pairs the daily
-        # screener currently confirms in-regime. Clear the column-V filter in
-        # Excel to see breaking / broken / unscreened rows. Same mechanics as
+        # Cointegration tab: pre-select universe=elite (operator request
+        # 2026-06-20) so the sheet opens showing the Cointegration Research
+        # Universe -- the ~36 pairs surviving the eliminate-first funnel
+        # (COINTEGRATION_RESEARCH_UNIVERSE_REPORT_v1.md). Pick (Select All) in
+        # the `universe` dropdown to see every pair ('all'). Same mechanics as
         # the CORE/WATCH pre-filter: filter spec + explicit row hiding (openpyxl
         # writes filter metadata but Excel does not re-apply it on open).
-        if ws.title == "Cointegration" and "current regime" in _headers_lower:
+        # Supersedes the prior Current Regime=cointegrated default (2026-06-12);
+        # Current Regime stays a filterable column, just not the landing filter.
+        if ws.title == "Cointegration" and "universe" in _headers_lower:
             from openpyxl.worksheet.filters import FilterColumn, Filters
-            _cr_idx = _headers_lower.index("current regime")
-            _fc = FilterColumn(colId=_cr_idx)
-            _fc.filters = Filters(filter=["cointegrated"])
+            _u_idx = _headers_lower.index("universe")
+            _fc = FilterColumn(colId=_u_idx)
+            _fc.filters = Filters(filter=["elite"])
             ws.auto_filter.filterColumn.append(_fc)
-            _cr_col = _cr_idx + 1  # 1-based
-            _hidden_cr = 0
+            _u_col = _u_idx + 1  # 1-based
+            _hidden_u = 0
             for _r in range(2, max_row + 1):
-                _val = str(ws.cell(row=_r, column=_cr_col).value or "")
-                if _val != "cointegrated":
+                _val = str(ws.cell(row=_r, column=_u_col).value or "")
+                if _val != "elite":
                     ws.row_dimensions[_r].hidden = True
-                    _hidden_cr += 1
-            print(f"    [FILTER] Pre-selected Current Regime=cointegrated (hidden {_hidden_cr} rows)")
+                    _hidden_u += 1
+            print(f"    [FILTER] Pre-selected universe=elite (hidden {_hidden_u} non-elite rows)")
 
 
 def _style_strategy_sheet(ws, path, max_col, max_row):

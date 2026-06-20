@@ -54,17 +54,17 @@ def test_column_budget_not_exceeded():
     assert list(out.columns) == COINTEGRATION_VIEW_COLUMNS
 
 
-def test_column_budget_locked_at_24():
+def test_column_budget_locked_at_25():
     # The cap is asserted explicitly so an accidental addition to
     # COINTEGRATION_VIEW_COLUMNS without a budget bump fails loudly.
     # Bumped 20 -> 21 (2026-06-04): added 'series' variant/sizing filter aid.
     # Bumped 21 -> 22 (2026-06-05): added 'realized_net%'.
     # Bumped 22 -> 24 (2026-06-10): added 'span_len' + 'n_spans' before 'cycles'.
     # Bumped 24 -> 25 (2026-06-15): restored 'spans' (fragment_count).
-    # Bumped 25 -> 24 (2026-06-20): removed 'all_profitable' (redundant badge;
-    #   superseded by AutoFilter on coint_friendly / n_spans / return_dd_ratio).
-    assert COINTEGRATION_VIEW_BUDGET == 24
-    assert len(COINTEGRATION_VIEW_COLUMNS) == 24
+    # Bumped 25 -> 24 (2026-06-20): removed 'all_profitable' (redundant badge).
+    # Bumped 24 -> 25 (2026-06-20): added 'universe' (elite/all funnel membership).
+    assert COINTEGRATION_VIEW_BUDGET == 25
+    assert len(COINTEGRATION_VIEW_COLUMNS) == 25
 
 
 def test_series_classification():
@@ -206,8 +206,43 @@ def test_pair_class_new_cols_positioned_after_lookback():
     cols = COINTEGRATION_VIEW_COLUMNS
     assert cols.index("pair_class") == cols.index("lookback") + 1
     assert cols.index("coint_friendly") == cols.index("pair_class") + 1
-    assert cols.index("series") == cols.index("coint_friendly") + 1
+    assert cols.index("universe") == cols.index("coint_friendly") + 1
+    assert cols.index("series") == cols.index("universe") + 1
     assert cols.index("run_date") == cols.index("series") + 1
+
+
+def _univ_rows(pa, pb, ret_dds, span_obs=50):
+    # N rows for one pair (same 'base' series) so n_spans = runs = N.
+    return [
+        _row(f"{pa}{pb}{i}", rdd, f"2026-05-{21 + i}T00:00:00Z",
+             pair_a=pa, pair_b=pb, continuous_span_obs=span_obs)
+        for i, rdd in enumerate(ret_dds)
+    ]
+
+
+def test_universe_elite_when_funnel_passes():
+    # friendly (obs>=30) + n_spans=5 + runs=5 + median ret/dd>0 + no blowup -> elite
+    out = build_cointegration_view_df(_raw(
+        _univ_rows("AUDJPY", "CADJPY", [2.0, 1.5, 0.8, 2.2, 1.1])
+    ))
+    assert set(out["universe"]) == {"elite"}
+
+
+def test_universe_all_when_no_in_sample_edge():
+    # friendly + 5 runs + n_spans=5, but median ret/dd <= 0 -> excluded ('all')
+    out = build_cointegration_view_df(_raw(
+        _univ_rows("AUDUSD", "NZDUSD", [-1.0, -0.5, -2.0, 0.1, -0.3])
+    ))
+    assert set(out["universe"]) == {"all"}
+
+
+def test_universe_all_for_one_off_pair():
+    # The BTCUSD/EUSTX50 trap: a single high-ret/dd span (n_spans=1, runs=1) is
+    # NOT elite -- the recurrence gate excludes one-off episodes by design.
+    out = build_cointegration_view_df(_raw(
+        _univ_rows("BTCUSD", "EUSTX50", [5.0])
+    ))
+    assert set(out["universe"]) == {"all"}
 
 
 def test_span_cols_positioned_immediately_before_cycles():

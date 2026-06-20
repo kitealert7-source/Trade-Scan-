@@ -51,9 +51,10 @@ import pandas as pd
 # rows — the two are NOT comparable head-to-head (different EG vs raw-ADF
 # criticals, log vs raw spread). See COINTEGRATION_SCREEN_MATH_V2.md.
 # pair_class / coint_friendly added 2026-06-01. all_profitable REMOVED 2026-06-20
-# (redundant 'never lost' badge; superseded by AutoFilter on coint_friendly /
-# n_spans / return_dd_ratio per the Cointegration Research Universe funnel —
-# outputs/system_reports/06_strategy_research/COINTEGRATION_RESEARCH_UNIVERSE_REPORT_v1.md).
+# (redundant 'never lost' badge). `universe` (elite/all funnel membership) added
+# 2026-06-20 — the Cointegration Research Universe filter aid; the MPS Cointegration
+# tab defaults its AutoFilter to universe=elite. See
+# outputs/system_reports/06_strategy_research/COINTEGRATION_RESEARCH_UNIVERSE_REPORT_v1.md.
 COINTEGRATION_VIEW_COLUMNS = [
     "rank",
     "pair",
@@ -61,6 +62,7 @@ COINTEGRATION_VIEW_COLUMNS = [
     "lookback",
     "pair_class",        # filter aid: structural taxonomy
     "coint_friendly",    # filter aid: screener-span band
+    "universe",          # filter aid: elite (funnel survivor) / all; MPS default = elite
     "series",            # filter aid: variant/sizing tag (base, GP, GPN, ZCRS, SZVP, P03, ...)
     "run_date",
     "test_start",
@@ -90,7 +92,7 @@ COINTEGRATION_VIEW_COLUMNS = [
 ]
 
 # Hard cap on the human view (enforcement: the budget test asserts this).
-COINTEGRATION_VIEW_BUDGET = 24  # -all_profitable (2026-06-20); +spans/fragment_count (2026-06-15); +span_len, +n_spans (2026-06-10)
+COINTEGRATION_VIEW_BUDGET = 25  # +universe, -all_profitable (2026-06-20); +spans/fragment_count (2026-06-15); +span_len, +n_spans (2026-06-10)
 
 # DB column -> friendly display header.
 _RENAME = {
@@ -217,6 +219,48 @@ def _add_n_spans(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _add_universe(df: pd.DataFrame) -> pd.DataFrame:
+    """Cointegration Research Universe membership (per PAIR, across ALL arms).
+
+    'elite' iff the pair survives the eliminate-first funnel; else 'all':
+      - coint_friendly in {FRIENDLY, STRONG}  (not WEAK)
+      - n_spans >= 2                          (recurred -- excludes one-off episodes)
+      - >= 5 runs                             (reliable sample)
+      - max drawdown % < 100                  (no account-blowup span)
+      - median canonical_ret_dd > 0           (in-sample edge)
+
+    Stamped on every row of the pair (per-pair attribute) so the MPS AutoFilter
+    can default to universe=elite (the ~36-pair shortlist) and expand to 'all'
+    via (Select All) -- same pre-filter mechanism as Current Regime / CORE-WATCH.
+    Mirrors the funnel in COINTEGRATION_RESEARCH_UNIVERSE_REPORT_v1.md. Missing
+    key columns -> universe='all' (fail-open, never an error)."""
+    needed = {"pair_a", "pair_b", "coint_friendly", "n_spans",
+              "canonical_ret_dd", "canonical_max_dd_pct"}
+    if not needed.issubset(df.columns):
+        df["universe"] = "all"
+        return df
+
+    _lvl = {"WEAK": 0, "FRIENDLY": 1, "STRONG": 2}
+    work = pd.DataFrame({
+        "pair_a": df["pair_a"],
+        "pair_b": df["pair_b"],
+        "cf": df["coint_friendly"].map(_lvl).fillna(0),
+        "nsp": pd.to_numeric(df["n_spans"], errors="coerce"),
+        "rdd": pd.to_numeric(df["canonical_ret_dd"], errors="coerce"),
+        "mdd": pd.to_numeric(df["canonical_max_dd_pct"], errors="coerce"),
+    })
+    g = work.groupby(["pair_a", "pair_b"], dropna=False)
+    elite = (
+        (g["cf"].transform("max") >= 1)            # FRIENDLY or STRONG
+        & (g["nsp"].transform("max") >= 2)         # recurred
+        & (g["rdd"].transform("count") >= 5)       # reliable
+        & ~(g["mdd"].transform("max") >= 100)      # no blowup span
+        & (g["rdd"].transform("median") > 0)       # in-sample edge
+    )
+    df["universe"] = elite.map({True: "elite", False: "all"})
+    return df
+
+
 def build_cointegration_view_df(
     df_raw: pd.DataFrame,
     regime_map: dict | None = None,
@@ -270,6 +314,7 @@ def build_cointegration_view_df(
         df["series"] = df["directive_id"].apply(_classify_series)
 
     df = _add_n_spans(df)
+    df = _add_universe(df)
 
     df = df.rename(columns=_RENAME)
     df.insert(0, "rank", range(1, len(df) + 1))
