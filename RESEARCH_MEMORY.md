@@ -168,3 +168,19 @@ Evidence: 27 trades, 88.9% win, PF 4.99, SQN 3.39, mean R +0.18 (charged v1.5.10
 Conclusion: Evidence supports the existence of a positive mean-reversion edge, pending validation on the full 2016-2026 sample; the deployment FAIL is trade-count, not edge quality.
 Implication: Stage-2 = full 2016-2026 history (sample size + COVID + 2022 bear + EMA-gate stress); do NOT optimize parameters yet. OctaFX swap-free so no financing overlay needed.
 ---
+
+---
+2026-06-20 | Tags: mean-reversion, equity-index, rsi-power-zone, regime-conditionality | Strategy: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00 | Run IDs: 51d49c9b2d927e4029a17662, aa2a6d553fda6c87af0f075d
+Finding: Stage-2 full 2017-2026 history confirms the SPX500 RSI(4) mean-reversion edge (EMA200-gated, long-only) is durable but regime-conditional; supersedes the sample-limited Stage-1, verdict FAIL->WATCH.
+Evidence: Net +180, PF 1.74, 73.3% win, SQN 2.31 (WATCH), 86 trades. EMA(200) gate contained COVID (2020 -11); weakest in 2022 bear (-34, 25% win); full-cycle mean R +0.057 vs bull-window +0.18.
+Conclusion: Edge survives a decade incl. two crashes net-positive and the EMA gate works in fast crashes, but it is bull-biased -- money is made in bull/recovery years and partly given back in down/choppy years (esp. sustained bears).
+Implication: Deploy-eligible as a bull-biased equity-index portfolio complement, NOT a CORE standalone. Next P01 targets the largest weak cell (down-year dip-buys, esp. 2022 bear) via an EMA(200)-rising/slope gate, not parameter tuning.
+---
+
+---
+2026-06-20 | Tags: mean-reversion, equity-index, generalization, rsi-power-zone | Strategy: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00 | Run IDs: 51d49c9b2d927e4029a17662, 7196ef4df3b5e9a125e4af27, 32fb644813e30ecc21a089a6, 1ffd340d97951a7d032d635f, 9d4367b73ef8ac35bd8c1235, f50d2446623582a13dced753, db83ffa33af1999c849f7495, d804eab41230d4a7a68683cd, f3dfe4a9ac0120d8ccb85f60, b1bfe8178bb7bf7c5a145a48
+Finding: The SPX500 RSI Power Zone mean-reversion edge generalizes BROADLY but UNEVENLY across 10 equity-index CFDs (1d) -- net-positive on 9/10 but strong on only 2; instrument-specific, not a generic 'equity index' edge. Run separately per instrument (not a portfolio).
+Evidence: PF across 10 indices: SPX500 1.74 / NAS100 1.72 (strong) > AUS200 1.49 / EUSTX50 1.48 / GER40 1.40 / UK100 1.30 / JPN225 1.25 (moderate) > ESP35 1.15 / US30 1.04 / FRA40 0.87 (NEGATIVE). Win 63-77% all; density ~7-10 trades/yr on EVERY index.
+Conclusion: Short-term mean-reversion is a broad equity-index property but strength tracks index CHARACTER (broad-cap/tech deepest); FRA40 is a genuine non-generaliser (PF<1). Density is structural to the strategy (~8/yr for daily RSI(4)<30), NOT the instrument -- no index choice clears the 50/yr gate.
+Implication: Core complements SPX500 + NAS100; secondary AUS200/EUSTX50/UK100/JPN225; drop ESP35/US30/FRA40. The ONLY density-clearing path is multi-instrument aggregation (separate runs SELECT instruments; a pooled deployment CLEARS density) -- a single daily index can never pass the 50/yr gate.
+---

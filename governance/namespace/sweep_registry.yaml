@@ -3521,7 +3521,14 @@ ideas:
         signature_hash: d914e72fb4ef3df7
         signature_hash_full: d914e72fb4ef3df7858b64b47337b7dfbbf149cb2f3c71a423ff8032704bae51
         reserved_at_utc: '2026-06-20T12:11:44.000000+00:00'
-        patches: {}
+        patches:
+          P00:
+            directive_name: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00__E001
+            reserved_at_utc: '2026-06-20T12:39:17.362862+00:00'
+            directive_hash: d914e72fb4ef3df7
+            signature_hash: d914e72fb4ef3df7
+            directive_hash_full: d914e72fb4ef3df7858b64b47337b7dfbbf149cb2f3c71a423ff8032704bae51
+            signature_hash_full: d914e72fb4ef3df7858b64b47337b7dfbbf149cb2f3c71a423ff8032704bae51
         attempt: 2
         directive_hash: d914e72fb4ef3df7
         directive_hash_full: d914e72fb4ef3df7858b64b47337b7dfbbf149cb2f3c71a423ff8032704bae51
