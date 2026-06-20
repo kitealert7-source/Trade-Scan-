@@ -532,3 +532,11 @@ ideas:
     role: entry_edge
     instruments: FX
     status: active
+  '69':
+    family: MR
+    title: "SPX500 / equity-index RSI Power Zone mean-reversion -- Connors RSI(4)<30 oversold entry gated by close>EMA(200), exit RSI(4)>55 or 10-bar time, long-only. Stage-1 probe of equity-index daily short-term mean-reversion as a portfolio complement to FX cointegration. Source: vault spx500-rsi-mean-reversion-cfd. EMA(200) substitutes Connors SMA(200) (operator-approved proxy 2026-06-20). Existing indicators only (rsi, ema_cross, atr); infra-freeze respected."
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    instruments: IDX
+    status: active

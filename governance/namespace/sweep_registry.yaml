@@ -3513,3 +3513,15 @@ ideas:
         signature_hash_full: '0000000000000000000000000000000000000000000000000000000000000000'
         reserved_at_utc: '2026-05-20T13:50:51.903946+00:00'
         patches: {}
+  '69':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00
+        signature_hash: d914e72fb4ef3df7
+        signature_hash_full: d914e72fb4ef3df7858b64b47337b7dfbbf149cb2f3c71a423ff8032704bae51
+        reserved_at_utc: '2026-06-20T12:11:44.000000+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: d914e72fb4ef3df7
+        directive_hash_full: d914e72fb4ef3df7858b64b47337b7dfbbf149cb2f3c71a423ff8032704bae51

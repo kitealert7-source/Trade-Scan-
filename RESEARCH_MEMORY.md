@@ -160,3 +160,11 @@ Evidence: Regime realized PnL (USD): cointegrated +235, breaking +196, broken -3
 Conclusion: Edge is confined to cointegrated/breaking regimes; unconditioned exposure to broken periods dominates and is net-destructive.
 Implication: Cointegration-span conditioning is a required component of the strategy definition rather than an optional optimization.
 ---
+
+---
+2026-06-20 | Tags: mean-reversion, equity-index, rsi-power-zone, stage1-probe | Strategy: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00 | Run IDs: aa2a6d553fda6c87af0f075d
+Finding: SPX500 daily RSI(4)<30 mean-reversion (EMA200-gated, long-only) shows a strong short-term mean-reversion signal -- Stage-1 probe of vault spx500-rsi-mean-reversion-cfd (Connors RSI Power Zone), EMA(200) proxy for SMA(200).
+Evidence: 27 trades, 88.9% win, PF 4.99, SQN 3.39, mean R +0.18 (charged v1.5.10, OctaFX swap-free, 2024-26). Verdict FAIL = trades 27<50 (administrative), not edge.
+Conclusion: Evidence supports the existence of a positive mean-reversion edge, pending validation on the full 2016-2026 sample; the deployment FAIL is trade-count, not edge quality.
+Implication: Stage-2 = full 2016-2026 history (sample size + COVID + 2022 bear + EMA-gate stress); do NOT optimize parameters yet. OctaFX swap-free so no financing overlay needed.
+---
