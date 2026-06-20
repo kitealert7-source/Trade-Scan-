@@ -152,3 +152,11 @@ Evidence: 3 arms x 497-pair cohort, uncharged engine_abi.v1_5_9 (within-batch de
 Conclusion: Generic k=2.0 REJECTED (fails pre-registered acceptance: blowups 30 > baseline 20; ~1.94x over-trade -- looser ~2.0 average fires into the breakdowns it was meant to avoid = trade-count-inflation failure). Level-matched k=2.5 CONDITIONAL ACCEPT (blowups 20->17, +0.064 Ret/DD uplift, no DD penalty) -- confirms the adaptive-band concept but only with the average level held fixed.
 Implication: For cointegration-basket entry timing, an adaptive band is worth pursuing only level-matched (k tuned to the old fixed threshold), never generic k=2.0. Carry-forward = Exp2 calibration (normalized thr = 2.5*sigma_M(z)/mean(sigma_M(z)) or tuned k/M), OPEN/optional. Verdict is blowup-REDUCTION not net-of-cost profitability (uncharged engine; charged v1.5.10 edge is inside the spread); nothing promoted (patch additive/default-off).
 ---
+
+---
+2026-06-20 | Tags: cointegration, regime-conditionality, basket, ratio-reversion | Strategy: 90_PORT_BTCUSDEUSTX50_15M_ZREV_L30_GP_ZCRS_FXD25 | Run IDs: 6e3d51f4fea07b7cbe2061ae, 8208d26caa396595aafcdb19
+Finding: FXD25 BTCUSD/EUSTX50 ratio-reversion is strongly regime-conditional. The strategy is profitable during cointegrated/breaking periods but catastrophically unprofitable during broken periods.
+Evidence: Regime realized PnL (USD): cointegrated +235, breaking +196, broken -3892.
+Conclusion: Edge is confined to cointegrated/breaking regimes; unconditioned exposure to broken periods dominates and is net-destructive.
+Implication: Cointegration-span conditioning is a required component of the strategy definition rather than an optional optimization.
+---

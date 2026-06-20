@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: BROKEN
+- BROKEN: 1 commits not pushed to origin
 
-> Generated: 2026-06-19T17:16:45Z
+> Generated: 2026-06-20T09:32:16Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -13,7 +14,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 1 directives
+- Completed: 2 directives
 
 ## Ledgers
 
@@ -23,7 +24,7 @@
   - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
   - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
 
-- **Candidates (FPS):** 379 rows — CORE: 15, FAIL: 240, RESERVE: 26, WATCH: 98
+- **Candidates (FPS):** 380 rows — CORE: 15, FAIL: 241, RESERVE: 26, WATCH: 98
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -33,22 +34,23 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-19** | Symbols: 221
+- Latest bar: **2026-06-20** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3317
+- Run directories: 3318
 
 ## Git Sync
-- Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `40775856 docs(freeze-charter): refine scope + log engine-stamp drift for post-freeze`
+- Remote: **1 commits ahead of origin/main** (vs `origin/main`)
+- Working tree: 3 uncommitted
+- Last substantive commit: `82c99b3e feat(mps-cointegration): drop redundant all_profitable column from Cointegration tab`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 32 KB / 154 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [SIZE] RESEARCH_MEMORY.md 33 KB / 162 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [CALENDAR] Saturday — weekly cadence slot for `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 (run before close to land in the closing snapshot)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
