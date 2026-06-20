@@ -1,9 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 1 commits not pushed to origin
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-20T09:32:16Z
+> Generated: 2026-06-20T14:09:02Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -14,17 +14,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 2 directives
+- Completed: 13 directives
 
 ## Ledgers
 
-- **Master Filter:** 1257 rows
+- **Master Filter:** 1268 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
   - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
 
-- **Candidates (FPS):** 380 rows — CORE: 15, FAIL: 241, RESERVE: 26, WATCH: 98
+- **Candidates (FPS):** 386 rows — CORE: 15, FAIL: 245, RESERVE: 26, WATCH: 100
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -37,19 +37,19 @@
 - Latest bar: **2026-06-20** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3318
+- Run directories: 3334
 
 ## Git Sync
-- Remote: **1 commits ahead of origin/main** (vs `origin/main`)
-- Working tree: 3 uncommitted
-- Last substantive commit: `82c99b3e feat(mps-cointegration): drop redundant all_profitable column from Cointegration tab`
+- Remote: IN SYNC (vs `origin/main`)
+- Working tree: 1 uncommitted
+- Last substantive commit: `3bcdf705 docs(research): SPX500 RSI MR â€” Stage-2 regime-survival + 10-index breadth`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] RESEARCH_MEMORY.md 33 KB / 162 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
+- [SIZE] RESEARCH_MEMORY.md 36 KB / 186 lines (approaching 40 KB / 600 line cap) — compaction available via `python tools/compact_research_memory.py`
 - [CALENDAR] Saturday — weekly cadence slot for `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 (run before close to land in the closing snapshot)
 
 ### Manual (operator-deferred items)
@@ -63,6 +63,7 @@
 - [DECISION 2026-06-07] Weekend scheduler (`TS_Friday_Shutdown` Windows task → `tools/orchestration/stop_execution.py`) audited → LIFECYCLE-REVIEW bucket with burn-in/shadow: DISABLED, delegate `TS_Execution/tools/stop_execution.py` MISSING, hardwired to old `src/main.py --phase 2` daemon (stood down), basket shim imports none of it. Shim's own weekend handling (heartbeat-stale skip-open + fill-verify ABORTED_FLAT + reconcile NOOP) makes it redundant. RESIDUAL GAP (design decision before go-live): no proactive weekend-flatten — a basket IN at Fri 22:00 is held across the 48h gap, and reactive close needs a live tick, so weekend-flat must come from the PRODUCER emitting FLAT before close (producer-policy choice).
 - [NOTE-FOR-FUTURE / post-freeze] Engine header stamp drift — the basic/current engine still stamps an old `1.5.8` version in a header in some place(s), while canonical COMPUTE is `v1.5.10` (charged, FROZEN 2026-06-17). STAMP/label mismatch, NOT a compute defect (per [[engine-identity-is-compute-not-stamp]]: the imported module defines the result; the stamp can mislabel). Operator decision 2026-06-19: do NOT rectify during the freeze — note only. Post-freeze: locate the exact stale stamp + correct to 1.5.10. Verification scope, if any: **1.5.10 only** (do NOT touch the legitimate archived `engine_dev/.../v1_5_8` frozen-engine dir, which correctly contains 1.5.8).
 - [BACKLOG] Smaller deferred items (Z-cross Phase-3, market_regime NaN, BASKET_REPORT polish, basket provenance, CLAUDE.md doc) → [`outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md`](outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md)
+- [DRIFT] retire backlog (~330 superseded runs un-retired, incl. this session's Stage-1 SPX500 RSI run aa2a6d → superseded by Stage-2 51d49c9b). Retire tooling (rerun-backtest Phase C) is still PENDING → un-actionable until built; defer, not a fire. First seen 2026-06-20.
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
@@ -78,6 +79,7 @@
 **Freeze watch-items (non-fatal; monitor, do not fix mid-freeze):** MEMORY.md 173/200 lines + RESEARCH_MEMORY.md ~32.6 KB/40 KB — if a research-heavy week nears a cap, archive/consolidate is the fix *after* the freeze (or the one allowed lightweight exception). Live 5-basket fleet runs through the freeze (operational, not infra) — leave it unless criterion (4) trips.
 **Sessions on this charter:**
 - 2026-06-19 — set up pre-freeze: NAS-backup DR repaired (persistent credential — was a reboot-dropped session credential) + hardened (`/XD data_root`, `/XF` SQLite sidecars, `TS_Obsidian_Vault` added) + version-controlled at `infra/`; pipeline-state cleanup done; preflight `REF_INTEGRITY` tripwire + git-hygiene fixes landed. Freeze begins 2026-06-20.
+- 2026-06-20 — research session; 2 operator-approved freeze overrides (MPS: drop redundant `all_profitable` column + add SQL-backed `universe` elite/all column with elite-default AutoFilter; build idea-69 SPX500 RSI-MR strategy). Research: cointegration BTCUSDEUSTX50 episode-vs-strategy study (full-window run = regime-conditional, not a portable edge) + Cointegration Research Universe report/funnel (265→36); new SPX500 RSI Power Zone MR arc (idea 69) Stage-1/2 + 10-index breadth — edge real (SPX500/NAS100 PF ~1.7) but ~8 trades/yr, too sparse to deploy standalone. Freeze otherwise held.
 
 #### Engine no-liquidation fidelity limitation — ACCEPTED-WITH-MITIGATION (disclosed 2026-06-16)
 The frozen execution engine (v1.5.8 / v1.5.9 / v1.5.10) models NO margin-call/liquidation. Under leveraged sizing — `granular_parity` (the cointegration baseline default since 2026-06-04) and `vol_parity` — a basket can run to NEGATIVE equity intra-run instead of liquidating at the stake, so modeled net%/maxDD% can exceed 100% or show a fictitious recovery. **Scope: backtest-FIDELITY only** — live trades at fixed 0.01 lot are broker-margined; notional sizing is mathematically bounded (floor is a no-op there). **Mitigation (now LIVE):** analysis-layer floor `tools/leverage_liquidation_adjust.py` (net→-100 / maxDD→100 / ret_dd→-1 when maxDD>100%, i.e. trough equity < 0), wired into `tools/cointegration_aggregator.py` (default-on; 8 of 2,377 current corpus rows floored). NOT fixed in the frozen engine by design (run-halting would stall corpus generation — operator decision 2026-06-04). Also disclosed on `engine_dev/universal_research_engine/v1_5_10/engine_manifest.json` (`known_limitations`). Ref: `outputs/system_reports/06_strategy_research/SZVP_LEVERAGE_FORENSIC.md`, `[[project-v1_5_10-canonical-readiness]]` R7/R8.
