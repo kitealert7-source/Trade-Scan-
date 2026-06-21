@@ -40,11 +40,12 @@ ROOT         = Path(__file__).resolve().parent.parent
 RM           = ROOT / "RESEARCH_MEMORY.md"
 ARC          = ROOT / "RESEARCH_MEMORY_ARCHIVE.md"
 
-ARCHIVE_BEFORE   = "2026-06-01"   # strict less-than; entries before this date → archive
-                                  # (advanced 2026-05-25 → 2026-06-01 on 2026-06-12,
-                                  # operator-approved: active file breached the 40 KB cap
-                                  # during the entry-filter arc; pre-June settled arcs are
-                                  # archived verbatim + indexed in auto-memory topic files)
+ARCHIVE_BEFORE   = "2026-06-16"   # strict less-than; entries before this date → archive
+                                  # (advanced 2026-05-25 → 2026-06-01 on 2026-06-12, then
+                                  # 2026-06-01 → 2026-06-16 on 2026-06-21, both operator-approved:
+                                  # active file approached the 40 KB cap (36.3 KB) before a new
+                                  # backtest arc; settled cointegration sizing/exit/entry-filter
+                                  # arcs (06-02→06-15) archived verbatim + indexed in topic files)
 SIZE_LIMIT_LINES = 600
 SIZE_LIMIT_KB    = 40
 
