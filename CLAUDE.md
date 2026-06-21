@@ -46,6 +46,8 @@ Backtests run under close human supervision. The four flexible scopes (F02 explo
 
 **F19 re-test guard (before authoring any new directive):** scan `RESEARCH_MEMORY.md` for prior `NO_TRADES` entries with matching strategy + symbol + TF + filter config. If match found → either document a material parameter delta in the new directive's rationale, or do not submit.
 
+**Source-Grounding Gate (before forming any hypothesis from external/reference evidence):** trace every load-bearing claim — numbers and tables first — to the **most-primary source, read this session** (the paper/PDF itself, not a summary, conversion, vault narration, blog, or memory). A claim available only via a lossy/derived intermediary is **PROVISIONAL** and may not support the hypothesis until verified at the source; if the Read tool can't open the PDF (no Poppler), extract directly with `PyMuPDF`/`page.find_tables()` (conversions silently drop tables). Premise verification, **not** a worth-gate — it never declines on merit, only refuses an unverified premise. Cheap (minutes) vs a backtest on a misread premise (pipeline time + a pipeline-authoritative wrong conclusion). Can't verify a load-bearing claim → don't form the hypothesis on it. Upstream of the F19 guard.
+
 Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TABLE.md` "Research Override Layer".
 
 ---

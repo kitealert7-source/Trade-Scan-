@@ -48,3 +48,19 @@ Evidence: Source vault sources/octafx-swap-free-cost-model.md (Financial IT 2022
 Conclusion: RESOLVES all prior overnight-financing-is-the-open-gate / hypothesis-killer conclusions for the equity-index mean-reversion family and the cointegration line: financing was never charged because it does not exist on OctaFX, the gate was always spread. spx500-rsi E001 cost side now CLOSED (only the sample-density / SQN deployment gate remains). Multi-day-hold strategies (Double 7, cointegration baskets) pay no carry, a structural advantage not a drag.
 Implication: Do NOT add a swap / carry / financing term to any OctaFX backtest, cost model, or P&L path (scope: all instruments, any holding duration); cost = spread (+ slippage) only. The no-financing omission is correct by design, documented as OVERNIGHT_FINANCING = 0 in engines/execution_fill.py and locked by INVAR-003 (INVARIANT_PROPOSALS.md).
 ---
+
+---
+2026-06-21 | Tags: internal-bar-strength, threshold-shape-probe, equity-index, edge-concentration | Strategy: 70_MR_IDX_1D_IBS_S01_V1_P00 | Run IDs: 3344c46617c134ef5a513a7d, fb181760863ae5800f33558d, 328eb0cfcf4c1f4e37a3f38b
+Finding: SPX500 IBS edge is sharpest at IBS<0.20 and dilutes as the entry threshold widens (shape-probe 0.20/0.25/0.30, not optimization).
+Evidence: P00/P01/P02: PF 1.45/1.39/1.29, SQN 2.33/2.22/1.83, maxDD 5.87/8.54/8.29%, flat 811/952/952d, top5 41/42/48% net, trades 323/360/410.
+Conclusion: Within (0.20,0.25,0.30) IBS<0.20 dominates; further loosening not justified -- marginal 0.20-0.30 trades are a lower-quality population (Pagonidis non-linearity) and widening kills the normal-vol regime (+42->-5).
+Implication: Keep IBS<0.20 (champion); threshold-shape arc CLOSED. More density -> multi-instrument pooling, not a looser threshold.
+---
+
+---
+2026-06-21 | Tags: signal-union, internal-bar-strength, rsi-pullback, equity-index, composite-additive, watch | Strategy: 71_MR_IDX_1D_UNION_S01_V1_P00 | Run IDs: 894fa6ff5b96261059b2acfc
+Finding: RSI-IBS union (RSI OR IBS) on SPX500 improves quality AND distribution vs either component alone -- signal diversification, not threshold loosening.
+Evidence: 314 trades (~33/yr), PF 1.62, SQN 2.93, net +$405, top-5 conc 29.6% (vs IBS 41%), flat ~769d, positive in all vol+trend regimes; IBS-only=volume, RSI-involved=higher per-trade (~$2.7-3.1), both=strongest.
+Conclusion: Signal diversification succeeds where threshold-loosening (idea-70 P01/P02) failed; composite edge is additive and less tail-dependent than either standalone.
+Implication: CONFIRMED WATCH (governed run 894fa6ff, Stages 1-4 + promotion; net $405 <$1000 caps at WATCH, else CORE-grade: SQN 2.92, ret/DD 4.45, maxDD 9.11%). Earlier governed NO_TRADES was a stuck deterministic run_id + first-exec guard (cleared crash debris), NOT a worker bug; anti-masking fix landed regardless. Multi-index expansion now unblocked (operator call).
+---

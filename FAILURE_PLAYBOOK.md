@@ -772,6 +772,20 @@ Stage-4 detected that `Master_Portfolio_Sheet.xlsx` already contains a historica
 
 ## OPERATIONAL NOTES (Session Discoveries)
 
+### Governed rerun blocked by EXPERIMENT_DISCIPLINE "first ran" — same-day crashed base — 2026-06-21
+
+**Discovery:** A bug-fix rerun (`/rerun-backtest`) of a strategy that CRASHED earlier the SAME day is blocked at preflight with `EXPERIMENT_DISCIPLINE: strategy.py was modified after directive first ran (<ts>)`. `_get_directive_first_execution_timestamp` (`governance/preflight.py:534`) counts the crashed run's `run_registry.json` entry as "first execution," and the bug-fix (plus the rerun's `signal_version` re-hash) bumped strategy.py mtime after it. The skill's **2-pass recovery (touch approved) does NOT fix this** — that addresses the approval-marker check, not the preflight first-exec check.
+
+**Symptom:** `DECISION: AWAITING_HUMAN_APPROVAL ... EXPERIMENT_DISCIPLINE: strategy.py was modified after directive first ran`. The worker never runs; `run_skill` executes 0 times; the verdict is blocked. (Distinct from the stuck-deterministic-run_id skip, where `claim_next_planned_run` returns None and the worker prints "Stage-1 execution complete" having claimed 0 runs.)
+
+**Recovery (operator-approved — a crash is not a valid first experiment):** clear the strategy's CRASHED run history so first-exec resets to None — back up `TradeScan_State/registry/run_registry.json`, delete the strategy's `state=failed` entries, and `rm -rf` its `RUNS_DIR/<run_id>` + name dirs. Verify `_get_directive_first_execution_timestamp(<base>)` returns `None` (then the guard is skipped entirely — `preflight.py:536`), then re-run. Do NOT mtime-hack strategy.py or spin a spurious V2.
+
+**Root cause (open):** the first-exec helper does not exclude failed/crashed runs → SYSTEM_STATE HIGH-ROI proposal (exclude `state=failed` from the baseline; Protected-Infra, plan+approval).
+
+**Classification:** AWAITING_HUMAN_APPROVAL (EXPERIMENT_DISCIPLINE) — false-positive on a same-day-crashed base.
+
+---
+
 ### 5M Data Path — 2026-04-20
 
 **Discovery:** XAUUSD 5M RESEARCH data exists at the correct path but was missed by

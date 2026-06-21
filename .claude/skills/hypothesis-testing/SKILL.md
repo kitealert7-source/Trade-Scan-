@@ -63,6 +63,22 @@ Stages 1, 4, 5 are spelled out below; 2 and 3 are owned by the linked skills.
 
 ---
 
+## 0.5 · Source-Grounding Gate (premise verification — NOT a worth-gate)
+
+Before classifying a hypothesis built on **external or reference evidence** (papers, vault
+concepts/narration, prior summaries, blogs, memory): trace every **load-bearing claim** —
+numbers and tables first — to the **most-primary source, read this session**. A claim available
+only through a lossy intermediary (PDF→markdown, vault source-page, Substack, recalled fact) is
+**PROVISIONAL** and cannot carry the hypothesis until checked at the source; if the Read tool
+can't open the PDF (no Poppler), extract directly (`PyMuPDF` / `page.find_tables()` — conversions
+silently drop tables). This is **not** a worth-gate or pre-rejection (cf. §0): it never declines a
+hypothesis on merit/likelihood/redundancy — it only refuses to build one on an *unverified
+premise*. Minutes of source-reading vs a backtest on a misread fact. Mirrors CLAUDE.md
+"Source-Grounding Gate"; pairs with Invariant #10 (literature justifies a directive, only a run
+concludes). → [[feedback_source_grounding_gate]]
+
+---
+
 ## 1 · Classify
 
 ### 1.0 Rerun divert — check before the table

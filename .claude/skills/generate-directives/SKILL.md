@@ -56,6 +56,13 @@ hypothesis
    variant; when transforming a reference whose window predates this convention, re-baseline both
    to it so the comparison stays matched. *(Doc convention; tool auto-set / generator `--since`
    are pending — see [`/rerun-backtest`](../rerun-backtest/SKILL.md) "Backtest date window".)*
+7. **Source-grounded premises (before authoring).** If the directive's rationale rests on
+   external/reference evidence (papers, vault concepts, prior summaries, memory), every
+   load-bearing claim must already be source-verified per the **Source-Grounding Gate**
+   (CLAUDE.md / [`/hypothesis-testing`](../hypothesis-testing/SKILL.md) §0.5) — traced to the
+   most-primary source, not a conversion or summary. An intermediary-only or recalled figure is
+   PROVISIONAL and may not justify a directive until checked at the primary source. Premise
+   verification, not a worth-gate. → [[feedback_source_grounding_gate]]
 
 ## The decision (the centerpiece)
 
