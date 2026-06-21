@@ -23,6 +23,26 @@ from __future__ import annotations
 import pandas as pd
 
 
+# --- OctaFx cost model: NO overnight financing (swap-free broker). ---
+# OctaFx/Octa charges no overnight swap/financing on any account or instrument
+# (FX, indices, metals, crypto, stocks), with no holding-time limit and no admin
+# fee (Sharia-compliant default, all countries, since 2022-06). The complete
+# OctaFx backtest cost model is therefore the embedded direction-aware spread
+# applied by the fills below (+ slippage, currently unmodelled); the financing
+# term is structurally zero.
+#
+# This constant documents that omission as INTENTIONAL, not a TODO: the fills
+# below deliberately charge spread only. Do NOT add a swap / carry / financing
+# term to any OctaFx fill or P&L path without a documented broker-policy change.
+# The assertion is doc-only -- the helpers below do not read it -- so it changes
+# no behaviour; it exists so a future "improvement" cannot silently re-add a swap.
+#
+# Source: vault sources/octafx-swap-free-cost-model.md (owner-confirmed
+# 2026-06-21). Scope: all instruments, any holding duration. Locked by INVAR-003
+# (INVARIANT_PROPOSALS.md); doctrine: RESEARCH_MEMORY.md 2026-06-21 decision.
+OVERNIGHT_FINANCING = 0  # OctaFx swap-free; financing never charged (INVAR-003)
+
+
 def bar_spread(row) -> float:
     """Per-bar embedded spread (PRICE units) from the RESEARCH `spread` column.
     Returns 0.0 when absent / NaN / <= 0 — so the fills are a no-op on spread=0

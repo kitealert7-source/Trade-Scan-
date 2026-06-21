@@ -64,3 +64,39 @@ gap remains.
 
 **See also:** `[[immutable-deployment-descriptors]]`, `[[corpus-prune-2026-06-16]]`,
 FAILURE_PLAYBOOK "Live Basket Directive Loss / Config Drift".
+
+---
+
+## INVAR-003 — OctaFX cost model is spread-only (financing = 0)
+
+**Proposed:** 2026-06-21  
+**Status:** IMPLEMENTED  
+**Enforcement:** documented constant `OVERNIGHT_FINANCING = 0` in
+`engines/execution_fill.py` (the shared direction-aware fill helper imported by
+`basket_runner` + the recycle rules) + the `RESEARCH_MEMORY.md` 2026-06-21
+"OctaFX is swap-free" decision (read at session start). Soft lock (documentation
++ session-start doctrine), not a runtime gate — no swap term exists to assert
+against today.
+
+OctaFX/Octa is swap-free — it charges NO overnight swap/financing on any account
+or instrument (FX, indices, metals, crypto, stocks), with no holding-time limit
+and no admin fee (Sharia-compliant default, all countries, since 2022-06;
+owner-confirmed 2026-06-21). The complete OctaFX backtest cost model is therefore
+the embedded direction-aware spread (+ slippage, currently unmodelled); the
+financing term is structurally zero.
+
+No swap / carry / financing term may be added to any OctaFX fill, cost model, or
+P&L path without a documented broker-policy change. **This invariant is
+SUBORDINATE to canonical broker terms:** if OctaFX's swap-free policy ever
+changes, the broker terms govern and this invariant is revised accordingly.
+
+Verified 2026-06-21: the live cost layer applies spread only — no financing term
+exists in `engines/execution_fill.py`, `tools/basket_runner.py`,
+`tools/recycle_rules/pine_ratio_zrev_v1.py`, or the frozen single-asset engine
+(`engine_dev/universal_research_engine/v1_5_10/`). Codifying this therefore
+changed no behaviour (documentation-only; no engine-flip / ABI governance).
+
+**See also:** vault `sources/octafx-swap-free-cost-model.md`,
+`[[reference_octafx_backtest_cost_model]]`,
+`[[reference_octafx_uniform_ask_spread_uncharged]]`, RESEARCH_MEMORY.md
+2026-06-21.
