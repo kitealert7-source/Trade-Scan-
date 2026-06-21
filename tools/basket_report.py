@@ -51,6 +51,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from tools.active_logic_renderer import render_active_logic
+
 
 __all__ = [
     "compute_basket_metrics",
@@ -863,20 +865,18 @@ def write_basket_strategy_card(
     # ---- Active Logic ----
     lines.append("## Active Logic")
     lines.append("")
-    parts: list[str] = []
-    parts.append(f"Rule: {rule_name}@{rule_version}")
+    # Shared renderer (tools/active_logic_renderer.py) — same hardcoding-free source as
+    # the single-asset strategy card, so the two reports cannot diverge. Rule params
+    # (incl. harvest_target_usd / trigger_usd) render faithfully under Rule; the basket-
+    # level harvest threshold renders under Basket.
+    _al_sig = {"recycle_rule": {"name": rule_name, "version": rule_version,
+                                "params": rule_params}}
     if regime_gate:
-        parts.append(
-            f"Gate: {regime_gate.get('factor', '?')} "
-            f"{regime_gate.get('operator', '?')} {regime_gate.get('value', '?')}"
-        )
-    if "harvest_threshold_usd" in basket_block:
-        parts.append(f"Harvest: ${basket_block['harvest_threshold_usd']}")
-    elif "harvest_target_usd" in rule_params:
-        parts.append(f"Harvest: ${rule_params['harvest_target_usd']}")
-    if "trigger_usd" in rule_params:
-        parts.append(f"Trigger: ${rule_params['trigger_usd']}")
-    lines.append(" | ".join(parts) if parts else "(no rule attached)")
+        _al_sig["regime_gate"] = regime_gate
+    if basket_block.get("harvest_threshold_usd") is not None:
+        _al_sig["harvest_threshold_usd"] = basket_block["harvest_threshold_usd"]
+    _al = render_active_logic(_al_sig)
+    lines.extend(_al if _al else ["(no rule attached)"])
     lines.append("")
 
     # ---- Rule Source Snapshot ----

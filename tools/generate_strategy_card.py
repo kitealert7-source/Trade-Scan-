@@ -22,6 +22,7 @@ from pathlib import Path
 
 from config.state_paths import RUNS_DIR, BACKTESTS_DIR
 from tools.pipeline_utils import get_engine_version, PROJECT_ROOT
+from tools.active_logic_renderer import render_active_logic
 
 # Keys excluded from the config table (structural / non-tunable)
 _SKIP_KEYS     = {"indicators", "signature_version"}
@@ -114,84 +115,13 @@ def _diff(prev_sig, curr_sig):
 
 
 def _logic_lines(sig):
-    """Build compact Active Logic lines from STRATEGY_SIGNATURE."""
-    lines  = []
-    er     = sig.get("execution_rules", {})
-    el     = er.get("entry_logic", {})
-    sl     = er.get("stop_loss", {})
-    tp     = er.get("take_profit", {})
-    trl    = er.get("trailing_stop", {})
-    xl     = er.get("exit_logic", {})
-    mr     = sig.get("mean_reversion_rules", {})
-    mre    = mr.get("entry", {})
-    mrx    = mr.get("exit", {})
-    tf     = sig.get("trend_filter", {})
-    vf     = sig.get("volatility_filter", {})
-    sf     = sig.get("session_filter", {})
-    timing = sig.get("order_placement", {}).get("execution_timing", "next_bar_open")
+    """Active Logic lines from STRATEGY_SIGNATURE.
 
-    if el.get("type") == "spike_fade":
-        lines.append(
-            f"Entry: spike_fade | move > {el.get('spike_atr_multiplier','?')}×ATR"
-            f" | {el.get('direction','both')} | confirm {el.get('confirmation','close')} | {timing}"
-        )
-    elif mre:
-        lines.append(
-            f"Entry: rsi_avg_pullback | RSI({mre.get('rsi_period',2)}) avg"
-            f" < {mre.get('long_threshold',25)} / > {mre.get('short_threshold',75)}"
-            f" | trend_score abs≥{mre.get('min_abs_trend_score',2)} | {timing}"
-        )
-
-    xp = []
-    if tp.get("enabled", True) and tp.get("atr_multiplier"):
-        xp.append(f"TP {tp['atr_multiplier']}×ATR")
-    elif tp.get("enabled") is False:
-        xp.append("TP off")
-    if sl.get("atr_multiplier"):
-        xp.append(f"SL {sl['atr_multiplier']}×ATR")
-    if mrx.get("rsi_exit_long") is not None:
-        xp.append(f"RSI exit L≥{mrx['rsi_exit_long']}/S≤{mrx['rsi_exit_short']}")
-    bars = xl.get("time_exit_bars") or mrx.get("max_bars")
-    if bars:
-        xp.append(f"time {bars}b")
-    if trl.get("enabled"):
-        xp.append("trail on")
-    if xp:
-        lines.append("Exit: " + " | ".join(xp))
-
-    if tf.get("enabled"):
-        lw = tf.get("long_when", {})
-        if tf.get("direction_gate") and lw:
-            lines.append(
-                f"Trend: direction_gate"
-                f" | L score≥{lw.get('required_regime', 2)}"
-                f" / S score≤{tf.get('short_when', {}).get('required_regime', -2)}"
-            )
-        else:
-            parts = []
-            ex = tf.get("exclude_regime")
-            if ex is not None:
-                parts.append(f"exclude regime {ex}")
-            req = tf.get("required_regime")
-            if req is not None:
-                parts.append(f"abs {tf.get('operator','?')} {req}")
-            lines.append("Trend: " + (" | ".join(parts) if parts else "enabled"))
-
-    if vf:
-        if vf.get("threshold") is not None:
-            lines.append(
-                f"Volatility: ATR pct > {vf['threshold']}th"
-                f" | {vf.get('atr_percentile_lookback','?')}-bar window"
-            )
-        elif vf.get("required_regime") is not None:
-            rm = {-1: "low", 0: "normal", 1: "high"}
-            r = vf["required_regime"]
-            lines.append(f"Volatility: regime = {r} ({rm.get(r, r)})")
-
-    if sf and sf.get("enabled") and sf.get("allowed_sessions"):
-        lines.append(f"Session: {', '.join(sf['allowed_sessions'])}")
-
-    return lines
+    Delegates to the shared, hardcoding-free renderer (tools/active_logic_renderer.py)
+    so the strategy card and the basket report cannot diverge. Reads only fields that
+    are present in the signature; invents nothing.
+    """
+    return render_active_logic(sig)
 
 
 # ── Hypothesis & Testing Logic ────────────────────────────────────────────────
@@ -220,6 +150,12 @@ def _directive_description(directive_name):
         if m:
             return m.group(1).strip()
         m = re.search(r"description:\s*'([^']+)'", content)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r'notes:\s*"([^"]+)"', content)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r"notes:\s*'([^']+)'", content)
         if m:
             return m.group(1).strip()
     except Exception:
@@ -294,6 +230,9 @@ _HYPOTHESIS_MAP = {
 
 def _hypothesis(directive_name):
     """Return hypothesis lines for directive, or fallback."""
+    desc = _directive_description(directive_name)
+    if desc:
+        return [desc]
     token = _model_token(directive_name)
     return _HYPOTHESIS_MAP.get(token, ["[UNAVAILABLE]"])
 
