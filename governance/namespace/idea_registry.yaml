@@ -540,3 +540,19 @@ ideas:
     role: entry_edge
     instruments: IDX
     status: active
+  '70':
+    family: MR
+    title: "SPX500 Internal Bar Strength (IBS) daily mean-reversion -- IBS=(close-low)/(high-low)<0.2 long entry at next_bar_open, ~1-day time exit (open-to-close), no regime gate, zero-parameter, wide non-binding ATR-10 catastrophic stop. Standalone NEW hypothesis (Pagonidis 'The IBS Effect'; corroborated Pandey&Joshi; framed Micaletti range-location>close-change). NOT an improvement of idea-69 RSI line (general reference only). OctaFX swap-free (INVAR-003), charged v1.5.10; next_bar_open is live-faithful (close-entry is a backtest fiction, eats the overnight gap as a live trader would). New indicator indicators.price.ibs; infra-freeze respected (no engine change)."
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    instruments: IDX
+    status: active
+  '71':
+    family: MR
+    title: "SPX500 RSI-pullback OR IBS union (Stage-1) -- LONG if (RSI(4)<30 AND close>EMA200) OR (IBS<0.20); source-tagged exits (RSI-triggered -> RSI>55 or 10-bar, IBS-only -> 1-bar); next_bar_open, long-only; no new filters/thresholds/optimization. Union composite of idea-69 (RSIPULL) + idea-70 (IBS); signal-overlap study. charged v1.5.10, OctaFX swap-free."
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    instruments: IDX
+    status: active

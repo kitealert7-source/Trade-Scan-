@@ -86,8 +86,12 @@ governance_updates:
     date: '2026-05-24'
     changes:
     - 'indicator_registry_sync: 1 stub entries added.'
-registry_version: 13
-generated_at: '2026-05-24T12:47:14+00:00'
+  version_14:
+    date: '2026-06-21'
+    changes:
+    - 'indicator_registry_sync: 1 stub entries added.'
+registry_version: 14
+generated_at: '2026-06-21T12:14:54+00:00'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -2650,7 +2654,8 @@ indicators:
       n_meta: 100
     output_type: DataFrame
     output_columns:
-    - ratio: float — A/B raw price ratio (zero-denominator-safe) — canonical series r_bar averages; consumed by the Hurst entry filter (pine_ratio_zrev_v1_zcross_hf)
+    - ratio: float — A/B raw price ratio (zero-denominator-safe) — canonical series r_bar averages; consumed by the Hurst
+        entry filter (pine_ratio_zrev_v1_zcross_hf)
     - r_bar: float — rolling mean of A/B over n bars (hedge ratio)
     - spread_r: float — A - r_bar*B (ratio-hedged spread)
     - z_r: float — (spread_r - SMA) / STDEV — Pine-equivalent reversal signal
@@ -2662,9 +2667,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Cross-symbol utility for cointegration basket strategies. Invoked
-      from recycle rule code (not strategy prepare_indicators) since it needs both legs''
-      close series. Inf-safe; divide-by-zero collapses to NaN.
+    typical_use_case: 'Cross-symbol utility for cointegration basket strategies. Invoked from recycle rule code (not strategy
+      prepare_indicators) since it needs both legs'' close series. Inf-safe; divide-by-zero collapses to NaN.
 
       '
     compatibility:
@@ -2699,10 +2703,9 @@ indicators:
     vectorized: false
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Local mean-reversion SPEED gate for exec-TF MR strategies (e.g.
-      pine_ratio_zrev_v1_zcross_hl blocks entries when HL > 120 bars). LOCAL statistic --
-      distinct from the screener daily half_life_days (252d/1d), which is ~2 orders of
-      magnitude above intraday trade horizons. Thresholds are in bars of the input TF.
+    typical_use_case: 'Local mean-reversion SPEED gate for exec-TF MR strategies (e.g. pine_ratio_zrev_v1_zcross_hl blocks
+      entries when HL > 120 bars). LOCAL statistic -- distinct from the screener daily half_life_days (252d/1d), which is
+      ~2 orders of magnitude above intraday trade horizons. Thresholds are in bars of the input TF.
 
       '
     compatibility:
@@ -2716,7 +2719,8 @@ indicators:
     input_columns:
     - close
     registered_at: '2026-06-12'
-    notes: AR(1)/OU fit on log-levels per window; b>=0 -> +inf, b<=-1 -> 1.0 floor. Companion to pine_ratio_zrev_v1_zcross_hl recycle rule.
+    notes: AR(1)/OU fit on log-levels per window; b>=0 -> +inf, b<=-1 -> 1.0 floor. Companion to pine_ratio_zrev_v1_zcross_hl
+      recycle rule.
   normalized_net_move:
     module_path: indicators.stats.normalized_net_move
     category: stats
@@ -2739,9 +2743,8 @@ indicators:
     vectorized: true
     htf_compatible: true
     dependency_indicators: []
-    typical_use_case: 'Net DISPLACEMENT gate (not variance): blocks fading large directional
-      repricings (pine_ratio_zrev_v1_zcross_lm blocks entries when either leg > 2.0).
-      High vol with zero drift scores ~0 -- distinct from volatility-regime measures.
+    typical_use_case: 'Net DISPLACEMENT gate (not variance): blocks fading large directional repricings (pine_ratio_zrev_v1_zcross_lm
+      blocks entries when either leg > 2.0). High vol with zero drift scores ~0 -- distinct from volatility-regime measures.
 
       '
     compatibility:
@@ -2756,6 +2759,12 @@ indicators:
     - close
     registered_at: '2026-06-12'
     notes: Causal normalizer (expanding sigma, ddof=0). Companion to pine_ratio_zrev_v1_zcross_lm recycle rule (LM20 arm).
+  ibs:
+    module_path: indicators.price.ibs
+    category: price
+    registered_at: '2026-06-21'
+    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
+      output_columns, etc.) to be backfilled.
 registry_summary:
   total_indicators: 73
   by_category:

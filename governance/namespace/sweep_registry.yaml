@@ -3532,3 +3532,48 @@ ideas:
         attempt: 2
         directive_hash: d914e72fb4ef3df7
         directive_hash_full: d914e72fb4ef3df7858b64b47337b7dfbbf149cb2f3c71a423ff8032704bae51
+  '70':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 70_MR_IDX_1D_IBS_S01_V1_P00
+        signature_hash: 52c993f85a10a4ba
+        signature_hash_full: 52c993f85a10a4ba69715610f5b4d58ec4dec5265dee38d1b8404bbf71365223
+        reserved_at_utc: '2026-06-21T12:13:10.210104+00:00'
+        patches:
+          P01:
+            directive_name: 70_MR_IDX_1D_IBS_S01_V1_P01
+            signature_hash: b01d4501cdeab031
+            signature_hash_full: b01d4501cdeab0319af78d5da6515eebffd7e8b8ee9a04459380cc565f3bf4ef
+            reserved_at_utc: '2026-06-21T13:44:18.696860+00:00'
+            directive_hash: b01d4501cdeab031
+            directive_hash_full: b01d4501cdeab0319af78d5da6515eebffd7e8b8ee9a04459380cc565f3bf4ef
+          P02:
+            directive_name: 70_MR_IDX_1D_IBS_S01_V1_P02
+            signature_hash: 7ec19f477aa9b382
+            signature_hash_full: 7ec19f477aa9b38265a7027daa2e3c72d881708701d8ab8ce196136d7e7cea88
+            reserved_at_utc: '2026-06-21T13:46:17.205637+00:00'
+            directive_hash: 7ec19f477aa9b382
+            directive_hash_full: 7ec19f477aa9b38265a7027daa2e3c72d881708701d8ab8ce196136d7e7cea88
+        attempt: 2
+        directive_hash: 52c993f85a10a4ba
+        directive_hash_full: 52c993f85a10a4ba69715610f5b4d58ec4dec5265dee38d1b8404bbf71365223
+  '71':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 71_MR_IDX_1D_UNION_S01_V1_P00
+        signature_hash: 8ff7ef2abd22d097
+        signature_hash_full: 8ff7ef2abd22d097df3290fcb2098a8d34a462baad15d6b6b5f5e3e6e824ba26
+        reserved_at_utc: '2026-06-21T14:05:42.015571+00:00'
+        patches:
+          P00:
+            directive_name: 71_MR_IDX_1D_UNION_S01_V1_P00__E001
+            reserved_at_utc: '2026-06-21T15:35:49.900858+00:00'
+            directive_hash: 1444dbfb06c482ca
+            signature_hash: 1444dbfb06c482ca
+            directive_hash_full: 1444dbfb06c482ca52c650e8a04ecd0be6eb01fb943a8d2468e93367e2f3ab73
+            signature_hash_full: 1444dbfb06c482ca52c650e8a04ecd0be6eb01fb943a8d2468e93367e2f3ab73
+        attempt: 2
+        directive_hash: 8ff7ef2abd22d097
+        directive_hash_full: 8ff7ef2abd22d097df3290fcb2098a8d34a462baad15d6b6b5f5e3e6e824ba26

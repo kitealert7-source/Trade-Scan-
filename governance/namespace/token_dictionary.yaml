@@ -73,6 +73,8 @@ model:
   - RECYCLE
   - PAIRX
   - COINTREV
+  - IBS
+  - UNION
 filter:
   - ATRFILT
   - VOLFILT
