@@ -70,25 +70,42 @@ def run_skill(skill_name, **kwargs):
         if result.stdout:
             sys.stdout.write(result.stdout)
             
+        # Anti-masking diagnostics: persist a self-contained crash bundle whenever the
+        # worker looks failed OR empty -- non-zero exit, OR (for a run_id run) no run dir
+        # / no data dir / no trade log. Previously only a non-zero exit wrote a crash log,
+        # so an exit-0-but-empty worker (the governed NO_TRADES false-negative) left no
+        # trace at all. Bundle = crash_trace.log + worker_stdout/stderr/command.txt so the
+        # next failure is self-contained without re-running.
+        _rid = kwargs.get("run_id")
+        if _rid:
+            from config.state_paths import RUNS_DIR
+            run_dir = RUNS_DIR / str(_rid)
+            data_dir = run_dir / "data"
+            trade_log = data_dir / "results_tradelevel.csv"
+            failed_or_empty = (
+                result.returncode != 0
+                or not run_dir.exists()
+                or not data_dir.exists()
+                or not trade_log.exists()
+            )
+            if failed_or_empty and run_dir.exists():
+                from datetime import datetime, timezone
+                cmd_str = " ".join(cmd)
+                (run_dir / "worker_command.txt").write_text(cmd_str + "\n", encoding="utf-8")
+                (run_dir / "worker_stdout.log").write_text(result.stdout or "", encoding="utf-8")
+                (run_dir / "worker_stderr.log").write_text(result.stderr or "", encoding="utf-8")
+                with open(run_dir / "crash_trace.log", "w", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now(timezone.utc).isoformat()}] WORKER FAILED-OR-EMPTY\n")
+                    f.write(f"Command: {cmd_str}\n")
+                    f.write(f"Exit Code: {result.returncode}\n")
+                    f.write(f"run_dir={run_dir.exists()} data_dir={data_dir.exists()} "
+                            f"trade_log={trade_log.exists()}\n")
+                    f.write("-" * 80 + "\nSTDOUT:\n" + (result.stdout or "") + "\n")
+                    f.write("-" * 80 + "\nSTDERR:\n" + (result.stderr or "") + "\n")
+                print(f"[DIAG] Worker failed-or-empty for run {_rid} -- self-contained "
+                      f"diagnostics in {run_dir} (crash_trace.log + worker_stdout/stderr/command).")
+
         if result.returncode != 0:
-            # Fix 2: Persist Engine Crash Tracebacks
-            if "run_id" in kwargs:
-                from config.state_paths import RUNS_DIR
-                run_dir = RUNS_DIR / str(kwargs["run_id"])
-                if run_dir.exists():
-                    from datetime import datetime, timezone
-                    crash_log = run_dir / "crash_trace.log"
-                    with open(crash_log, "w", encoding="utf-8") as f:
-                        f.write(f"[{datetime.now(timezone.utc).isoformat()}] FATAL CRASH\n")
-                        f.write(f"Command: {' '.join(cmd)}\n")
-                        f.write(f"Exit Code: {result.returncode}\n")
-                        f.write("-" * 80 + "\n")
-                        f.write("STDOUT:\n")
-                        f.write(result.stdout + "\n")
-                        f.write("-" * 80 + "\n")
-                        f.write("STDERR:\n")
-                        f.write(result.stderr + "\n")
-                    print(f"[FATAL] Engine crashed. Full traceback saved to: {crash_log}")
 
             # Centralized failure log
             if _log_failure:

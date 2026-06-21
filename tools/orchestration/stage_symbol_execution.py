@@ -38,6 +38,22 @@ from config.state_paths import RUNS_DIR, BACKTESTS_DIR, STRATEGIES_DIR, MASTER_F
 from config.engine_loader import get_active_engine
 
 
+def missing_tradelog_is_silent_failure(run_data_dir: Path) -> bool:
+    """Classify a missing Stage-1 trade log: silent failure vs genuine 0-trades.
+
+    When the worker's backtest produced no ``results_tradelevel.csv``, decide whether:
+      * SILENT FAILURE -> the worker exited without producing a data dir at all, so the
+        engine never ran. Returns True; the caller surfaces it as a real FAILED (never a
+        masked NO_TRADES).
+      * genuine 0-trades -> the backtest completed (data dir present) but found no trades.
+        Returns False; the caller records the legitimate NO_TRADES outcome.
+
+    Anti-masking fix for the governed worker NO_TRADES false-negative (2026-06-21): an
+    exit-0-but-empty worker must never masquerade as a 0-trades run.
+    """
+    return not Path(run_data_dir).exists()
+
+
 # ---------------------------------------------------------------------------
 # Stage-1: Backtest Execution Loop
 # ---------------------------------------------------------------------------
@@ -154,7 +170,19 @@ def run_stage1_execution(context: PipelineContext) -> None:
 
             out_folder = BACKTESTS_DIR / f"{clean_id}_{symbol}"
             if not (out_folder / "raw" / "results_tradelevel.csv").exists():
-                # Engine exited cleanly (no exception) but produced no trade data.
+                # Distinguish a genuine 0-trades run (backtest completed, no trades) from a
+                # SILENT no-op (the worker exited without producing a Stage-1 data dir at
+                # all). No data dir => the engine never ran => surface as a real FAILED with
+                # the worker diagnostics (run_skill persists crash_trace.log + worker_stdout
+                # /stderr/command to runs/<rid>/), NOT a masked NO_TRADES. The except below
+                # marks FAILED + logs once. (Governed worker NO_TRADES false-negative fix.)
+                if missing_tradelog_is_silent_failure(RUNS_DIR / rid / "data"):
+                    raise RuntimeError(
+                        f"Stage-1 worker for {rid} ({symbol}) produced no data dir -- "
+                        f"silent no-op surfaced as FAILED (previously masked as NO_TRADES). "
+                        f"Diagnostics: runs/{rid}/crash_trace.log + worker_stdout/stderr/command."
+                    )
+                # Engine completed but produced no trade data -> genuine 0-trades.
                 # Write a persistent marker so the cardinality gate and cleanup tools
                 # can identify and correctly handle this run (not a crash).
                 marker = {

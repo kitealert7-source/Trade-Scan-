@@ -166,6 +166,7 @@ _ALLOWED_PRIMITIVES = {
     "hurst_rs_persistence",
     "wilder_rma_tr_floored",
     "bar_hl_range",
+    "internal_bar_strength",
     "momentum_roc",
     "adx_trend_strength",
     "hull_moving_average",
