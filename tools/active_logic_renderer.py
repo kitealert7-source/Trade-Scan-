@@ -121,7 +121,15 @@ def render_active_logic(sig) -> list[str]:
     # ── Basket sections ────────────────────────────────────────────────────
     rr = sig.get("recycle_rule")
     if rr:
-        lines.append("Rule: " + " | ".join(_tokens(rr)))
+        if isinstance(rr, dict) and rr.get("name"):
+            # Canonical "name@version" head (matches the legacy basket card), then any
+            # remaining keys (params, etc.) flattened as sorted tokens after it.
+            ver = rr.get("version", rr.get("mode"))
+            head = f"{rr['name']}@{ver}" if ver is not None else str(rr["name"])
+            rest = {k: v for k, v in rr.items() if k not in ("name", "version", "mode")}
+            lines.append("Rule: " + " | ".join([head] + _tokens(rest)))
+        else:
+            lines.append("Rule: " + " | ".join(_tokens(rr)))
     rg = sig.get("regime_gate")
     if rg:
         if {"factor", "operator", "value"} <= set(rg):

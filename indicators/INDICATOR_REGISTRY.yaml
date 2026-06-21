@@ -2762,11 +2762,30 @@ indicators:
   ibs:
     module_path: indicators.price.ibs
     category: price
+    function_name: ibs
+    classification: Price
+    input_requirements:
+    - df: pd.DataFrame with high/low/close columns
+    output_type: Series
+    output_columns:
+    - ibs: float — Internal Bar Strength (close-low)/(high-low), 0-1 scale
+    output_scale: 0-1
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: Range-location mean-reversion. IBS < 0.2 = close near the bar low (oversold).
     registered_at: '2026-06-21'
-    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
-      output_columns, etc.) to be backfilled.
+    notes: Single-bar 1-period stochastic; zero-range bars map to 0.5. No warmup, no lookback.
+    lookback: 1
+    warmup: 0
+    input_columns:
+    - high
+    - low
+    - close
 registry_summary:
-  total_indicators: 73
+  total_indicators: 74
   by_category:
     momentum_count: 11
     trend_count: 8
