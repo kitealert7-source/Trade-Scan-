@@ -1351,6 +1351,22 @@ def main() -> None:
 
     output_path.write_text(markdown, encoding="utf-8")
 
+    # Auto-refresh the disk-derived tools inventory (TOOLS_INDEX.md). This is
+    # AUXILIARY to the snapshot: it runs AFTER SYSTEM_STATE.md is already
+    # written, and the whole block is wrapped so any failure (import OR
+    # regeneration) degrades to a warning and can never abort the primary
+    # snapshot, its status reporting, or a clean exit. Deterministic output
+    # means a no-op diff whenever the tool set is unchanged.
+    try:
+        try:
+            from tools import generate_tools_index
+        except ImportError:  # script-mode invocation: sys.path[0] == tools/
+            import generate_tools_index
+        index_path = generate_tools_index.regenerate()
+        print(f"[DONE] TOOLS_INDEX.md regenerated: {index_path}")
+    except Exception as exc:  # auxiliary step: never let it abort the snapshot
+        print(f"[WARN] TOOLS_INDEX.md regeneration failed (snapshot unaffected): {exc}")
+
     status_label = session_status[0]
     print(f"[DONE] SYSTEM_STATE.md written: {output_path}")
     print(f"[SESSION STATUS] {status_label}")
