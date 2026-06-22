@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-21T17:21:57Z
+> Generated: 2026-06-22T02:51:49Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -34,7 +34,7 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-21** | Symbols: 221
+- Latest bar: **2026-06-22** | Symbols: 221
 
 ## Artifacts
 - Run directories: 3338
@@ -42,14 +42,14 @@
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: 1 uncommitted
-- Last substantive commit: `25b2cba6 session: closing SYSTEM_STATE snapshot`
+- Last substantive commit: `adfef79d fix(tools): TOOLS_INDEX.md native EOL so autocrlf stops flagging it`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [CALENDAR] Sunday — weekly cadence slot for `/repo-cleanup-refactor` + `/system-health-maintenance` Phase 1 (run before close to land in the closing snapshot)
+- (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
