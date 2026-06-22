@@ -137,7 +137,11 @@ def regenerate(write: bool = True) -> Path:
     """Build the index and (by default) write it to tools/TOOLS_INDEX.md."""
     content = build_index()
     if write:
-        INDEX_PATH.write_text(content, encoding="utf-8", newline="\n")
+        # Native EOL (no newline= override): the repo uses core.autocrlf=true
+        # with no .gitattributes, so tracked text is LF-in-blob / CRLF-in-working.
+        # Forcing LF here made git flag the file modified after every regen
+        # (content identical) and would snag the session-close clean-tree gate.
+        INDEX_PATH.write_text(content, encoding="utf-8")
     return INDEX_PATH
 
 
