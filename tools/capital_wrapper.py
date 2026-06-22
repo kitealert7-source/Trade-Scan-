@@ -1,5 +1,5 @@
 """
-Deployable Capital Wrapper â€” Phases 2â€“6
+Deployable Capital Wrapper — Phases 2–6
 Phase 2: Event Queue Builder (load, decompose, sort)
 Phase 3: Single-Profile PortfolioState
 Phase 4: Multi-Profile Parallel Execution
@@ -8,7 +8,7 @@ Phase 6: Dynamic USD Conversion at Entry Time
 
 Authority: CAPITAL_MIGRATION_IMPACT.md, MODULAR_IMPACT_VALIDATION.md
 
-Orchestration only â€” implementation lives in tools/capital/ submodules:
+Orchestration only — implementation lives in tools/capital/ submodules:
   capital_events, capital_broker_spec, capital_fx,
   capital_portfolio_state, capital_metrics, capital_validation,
   capital_plotting, capital_artifacts, capital_directive_discovery.
@@ -122,7 +122,7 @@ def main():
     import json
 
     parser = argparse.ArgumentParser(
-        description="Deployable Capital Wrapper â€” Phase 3: Single-Profile Simulation"
+        description="Deployable Capital Wrapper — Phase 3: Single-Profile Simulation"
     )
     parser.add_argument(
         "strategy_prefix",
@@ -145,7 +145,7 @@ def main():
     else:
         print("[WARN] No directive found; using prefix-scan discovery (unfrozen universe).")
 
-    # Phase 2: Load â†’ Build â†’ Sort
+    # Phase 2: Load → Build → Sort
     trades = load_trades(run_dirs)
     partials_by_parent = load_partial_legs(run_dirs)
     events = build_events(trades, partials_by_parent)
