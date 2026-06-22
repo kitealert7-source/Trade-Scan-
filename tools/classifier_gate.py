@@ -17,12 +17,19 @@ This gate combines two lightweight, fully mechanical signals:
 Verdict rules (evaluated in order; first BLOCK wins)
 ---------------------------------------------------
   * If no prior directive exists for (MODEL, ASSET_CLASS) -> PASS (first-of-kind).
-  * If classification == UNCLASSIFIABLE                    -> BLOCK.
+  * If classification == UNCLASSIFIABLE (a structural change):
+      - signal_version bumped beyond prior max -> PASS (operator declared it).
+      - NOT bumped                              -> BLOCK (declare it via a bump).
   * If classification == SIGNAL and signal_version has NOT
     strictly increased beyond the prior maximum               -> BLOCK.
   * If the aggregate indicator content hash differs from the
     prior run's recorded hash AND signal_version is unchanged -> BLOCK.
   * Otherwise                                                 -> PASS.
+
+A structural change is treated as a signal-level change by default: the
+signal_version bump is the operator's declaration, and correctness is verified by
+the downstream gates (semantic validator, schema, dry-run). The classifier
+vocabulary LABELS changes; it no longer GATES them (no per-leaf whitelisting).
 
 This module is deliberately:
   - Pure: no pipeline mutation, no I/O beyond reading directives/indicator code
@@ -334,6 +341,61 @@ def evaluate(
             },
         )
 
+    # --- Identity guard (semver "major" = new idea) -------------------------
+    # family / model / symbol / timeframe define the IDEA and are immutable within
+    # an idea_id. A directive that shares an idea_id with a prior but changes one of
+    # them is NOT a signal-level variant -- it must be registered as a NEW idea; a
+    # signal_version bump cannot admit it. (model + asset_class are equal across the
+    # prior set by matching, but family / symbol / timeframe can still differ.)
+    # Narrowing the classification baseline to the same identity also stops a legit
+    # same-identity variant being mis-compared against a more-recent sibling of a
+    # different timeframe (the over-block trap). A NEW idea_id (no prior shares it)
+    # is left to fall through -- its identity is the idea registry's concern.
+    def _id_of(directive_dict):
+        parsed = parse_strategy_name(
+            str(directive_dict.get("strategy") or directive_dict.get("name") or "")
+        ) or {}
+        return (
+            parsed.get("idea_id"),
+            (parsed.get("family"), parsed.get("model"),
+             parsed.get("symbol"), parsed.get("timeframe")),
+        )
+
+    cur_idea, cur_identity = _id_of(current)
+    if cur_idea:
+        same_idea = [(p, d, sv) for (p, d, sv) in priors if _id_of(d)[0] == cur_idea]
+        same_identity = [(p, d, sv) for (p, d, sv) in same_idea if _id_of(d)[1] == cur_identity]
+        if same_idea and not same_identity:
+            ref_path, ref_dir, _ = same_idea[0]
+            ref_identity = _id_of(ref_dir)[1]
+            fields = ("family", "model", "symbol", "timeframe")
+            changed = [f for f, a, b in zip(fields, cur_identity, ref_identity) if a != b]
+            return GateVerdict(
+                verdict="BLOCK",
+                reason=(
+                    f"Identity change within idea {cur_idea!r} vs prior {ref_path.stem!r}: "
+                    f"{changed} differ (current={cur_identity}, prior={ref_identity}). "
+                    f"family/model/symbol/timeframe define the IDEA (semver major) -- "
+                    f"register a NEW idea; a signal_version bump cannot admit an identity change."
+                ),
+                classification="IDENTITY_CHANGE",
+                prior_directive=ref_path.stem,
+                prior_max_signal_version=max(sv for (_p, _d, sv) in same_idea),
+                current_signal_version=cur_sv,
+                current_indicators_hash=cur_hash,
+                prior_indicators_hash=None,
+                details={
+                    "model": cur_model,
+                    "asset_class": cur_asset,
+                    "identity_change": changed,
+                    "current_identity": list(cur_identity),
+                    "prior_identity": list(ref_identity),
+                },
+            )
+        if same_identity:
+            priors = same_identity
+    # ------------------------------------------------------------------------
+
     # Most recent prior drives classification; max SV across all priors
     # drives the signal_version monotonicity check.
     prior_path, prior_parsed, _prior_sv = priors[0]
@@ -376,16 +438,33 @@ def evaluate(
             details=details,
         )
 
-    # Rule 1: UNCLASSIFIABLE is always fail-closed.
+    # Rule 1: UNCLASSIFIABLE = a structural change the classifier has no precise
+    # vocabulary for. The signal_version bump IS the operator's explicit
+    # declaration that this is a deliberate signal-level change: ALLOW when sv is
+    # bumped beyond the prior max, BLOCK only when it is NOT (the silent-change
+    # protection this gate actually exists for). This replaces the former
+    # always-fail-closed + per-leaf-whitelist approach -- the classifier
+    # vocabulary now only LABELS changes; the signal_version bump GATES them, and
+    # the downstream gates (semantic validator, schema, dry-run, backtest verdict)
+    # verify correctness.
     if classification == "UNCLASSIFIABLE":
+        if cur_sv > prior_max_sv:
+            return _build(
+                "PASS",
+                (
+                    f"Delta vs prior {prior_path.stem!r} is structural "
+                    f"({classification_result['reason']}), declared via "
+                    f"signal_version={cur_sv} > prior max={prior_max_sv}. "
+                    f"Admission proceeds."
+                ),
+            )
         return _build(
             "BLOCK",
             (
-                "Delta vs prior directive "
-                f"{prior_path.stem!r} is UNCLASSIFIABLE "
-                f"({classification_result['reason']}). Fail-closed: add a "
-                f"signal_version bump or reshape the directive so the delta "
-                f"is mechanically classifiable."
+                f"Delta vs prior directive {prior_path.stem!r} is structural "
+                f"({classification_result['reason']}) but signal_version={cur_sv} "
+                f"is not > prior max={prior_max_sv}. A structural change must be "
+                f"declared: bump signal_version to >= {prior_max_sv + 1} and re-run."
             ),
         )
 

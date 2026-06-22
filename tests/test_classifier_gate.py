@@ -390,10 +390,12 @@ def test_engine_rerun_returns_first_of_kind_when_no_same_identity_prior(sandbox)
 
 
 def test_engine_rerun_narrowing_disabled_without_override_reason(sandbox):
-    """Sanity check: the narrowing path must NOT activate for directives
-    that carry no ENGINE override reason. A structurally-distant prior
-    with a SIGNAL-level indicator diff must still be selected (and block)
-    as before. Ensures the new code path is opt-in via override reason.
+    """A non-ENGINE-rerun directive whose only same-(model,asset) prior differs
+    in IDENTITY (here: timeframe 15M vs 30M, both under idea 22) blocks as an
+    IDENTITY_CHANGE. Per the semver-major doctrine (2026-06-22), a timeframe (or
+    family/model/symbol) change is a NEW idea, not a same-idea signal variant --
+    the identity guard fires before classification, superseding the former
+    wide-fallback SIGNAL path for cross-identity priors.
     """
     _write_directive(
         sandbox["prior_dir"], "22_CONT_FX_15M_CHOCH_S01_V1_P05",
@@ -411,9 +413,11 @@ def test_engine_rerun_narrowing_disabled_without_override_reason(sandbox):
         project_root=sandbox["root"],
         search_dirs=[sandbox["prior_dir"]],
     )
-    # No narrowing → wide 15M/S01 prior picked → SIGNAL diff → BLOCK on SV.
+    # Timeframe differs within idea 22 -> IDENTITY_CHANGE (semver major: a TF
+    # change is a new idea, not a same-idea signal variant). Still BLOCK, but the
+    # identity guard governs cross-identity priors before classification runs.
     assert v.verdict == "BLOCK"
-    assert v.classification == "SIGNAL"
+    assert v.classification == "IDENTITY_CHANGE"
     assert v.prior_directive == "22_CONT_FX_15M_CHOCH_S01_V1_P05"
 
 
