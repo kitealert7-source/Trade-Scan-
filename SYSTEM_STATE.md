@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-22T02:51:49Z
+> Generated: 2026-06-22T12:26:01Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -14,17 +14,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 18 directives
+- Completed: 21 directives
 
 ## Ledgers
 
-- **Master Filter:** 1272 rows
+- **Master Filter:** 1274 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
   - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
 
-- **Candidates (FPS):** 390 rows — CORE: 15, FAIL: 245, RESERVE: 26, WATCH: 104
+- **Candidates (FPS):** 391 rows — CORE: 15, FAIL: 246, RESERVE: 26, WATCH: 104
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -37,12 +37,12 @@
 - Latest bar: **2026-06-22** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3338
+- Run directories: 3342
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: 1 uncommitted
-- Last substantive commit: `adfef79d fix(tools): TOOLS_INDEX.md native EOL so autocrlf stops flagging it`
+- Last substantive commit: `0a18b2f0 fix(registry): backfill armed_reversal + dma_pct metadata; total_indicators 74->76`
 
 ## Deferred Maintenance
 
@@ -56,7 +56,7 @@
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced). Promote to BUILD after ≥1 gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence (shipped 2026-06-07, ba3b82cf) doubled daily upserts (1860+126 vs 930+64 rows) and added ~80–180s/run (screener block ~3 min now). Promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `tools/refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass field to authorize refreshes (debt-marked in code + plan, operator-flagged). Promote to BUILD (dedicated refresh-intent signal) when a 2nd refresh use-case (baskets / master_filter) needs the auth path. First seen 2026-06-07.
-- [HIGH-ROI / PROPOSAL 2026-06-21] EXPERIMENT_DISCIPLINE first-exec guard counts a CRASHED/`state=failed` run as "first execution" (`tools/system_registry.py::_get_directive_first_execution_timestamp`), false-blocking a bug-fix rerun of a same-day-crashed strategy (cost ~30 tool calls this session; unblocked only by manually clearing run_registry+RUNS_DIR crash debris). PROPOSAL (Protected-Infra #6 — plan+approval, NOT self-applied): exclude failed/crashed runs from the first-exec baseline so the guard fires only on strategy.py edits after a VALID run. **Next-session HIGH-ROI first task.** Interim recovery in FAILURE_PLAYBOOK.
+- [RESOLVED 2026-06-22 — was HIGH-ROI/PROPOSAL 2026-06-21] EXPERIMENT_DISCIPLINE first-exec guard counted a CRASHED/`state=failed` run as "first execution" (`tools/system_registry.py::_get_directive_first_execution_timestamp`), false-blocking a bug-fix rerun of a same-day-crashed strategy (cost ~30 tool calls this session; unblocked only by manually clearing run_registry+RUNS_DIR crash debris). PROPOSAL (Protected-Infra #6 — plan+approval, NOT self-applied): exclude failed/crashed runs from the first-exec baseline so the guard fires only on strategy.py edits after a VALID run. **RESOLVED 2026-06-22** — shipped as the two-layer auto-delete (Layer-1 `delete_failed_run_if_safe` at the failure handler + Layer-2 `is_zero_artifact_terminal_run` FAILED/ABORTED first-exec filter, the single shared predicate) + `prune_completed_base_stubs`. FAILURE_PLAYBOOK fallback retained for residual hard-kill cases.
 - [MEMORY-SIZE / IMMEDIATE 2026-06-21] MEMORY.md (auto-memory index) 24.9 KB > 24.4 KB limit — session-start confirmed "only part of it was loaded". Consolidate index entries (`/anthropic-skills:consolidate-memory`) so all entries load again.
 - [PERIODIC 2026-06-21] skill-maintenance audit deferred at close — 3 SKILL.md modified this session (Source-Grounding Gate + rerun friction-row; manually format-verified) but no `outputs/.session_state/last_skill_audit.txt` baseline exists. Run `/skill-maintenance` next session to establish the cadence baseline.
 - [SKILL_REFACTOR] Changes D+F deferred — session-close §3.3 → repo-cleanup-refactor §1d; system-health-maintenance §5/§6 overlap removal. Detail: backlog report.
@@ -82,6 +82,7 @@
 - 2026-06-19 — set up pre-freeze: NAS-backup DR repaired (persistent credential — was a reboot-dropped session credential) + hardened (`/XD data_root`, `/XF` SQLite sidecars, `TS_Obsidian_Vault` added) + version-controlled at `infra/`; pipeline-state cleanup done; preflight `REF_INTEGRITY` tripwire + git-hygiene fixes landed. Freeze begins 2026-06-20.
 - 2026-06-20 — research session; 2 operator-approved freeze overrides (MPS: drop redundant `all_profitable` column + add SQL-backed `universe` elite/all column with elite-default AutoFilter; build idea-69 SPX500 RSI-MR strategy). Research: cointegration BTCUSDEUSTX50 episode-vs-strategy study (full-window run = regime-conditional, not a portable edge) + Cointegration Research Universe report/funnel (265→36); new SPX500 RSI Power Zone MR arc (idea 69) Stage-1/2 + 10-index breadth — edge real (SPX500/NAS100 PF ~1.7) but ~8 trades/yr, too sparse to deploy standalone. Freeze otherwise held.
 - 2026-06-21 — operator-approved freeze exception (non-fatal, but a masked worker path left silent-failure modes UNPROTECTED — rules protect the system, not preserve a degraded state): landed worker anti-masking (self-contained diagnostics on any failed/empty run + FAILED-vs-NO_TRADES split, locked by `tests/test_worker_silent_failure_classification.py`). Research under the freeze: union idea-71 (RSI∪IBS) governed to **WATCH** via /rerun-backtest (run `894fa6ff`; required clearing crashed-run debris that false-tripped EXPERIMENT_DISCIPLINE first-exec). /session-retro routed 6 findings; ★HIGH-ROI = exclude crashed runs from the first-exec guard. Freeze otherwise held.
+- 2026-06-22 — research (DMA gold-5m MR-fade, idea 72) + operator-directed infra hardening from a `/session-retro` (**delivers the 2026-06-21 ★HIGH-ROI**): (1) two-layer auto-delete of zero-artifact crashed runs — `is_zero_artifact_terminal_run` shared predicate (Layer-1 at the failure handler + Layer-2 first-exec filter) + `prune_completed_base_stubs` orphan self-heal — kills the EXPERIMENT_DISCIPLINE first-exec false-trip + the orphan-dir block AT SOURCE; (2) port-strategy governance-conformance checklist + Stage-0.75 `check_exit` native-bool probe; (3) classifier **semver admission model** — structural + `signal_version` bump = ALLOW (retires per-leaf whitelisting) + identity guard (family/model/symbol/timeframe = new idea; supersedes "TF variant = sweep sibling"). DMA research: S01 (regime filter) +$202/FAIL + S02 (no filter) −$375/FAIL → **filter LOAD-BEARING, arc mid-probe** (drop-London P01 = next session's first action); adopted the "a FAIL is a probe into a response surface" methodology ([[feedback_fail_is_a_probe]]). All infra operator-directed; `/skill-maintenance` deferred per freeze; freeze otherwise held.
 
 #### Governed worker-path NO_TRADES false-negative — RESOLVED, anti-masking landed (2026-06-21)
 Investigation closed. The "worker produces nothing for the union `71_MR_IDX_1D_UNION_S01_V1_P00`" symptom had **two masked causes**, neither a novel worker bug: (1) the union's first governed run crashed inside `run_stage1` on a `numpy.bool_` return from `check_exit` (the engine requires a Python `bool`/`str`) — already FIXED in the strategy snapshot (direct `run_stage1`+`run_engine` = **314 trades / $405**, proven twice); (2) every plain `run_pipeline` re-run since SKIPPED the worker entirely — `run_skill` ran **0 times**, because `claim_next_planned_run` returns None for the stuck deterministic run_id `8930d9ad` (a FAILED run is not re-planned). Cause (2) is **by design**: a failed/stuck run_id must be re-run via `/rerun-backtest`, not plain re-admission. Both were invisible only because the worker masked them. **Anti-masking fix LANDED + tested** (protected-infra plan approved + freeze lifted for it): `tools/skill_loader.py:run_skill` now persists a self-contained bundle (`crash_trace.log` + `worker_stdout.log`/`worker_stderr.log`/`worker_command.txt`) whenever the worker exits non-zero OR leaves no run dir / no data dir / no trade log; `tools/orchestration/stage_symbol_execution.py` splits a missing trade log into genuine NO_TRADES (data dir present) vs **SILENT FAILURE** (no data dir → real FAILED) via `missing_tradelog_is_silent_failure()`, locked by `tests/test_worker_silent_failure_classification.py` (3 passing). **VERDICT OBTAINED (2026-06-21): WATCH** — governed run `894fa6ff` (Stages 1-4 + capital wrapper + promotion): SQN 2.92, PF 1.62, net $404.99, 314 trades, maxDD 9.11%, ret/DD 4.45, all vol+trend regimes positive; net <$1000 caps at WATCH (else CORE-grade). The `/rerun-backtest` path hit a second guard — `EXPERIMENT_DISCIPLINE` blocked because the base strategy's crashed same-day run (15:21) counted as "first execution" and the rerun's signal_version bump re-hashed strategy.py (15:39) after it. Operator-approved unblock: cleared the union's crashed-run debris from `run_registry.json` + `RUNS_DIR` (a crash is not a valid first execution; backup at `run_registry.json.bak_clearunion_20260621`), which reset the first-exec guard → worker ran (run_skill executed, 314 trades). Multi-index expansion now unblocked (operator call). Still open as a separate follow-up: the Stage-1 emitter drops `entry_reason` (native signal-overlap; had to be reconstructed).

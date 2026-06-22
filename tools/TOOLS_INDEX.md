@@ -22,7 +22,7 @@ Top-level modules are operational entrypoints; modules under subpackages
 `utils/`, `system_logging/`, `state_lifecycle/`) are internal libraries.
 
 
-Total modules indexed: 374 (excludes `__init__.py`).
+Total modules indexed: 375 (excludes `__init__.py`).
 
 ## tools/ (top-level)  (174 modules)
 
@@ -457,10 +457,11 @@ Total modules indexed: 374 (excludes `__init__.py`).
 | `tools.robustness.tail` | (no docstring) |
 | `tools.robustness.temporal` | (no docstring) |
 
-## tools/state_lifecycle/  (5 modules)
+## tools/state_lifecycle/  (6 modules)
 
 | Module | Summary |
 |---|---|
+| `tools.state_lifecycle.failed_run_cleanup` | Auto-cleanup of terminally-FAILED, zero-trade-artifact runs (Layer 1). |
 | `tools.state_lifecycle.lineage_pruner` | (no docstring) |
 | `tools.state_lifecycle.reconcile_portfolio_complete` | Surgically remove dead child run_ids from PORTFOLIO_COMPLETE directive_state.json files. |
 | `tools.state_lifecycle.repair_integrity` | repair_integrity.py — reconcile FSP + MPS ledgers against disk artifacts. |
