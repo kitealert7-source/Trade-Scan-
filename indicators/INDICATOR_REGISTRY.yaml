@@ -2792,16 +2792,25 @@ indicators:
     module_path: indicators.events.armed_reversal
     category: events
     registered_at: '2026-06-22'
+    lookback: 3
+    warmup: 3
+    input_columns:
+    - high
+    - low
     notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
       output_columns, etc.) to be backfilled.
   dma_pct:
     module_path: indicators.stats.dma_pct
     category: stats
     registered_at: '2026-06-22'
+    lookback: 200
+    warmup: 200
+    input_columns:
+    - close
     notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
       output_columns, etc.) to be backfilled.
 registry_summary:
-  total_indicators: 74
+  total_indicators: 76
   by_category:
     momentum_count: 11
     trend_count: 8
