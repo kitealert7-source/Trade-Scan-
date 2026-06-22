@@ -75,6 +75,7 @@ model:
   - COINTREV
   - IBS
   - UNION
+  - DMA
 filter:
   - ATRFILT
   - VOLFILT

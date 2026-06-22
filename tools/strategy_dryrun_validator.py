@@ -149,7 +149,53 @@ def validate_strategy_dryrun(directive_id: str, first_symbol: str, directive_pat
     except Exception as e:
         print(f"[DRYRUN] FATAL: check_entry() raised exception on bar {i}: {e}")
         return False
-    
+
+    # 5b. Probe check_exit() return-type contract (catch numpy.bool_ before Stage-1).
+    #     The engine asserts isinstance(result, (bool, str)) at every fill; a bare
+    #     comparison on indicator values returns a numpy.bool_ and crashes Stage-1
+    #     AFTER the full data load. Surface it here on the 1000-bar sample instead.
+    #     check_exit needs an in-position ctx -- strategies that read richer state
+    #     (entry_price, trailing stops, ...) raise here; that's a WARNING (type
+    #     unverified), never a fail. Only a *returned* non-native-bool/str is the
+    #     contract violation we hard-fail on.
+    exit_probed = False
+    try:
+        for i in range(len(df)):
+            row = df.iloc[i]
+            ns = types.SimpleNamespace(
+                row=row,
+                index=i,
+                direction=(1 if i % 2 == 0 else -1),  # exercise long- AND short-exit paths
+                trend_regime=row.get('trend_regime', None),
+                volatility_regime=row.get('volatility_regime', None),
+                trend_score=row.get('trend_score', None),
+                trend_label=row.get('trend_label', None),
+                entry_index=max(0, i - 5),
+                bars_held=5,
+            )
+            ctx = ContextView(ns)
+            try:
+                exit_result = strategy.check_exit(ctx)
+            except Exception:
+                continue  # needs richer ctx on this bar; try the next one
+            if not isinstance(exit_result, (bool, str)):
+                print(
+                    f"[DRYRUN] FATAL: check_exit() returned "
+                    f"{type(exit_result).__name__}, not a native bool/str. "
+                    f"Wrap comparisons: `return bool(<expr>)`. The engine asserts "
+                    f"isinstance(result, (bool, str)) at every fill -- a numpy.bool_ "
+                    f"would crash Stage-1 after the full data load."
+                )
+                return False
+            exit_probed = True
+    except Exception as e:
+        print(f"[DRYRUN] WARNING: check_exit probe setup failed: {e}. Skipping exit-type check.")
+
+    if exit_probed:
+        print("[DRYRUN] check_exit() return-type contract: OK (native bool/str).")
+    else:
+        print("[DRYRUN] WARNING: check_exit() not exercised on sample (needs richer ctx); return type unverified.")
+
     # 6. Report (zero signals = warning only, never a failure)
     if signal_count == 0:
         print(f"[DRYRUN] WARNING: 0 entry signals on {len(df)} sample bars.")

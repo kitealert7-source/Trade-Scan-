@@ -556,3 +556,11 @@ ideas:
     role: entry_edge
     instruments: IDX
     status: active
+  '72':
+    family: MR
+    title: "XAUUSD 5m DMA (Distance from Moving Average) mean-reversion fade -- fade a deep %-stretch from SMA(20): arm when price closes >=0.75% the wrong side of SMA20, enter on the first reversal-close (1-bar arming, Stage-1 minimal), trend-aligned via price vs SMA200 (== dma_pct(200) sign), exit on return to SMA20 (dma_pct(20) crosses 0) or 96-bar tail; wide non-binding ATR-10 catastrophic, NO tight stop (MR-stop paradox). The MA-distance member of the stretch family (vault dma-mean-reversion-trigger-cfd). OctaFX port of operator-tuned Pine (OANDA); long & short run as separate sweeps (S01/S02) to adjudicate OANDA-short vs OctaFX-long-bucket direction. next_bar_open, charged v1.5.10, swap-free. New indicator indicators.stats.dma_pct."
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    instruments: XAUUSD
+    status: active

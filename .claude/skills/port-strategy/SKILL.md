@@ -57,7 +57,11 @@ If you discover any other tool deriving root from `Path(__file__).parent.parent`
 
 4. **Date range.** Check the latest available bar for the symbol/timeframe in `data_root/MASTER_DATA/<SYMBOL>_OCTAFX_MASTER/RESEARCH/`. The `start_date` must be **strictly less** than the first available bar's timestamp — DATA_GATE compares timestamps, not dates. If the first bar lands at `2025-08-21T08:00:00`, `start_date: "2025-08-21"` (which normalizes to midnight) FAILS. Use `start_date: "2025-08-22"` (or earlier than 2025-08-21 if data goes that far back). The error to watch for: `missing start: 2025-08-21 -> 2025-08-21`.
 
-5. **Indicator separation.** Any indicator logic must live in `indicators/<category>/<name>.py` as an importable module. Inline computation inside `prepare_indicators` is rejected by Stage-0.5 Inline Indicator Detection. If the indicator doesn't exist yet, write it under `indicators/` first.
+5. **Indicator separation + new-indicator conformance.** Any indicator logic must live in `indicators/<category>/<name>.py` as an importable module — inline computation inside `prepare_indicators` is rejected by Stage-0.5 Inline Indicator Detection. If the indicator doesn't exist yet, write it under `indicators/` first. **Then, for every NEW indicator, before `new_pass.py`:**
+   - **(b) Declare a valid `SIGNAL_PRIMITIVE` + `PIVOT_SOURCE`.** Both must be in the allowlists in `tools/semantic_validator.py` (`_ALLOWED_PRIMITIVES`, `_ALLOWED_PIVOT_SOURCES`) or Stage-0.5 `_enforce_signal_primitive_contract` rejects admission. A genuinely new primitive needs an allowlist entry — that edit is **Protected Infra (Invariant #6): plan + approval first.** Non-signal regime inputs (`ema_regime`, `realized_vol`, …) are exempt — read via ctx, never declared.
+   - **(d) Sync the indicator registry.** Run `python tools/indicator_registry_sync.py --add-stubs` so the module lands in `INDICATOR_REGISTRY.yaml` — otherwise the startup guardrail (`Indicator Registry Sync`) hard-blocks the run.
+
+6. **Execution-rules schema conformance.** Every sub-key under an `execution_rules` block (`stop_loss`, `take_profit`, `entry_logic`, …) must be in `tools/canonical_schema.py::ALLOWED_SUB_KEYS[<block>]` — canonicalization (Stage −0.25, `canonicalizer.py`) raises `UNKNOWN_SUB_KEY` otherwise. **Read the allowed set for your block before writing it.** Common miss: `stop_loss` allows `{type, atr_multiplier, fixed_points, multiple, target, pct}` — **not** `atr_buffer` (use `atr_multiplier`). The names must appear identically in strategy.py's `STRATEGY_SIGNATURE` and the directive.
 
 ---
 
@@ -83,6 +87,8 @@ If you discover any other tool deriving root from `Path(__file__).parent.parent`
 5. **REQUIRED_CAPABILITIES + REQUIRED_CONTRACT_IDS.** Module-level lists at the bottom of strategy.py — copy from a recent strategy of the same family.
 
 6. **Stop-contract awareness (Pine ports especially).** If you compute `stop_price` and `tp_price` inside `check_entry` from the signal-bar close, and execution_timing is `next_bar_open`, expect the Stage-0.56 Stop Contract Guard to print **WARN**. That's expected for ports of Pine strategies that approximate next-open with close. To make it disappear, return only `signal` from `check_entry` and let the engine compute SL/TP from the actual fill price using the directive's ATR multiplier — but that *changes the strategy semantics*, so prefer WARN over silent edge drift.
+
+7. **`check_exit` must return a *native* `bool` or `str`.** The engine asserts `isinstance(result, (bool, str))` at every fill (`evaluate_bar.py` / `execution_loop.py`). A bare comparison on indicator values returns a **`numpy.bool_`**, which fails the check — and historically only at **Stage-1 runtime, after the full data load**. Wrap it: `return bool(dma_fast >= 0.0)`, never `return dma_fast >= 0.0`. The Stage-0.75 dry-run now probes this (added 2026-06-22), so a numpy-bool return fails in seconds on the sample instead of deep into the backtest.
 
 ---
 
@@ -175,6 +181,10 @@ P01+ should target the largest single weak cell from the report's `Edge Decompos
 | `Indicator Set Match` fails Stage-0.5 | Directive `indicators:` ≠ STRATEGY_SIGNATURE `indicators` | Sync both lists |
 | `SWEEP_IDEA_UNREGISTERED` | New idea not in sweep_registry.yaml | Add stub block manually before `new_pass.py --rehash` |
 | Stage-0.5 semantic mismatch on `repeat_override_reason` | Field present in STRATEGY_SIGNATURE | Remove from strategy.py — directive `test:` block only |
+| `UNKNOWN_SUB_KEY: Unknown keys in '<block>.<sub>'` at canonicalization (−0.25) | execution_rules sub-key not in `canonical_schema.ALLOWED_SUB_KEYS` (e.g. `stop_loss.atr_buffer`) | Use an allowed key — `stop_loss` → `atr_multiplier`, not `atr_buffer`; read `ALLOWED_SUB_KEYS[<block>]` |
+| Stage-0.5 `_enforce_signal_primitive_contract` rejects a declared indicator | New indicator's `SIGNAL_PRIMITIVE`/`PIVOT_SOURCE` not in `semantic_validator` allowlist | Add to `_ALLOWED_PRIMITIVES`/`_ALLOWED_PIVOT_SOURCES` — **Protected Infra: plan + approval** |
+| `check_exit() must return bool or str, got bool_` (now also at Stage-0.75 dry-run) | `check_exit` returns `numpy.bool_` from a bare comparison | Wrap the return: `return bool(<expr>)` |
+| `Indicator Registry` out-of-sync / startup guardrail blocks the run | New indicator module missing from `INDICATOR_REGISTRY.yaml` | `python tools/indicator_registry_sync.py --add-stubs` |
 | `LegDispatchError: <rule> ... no leg-strategy assignment` (new recycle/basket rule) | Rule missing from `run_pipeline.LEG_STRATEGY_DISPATCH` — the 5th of 5 wiring points (rule file · `recycle_rules/__init__` · `basket_pipeline` · registry.yaml · **run_pipeline dispatch**) | Add it, then run `tests/test_leg_strategy_dispatch.py` + `generate_guard_manifest.py` BEFORE launching the batch |
 | `Tool content hash mismatch for <tool>.py` at startup, or `[guard-manifest] COMMIT BLOCKED` at commit | Edited a guarded `tools/` file without regenerating the manifest — now caught at commit time by `lint_guard_manifest_sync.py` (pre-commit), with the runtime startup guard as backstop | `python tools/generate_guard_manifest.py && git add tools/tools_manifest.json`, then re-commit |
 
@@ -200,3 +210,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-06-04 | New recycle rule: 2 wasted full-universe runs (LegDispatchError, manifest hash) | Added recycle-rule wiring + manifest-regen rows to failure-mode lookup |
 | 2026-06-15 | Rule param on dataclass+tests but not _instantiate_rule ctor; corpus ran default | Per-pine wiring integration test (374b061a); param-wiring meta-test task spawned |
 | 2026-06-17 | Directive-contract line asserted Model-A identity (filename==test.strategy) as universal; contradicted /rerun-backtest variant rule + blocked basket/single-asset reruns | Scoped line to fresh-build + cross-ref rerun "Variant Naming Rule"; fixed both gates (_is_already_namespaced, namespace_gate) to Model B |
+| 2026-06-22 | Build-then-validate: 4 conformance gates (subkey/primitive/bool/registry) hit late | Added 4 to checklist+contract+failure-table; (c) native-bool probed at Stage-0.75 dry-run |

@@ -90,8 +90,12 @@ governance_updates:
     date: '2026-06-21'
     changes:
     - 'indicator_registry_sync: 1 stub entries added.'
-registry_version: 14
-generated_at: '2026-06-21T12:14:54+00:00'
+  version_15:
+    date: '2026-06-22'
+    changes:
+    - 'indicator_registry_sync: 2 stub entries added.'
+registry_version: 15
+generated_at: '2026-06-22T07:17:58+00:00'
 indicators:
   candle_state:
     module_path: indicators.price.candle_state
@@ -2784,6 +2788,18 @@ indicators:
     - high
     - low
     - close
+  armed_reversal:
+    module_path: indicators.events.armed_reversal
+    category: events
+    registered_at: '2026-06-22'
+    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
+      output_columns, etc.) to be backfilled.
+  dma_pct:
+    module_path: indicators.stats.dma_pct
+    category: stats
+    registered_at: '2026-06-22'
+    notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
+      output_columns, etc.) to be backfilled.
 registry_summary:
   total_indicators: 74
   by_category:

@@ -3577,3 +3577,31 @@ ideas:
         attempt: 2
         directive_hash: 8ff7ef2abd22d097
         directive_hash_full: 8ff7ef2abd22d097df3290fcb2098a8d34a462baad15d6b6b5f5e3e6e824ba26
+  '72':
+    next_sweep: 3
+    sweeps:
+      S01:
+        directive_name: 72_MR_XAUUSD_5M_DMA_S01_V1_P00
+        signature_hash: 64c3cf1e588ff1d6
+        signature_hash_full: 64c3cf1e588ff1d660cc14db6eb9fa859e6d0a2d03930131c725c7bbcbcd2261
+        reserved_at_utc: '2026-06-22T06:12:25.572975+00:00'
+        patches:
+          P00:
+            directive_name: 72_MR_XAUUSD_5M_DMA_S01_V1_P00__E001
+            reserved_at_utc: '2026-06-22T07:44:19.376187+00:00'
+            directive_hash: 0bcf2ca0c03bbff7
+            signature_hash: 0bcf2ca0c03bbff7
+            directive_hash_full: 0bcf2ca0c03bbff708df98948f6c2f35917bd12fb2b4e13b8f5e1eb21d301085
+            signature_hash_full: 0bcf2ca0c03bbff708df98948f6c2f35917bd12fb2b4e13b8f5e1eb21d301085
+        attempt: 3
+        directive_hash: 64c3cf1e588ff1d6
+        directive_hash_full: 64c3cf1e588ff1d660cc14db6eb9fa859e6d0a2d03930131c725c7bbcbcd2261
+      S02:
+        directive_name: 72_MR_XAUUSD_5M_DMA_S02_V1_P00
+        signature_hash: f4c65af4d14b86e1
+        signature_hash_full: f4c65af4d14b86e140fb3b8735caea581e5afee8e61b57b43153faeea308a1cf
+        reserved_at_utc: '2026-06-22T09:00:00.000000+00:00'
+        patches: {}
+        attempt: 3
+        directive_hash: f4c65af4d14b86e1
+        directive_hash_full: f4c65af4d14b86e140fb3b8735caea581e5afee8e61b57b43153faeea308a1cf

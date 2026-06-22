@@ -224,6 +224,34 @@ def record_run(entry: dict) -> None:
         _save_registry_atomic(reg)
 
 
+def delete_run(run_id: str) -> bool:
+    """Remove a run's registry entry entirely. Sanctioned ONLY for auto-cleanup of
+    terminally-FAILED zero-artifact runs (tools/state_lifecycle/failed_run_cleanup.py)
+    and operator drops -- never a worker write path. Co-located in this module so the
+    registry-topology guard (only system_registry mutates the registry) holds. Locked
+    + atomic; also removes a per-run shard if parallel-batch sharding is active.
+    Returns True if an entry/shard was removed."""
+    if not run_id or not str(run_id).strip():
+        return False
+    removed = False
+    shard_dir = os.environ.get(REGISTRY_SHARD_ENV)
+    if shard_dir:
+        shard = Path(shard_dir) / f"{run_id}.json"
+        try:
+            if shard.exists():
+                shard.unlink()
+                removed = True
+        except Exception:
+            pass
+    with FileLock(str(LOCK_PATH)):
+        reg = _load_registry()
+        if run_id in reg:
+            del reg[run_id]
+            _save_registry_atomic(reg)
+            removed = True
+    return removed
+
+
 def log_run_to_registry(run_id: str, status: str, directive_id: str):
     """
     Log a run into the master lifecycle ledger.
@@ -737,6 +765,10 @@ def _get_directive_first_execution_timestamp(directive_id: str):
 
     Primary source: run_registry.json
       - Filter entries where directive_hash == directive_id
+      - Skip zero-artifact terminal runs (Layer 2) via the shared
+        is_zero_artifact_terminal_run predicate: a crash that produced no result
+        must not anchor a directive's "first execution" -- otherwise
+        EXPERIMENT_DISCIPLINE punishes infra failures rather than strategy changes
       - Parse created_at, return the minimum
 
     Fallback (registry missing / empty / no matching entries):
@@ -750,13 +782,21 @@ def _get_directive_first_execution_timestamp(directive_id: str):
     Returns None if no runs found → treated as new directive, reset allowed.
     All exceptions are caught safely; missing data is skipped, never crashes.
     """
+    # Shared predicate (lazy import keeps system_registry's top level a pure CRUD
+    # surface and avoids a module-load cycle with the cleanup-policy module).
+    from tools.state_lifecycle.failed_run_cleanup import is_zero_artifact_terminal_run
+
     # --- PRIMARY: run_registry.json ---
     registry_ts = None
     if REGISTRY_PATH.exists():
         try:
             reg = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
-            for entry in reg.values():
+            for rid, entry in reg.items():
                 if entry.get("directive_hash") != directive_id:
+                    continue
+                # Layer 2: a zero-artifact terminal run never anchors "first
+                # execution" (same shared predicate Layer-1 cleanup deletes on).
+                if is_zero_artifact_terminal_run(entry.get("run_id", rid)):
                     continue
                 raw = entry.get("created_at", "")
                 if not raw:
@@ -789,6 +829,9 @@ def _get_directive_first_execution_timestamp(directive_id: str):
         try:
             rs = json.loads(rs_file.read_text(encoding="utf-8"))
             if rs.get("directive_id") != directive_id:
+                continue
+            # Layer 2 (fallback path): same shared predicate.
+            if is_zero_artifact_terminal_run(run_dir.name):
                 continue
 
             ts = None

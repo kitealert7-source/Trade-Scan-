@@ -17,6 +17,7 @@ from tools.run_pipeline import (
     verify_manifest_integrity,
 )
 from tools.orchestration.pipeline_errors import PipelineAdmissionPause
+import tools.state_lifecycle.failed_run_cleanup as frc
 
 
 class TestGuardrailsStartup(unittest.TestCase):
@@ -159,6 +160,90 @@ class TestGuardrailsStartup(unittest.TestCase):
             }
             with self.assertRaises(PipelineAdmissionPause):
                 gate_registry_consistency()
+
+
+class TestPruneCompletedBaseStubs(unittest.TestCase):
+    """prune_completed_base_stubs(): startup self-heal of single-asset base stubs.
+
+    A single-asset run's real artifacts land in its variant dir
+    strategies/<id>__E###/, leaving the base dir strategies/<id>/ holding only
+    engine_resolution.json. The sweep must remove ONLY that bare stub -- never a
+    populated, multi-symbol, or otherwise-non-empty dir -- and detect_strategy_drift
+    must pass once it has run.
+
+    prune_completed_base_stubs / _delete_orphan_strategy_dir / _audit read their
+    paths from the failed_run_cleanup (frc) module namespace; detect_strategy_drift
+    reads STRATEGIES_DIR from run_pipeline's namespace. Both are redirected to a
+    temp tree so nothing touches the real TradeScan_State or registry.
+    """
+
+    def setUp(self):
+        self.test_root = PROJECT_ROOT / "tmp" / "test_base_stub_prune"
+        if self.test_root.exists():
+            shutil.rmtree(self.test_root)
+        self.test_root.mkdir(parents=True)
+        self.strat_dir = self.test_root / "strategies"
+        self.strat_dir.mkdir()
+        self.registry_dir = self.test_root / "registry"
+
+        self._orig_frc = (frc.STRATEGIES_DIR, frc.REGISTRY_DIR, frc._AUDIT_LOG)
+        frc.STRATEGIES_DIR = self.strat_dir
+        frc.REGISTRY_DIR = self.registry_dir
+        frc._AUDIT_LOG = self.registry_dir / "auto_deleted_runs.jsonl"
+        self._orig_rp_strat = rp.STRATEGIES_DIR
+        rp.STRATEGIES_DIR = self.strat_dir
+
+    def tearDown(self):
+        frc.STRATEGIES_DIR, frc.REGISTRY_DIR, frc._AUDIT_LOG = self._orig_frc
+        rp.STRATEGIES_DIR = self._orig_rp_strat
+        if self.test_root.exists():
+            shutil.rmtree(self.test_root)
+
+    def _mk(self, name, files=(), subdirs=()):
+        d = self.strat_dir / name
+        d.mkdir(parents=True)
+        for f in files:
+            (d / f).write_text("{}", encoding="utf-8")
+        for sd in subdirs:
+            (d / sd).mkdir(parents=True)
+        return d
+
+    def test_prunes_bare_engine_resolution_stub(self):
+        stub = self._mk("72_MR_XAUUSD_5M_DMA_S01_V1_P00", files=["engine_resolution.json"])
+        self.assertEqual(frc.prune_completed_base_stubs(), 1)
+        self.assertFalse(stub.exists())
+        # Deletion is audit-logged, not silent.
+        self.assertTrue(frc._AUDIT_LOG.exists())
+        rec = json.loads(frc._AUDIT_LOG.read_text(encoding="utf-8").strip())
+        self.assertEqual(rec["directive_id"], "72_MR_XAUUSD_5M_DMA_S01_V1_P00")
+        # The drift guard now passes on the cleaned tree.
+        detect_strategy_drift(self.test_root)  # must not raise
+
+    def test_keeps_multisymbol_base_with_strategy_py(self):
+        base = self._mk("BASE_X", files=["engine_resolution.json", "strategy.py"])
+        self.assertEqual(frc.prune_completed_base_stubs(), 0)
+        self.assertTrue(base.exists())
+
+    def test_keeps_stub_with_unexpected_extra_file(self):
+        d = self._mk("HAS_EXTRA", files=["engine_resolution.json", "notes.txt"])
+        self.assertEqual(frc.prune_completed_base_stubs(), 0)
+        self.assertTrue(d.exists())
+
+    def test_keeps_dir_with_deployable_or_portfolio(self):
+        a = self._mk("HAS_DEPLOY", files=["engine_resolution.json"], subdirs=["deployable"])
+        b = self._mk("HAS_PEVAL", files=["engine_resolution.json"], subdirs=["portfolio_evaluation"])
+        self.assertEqual(frc.prune_completed_base_stubs(), 0)
+        self.assertTrue(a.exists())
+        self.assertTrue(b.exists())
+
+    def test_keeps_underscore_prefixed_dir(self):
+        d = self._mk("_archive", files=["engine_resolution.json"])
+        self.assertEqual(frc.prune_completed_base_stubs(), 0)
+        self.assertTrue(d.exists())
+
+    def test_no_strategies_dir_is_noop(self):
+        shutil.rmtree(self.strat_dir)
+        self.assertEqual(frc.prune_completed_base_stubs(), 0)
 
 
 if __name__ == "__main__":

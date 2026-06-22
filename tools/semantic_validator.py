@@ -183,6 +183,8 @@ _ALLOWED_PRIMITIVES = {
     "session_clock_universal",
     "spread_sma_cross",
     "regime",
+    "distance_from_moving_average_pct",   # dma_pct (idea 72 — MA-distance stretch)
+    "armed_reversal_event",               # armed_reversal event engine (idea 72)
 }
 _ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3", "session_high_low"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}

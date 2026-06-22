@@ -672,6 +672,16 @@ def map_pipeline_error(err):
                 try:
                     if fail_run_best_effort(rid):
                         print(f"[CLEANUP] Marking run {rid} as FAILED")
+                        # Layer 1: a terminally-FAILED zero-artifact run is crash
+                        # debris -- delete it at source so it neither anchors
+                        # EXPERIMENT_DISCIPLINE nor orphans a strategies/<id> dir.
+                        try:
+                            from tools.state_lifecycle.failed_run_cleanup import (
+                                delete_failed_run_if_safe,
+                            )
+                            delete_failed_run_if_safe(rid, getattr(err, "directive_id", None))
+                        except Exception as del_err:
+                            print(f"[WARN] auto-delete check failed for {rid}: {del_err}")
                 except Exception as cleanup_err:
                     print(f"[WARN] Failed to cleanup run {rid}: {cleanup_err}")
         return err.exit_code
@@ -2173,6 +2183,16 @@ def main():
         validate_inbox_directive_tokens()
         verify_tools_timestamp_guard(PROJECT_ROOT)
         enforce_run_schema(PROJECT_ROOT)
+        # Self-heal: prune benign COMPLETED single-asset base stubs
+        # (engine_resolution.json-only; the run's real artifacts live in the
+        # <id>__E### variant dir) BEFORE the drift guard, so the guard stays
+        # strict yet never blocks the pipeline on a post-completion leftover.
+        # See FAILURE_PLAYBOOK: detect_strategy_drift DRIFT_ORPHAN.
+        try:
+            from tools.state_lifecycle.failed_run_cleanup import prune_completed_base_stubs
+            prune_completed_base_stubs()
+        except Exception as _stub_err:
+            print(f"[WARN] base-stub self-heal skipped: {_stub_err}")
         detect_strategy_drift(PROJECT_ROOT)
         gate_registry_consistency()
         
