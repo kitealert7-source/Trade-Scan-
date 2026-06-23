@@ -1,9 +1,10 @@
 # SYSTEM STATE
 
 ## SESSION STATUS: WARNING
+- WARNING: 6 symbol(s) stale (>3 days behind)
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-22T12:26:01Z
+> Generated: 2026-06-23T10:55:47Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -14,17 +15,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 21 directives
+- Completed: 25 directives
 
 ## Ledgers
 
-- **Master Filter:** 1274 rows
+- **Master Filter:** 1277 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
   - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
 
-- **Candidates (FPS):** 391 rows — CORE: 15, FAIL: 246, RESERVE: 26, WATCH: 104
+- **Candidates (FPS):** 393 rows — CORE: 15, FAIL: 247, RESERVE: 26, WATCH: 105
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -34,15 +35,15 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-22** | Symbols: 221
+- Latest bar: **2026-06-23** | Symbols: 221 | **Stale (>3d): 6**
 
 ## Artifacts
-- Run directories: 3342
+- Run directories: 3346
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: 1 uncommitted
-- Last substantive commit: `0a18b2f0 fix(registry): backfill armed_reversal + dma_pct metadata; total_indicators 74->76`
+- Last substantive commit: `1e28e382 session: idea-gate guard-manifest refresh`
 
 ## Deferred Maintenance
 
@@ -83,6 +84,7 @@
 - 2026-06-20 — research session; 2 operator-approved freeze overrides (MPS: drop redundant `all_profitable` column + add SQL-backed `universe` elite/all column with elite-default AutoFilter; build idea-69 SPX500 RSI-MR strategy). Research: cointegration BTCUSDEUSTX50 episode-vs-strategy study (full-window run = regime-conditional, not a portable edge) + Cointegration Research Universe report/funnel (265→36); new SPX500 RSI Power Zone MR arc (idea 69) Stage-1/2 + 10-index breadth — edge real (SPX500/NAS100 PF ~1.7) but ~8 trades/yr, too sparse to deploy standalone. Freeze otherwise held.
 - 2026-06-21 — operator-approved freeze exception (non-fatal, but a masked worker path left silent-failure modes UNPROTECTED — rules protect the system, not preserve a degraded state): landed worker anti-masking (self-contained diagnostics on any failed/empty run + FAILED-vs-NO_TRADES split, locked by `tests/test_worker_silent_failure_classification.py`). Research under the freeze: union idea-71 (RSI∪IBS) governed to **WATCH** via /rerun-backtest (run `894fa6ff`; required clearing crashed-run debris that false-tripped EXPERIMENT_DISCIPLINE first-exec). /session-retro routed 6 findings; ★HIGH-ROI = exclude crashed runs from the first-exec guard. Freeze otherwise held.
 - 2026-06-22 — research (DMA gold-5m MR-fade, idea 72) + operator-directed infra hardening from a `/session-retro` (**delivers the 2026-06-21 ★HIGH-ROI**): (1) two-layer auto-delete of zero-artifact crashed runs — `is_zero_artifact_terminal_run` shared predicate (Layer-1 at the failure handler + Layer-2 first-exec filter) + `prune_completed_base_stubs` orphan self-heal — kills the EXPERIMENT_DISCIPLINE first-exec false-trip + the orphan-dir block AT SOURCE; (2) port-strategy governance-conformance checklist + Stage-0.75 `check_exit` native-bool probe; (3) classifier **semver admission model** — structural + `signal_version` bump = ALLOW (retires per-leaf whitelisting) + identity guard (family/model/symbol/timeframe = new idea; supersedes "TF variant = sweep sibling"). DMA research: S01 (regime filter) +$202/FAIL + S02 (no filter) −$375/FAIL → **filter LOAD-BEARING, arc mid-probe** (drop-London P01 = next session's first action); adopted the "a FAIL is a probe into a response surface" methodology ([[feedback_fail_is_a_probe]]). All infra operator-directed; `/skill-maintenance` deferred per freeze; freeze otherwise held.
+- 2026-06-23 — research session (freeze held; light operator-directed infra only). DMA gold-5m arc (idea 72): **P01** (no-LONG-in-`market_regime=unstable_trend` gate) + **P02** (+London exclusion via `session_clock` realigned to the report canon 08-16) → regime-conditional **WATCH** (SQN 0.74→2.13, net −375→+707, all 7 dir×regime cells positive); depth-threshold + regime-removal simplifications tested and **rejected**; `REGIME_FIELD_CAUSALITY_AUDIT_2026-06-23` proves `market_regime`/`trend_label` are causal/point-in-time/engine-owned (safe entry filters — use `_signal` not `_fill`). Portfolio probe (gold trend complement to P02): existing gold trend/breakout engines (`05_PORT`/MACDX, PSBRK) **NOT faithfully recoverable** (corpus-prune + on-disk directive drift + gitignored `strategy.py`); `05_PORT` re-run as a *current candidate* FAILS full-history charged (8 straight losing years, PF 1.08, −135% DD; trend_expansion negative → a 2025-26 vol-regime artifact, not trend-following) → **no ready gold trend complement**; `Archive\AK` holds none (USDJPY/SPX only). Reproducibility-gap finding (pruned single-asset strategy.py unrecoverable) surfaced. Infra touched (operator-directed): `session_clock` boundary realign + `sweep_registry` 05/S04 hash plumbing for reruns.
 
 #### Governed worker-path NO_TRADES false-negative — RESOLVED, anti-masking landed (2026-06-21)
 Investigation closed. The "worker produces nothing for the union `71_MR_IDX_1D_UNION_S01_V1_P00`" symptom had **two masked causes**, neither a novel worker bug: (1) the union's first governed run crashed inside `run_stage1` on a `numpy.bool_` return from `check_exit` (the engine requires a Python `bool`/`str`) — already FIXED in the strategy snapshot (direct `run_stage1`+`run_engine` = **314 trades / $405**, proven twice); (2) every plain `run_pipeline` re-run since SKIPPED the worker entirely — `run_skill` ran **0 times**, because `claim_next_planned_run` returns None for the stuck deterministic run_id `8930d9ad` (a FAILED run is not re-planned). Cause (2) is **by design**: a failed/stuck run_id must be re-run via `/rerun-backtest`, not plain re-admission. Both were invisible only because the worker masked them. **Anti-masking fix LANDED + tested** (protected-infra plan approved + freeze lifted for it): `tools/skill_loader.py:run_skill` now persists a self-contained bundle (`crash_trace.log` + `worker_stdout.log`/`worker_stderr.log`/`worker_command.txt`) whenever the worker exits non-zero OR leaves no run dir / no data dir / no trade log; `tools/orchestration/stage_symbol_execution.py` splits a missing trade log into genuine NO_TRADES (data dir present) vs **SILENT FAILURE** (no data dir → real FAILED) via `missing_tradelog_is_silent_failure()`, locked by `tests/test_worker_silent_failure_classification.py` (3 passing). **VERDICT OBTAINED (2026-06-21): WATCH** — governed run `894fa6ff` (Stages 1-4 + capital wrapper + promotion): SQN 2.92, PF 1.62, net $404.99, 314 trades, maxDD 9.11%, ret/DD 4.45, all vol+trend regimes positive; net <$1000 caps at WATCH (else CORE-grade). The `/rerun-backtest` path hit a second guard — `EXPERIMENT_DISCIPLINE` blocked because the base strategy's crashed same-day run (15:21) counted as "first execution" and the rerun's signal_version bump re-hashed strategy.py (15:39) after it. Operator-approved unblock: cleared the union's crashed-run debris from `run_registry.json` + `RUNS_DIR` (a crash is not a valid first execution; backup at `run_registry.json.bak_clearunion_20260621`), which reset the first-exec guard → worker ran (run_skill executed, 314 trades). Multi-index expansion now unblocked (operator call). Still open as a separate follow-up: the Stage-1 emitter drops `entry_reason` (native signal-overlap; had to be reconstructed).
