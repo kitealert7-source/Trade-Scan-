@@ -240,14 +240,14 @@ ideas:
         signature_hash_full: 4dbcca9193ed8889d5fdee1a572f610ef43757da10a4cda397c4ccd3f9b4a3f9
       S04:
         directive_name: 05_PORT_XAUUSD_5M_PORT_TRENDFILT_S04_V1_P00
-        signature_hash: 6914b5aaa6facc15
-        signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+        signature_hash: f4e828f84e38d59d
+        signature_hash_full: f4e828f84e38d59d21725b232559a03024ba7be51ddcf838a8baf07909071e41
         reserved_at_utc: '2026-04-21T08:06:30.598430+00:00'
         patches:
           P00:
             directive_name: 05_PORT_XAUUSD_5M_PORT_TRENDFILT_S04_V1_P00
-            signature_hash: 6914b5aaa6facc15
-            signature_hash_full: 6914b5aaa6facc1512c67ee77bfd2064caf3ec669c10af8ce9158a43196071e7
+            signature_hash: f4e828f84e38d59d
+            signature_hash_full: f4e828f84e38d59d21725b232559a03024ba7be51ddcf838a8baf07909071e41
             reserved_at_utc: '2026-04-21T08:06:30.598430+00:00'
   '06':
     next_sweep: 3
@@ -3601,7 +3601,21 @@ ideas:
         signature_hash: f4c65af4d14b86e1
         signature_hash_full: f4c65af4d14b86e140fb3b8735caea581e5afee8e61b57b43153faeea308a1cf
         reserved_at_utc: '2026-06-22T09:00:00.000000+00:00'
-        patches: {}
+        patches:
+          P01:
+            directive_name: 72_MR_XAUUSD_5M_DMA_S02_V1_P01
+            reserved_at_utc: '2026-06-23T08:20:31.554659+00:00'
+            directive_hash: 1d65fd371a6329b8
+            signature_hash: 1d65fd371a6329b8
+            directive_hash_full: 1d65fd371a6329b833a9e729a46f448d2b2e71353f266779bfe5aade5e14d95f
+            signature_hash_full: 1d65fd371a6329b833a9e729a46f448d2b2e71353f266779bfe5aade5e14d95f
+          P02:
+            directive_name: 72_MR_XAUUSD_5M_DMA_S02_V1_P02
+            reserved_at_utc: '2026-06-23T09:16:25.241594+00:00'
+            directive_hash: ffd94bb0c24d950c
+            signature_hash: ffd94bb0c24d950c
+            directive_hash_full: ffd94bb0c24d950c9a8d86dc32135f8d5c2b0ea844b2fa1c120704d55dcab9fd
+            signature_hash_full: ffd94bb0c24d950c9a8d86dc32135f8d5c2b0ea844b2fa1c120704d55dcab9fd
         attempt: 3
         directive_hash: f4c65af4d14b86e1
         directive_hash_full: f4c65af4d14b86e140fb3b8735caea581e5afee8e61b57b43153faeea308a1cf

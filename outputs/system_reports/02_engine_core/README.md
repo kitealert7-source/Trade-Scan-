@@ -6,6 +6,7 @@ Read before touching anything in `engine_dev/` or `engines/`.
 |---|---|
 | `ENGINE_EXECUTION_AUDIT_v1_5_3.md` | Before modifying execution logic, stop/TP rules, or FilterStack. Covers all execution items with PASS/FAIL verdicts. |
 | `ENGINE_VALIDATION_AUDIT.md` | Before changing stage validation, schema enforcement, or admission logic. Maps each stage to its validation code. |
+| `REGIME_FIELD_CAUSALITY_AUDIT_2026-06-23.md` | Before gating a strategy entry on `market_regime` / `trend_label` (or trusting a trade decomposition sliced on them). Proves the `_signal` variants are causal/point-in-time/engine-owned (use `_signal`, never `_fill`). |
 
 **Engine version locked to `v1_5_3`.** Do not modify frozen engine files.
 Changes require a new versioned directory and registry update in `config/engine_registry.json`.

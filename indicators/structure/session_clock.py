@@ -5,11 +5,15 @@ Per-bar session classification, sequence numbering, running extremes, timing,
 and day-of-week. Strict no-lookahead (running extremes via cummax/cummin per
 session_seq).
 
-Boundaries (UTC):
-    asia:   00:00 - 07:00   (TOCOM core + SGE morning)
-    london: 07:00 - 13:00   (London open through pre-NY, incl. AM fix)
-    ny:     13:00 - 21:00   (NY open through COMEX pit close, incl. PM fix)
-    none:   21:00 - 24:00   (dead zone, no tradeable session)
+Boundaries (UTC) — ALIGNED TO THE CANONICAL REPORT/RESEARCH SESSION DEFINITION
+(`tools/report/report_sessions.py` _classify_session, mirrored from stage2_compiler.py),
+so strategy SESSION GATING uses the exact same hours that report bucketing / the AK
+report Session Breakdown use. These three MUST stay in sync — see SESSION_BOUNDARIES
+note below. (Prior XAU-liquidity-tuned values asia 0-7 / london 7-13 / ny 13-21 were
+unused by any strategy and diverged from the report basis; realigned 2026-06-23.)
+    asia:   00:00 - 08:00
+    london: 08:00 - 16:00   (matches report_sessions._LONDON_START/_END = 8, 16)
+    ny:     16:00 - 24:00
 
 Output columns:
     session_id            : str   (asia | london | ny | none)
@@ -28,17 +32,21 @@ import numpy as np
 SIGNAL_PRIMITIVE = "session_clock"
 PIVOT_SOURCE = "none"
 
-# --- XAU Liquidity-Driven Session Boundaries (UTC hours) ---
+# --- Canonical Report/Research Session Boundaries (UTC hours) ---
+# MUST mirror tools/report/report_sessions.py (_ASIA/_LONDON/_NY _START/_END) and
+# stage2_compiler.py. Gating-vs-reporting consistency depends on it. NY covers 16-24
+# (no dead zone) to match the report's _NY_END = 24. (Single-source-of-truth refactor
+# — import these from one shared module — is a deferred follow-up.)
 SESSION_BOUNDARIES = {
-    "asia":   (0, 7),
-    "london": (7, 13),
-    "ny":     (13, 21),
+    "asia":   (0, 8),
+    "london": (8, 16),
+    "ny":     (16, 24),
 }
 
-# Expected 15M-bar count per session (drives pct_elapsed)
+# Expected 15M-bar count per session (drives pct_elapsed only; gating uses session_id)
 SESSION_BAR_COUNTS_15M = {
-    "asia":   28,   # 7h * 4 bars/h
-    "london": 24,   # 6h * 4 bars/h
+    "asia":   32,   # 8h * 4 bars/h
+    "london": 32,   # 8h * 4 bars/h
     "ny":     32,   # 8h * 4 bars/h
 }
 
