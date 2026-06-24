@@ -39,6 +39,12 @@ _COSMETIC_KEYS = frozenset({
     "description",
     "notes",
     "repeat_override_reason",
+    # Rerun provenance breadcrumb injected by tools/rerun_backtest.py alongside
+    # repeat_override_reason (F1 2026-06-14 captures it for name-targets too). Pure
+    # provenance (origin run_id) — ZERO behavioural effect — so a rerun_of-only delta
+    # must NOT read as structural (which would wrongly force a signal_version bump on
+    # a byte-identical ENGINE/DATA_FRESH rerun).
+    "rerun_of",
 })
 
 _IDENTITY_KEYS = frozenset({

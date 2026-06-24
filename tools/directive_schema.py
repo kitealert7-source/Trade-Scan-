@@ -26,6 +26,7 @@ NON_SIGNATURE_KEYS = frozenset({
     "session_time_reference", "start_date", "end_date",
     "research_mode", "tuning_allowed", "parameter_mutation",
     "repeat_override_reason",
+    "rerun_of",   # rerun provenance breadcrumb (write-only; must not change the signature hash)
     "stop_contract_guard",
 })
 

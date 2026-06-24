@@ -98,6 +98,12 @@ ALLOWED_NESTED_KEYS = {
         # NOT for parameter tweaks, casual retries, or low-PF retries.
         # Minimum 50 chars. Logged to governance/idea_gate_overrides.csv.
         "repeat_override_reason",
+        # Rerun provenance breadcrumb injected by tools/rerun_backtest.py (F1,
+        # 2026-06-14) — the originating run_id. Write-only (no consumer reads it);
+        # registered here + in directive_schema.NON_SIGNATURE_KEYS +
+        # directive_diff_classifier._COSMETIC_KEYS so it is accepted, inert to the
+        # signature hash, and not mis-read as a structural change.
+        "rerun_of",
         # User-declared signal-primitive version (integer). Increments when
         # the underlying signal definition changes (e.g. CHOCH_V2 -> V3).
         # Phase 2 will wire this into the Idea Gate as part of the repeat key
@@ -218,7 +224,7 @@ CANONICAL_KEY_ORDER = {
         "name", "family", "strategy", "version", "signal_version", "broker",
         "timeframe", "session_time_reference", "start_date", "end_date",
         "research_mode", "tuning_allowed", "parameter_mutation",
-        "description", "notes", "repeat_override_reason",
+        "description", "notes", "repeat_override_reason", "rerun_of",
     ],
     "execution_rules": [
         "pyramiding", "entry_when_flat_only", "reset_on_exit",
