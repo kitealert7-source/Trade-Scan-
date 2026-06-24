@@ -405,6 +405,41 @@ def _patch_key_from_name(name: str) -> str | None:
     return f"P{m.group(1)}" if m else None
 
 
+def _intrinsic_coords(name: str) -> tuple[str | None, str | None, str | None]:
+    """Parse a directive_name's OWN (idea, sweep, patch) coordinates from its name.
+
+    Used for drift attribution: a registry entry whose name's intrinsic coordinates
+    contradict the slot it is stored under is mis-filed (registry corruption), not a
+    genuine collision. Returns (idea|None, sweep|None, patch|None); a component that
+    cannot be parsed is returned as None (fail-safe toward COLLISION, never DRIFT)."""
+    name = str(name).strip()
+    m_idea = re.match(r"^(\d{2})_", name)
+    m_sweep = re.search(r"_S(\d{2})_V", name)
+    return (
+        m_idea.group(1) if m_idea else None,
+        f"S{m_sweep.group(1)}" if m_sweep else None,
+        _patch_key_from_name(name),
+    )
+
+
+def _slot_drift(registered_name: str, idea_id: str, sweep_key: str,
+                patch_key: str | None = None) -> tuple[bool, tuple[str | None, str | None, str | None]]:
+    """Distinguish DRIFT (mis-filed corruption) from a genuine COLLISION.
+
+    A slot keyed (idea_id, sweep_key[, patch_key]) is DRIFTED when the entry stored
+    there carries a directive_name whose own intrinsic coordinates contradict the
+    slot — e.g. a '..._S03_..._P02' directive occupying the S02/P02 patch slot. An
+    unparseable (None) intrinsic component never triggers drift. Returns
+    (is_drifted, (idea, sweep, patch)_actual)."""
+    r_idea, r_sweep, r_patch = _intrinsic_coords(registered_name)
+    drifted = (
+        (r_idea is not None and r_idea != str(idea_id))
+        or (r_sweep is not None and r_sweep != str(sweep_key))
+        or (patch_key is not None and r_patch is not None and r_patch != str(patch_key))
+    )
+    return drifted, (r_idea, r_sweep, r_patch)
+
+
 def reserve_sweep_identity(
     idea_id: str,
     directive_name: str,
@@ -564,6 +599,24 @@ def reserve_sweep_identity(
                                 "signature_hash": signature_hash,
                             }
                         if not _hashes_match(existing_patch_hash, signature_hash):
+                            # Attribution: is this a genuine collision, or is the slot
+                            # occupied by a mis-filed (drifted) entry? A drifted entry's
+                            # directive_name parses to coordinates other than this slot's.
+                            _reg_name = str(existing_patch.get("directive_name", "")).strip()
+                            _drifted, _actual = _slot_drift(_reg_name, idea_id, requested_key, patch_key)
+                            if _drifted:
+                                raise SweepRegistryError(
+                                    f"REGISTRY_DRIFT: patch slot idea_id='{idea_id}' "
+                                    f"sweep='{requested_key}' patch='{patch_key}' is occupied by "
+                                    f"'{_reg_name}', whose own coordinates are idea='{_actual[0]}' "
+                                    f"sweep='{_actual[1]}' patch='{_actual[2]}' — it does not belong "
+                                    f"in this slot (registry corruption, NOT a real collision). "
+                                    f"Expected owner: a directive at {idea_id}/{requested_key}/{patch_key} "
+                                    f"(incoming '{directive_name}' qualifies). "
+                                    f"Sanctioned repair (human-approved, no manual YAML): "
+                                    f"python tools/repair_sweep_registry.py --idea {idea_id} "
+                                    f"--sweep {requested_key} --patch {patch_key} --dry-run  (then --apply)."
+                                )
                             raise SweepRegistryError(
                                 f"PATCH_COLLISION: idea_id='{idea_id}' sweep='{requested_key}' "
                                 f"patch='{patch_key}' already registered with a different hash."
@@ -623,6 +676,19 @@ def reserve_sweep_identity(
                             f"directive='{directive_name}' because a COMPLETE run exists."
                         )
 
+                # Attribution: a sweep slot owned by a directive whose own coordinates
+                # contradict the slot is drifted (corruption), not a genuine collision.
+                _sweep_drifted, _sweep_actual = _slot_drift(existing_directive, idea_id, requested_key)
+                if _sweep_drifted:
+                    raise SweepRegistryError(
+                        f"REGISTRY_DRIFT: sweep slot idea_id='{idea_id}' sweep='{requested_key}' "
+                        f"is owned by '{existing_directive}', whose own coordinates are "
+                        f"idea='{_sweep_actual[0]}' sweep='{_sweep_actual[1]}' — it does not belong "
+                        f"in this slot (registry corruption, NOT a real collision). "
+                        f"Sanctioned repair (human-approved, no manual YAML): "
+                        f"python tools/repair_sweep_registry.py --idea {idea_id} "
+                        f"--sweep {requested_key} --dry-run  (then --apply)."
+                    )
                 raise SweepRegistryError(
                     "SWEEP_COLLISION: "
                     f"idea_id='{idea_id}' sweep='{requested_key}' already allocated to "
