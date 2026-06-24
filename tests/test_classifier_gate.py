@@ -490,6 +490,49 @@ def test_pass_when_indicator_hash_matches_and_no_signal_change(sandbox):
     assert v.classification == "PARAMETER"
 
 
+# ---------------------------------------------------------------------------
+# Engine Patch A (v1.5.11): engine_features.invalid_fill_policy forces a bump
+# ---------------------------------------------------------------------------
+
+def _append_engine_features(path: Path, policy: str) -> Path:
+    """Append a root-level engine_features block to an already-written directive."""
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + f"\nengine_features:\n  invalid_fill_policy: {policy}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_block_when_invalid_fill_policy_set_without_sv_bump(sandbox):
+    # Prior has no engine_features; current sets SKIP at the SAME signal_version.
+    # The flag is SIGNAL-level -> must BLOCK until signal_version is bumped.
+    _write_directive(
+        sandbox["prior_dir"], "11_STR_FX_1H_CHOCH_S01_V1_P00", sv=1,
+    )
+    cur = _write_directive(
+        sandbox["inbox"], "12_STR_FX_1H_CHOCH_S01_V1_P00", sv=1,
+    )
+    _append_engine_features(cur, "SKIP")
+    v = evaluate(cur, project_root=sandbox["root"], search_dirs=[sandbox["prior_dir"]])
+    assert v.verdict == "BLOCK"
+    assert v.classification == "SIGNAL"
+
+
+def test_pass_when_invalid_fill_policy_set_with_sv_bump(sandbox):
+    # Same change, but signal_version bumped -> the operator declared it -> PASS.
+    _write_directive(
+        sandbox["prior_dir"], "11_STR_FX_1H_CHOCH_S01_V1_P00", sv=1,
+    )
+    cur = _write_directive(
+        sandbox["inbox"], "12_STR_FX_1H_CHOCH_S01_V1_P00", sv=2,
+    )
+    _append_engine_features(cur, "SKIP")
+    v = evaluate(cur, project_root=sandbox["root"], search_dirs=[sandbox["prior_dir"]])
+    assert v.verdict == "PASS"
+    assert v.classification == "SIGNAL"
+
+
 if __name__ == "__main__":
     import subprocess, sys
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-v"]))

@@ -75,8 +75,8 @@ def normalize_engine_token(token: str, style: str = "underscore") -> str:
 # --- The TWO switches for the whole system (today). A staged convergence
 #     (UNIFIED_ENGINE_AUTHORITY_PLAN.md §4) flips these; the gate proves neither
 #     silently diverges from the real compute. ---
-CANONICAL_ENGINE_ABI = "engine_abi.v1_5_10"          # basket compute ABI (Phase B flip 2026-06-17)
-CANONICAL_SINGLE_ASSET_ENGINE = "v1_5_10"            # single-asset engine (Phase C flip 2026-06-17)
+CANONICAL_ENGINE_ABI = "engine_abi.v1_5_11"          # basket compute ABI (Patch A core promote 2026-06-24; byte-identical to v1.5.10)
+CANONICAL_SINGLE_ASSET_ENGINE = "v1_5_11"            # single-asset engine (Patch A core promote 2026-06-24; byte-identical to v1.5.10)
 
 # Derived dotted forms (parsed from the two switches above — never hand-set).
 CANONICAL_ENGINE_VERSION_DOTTED = normalize_engine_token(CANONICAL_ENGINE_ABI, "dotted")               # "1.5.10"

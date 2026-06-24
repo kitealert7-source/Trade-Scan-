@@ -22,9 +22,9 @@ Top-level modules are operational entrypoints; modules under subpackages
 `utils/`, `system_logging/`, `state_lifecycle/`) are internal libraries.
 
 
-Total modules indexed: 375 (excludes `__init__.py`).
+Total modules indexed: 378 (excludes `__init__.py`).
 
-## tools/ (top-level)  (174 modules)
+## tools/ (top-level)  (177 modules)
 
 | Module | Summary |
 |---|---|
@@ -59,6 +59,7 @@ Total modules indexed: 375 (excludes `__init__.py`).
 | `tools.capability_inference` | Capability inference — static analysis of strategy.py. |
 | `tools.capital_wrapper` | Deployable Capital Wrapper — Phases 2–6 |
 | `tools.check_broader_pytest_baseline` | Broader-pytest baseline gate — catches NEW test regressions at session-close. |
+| `tools.check_guard_drift` | check_guard_drift.py -- EARLY-WARNING for guarded-tool / manifest drift. |
 | `tools.classifier_gate` | classifier_gate.py — Phase 4 Admission Pre-Check. |
 | `tools.cleanup_ledger` | cleanup_ledger.py -- Remove stale rows from Strategy_Master_Filter.xlsx by strategy_id prefix. |
 | `tools.cleanup_mps` | cleanup_mps.py -- Remove stale row(s) from Master_Portfolio_Sheet.xlsx by portfolio_id. |
@@ -89,6 +90,7 @@ Total modules indexed: 375 (excludes `__init__.py`).
 | `tools.directive_reconciler` | (no docstring) |
 | `tools.directive_schema` | directive_schema.py — Single Source of Truth for Directive YAML Contract |
 | `tools.directive_utils` | directive_utils.py |
+| `tools.engine_features` | engine_features.py — minimal directive `engine_features:` block resolver. |
 | `tools.engine_resolver` | Engine resolver — capability + contract driven engine selection. |
 | `tools.event_log` | event_log.py — Append-only governance event log for durable state changes. |
 | `tools.exec_preflight` | (no docstring) |
@@ -145,6 +147,7 @@ Total modules indexed: 375 (excludes `__init__.py`).
 | `tools.post_process_capital` | (no docstring) |
 | `tools.pre_promote_validator` | pre_promote_validator.py — 4-Layer pre-promotion validation gate. |
 | `tools.profile_selector` | Profile Selector - Step 8.5: Validate & enrich ledger from profile_comparison.json. |
+| `tools.promote_engine` | promote_engine.py -- make engine promotions and freeze-amendments SMOOTH. |
 | `tools.promote_readiness` | promote_readiness.py -- Promotion readiness dashboard. |
 | `tools.promote_to_live` | promote_to_live.py -- Promote strategy to TS_Execution/portfolio.yaml with |
 | `tools.purge_run_id` | (no docstring) |

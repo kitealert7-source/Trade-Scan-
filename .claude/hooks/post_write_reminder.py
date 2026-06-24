@@ -10,7 +10,7 @@ Coverage (highest-risk first):
   config/*.yaml|*.json           -> manifest / guard refresh
   governance/namespace/**        -> sweep_registry_gate + namespace_gate
   governance/preflight.py        -> system_preflight smoke
-  tools/**                       -> generate_guard_manifest
+  tools/** (guarded + drifted)   -> regen tools_manifest (check_guard_drift)
   strategies/**/portfolio.yaml   -> portfolio_evaluator revalidation
   strategies/Master_Portfolio_Sheet.xlsx -> append-only ledger warning
 
@@ -81,6 +81,59 @@ _CORE_LOGIC_RE = re.compile(
 )
 
 
+def _guard_drift_reminder(rel: str) -> str | None:
+    """Precise, drift-confirmed warning for a guarded-tool edit.
+
+    Replaces the old unconditional "tools/ modified -> regen" banner, which
+    fired on EVERY tools/ file (guarded or not, drifted or not) and so was easy
+    to ignore -- the 3x-recurring manifest miss on 2026-06-24. Returns a
+    file-specific message ONLY when the edited tool is guarded AND its on-disk
+    hash now differs from tools_manifest.json; otherwise None (quiet -- a
+    non-guarded or already-in-sync tools/ edit needs no manifest action).
+
+    Delegates to tools.check_guard_drift.find_drift, which is deliberately
+    dependency-light (no pandas) so it is cheap enough to run on every
+    guarded-tool edit. Any import / runtime hiccup -> None: a hook must never
+    fail the edit it follows.
+    """
+    try:
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from tools.check_guard_drift import find_drift
+
+        drifted = {
+            d["file"].replace("\\", "/").lower()
+            for d in find_drift(project_root=REPO_ROOT)
+            if d["status"] == "DRIFT"
+        }
+    except Exception:
+        return None
+    if not drifted:
+        return None
+
+    key = rel.replace("\\", "/").lower()
+    if key.startswith("tools/"):
+        key = key[len("tools/"):]
+    if key not in drifted:
+        return None  # tools/ file edited, but unguarded or already in sync
+
+    others = len(drifted) - 1
+    extra = (
+        f"\n  ({others} other guarded tool(s) also drift -- "
+        "`python tools/check_guard_drift.py` lists them.)"
+        if others > 0
+        else ""
+    )
+    return (
+        "[GUARD DRIFT -- guarded tool edited, tools_manifest.json now stale]\n"
+        f"  tools/{key} no longer matches its recorded hash.\n"
+        "  The next pipeline run WILL hard-fail at startup until you regen:\n"
+        "    python tools/generate_guard_manifest.py\n"
+        "    git add tools/tools_manifest.json\n"
+        f"  Verify clean: python tools/check_guard_drift.py{extra}\n"
+    )
+
+
 def _reminder_for(rel: str) -> str | None:
     r = rel.replace("\\", "/").lower()
 
@@ -128,12 +181,9 @@ def _reminder_for(rel: str) -> str | None:
         )
 
     if r.startswith("tools/"):
-        return (
-            "[POST-WRITE REMINDER -- tools/ modified]\n"
-            "Regenerate the tools manifest:\n"
-            "  `python tools/generate_guard_manifest.py`\n"
-            "Otherwise downstream guard checks will reject the pipeline.\n"
-        )
+        # Drift-aware (was: unconditional regen banner on every tools/ edit).
+        # Only a guarded tool that ACTUALLY drifts raises a signal now.
+        return _guard_drift_reminder(rel)
 
     if r.endswith("/portfolio.yaml") or r.endswith("portfolio.yaml"):
         return (

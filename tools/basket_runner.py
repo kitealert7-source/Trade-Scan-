@@ -37,7 +37,7 @@ import pandas as pd
 
 from engines.execution_fill import bar_spread, exec_fill
 
-from engine_abi.v1_5_10 import (
+from engine_abi.v1_5_11 import (
     BarState,
     ENGINE_VERSION,
     EngineConfig,
@@ -49,7 +49,7 @@ from engine_abi.v1_5_10 import (
 )
 
 # SINGLE SOURCE OF TRUTH for the basket ENGINE IDENTITY. basket_runner is the
-# ONE module that imports the basket compute ABI (the `from engine_abi.v1_5_9`
+# ONE module that imports the basket compute ABI (the `from engine_abi.v1_5_11`
 # line above); ENGINE_VERSION re-exported here IS that module's version. EVERY
 # basket engine STAMP must derive from these symbols, never from a second
 # independent `from engine_abi.v1_5_X import` or get_engine_version() -- that is
@@ -67,11 +67,11 @@ from engine_abi.v1_5_10 import (
 # compute-binding by verification, not dispatch -- UNIFIED_ENGINE_AUTHORITY_PLAN.md.
 from config.engine_authority import CANONICAL_ENGINE_ABI as ENGINE_ABI
 
-assert ENGINE_ABI == "engine_abi.v1_5_10", (
+assert ENGINE_ABI == "engine_abi.v1_5_11", (
     "basket ENGINE_ABI diverged from the static import target at "
-    f"basket_runner.py:38 (got {ENGINE_ABI!r}, expected 'engine_abi.v1_5_10'). "
-    "The authority constant and the :38 import must name the same module; flip "
-    "them together (Phase B re-point, V1_5_10_CANONICAL_FLIP_DESIGN.md §3a)."
+    f"basket_runner.py:40 (got {ENGINE_ABI!r}, expected 'engine_abi.v1_5_11'). "
+    "The authority constant and the :40 import must name the same module; flip "
+    "them together (engine re-point, V1_5_10_CANONICAL_FLIP_DESIGN.md §3a)."
 )
 
 __all__ = [

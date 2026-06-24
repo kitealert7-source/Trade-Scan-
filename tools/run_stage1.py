@@ -369,7 +369,7 @@ def load_strategy(strategy_id: str, run_id: str = None):
     return StrategyClass()
 
 
-def run_engine_logic(df, strategy):
+def run_engine_logic(df, strategy, health=None):
     """Run engine via main orchestration layer.
 
     The engine module is resolved from ``get_engine_version()`` (registry
@@ -423,6 +423,19 @@ def run_engine_logic(df, strategy):
             f"Engine v{engine_ver} module '{module_path}' exposes no run_engine() "
             f"entry point; cannot execute. See engine_identity_is_compute_not_stamp."
         )
+
+    # v1.5.11 Patch A: pass the run-level health accumulator ONLY when the
+    # resolved engine's run_engine() actually accepts it. Pre-v1.5.11 engines
+    # (e.g. the canonical v1_5_10) have no `health` parameter, so this keeps a
+    # single bridge that serves every engine version without a TypeError.
+    if health is not None:
+        import inspect
+        try:
+            _accepts_health = "health" in inspect.signature(engine_mod.run_engine).parameters
+        except (TypeError, ValueError):
+            _accepts_health = False
+        if _accepts_health:
+            return engine_mod.run_engine(df, strategy, health=health)
 
     return engine_mod.run_engine(df, strategy)
 
@@ -960,7 +973,7 @@ def _emit_stage_artifacts_to_runs_and_ui(out_folder, output_root, run_id, symbol
 
 def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
                                 lineage_str, git_commit, strategy, df,
-                                directive_dict):
+                                directive_dict, engine_health=None):
     """Phase E + F — PATCH 3: post-emission metadata enrichment.
 
     Phase E — runs/run_metadata.json (the canonical per-run record):
@@ -976,7 +989,12 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
     # engine_version (compute, not a stamp) + the MEASURED spread coverage of the
     # consumed bars -- the single-asset analogue of the basket cost-regime record.
     from tools.basket_provenance import single_asset_cost_model, leg_spread_coverage_pct
+    from tools.engine_features import resolve_invalid_fill_policy
     _spread_cov = leg_spread_coverage_pct(df)
+    # Engine Patch A (v1.5.11): resolved engine-fill policy (default FAIL =
+    # today). Stamp-only in Patch A — does not alter a trade; the SKIP compute
+    # path lands in Patch B. Already validated at Stage -0.23 admission.
+    _invalid_fill_policy = resolve_invalid_fill_policy(directive_dict)
     _engine_ver = None  # captured from the engine metadata in Phase E below
 
     meta_path = out_folder / "run_metadata.json"
@@ -998,6 +1016,11 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
             data['trend_filter_enabled'] = trend_filter_enabled
             data['git_commit'] = git_commit
             data['schema_version'] = "1.3.0"
+            data['invalid_fill_policy'] = _invalid_fill_policy
+            # v1.5.11 Patch A: run-level engine_health counters (additive
+            # telemetry; never touches results_tradelevel.csv). Empty dict when
+            # the engine did not populate it (pre-v1.5.11 / no-trades path).
+            data['engine_health'] = engine_health if engine_health is not None else {}
             _engine_ver = data.get('engine_version')
             data['execution_model'] = {
                 'order_type':       directive_dict.get('order_placement', {}).get('type', 'market'),
@@ -1039,11 +1062,13 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
         'spread_coverage_pct':  _spread_cov,
     }
     ui_data['schema_version'] = "1.3.0"
+    ui_data['invalid_fill_policy'] = _invalid_fill_policy
+    ui_data['engine_health'] = engine_health if engine_health is not None else {}
     with open(ui_meta_run_metadata, 'w', encoding='utf-8') as f:
         json.dump(ui_data, f, indent=2)
 
 
-def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds=0):
+def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds=0, engine_health=None):
     """Emit artifacts for a single symbol run.
 
     Slim orchestrator (2026-06-01 decomposition, Backlog Item 4/4):
@@ -1096,7 +1121,7 @@ def emit_result(trades, df, broker_spec, symbol, run_id, content_hash, lineage_s
     # Phase E + F
     _emit_enrich_metadata_files(
         final_data_dir, ui_meta_dir, content_hash, lineage_str, git_commit,
-        strategy, df, directive_dict,
+        strategy, df, directive_dict, engine_health=engine_health,
     )
 
     return final_data_dir
@@ -1377,7 +1402,7 @@ def _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id, di
     }
 
 
-def _stage1_run_engine_with_htf_patches(df, df_regime, strategy):
+def _stage1_run_engine_with_htf_patches(df, df_regime, strategy, health=None):
     """Phase D.5 — apply HTF isolation monkey-patches, do the initial merge,
     run the execution engine, then restore the patches (try/finally is
     MANDATORY for session stability — the patches mutate module-level
@@ -1511,7 +1536,7 @@ def _stage1_run_engine_with_htf_patches(df, df_regime, strategy):
             )
 
         # Exec
-        trades = run_engine_logic(df, strategy)
+        trades = run_engine_logic(df, strategy, health=health)
     finally:
         # RESTORE PATCHES (MANDATORY for session stability)
         rsm.apply_regime_model = rsm_original_apply
@@ -1521,7 +1546,8 @@ def _stage1_run_engine_with_htf_patches(df, df_regime, strategy):
 
 def _stage1_emit_and_verify(trades, df, broker_spec, target_symbol, run_id,
                             content_hash, lineage_str, directive_content,
-                            strategy, median_bar_seconds, target_dir):
+                            strategy, median_bar_seconds, target_dir,
+                            engine_health=None):
     """Phase D.6 — emit run artifacts, store signature_hash in run_state.json,
     compute USD-normalized PnL per trade, verify required artifacts exist
     after emission, and compute + store the deterministic artifact_hash.
@@ -1529,7 +1555,7 @@ def _stage1_emit_and_verify(trades, df, broker_spec, target_symbol, run_id,
     Returns (status, net_pnl) — status is "SUCCESS" if all artifacts present.
     Raises RuntimeError if a required artifact is missing (caught by the
     outer try/except in main, marks the run FAILED)."""
-    out_folder = emit_result(trades, df, broker_spec, target_symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds)
+    out_folder = emit_result(trades, df, broker_spec, target_symbol, run_id, content_hash, lineage_str, directive_content, strategy, median_bar_seconds, engine_health=engine_health)
 
     # Phase 1: Store hash in run_state.json
     state_file = target_dir / "run_state.json"
@@ -1754,7 +1780,11 @@ def main():
         strategy = ctx["strategy"]
 
         # Phase D.5 — HTF-patched engine run (monkey-patch lifecycle intact)
-        trades = _stage1_run_engine_with_htf_patches(df, df_regime, strategy)
+        # v1.5.11 Patch A: collect run-level engine_health counters. A fresh
+        # dict is passed down; the engine populates it in place only when the
+        # resolved engine supports it (v1.5.11+), else it stays empty.
+        engine_health: dict = {}
+        trades = _stage1_run_engine_with_htf_patches(df, df_regime, strategy, health=engine_health)
         print(f"    Trades: {len(trades)}")
 
         # D.6 — Emit OR no-trades
@@ -1762,6 +1792,7 @@ def main():
             status, net_pnl = _stage1_emit_and_verify(
                 trades, df, broker_spec, target_symbol, run_id, content_hash,
                 lineage_str, directive_content, strategy, median_bar_seconds, target_dir,
+                engine_health=engine_health,
             )
         else:
             status = "NO_TRADES"

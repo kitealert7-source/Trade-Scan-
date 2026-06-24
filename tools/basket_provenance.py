@@ -303,6 +303,9 @@ def min_spread_coverage_pct(per_leg: dict | None) -> float | None:
 _COST_MODEL_BY_ABI = {
     "engine_abi.v1_5_9": "spread_uncosted_roundtrip_v1_5_9",
     "engine_abi.v1_5_10": "spread_charged_diraware_v1_5_10",
+    # v1.5.11 (Patch A core) is BYTE-IDENTICAL to v1.5.10's charged compute
+    # (structural + telemetry only) -> same direction-aware charged regime.
+    "engine_abi.v1_5_11": "spread_charged_diraware_v1_5_11",
 }
 
 
@@ -324,8 +327,11 @@ def single_asset_cost_model(engine_version: str | None) -> str:
     leg (`LIKE 'spread_charged%'`). Unknown/blank version -> 'none_applied' (the
     conservative, backward-compatible default every pre-v1.5.10 run already
     carried). A future charged single-asset engine adds its version here."""
-    if str(engine_version or "").strip() == "1.5.10":
+    _v = str(engine_version or "").strip()
+    if _v == "1.5.10":
         return _COST_MODEL_BY_ABI["engine_abi.v1_5_10"]
+    if _v == "1.5.11":  # v1.5.11 single-asset = byte-identical charged compute (Patch A core)
+        return _COST_MODEL_BY_ABI["engine_abi.v1_5_11"]
     return "none_applied"
 
 

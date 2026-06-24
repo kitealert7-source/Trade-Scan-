@@ -100,3 +100,23 @@ changed no behaviour (documentation-only; no engine-flip / ABI governance).
 `[[reference_octafx_backtest_cost_model]]`,
 `[[reference_octafx_uniform_ask_spread_uncharged]]`, RESEARCH_MEMORY.md
 2026-06-21.
+
+---
+
+## INVAR-004 — Directive metadata-key registration completeness
+
+**Proposed:** 2026-06-24
+**Status:** PROPOSED  *(plan only — NOT implemented this session; Protected-Infra, needs plan+approval per Invariant #6)*
+**Proposed enforcement:** extend `tests/test_informational_keys_superset.py` (today asserts only `INFORMATIONAL_KEYS ⊇ NON_SIGNATURE_KEYS`) into a 4-way consistency gate, or a new `tests/test_directive_metadata_key_registries_agree.py`.
+
+**Motivation (observed 2026-06-24):** the rerun tool injects `test.rerun_of` (F1, 2026-06-14) on the author's assumption that "it's under `test:`, so NON_SIGNATURE_KEYS tolerates it." The assumption was false — the admission validators check **individual** `test:` sub-keys — and the field was registered in **0 of its 4 surfaces**, so a single unregistered metadata key was rejected by **four admission gates in sequence**, each surfacing only at a pipeline run (5 failed PSBRK-P17 reruns before success). The lone existing invariant test covered 2 of the 4. This is the **same failure class as Tax C** (one concept registered in N places with no agreement check) but in the admission path instead of engine dispatch.
+
+**The invariant:** a directive key that is *non-strategy metadata* (provenance / audit / identity — `repeat_override_reason`, `rerun_of`, `signal_version`, …) must be registered **consistently across all four admission surfaces**, or none:
+1. `tools/canonical_schema.ALLOWED_NESTED_KEYS["test"]` — Stage -0.25 accepts it.
+2. `tools/directive_schema.NON_SIGNATURE_KEYS` — inert to the signature hash (Stage -0.35).
+3. `governance/semantic_coverage_checker.INFORMATIONAL_KEYS` — excluded from the PREFLIGHT "declared but not referenced" coverage check (already required ⊇ NON_SIGNATURE_KEYS).
+4. `tools/directive_diff_classifier._COSMETIC_KEYS`/`_IDENTITY_KEYS` — a delta in it is not mis-read as structural (Stage -0.21).
+
+The gate asserts the metadata-key sets agree; a key present in one but missing from another **fails at commit time** — instead of as a sequence of opaque runtime admission failures. Cheap (a set-membership test) vs the cost (a multi-run debugging marathon per half-integrated field).
+
+**Out of scope of the proposal:** the separate question of whether `rerun_of` should be injected at all (it is write-only/redundant). The invariant is about *consistency*, not *which keys exist*.

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from tools.filter_registry import FILTER_STACK_BLOCKS, is_behavioral_filter_config
+from tools.engine_features import INVALID_FILL_POLICY_LEAF
 
 # Keys whose differences do NOT alter trading behavior. Subset of
 # NON_SIGNATURE_KEYS but narrower: we consider ONLY genuinely cosmetic fields.
@@ -38,6 +39,12 @@ _COSMETIC_KEYS = frozenset({
     "description",
     "notes",
     "repeat_override_reason",
+    # Rerun provenance breadcrumb injected by tools/rerun_backtest.py alongside
+    # repeat_override_reason (F1 2026-06-14 captures it for name-targets too). Pure
+    # provenance (origin run_id) — ZERO behavioural effect — so a rerun_of-only delta
+    # must NOT read as structural (which would wrongly force a signal_version bump on
+    # a byte-identical ENGINE/DATA_FRESH rerun).
+    "rerun_of",
 })
 
 _IDENTITY_KEYS = frozenset({
@@ -62,6 +69,11 @@ _BEHAVIORAL_EXECUTION_LEAVES = frozenset({
     "state_machine.no_reentry_after_stop",
     "state_machine.cooldown_bars",
     "state_machine.be_trigger_r",
+    # Engine Patch A (v1.5.11): the engine-fill policy is execution-state, not
+    # entry-signal, logic. A change to it (e.g. FAIL -> SKIP) is SIGNAL-level —
+    # it forces a signal_version bump so SKIP and FAIL can never be the same
+    # strategy — but it is NOT structural/UNCLASSIFIABLE. (design §6)
+    INVALID_FILL_POLICY_LEAF,
 })
 
 # FilterStack block keys (imported from tools.filter_registry) are

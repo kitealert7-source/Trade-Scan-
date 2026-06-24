@@ -1,5 +1,28 @@
 # Engine Patch A — Design Doc (v1.5.10 → v1.5.11) — MINIMUM CORE, LOCKED
 
+> **Status: CORE EXECUTED + PROMOTED 2026-06-24 (scope AMENDED, operator-approved).** Steps 1–4
+> shipped byte-identical (commits scaffold → C2 → invalid_fill_policy plumbing → engine_health
+> counters) and **v1_5_11 was promoted to canonical** for both paths (commit `7f6d982`; v1_5_10
+> retained FROZEN+vaulted as the byte-identical rollback). **Two items were deliberately split OUT of
+> the locked scope** on evidence gathered *during* implementation:
+> - **Step 5 — `engine_events.csv` → "Patch A.1"** (post-convergence). Step 4 showed a feature that
+>   "puts six counters into run_metadata" still pays heavy *output-threading* cost (engine→main→
+>   wrapper→emit→metadata) that the alias/convergence refactor does NOT remove. The event log is a
+>   bigger instance of the same tax, so it is deferred and rebuilt under the new architecture as the
+>   *proof the tax dropped*.
+> - **Step 6 — H6 fail-closed → the engine-authority convergence arc.** H6's premise was FALSE:
+>   `runtime_ver` is **permanently** `UNKNOWN` (no `VALIDATED_ENGINE.manifest.json` exists + the
+>   resolver builds a dotted path that never matches the underscored dirs), so the "strict version
+>   validation" has been dead since written and inverting it literally would break **every** Stage-2
+>   compile. The correct fix needs a reliable runtime-identity source (module `ENGINE_VERSION`) —
+>   exactly what convergence centralizes. Fixing it now then replacing it during convergence is rework.
+>
+> **Three taxes named (the throughline):** Tax A = version/dispatch plumbing (the `inspect.signature`
+> dance, per-version ABI ceremony); Tax B = engine→artifact output threading; Tax C = identity
+> plumbing (this promotion touched ~13 identity surfaces for a *zero-trade-change* engine). Convergence
+> (`RE_CURRENT`/`LIVE_ABI`) targets Tax A + Tax C. **Next arc: engine-authority convergence, then Patch
+> A.1.** Original LOCKED design below, unedited.
+
 **Status:** DESIGN, scope LOCKED — minimum investigation-engine core. No further scope expansion. (Read-only; no engine files modified.) Precursor to an operator-approved unfreeze.
 **Source:** [`ENGINE_AUDIT_v1_5_10_2026-06-23.md`](ENGINE_AUDIT_v1_5_10_2026-06-23.md) + scoping/contemplation (operator, 2026-06-23).
 **Character:** **structural + minimum evidence — behaviour BYTE-IDENTICAL.** No trade moves.

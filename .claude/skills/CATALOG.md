@@ -23,6 +23,7 @@ to use** + **when NOT to use** + **related skills**.
 | Contemplate a finalized design once more before it commits | `/contemplate` |
 | Sanity-check a plan or a staged change | `/sanity` |
 | Promote a strategy to LIVE | `/promote` |
+| Change/promote an ENGINE version (telemetry, directive flag, freeze-amend, canonical flip) | `/promote-engine` |
 | Snapshot the workspace as a vault entry | `/update-vault` |
 | Add or remove a strategy from the active selection | `/portfolio-selection-add` / `/portfolio-selection-remove` |
 | Analyze the candidate pool | `/portfolio-research` |
@@ -60,6 +61,7 @@ to use** + **when NOT to use** + **related skills**.
 | `port-strategy` | Building a new `strategy.py` from scratch, including Pine→Trade_Scan ports | Re-running an existing strategy → use `/rerun-backtest` | `execute-directives` (next step) |
 | `promote` | A strategy has reached `PIPELINE_COMPLETE` and you want it deployed to TS_Execution as LIVE | Pre-`PIPELINE_COMPLETE` → finish the pipeline first; PORTFOLIO_COMPLETE not yet granted by human → blocked | `update-vault`, `execute-directives` |
 | `update-vault` | Need a frozen snapshot of the current workspace state (strategy + indicator + governance + engine versions) | Snapshot already exists for this commit | `promote` (auto-vaults on success), `port-strategy` |
+| `promote-engine` | Any change under `engine_dev/<vN>/` + its dispatch surfaces: add run telemetry / a directive flag, re-stamp after an engine edit, or promote a new canonical engine version. Carries the surface maps + landmines (LF hashes, self-check literal, dead-resolver) + `tools/promote_engine.py` | STRATEGY→LIVE → `/promote`; a directive run → `/execute-directives`; trade-logic research → `/hypothesis-testing`; the `CURRENT`/`LIVE_ABI` dispatch convergence (own design doc) | `promote` (strategy analog), `update-vault`, `rerun-backtest` |
 
 ### 3. Portfolio management
 

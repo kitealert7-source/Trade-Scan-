@@ -69,6 +69,11 @@ INFORMATIONAL_KEYS = {
     # tools/directive_schema.py::NON_SIGNATURE_KEYS. See
     # tests/test_informational_keys_superset.py for the enforcement test.
     "repeat_override_reason",
+    # Rerun provenance breadcrumb injected by tools/rerun_backtest.py +
+    # refresh_cointegration (F1, 2026-06-14). Write-only audit field, not a
+    # strategy parameter -> excluded from coverage. Mirrored in
+    # tools/directive_schema.py::NON_SIGNATURE_KEYS (the superset invariant above).
+    "rerun_of",
     # Stage-0.56 stop-contract guard override (warn|block). Directive-level
     # knob, not a strategy behavior parameter — does not belong in the hash
     # or in coverage. Mirrored in tools/directive_schema.py::NON_SIGNATURE_KEYS.

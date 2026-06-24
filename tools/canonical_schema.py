@@ -18,6 +18,7 @@ CANONICAL_BLOCKS = [
     "indicators",                # Indicator imports
     "execution_rules",           # Entry/exit/stop logic
     "order_placement",           # Order type and timing
+    "engine_features",           # Engine execution-policy flags (invalid_fill_policy)
     "trade_management",          # Direction, reentry, position rules
     # --- Strategy-family optional blocks ---
     "range_definition",          # ORB: frozen range parameters
@@ -37,7 +38,7 @@ CANONICAL_BLOCKS = [
 
 REQUIRED_BLOCKS = {"test", "symbols", "indicators", "execution_rules"}
 OPTIONAL_BLOCKS = {
-    "order_placement", "trade_management",
+    "order_placement", "engine_features", "trade_management",
     "range_definition", "exit_rules",
     "state_machine", "usd_stress_filter", "volatility_filter", "trend_filter",
     "market_regime_filter", "regime_age_filter", "session_filter",
@@ -60,6 +61,7 @@ BLOCK_TYPES = {
     "execution_rules":  dict,
     "trade_management": dict,
     "order_placement":  dict,
+    "engine_features":  dict,
 }
 
 # === REQUIRED SUB-BLOCKS (structural presence only, no semantic check) ===
@@ -96,6 +98,12 @@ ALLOWED_NESTED_KEYS = {
         # NOT for parameter tweaks, casual retries, or low-PF retries.
         # Minimum 50 chars. Logged to governance/idea_gate_overrides.csv.
         "repeat_override_reason",
+        # Rerun provenance breadcrumb injected by tools/rerun_backtest.py (F1,
+        # 2026-06-14) — the originating run_id. Write-only (no consumer reads it);
+        # registered here + in directive_schema.NON_SIGNATURE_KEYS +
+        # directive_diff_classifier._COSMETIC_KEYS so it is accepted, inert to the
+        # signature hash, and not mis-read as a structural change.
+        "rerun_of",
         # User-declared signal-primitive version (integer). Increments when
         # the underlying signal definition changes (e.g. CHOCH_V2 -> V3).
         # Phase 2 will wire this into the Idea Gate as part of the repeat key
@@ -120,6 +128,12 @@ ALLOWED_NESTED_KEYS = {
         "type", "execution_timing", "trigger", "time",
         "execution_timeframe", "price_validation",
         "orders", "entry_timing", "order_type",
+    },
+    # Engine Patch A (v1.5.11): minimal engine-policy block. EXACTLY one
+    # recognized key — value-domain {FAIL, SKIP} is enforced by
+    # tools/engine_features.resolve_invalid_fill_policy at admission.
+    "engine_features": {
+        "invalid_fill_policy",
     },
     "volatility_filter": {
         "enabled", "atr_length", "atr_percentile_lookback",
@@ -210,7 +224,7 @@ CANONICAL_KEY_ORDER = {
         "name", "family", "strategy", "version", "signal_version", "broker",
         "timeframe", "session_time_reference", "start_date", "end_date",
         "research_mode", "tuning_allowed", "parameter_mutation",
-        "description", "notes", "repeat_override_reason",
+        "description", "notes", "repeat_override_reason", "rerun_of",
     ],
     "execution_rules": [
         "pyramiding", "entry_when_flat_only", "reset_on_exit",
@@ -227,5 +241,8 @@ CANONICAL_KEY_ORDER = {
     "order_placement": [
         "type", "execution_timing", "trigger",
         "execution_timeframe", "price_validation", "orders",
+    ],
+    "engine_features": [
+        "invalid_fill_policy",
     ],
 }

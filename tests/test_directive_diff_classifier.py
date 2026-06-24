@@ -155,6 +155,56 @@ def test_signal_precedence_over_parameter():
     assert r["classification"] == "SIGNAL"
 
 
+# --- Engine Patch A (v1.5.11): invalid_fill_policy fold-in -----------------
+# A change to engine_features.invalid_fill_policy is execution-state SIGNAL-
+# level (forces a signal_version bump) but NOT structural/UNCLASSIFIABLE.
+
+def test_signal_when_invalid_fill_policy_changed():
+    a = _base_directive()
+    a["engine_features"] = {"invalid_fill_policy": "FAIL"}
+    b = _base_directive()
+    b["engine_features"] = {"invalid_fill_policy": "SKIP"}
+    r = classify_diff(a, b)
+    assert r["classification"] == "SIGNAL"
+    assert "engine_features.invalid_fill_policy" in r["behavioral_execution_diffs"]
+    assert r["structural_diffs"] == []
+
+
+def test_signal_when_invalid_fill_policy_added():
+    # Absent -> SKIP is a policy change, not a shape change: SIGNAL not UNCLASSIFIABLE.
+    a = _base_directive()
+    b = _base_directive()
+    b["engine_features"] = {"invalid_fill_policy": "SKIP"}
+    r = classify_diff(a, b)
+    assert r["classification"] == "SIGNAL"
+    assert "engine_features.invalid_fill_policy" in r["behavioral_execution_diffs"]
+
+
+def test_rerun_of_breadcrumb_is_cosmetic_not_structural():
+    # tools/rerun_backtest.py injects a `rerun_of` provenance breadcrumb. It has
+    # zero behavioural effect, so a rerun_of-only delta must classify COSMETIC,
+    # never UNCLASSIFIABLE (which would wrongly force a signal_version bump on a
+    # byte-identical ENGINE rerun -- the live block hit on the P17 v1.5.11 rerun).
+    a = _base_directive()
+    b = _base_directive()
+    b["rerun_of"] = "4bc0a0c7dd2aceab3025b3ee"
+    b["repeat_override_reason"] = "[RERUN:ENGINE@...] engine update"
+    r = classify_diff(a, b)
+    assert r["classification"] == "COSMETIC"
+    assert r["structural_diffs"] == []
+
+
+def test_invalid_fill_policy_unchanged_is_not_signal():
+    # Explicit FAIL on both sides -> no behavioral diff (default-equivalent).
+    a = _base_directive()
+    a["engine_features"] = {"invalid_fill_policy": "FAIL"}
+    b = _base_directive()
+    b["engine_features"] = {"invalid_fill_policy": "FAIL"}
+    r = classify_diff(a, b)
+    assert r["classification"] == "COSMETIC"
+    assert r["behavioral_execution_diffs"] == []
+
+
 if __name__ == "__main__":
     import subprocess, sys
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-v"]))

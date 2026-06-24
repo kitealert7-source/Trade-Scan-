@@ -1,7 +1,7 @@
 {
-  "active_engine": "v1_5_10",
+  "active_engine": "v1_5_11",
   "status": "FROZEN",
-  "freeze_date": "2026-06-17",
+  "freeze_date": "2026-06-24",
   "vaulted": true,
   "engines": {
     "v1_5_6": {
@@ -26,8 +26,13 @@
     },
     "v1_5_10": {
       "status": "FROZEN",
+      "canonical": false,
+      "note": "Prior canonical for BOTH paths (FROZEN 2026-06-17, superseded by v1_5_11 Patch A core 2026-06-24). Direction-aware spread charging. v1_5_11 is byte-identical to it (structural + telemetry only) -- v1_5_10 retained frozen + vaulted as the one-line rollback target."
+    },
+    "v1_5_11": {
+      "status": "FROZEN",
       "canonical": true,
-      "note": "FROZEN 2026-06-17 -- canonical compute for BOTH basket (engine_abi.v1_5_10) AND single-asset (Phase C flip 2026-06-17): direction-aware spread charging (basket fast-path entry + rule exit; single-asset execution_loop). Byte-identical to v1.5.8/v1.5.9 at spread=0. active_engine = v1_5_10; canonical:true = the single-asset selectable engine. Vaulted 2026-06-17."
+      "note": "FROZEN 2026-06-24 -- canonical compute for BOTH basket (engine_abi.v1_5_11) AND single-asset (active_engine). Patch A CORE: C2 shared position builder + run-level engine_health counters + minimal invalid_fill_policy plumbing (default FAIL, inert). BYTE-IDENTICAL trades to v1.5.10 (structural + telemetry only; no trade moves). Event log (engine_events.csv) deferred to Patch A.1; H6 Stage-2 fail-closed deferred to the engine-authority convergence (was a dead check on a broken resolver). Design: outputs/system_reports/02_engine_core/ENGINE_PATCH_A_DESIGN_v1_5_11_2026-06-23.md. Vaulted 2026-06-24."
     }
   }
 }
