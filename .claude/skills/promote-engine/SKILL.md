@@ -83,6 +83,14 @@ experiment.** When you finish it, record the verdict:
 6. **Byte-identical telemetry is opt-in-guarded.** Counter/event code must sit behind
    `if health is not None:` so the default path (the parity harness, the warm-up wrapper, old engines)
    is line-for-line unchanged.
+7. **Guarded-tool edits drift the manifest, and it surfaces LATE.** Editing any guarded tool (the
+   pipeline spine, basket spine, the integrity primitives -- the full set is the keys of
+   `tools/tools_manifest.json`) without regenerating leaves the next pipeline run to hard-fail at
+   startup ("Tool content hash mismatch ..."). This bit a real run 3x on 2026-06-24. The edit-time
+   hook now warns the moment you touch a guarded file, but before any pipeline/CI run check the
+   working tree yourself: **`python tools/check_guard_drift.py`** (exit 0 = clean, 1 = drift), then
+   `python tools/generate_guard_manifest.py` + `git add tools/tools_manifest.json` to clear it.
+   (`promote_engine.py` does the regen as part of `--promote`/`--restamp`.)
 
 ## Byte-identical discipline (the safety, keep it)
 
