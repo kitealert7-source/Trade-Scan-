@@ -31,7 +31,7 @@ from pathlib import Path
 import pytest
 
 import tools.basket_runner as basket_runner
-from engine_abi.v1_5_10 import ENGINE_VERSION as ABI_ENGINE_VERSION
+from engine_abi.v1_5_11 import ENGINE_VERSION as ABI_ENGINE_VERSION
 from tools.pipeline_utils import get_engine_version
 from config.engine_authority import (
     CANONICAL_ENGINE_ABI,
@@ -55,9 +55,9 @@ def test_basket_single_source_chain():
     import tools.run_pipeline as rp
     # basket_runner re-exports the exact ABI compute identity.
     assert basket_runner.ENGINE_VERSION == ABI_ENGINE_VERSION
-    assert basket_runner.ENGINE_ABI == "engine_abi.v1_5_10"
-    # Positive lock (Phase B): literal v1.5.10 so an accidental revert to v1_5_9 fails loud.
-    assert str(basket_runner.ENGINE_VERSION) == "1.5.10"
+    assert basket_runner.ENGINE_ABI == "engine_abi.v1_5_11"
+    # Positive lock: literal v1.5.11 so an accidental revert to v1_5_10/v1_5_9 fails loud.
+    assert str(basket_runner.ENGINE_VERSION) == "1.5.11"
     # The stamp helpers read basket_runner, not engine_abi directly.
     assert rp._basket_compute_engine_version() == str(basket_runner.ENGINE_VERSION)
     assert rp._basket_engine_abi() == str(basket_runner.ENGINE_ABI)
@@ -74,7 +74,7 @@ def test_basket_compute_version_is_override_inert(monkeypatch):
     monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "9.9.9")
     assert get_engine_version() == "9.9.9"          # selector honors override...
     assert rp._basket_compute_engine_version() == str(ABI_ENGINE_VERSION)  # ...stamp does not
-    assert rp._basket_compute_engine_version() != "9.9.9"  # (1.5.10 is now REAL basket compute)
+    assert rp._basket_compute_engine_version() != "9.9.9"  # (1.5.11 is now REAL basket compute)
 
 
 def test_basket_all_four_writers_echo_compute(monkeypatch, tmp_path):
@@ -201,7 +201,7 @@ def test_single_strategy_selected_engine_is_loadable_and_consistent(monkeypatch)
 def test_single_strategy_unresolvable_engine_fails_loud(monkeypatch):
     """A requested engine with no loadable main.py ABORTS (no silent v1_5_6)."""
     from tools.run_stage1 import run_engine_logic
-    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "9.9.9")   # v9_9_9 does not exist (1.5.10 is now a real, loadable engine)
+    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "9.9.9")   # v9_9_9 does not exist (1.5.11 is now a real, loadable engine)
     assert get_engine_version() == "9.9.9"
     with pytest.raises(RuntimeError, match="no loadable run-engine module"):
         run_engine_logic(None, None)
@@ -350,7 +350,7 @@ def test_canonical_engines_declare_their_label_versions():
     v1.5.10==v1.5.9 @spread=0) is covered by tests/test_engine_abi_v1_5_9.py,
     tests/test_engine_abi_v1_5_10.py, and tests/test_basket_runner_phase2.py."""
     import importlib
-    EXPECT = {"v1_5_8": "1.5.8", "v1_5_9": "1.5.9", "v1_5_10": "1.5.10"}
+    EXPECT = {"v1_5_8": "1.5.8", "v1_5_9": "1.5.9", "v1_5_10": "1.5.10", "v1_5_11": "1.5.11"}
     for label, dotted in EXPECT.items():
         mod = importlib.import_module(f"engine_dev.universal_research_engine.{label}.main")
         declared = getattr(mod, "ENGINE_VERSION", None) or getattr(mod, "__version__", None)
