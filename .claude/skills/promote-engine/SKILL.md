@@ -40,6 +40,21 @@ The tool **never commits** — review the diff, then commit. The convergence gat
 verifier (it caught a mid-edit partial flip during v1.5.11). **Byte-identical trades are YOUR job**
 (run the parity harness before `--promote`; the tool flips identity, it does not prove compute).
 
+## STANDING DECISION — after a `--promote`, evaluate the dispatch convergence
+
+The `CURRENT`/`LIVE_ABI` dispatch convergence is **DESIGNED + DEFERRED PENDING EVIDENCE**
+(`outputs/system_reports/01_system_architecture/ENGINE_DISPATCH_CONVERGENCE_DESIGN_2026-06-24.md`).
+The open question is whether the v1.5.11 marathon was a *tooling* problem (this skill + tool fix it)
+or an *architecture* problem (too many surfaces → convergence). **The next real `--promote` IS the
+experiment.** When you finish it, record the verdict:
+- **Stayed "review one diff → commit", no new hand-edits, no per-version tool patching, no new
+  identity surface** → the tax was tooling-shaped → **close convergence as YAGNI.**
+- **Any of: a surface the tool couldn't flip · the tool needed non-trivial per-version patching · a
+  new identity surface appeared · promotions got frequent enough that even reviewing the diff is
+  friction** → the surface-count itself is the problem → **reconsider convergence** (weighed against
+  its proof-layer-rework risk). 2nd data point: Patch A.1's event-log build (tests output-threading /
+  Tax B, which neither this tool nor convergence fixes). Full record: [[project_v1_5_11_patch_a_canonical]].
+
 ## Surface maps — "to change X, edit these" (stop rediscovering)
 
 | Change shape | Where to edit (in order) |
