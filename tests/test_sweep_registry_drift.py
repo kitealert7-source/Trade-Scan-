@@ -120,3 +120,89 @@ def test_repair_refuses_to_touch_a_consistent_slot(temp_registry):
     assert rc == 1  # not drifted -> refuse (genuine, not corruption)
     reg = yaml.safe_load(temp_registry.read_text(encoding="utf-8"))
     assert "P05" in reg["ideas"]["22"]["sweeps"]["S02"]["patches"]  # untouched
+
+
+# ---- orphan-reservation release ---------------------------------------------
+# An FS-orphan is a namespace lock with no backing strategy folder AND no run
+# history -- a failed-attempt signature-idempotency lock. Distinct from DRIFT
+# (a mis-filed but present strategy). Releasing it frees the slot + signature so
+# the concept can register fresh. The runs-history check is the safety rail:
+# a pruned-but-ran strategy keeps real provenance and must NOT be released.
+
+from datetime import datetime, timezone  # noqa: E402
+
+_ORPHAN_NAME = "22_CONT_FX_15M_RSIAVG_TRENDFILT_S20_V1_P00"
+
+
+def _orphan_reg():
+    return {"ideas": {"22": {"next_sweep": 21, "sweeps": {"S20": {
+        "directive_name": _ORPHAN_NAME,
+        "signature_hash": _short("a"), "signature_hash_full": _full("a"),
+        "patches": {}}}}}}
+
+
+@pytest.fixture
+def orphan_registry(tmp_path, monkeypatch):
+    reg = tmp_path / "sweep_registry.yaml"
+    reg.write_text(yaml.safe_dump(_orphan_reg(), sort_keys=False), encoding="utf-8")
+    lock = tmp_path / "sweep_registry.yaml.lock"
+    for mod in (G, R):
+        monkeypatch.setattr(mod, "SWEEP_REGISTRY_PATH", reg)
+        monkeypatch.setattr(mod, "SWEEP_LOCK_PATH", lock)
+    monkeypatch.setattr(R, "STRATEGIES_DIR", tmp_path / "strategies")
+    return reg, tmp_path
+
+
+def _no_runs(_name):
+    return None
+
+
+def _has_runs(_name):
+    return datetime(2026, 5, 3, tzinfo=timezone.utc)
+
+
+def test_orphan_true_when_folder_gone_and_no_runs(orphan_registry, monkeypatch):
+    monkeypatch.setattr(R, "_get_directive_first_execution_timestamp", _no_runs)
+    assert R._is_fs_orphan(_ORPHAN_NAME) is True
+
+
+def test_orphan_false_when_folder_exists(orphan_registry, monkeypatch):
+    _, tmp = orphan_registry
+    (tmp / "strategies" / _ORPHAN_NAME).mkdir(parents=True)
+    monkeypatch.setattr(R, "_get_directive_first_execution_timestamp", _no_runs)
+    assert R._is_fs_orphan(_ORPHAN_NAME) is False
+
+
+def test_orphan_false_when_has_run_history(orphan_registry, monkeypatch):
+    monkeypatch.setattr(R, "_get_directive_first_execution_timestamp", _has_runs)
+    assert R._is_fs_orphan(_ORPHAN_NAME) is False
+
+
+def test_release_orphan_dry_run_no_mutation(orphan_registry, monkeypatch):
+    reg, _ = orphan_registry
+    monkeypatch.setattr(R, "_get_directive_first_execution_timestamp", _no_runs)
+    before = reg.read_text(encoding="utf-8")
+    assert R.cmd_release_orphan(R._load_yaml(reg), "22", "S20", None, apply=False) == 0
+    assert reg.read_text(encoding="utf-8") == before
+
+
+def test_release_orphan_apply_removes_reservation(orphan_registry, monkeypatch):
+    reg, _ = orphan_registry
+    monkeypatch.setattr(R, "_get_directive_first_execution_timestamp", _no_runs)
+    assert R.cmd_release_orphan(R._load_yaml(reg), "22", "S20", None, apply=True) == 0
+    assert "S20" not in yaml.safe_load(reg.read_text(encoding="utf-8"))["ideas"]["22"]["sweeps"]
+
+
+def test_release_refuses_when_folder_exists(orphan_registry, monkeypatch):
+    reg, tmp = orphan_registry
+    (tmp / "strategies" / _ORPHAN_NAME).mkdir(parents=True)
+    monkeypatch.setattr(R, "_get_directive_first_execution_timestamp", _no_runs)
+    assert R.cmd_release_orphan(R._load_yaml(reg), "22", "S20", None, apply=True) == 1
+    assert "S20" in yaml.safe_load(reg.read_text(encoding="utf-8"))["ideas"]["22"]["sweeps"]
+
+
+def test_release_refuses_when_has_run_history(orphan_registry, monkeypatch):
+    reg, _ = orphan_registry
+    monkeypatch.setattr(R, "_get_directive_first_execution_timestamp", _has_runs)
+    assert R.cmd_release_orphan(R._load_yaml(reg), "22", "S20", None, apply=True) == 1
+    assert "S20" in yaml.safe_load(reg.read_text(encoding="utf-8"))["ideas"]["22"]["sweeps"]
