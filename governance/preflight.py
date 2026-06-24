@@ -138,6 +138,29 @@ def resolve_data_range(symbols: list, broker: str, timeframe: str) -> tuple[str,
     return resolved_start.strftime("%Y-%m-%d"), resolved_end.strftime("%Y-%m-%d")
 
 
+def _directive_declares_engine_rerun(directive_path) -> bool:
+    """True iff the directive explicitly declares an ENGINE / cost-model revalidation
+    re-run: its ``test.repeat_override_reason`` carries the ``[RERUN:ENGINE ...]``
+    marker injected by ``tools/rerun_backtest.py prepare --category ENGINE``.
+
+    Used by CHECK 6.5 to let a declared engine-revalidation re-run pass the
+    first-execution EXPERIMENT_DISCIPLINE guard without a V2 version bump (the
+    directive is byte-identical; only the engine / cost model changed). Scoped to
+    ENGINE *only* — SIGNAL / PARAMETER / BUG_FIX / DATA_FRESH do NOT match, and a
+    directive with no override marker (fresh research) returns False. Any parse
+    error returns False (fail-safe toward enforcing the guard)."""
+    try:
+        d = parse_directive(directive_path)
+        reason = (
+            d.get("repeat_override_reason")
+            or d.get("test", {}).get("repeat_override_reason")
+            or ""
+        )
+        return "[RERUN:ENGINE" in reason
+    except Exception:
+        return False
+
+
 def run_preflight(
     directive_path: str,
     engine_name: str,
@@ -559,7 +582,30 @@ def run_preflight(
                         except Exception:
                             pass  # any error → fall through to block
 
-                        if not _is_freshness_rerun:
+                        # EXCEPTION: declared ENGINE / cost-model revalidation re-runs.
+                        # A directive whose test.repeat_override_reason carries the
+                        # [RERUN:ENGINE ...] marker is an explicitly-declared, audited
+                        # re-run of the SAME strategy under a changed engine / cost model
+                        # (directive byte-identical). The strategy.py mtime bump is the
+                        # provisioner rewriting byte-identical content, not a code
+                        # experiment, so the mtime-vs-first-run discipline is a category
+                        # error here. Content/signature integrity is STILL enforced -- by
+                        # the approval-marker check above and by CHECK 6.75 (directive <->
+                        # strategy signature-hash consistency, below) -- so a real code
+                        # change cannot ride in under the ENGINE label. Scoped to ENGINE
+                        # only (not SIGNAL/PARAMETER/BUG_FIX); fresh research (no RERUN
+                        # marker) is unaffected.
+                        _is_engine_rerun = _directive_declares_engine_rerun(directive_full_path)
+                        if _is_engine_rerun:
+                            print(
+                                f"[PREFLIGHT] EXPERIMENT_DISCIPLINE bypassed: declared "
+                                f"ENGINE re-run ({_strategy_name}) -- engine/cost-model "
+                                f"revalidation, directive byte-identical; first-run "
+                                f"{_first_exec_ts.strftime('%Y-%m-%d %H:%M UTC')}, content "
+                                f"still gated by approval marker + CHECK 6.75."
+                            )
+
+                        if not (_is_freshness_rerun or _is_engine_rerun):
                             return (
                                 "AWAITING_HUMAN_APPROVAL",
                                 f"EXPERIMENT_DISCIPLINE: strategy.py was modified after directive first ran "
