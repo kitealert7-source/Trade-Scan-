@@ -40,6 +40,9 @@ class AdmissionStage:
         # 0a. Stage -0.22: Single Asset Class Enforcement
         self._run_asset_class_gate(context)
 
+        # 0a'. Stage -0.23: Engine-features flag validation (Patch A, v1.5.11)
+        self._run_engine_features_gate(context)
+
         # 0. Stage -0.20: Idea Evaluation (Concept Reuse Gate)
         self._run_idea_evaluation(context)
 
@@ -114,6 +117,39 @@ class AdmissionStage:
 
         print(f"[{self.stage_id}] Stage -0.22: Asset Class Gate PASSED "
               f"(class={asset_class}, symbols={list(symbols)}) [OK]")
+
+    def _run_engine_features_gate(self, context: PipelineContext) -> None:
+        """Stage -0.23: Engine-features flag validation (Patch A, v1.5.11).
+
+        Resolves and validates the optional `engine_features.invalid_fill_policy`
+        flag (default FAIL = today's behaviour, byte-identical). An unknown
+        sub-key or a value outside {FAIL, SKIP} is a hard fail at admission —
+        before a run is spent — matching the design's "unknown key/value raises
+        at admission". The flag does NOT alter a trade in Patch A; the SKIP
+        compute path is authored in Patch B. Schema/key shape is also enforced
+        downstream by Stage -0.25 canonicalization; this gate adds the
+        value-domain check the schema cannot express.
+        """
+        import yaml
+        from tools.engine_features import resolve_invalid_fill_policy
+        try:
+            raw = yaml.safe_load(
+                context.directive_path.read_text(encoding="utf-8")
+            ) or {}
+        except Exception as e:
+            raise PipelineExecutionError(
+                f"STAGE -0.23 ENGINE FEATURES GATE: failed to read directive ({e})",
+                directive_id=context.directive_id,
+            ) from e
+        try:
+            policy = resolve_invalid_fill_policy(raw)
+        except ValueError as e:
+            raise PipelineExecutionError(
+                f"STAGE -0.23 ENGINE FEATURES GATE FAILED: {e}",
+                directive_id=context.directive_id,
+            ) from e
+        print(f"[{self.stage_id}] Stage -0.23: Engine Features Gate PASSED "
+              f"(invalid_fill_policy={policy}) [OK]")
 
     def _run_idea_evaluation(self, context: PipelineContext) -> None:
         """Stage -0.20: Non-blocking concept reuse gate.

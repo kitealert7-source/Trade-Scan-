@@ -976,7 +976,12 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
     # engine_version (compute, not a stamp) + the MEASURED spread coverage of the
     # consumed bars -- the single-asset analogue of the basket cost-regime record.
     from tools.basket_provenance import single_asset_cost_model, leg_spread_coverage_pct
+    from tools.engine_features import resolve_invalid_fill_policy
     _spread_cov = leg_spread_coverage_pct(df)
+    # Engine Patch A (v1.5.11): resolved engine-fill policy (default FAIL =
+    # today). Stamp-only in Patch A — does not alter a trade; the SKIP compute
+    # path lands in Patch B. Already validated at Stage -0.23 admission.
+    _invalid_fill_policy = resolve_invalid_fill_policy(directive_dict)
     _engine_ver = None  # captured from the engine metadata in Phase E below
 
     meta_path = out_folder / "run_metadata.json"
@@ -998,6 +1003,7 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
             data['trend_filter_enabled'] = trend_filter_enabled
             data['git_commit'] = git_commit
             data['schema_version'] = "1.3.0"
+            data['invalid_fill_policy'] = _invalid_fill_policy
             _engine_ver = data.get('engine_version')
             data['execution_model'] = {
                 'order_type':       directive_dict.get('order_placement', {}).get('type', 'market'),
@@ -1039,6 +1045,7 @@ def _emit_enrich_metadata_files(out_folder, ui_meta_dir, content_hash,
         'spread_coverage_pct':  _spread_cov,
     }
     ui_data['schema_version'] = "1.3.0"
+    ui_data['invalid_fill_policy'] = _invalid_fill_policy
     with open(ui_meta_run_metadata, 'w', encoding='utf-8') as f:
         json.dump(ui_data, f, indent=2)
 
