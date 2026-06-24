@@ -2568,6 +2568,20 @@ ideas:
             reserved_at_utc: '2026-05-06T12:00:00.000000+00:00'
             directive_hash: 63958ded4047bb42
             directive_hash_full: 63958ded4047bb42f0c724c63b8c172e9468aa4d09bd395049112a67dd13cf12
+          P16:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P16
+            reserved_at_utc: '2026-06-23T15:39:50.903666+00:00'
+            directive_hash: 1902eb9eb9ee0fc4
+            signature_hash: 1902eb9eb9ee0fc4
+            directive_hash_full: 1902eb9eb9ee0fc4227fe54854606f3aeff051b4f9a923a798e8b1c193b9fb04
+            signature_hash_full: 1902eb9eb9ee0fc4227fe54854606f3aeff051b4f9a923a798e8b1c193b9fb04
+          P17:
+            directive_name: 65_BRK_XAUUSD_5M_PSBRK_S01_V4_P17
+            reserved_at_utc: '2026-06-23T17:30:20.092031+00:00'
+            directive_hash: 09221676a862599c
+            signature_hash: 09221676a862599c
+            directive_hash_full: 09221676a862599c1ecaf8834999fa9952a187ba34f84920e8a4d260bdb9cca3
+            signature_hash_full: 09221676a862599c1ecaf8834999fa9952a187ba34f84920e8a4d260bdb9cca3
       S02:
         directive_name: 65_BRK_XAUUSD_5M_PSBRK_S02_V1_P01
         signature_hash: d615ccc20f53ef8c
