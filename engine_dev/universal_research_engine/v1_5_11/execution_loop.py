@@ -220,7 +220,8 @@ def _compute_unrealized_r_intrabar(direction: int, bar_high: float, bar_low: flo
     return None
 
 
-def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dict[str, Any]]:
+def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol,
+                       health: dict[str, int] | None = None) -> list[dict[str, Any]]:
     """
     v1.5.7 execution loop. Strategy-agnostic.
 
@@ -231,6 +232,11 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
     Returns list of trade dicts. When a partial exit fired during a trade, the
     trade dict contains a `partial_leg` sub-dict with the partial close details
     AND `partial_of_parent = True`. Otherwise both fields are absent / False.
+
+    v1.5.11 Patch A: `health` is an optional mutable dict of run-level engine
+    counters. When None (the default — every byte-identical caller) nothing is
+    counted and behaviour is unchanged; when supplied, run-level events are
+    tallied into it in place. Observational ONLY — it never alters a trade.
     """
     df = strategy.prepare_indicators(df)
 
@@ -246,6 +252,14 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
         raise RuntimeError(f"Engine Regime Implementation Failed: {e}") from e
 
     trades = []
+
+    # v1.5.11 Patch A: initialise the run-level health counters when opted in.
+    # Guarded so the default (health is None) path is byte-identical.
+    if health is not None:
+        for _hk in ('rejected_entries', 'stop_mutation_rejected',
+                    'pending_entries_expired', 'force_close_count',
+                    'negative_spread_bars', 'nan_bar_count'):
+            health.setdefault(_hk, 0)
 
     _sig      = getattr(strategy, 'STRATEGY_SIGNATURE', {})
     _tmgmt    = _sig.get('trade_management', {})
@@ -304,6 +318,8 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
             if session_reset_mode == 'utc_day':
                 session_trade_count = 0
             if session_reset_mode == 'utc_day':
+                if health is not None and pending_entry is not None:
+                    health['pending_entries_expired'] += 1
                 pending_entry = None
 
         # Build context (v1.5.8 adds unrealized_r_intrabar alongside close-based unrealized_r)
@@ -370,6 +386,11 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                     stop_price_active            = stop_price
                     stop_mutation_rejected_count = 0
                     continue
+                # pos is None => direction filtered out by allow_direction; the
+                # pending entry is discarded and we fall through to a fresh
+                # signal. Count the engine-level rejection (observational only).
+                if health is not None:
+                    health['rejected_entries'] += 1
 
             # CHECK FOR NEW ENTRY SIGNAL
             allow_entry = (
@@ -518,6 +539,8 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
                             stop_price_active = new_sl_f
                         else:
                             stop_mutation_rejected_count += 1
+                            if health is not None:
+                                health['stop_mutation_rejected'] += 1
 
             # --- (4) check_exit (time / signal) ---
             # Contract v1.3 (additive, backward-compatible):
@@ -620,6 +643,8 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
 
     # --- FORCE-CLOSE: open position at end of data ---
     if in_pos and len(df) > 0:
+        if health is not None:
+            health['force_close_count'] += 1
         last_row = df.iloc[-1]
         last_i = len(df) - 1
         trade = {
@@ -669,5 +694,21 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
         if stop_mutation_rejected_count > 0:
             trade["stop_mutation_rejected"] = stop_mutation_rejected_count
         trades.append(trade)
+
+    # v1.5.11 Patch A: cheap vectorized data-quality probes (count-only; does
+    # NOT open the H2/ContextView NaN audit). Computed once at run end so the
+    # per-bar hot path stays byte-identical. nan_bar_count = bars whose consumed
+    # price (`close`) is NaN (a genuine data gap, distinct from benign indicator
+    # warm-up NaN); negative_spread_bars = bars whose raw `spread` is finite and
+    # < 0 (the values _bar_spread clamps to 0).
+    if health is not None:
+        try:
+            if 'close' in df.columns:
+                health['nan_bar_count'] = int(df['close'].isna().sum())
+            if 'spread' in df.columns:
+                _sp = pd.to_numeric(df['spread'], errors='coerce')
+                health['negative_spread_bars'] = int((_sp < 0).sum())
+        except Exception:
+            pass  # observational only — a probe hiccup must never abort a run
 
     return trades

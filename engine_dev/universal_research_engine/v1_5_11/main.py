@@ -52,14 +52,18 @@ def load_strategy(strategy_id: str):
     return StrategyClass()
 
 
-def run_engine(df, strategy) -> List[dict]:
+def run_engine(df, strategy, health=None) -> List[dict]:
     """
     Execute strategy on provided data.
-    
+
     Args:
         df: DataFrame with OHLCV market data (authoritative source determined by execution context)
         strategy: Strategy instance with prepare_indicators, check_entry, check_exit
-        
+        health: optional mutable dict of run-level engine counters (v1.5.11
+            Patch A). When None (default) nothing is counted and the run is
+            byte-identical; when supplied it is populated in place. Observational
+            only — never alters a trade.
+
     Returns:
         List of trade dictionaries with:
         - entry_timestamp
@@ -104,7 +108,7 @@ def run_engine(df, strategy) -> List[dict]:
     strategy.check_exit = wrapped_check_exit
     
     try:
-        trades = run_execution_loop(df, strategy)
+        trades = run_execution_loop(df, strategy, health=health)
     finally:
         # Restore original methods to prevent side-effects if object is reused.
         strategy.check_entry = original_check_entry
