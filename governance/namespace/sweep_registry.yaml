@@ -448,7 +448,7 @@ ideas:
         signature_hash_full: efd2a6f4b8fd09c9c502e6f8dbbd067af51b86506bba8c7a619bde4a66da71de
         reserved_at_utc: '2026-03-18T13:00:00.000000+00:00'
   '11':
-    next_sweep: 4
+    next_sweep: 5
     sweeps:
       S01:
         directive_name: 11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S01_V1_P00
@@ -465,6 +465,13 @@ ideas:
         signature_hash: 48f12dfeeb44091f
         signature_hash_full: 48f12dfeeb44091ffc7f75e3aa68b1152537eda6cf358af9f6539fd839a13864
         reserved_at_utc: '2026-03-19T12:00:00.000000+00:00'
+      S04:
+        directive_name: 11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S04_V1_P00
+        reserved_at_utc: '2026-06-24T16:59:20.034267+00:00'
+        directive_hash: b56fd8da313ca551
+        signature_hash: b56fd8da313ca551
+        directive_hash_full: b56fd8da313ca551fdbc76728c61333c034c23f66526de377c99310e0ed3875e
+        signature_hash_full: b56fd8da313ca551fdbc76728c61333c034c23f66526de377c99310e0ed3875e
   '12':
     next_sweep: 4
     sweeps:
@@ -669,7 +676,7 @@ ideas:
         reserved_at_utc: '2026-03-21T00:00:00.000000+00:00'
         patches: {}
   '23':
-    next_sweep: 2
+    next_sweep: 3
     sweeps:
       S01:
         directive_name: 23_RSI_XAUUSD_1H_MICROREV_S01_V1_P00
@@ -748,7 +755,7 @@ ideas:
             reserved_at_utc: '2026-03-25T01:21:36.071584+00:00'
             signature_hash_full: c548db0049625a3fffda380a909e4ec5ae2287c0f30556ee1dd31ab96192b18e
   '22':
-    next_sweep: 13
+    next_sweep: 14
     sweeps:
       S01:
         directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P00
@@ -940,6 +947,13 @@ ideas:
         signature_hash: 9102e4b1c71da922
         reserved_at_utc: '2026-04-09T14:55:13.171931+00:00'
         signature_hash_full: 9102e4b1c71da9220b31fc2daac097848c9f276fc5814c27b2f2b0577450cf71
+      S13:
+        directive_name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S13_V1_P00
+        reserved_at_utc: '2026-06-24T16:22:28.531116+00:00'
+        directive_hash: f8a611d24f95c7ff
+        signature_hash: f8a611d24f95c7ff
+        directive_hash_full: f8a611d24f95c7ff2db453cbcc4bb8395904834762bfb1d806a0250a2de22098
+        signature_hash_full: f8a611d24f95c7ff2db453cbcc4bb8395904834762bfb1d806a0250a2de22098
   '24':
     next_sweep: 2
     sweeps:
