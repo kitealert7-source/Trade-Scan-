@@ -1,0 +1,42 @@
+{
+    "engine_name": "Universal_Research_Engine",
+    "engine_version": "v1_5_11",
+    "engine_status": "EXPERIMENTAL",
+    "vaulted": false,
+    "freeze_date": null,
+    "promotion_date": null,
+    "promotion_note": "Patch A (structural minimum core, byte-identical to v1.5.10): C2 shared position builder, run-level engine_health counters, engine_events.csv sidecar, minimal invalid_fill_policy flag plumbing (default FAIL) + signal_version fold-in, H6 Stage-2 fail-closed. Behaviour byte-identical to v1.5.10 (no trade moves; the SKIP path is Patch B). Design: outputs/system_reports/02_engine_core/ENGINE_PATCH_A_DESIGN_v1_5_11_2026-06-23.md. Step 1 = scaffold (byte-copy of v1_5_10 + version bump + L1 header fix); EXPERIMENTAL until the promotion gate (step 7) re-stamps file_hashes + FROZEN.",
+    "predecessor": "v1_5_10 (FROZEN 2026-06-17)",
+    "timestamp_utc": "2026-06-24T00:00:00+00:00",
+    "adds": [
+        "Patch A is structural + minimum-evidence only. The compute path is byte-identical to v1.5.10 (no behavioural change). Telemetry (engine_health counters + engine_events.csv) and the minimal invalid_fill_policy flag plumbing land in later Patch A commits; none alter a trade. file_hashes below are the SCAFFOLD state (step 1) and are re-stamped at promotion."
+    ],
+    "invariants": [
+        "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
+        "Partial guard: partial_taken == False AND bars_held >= 1 AND unrealized_r >= 1.0001",
+        "Stop mutation is monotone: long tightens up only, short tightens down only; silent reject otherwise",
+        "Entry market state initial_stop_price is FROZEN; stop_price_active is live-mutable",
+        "No-hook strategies produce byte-equivalent trade dicts to v1.5.7 (and v1.5.6)",
+        "unrealized_r (close-based) is UNCHANGED from v1.5.7 — additive only",
+        "spread=0 -> byte-equivalent to v1.5.10 (and v1.5.8/v1.5.9)."
+    ],
+    "known_limitations": [
+        "NO margin-call / liquidation (inherited from v1.5.10/v1.5.9/v1.5.8). Under leveraged sizing (granular_parity / vol_parity) a basket can run to NEGATIVE equity intra-run instead of being liquidated at the stake, so modeled net%/maxDD% can exceed 100% or show a fictitious recovery. Backtest-FIDELITY only: live trades at fixed 0.01 lot are broker-margined and notional sizing is mathematically bounded (the floor is a no-op there). MITIGATION (required for leveraged cohorts): analysis-layer floor tools/leverage_liquidation_adjust.py -> net=-100 / maxDD=100 / ret_dd=-1 when maxDD>100% (trough equity < 0), wired into tools/cointegration_aggregator.py. Ref: outputs/system_reports/06_strategy_research/SZVP_LEVERAGE_FORENSIC.md."
+    ],
+    "file_hashes": {
+        "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "execution_emitter_stage1.py": "AF137FFDE29D1E68EB97AC459BC6C93B7AE642A0A9E1F20625E97A6D33DD620F",
+        "execution_loop.py": "5D8E465F8A6F0F3B25154EA15653CE05F16FF344DF3AD7AC1946197D4E7C5ACC",
+        "evaluate_bar.py": "482DE421F4F93C5832725C48D722B2D24D3D142C6CA33ECA2CDE10B28B66A6C7",
+        "main.py": "166F3B01EFEB4ABAC30A6D2A5258F0668855B1D97CCF50F72A19F1E764A3B915",
+        "stage2_compiler.py": "77B590A4CFA29243348128DBEA263053BEF679953EC2F4CA30C4CD4FFCB0B3B6",
+        "contract.json": "50B3AFEEC11831274F2017E91C063589555A4DBB2BB33927AFD0A6D6374F005D"
+    },
+    "capabilities": [
+        "execution.entry.v1",
+        "execution.exit.v1",
+        "execution.partial_exit.v1",
+        "execution.intrabar_ur.v1"
+    ],
+    "contract_id": "sha256:50b3afeec11831274f2017e91c063589555a4dbb2bb33927afd0a6d6374f005d"
+}
