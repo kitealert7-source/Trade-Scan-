@@ -65,6 +65,11 @@ from typing import Any
 
 from engines.protocols import ContextViewProtocol, StrategyProtocol
 from engines.regime_state_machine import apply_regime_model
+# C2: the single shared pending-fill builder (one body for single-asset + basket;
+# the seam Patch B's invalid_fill_policy=SKIP hooks). Absolute import — main.py loads
+# this module standalone via spec_from_file_location, so a relative import would fail;
+# engine_dev is on sys.path (main.py inserts PROJECT_ROOT).
+from engine_dev.universal_research_engine.v1_5_11.evaluate_bar import build_position_from_pending
 
 __all__ = [
     "ContextView",
@@ -337,113 +342,33 @@ def run_execution_loop(df: pd.DataFrame, strategy: StrategyProtocol) -> list[dic
         if not in_pos:
             # EXECUTE PENDING ENTRY at bar N+1 open
             if pending_entry is not None:
-                pe           = pending_entry
+                pe = pending_entry
                 pending_entry = None
-                pe_signal    = pe['signal']
-                if 'signal' not in pe_signal:
-                    raise RuntimeError(
-                        "check_entry() return dict missing required field 'signal'. "
-                        "Contract v1.2 requires pe_signal['signal'] in {-1, +1}."
-                    )
-                pe_direction = pe_signal['signal']
-
-                direction_allowed = True
-                if hasattr(strategy, 'filter_stack'):
-                    if not strategy.filter_stack.allow_direction(pe_direction):
-                        direction_allowed = False
-
-                if direction_allowed:
-                    direction   = pe_direction
-                    in_pos      = True
-                    entry_index = i
-                    # v1.5.10: direction-aware entry fill. Long entry=BUY (ask);
-                    # short entry=SELL (bid = ask - spread). Propagates to the
-                    # stop/risk computation below (real-entry-relative), matching
-                    # live execution. spread=0 -> identical to v1.5.8.
-                    entry_price = _exec_fill(
-                        row.get('open', row['close']),
-                        is_sell=(direction == -1),
-                        bar_spread=_bar_spread(row),
-                    )
-
-                    reference_entry_price = pe.get('reference_entry_price')
-                    entry_reason          = pe.get('entry_reason')
-                    trade_entry_slippage  = (
-                        entry_price - reference_entry_price
-                        if reference_entry_price is not None else None
-                    )
-
-                    strat_stop = pe_signal.get('stop_price')
-                    if strat_stop is not None:
-                        stop_price  = strat_stop
-                        stop_source = 'STRATEGY'
-                    else:
-                        atr_at_signal = pe['atr']
-                        if atr_at_signal <= 0:
-                            raise ValueError(
-                                "STOP CONTRACT VIOLATION: ATR invalid (<=0) at signal bar."
-                            )
-                        if direction == 1:
-                            stop_price = entry_price - (atr_at_signal * sl_atr_mult)
-                        else:
-                            stop_price = entry_price + (atr_at_signal * sl_atr_mult)
-                        stop_source = 'ENGINE_FALLBACK'
-
-                    if direction == 1 and stop_price >= entry_price:
-                        raise ValueError("STOP CONTRACT VIOLATION: Long stop >= entry")
-                    if direction == -1 and stop_price <= entry_price:
-                        raise ValueError("STOP CONTRACT VIOLATION: Short stop <= entry")
-
-                    risk_distance = abs(entry_price - stop_price)
-                    if risk_distance <= 0:
-                        raise ValueError(
-                            f"STOP CONTRACT VIOLATION: risk_distance <= 0 "
-                            f"(entry={entry_price}, stop={stop_price})"
-                        )
-
-                    tp_price = pe_signal.get('tp_price')
-                    if tp_price is None and tp_atr_mult is not None:
-                        atr_at_signal = pe['atr']
-                        if atr_at_signal > 0:
-                            if direction == 1:
-                                tp_price = entry_price + (atr_at_signal * tp_atr_mult)
-                            else:
-                                tp_price = entry_price - (atr_at_signal * tp_atr_mult)
-
-                    entry_market_state = {
-                        "volatility_regime":    pe['vol_regime'],
-                        "trend_score":          pe['trend_score'],
-                        "trend_regime":         pe['trend_regime'],
-                        "trend_label":          pe['trend_label'],
-                        "atr_entry":            pe['atr'],
-                        "initial_stop_price":   stop_price,
-                        "risk_distance":        risk_distance,
-                        "tp_price":             tp_price,
-                        "stop_source":          stop_source,
-                        "entry_reference_price": reference_entry_price,
-                        "entry_slippage":        trade_entry_slippage,
-                        "entry_reason":          entry_reason,
-                        "signal_bar_idx":        pe['signal_bar_idx'],
-                        "fill_bar_idx":          i,
-                        "regime_age_signal":     pe.get('regime_age_signal'),
-                        "regime_age_fill":       row.get('regime_age'),
-                        "market_regime_signal":  pe.get('market_regime_signal'),
-                        "market_regime_fill":    row.get('market_regime'),
-                        "regime_id_signal":      pe.get('regime_id_signal'),
-                        "regime_id_fill":        row.get('regime_id'),
-                        "regime_age_exec_signal": pe.get('regime_age_exec_signal'),
-                        "regime_age_exec_fill":   row.get('regime_age_exec'),
-                    }
-
-                    trade_high = row.get('high', row['close'])
-                    trade_low  = row.get('low',  row['close'])
-
+                # C2: shared pending-fill builder (byte-identical to the inline
+                # v1.5.10 computation; the seam Patch B's invalid_fill_policy=SKIP
+                # hooks). None => direction filtered out: fall through to a new signal.
+                pos = build_position_from_pending(pe, sl_atr_mult, tp_atr_mult,
+                                                  strategy, row, i)
+                if pos is not None:
+                    direction                    = pos.direction
+                    in_pos                       = True
+                    entry_index                  = i
+                    entry_price                  = pos.entry_price
+                    reference_entry_price        = pos.reference_entry_price
+                    entry_reason                 = pos.entry_reason
+                    trade_entry_slippage         = pos.entry_slippage
+                    stop_price                   = pos.stop_price
+                    stop_source                  = pos.stop_source
+                    risk_distance                = pos.risk_distance
+                    tp_price                     = pos.tp_price
+                    entry_market_state           = pos.entry_market_state
+                    trade_high                   = pos.trade_high
+                    trade_low                    = pos.trade_low
                     # v1.5.7: reset per-trade partial / mutation state
-                    partial_taken = False
-                    partial_leg = None
-                    stop_price_active = stop_price
+                    partial_taken                = False
+                    partial_leg                  = None
+                    stop_price_active            = stop_price
                     stop_mutation_rejected_count = 0
-
                     continue
 
             # CHECK FOR NEW ENTRY SIGNAL

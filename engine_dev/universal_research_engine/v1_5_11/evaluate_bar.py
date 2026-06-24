@@ -293,14 +293,28 @@ def resolve_engine_config(strategy: StrategyProtocol) -> EngineConfig:
     )
 
 
-def _fill_from_pending(state, config, strategy, row, i):
-    """Open the position from state.pending_entry at row's open (bar i).
-    Shared by the deferred next-bar-open path and the opt-in current-bar-open
-    path. Mutates state in place; returns True if filled (direction allowed),
-    False if rejected so the caller can fall through."""
-    pe            = state.pending_entry
-    state.pending_entry = None
-    pe_signal     = pe['signal']
+class PositionInit:
+    """Computed result of build_position_from_pending — the values both engine
+    paths assign onto their position state (single-asset locals / basket state).
+
+    C2 (de-duplication): one shared body so the single-asset loop (execution_loop)
+    and the basket evaluator (evaluate_bar) cannot silently diverge, and so the
+    Patch B invalid_fill_policy=SKIP path (C1) has a single seam to hook."""
+    __slots__ = ("direction", "entry_price", "reference_entry_price", "entry_reason",
+                 "entry_slippage", "stop_price", "stop_source", "risk_distance",
+                 "tp_price", "entry_market_state", "trade_high", "trade_low")
+
+
+def build_position_from_pending(pe, sl_atr_mult, tp_atr_mult, strategy, row, i):
+    """Pure: compute the PositionInit for a pending entry filled at row's open
+    (bar i, next-bar-open). Returns None if the direction is filtered out by the
+    strategy's filter_stack (caller falls through, no position). Raises
+    STOP CONTRACT VIOLATION (ValueError) / missing-signal (RuntimeError) exactly as
+    the inline v1.5.10 single-asset + basket copies did — byte-identical (C2).
+
+    Direction-aware entry fill via _exec_fill (BUY@ask / SELL@bid); spread=0 -> no-op.
+    The single seam the Patch B invalid_fill_policy=SKIP path (C1) will hook."""
+    pe_signal = pe['signal']
     if 'signal' not in pe_signal:
         raise RuntimeError(
             "check_entry() return dict missing required field 'signal'. "
@@ -308,102 +322,130 @@ def _fill_from_pending(state, config, strategy, row, i):
         )
     pe_direction = pe_signal['signal']
 
-    direction_allowed = True
     if hasattr(strategy, 'filter_stack'):
         if not strategy.filter_stack.allow_direction(pe_direction):
-            direction_allowed = False
+            return None
 
-    if direction_allowed:
-        state.direction   = pe_direction
-        state.in_pos      = True
-        state.entry_index = i
-        # v1.5.10: direction-aware entry fill. Long entry=BUY (ask); short
-        # entry=SELL (bid = ask - spread). spread=0 -> identical to v1.5.9.
-        state.entry_price = _exec_fill(
-            row.get('open', row['close']),
-            is_sell=(pe_direction == -1),
-            bar_spread=_bar_spread(row),
-        )
+    direction = pe_direction
+    # v1.5.10: direction-aware entry fill. Long entry=BUY (ask); short entry=SELL
+    # (bid = ask - spread). spread=0 -> identical to v1.5.9/v1.5.8.
+    entry_price = _exec_fill(
+        row.get('open', row['close']),
+        is_sell=(direction == -1),
+        bar_spread=_bar_spread(row),
+    )
 
-        reference_entry_price = pe.get('reference_entry_price')
-        entry_reason          = pe.get('entry_reason')
-        trade_entry_slippage  = (
-            state.entry_price - reference_entry_price
-            if reference_entry_price is not None else None
-        )
+    reference_entry_price = pe.get('reference_entry_price')
+    entry_reason          = pe.get('entry_reason')
+    trade_entry_slippage  = (
+        entry_price - reference_entry_price
+        if reference_entry_price is not None else None
+    )
 
-        strat_stop = pe_signal.get('stop_price')
-        if strat_stop is not None:
-            stop_price  = strat_stop
-            stop_source = 'STRATEGY'
-        else:
-            atr_at_signal = pe['atr']
-            if atr_at_signal <= 0:
-                raise ValueError(
-                    "STOP CONTRACT VIOLATION: ATR invalid (<=0) at signal bar."
-                )
-            if state.direction == 1:
-                stop_price = state.entry_price - (atr_at_signal * config.sl_atr_mult)
-            else:
-                stop_price = state.entry_price + (atr_at_signal * config.sl_atr_mult)
-            stop_source = 'ENGINE_FALLBACK'
-
-        if state.direction == 1 and stop_price >= state.entry_price:
-            raise ValueError("STOP CONTRACT VIOLATION: Long stop >= entry")
-        if state.direction == -1 and stop_price <= state.entry_price:
-            raise ValueError("STOP CONTRACT VIOLATION: Short stop <= entry")
-
-        risk_distance = abs(state.entry_price - stop_price)
-        if risk_distance <= 0:
+    strat_stop = pe_signal.get('stop_price')
+    if strat_stop is not None:
+        stop_price  = strat_stop
+        stop_source = 'STRATEGY'
+    else:
+        atr_at_signal = pe['atr']
+        if atr_at_signal <= 0:
             raise ValueError(
-                f"STOP CONTRACT VIOLATION: risk_distance <= 0 "
-                f"(entry={state.entry_price}, stop={stop_price})"
+                "STOP CONTRACT VIOLATION: ATR invalid (<=0) at signal bar."
             )
+        if direction == 1:
+            stop_price = entry_price - (atr_at_signal * sl_atr_mult)
+        else:
+            stop_price = entry_price + (atr_at_signal * sl_atr_mult)
+        stop_source = 'ENGINE_FALLBACK'
 
-        tp_price = pe_signal.get('tp_price')
-        if tp_price is None and config.tp_atr_mult is not None:
-            atr_at_signal = pe['atr']
-            if atr_at_signal > 0:
-                if state.direction == 1:
-                    tp_price = state.entry_price + (atr_at_signal * config.tp_atr_mult)
-                else:
-                    tp_price = state.entry_price - (atr_at_signal * config.tp_atr_mult)
+    if direction == 1 and stop_price >= entry_price:
+        raise ValueError("STOP CONTRACT VIOLATION: Long stop >= entry")
+    if direction == -1 and stop_price <= entry_price:
+        raise ValueError("STOP CONTRACT VIOLATION: Short stop <= entry")
 
-        state.entry_market_state = {
-            "volatility_regime":    pe['vol_regime'],
-            "trend_score":          pe['trend_score'],
-            "trend_regime":         pe['trend_regime'],
-            "trend_label":          pe['trend_label'],
-            "atr_entry":            pe['atr'],
-            "initial_stop_price":   stop_price,
-            "risk_distance":        risk_distance,
-            "tp_price":             tp_price,
-            "stop_source":          stop_source,
-            "entry_reference_price": reference_entry_price,
-            "entry_slippage":        trade_entry_slippage,
-            "entry_reason":          entry_reason,
-            "signal_bar_idx":        pe['signal_bar_idx'],
-            "fill_bar_idx":          i,
-            "regime_age_signal":     pe.get('regime_age_signal'),
-            "regime_age_fill":       row.get('regime_age'),
-            "market_regime_signal":  pe.get('market_regime_signal'),
-            "market_regime_fill":    row.get('market_regime'),
-            "regime_id_signal":      pe.get('regime_id_signal'),
-            "regime_id_fill":        row.get('regime_id'),
-            "regime_age_exec_signal": pe.get('regime_age_exec_signal'),
-            "regime_age_exec_fill":   row.get('regime_age_exec'),
-        }
+    risk_distance = abs(entry_price - stop_price)
+    if risk_distance <= 0:
+        raise ValueError(
+            f"STOP CONTRACT VIOLATION: risk_distance <= 0 "
+            f"(entry={entry_price}, stop={stop_price})"
+        )
 
-        state.trade_high = row.get('high', row['close'])
-        state.trade_low  = row.get('low',  row['close'])
+    tp_price = pe_signal.get('tp_price')
+    if tp_price is None and tp_atr_mult is not None:
+        atr_at_signal = pe['atr']
+        if atr_at_signal > 0:
+            if direction == 1:
+                tp_price = entry_price + (atr_at_signal * tp_atr_mult)
+            else:
+                tp_price = entry_price - (atr_at_signal * tp_atr_mult)
 
-        # v1.5.7: reset per-trade partial / mutation state
-        state.partial_taken = False
-        state.partial_leg = None
-        state.stop_price_active = stop_price
-        state.stop_mutation_rejected_count = 0
+    entry_market_state = {
+        "volatility_regime":    pe['vol_regime'],
+        "trend_score":          pe['trend_score'],
+        "trend_regime":         pe['trend_regime'],
+        "trend_label":          pe['trend_label'],
+        "atr_entry":            pe['atr'],
+        "initial_stop_price":   stop_price,
+        "risk_distance":        risk_distance,
+        "tp_price":             tp_price,
+        "stop_source":          stop_source,
+        "entry_reference_price": reference_entry_price,
+        "entry_slippage":        trade_entry_slippage,
+        "entry_reason":          entry_reason,
+        "signal_bar_idx":        pe['signal_bar_idx'],
+        "fill_bar_idx":          i,
+        "regime_age_signal":     pe.get('regime_age_signal'),
+        "regime_age_fill":       row.get('regime_age'),
+        "market_regime_signal":  pe.get('market_regime_signal'),
+        "market_regime_fill":    row.get('market_regime'),
+        "regime_id_signal":      pe.get('regime_id_signal'),
+        "regime_id_fill":        row.get('regime_id'),
+        "regime_age_exec_signal": pe.get('regime_age_exec_signal'),
+        "regime_age_exec_fill":   row.get('regime_age_exec'),
+    }
 
-    return direction_allowed
+    p = PositionInit()
+    p.direction             = direction
+    p.entry_price           = entry_price
+    p.reference_entry_price = reference_entry_price
+    p.entry_reason          = entry_reason
+    p.entry_slippage        = trade_entry_slippage
+    p.stop_price            = stop_price
+    p.stop_source           = stop_source
+    p.risk_distance         = risk_distance
+    p.tp_price              = tp_price
+    p.entry_market_state    = entry_market_state
+    p.trade_high            = row.get('high', row['close'])
+    p.trade_low             = row.get('low',  row['close'])
+    return p
+
+
+def _fill_from_pending(state, config, strategy, row, i):
+    """Open the position from state.pending_entry at row's open (bar i).
+    Shared by the deferred next-bar-open path and the opt-in current-bar-open
+    path. Mutates state in place; returns True if filled (direction allowed),
+    False if rejected so the caller can fall through. C2: delegates the
+    computation to the shared build_position_from_pending()."""
+    pe = state.pending_entry
+    state.pending_entry = None
+    pos = build_position_from_pending(pe, config.sl_atr_mult, config.tp_atr_mult,
+                                      strategy, row, i)
+    if pos is None:
+        return False   # direction filtered out — caller falls through
+
+    state.direction                    = pos.direction
+    state.in_pos                       = True
+    state.entry_index                  = i
+    state.entry_price                  = pos.entry_price
+    state.entry_market_state           = pos.entry_market_state
+    state.trade_high                   = pos.trade_high
+    state.trade_low                    = pos.trade_low
+    # v1.5.7: reset per-trade partial / mutation state
+    state.partial_taken                = False
+    state.partial_leg                  = None
+    state.stop_price_active            = pos.stop_price
+    state.stop_mutation_rejected_count = 0
+    return True
 
 
 # =============================================================================
