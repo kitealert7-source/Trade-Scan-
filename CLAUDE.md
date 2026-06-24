@@ -121,6 +121,14 @@ To find which workflows, tools, governance artifacts, reports, audits, failure p
 
 ---
 
+## Namespace Token Validation — MANDATORY FIRST STEP
+
+Before creating ANY file, confirm the MODEL token exists in `governance/namespace/token_dictionary.yaml` (or under `aliases.model`). Not found → STOP. The YAML is canonical; the list below is a convenience mirror (relocated here from auto-memory 2026-06-24, deferred Fix 1).
+
+Valid: RSIAVG, ZREV, VOLEXP, ATRBRK, BOS, CHOCH, SFP, IBREAK, PINBAR, ENGULF, LIQGRAB, PORT, ULTC, DAYOC, SMI, LORB, RSIPULL, SPKFADE, GAPFILL, BBSQZ, ATRSQZ, ASRANGE, FAKEBREAK, LIQSWEEP. Alias: VOLEXPAND→VOLEXP.
+
+---
+
 ## Worktree & Junction Safety (HARD PROHIBITION)
 
 **NEVER create an NTFS directory junction (`mklink /J`) inside a Claude worktree** — and especially never one that targets `Anti_Gravity_DATA_ROOT`, `TradeScan_State`, `TS_Execution`, `DATA_INGRESS`, or `DRY_RUN_VAULT`.
