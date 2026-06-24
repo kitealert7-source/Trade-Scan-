@@ -5,11 +5,11 @@
     "vaulted": true,
     "freeze_date": "2026-06-24",
     "promotion_date": "2026-06-24",
-    "promotion_note": "Patch A CORE promoted 2026-06-24 (steps 1-4, BYTE-IDENTICAL to v1.5.10 -- structural + telemetry only, no trade moves): (1) C2 shared position builder; (2) run-level engine_health counters in run_metadata.json (opt-in, observational); (3) minimal invalid_fill_policy flag plumbing (default FAIL, inert; the SKIP compute path is Patch B) + signal_version fold-in. DEFERRED (NOT in this engine): engine_events.csv -> Patch A.1 (built post-convergence as the proof the identity tax dropped); H6 Stage-2 fail-closed -> the engine-authority convergence arc (it was a dead check on a permanently-broken resolver -- runtime_ver always UNKNOWN: no VALIDATED_ENGINE.manifest.json exists + dotted/underscored path skew -- so inverting it literally would break every Stage-2 compile; it is genuinely an identity-resolution problem and belongs with convergence). Design: outputs/system_reports/02_engine_core/ENGINE_PATCH_A_DESIGN_v1_5_11_2026-06-23.md. file_hashes below are the PROMOTION (FROZEN) state. Rollback target: v1_5_10 (FROZEN + vaulted; byte-identical -> swap-safe).",
+    "promotion_note": "Patch A CORE promoted 2026-06-24 (steps 1-4, BYTE-IDENTICAL to v1.5.10 -- structural + telemetry only, no trade moves): (1) C2 shared position builder; (2) run-level engine_health counters in run_metadata.json (opt-in, observational); (3) minimal invalid_fill_policy flag plumbing (default FAIL, inert; the SKIP compute path is Patch B) + signal_version fold-in. (4) H6 Stage-2 version gate LANDED 2026-06-24 (same-day trade-neutral freeze amendment): get_runtime_engine_version() now resolves the reliable active version via get_engine_version() (the prior VALIDATED_ENGINE.manifest.json lookup was permanently broken -- always UNKNOWN: no such manifest + dotted/underscored path skew), and get_settings_df fail-closes on a metadata/runtime mismatch. Trade/metric values unchanged (presentation gate only). DEFERRED (NOT in this engine): engine_events.csv -> Patch A.1 (built post-convergence as the proof the identity tax dropped). Design: outputs/system_reports/02_engine_core/ENGINE_PATCH_A_DESIGN_v1_5_11_2026-06-23.md. file_hashes below are the PROMOTION (FROZEN) state. Rollback target: v1_5_10 (FROZEN + vaulted; byte-identical -> swap-safe).",
     "predecessor": "v1_5_10 (FROZEN 2026-06-17)",
     "timestamp_utc": "2026-06-24T00:00:00+00:00",
     "adds": [
-        "Patch A CORE is structural + telemetry only. The compute path is byte-identical to v1.5.10 (no behavioural change). Landed: C2 builder + run-level engine_health counters + minimal invalid_fill_policy plumbing (default FAIL, inert). file_hashes below are LF-normalized (tools/verify_engine_integrity.canonical_sha256) at the FROZEN promotion state. engine_events.csv (Patch A.1) and H6 (convergence) are NOT in this engine."
+        "Patch A CORE is structural + telemetry only. The compute path is byte-identical to v1.5.10 (no behavioural change). Landed: C2 builder + run-level engine_health counters + minimal invalid_fill_policy plumbing (default FAIL, inert). file_hashes below are LF-normalized (tools/verify_engine_integrity.canonical_sha256) at the FROZEN promotion state. engine_events.csv (Patch A.1) is NOT in this engine; H6 (Stage-2 fail-closed version gate) LANDED 2026-06-24."
     ],
     "invariants": [
         "Canonical per-bar order (in-position): SL/TP -> partial -> stop_mutation -> check_exit",
@@ -17,7 +17,7 @@
         "Stop mutation is monotone: long tightens up only, short tightens down only; silent reject otherwise",
         "Entry market state initial_stop_price is FROZEN; stop_price_active is live-mutable",
         "No-hook strategies produce byte-equivalent trade dicts to v1.5.7 (and v1.5.6)",
-        "unrealized_r (close-based) is UNCHANGED from v1.5.7 — additive only",
+        "unrealized_r (close-based) is UNCHANGED from v1.5.7 \u2014 additive only",
         "spread=0 -> byte-equivalent to v1.5.10 (and v1.5.8/v1.5.9)."
     ],
     "known_limitations": [
@@ -25,12 +25,12 @@
     ],
     "file_hashes": {
         "__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "contract.json": "50B3AFEEC11831274F2017E91C063589555A4DBB2BB33927AFD0A6D6374F005D",
+        "evaluate_bar.py": "2F8AD6F23BD4D12A4B70CBA1DEE4F9B70FECD5C7006B7D17C0D59CED5619C551",
         "execution_emitter_stage1.py": "AF137FFDE29D1E68EB97AC459BC6C93B7AE642A0A9E1F20625E97A6D33DD620F",
         "execution_loop.py": "F127FB1A3ACBB78C1AA1163BC5ACC750483213D2CB45F3F0391690E845219965",
-        "evaluate_bar.py": "2F8AD6F23BD4D12A4B70CBA1DEE4F9B70FECD5C7006B7D17C0D59CED5619C551",
         "main.py": "9896F204CBFC1D7D9F881AF7C3A30608130D98ABDBDB3D4EF7B4F2AF9741DA90",
-        "stage2_compiler.py": "77B590A4CFA29243348128DBEA263053BEF679953EC2F4CA30C4CD4FFCB0B3B6",
-        "contract.json": "50B3AFEEC11831274F2017E91C063589555A4DBB2BB33927AFD0A6D6374F005D"
+        "stage2_compiler.py": "EE273B6928FE0625B1B799A44BC90867773C911BE9D2252C643C4EA6E01BD184"
     },
     "capabilities": [
         "execution.entry.v1",

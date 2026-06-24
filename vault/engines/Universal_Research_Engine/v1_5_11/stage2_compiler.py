@@ -331,30 +331,55 @@ def _compute_buy_hold_benchmark(trades: list[dict[str, Any]]) -> dict[str, float
 
 
 def get_runtime_engine_version() -> str:
-    """Dynamically load version from validated engine manifest."""
-    try:
-        from tools.pipeline_utils import get_engine_version
-        _ver = get_engine_version()
-        manifest_path = PROJECT_ROOT / "engine_dev" / "universal_research_engine" / _ver / "VALIDATED_ENGINE.manifest.json"
-        if manifest_path.exists():
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("engine_version", "UNKNOWN")
-    except (ImportError, OSError, json.JSONDecodeError, KeyError) as e:
-        print(f"  STAGE2_ENGINE_VERSION_WARN  {type(e).__name__}: {e}")
-    return "UNKNOWN"
+    """The dotted version of the ACTIVE engine, resolved from the SAME authority
+    that stamped the run (config active_engine / ENGINE_VERSION_OVERRIDE, via
+    get_engine_version). RELIABLE — never 'UNKNOWN'.
+
+    H6 (v1.5.11): the prior implementation read a `VALIDATED_ENGINE.manifest.json`
+    that NEVER EXISTS, on a dotted path (`.../1.5.10/...`) that can never match the
+    underscored engine dirs (`.../v1_5_10/...`) — so it returned 'UNKNOWN' on EVERY
+    run and the strict-version check below was permanently dead (fail-OPEN). The
+    runtime identity is the resolved active version; the loaded module's own
+    ENGINE_VERSION is independently bound to it at run time by
+    run_stage1.run_engine_logic (the folder-vs-module skew guard).
+    Doctrine: [[engine_identity_is_compute_not_stamp]].
+    """
+    from tools.pipeline_utils import get_engine_version
+    return get_engine_version()
 
 def get_settings_df(metadata: dict[str, Any]) -> pd.DataFrame:
-    # Strict Version Validation (SOP v4.2 Remediation)
-    meta_engine_ver = metadata.get("engine_version", "")
+    # Strict Version Validation (SOP v4.2 Remediation) — H6 FAIL-CLOSED (v1.5.11).
+    # The metadata engine_version was stamped at Stage 1 from get_engine_version();
+    # this re-resolves it at Stage 2 and refuses to compile on a mismatch (e.g.
+    # active_engine drifted between stages, or hand-edited metadata). Normal
+    # pipeline runs share active_engine across stages -> identical -> pass.
+    from config.engine_authority import normalize_engine_token
+    meta_engine_ver = str(metadata.get("engine_version", "")).strip()
     runtime_ver = get_runtime_engine_version()
-    
-    # If runtime version is known, enforce strict match
-    if runtime_ver != "UNKNOWN":
-        if meta_engine_ver != runtime_ver:
-             # Raise error to prevent silent corruption/mismatch
-             raise ValueError(f"Stage-2 Metadata Mismatch: Metadata says {meta_engine_ver}, Runtime says {runtime_ver}. Strict enforcement enabled.")
-    
+
+    if not meta_engine_ver:
+        raise ValueError(
+            "Stage-2 Engine Version Unverifiable: metadata carries no "
+            f"'engine_version' (runtime={runtime_ver!r}). Refusing to compile "
+            "(fail-closed) -- a run with no stamped engine identity cannot be "
+            "version-validated."
+        )
+    try:
+        meta_norm = normalize_engine_token(meta_engine_ver, "dotted")
+        runtime_norm = normalize_engine_token(runtime_ver, "dotted")
+    except ValueError as e:
+        raise ValueError(
+            f"Stage-2 Engine Version Unparseable: metadata={meta_engine_ver!r}, "
+            f"runtime={runtime_ver!r} ({e}). Refusing to compile (fail-closed)."
+        ) from e
+    if meta_norm != runtime_norm:
+        raise ValueError(
+            f"Stage-2 Metadata Mismatch: metadata says {meta_engine_ver!r}, runtime "
+            f"says {runtime_ver!r}. Refusing to compile (fail-closed). If you are "
+            "deliberately re-compiling a run computed on a different engine, that is "
+            "a version skew the strict gate is designed to surface."
+        )
+
     data = [
         {"Parameter": "Run ID", "Value": metadata.get("run_id", "")},
         {"Parameter": "Strategy Name", "Value": metadata.get("strategy_name", "")},
