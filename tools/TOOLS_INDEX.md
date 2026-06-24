@@ -22,9 +22,9 @@ Top-level modules are operational entrypoints; modules under subpackages
 `utils/`, `system_logging/`, `state_lifecycle/`) are internal libraries.
 
 
-Total modules indexed: 378 (excludes `__init__.py`).
+Total modules indexed: 380 (excludes `__init__.py`).
 
-## tools/ (top-level)  (177 modules)
+## tools/ (top-level)  (179 modules)
 
 | Module | Summary |
 |---|---|
@@ -60,6 +60,7 @@ Total modules indexed: 378 (excludes `__init__.py`).
 | `tools.capital_wrapper` | Deployable Capital Wrapper — Phases 2–6 |
 | `tools.check_broader_pytest_baseline` | Broader-pytest baseline gate — catches NEW test regressions at session-close. |
 | `tools.check_guard_drift` | check_guard_drift.py -- EARLY-WARNING for guarded-tool / manifest drift. |
+| `tools.check_memory_index_budget` | check_memory_index_budget.py -- byte-budget gate for the auto-memory MEMORY.md index. |
 | `tools.classifier_gate` | classifier_gate.py — Phase 4 Admission Pre-Check. |
 | `tools.cleanup_ledger` | cleanup_ledger.py -- Remove stale rows from Strategy_Master_Filter.xlsx by strategy_id prefix. |
 | `tools.cleanup_mps` | cleanup_mps.py -- Remove stale row(s) from Master_Portfolio_Sheet.xlsx by portfolio_id. |
@@ -162,6 +163,7 @@ Total modules indexed: 378 (excludes `__init__.py`).
 | `tools.regenerate_all_reports` | (no docstring) |
 | `tools.regime_alignment_guard` | regime_alignment_guard.py — warn-mode audit of dual-time regime_age fields. |
 | `tools.rehash_directive` | rehash_directive.py — Sweep Hash Recompute CLI |
+| `tools.repair_sweep_registry` | repair_sweep_registry.py -- sanctioned, human-approved repair for sweep-registry DRIFT. |
 | `tools.report_generator` | Backtest markdown-report orchestration (Stage-5). |
 | `tools.rerun_backtest` | rerun_backtest.py — Friction-free reruns of already-tested strategies. |
 | `tools.research_memory_append` | Append entries to RESEARCH_MEMORY.md in append-only format. |

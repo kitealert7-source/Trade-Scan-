@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-24T08:52:46Z
+> Generated: 2026-06-24T17:38:12Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -14,17 +14,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 33 directives
+- Completed: 34 directives
 
 ## Ledgers
 
-- **Master Filter:** 1282 rows
+- **Master Filter:** 1283 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
   - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
 
-- **Candidates (FPS):** 393 rows — CORE: 15, FAIL: 247, RESERVE: 26, WATCH: 105
+- **Candidates (FPS):** 394 rows — CORE: 15, FAIL: 248, RESERVE: 26, WATCH: 105
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -37,12 +37,12 @@
 - Latest bar: **2026-06-24** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3358
+- Run directories: 3360
 
 ## Git Sync
-- Remote: IN SYNC (vs `origin/engine/v1_5_11-patch-a`)
+- Remote: IN SYNC (vs `origin/main`)
 - Working tree: 1 uncommitted
-- Last substantive commit: `903b21bb infra(guard): edit-time guard-manifest drift warning (retro task #2)`
+- Last substantive commit: `1685d7d0 chore(sweep-registry): reconcile S13 drift + record SPKFADE S04 from session runs`
 
 ## Deferred Maintenance
 
