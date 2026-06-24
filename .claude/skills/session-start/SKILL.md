@@ -81,6 +81,13 @@ else:
     print('MEMORY.md (auto):   not found - check ~/.claude/projects/<slug>/memory/')
 "
 ```
+The line count above is a soft proxy — the binding cap is **bytes** (the index loads in full
+only under ~24.4 KB). For the authoritative status (the same gate `/session-close` §3.14 enforces):
+
+// turbo
+```bash
+python tools/check_memory_index_budget.py
+```
 
 ### 1.7 Vault nav-layer freshness (advisory)
 

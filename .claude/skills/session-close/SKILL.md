@@ -41,7 +41,8 @@ git diff --name-only origin/main..HEAD 2>/dev/null | grep -E "^\.claude/skills/.
 # Drift signals (signals for 3.9 Deferred Maintenance)
 git status --short
 git log origin/main..HEAD --oneline | wc -l                  # unpushed commits
-wc -l MEMORY.md RESEARCH_MEMORY.md 2>/dev/null
+wc -l RESEARCH_MEMORY.md 2>/dev/null                          # repo-root research memory
+python tools/check_memory_index_budget.py                    # auto-memory MEMORY.md (no repo-root copy)
 
 # Day of week (informational; no longer auto-fires weekly skills)
 date +%A
@@ -68,7 +69,7 @@ PHASE 1 — DETECT (<UTC>)
     MPS delta               : N             (threshold ≥10 → trigger /pipeline-state-cleanup)
     backtests/ new dirs     : N             (threshold ≥20 → trigger /pipeline-state-cleanup)
     runs/ new dirs          : N             (threshold ≥50 → trigger /pipeline-state-cleanup)
-    MEMORY.md               : N lines / K KB (threshold >200L or >40KB → /anthropic-skills:consolidate-memory)
+    MEMORY.md (auto-memory) : N lines / K KB (gate 3.14: WARN ≥22KB, FAIL ≥24KB → trim / consolidate-memory)
     RESEARCH_MEMORY.md      : N lines / K KB (threshold >600L or >40KB → compact_research_memory.py)
   Tracked changes pending   : YES / NO     (N files)
   Unpushed commits          : N
@@ -89,6 +90,7 @@ CORE — always runs (HARD-TXN + HARD-GATE):
   3.1  Commit pending tracked changes        [HARD-TXN]
   3.4  Enforcement system health             [HARD-GATE: exit 2 blocks]
   3.5  Indicator registry drift              [HARD-GATE: exit 1 blocks]
+  3.14 Memory index budget (MEMORY.md)       [HARD-GATE: exit 1 blocks]
   3.7  Pre-push gate (clean working tree)    [HARD-TXN: NON-NEGOTIABLE]
   3.8  Push to origin/main                   [HARD-TXN]
   3.12 Known Issues Truthfulness Gate        [HARD-GATE: NON-NEGOTIABLE]
@@ -228,6 +230,28 @@ python tools/indicator_registry_sync.py --check
 |---|---|---|
 | `0` | Disk ↔ registry in sync | Proceed |
 | `1` | Drift detected | **Block session close.** Either: (a) `python tools/indicator_registry_sync.py --add-stubs` then `git add indicators/INDICATOR_REGISTRY.yaml` and commit, OR (b) restore the missing `.py` files / remove the orphan registry entries. Re-run `--check` until it exits 0. |
+
+### 3.14 Memory index budget gate [HARD: exit 1 blocks]
+
+Verify the auto-memory index `MEMORY.md` (under `~/.claude/projects/<slug>/memory/`,
+NOT the repo root) is within the harness load cap. Past ~24.4 KB it loads only
+partially and silently drops entries. Runs BEFORE the pre-push gate (3.7) so any
+trim commit rides out with the close.
+
+```bash
+python tools/check_memory_index_budget.py
+```
+
+| Exit | Meaning | Action |
+|---|---|---|
+| `0` | Under budget (or WARN headroom ≥22 KB) | Proceed |
+| `1` | At/over fail budget (≥24 KB) | **Block session close.** Trim the HOT index — delete settled-arc lines from `MEMORY.md` (the topic file stays on disk and is still recalled on demand by its `description:` frontmatter), or run `/anthropic-skills:consolidate-memory`. Re-run until exit 0. |
+| `2` | `MEMORY.md` not found | Investigate path resolution; do not silently pass. |
+
+Why a gate, not a warning: the prior check was advisory (session-start only) AND measured
+the wrong file (session-close's `wc -l MEMORY.md` read the non-existent repo-root file), so
+the index drifted past the cap unchecked. Advice without enforcement decays — see the
+`feedback_enforceable_mechanisms_only` / `feedback_memory_index_discipline` auto-memories.
 
 ### 3.6 Skill-maintenance audit [conditional: SKILL.md modified this session]
 
@@ -548,7 +572,8 @@ The summary becomes input for the next session's Phase 1 baseline.
 # === PHASE 1 — DETECT ===
 git status --short
 git log origin/main..HEAD --oneline | wc -l
-wc -l MEMORY.md RESEARCH_MEMORY.md 2>/dev/null
+wc -l RESEARCH_MEMORY.md 2>/dev/null
+python tools/check_memory_index_budget.py        # auto-memory MEMORY.md (no repo-root copy)
 date +%A
 # (record: pipeline_runs?, skills_invoked?, weekend?, drift?)
 
@@ -581,6 +606,9 @@ python tools/audit_intent_index.py --all
 
 # 3.5 Indicator registry drift — exit 1 blocks (ALWAYS)
 python tools/indicator_registry_sync.py --check
+
+# 3.14 Memory index budget — exit 1 blocks (ALWAYS); auto-memory MEMORY.md load cap
+python tools/check_memory_index_budget.py
 
 # 3.6 Skill-maintenance audit (CONDITIONAL: SKILL.md modified in session commits)
 #     git diff --name-only origin/main..HEAD | grep -E "\.claude/skills/.+/SKILL\.md$"
