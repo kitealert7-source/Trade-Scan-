@@ -558,6 +558,87 @@ def test_drop_basket_lineage_protected_not_db_deleted(staged_coint):
 
 
 # ---------------------------------------------------------------------------
+# portfolio_sheet DB-side drop (mirror of the basket arm, 2026-06-25)
+# ---------------------------------------------------------------------------
+
+
+def _seed_portfolio_sheet(rows: list[tuple[str, str]]) -> None:
+    """Create portfolio_sheet in the (monkeypatched) tmp ledger.db + insert
+    (portfolio_id, sheet) rows. Isolation: ri.LEDGER_DB_PATH is the tmp DB."""
+    import sqlite3
+    from tools.ledger_db import create_tables
+    conn = sqlite3.connect(str(ri.LEDGER_DB_PATH))
+    try:
+        create_tables(conn)
+        conn.executemany(
+            'INSERT INTO portfolio_sheet (portfolio_id, sheet) VALUES (?, ?)', rows
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _portfolio_sheet_ids(sheet: str = "Portfolios") -> set[str]:
+    import sqlite3
+    conn = sqlite3.connect(str(ri.LEDGER_DB_PATH))
+    try:
+        return {r[0] for r in conn.execute(
+            "SELECT portfolio_id FROM portfolio_sheet WHERE sheet = ?", (sheet,))}
+    finally:
+        conn.close()
+
+
+def test_apply_mps_db_drop_is_scoped_to_portfolio_id_and_sheet(staged):
+    """apply_mps_db_drop hard-DELETEs by (portfolio_id, sheet). A same portfolio_id
+    on the OTHER tab must survive — portfolio_sheet PK is (portfolio_id, sheet)."""
+    staged  # side effect: ri.LEDGER_DB_PATH -> tmp ledger.db
+    _seed_portfolio_sheet([
+        ("PF_ORPH", "Portfolios"),
+        ("PF_KEEP", "Portfolios"),
+        ("PF_ORPH", "Single-Asset Composites"),  # same id, other tab — must survive
+    ])
+
+    n = ri.apply_mps_db_drop(["PF_ORPH"], "Portfolios")
+    assert n == 1
+
+    assert _portfolio_sheet_ids("Portfolios") == {"PF_KEEP"}
+    assert _portfolio_sheet_ids("Single-Asset Composites") == {"PF_ORPH"}
+
+
+def test_apply_mps_db_drop_noop_when_table_absent(staged):
+    """Defensive: a fresh DB with no portfolio_sheet table is a clean no-op
+    (so the existing portfolio drop tests, which never seed the table, pass)."""
+    staged
+    assert ri.apply_mps_db_drop(["PF_DEAD"], "Portfolios") == 0
+
+
+def test_drop_deletes_orphan_from_portfolio_sheet_db(staged):
+    """End-to-end: --execute drops an orphan portfolio from BOTH the xlsx and the
+    portfolio_sheet DB. Pre-fix the DB row survived, so export_mps re-emitted it
+    into the cleaned xlsx at the next export — the gap caught on 2026-06-25."""
+    fsp, mps = staged
+    _seed_portfolio_sheet([("PF_LIVE", "Portfolios"), ("PF_DEAD", "Portfolios")])
+
+    _write_fsp(fsp, [{"run_id": "RID_A"}])
+    _write_mps(mps,
+        portfolios=[
+            {"portfolio_id": "PF_LIVE", "constituent_run_ids": "RID_A"},  # valid (folder planted)
+            {"portfolio_id": "PF_DEAD", "constituent_run_ids": "RID_X"},  # orphan
+        ],
+        sac=[],
+    )
+
+    rc = ri.main_via_args(["--execute"])
+    assert rc == 0
+
+    # xlsx: orphan gone (pre-existing behavior)
+    assert list(pd.read_excel(mps, sheet_name="Portfolios")["portfolio_id"]) == ["PF_LIVE"]
+    # DB: orphan gone too (THE FIX — pre-fix PF_DEAD survived and re-emitted)
+    assert _portfolio_sheet_ids("Portfolios") == {"PF_LIVE"}, \
+        "orphan PF_DEAD not deleted from portfolio_sheet DB — would re-emit on export"
+
+
+# ---------------------------------------------------------------------------
 # argparse wrapper for tests
 # ---------------------------------------------------------------------------
 

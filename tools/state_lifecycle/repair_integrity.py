@@ -319,12 +319,16 @@ def apply_fsp_drop(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, 
 
 
 def apply_mps_drop(df: pd.DataFrame, constituent_targets: list[tuple[int, list[str]]],
-                   folder_targets: list[int]) -> tuple[pd.DataFrame, int]:
+                   folder_targets: list[int]) -> tuple[pd.DataFrame, int, list[str]]:
     """Drop mode: remove MPS orphan-parent rows.
 
     Rows tagged with LINEAGE_PROTECTED_TAGS (SUPERSEDED / ARCHIVED_UNRESOLVED)
     are preserved — those tags are explicit audit-trail decisions that drop
     must honor. ARCHIVED_DEPENDENCY_LOST and untagged rows are dropped.
+
+    Returns (df_post_drop, count_dropped, portfolio_ids_dropped). The ids feed
+    apply_mps_db_drop — by construction they have already passed the
+    LINEAGE_PROTECTED_TAGS filter, so the DB delete does not re-check tags.
     """
     drop_indexes: set[int] = set()
     for idx, _ in constituent_targets:
@@ -338,10 +342,52 @@ def apply_mps_drop(df: pd.DataFrame, constituent_targets: list[tuple[int, list[s
             continue
         drop_indexes.add(idx)
     if not drop_indexes:
-        return df, 0
+        return df, 0, []
+    dropped_ids: list[str] = []
+    for idx in drop_indexes:
+        pid = str(df.iloc[idx].get("portfolio_id", "")).strip()
+        if pid and pid.lower() != "nan":
+            dropped_ids.append(pid)
     n = len(drop_indexes)
     df = df.drop(index=list(drop_indexes)).reset_index(drop=True)
-    return df, n
+    return df, n, dropped_ids
+
+
+def apply_mps_db_drop(portfolio_ids: list[str], sheet: str) -> int:
+    """Drop mode (DB side): hard-DELETE portfolio_sheet rows by (portfolio_id, sheet).
+
+    Mirror of apply_baskets_db_drop for the Portfolios / Single-Asset Composites
+    tabs. Without this delete, ledger_db.export_mps() re-emits the dropped row
+    from portfolio_sheet (canonical: export reads SELECT * FROM portfolio_sheet)
+    on the next export and overwrites the cleaned xlsx — the operator-driven
+    cleanup silently undone at the next export trigger. portfolio_sheet is keyed
+    (portfolio_id, sheet), so the delete is scoped to BOTH so a same-id row on the
+    other tab is not removed. Operator-driven cleanup is the documented append-only
+    exception (CLAUDE.md #2).
+
+    Contract: caller (apply_mps_drop) has already filtered LINEAGE_PROTECTED_TAGS,
+    so every id here is safe to delete. Returns the count of rows removed.
+    """
+    if not portfolio_ids:
+        return 0
+    from tools.ledger_db import _connect
+    conn = _connect(LEDGER_DB_PATH)
+    try:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='portfolio_sheet'"
+        ).fetchone():
+            return 0  # fresh/tmp DB with no portfolio_sheet table — nothing to delete
+        n = 0
+        for pid in portfolio_ids:
+            cur = conn.execute(
+                'DELETE FROM portfolio_sheet WHERE "portfolio_id" = ? AND "sheet" = ?',
+                (pid, sheet),
+            )
+            n += cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return n
 
 
 def apply_baskets_drop(df: pd.DataFrame, targets: list[int]) -> tuple[pd.DataFrame, int, list[str]]:
@@ -738,7 +784,15 @@ def main() -> int:
         if not c_targets and not f_targets:
             continue
         if action == "drop":
-            mps_sheets[sheet], n = apply_mps_drop(mps_sheets[sheet], c_targets, f_targets)
+            # Dual-write: xlsx rewrite + portfolio_sheet DB hard-DELETE. Without the
+            # DB delete, export_mps() re-emits the dropped row from portfolio_sheet
+            # (canonical) on the next export and overwrites the cleaned xlsx — the
+            # same durability gap fixed for baskets below. portfolio_sheet.sheet
+            # equals the MPS_TAGGED_SHEETS tab name, so the delete is sheet-scoped.
+            mps_sheets[sheet], n, dropped_pids = apply_mps_drop(mps_sheets[sheet], c_targets, f_targets)
+            db_dropped = apply_mps_db_drop(dropped_pids, sheet)
+            if db_dropped:
+                print(f"-> Deleted {db_dropped} portfolio_sheet DB row(s) from '{sheet}'.")
         else:
             mps_sheets[sheet], n = apply_mps_mark(mps_sheets[sheet], c_targets, f_targets)
         mps_applied[sheet] = n
