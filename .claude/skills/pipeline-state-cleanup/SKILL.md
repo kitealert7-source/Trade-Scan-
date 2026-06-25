@@ -1,6 +1,6 @@
 ---
 name: pipeline-state-cleanup
-description: Lineage-aware cleanup of TradeScan_State pipeline artifacts (runs/, backtests/, sandbox/, strategies/) — prunes only entries absent from the authoritative ledgers (Master_Portfolio_Sheet, Filtered_Strategies_Passed, portfolio.yaml). Distinct from repo-cleanup-refactor (repo + code DRY) and system-health-maintenance (system audit). Drift-triggered, not calendar.
+description: Lineage-aware cleanup of TradeScan_State pipeline artifacts (runs/, backtests/, sandbox/, strategies/) — prunes entries absent from the authoritative ledgers (Master_Portfolio_Sheet, Filtered_Strategies_Passed, portfolio.yaml), retires superseded runs, and bulk-purges a retired cost-regime/engine class. Distinct from repo-cleanup-refactor (repo + code DRY) and system-health-maintenance (system audit). Drift-triggered, not calendar.
 ---
 
 This workflow executes the structured Lineage-Aware State Lifecycle sequence to safely identify, map, and prune abandoned pipelines, backtests, and artifacts while maintaining absolute referential integrity.
@@ -103,6 +103,67 @@ retired_at_utc`.
 
 ---
 
+## Bulk purge by cost-regime / engine version (whole-class delete) — 2026-06-25
+
+A **distinct selection axis** from the three flows above: Phases 1–4 prune what is **absent**
+from the ledgers, keep-set propagation retires a cohort by `is_current`, *Retire superseded runs*
+prunes what is **present but superseded** — this deletes an entire **cost-regime class** (every run
+from a retired engine generation), regardless of ledger membership or supersession state. The
+2026-06-25 uncharged purge (drop everything ≤ v1.5.9, leave the store charged-only) is the reference
+run; done by hand, it hit three derived-construct leaks now encoded here.
+
+Hazard shape (memory `feedback_bulk_purge_reconcile_derived`): the purge selects **leaf runs**, but
+the integrity risk lives in the **derived constructs that don't carry the run's identity**. A
+leaf-level delete orphans them silently → a wrong pipeline-authoritative conclusion (Invariant #3).
+
+1. **Classify by cost-regime as a query, not archaeology.** `master_filter.engine_version` (commit
+   `e3980062`) records the producing engine per row, written at Stage-3 from `run_metadata.json`.
+   Cost-regime is a column filter: **charged = ≥ v1.5.10** (BUY@ask/SELL@bid spread-charging,
+   onboarded 2026-06-17); **uncharged = ≤ v1.5.9**. `cointegration_sheet` / `basket_sheet` already
+   carried engine provenance; single-asset `master_filter` gained the column 2026-06-25, so rows
+   written before then may be NULL — for those read each run's `run_metadata.json`, **never folder
+   mtime** (the 2026-06-01 directive co-location bumped folder mtimes and mis-dates the regime).
+2. **Crawl all three run tiers, not `runs/` only.** Build the delete / classify set over
+   `RUN_DIRS_IN_LOOKUP_ORDER = (RUNS_DIR, POOL_DIR, SELECTED_DIR)` = `runs/ + sandbox/ + candidates/`
+   (`config/state_paths.py`). `filter_strategies` **moves** a run `runs/ → sandbox/` (a real move,
+   no junction left behind), so a `runs/`-only crawl misses every pooled run — on 2026-06-25 it
+   missed **94 uncharged `sandbox/` runs** and FSP kept showing them.
+3. **Delete junction- and long-path-safe.** Use
+   `from tools.state_lifecycle.safe_delete import safe_rmtree` for every artifact-store directory
+   removal — **NEVER a raw `shutil.rmtree`** on the store: (a) NTFS junctions (`runs/→sandbox/`
+   Atomic-Run-Container pattern) — a raw recursive delete can follow a junction and destroy the
+   *target* (the 2026-05-07 multi-GB data-loss class); `safe_rmtree` drops the link with `os.rmdir`,
+   never recursing into a reparse point. (b) MAX_PATH long paths (`90_PORT_…_E######_<pair>/…`) —
+   `shutil.rmtree` raises WinError 3; `safe_rmtree` falls back to a robocopy `/MIR /XJ` empty-mirror.
+   (Commit `4a163498`.)
+4. **Reconcile EVERY derived sheet, not just the leaf runs.** The leaf delete is the easy half; the
+   derived constructs are unstamped and orphan silently. After the delete, reconcile each of:
+   - **`master_filter` / FSP** — drop rows whose run dir is now gone via
+     `repair_integrity.py --action drop` (scope by exact `run_id` per *Manual ledger-retirement
+     safety* above; never a name `LIKE`).
+   - **`portfolio_sheet` (DB table)** — `repair_integrity.apply_mps_db_drop` (commit `4a163498`)
+     hard-DELETEs the rows. Dropping only the MPS **xlsx** is a leak: `ledger_db.export_mps()` does
+     `SELECT * FROM portfolio_sheet` and **re-emits the dropped row on the next export**, silently
+     undoing the cleanup. DB = source-of-truth, xlsx = interface (AGENT.md #32) — reconcile the DB.
+   - **`basket_sheet` / `cointegration_sheet`** — `repair_integrity` already scans these (orphan
+     `run_id` → drop); confirm the counts.
+   - **Elite funnel** (`tools/portfolio/cointegration_view.py::_add_universe`) — a whole-regime purge
+     can **break a derived gate's own criterion**: the old "≥ 5 runs (reliable sample)" elite gate
+     collapsed to 0 elite at the post-purge median of ~1 run/pair. The fix is to **recalibrate the
+     funnel definition** for the surviving corpus (commit `392720dc` swapped the run-count gate for
+     `n_spans ≥ 2` + positive charged ret/dd), **not** to drop rows. After any regime purge, re-check
+     that every derived **gate** still has a valid sample — not just that every derived **row** still
+     has an artifact.
+
+**Post-purge assertion (proposed, not yet enforced).** The general mechanical check — "0 orphaned
+live rows across all derived sheets + the 3-tier store" — is specified in
+`outputs/system_reports/10_State Lifecycle Management/ORPHAN_RECONCILE_GATE_PLAN_2026-06-25.md`
+(PROPOSAL, awaiting operator approval; would add `repair_integrity.py --audit` with a non-zero exit
+on any orphan). Until it lands, Step 4 is **operator-verified by hand** — on 2026-06-25 all three
+leaks above were caught by operator verification, not by any tool.
+
+---
+
 ## Friction log
 
 Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
@@ -114,3 +175,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-06-15 | id LIKE over-matched (SQL `_`=wildcard, 986 vs 476); empty-portfolio block | Added corpus-purge + empty-portfolio-block + LIKE-escape (`_`/IN) notes |
 | 2026-06-16 | Empty-portfolio block forced manual per-directive_id deletes, stood-down fleet | `--allow-empty-shield` (4da44451); keep-set-driven prune; manual step retired |
 | 2026-06-19 | Phase-1B blocked by protected PORTFOLIO_COMPLETE runs whose artifacts were gone (engine-promotion test residue); silent until run by hand | Added "discard via reset_directive, not bare rm" contract + `system_preflight` REF_INTEGRITY tripwire (`2b763168`) |
+| 2026-06-25 | Bulk cost-regime purge (drop ≤v1.5.9, leave charged-only) underfit the lineage-prune flow; done by hand, hit 3 derived leaks (runs/-only crawl missed 94 sandbox runs, portfolio_sheet DB re-emit, elite ≥5-runs gate broke) | Added "Bulk purge by cost-regime" section: engine_version classify + 3-tier crawl + safe_rmtree + reconcile-every-derived-sheet |
