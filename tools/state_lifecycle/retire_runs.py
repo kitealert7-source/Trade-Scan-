@@ -245,11 +245,11 @@ def _append_archive(records: list[dict]) -> int:
 # ── Drop (authorized, guarded) ──────────────────────────────────────────────
 
 def _backup_ledger() -> Path:
-    db = _ledger_db()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-    bak = db.with_name(f"ledger.db.bak_{stamp}")
-    shutil.copy2(db, bak)
-    return bak
+    # Delegates to the central, retention-capped backup home
+    # (TradeScan_State/backups/) instead of writing ad-hoc ledger.db.bak_* at the
+    # state root -- single home + cap so backups don't re-accumulate (2026-06-25).
+    from tools.ledger_db import backup_ledger_db
+    return backup_ledger_db(reason="retire_runs")
 
 
 def _drop_row(conn: sqlite3.Connection, table: str, run_id: str) -> int:

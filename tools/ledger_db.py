@@ -522,6 +522,40 @@ def create_tables(conn: sqlite3.Connection) -> None:
 # Write operations — upsert (INSERT OR REPLACE)
 # ---------------------------------------------------------------------------
 
+def backup_ledger_db(reason: str | None = None, retention: int = 5) -> Path:
+    """Snapshot the live ledger.db into TradeScan_State/backups/ with a retention cap.
+
+    Centralizes ledger backups that previously littered the state root with ad-hoc
+    names (ledger.db.bak.*, ledger_bak_*.db). Writes
+    ``backups/ledger.db.<UTC>[_<reason>].bak`` then prunes the dir to the most
+    recent ``retention`` snapshots. Returns the new backup path.
+
+    Added 2026-06-25 -- single home + retention so the DB does not re-accumulate
+    backups at the root. Adopt this from any tool that snapshots ledger.db.
+    """
+    import shutil
+    from datetime import datetime, timezone
+    from config.path_authority import TRADE_SCAN_STATE
+    db = TRADE_SCAN_STATE / "ledger.db"
+    bdir = TRADE_SCAN_STATE / "backups"
+    bdir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
+    suffix = f"_{reason}" if reason else ""
+    bak = bdir / f"ledger.db.{stamp}{suffix}.bak"
+    shutil.copy2(db, bak)
+    snaps = sorted(
+        (p for p in bdir.iterdir()
+         if p.is_file() and p.name.startswith("ledger") and "bak" in p.name.lower()),
+        key=lambda p: p.stat().st_mtime, reverse=True,
+    )
+    for old in snaps[retention:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return bak
+
+
 def upsert_master_filter(
     conn: sqlite3.Connection,
     row: dict[str, Any],
