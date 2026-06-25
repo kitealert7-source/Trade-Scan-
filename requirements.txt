@@ -5,3 +5,4 @@ PyYAML==6.0.3
 openpyxl==3.1.5
 matplotlib==3.10.7
 pytest>=7.0
+pytest-xdist>=3.0  # parallel broader-pytest close gate (-n auto); see tools/check_broader_pytest_baseline.py

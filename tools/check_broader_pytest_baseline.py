@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import os
 import re
 import subprocess
 import sys
@@ -55,60 +56,145 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SIDECAR = REPO_ROOT / "outputs" / ".session_state" / "broader_pytest_baseline.json"
-PYTEST_TIMEOUT_S = 600  # full broader suite ~215s @ 2026-06-25 (2238 tests); ~2.8x headroom
+PYTEST_TIMEOUT_S = 600  # full suite ~80s 2-phase parallel @ 2026-06-25 (was ~172s serial); ample headroom
 # Append-only runtime trend (gitignored) — feeds the close-gate runtime MONITOR.
 DURATION_LOG = REPO_ROOT / "outputs" / ".session_state" / "broader_pytest_durations.jsonl"
 
+# Base pytest flags shared by both phases. `-p no:cacheprovider` avoids a
+# concurrent .pytest_cache write under xdist and keeps the run side-effect-free.
+_PYTEST_BASE = ["-q", "--tb=no", "--no-header", "-p", "no:cacheprovider"]
 
-def _run_pytest() -> dict:
-    """Run broader pytest and return parsed result.
+# Worker count for the parallel phase. Pinned to "8" (not xdist's "auto", which is
+# 14 = physical cores on this 14-core/20-thread box). A 2-pass interleaved sweep +
+# a full-gate A/B (2026-06-25) found worker count is dominated by machine-load
+# variance — 6/8/10/14 all within noise (~73-105s, single-run spread up to 2.3x) —
+# so no count wins on wall time. Speed being a wash, 8 is chosen to leave core
+# headroom for the suite's many subprocess-spawning tests AND for other work running
+# during a close (matches the cointegration runner's proven 8-worker config).
+# Override with BROADER_PYTEST_WORKERS (e.g. "auto"/"14"); monitor records the value.
+PYTEST_NUM_WORKERS = os.environ.get("BROADER_PYTEST_WORKERS", "8").strip() or "8"
 
-    Returns dict with keys:
-        failed: sorted list of "<file>::<test>" identifiers
-        count: int (failures)
-        passed: int
-        skipped: int
-        ok: bool (subprocess returned without timeout/exception)
-        raw_tail: list[str] (last ~20 lines for diagnostic)
+# Files that are NOT parallel-safe — they mutate/read shared, fixed-name on-disk
+# state another test sees concurrently, so they run in a SECOND serial phase while
+# everything else parallelizes (-n auto):
+#   - test_engine_abi_{v1_5_9,adversarial}: the adversarial file backs up + TAMPERS
+#     the REAL committed manifest + engine_abi/__init__.py then restores; v1_5_9
+#     reads that manifest and importlib.reload()s the ABI. These can't be sandboxed
+#     (the audit's whole point is to exercise the real triple-gate), and a crash
+#     mid-tamper dirties the tree — so they stay serial.
+# The 3 test_intent_injector_* files used to be here too; they were isolated at the
+# ROOT instead — the hook honors INTENT_INJECTOR_STATE_ROOT and tests/conftest.py
+# points each xdist worker at its own temp state dir — so they now parallelize
+# safely (and no longer pollute the real .claude/logs). Add a file here only when a
+# real shared-state race is proven AND it can't be sandboxed via a per-worker dir.
+SERIAL_FILES = [
+    "tests/test_engine_abi_v1_5_9.py",
+    "tests/test_engine_abi_adversarial.py",
+]
+
+
+def _parse_pytest_output(out: str) -> dict:
+    """Extract the FAILED-test set + pass/fail/skip counts from pytest -q output.
+
+    The summary lines ("FAILED <id> - <reason>", "N passed", ...) are emitted
+    identically by serial and xdist runs, so one parser covers both phases.
     """
-    t0 = time.perf_counter()
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=no", "--no-header"],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=PYTEST_TIMEOUT_S,
-        )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"pytest timed out after {PYTEST_TIMEOUT_S}s",
-                "elapsed_s": round(time.perf_counter() - t0, 1)}
-    except Exception as e:
-        return {"ok": False, "error": f"pytest failed to launch: {e}",
-                "elapsed_s": round(time.perf_counter() - t0, 1)}
-
-    out = (proc.stdout or "") + (proc.stderr or "")
     failed: list[str] = []
     for line in out.splitlines():
-        # pytest -q prints "FAILED <test_id> - <reason>" lines in the summary
         if line.startswith("FAILED "):
             parts = line.split(" ", 2)
             if len(parts) >= 2:
                 failed.append(parts[1].strip())
 
-    m_fail = re.search(r"(\d+)\s+failed", out)
-    m_pass = re.search(r"(\d+)\s+passed", out)
-    m_skip = re.search(r"(\d+)\s+skipped", out)
+    def _n(pat: str) -> int:
+        m = re.search(pat, out)
+        return int(m.group(1)) if m else 0
+
+    return {
+        "failed": failed,
+        "count": _n(r"(\d+)\s+failed"),
+        "passed": _n(r"(\d+)\s+passed"),
+        "skipped": _n(r"(\d+)\s+skipped"),
+    }
+
+
+def _pytest(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", *args],
+        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=timeout,
+    )
+
+
+def _run_pytest() -> dict:
+    """Run the broader pytest suite and return the parsed result.
+
+    Two-phase for speed without losing coverage (~172s serial -> ~80s):
+      Phase 1 — `tests/` with `-n auto --dist loadscope`, EXCLUDING SERIAL_FILES,
+                so the ~2030-test bulk spreads across cores.
+      Phase 2 — SERIAL_FILES on their own, serially (they are not parallel-safe).
+    The two failure sets + counts are merged. If pytest-xdist is unavailable the
+    Phase-1 launch reports an unrecognized `-n`; we transparently fall back to a
+    single serial run over `tests/` (legacy behavior — same coverage, slower).
+
+    Returns dict with keys: ok, failed, count, passed, skipped, elapsed_s,
+    raw_tail, exit_code, mode (and error on failure).
+    """
+    t0 = time.perf_counter()
+    ignore: list[str] = []
+    for f in SERIAL_FILES:
+        ignore += ["--ignore", f]
+
+    # Phase 1 — parallel bulk.
+    try:
+        p1 = _pytest(["tests/", "-n", PYTEST_NUM_WORKERS, "--dist", "loadscope", *_PYTEST_BASE, *ignore],
+                     PYTEST_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"pytest (parallel phase) timed out after {PYTEST_TIMEOUT_S}s",
+                "elapsed_s": round(time.perf_counter() - t0, 1)}
+    except Exception as e:
+        return {"ok": False, "error": f"pytest failed to launch: {e}",
+                "elapsed_s": round(time.perf_counter() - t0, 1)}
+    out1 = (p1.stdout or "") + (p1.stderr or "")
+
+    # Fallback: pytest-xdist not installed -> single serial run over tests/.
+    if "unrecognized arguments: -n" in out1:
+        try:
+            ps = _pytest(["tests/", *_PYTEST_BASE], PYTEST_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": f"pytest timed out after {PYTEST_TIMEOUT_S}s",
+                    "elapsed_s": round(time.perf_counter() - t0, 1)}
+        outs = (ps.stdout or "") + (ps.stderr or "")
+        r = _parse_pytest_output(outs)
+        return {"ok": True, "failed": sorted(set(r["failed"])), "count": r["count"],
+                "passed": r["passed"], "skipped": r["skipped"],
+                "elapsed_s": round(time.perf_counter() - t0, 1),
+                "raw_tail": outs.splitlines()[-20:], "exit_code": ps.returncode,
+                "mode": "serial (xdist unavailable)"}
+
+    r1 = _parse_pytest_output(out1)
+
+    # Phase 2 — shared-state files, serial.
+    try:
+        p2 = _pytest([*SERIAL_FILES, *_PYTEST_BASE], PYTEST_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "pytest (serial phase) timed out",
+                "elapsed_s": round(time.perf_counter() - t0, 1)}
+    except Exception as e:
+        return {"ok": False, "error": f"pytest serial phase failed to launch: {e}",
+                "elapsed_s": round(time.perf_counter() - t0, 1)}
+    out2 = (p2.stdout or "") + (p2.stderr or "")
+    r2 = _parse_pytest_output(out2)
 
     return {
         "ok": True,
-        "failed": sorted(set(failed)),
-        "count": int(m_fail.group(1)) if m_fail else 0,
-        "passed": int(m_pass.group(1)) if m_pass else 0,
-        "skipped": int(m_skip.group(1)) if m_skip else 0,
+        "failed": sorted(set(r1["failed"]) | set(r2["failed"])),
+        "count": r1["count"] + r2["count"],
+        "passed": r1["passed"] + r2["passed"],
+        "skipped": r1["skipped"] + r2["skipped"],
         "elapsed_s": round(time.perf_counter() - t0, 1),
-        "raw_tail": out.splitlines()[-20:],
-        "exit_code": proc.returncode,
+        "raw_tail": out1.splitlines()[-10:] + out2.splitlines()[-10:],
+        "exit_code": p1.returncode or p2.returncode,
+        "mode": "parallel 2-phase",
     }
 
 
@@ -151,6 +237,8 @@ def _log_duration(result: dict) -> None:
             "passed": result.get("passed", 0),
             "failed": result.get("count", 0),
             "skipped": result.get("skipped", 0),
+            "workers": PYTEST_NUM_WORKERS,
+            "mode": result.get("mode", "serial"),
             "sha": _git_sha(),
         }
         DURATION_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -180,7 +268,7 @@ def cmd_check() -> int:
 
     print(f"[check-broader-pytest] Current : {result['count']} failed, "
           f"{result['passed']} passed, {result['skipped']} skipped "
-          f"in {result.get('elapsed_s', '?')}s")
+          f"in {result.get('elapsed_s', '?')}s [{result.get('mode', 'serial')}]")
     print(f"[check-broader-pytest] Baseline: {baseline.get('count', 0)} acknowledged "
           f"(updated {baseline.get('updated_at') or 'never'})")
 

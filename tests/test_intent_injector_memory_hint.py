@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,10 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Hook writes are sandboxed under INTENT_INJECTOR_STATE_ROOT (set per-worker in
+# tests/conftest.py); resolve the same root for readback. Default = repo root.
+_HOOK_STATE_ROOT = Path(os.environ.get("INTENT_INJECTOR_STATE_ROOT", str(PROJECT_ROOT)))
 
 _HOOK_PATH = PROJECT_ROOT / ".claude" / "hooks" / "intent_injector.py"
 _INDEX_PATH = PROJECT_ROOT / "outputs" / "system_reports" / "INTENT_INDEX.yaml"
@@ -53,7 +58,7 @@ def _intent_id(stdout: str) -> str | None:
     if "intent_id=" in stdout:
         return stdout.split("intent_id=", 1)[1].split(")", 1)[0].strip()
     # Soft hints don't print intent_id; recover from log
-    log_path = PROJECT_ROOT / ".claude" / "logs" / "intent_matches.jsonl"
+    log_path = _HOOK_STATE_ROOT / ".claude" / "logs" / "intent_matches.jsonl"
     if not log_path.exists():
         return None
     for line in reversed(log_path.read_text(encoding="utf-8").splitlines()):

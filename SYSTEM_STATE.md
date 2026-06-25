@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 2 uncommitted
 
-> Generated: 2026-06-25T08:45:38Z
+> Generated: 2026-06-25T12:39:48Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -17,7 +18,7 @@
 
 ## Ledgers
 
-- **Master Filter:** 1283 rows
+- **Master Filter:** 24 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 0 rows — no status column
@@ -40,23 +41,22 @@
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `be26a9f5 session: regen TOOLS_INDEX (safe_delete tool added)`
+- Working tree: 2 uncommitted
+- Last substantive commit: `a846e3bb docs(system-state): PLAN â€” parallelize broader-pytest gate next session (low-risk, clarity reached)`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- (none — no drift signals exceed threshold this session)
+- [SIZE] SYSTEM_STATE Manual section 14 lines (approaching 20-line limit) — prune DONE entries and move verbose detail to a linked report (target ≤12).
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced). Promote to BUILD after ≥1 gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence (shipped 2026-06-07, ba3b82cf) doubled daily upserts (1860+126 vs 930+64 rows) and added ~80–180s/run (screener block ~3 min now). Promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `tools/refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass field to authorize refreshes (debt-marked in code + plan, operator-flagged). Promote to BUILD (dedicated refresh-intent signal) when a 2nd refresh use-case (baskets / master_filter) needs the auth path. First seen 2026-06-07.
-- [MONITOR] broader-pytest close-gate runtime — full suite (2238 tests) measured **215s @ 2026-06-25** (first instrumented run; the old code comment's "~122s" was stale by ~75% → already near threshold). Per-run trend → `outputs/.session_state/broader_pytest_durations.jsonl`. Re-runs the whole suite serially every close + 2× on any failure. Promote to optimize — enable `pytest -n auto` (xdist) AFTER auditing shared-state (`ledger.db`/Excel) test isolation; NOT testmon (keep full coverage) — when median > 4 min (240s) or > 3500 tests. First seen 2026-06-25.
-- [PLAN 2026-06-25 → next session] Parallelize the broader-pytest close gate with `pytest -n auto` — act on the runtime MONITOR above rather than wait for the threshold (already ~215s, near the 4-min line). **Clarity reached this session that it's LOW-RISK:** Excel is viewing-only (Invariant #32 — never a concurrent write target; data lives in SQLite), so the only shared write-target is the SQLite `ledger.db`, which is concurrency-proven (cointegration runner: ~500 backtests / 8 workers / ~17 min — SQLite serialises concurrent writes natively) and already isolated in most tests via `tmp_path` + monkeypatched `LEDGER_DB_PATH`. Scoped work: (a) audit for any test hitting the REAL `ledger.db` without isolation ([[feedback_db_touching_tool_test_isolation]]); (b) generic xdist gotchas (fixed-name temp files / cwd / global state); (c) enable `-n auto` in `check_broader_pytest_baseline.py`, expect the trend to drop to ~60–90s. NOT testmon (keep full coverage — it's what caught the MPS-Notes break this session).
+- [RESOLVED 2026-06-25 — was MONITOR+PLAN] broader-pytest close gate **PARALLELIZED**. `tools/check_broader_pytest_baseline.py` runs **two-phase**: (1) `pytest tests/ -n auto --dist loadscope` over the bulk, (2) the 2 `SERIAL_FILES` (`test_engine_abi_{v1_5_9,adversarial}`) serially. Runtime **172s serial → ~78s (2.2×)**, identical pass/skip totals (2174/64), deterministic, tree-clean. Audit finding: **NO test writes the real `ledger.db`/MPS/FSP** (sha256 byte-unchanged across runs — Excel-is-view + tmp-isolation held; SQLite-concurrency worry moot). Two in-process shared-state clusters surfaced: (a) engine_abi adversarial **tampers the REAL committed manifest + `__init__.py`** (+ `v1_5_9` reload) — can't sandbox (audit must hit the real triple-gate), stays serial; (b) the 3 `test_intent_injector_*` shared `.claude/logs|state` via the hook subprocess — **ROOT-FIXED**: the hook honors `INTENT_INJECTOR_STATE_ROOT` + `tests/conftest.py` gives each xdist worker its own temp state dir, so they parallelize AND the suite no longer pollutes the real operational logs (verified byte-unchanged). `pytest-xdist>=3.0` in requirements; gate falls back to single-serial if absent. **`xdist_group`/`loadgroup` co-location was tried + REJECTED** (non-deterministic — cross-file on-disk state isn't tamed by grouping; two-phase + per-worker sandbox is). Add to `SERIAL_FILES` only when a race is proven AND can't be sandboxed via a per-worker dir.
 - [RESOLVED 2026-06-22 — was HIGH-ROI/PROPOSAL 2026-06-21] EXPERIMENT_DISCIPLINE first-exec guard counted a CRASHED/`state=failed` run as "first execution" (`tools/system_registry.py::_get_directive_first_execution_timestamp`), false-blocking a bug-fix rerun of a same-day-crashed strategy (cost ~30 tool calls this session; unblocked only by manually clearing run_registry+RUNS_DIR crash debris). PROPOSAL (Protected-Infra #6 — plan+approval, NOT self-applied): exclude failed/crashed runs from the first-exec baseline so the guard fires only on strategy.py edits after a VALID run. **RESOLVED 2026-06-22** — shipped as the two-layer auto-delete (Layer-1 `delete_failed_run_if_safe` at the failure handler + Layer-2 `is_zero_artifact_terminal_run` FAILED/ABORTED first-exec filter, the single shared predicate) + `prune_completed_base_stubs`. FAILURE_PLAYBOOK fallback retained for residual hard-kill cases.
 - [MEMORY-SIZE / IMMEDIATE 2026-06-21] MEMORY.md (auto-memory index) 24.9 KB > 24.4 KB limit — session-start confirmed "only part of it was loaded". Consolidate index entries (`/anthropic-skills:consolidate-memory`) so all entries load again.
 - [PERIODIC 2026-06-21] skill-maintenance audit deferred at close — 3 SKILL.md modified this session (Source-Grounding Gate + rerun friction-row; manually format-verified) but no `outputs/.session_state/last_skill_audit.txt` baseline exists. Run `/skill-maintenance` next session to establish the cadence baseline.
@@ -74,8 +74,9 @@
 ### Manual (deferred TDs, operational context)
 <!-- Add tech-debt items, deferred work, and operational caveats here. Auto-detected entries above regenerate on each run; entries here persist. -->
 
-#### Broader-pytest BLOCK: stale `EXEMPT_SHEETS('Notes')` vs MPS — PRE-EXISTING drift (surfaced 2026-06-24, NOT the engine session)
-`tests/test_state_lifecycle_sheet_coverage.py::test_exempt_set_is_subset_of_live_sheets` **FAILS**: `EXEMPT_SHEETS` lists `'Notes'` but the live `Master_Portfolio_Sheet.xlsx` has no `Notes` sheet. Root cause = an MPS regenerated via `tools/ledger_db.py --export-mps` **without** the `format_excel_artifact --profile portfolio` step that (re)generates the `Notes` glossary sheet (`[[feedback_regenerate_mps_after_test]]` — "never skip format — strips Notes"). The drift **predates** the 2026-06-24 v1.5.11 engine session — no session commit touches `state_lifecycle`/MPS (verified `git log origin/main..HEAD -- ...` = empty). **Not a code regression from this session.** This is the only NEW failure vs the (empty) 2026-06-16 broader-pytest baseline, so the 3.12A gate BLOCKS — but this close is a **WIP-branch checkpoint NOT pushed to main**, so there is no main-regression risk. **Fix next session:** `/format-excel-ledgers` (restores the `Notes` glossary), then `python tools/check_broader_pytest_baseline.py` to confirm green; OR if `Notes` is intentionally retired, drop it from `EXEMPT_SHEETS`. Do **not** `--update-baseline` to hide it.
+#### Broader-pytest BLOCK: stale `EXEMPT_SHEETS('Notes')` vs MPS — **RESOLVED 2026-06-25**
+**RESOLVED 2026-06-25** — the MPS was regenerated + `format_excel_artifact --profile portfolio` restored the `Notes` glossary sheet during this session's dead-cruft cleanup; `test_exempt_set_is_subset_of_live_sheets` now passes (verified green in the full 2-phase gate run, 0 failures). Original report retained below for history.
+`tests/test_state_lifecycle_sheet_coverage.py::test_exempt_set_is_subset_of_live_sheets` **FAILED** (pre-fix): `EXEMPT_SHEETS` lists `'Notes'` but the live `Master_Portfolio_Sheet.xlsx` had no `Notes` sheet. Root cause = an MPS regenerated via `tools/ledger_db.py --export-mps` **without** the `format_excel_artifact --profile portfolio` step that (re)generates the `Notes` glossary sheet (`[[feedback_regenerate_mps_after_test]]` — "never skip format — strips Notes"). The drift **predates** the 2026-06-24 v1.5.11 engine session — no session commit touches `state_lifecycle`/MPS (verified `git log origin/main..HEAD -- ...` = empty). **Not a code regression from this session.** This is the only NEW failure vs the (empty) 2026-06-16 broader-pytest baseline, so the 3.12A gate BLOCKS — but this close is a **WIP-branch checkpoint NOT pushed to main**, so there is no main-regression risk. **Fix next session:** `/format-excel-ledgers` (restores the `Notes` glossary), then `python tools/check_broader_pytest_baseline.py` to confirm green; OR if `Notes` is intentionally retired, drop it from `EXEMPT_SHEETS`. Do **not** `--update-baseline` to hide it.
 
 #### Active Charter — 2026-06-20 — infra-freeze → **LIFTED 2026-06-24**
 

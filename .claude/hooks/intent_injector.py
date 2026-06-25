@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -35,10 +36,17 @@ except Exception:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INDEX_PATH = REPO_ROOT / "outputs" / "system_reports" / "INTENT_INDEX.yaml"
-LOG_PATH = REPO_ROOT / ".claude" / "logs" / "intent_matches.jsonl"
-STATE_PATH = REPO_ROOT / ".claude" / "state" / "last_intent.json"
-EXPECT_PATH = REPO_ROOT / ".claude" / "state" / "pending_skill_expectations.json"
-VIOLATION_LOG = REPO_ROOT / ".claude" / "logs" / "violations.jsonl"
+# The hook's side-effect (WRITE) paths live under a configurable state root.
+# Default is the repo, so production behaviour is unchanged. Tests set
+# INTENT_INJECTOR_STATE_ROOT to a per-worker temp dir (tests/conftest.py) so the
+# hook's writes are sandboxed: no parallel races on these fixed-name files, and
+# the real operational logs/state stay free of test noise. INDEX_PATH (the intent
+# index) and WORKFLOWS_DIR are read-only real sources and remain under REPO_ROOT.
+_STATE_ROOT = Path(os.environ.get("INTENT_INJECTOR_STATE_ROOT", str(REPO_ROOT)))
+LOG_PATH = _STATE_ROOT / ".claude" / "logs" / "intent_matches.jsonl"
+STATE_PATH = _STATE_ROOT / ".claude" / "state" / "last_intent.json"
+EXPECT_PATH = _STATE_ROOT / ".claude" / "state" / "pending_skill_expectations.json"
+VIOLATION_LOG = _STATE_ROOT / ".claude" / "logs" / "violations.jsonl"
 WORKFLOWS_DIR = REPO_ROOT / ".agents" / "workflows"
 
 ESCALATION_THRESHOLD = 3   # violations in 24h -> escalate the next injection

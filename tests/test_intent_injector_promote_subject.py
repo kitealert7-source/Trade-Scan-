@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,11 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# The hook sandboxes its writes under INTENT_INJECTOR_STATE_ROOT (set per-worker
+# in tests/conftest.py). Resolve the same root so the test reads back the file the
+# spawned hook actually wrote. Default = repo root (serial / xdist-absent).
+_HOOK_STATE_ROOT = Path(os.environ.get("INTENT_INJECTOR_STATE_ROOT", str(PROJECT_ROOT)))
 
 _HOOK_PATH = PROJECT_ROOT / ".claude" / "hooks" / "intent_injector.py"
 _spec = importlib.util.spec_from_file_location("intent_injector", _HOOK_PATH)
@@ -73,7 +79,7 @@ def _run_hook(prompt: str) -> tuple[bool, str | None, dict | None]:
         intent_id = out.split("intent_id=", 1)[1].split(")", 1)[0].strip()
 
     # Find the matching log record (most recent).
-    log_path = PROJECT_ROOT / ".claude" / "logs" / "intent_matches.jsonl"
+    log_path = _HOOK_STATE_ROOT / ".claude" / "logs" / "intent_matches.jsonl"
     record: dict | None = None
     if log_path.exists():
         for line in reversed(log_path.read_text(encoding="utf-8").splitlines()):
@@ -255,7 +261,7 @@ class TestMustTrigger:
 # These tests pin the new behavior so future regressions are caught.
 
 
-_STATE_PATH = PROJECT_ROOT / ".claude" / "state" / "last_intent.json"
+_STATE_PATH = _HOOK_STATE_ROOT / ".claude" / "state" / "last_intent.json"
 
 
 def _intent_id_for(prompt: str) -> str | None:
