@@ -3,7 +3,7 @@
 ## SESSION STATUS: WARNING
 - WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-24T17:38:12Z
+> Generated: 2026-06-25T08:40:45Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -21,10 +21,10 @@
 - **Master Filter:** 1283 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
-  - **Portfolios:** 126 rows — CORE: 4, FAIL: 117, WATCH: 5
-  - **Single-Asset Composites:** 51 rows — CORE: 8, FAIL: 43
+  - **Portfolios:** 0 rows — no status column
+  - **Single-Asset Composites:** 0 rows — no status column
 
-- **Candidates (FPS):** 394 rows — CORE: 15, FAIL: 248, RESERVE: 26, WATCH: 105
+- **Candidates (FPS):** 14 rows — FAIL: 7, WATCH: 7
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -34,29 +34,28 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-24** | Symbols: 221
+- Latest bar: **2026-06-25** | Symbols: 221
 
 ## Artifacts
-- Run directories: 3360
+- Run directories: 520
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: 1 uncommitted
-- Last substantive commit: `1685d7d0 chore(sweep-registry): reconcile S13 drift + record SPKFADE S04 from session runs`
+- Last substantive commit: `4d39cfc0 docs(pipeline-state-cleanup): encode bulk cost-regime purge procedure`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] SYSTEM_STATE Manual section 13 lines (approaching 20-line limit) — prune DONE entries and move verbose detail to a linked report (target ≤12).
+- (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced). Promote to BUILD after ≥1 gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence (shipped 2026-06-07, ba3b82cf) doubled daily upserts (1860+126 vs 930+64 rows) and added ~80–180s/run (screener block ~3 min now). Promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `tools/refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass field to authorize refreshes (debt-marked in code + plan, operator-flagged). Promote to BUILD (dedicated refresh-intent signal) when a 2nd refresh use-case (baskets / master_filter) needs the auth path. First seen 2026-06-07.
-- [MONITOR] MEMORY.md auto-memory index 185/200 lines (was 173 on 2026-06-20, ~+3/session) — promote to `/anthropic-skills:consolidate-memory` when ≥195. (session-start §1.6 already prints the count each start; this adds the threshold.) First seen 2026-06-24.
 - [RESOLVED 2026-06-22 — was HIGH-ROI/PROPOSAL 2026-06-21] EXPERIMENT_DISCIPLINE first-exec guard counted a CRASHED/`state=failed` run as "first execution" (`tools/system_registry.py::_get_directive_first_execution_timestamp`), false-blocking a bug-fix rerun of a same-day-crashed strategy (cost ~30 tool calls this session; unblocked only by manually clearing run_registry+RUNS_DIR crash debris). PROPOSAL (Protected-Infra #6 — plan+approval, NOT self-applied): exclude failed/crashed runs from the first-exec baseline so the guard fires only on strategy.py edits after a VALID run. **RESOLVED 2026-06-22** — shipped as the two-layer auto-delete (Layer-1 `delete_failed_run_if_safe` at the failure handler + Layer-2 `is_zero_artifact_terminal_run` FAILED/ABORTED first-exec filter, the single shared predicate) + `prune_completed_base_stubs`. FAILURE_PLAYBOOK fallback retained for residual hard-kill cases.
 - [MEMORY-SIZE / IMMEDIATE 2026-06-21] MEMORY.md (auto-memory index) 24.9 KB > 24.4 KB limit — session-start confirmed "only part of it was loaded". Consolidate index entries (`/anthropic-skills:consolidate-memory`) so all entries load again.
 - [PERIODIC 2026-06-21] skill-maintenance audit deferred at close — 3 SKILL.md modified this session (Source-Grounding Gate + rerun friction-row; manually format-verified) but no `outputs/.session_state/last_skill_audit.txt` baseline exists. Run `/skill-maintenance` next session to establish the cadence baseline.
@@ -93,6 +92,7 @@
 - 2026-06-23 — research session (freeze held; light operator-directed infra only). DMA gold-5m arc (idea 72): **P01** (no-LONG-in-`market_regime=unstable_trend` gate) + **P02** (+London exclusion via `session_clock` realigned to the report canon 08-16) → regime-conditional **WATCH** (SQN 0.74→2.13, net −375→+707, all 7 dir×regime cells positive); depth-threshold + regime-removal simplifications tested and **rejected**; `REGIME_FIELD_CAUSALITY_AUDIT_2026-06-23` proves `market_regime`/`trend_label` are causal/point-in-time/engine-owned (safe entry filters — use `_signal` not `_fill`). Portfolio probe (gold trend complement to P02): existing gold trend/breakout engines (`05_PORT`/MACDX, PSBRK) **NOT faithfully recoverable** (corpus-prune + on-disk directive drift + gitignored `strategy.py`); `05_PORT` re-run as a *current candidate* FAILS full-history charged (8 straight losing years, PF 1.08, −135% DD; trend_expansion negative → a 2025-26 vol-regime artifact, not trend-following) → **no ready gold trend complement**; `Archive\AK` holds none (USDJPY/SPX only). Reproducibility-gap finding (pruned single-asset strategy.py unrecoverable) surfaced. Infra touched (operator-directed): `session_clock` boundary realign + `sweep_registry` 05/S04 hash plumbing for reruns.
 - 2026-06-23: PSBRK gold recovery+research (recovered P09 from vault; DEAD on charged full-history PF1.01; one-per-day P16 = real structural improvement net -96->+464 / maxDD 165%->68% but sub-deployable; long-only P17 blocked by gap-fill stop-contract crash). Read-only v1.5.10 engine audit (4-agent: arithmetic CLEAN, error-handling/duplication is the weak point) + LOCKED minimum Patch A design (v1.5.11: C2 builder, health counters, engine_events.csv, single invalid_fill_policy flag, H6). Build PARKED -- no engine code changed, freeze held. Reports in outputs/system_reports/02_engine_core/.
 - **2026-06-24 — FREEZE LIFTED (operator-authorized); Patch A engine build STARTED.** Charter ended early to complete the locked v1.5.11 Patch A (byte-identical core: C2 builder · health counters · engine_events.csv · single invalid_fill_policy flag + signal_version fold-in · H6 fail-closed; §8 atomic sequence). Live demo fleet **stood down** (TS_Basket_Supervisor disabled + daemon/producers/shims stopped). Also landed terminology hygiene (RE / ABI Surface / Shared Substrate / XR glossary + research↔execution separation audit + v1_5_9 "frozen engine" comment relabels in TS_Execution). **CLOSE (mid-task, 2026-06-24):** steps 1 (scaffold) + 2 (C2 shared builder) committed on branch `engine/v1_5_11-patch-a` (3 commits) + byte-identical-verified (single-asset 8 scenarios + basket 6, v1.5.11==v1.5.10); steps 3-7 (invalid_fill_policy plumbing → health counters → engine_events.csv → H6 → promote) REMAIN. Branch is local/unpushed (WIP); next session resumes at §8 step 3. Engine v1.5.10 remains canonical; v1.5.11 EXPERIMENTAL.
+- **2026-06-25 — post-lift infra hardening (no engine code; freeze stays lifted, Patch A already canonical).** Uncharged (≤v1.5.9) corpus purge → store now **charged-only** (~4 GB reclaimed; FSP 14 all-charged, cointegration 477 v1.5.10, 0 portfolios); durable `master_filter.engine_version` (`e3980062`) so cost-regime is a query not archaeology + elite funnel recalibrated for the charged corpus (`392720dc`). `/session-retro` → enforceable wins: `safe_delete.safe_rmtree` junction/long-path-safe deletion + `repair_integrity.apply_mps_db_drop` portfolio_sheet DB-leak fix (both `4a163498`) + central `backup_ledger_db` retention (`a969a0f4`) + FSP archive cap (`6b1f61c9`); orphan-reconcile gate **PLAN** (PROPOSAL, `eaf7e878`). Skill-audit chip + bulk-purge memory landed. **Charter looks spent** (freeze lifted + Patch A canonical) — operator may supersede/park next session.
 - **2026-06-24 (cont.) — ★ Patch A CORE COMPLETE + v1.5.11 PROMOTED CANONICAL.** Steps 3 (invalid_fill_policy plumbing — resolver + canonical_schema register + Stage -0.23 admission gate + run_metadata stamp + classifier `_BEHAVIORAL_EXECUTION_LEAVES` fold-in; commit `540dbb5d`) + 4 (run-level `engine_health` counters via opt-in `health` dict, version-safe bridge, byte-identical; commit `40453e66`). **Scope AMENDED mid-build (operator-approved) — two items split OUT:** step 5 `engine_events.csv` → **Patch A.1** (post-convergence, as the proof the tax dropped); step 6 H6 → the **convergence arc** (H6's premise was FALSE — `runtime_ver` permanently UNKNOWN: no `VALIDATED_ENGINE.manifest.json` + dotted/underscored resolver skew → inverting literally breaks every Stage-2 compile; it's an identity-resolution problem). **PROMOTED v1.5.11 canonical (steps 1–4, commit `7f6d982`)** — ~13-surface coordinated identity flip (basket_runner + engine_authority ×2 + registry + convergence test + ENGINE_STATUS + manifest freeze/LF-hashes + vault + abi rehash + guard manifest), all gated by the fail-closed convergence test (which caught a mid-edit partial flip). v1_5_10 retained FROZEN+vaulted = one-line byte-identical rollback. Drove out **Tax A/B/C** (version/dispatch · output-threading · identity plumbing). Full state → `[[project_v1_5_11_patch_a_canonical]]`.
 - **2026-06-24 (cont. 2) — ★ Patch A CORE = DONE; "marathon" remedied; trigger backtest revalidated. CHARTER FULFILLED.** Operator-driven from the "a simple engine change shouldn't be a marathon" thesis: (1) **smooth-engine-change toolkit** landed (`tools/promote_engine.py` `--restamp`/`--promote`/`--verify` + `/promote-engine` skill = surface maps + landmines; commit `037d6aee`) — the automate-first answer; (2) **H6 LANDED in v1.5.11** (reliable `get_engine_version` resolver + Stage-2 fail-closed; `f94bc097`) — proved small/independent of the full refactor; (3) **`CURRENT`/`LIVE_ABI` dispatch convergence DESIGNED + DEFERRED PENDING EVIDENCE** (operator decision) — it's the already-REJECTED Architecture A in literal form; re-evaluate at the NEXT promotion (trigger in `/promote-engine` + `[[project_v1_5_11_patch_a_canonical]]`). (4) **PSBRK P17 byte-identity REVALIDATED on canonical v1.5.11** (run `b2a38ed9`): 2168 trades, all 43 content columns identical to the v1.5.10 run + new `invalid_fill_policy`/`engine_health` telemetry — the byte-identical contract proven on 10yr real data + the trigger backtest closed. Surfaced+fixed a 4-gate `rerun_of` registration chain (`2d528b89`) + a 15th promotion cost-model surface (`dab298c0`). /session-retro → **INVAR-004** (metadata-key completeness gate, HIGH-ROI proposal) + **guard-drift edit-time hook** (task #2, `903b21bb`). Branch pushed at close. Engine v1.5.11 CANONICAL.
 
