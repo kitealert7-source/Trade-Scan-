@@ -1,0 +1,1 @@
+2026-06-25T14:42:56+00:00 | 26 skills scanned | 0 hard, 22 soft (>80char rows) | establishes cadence baseline
