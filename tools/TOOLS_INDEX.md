@@ -22,7 +22,7 @@ Top-level modules are operational entrypoints; modules under subpackages
 `utils/`, `system_logging/`, `state_lifecycle/`) are internal libraries.
 
 
-Total modules indexed: 380 (excludes `__init__.py`).
+Total modules indexed: 381 (excludes `__init__.py`).
 
 ## tools/ (top-level)  (179 modules)
 
@@ -462,7 +462,7 @@ Total modules indexed: 380 (excludes `__init__.py`).
 | `tools.robustness.tail` | (no docstring) |
 | `tools.robustness.temporal` | (no docstring) |
 
-## tools/state_lifecycle/  (6 modules)
+## tools/state_lifecycle/  (7 modules)
 
 | Module | Summary |
 |---|---|
@@ -471,6 +471,7 @@ Total modules indexed: 380 (excludes `__init__.py`).
 | `tools.state_lifecycle.reconcile_portfolio_complete` | Surgically remove dead child run_ids from PORTFOLIO_COMPLETE directive_state.json files. |
 | `tools.state_lifecycle.repair_integrity` | repair_integrity.py — reconcile FSP + MPS ledgers against disk artifacts. |
 | `tools.state_lifecycle.retire_runs` | retire_runs.py — retire a superseded run: archive its row to a cold parquet, |
+| `tools.state_lifecycle.safe_delete` | Windows-safe recursive directory deletion for the artifact store. |
 | `tools.state_lifecycle.sweep_orphaned_admitted_markers` | One-shot sweep of orphaned .txt.admitted sentinels in backtest_directives/completed/. |
 
 ## tools/system_logging/  (1 modules)
