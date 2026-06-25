@@ -128,6 +128,7 @@ outputs/proposals/
 outputs/audit_reports/
 outputs/audit\ _reports/
 outputs/.session_state/pipeline_telemetry/
+outputs/.session_state/broader_pytest_durations.jsonl
 # Daily/4h cointegration screener snapshots — regenerable pipeline output
 # (boot-triggered; P3 Excel ~8.6MB each). Source of truth is cointegration.db.
 outputs/cointegration_screener_v1/

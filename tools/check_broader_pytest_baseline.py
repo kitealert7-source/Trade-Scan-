@@ -50,11 +50,14 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SIDECAR = REPO_ROOT / "outputs" / ".session_state" / "broader_pytest_baseline.json"
 PYTEST_TIMEOUT_S = 600  # full broader suite was ~122s; 10× headroom
+# Append-only runtime trend (gitignored) — feeds the close-gate runtime MONITOR.
+DURATION_LOG = REPO_ROOT / "outputs" / ".session_state" / "broader_pytest_durations.jsonl"
 
 
 def _run_pytest() -> dict:
@@ -68,6 +71,7 @@ def _run_pytest() -> dict:
         ok: bool (subprocess returned without timeout/exception)
         raw_tail: list[str] (last ~20 lines for diagnostic)
     """
+    t0 = time.perf_counter()
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=no", "--no-header"],
@@ -77,9 +81,11 @@ def _run_pytest() -> dict:
             timeout=PYTEST_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"pytest timed out after {PYTEST_TIMEOUT_S}s"}
+        return {"ok": False, "error": f"pytest timed out after {PYTEST_TIMEOUT_S}s",
+                "elapsed_s": round(time.perf_counter() - t0, 1)}
     except Exception as e:
-        return {"ok": False, "error": f"pytest failed to launch: {e}"}
+        return {"ok": False, "error": f"pytest failed to launch: {e}",
+                "elapsed_s": round(time.perf_counter() - t0, 1)}
 
     out = (proc.stdout or "") + (proc.stderr or "")
     failed: list[str] = []
@@ -100,6 +106,7 @@ def _run_pytest() -> dict:
         "count": int(m_fail.group(1)) if m_fail else 0,
         "passed": int(m_pass.group(1)) if m_pass else 0,
         "skipped": int(m_skip.group(1)) if m_skip else 0,
+        "elapsed_s": round(time.perf_counter() - t0, 1),
         "raw_tail": out.splitlines()[-20:],
         "exit_code": proc.returncode,
     }
@@ -126,6 +133,33 @@ def _git_sha() -> str:
         return "unknown"
 
 
+def _log_duration(result: dict) -> None:
+    """Append one runtime sample to the duration trend (best-effort).
+
+    Feeds the 'broader-pytest close-gate runtime' MONITOR in SYSTEM_STATE: one
+    JSONL line per full-suite run so the operator can see when the gate's wall
+    time trends toward the bottleneck threshold (then enable xdist). Never
+    raises — a log-write failure must not break the gate.
+    """
+    try:
+        total = (result.get("passed", 0) + result.get("count", 0)
+                 + result.get("skipped", 0))
+        rec = {
+            "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+            "elapsed_s": result.get("elapsed_s"),
+            "total": total,
+            "passed": result.get("passed", 0),
+            "failed": result.get("count", 0),
+            "skipped": result.get("skipped", 0),
+            "sha": _git_sha(),
+        }
+        DURATION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with DURATION_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+
+
 def cmd_check() -> int:
     """Default mode: compare current pytest run to baseline. Block on regression."""
     baseline = _load_baseline()
@@ -136,6 +170,8 @@ def cmd_check() -> int:
         print(f"[check-broader-pytest] ERROR — {result.get('error', 'unknown')}", file=sys.stderr)
         return 2
 
+    _log_duration(result)
+
     baseline_set = set(baseline.get("failed", []))
     current_set = set(result["failed"])
 
@@ -143,7 +179,8 @@ def cmd_check() -> int:
     fixed_failures = baseline_set - current_set
 
     print(f"[check-broader-pytest] Current : {result['count']} failed, "
-          f"{result['passed']} passed, {result['skipped']} skipped")
+          f"{result['passed']} passed, {result['skipped']} skipped "
+          f"in {result.get('elapsed_s', '?')}s")
     print(f"[check-broader-pytest] Baseline: {baseline.get('count', 0)} acknowledged "
           f"(updated {baseline.get('updated_at') or 'never'})")
 
