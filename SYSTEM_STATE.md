@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: WARNING
-- WARNING: Working tree 1 uncommitted
+## SESSION STATUS: OK
 
-> Generated: 2026-06-25T08:40:45Z
+> Generated: 2026-06-25T08:45:38Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -41,8 +40,8 @@
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: 1 uncommitted
-- Last substantive commit: `4d39cfc0 docs(pipeline-state-cleanup): encode bulk cost-regime purge procedure`
+- Working tree: clean
+- Last substantive commit: `be26a9f5 session: regen TOOLS_INDEX (safe_delete tool added)`
 
 ## Deferred Maintenance
 
