@@ -16,6 +16,13 @@ from tools.system_registry import _load_registry, _save_registry_atomic
 
 MASTER_SHEET = MASTER_FILTER_PATH
 
+# Retention cap for candidates/archive/ FSP snapshots. filter_strategies archives
+# the live FSP before each mutation; without a cap this grew unbounded (874 files /
+# 98 MB, pruned 2026-06-25). The SQL ledger DB is the full source of truth and can
+# regenerate FSP, so this archive exists ONLY for fast recovery from a corrupted
+# write -- one pre-mutation copy suffices; restore from it, else regenerate from DB.
+CANDIDATE_ARCHIVE_RETENTION = 1
+
 # TS_Execution portfolio.yaml — source of truth for LIVE status.
 # Only entries with promotion_source="promote_to_live" AND valid vault_id
 # are treated as LIVE. This prevents the circular loop where FSP marks
@@ -302,6 +309,20 @@ def filter_strategies():
                     archive_dir / f"Filtered_Strategies_Passed_{ts}.xlsx",
                 )
                 print(f"[CANDIDATES] Archived previous candidates to {archive_dir.name}/Filtered_Strategies_Passed_{ts}.xlsx")
+
+                # Retention cap: keep only the most recent CANDIDATE_ARCHIVE_RETENTION
+                # snapshots. Timestamped names sort chronologically, so the newest
+                # sort last; everything before the tail is stale. The SQL ledger DB
+                # stays the full history -- these are a bounded rollback window only.
+                _snaps = sorted(archive_dir.glob("Filtered_Strategies_Passed_*.xlsx"))
+                _stale = _snaps[:-CANDIDATE_ARCHIVE_RETENTION] if CANDIDATE_ARCHIVE_RETENTION > 0 else []
+                for _old_snap in _stale:
+                    try:
+                        _old_snap.unlink()
+                    except OSError:
+                        pass
+                if _stale:
+                    print(f"[CANDIDATES] Pruned {len(_stale)} old archive snapshot(s); kept last {CANDIDATE_ARCHIVE_RETENTION}.")
 
             # Step 2: Read-modify-write with dedup on run_id.
             # Existing rows whose run_id appears in the current Master Filter
