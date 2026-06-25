@@ -225,9 +225,13 @@ def _add_universe(df: pd.DataFrame) -> pd.DataFrame:
     'elite' iff the pair survives the eliminate-first funnel; else 'all':
       - coint_friendly in {FRIENDLY, STRONG}  (not WEAK)
       - n_spans >= 2                          (recurred -- excludes one-off episodes)
-      - >= 5 runs                             (reliable sample)
       - max drawdown % < 100                  (no account-blowup span)
-      - median canonical_ret_dd > 0           (in-sample edge)
+      - median canonical_ret_dd > 0           (positive CHARGED edge)
+    Recalibrated 2026-06-25 for the charged-only corpus: the old ">= 5 runs
+    (reliable sample)" gate was dropped after the uncharged-corpus purge --
+    a charged-only pair has ~1 run, so run-count reliability is unattainable;
+    n_spans >= 2 + positive charged ret/dd now carry the robustness signal
+    (~17 elite vs the old ~36, which counted uncharged experiment arms).
 
     Stamped on every row of the pair (per-pair attribute) so the MPS AutoFilter
     can default to universe=elite (the ~36-pair shortlist) and expand to 'all'
@@ -252,10 +256,9 @@ def _add_universe(df: pd.DataFrame) -> pd.DataFrame:
     g = work.groupby(["pair_a", "pair_b"], dropna=False)
     elite = (
         (g["cf"].transform("max") >= 1)            # FRIENDLY or STRONG
-        & (g["nsp"].transform("max") >= 2)         # recurred
-        & (g["rdd"].transform("count") >= 5)       # reliable
+        & (g["nsp"].transform("max") >= 2)         # recurred (robustness signal)
         & ~(g["mdd"].transform("max") >= 100)      # no blowup span
-        & (g["rdd"].transform("median") > 0)       # in-sample edge
+        & (g["rdd"].transform("median") > 0)       # positive CHARGED edge
     )
     df["universe"] = elite.map({True: "elite", False: "all"})
     return df
