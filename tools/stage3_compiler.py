@@ -217,6 +217,10 @@ def extract_from_report(report_path, metadata):
         # Analysis_selection defaults to 0 on new rows. Only control_panel
         # --select-analysis promotes it to 1 for the next composite run.
         "Analysis_selection": 0,
+        # Engine provenance -- which engine produced this run. Recorded so
+        # cost-regime (charged >=1.5.10 / uncharged <=1.5.9) is queryable per
+        # row instead of a manifest crawl (added 2026-06-25).
+        "engine_version": metadata.get("engine_version"),
     }
 
     # All lookups use canonical col_name — no label strings at runtime.

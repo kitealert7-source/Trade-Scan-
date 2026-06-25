@@ -114,6 +114,12 @@ MASTER_FILTER_COLUMNS = [
     "superseded_at",     # ISO timestamp when the supersession was recorded
     "supersede_reason",  # category string (DATA_FRESH|SIGNAL|PARAMETER|BUG_FIX|...)
     "quarantined",       # 1 = never resurrect (BUG_FIX reruns set this)
+    # --- Engine provenance (added 2026-06-25) ------------------------------
+    # engine_version that produced this run (e.g. "1.5.10"), recorded at
+    # Stage-3 write time from run_metadata.json. Makes cost-regime queryable
+    # per row -- charged (>=1.5.10) vs uncharged (<=1.5.9) is a column filter,
+    # not a manifest crawl (see the 2026-06-25 uncharged-corpus purge).
+    "engine_version",
 ]
 
 # MPS base columns shared by both sheets
