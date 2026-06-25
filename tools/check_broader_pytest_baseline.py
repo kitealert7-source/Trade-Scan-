@@ -55,7 +55,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SIDECAR = REPO_ROOT / "outputs" / ".session_state" / "broader_pytest_baseline.json"
-PYTEST_TIMEOUT_S = 600  # full broader suite was ~122s; 10× headroom
+PYTEST_TIMEOUT_S = 600  # full broader suite ~215s @ 2026-06-25 (2238 tests); ~2.8x headroom
 # Append-only runtime trend (gitignored) — feeds the close-gate runtime MONITOR.
 DURATION_LOG = REPO_ROOT / "outputs" / ".session_state" / "broader_pytest_durations.jsonl"
 
