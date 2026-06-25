@@ -146,7 +146,25 @@ leaf-level delete orphans them silently → a wrong pipeline-authoritative concl
      `SELECT * FROM portfolio_sheet` and **re-emits the dropped row on the next export**, silently
      undoing the cleanup. DB = source-of-truth, xlsx = interface (AGENT.md #32) — reconcile the DB.
    - **`basket_sheet` / `cointegration_sheet`** — `repair_integrity` already scans these (orphan
-     `run_id` → drop); confirm the counts.
+     `run_id` → drop); confirm the counts. NOTE: a `basket_sheet` row tagged `SUPERSEDED` /
+     `ARCHIVED_UNRESOLVED` (`LINEAGE_PROTECTED_TAGS`) is PRESERVED by `--action drop` by design — its
+     `[SUCCESS] Orphan rows dropped` prints even when 0 actually dropped. If the purge orphaned
+     protected-but-superseded rows (disk gone, `is_current=1`), they perpetually re-report as orphans;
+     retire them via the *Retire superseded runs* cold-archive flow (archive narrative → de-current
+     `is_current=0`), NOT a force-drop (2026-06-25: 41 H3 PAIRX baskets).
+   - **`run_registry.json` (registry ↔ disk) + `portfolio_metadata.json` husks** — a SEPARATE construct
+     class `repair_integrity` does NOT touch; only `system_preflight` flags them (REGISTRY RED =
+     `REGISTRY_RUN_MISSING_ON_DISK` / `QUARANTINED_BUT_NOT_FOUND`; PORTFOLIOS RED = "Missing dependencies
+     for N runs" from `strategies/**/portfolio_metadata.json` `constituent_run_ids`). One tool fixes
+     both: `python -m tools.system_registry --reconcile` marks missing-on-disk entries invalid, drops
+     quarantined-absent entries, and auto-cleans stale run_ids from every `portfolio_metadata.json`.
+     **Landmine — verify BEFORE running:** `reconcile_registry()` SAVES the registry mutations, then runs
+     a FATAL portfolio-dependency guard that raises on any active dep still missing/invalid — crashing
+     AFTER it already mutated the registry. The auto-clean rewrites `portfolio_metadata.json` but NOT
+     `portfolio_composition.json` (a second filename `get_active_portfolio_runs()` also reads), so
+     confirm `get_active_portfolio_runs()` is empty OR no `portfolio_composition.json` references a
+     missing run first. On 2026-06-25 this WAS the actual post-purge preflight RED (2934 registry
+     invalidations + 975 husk deps across 169 files) — the leaf-only list above missed it entirely.
    - **Elite funnel** (`tools/portfolio/cointegration_view.py::_add_universe`) — a whole-regime purge
      can **break a derived gate's own criterion**: the old "≥ 5 runs (reliable sample)" elite gate
      collapsed to 0 elite at the post-purge median of ~1 run/pair. The fix is to **recalibrate the
@@ -156,7 +174,9 @@ leaf-level delete orphans them silently → a wrong pipeline-authoritative concl
      has an artifact.
 
 **Post-purge assertion (proposed, not yet enforced).** The general mechanical check — "0 orphaned
-live rows across all derived sheets + the 3-tier store" — is specified in
+live rows across all derived sheets + the 3-tier store **+ `run_registry.json` missing-on-disk +
+`portfolio_metadata.json` deps**" (i.e. a clean `system_preflight` REGISTRY **and** PORTFOLIOS, not
+just `repair_integrity`) — is specified in
 `outputs/system_reports/10_State Lifecycle Management/ORPHAN_RECONCILE_GATE_PLAN_2026-06-25.md`
 (PROPOSAL, awaiting operator approval; would add `repair_integrity.py --audit` with a non-zero exit
 on any orphan). Until it lands, Step 4 is **operator-verified by hand** — on 2026-06-25 all three
@@ -176,3 +196,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-06-16 | Empty-portfolio block forced manual per-directive_id deletes, stood-down fleet | `--allow-empty-shield` (4da44451); keep-set-driven prune; manual step retired |
 | 2026-06-19 | Phase-1B blocked by protected PORTFOLIO_COMPLETE runs whose artifacts were gone (engine-promotion test residue); silent until run by hand | Added "discard via reset_directive, not bare rm" contract + `system_preflight` REF_INTEGRITY tripwire (`2b763168`) |
 | 2026-06-25 | Bulk cost-regime purge (drop ≤v1.5.9, leave charged-only) underfit the lineage-prune flow; done by hand, hit 3 derived leaks (runs/-only crawl missed 94 sandbox runs, portfolio_sheet DB re-emit, elite ≥5-runs gate broke) | Added "Bulk purge by cost-regime" section: engine_version classify + 3-tier crawl + safe_rmtree + reconcile-every-derived-sheet |
+| 2026-06-25 | Purge fallout surfaced 2 MORE derived leaks the reconcile list missed — `run_registry.json` (2934 missing-on-disk) + `portfolio_metadata.json` husks (975 deps/169 files) = the actual preflight REGISTRY+PORTFOLIOS RED, which `repair_integrity` does NOT touch; `system_registry --reconcile` has a FATAL portfolio-dep guard that crashes AFTER mutating the registry | Added registry/metadata bullet to Step 4 (with the FATAL-guard + composition-vs-metadata landmine) + SUPERSEDED-protected-row note + extended post-purge assertion to REGISTRY/PORTFOLIOS |
