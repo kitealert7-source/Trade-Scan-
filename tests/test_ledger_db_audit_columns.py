@@ -273,6 +273,30 @@ def test_export_mps_audit_col_only_on_some_rows(fake_state):
     assert pd.isna(b["quarantine_status"])
 
 
+def test_export_mps_regenerates_notes_sheet(fake_state):
+    """export_mps regenerates the portfolio Notes glossary intrinsically.
+
+    A bare export (no separate format_excel_artifact.py --profile portfolio
+    pass) must never leave the operator MPS without its Notes sheet. Regression
+    guard for the recurring sheet-coverage break (RESOLVED 2026-06-25, resurfaced
+    2026-06-29) where a pipeline MPS export stripped Notes until the next manual
+    format step. Pins the fix in ledger_db.export_mps that calls
+    add_notes_sheet_to_ledger after the data-sheet render."""
+    from openpyxl import load_workbook
+    from tools.ledger_db import export_mps
+
+    _seed_basket_row(run_id="RID_NOTES")
+    out = export_mps()
+
+    wb = load_workbook(out)
+    try:
+        assert "Notes" in wb.sheetnames, (
+            "export_mps did not regenerate the Notes sheet — the operator MPS "
+            "would be missing its glossary until the next manual format step")
+    finally:
+        wb.close()
+
+
 # ---- format_excel_artifact passes audit columns through ---------------------
 
 

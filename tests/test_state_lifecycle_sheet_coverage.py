@@ -28,10 +28,11 @@ MPS_PATH = TRADE_SCAN_STATE / "strategies" / "Master_Portfolio_Sheet.xlsx"
 
 # Sheets explicitly preserved without scanning. Adding to this set is a
 # governance decision — narrow scope deliberately. "Notes" is the GENERATED
-# portfolio glossary (tools/excel_format/notes.py::add_notes_sheet_to_ledger,
-# added by format_excel_artifact.py --profile portfolio) — a non-data sheet,
-# exempt from lifecycle coverage. (A bare `ledger_db.py --export` writes data
-# sheets only and drops it until the next format; do NOT treat that as a retirement.)
+# portfolio glossary (tools/excel_format/notes.py::add_notes_sheet_to_ledger) —
+# a non-data sheet, exempt from lifecycle coverage. It is regenerated
+# intrinsically by ledger_db.export_mps() on every export (and again by
+# format_excel_artifact.py --profile portfolio), so it is always present after
+# any export — a bare `ledger_db.py --export-mps` no longer drops it.
 EXEMPT_SHEETS = {"Notes"}
 
 LIFECYCLE_TOOLS = (

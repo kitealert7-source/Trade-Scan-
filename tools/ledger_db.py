@@ -1462,6 +1462,22 @@ def export_mps(
 
         resilient_xlsx_write(out, _render_mps)
 
+        # Regenerate the operator-facing Notes glossary as an intrinsic part of
+        # every MPS export. The mode='w' render above truncates the workbook, so
+        # without this the Notes sheet is silently dropped until a separate
+        # `format_excel_artifact.py --profile portfolio` pass runs — the
+        # recurring sheet-coverage break (RESOLVED 2026-06-25, resurfaced
+        # 2026-06-29). Making it intrinsic here covers EVERY caller (bare CLI,
+        # COINT incremental export, daily runner, basket/reconcile writers,
+        # pipeline batch) instead of relying on each to remember the format
+        # step. Reuses the formatter's own generator (DRY); add_notes_sheet_to_
+        # ledger is internally resilient (atomic save + warn-not-raise), so a
+        # Notes hiccup never fails an export whose data sheets are already
+        # written. The data-sheet STYLING that format_excel_artifact applies is
+        # separate and still runs downstream where wired.
+        from tools.excel_format import add_notes_sheet_to_ledger
+        add_notes_sheet_to_ledger(str(out), "portfolio")
+
         suffix = f", Baskets={len(df_baskets)}" if not df_baskets.empty else ""
         if df_candidates is not None and not df_candidates.empty:
             suffix += f", TradeCandidates={len(df_candidates)}"
