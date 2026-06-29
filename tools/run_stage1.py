@@ -1386,6 +1386,22 @@ def _stage1_load_market_data_and_snapshot(target_symbol, strategy_id, run_id, di
     _dsnap = require_directive_snapshot(target_dir, directive_path)
     print(f"    [GOVERNANCE] directive_snapshot: {_dsnap['filename']}")
 
+    # Co-locate the IMPORTED INDICATOR MODULES with the run, MANDATORY. The
+    # third determinant of a backtest's behavior, alongside strategy.py and the
+    # directive: the indicator modules the strategy imports. Without this, a
+    # later change to a live indicator's logic/default params silently alters a
+    # re-run of a byte-identical strategy.py + directive, and nothing detects
+    # the drift. We snapshot BOTH a manifest (module id + content hash +
+    # registry version, for cheap fail-loud drift detection at replay) AND byte
+    # copies of the source (for bit-exact reproduction after the live module
+    # changes) — mirroring how strategy.py is both hashed and copied. Enumerated
+    # from the just-written strategy.py snapshot and resolved against
+    # PROJECT_ROOT (the same root the engine imports indicators from). A failure
+    # raises -> main marks the run FAILED (Fail-Fast); never silently skipped.
+    from tools.run_indicator_snapshot import require_indicator_snapshot
+    _isnap = require_indicator_snapshot(target_dir, snapshot_file, PROJECT_ROOT)
+    print(f"    [GOVERNANCE] indicator_snapshot: {_isnap['module_count']} module(s)")
+
     # Strategy (Load from Snapshot)
     strategy = load_strategy(strategy_id, run_id=run_id)
 

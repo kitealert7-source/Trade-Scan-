@@ -65,7 +65,7 @@ execution-critical part not in `strategy.py` (warmup is resolved from the strate
 |---|---|---|
 | **Required** | `strategy.py` | valid `STRATEGY_SIGNATURE` markers — the compiled authority |
 | **Required** | an **experiment definition** | symbols/broker/tf/window/cost — see normalization below |
-| **Required** | indicators resolve | the strategy's `indicators.*` imports resolve against the live registry |
+| **Required** | indicators **verified against snapshot** | the strategy's imported `indicators.*` modules are verified against the bundle's `indicators_manifest.json` (content-hash) — **drift fails loud**, NOT resolved against the live registry (see §3 + `verify_indicator_snapshot`) |
 | Optional | `directive.txt` | provenance only — not executed, not re-canonicalized |
 | Optional | original `run_id` | provenance / supersession link |
 | Optional | original hashes | provenance / reproduction check |
@@ -97,20 +97,34 @@ Formalizes what completed runs already contain (extends the existing **Execution
 
 ```
 ExperimentBundle/
-  strategy.py       # REQUIRED — the compiled authority (byte-immutable)
-  experiment.json   # REQUIRED — symbols, broker, timeframe, start/end, cost_model, capital_profile (optional)
-  directive.txt     # OPTIONAL — original directive, byte-preserved (PROVENANCE only; not executed)
+  strategy.py               # REQUIRED — the compiled authority (byte-immutable)
+  experiment.json           # REQUIRED — symbols, broker, timeframe, start/end, cost_model, capital_profile (optional)
+  indicators_manifest.json  # REQUIRED — imported indicators.* modules: module id + content-hash (sha256) + registry version
+  indicators_snapshot/      # REQUIRED — byte copies of those indicator source files (bit-exact reproduction after the live module changes)
+  directive.txt             # OPTIONAL — original directive, byte-preserved (PROVENANCE only; not executed)
 ```
 
-`strategy.py` + `experiment.json` are the execution-critical members; `directive.txt` is
-provenance-optional (a lost or schema-stale directive does not block replay).
+`strategy.py` + `experiment.json` + `indicators_manifest.json` + `indicators_snapshot/` are the
+execution-critical members; `directive.txt` is provenance-optional (a lost or schema-stale directive
+does not block replay). The indicator members are the **third determinant** of a backtest's behavior
+(alongside `strategy.py` and the experiment definition): without them, a later change to a live
+indicator's logic/default params silently alters a replayed result.
 
-> **CORRECTION (2026-06-29, supersedes the original "indicators resolve against live registry" line):**
+> **RESOLVED (2026-06-29, supersedes the original "indicators resolve against live registry" line):**
 > live resolution is **not** faithful — an indicator whose logic/params change later silently alters a
-> replayed result. The bundle MUST carry **indicator provenance** (an `indicators_manifest.json` of
-> module-id + content-hash, plus source copies for reproduction), and the contract must **verify
-> indicators against the snapshot and fail loud on drift** — not resolve against live. Tracked as a chip
-> task; full rationale: `outputs/system_reports/08_pipeline_audit/INDICATOR_SNAPSHOT_GAP_2026-06-29.md`.
+> replayed result. The bundle now carries **indicator provenance**: `indicators_manifest.json`
+> (module-id + content-hash + registry version) **plus** byte copies under `indicators_snapshot/`. The
+> contract **verifies indicators against the snapshot and fails loud on drift** (`verify_indicator_snapshot`)
+> — it does NOT resolve against live. **Implemented (forward-path)** — every new run/strategy/capsule
+> emits the manifest + copies at backtest time:
+> - enumerate (transitive AST scan): `tools/indicator_imports.py::extract_imported_indicator_modules`
+> - snapshot + verify: `tools/run_indicator_snapshot.py` (`snapshot_indicators` / `require_indicator_snapshot` / `verify_indicator_snapshot`)
+> - wired at: `tools/run_stage1.py` (→ `runs/<run_id>/`), `tools/strategy_provisioner.py` (→ `strategies/<id>/`),
+>   `tools/basket_report.py` (→ the `backtests/<dir>/` capsule).
+>
+> Full rationale: `outputs/system_reports/08_pipeline_audit/INDICATOR_SNAPSHOT_GAP_2026-06-29.md`.
+> **Backfill of pre-existing runs was descoped** (forward-path only, by operator decision 2026-06-29) —
+> see Phase 4 + §8.
 
 **`experiment.json` is a first-class run artifact, not a replay add-on.** Every completed pipeline run
 — directive-authored or replay — **MUST emit `experiment.json`** as part of normal Stage-completion
@@ -200,6 +214,12 @@ replay modes, no new pipeline stages.
   Stage-completion for **all** paths (directive + replay), alongside `run_metadata.json` — so every new
   run is, by construction, a replayable bundle. Plus a one-shot backfill for pre-existing runs (mirroring
   `backfill_run_directives.py`). After this, replay is a permanent system property, not a recovery step.
+  - **Indicator provenance (DONE, forward-path, 2026-06-29):** the bundle's `indicators_manifest.json` +
+    `indicators_snapshot/` are already emitted at backtest time by every path (`run_stage1`, the
+    provisioner, the basket capsule) — see §3. So new runs are replayable *with verified indicators* the
+    moment they finish. **Indicator backfill of pre-existing runs was descoped** (forward-path only, by
+    operator decision) — `extract_imported_indicator_modules` is intentionally AST/text-based so a future
+    backfill can scan archived snapshot `strategy.py` files without importing them, if/when revisited.
 
 **Global regression gate:** the entire directive path must be byte-identical before/after (existing
 `tests/` + a golden directive run hash). Replay is additive; it must not perturb the directive door.
@@ -226,8 +246,12 @@ replay modes, no new pipeline stages.
   supersession discipline).
 - **Engine-ABI mismatch:** if a bundle's engine ABI can't load under the current engine, the contract
   fails loudly (no silent fallback — cf. the v1_5_6 silent-fallback incident).
-- **Indicator drift:** if a bundled indicator no longer exists/changed, contract fails with the exact
-  module id (don't run a half-resolved strategy).
+- **Indicator drift:** the contract verifies the strategy's imported `indicators.*` modules against the
+  bundle's `indicators_manifest.json` by content-hash and **fails loud** (`verify_indicator_snapshot`
+  raises `IndicatorDriftError` with the exact module id) if any live module changed or vanished — never
+  silently runs a drifted/half-resolved indicator. Bit-exact reproduction remains possible from
+  `indicators_snapshot/`. (Implemented forward-path 2026-06-29; this supersedes the earlier
+  "resolve against the live registry" line — see §2/§3.)
 - **Scope discipline:** zero Stage 1-4 changes; no legacy-specific branches anywhere downstream of
   Stage 0.
 

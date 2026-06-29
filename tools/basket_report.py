@@ -899,6 +899,32 @@ def write_basket_strategy_card(
                      "logic that produced this run's trades. Cross-check the SHA-256 "
                      "above against the live source if you need to verify the file "
                      "hasn't drifted since this run.")
+
+        # ---- Indicator snapshot (manifest + byte copies) ----
+        # A recycle rule imports indicators.* modules (e.g.
+        # ratio_hedged_spread_zscore, hurst_rs) — like strategy.py they are a
+        # determinant of the run's behavior. Snapshot a manifest (module id +
+        # content hash + registry version) AND byte copies into the capsule, so
+        # a later change to a live indicator is detectable (verify fails loud)
+        # and the run reproducible. Enumerated transitively from the rule
+        # source. Best-effort here (basket-card generation runs AFTER the run
+        # completes — a snapshot hiccup must not discard a finished run's
+        # report; the single-asset path snapshots pre-result and is fail-fast).
+        try:
+            from tools.run_indicator_snapshot import snapshot_indicators
+            _isnap = snapshot_indicators(
+                out_dir, src_path, Path(__file__).resolve().parent.parent,
+                write_once=False,
+            )
+            _icount = _isnap["module_count"] if _isnap else 0
+            lines.append("")
+            lines.append(f"- **Indicator snapshot:** `indicators_manifest.json` + "
+                         f"`indicators_snapshot/` ({_icount} module(s) the rule "
+                         f"imports — byte-copied + hashed for drift detection)")
+        except Exception as exc:
+            lines.append("")
+            lines.append(f"- **Indicator snapshot:** FAILED ({exc}) — capsule lacks "
+                         f"indicator provenance; verify rule imports manually.")
     else:
         lines.append(f"- **Source file resolution:** FAILED for rule "
                      f"`{rule_name}` — no matching file at "

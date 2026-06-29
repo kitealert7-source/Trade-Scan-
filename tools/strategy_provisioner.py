@@ -347,6 +347,24 @@ def _colocate_directive_with_strategy(strategy_dir: Path, directive_path: Path) 
     require_directive_snapshot(strategy_dir, directive_path, write_once=False)
 
 
+def _colocate_indicators_with_strategy(strategy_dir: Path, strategy_file: Path) -> None:
+    """Snapshot the indicator modules the strategy imports next to the authority
+    strategy.py: strategies/<id>/indicators_manifest.json + indicators_snapshot/.
+
+    The third determinant of a backtest's behavior — alongside strategy.py and
+    the directive — is the indicator modules the strategy imports. Capturing a
+    manifest (module id + content hash + registry version) AND byte copies of
+    the source makes a re-provisioned strategy faithfully reproducible and lets
+    replay fail loud on indicator drift. Refreshed on re-provision (NOT
+    write-once) so it always matches the current strategy.py + live indicators.
+
+    MANDATORY: strategy_file was just written by the provisioner, so the
+    snapshot is a guaranteed operation. A failure raises (propagates to
+    provision_strategy's handler -> provision fails) — never silently skipped."""
+    from tools.run_indicator_snapshot import require_indicator_snapshot
+    require_indicator_snapshot(strategy_dir, strategy_file, PROJECT_ROOT, write_once=False)
+
+
 def provision_strategy(directive_path: str) -> bool:
     """
     Provision strategy artifacts from directive.
@@ -402,6 +420,7 @@ def provision_strategy(directive_path: str) -> bool:
             ok = _update_existing_strategy(strategy_file, signature, import_lines)
             _check_schema_sample(strategy_file)
             _colocate_directive_with_strategy(strategy_dir, d_path)
+            _colocate_indicators_with_strategy(strategy_dir, strategy_file)
             return (ok, False)
         else:
             print(f"[PROVISION] Creating new strategy: {s_name}")
@@ -443,6 +462,7 @@ def provision_strategy(directive_path: str) -> bool:
             print(f"[PROVISION] SUCCESS: {strategy_file}")
             _check_schema_sample(strategy_file)
             _colocate_directive_with_strategy(strategy_dir, d_path)
+            _colocate_indicators_with_strategy(strategy_dir, strategy_file)
             return (True, True)
 
     except Exception as e:
