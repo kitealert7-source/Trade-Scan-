@@ -226,7 +226,10 @@ def _log_duration(result: dict) -> None:
 
     Feeds the 'broader-pytest close-gate runtime' MONITOR in SYSTEM_STATE: one
     JSONL line per full-suite run so the operator can see when the gate's wall
-    time trends toward the bottleneck threshold (then enable xdist). Never
+    time trends toward the bottleneck threshold (median > 4 min or > 3500 tests).
+    xdist 2-phase parallelism is already enabled (475dfd39, 2026-06-25), so a
+    re-crossing now means shard further / add workers / hunt a slow test — NOT
+    "enable xdist" (already done). The trend is now a regression sentinel. Never
     raises — a log-write failure must not break the gate.
     """
     try:
