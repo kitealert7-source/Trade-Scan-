@@ -87,10 +87,25 @@ The registry is METADATA, not a SELECTOR.
 - **Enforcement:** the Phase-7 lint also asserts no code path enumerates `universal_research_engine/` dirs at runtime (selection cannot creep back).
 - **Verify:** `pytest` + `system_preflight` REGISTRY GREEN; a grep proving no runtime `iterdir()`/glob over the engine dir.
 
-### Phase 4 — Retire version-specific tests
-- **Remove** (test only the removed engines): `regression_v154_1h.py`, `smoke_v154_15m.py`, `test_engine_atr_fallback.py` (v1.5.4), `test_v157_engine_level.py` (v1.5.7), and the v1_5_3 arms of `test_engine_abi_adversarial` / `_ts_execution_boot` / `test_engine_identity_convergence`.
-- **Keep:** all `test_v1510_*` (rollback engine still live), `test_engine_health_counters_v1_5_11`, `test_engine_abi_v1_5_9/10/11` (shim tests — Open decision B), `test_intent_injector_frozen_path` (re-point to v1_5_10 if it pins v1.5.8).
-- **Verify:** `pytest` green with the reduced suite; no test imports a removed dir.
+### Phase 4 — Retire version-specific tests *(quantified delta — known target)*
+
+**Measured 2026-06-29.** The test footprint tied *exclusively* to the removed engines is small — the broader suite is overwhelmingly current-functionality (baskets/cointegration/recycle/governance), which runs on the active engine and is untouched.
+
+**Remove (dedicated to a removed engine):**
+| file | collected pytest cases | note |
+|---|---|---|
+| `test_v157_engine_level.py` | **8** | v1.5.7-specific |
+| `test_engine_atr_fallback.py` | **2** | v1.5.4-specific |
+| `regression_v154_1h.py` | 0 (standalone script) | file removed; **not** in pytest count |
+| `smoke_v154_15m.py` | 0 (standalone script) | file removed; **not** in pytest count |
+
+**Update — re-point version strings, NO case removal** (these reference old versions in *bodies/fixtures*, not as parametrized arms — 0 removable nodes): `test_engine_abi_adversarial`, `test_engine_abi_ts_execution_boot`, `test_engine_identity_convergence`, `test_intent_injector_frozen_path` (re-point v1_5_3/v1_5_8 → kept). Case counts unchanged.
+
+**Keep untouched:** `test_v1510_*` (rollback engine live), `test_engine_health_counters_v1_5_11`, `test_engine_abi_v1_5_9/10/11` (shims — decision B), the 81-case gate suite (none version-specific).
+
+**Expected broader-pytest delta: −10 collected cases → baseline `2232 → 2222` (≈0.4%).** This becomes the **known target** for Phase 5.5 / Phase 6 verification: a *pass* is `2222 passed` (not merely "green"), and the post-refactor broader-pytest baseline must be updated to 2222 via `check_broader_pytest_baseline.py --update-baseline --rationale "engine consolidation: removed v1.5.7/v1.5.4 dedicated tests (-10)"`.
+
+- **Verify:** `pytest` → exactly **2222 passed** (any other count = an unexpected case lost/added — investigate before proceeding); no test imports a removed dir.
 
 ### Phase 5 — Manifest lineage + governance contract
 - Manifest `predecessor` fields (`v1_5_9←v1_5_8`, `v1_5_10←v1_5_8`, `v1_5_11←v1_5_10`) are **descriptive metadata**, not runtime gates. Leave v1_5_11←v1_5_10 (both retained); the removed dirs' manifests go to the vault with them.
@@ -103,8 +118,8 @@ A cheap, reversible proof that **no hidden runtime resolution path** remains —
 ```
 mv  v1_5_3 … v1_5_9   →   _DISABLED_v1_5_3 … _DISABLED_v1_5_9
 ```
-The dirs still exist on disk but are **unresolvable** (the import path no longer matches). Then run the full gate suite **with the dirs renamed**:
-- `pytest` (full suite)
+The dirs still exist on disk but are **unresolvable** (the import path no longer matches). By this point Phase 4 has already removed the version-specific tests, so the renamed-but-unresolvable dirs should perturb nothing. Run the full gate suite **with the dirs renamed**:
+- `pytest` → **exactly 2222 passed** (the Phase-4 known target; any import of a renamed engine would surface as a failure here — that's the whole point of the proof)
 - `python tools/system_preflight.py` → all structural GREEN
 - `python tools/abi_audit.py` (triple-gate)
 - a **representative single-asset backtest** (run_pipeline on one directive → completes on v1_5_11)
@@ -115,7 +130,7 @@ The dirs still exist on disk but are **unresolvable** (the import path no longer
 ### Phase 6 — Remove the defective compute dirs *(now a confirmation, per Phase 5.5)*
 - **Pre-delete gate:** Phase 5.5 passed; re-run the §1.2 live-artifact query → must be **0** on v1.5.3–v1.5.9 (defensive); confirm git history present (P1); record HEAD sha in the commit message. *(No vault sha256 gate — defective engines, git is the restore path.)*
 - `git rm -r engine_dev/universal_research_engine/v1_5_3 v1_5_4 v1_5_5 v1_5_6 v1_5_7 v1_5_8 v1_5_9`.
-- **Verify:** full `pytest` + `abi_audit` + `system_preflight` ALL GREEN; `git grep` finds zero live-code imports of the removed versions.
+- **Verify:** full `pytest` → **exactly 2222 passed** (the Phase-4 known target — confirms no unexpected case lost/added) + `abi_audit` + `system_preflight` ALL GREEN; `git grep` finds zero live-code imports of the removed versions; update the broader-pytest baseline to 2222 (rationale per Phase 4).
 
 ### Phase 7 — Lock it with an enforcement gate *(prevent regression)*
 - Add a **pre-commit + CI lint** (`tools/lint_no_removed_engine_imports.py`): fail on any `import …universal_research_engine.v1_5_{3..9}` outside `vault/`. Per [[feedback_enforceable_mechanisms_only]] — the consolidation must be *enforced*, not just documented, or it decays.
