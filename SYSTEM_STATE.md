@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-29T08:14:57Z
+> Generated: 2026-06-29T13:37:51Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -13,7 +13,7 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 36 directives
+- Completed: 35 directives
 
 ## Ledgers
 
@@ -36,12 +36,12 @@
 - Latest bar: **2026-06-26** | Symbols: 221
 
 ## Artifacts
-- Run directories: 523
+- Run directories: 553
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `f84f8e76 docs(close-gate): refresh stale "enable xdist" remedy in runtime monitor`
+- Last substantive commit: `bc8f4715 docs(replay-admission): mark SUPERSEDED â€” re-running = purge-then-rerun, not a new subsystem`
 
 ## Deferred Maintenance
 

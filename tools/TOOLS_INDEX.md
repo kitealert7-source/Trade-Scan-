@@ -22,9 +22,9 @@ Top-level modules are operational entrypoints; modules under subpackages
 `utils/`, `system_logging/`, `state_lifecycle/`) are internal libraries.
 
 
-Total modules indexed: 381 (excludes `__init__.py`).
+Total modules indexed: 383 (excludes `__init__.py`).
 
-## tools/ (top-level)  (179 modules)
+## tools/ (top-level)  (181 modules)
 
 | Module | Summary |
 |---|---|
@@ -115,6 +115,7 @@ Total modules indexed: 381 (excludes `__init__.py`).
 | `tools.hypothesis_tester` | hypothesis_tester.py — Structured Insight Extraction & Hypothesis Report |
 | `tools.idea_evaluation_gate` | Preflight Idea Evaluation — Concept Reuse Gate v1. |
 | `tools.indicator_hasher` | indicator_hasher.py - Semantic content hashing for indicator modules (Phase 4). |
+| `tools.indicator_imports` | indicator_imports.py — enumerate the `indicators.*` modules a strategy |
 | `tools.indicator_registry_sync` | Indicator registry sync — operator helper. |
 | `tools.inspect_master_filter` | (no docstring) |
 | `tools.inspect_trend_score` | (no docstring) |
@@ -173,6 +174,7 @@ Total modules indexed: 381 (excludes `__init__.py`).
 | `tools.rule_binding_gate` | Directive -> recycle_rule.name binding gate (admission-time). |
 | `tools.run_directive_snapshot` | run_directive_snapshot.py — co-locate the source directive with each run. |
 | `tools.run_index` | run_index.py — Append-only global run index. |
+| `tools.run_indicator_snapshot` | run_indicator_snapshot.py — co-locate the imported indicator modules with |
 | `tools.run_pipeline` | run_pipeline.py -- Master Execution Pipeline Orchestrator (v3.2 - State Gated) |
 | `tools.run_portfolio_analysis` | run_portfolio_analysis.py - Governance-Grade Portfolio Engine (v3.0) |
 | `tools.run_stage1` | run_stage1.py — Minimal Stage-1 Execution Harness (Multi-Asset Batch v5 - State Gated) |
