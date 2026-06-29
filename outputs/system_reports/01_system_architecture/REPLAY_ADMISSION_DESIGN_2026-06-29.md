@@ -1,8 +1,33 @@
 # Replay Admission — Second Admission Path into the Governed Pipeline
 
-**Status:** FROZEN v1 (2026-06-29) — design approved to implement. Build proceeds atomically Phase 0→4
-with a per-phase break-test and the global "directive path byte-identical" regression gate
-(Protected Infrastructure, Invariant #6).
+**Status:** ⛔ SUPERSEDED (2026-06-29) — DO NOT IMPLEMENT AS WRITTEN. The parallel-orchestration form
+(contract + bundle + AdmissionProvider/ReplayAdmission, Phase 0/1/2a) was built then **deleted**
+(`565ea94e`): it replicated the pipeline's planning/run_state — a second execution system when only a
+second *source of the executable* was needed.
+
+**Two learnings kept:**
+1. **Re-running existing strategies is already solved by purge-then-rerun** (the morning state-hygiene
+   process): purge stale run state + registry reservations + sweep records + planner records → free the
+   original identity → re-run faithfully under it via the normal governed pipeline. After a clean purge,
+   the directive↔strategy consistency the gates check holds again, so there are no collisions and nothing
+   to skip. **This is the way to re-run a strategy.** (Tools: `repair_sweep_registry.py --release`,
+   `reset_directive.py`, `repair_integrity.py --action drop`, `/pipeline-state-cleanup`, `/rerun-backtest`.)
+2. **The deeper architectural truth (for any future "use existing strategy.py without regenerating" mode):**
+   the admission path asks ONE question — *"did this strategy come from this directive?"* — repeatedly
+   (classifier -0.21, canonicalize -0.25, sweep -0.35, preflight signature-hash, preflight
+   signature-drift). The right design is therefore a **single Execution-Source decision**
+   (`GENERATE_FROM_DIRECTIVE` | `USE_EXISTING_STRATEGY`) set once on the context and respected by every
+   downstream validator — NOT one guard per gate. The experiment that proved this: four guards skipped the
+   admission gates, but preflight independently re-asked the same question (signature-drift), showing the
+   assumption is pervasive, not local. **Do not add per-gate guards.**
+
+The design below is retained for the Execution-Source idea + the stage map, NOT for the bundle/parallel
+mechanism. Genuine residual purge does NOT fix: legacy strategies using directive vocab the canonicalizer
+DROPPED (e.g. VOLEXP `outside_band`/`cooldown_bars`) — a schema regression, handled by `run_stage1`-direct
+or schema restoration, separate from re-running.
+
+---
+_Original (superseded) plan follows._
 **Date:** 2026-06-29
 **Author context:** surfaced by the legacy CORE/RESERVE re-validation arc (F6 schema-drift block), but
 scoped as a **permanent, general capability** — NOT a legacy hack.
