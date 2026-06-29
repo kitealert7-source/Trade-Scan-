@@ -80,73 +80,13 @@ If the category is ambiguous ("I changed the indicator AND bumped a parameter"),
 1. The strategy has a recoverable source directive. **Authentic source = the per-run artifact snapshot — look in `TradeScan_State/backtests/<directive_name>/DIRECTIVE_SOURCE.txt` first, then `runs/<run_id>/directive.txt`** (see *Authentic artifact source* below). `prepare` resolves the source via `resolve_baseline` (single-asset `is_current`) first, then via the basket sheets for baskets (`_resolve_basket_source` — F1b), and falls back to the most-recent-mtime scan of `backtest_directives/completed/` → `active_backup/` → `active/` → `archive/` only when neither pins a seed (old/grandfathered runs).
 2. No open INBOX entry for the same strategy (use `--force` to overwrite if stale).
 3. For `BUG_FIX`, confirm with the human that the old run's result really is wrong before proceeding — quarantining is permanent for analytics purposes (rows stay in the DB, but `filter_strategies.py` never promotes them again).
+4. **Re-validating a _contaminated_ identity** — when the prior run is valid-but-wrong (must be *replaced* under its own identity, not compared as a sibling), that run owns the sweep slot + the first-exec anchor, so a same-identity rerun is blocked by `SWEEP_COLLISION` and the preflight EXPERIMENT_DISCIPLINE (first-exec). **Quarantine the prior run first** to release identity ownership while preserving the run (run_id, artifacts, ledger row all survive): `tools/system_registry.quarantine_run(run_id)` frees it standalone (registry `status → quarantined` → sweep slot + first-exec anchor released immediately), or `finalize --quarantine` does the ledger+registry flip once a successor exists. Then rerun under the **original** identity — no orphan slot, no `__E###`-vs-base gymnastics. Capability landed `bc2c8246`; full procedure in the `project_quarantine_lifecycle` memory.
 
 ---
 
 ## Authentic artifact source — look in `backtests/` first, then `runs/`
 
-A rerun's source directive (and the code that ran) is recovered from the per-run artifact
-snapshots — **not** by mtime-scanning `completed/`. Look in this order (the same ladder
-`resolve_baseline` walks); recent runs' source artifacts increasingly land in `backtests/`, so
-**look there first** — it is the most complete and the most natural to hit, since it is keyed
-by the directive name (the usual rerun target).
-
-**1 — `backtests/<directive_name>/` — look here first.** Keyed by **directive name**; the
-recent-vintage canonical artifact home.
-
-| File | Contents |
-|---|---|
-| `DIRECTIVE_SOURCE.txt` | byte-exact directive that produced the run — the config to clone (resolver's top rung) |
-| `RECYCLE_RULE_SOURCE.py` *(basket)* | the exact leg-rule code that ran |
-| `STRATEGY_CARD.md`, `BASKET_REPORT_*.md` / `REPORT_*.md` | human-readable run summary |
-| `metadata/`, `raw/` | results (`raw/results_tradelevel.csv`, …) |
-
-**2 — `runs/<run_id>/` — run_id-keyed companion.** When you hold the `run_id` hash, this carries
-the same directive plus full sha256 provenance.
-
-| File | Contents |
-|---|---|
-| `directive.txt` | byte-exact directive snapshot |
-| `strategy.py` *(single-asset)* | exact strategy code — write-once (Invariant #4) |
-| `basket_code/` *(basket)* | `recycle_strategies.py` + `recycle_rules/*.py` + `code_manifest.json` |
-| `manifest.json` | sha256 provenance: `strategy_hash`, `engine_version`, per-leg data + broker-spec sha256, artifact sha256, `execution_mode`, `basket_id` |
-
-**3 — fallback:** `strategies/<id>/directive.txt` → `completed/` → git.
-
-**Why this beats the `completed/` mtime-scan:** these snapshots are keyed to the **exact run**
-(by directive name or run_id — the provenance a `run_id`-targeted rerun otherwise discards),
-**immutable**, and **sha256-verified** (`runs/.../manifest.json`). You recover the directive
-*and* the code that actually ran — not a most-recent-mtime guess that may have landed on a
-superseded `__E###` variant.
-
-**`resolve_baseline` walks this exact ladder** — prefer it over hand-scanning:
-
-// turbo
-
-```bash
-python tools/resolve_baseline.py <run_id | directive_name | series_tag> --json
-# ladder: backtests/<name>/DIRECTIVE_SOURCE.txt → runs/<run_id>/directive.txt
-#         → strategies/<id>/directive.txt → completed/ → git   (selects the is_current run)
-```
-
-**Coverage caveat:** source capture is recent-vintage — `DIRECTIVE_SOURCE.txt` +
-`RECYCLE_RULE_SOURCE.py` are present for ~83% of `backtests/` entries (7,302 / 8,845): basket +
-recent runs. Older single-asset `backtests/` entries are **report-only** (no source capture) —
-for those the strategy code is in `runs/<run_id>/strategy.py` and the directive falls back to
-`completed/`. The captured set grows as new runs land in `backtests/`.
-
-> **Resolution (F1 landed 2026-06-14):** `prepare` resolves the source via `resolve_baseline`
-> (`is_current` + the exact per-run seed) **first**, falling back to the mtime scan of `completed/`
-> only when the resolver can't pin a single seed. A bare-name target now also captures the
-> resolved `is_current` run_id as the `rerun_of` breadcrumb.
-> **Baskets (F1b landed 2026-06-14):** baskets live in `cointegration_sheet` / `basket_sheet`,
-> not `master_filter`, so `resolve_baseline` can't reach them — `prepare` resolves baskets via a
-> dedicated basket-sheet tier (`_resolve_basket_source`): match the `is_current` row by
-> `directive_id` / `run_id`, then read the seed from `runs/<run_id>/directive.txt` →
-> `<backtests_path>/DIRECTIVE_SOURCE.txt` → `completed/`. Both a basket **name** and an
-> **`is_current` run_id** resolve (a basket run_id, absent from `master_filter`, maps to its
-> directive via the sheets too). A **superseded** basket run_id is not matched — use the
-> directive name or the current run_id; it otherwise falls through to the mtime scan.
+See [`reference/artifact_resolution.md`](./reference/artifact_resolution.md).
 
 ---
 
@@ -174,27 +114,7 @@ for those the strategy code is in `runs/<run_id>/strategy.py` and the directive 
 
 ## Backtest date window — rerun convention
 
-A rerun runs on the standard recent window, derived from data availability — **not** blindly
-from the source directive's original dates:
-
-- **Single-asset:** `start_date` = **2024-01-01**, or the first available bar on/after it (in
-  practice **2024-01-02** — 2024-01-01 is a market holiday, no FX bars); `end_date` = the
-  **latest available bar** (`min(latest_date)` across the directive's symbols, from
-  `data_root/MASTER_DATA/freshness_index.json`). This is exactly what
-  `config/backtest_dates.py::resolve_dates(tf, stage="extended")` /
-  `governance/preflight.py::resolve_data_range()` already return.
-- **Cointegration / basket:** the window is **not** a single 2024→max range — each test is one
-  pre-computed cointegrated **span**. Re-run only the spans whose entry falls **within
-  [2024-01-01, max]** (drop any with `entry_date < 2024-01-01`); each in-range span stays a
-  **separate test** on its own `[entry_date, exit_date]` window. A fixed 2024→max window would
-  be **rejected by `window_validity_gate.py`** (the window must be contained in one cointegrated
-  span — see [[feedback_test_window_must_match_signal_class]]).
-
-> **Tool support pending — apply by hand for now.** `prepare` today sets `end_date = today` and
-> never sets `start_date` (`rerun_backtest.py:474-479`). Auto-setting the single-asset
-> `[2024-01-02, max]` window and filtering cointegration spans to the range are **pending tool
-> changes** (out of the current skills-only scope). Until they land, set the window per this
-> convention when forming / reviewing the rerun directive.
+See [`reference/backtest_window.md`](./reference/backtest_window.md). *(The execution-critical `--end-date` gap-pin warning is kept in **Common Pitfalls** above.)*
 
 ---
 
@@ -333,25 +253,13 @@ After `finalize`:
 3. **Wrong category picked** — a `DATA_FRESH` label on what's actually a SIGNAL change will be caught by the Classifier Gate's content-hash check when it goes into production. If you hit a Stage -0.21 block, re-run `prepare` with `--category SIGNAL`.
 4. **Using `--quarantine` for non-BUG_FIX** — this permanently excludes the row from promotion. Only use when the prior result is provably wrong (not just "suboptimal").
 5. **Trusting the `[BATCH]` success banner on a cloned/retired-cohort rerun** — `run_pipeline` can report `All directives processed successfully` while producing 0 backtest dirs and 0 ledger rows when the cloned cohort points at retired/superseded run_ids. Always check produced-dir-count == directive-count before finalize (2026-06-15).
+6. **Gap-/window-sensitive reruns MUST pin `--end-date` by hand** — if the source directive's `end_date` was *deliberately* pinned to dodge a crash bar (e.g. a gap-fill stop-contract crash — PSBRK P17 was end-dated to skip exactly such a bar), the default extend-to-today **re-introduces the dodged bar → the run crashes.** For any window-sensitive rerun pass `--end-date <pinned-date>` explicitly; never let `prepare` silently extend to today. (A genuine full-history / freshness rerun *wants* the extend — the judgement is "deliberate dodge or just stale?". Full convention: `reference/backtest_window.md`.)
 
 ---
 
 ## Variant Naming Rule (__E### rotation)
 
-A rerun lands as a **new directive variant** of the same family — same `test.strategy` (the base stem), but a freshly allocated `__E###` suffix on the filename and `test.name`. The Idea Gate (-0.20) still bypasses on `test.repeat_override_reason`; the suffix is what satisfies `verify_directive_uniqueness_guard` at `run_pipeline.py:505`, which refuses to re-execute a directive_id already in the registry.
-
-Example:
-
-```
-Source:        90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E002.txt
-                 test.strategy: 90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100   (base, no suffix)
-                 test.name:     90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E002
-Rerun output:  INBOX/90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E003.txt
-                 test.strategy: 90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100   (unchanged)
-                 test.name:     90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E003
-```
-
-`reset_directive.py` is **not** required for `__E###`-rotated reruns — the new variant has a distinct directive_id, so PORTFOLIO_COMPLETE on the prior variant doesn't block it. The state file is keyed by filename stem, and the stem now differs.
+See [`reference/variant_naming.md`](./reference/variant_naming.md).
 
 ---
 
@@ -363,23 +271,7 @@ If `rerun_backtest.py` is unavailable, see [`reference/manual_lifecycle.md`](./r
 
 ## Stage-3 idempotency + Phase-0 supersession
 
-> **Rewritten 2026-06-12 — Phase-0 (`570f6c48`) made the old "remove rows first" guidance
-> obsolete; the prior text mis-described the gate as `(strategy,symbol)`-keyed.**
-
-Stage-3's skip gate (`stage3_compiler.py:414`) is keyed by **`run_id`** (idempotency — the same
-`run_id` is never written twice in a pass), **not** by `(strategy,symbol)` cardinality. A rerun
-produces a **new** `run_id` (this is why `finalize` takes distinct `--old-run-id`/`--new-run-id`),
-so its rows are **not** skipped — they reach the writer, and Phase-0 resolves the collision there:
-
-- **Declared rerun** (`test.repeat_override_reason` present) → the writer **auto-supersedes** the
-  prior `is_current=1` rows for that `(strategy,symbol)`
-  (`ledger_db._enforce_master_filter_supersession`). **No manual row removal, no pre-clean.**
-- **Undeclared collision** → the writer **raises `MasterFilterCurrencyError` and writes nothing**;
-  run `finalize` (`mark_superseded`) on the prior run first, or declare the rerun.
-
-`reset_directive.py` resets pipeline **state files only — it does NOT touch `master_filter` /
-`ledger.db`** and is **not** part of rerun row-management. (It is for restarting a directive that
-failed mid-pipeline, unrelated to supersession.)
+See [`reference/stage3_supersession.md`](./reference/stage3_supersession.md).
 
 ---
 
@@ -400,40 +292,25 @@ python tools/run_pipeline.py <STRATEGY_ID>
 
 This is expected behaviour for any rerun that changes the STRATEGY_SIGNATURE. Not a failure — do not reset directive state.
 
+> **A directive paused at admission is NOT resumed by `--all`.** Once admitted it sits in
+> `active_backup/` at state `INITIALIZED`; a fresh `run_pipeline.py --all` re-scans `INBOX/` and
+> trips **`PIPELINE_BUSY`** on the already-admitted directive (and re-queuing a duplicate copy to
+> `INBOX/` makes it worse — two competing entries). Resume it by **single-ID dispatch**
+> (`run_pipeline.py <directive_id>`), which re-runs the paused directive in place — exactly the last
+> line of the recovery above. Only if the state is genuinely stuck (e.g. a ghost `INITIALIZED` after
+> a hard kill) does `reset_directive.py <id> --reason ...` clear it first.
+
 ---
 
 ## ENGINE_OWNED Indicator Removal Pattern
 
-Engine-owned indicators (`volatility_regime`, `trend_regime`, `vol_regime`) are injected by the execution engine at runtime. Strategies must NOT import or call them in `prepare_indicators`. The ENGINE_OWNED_FIELDS guard at Stage-0.5 will block the run with a hard error.
-
-**When removing an engine-owned indicator from a rerun:**
-
-1. Remove from directive `indicators:` list (changes directive hash — update sweep registry)
-2. Remove `from indicators.volatility.volatility_regime import ...` from strategy.py imports
-3. Remove the call site in `prepare_indicators` (the `vr = volatility_regime(...)` line)
-4. Remove from STRATEGY_SIGNATURE `indicators:` array in strategy.py
-5. Recompute SIGNATURE_HASH using `_hash_sig_dict` from `tools/strategy_provisioner.py`
-6. Update sweep registry hash using `_write_yaml_atomic` (not `new_pass.py --rehash`)
-7. If the directive's `volatility_filter` uses `required_regime:`, the Classifier Gate will classify this as SIGNAL (not COSMETIC) — bump `signal_version`
-
-The FilterStack reads `volatility_regime` from the engine context (via `ctx.require('volatility_regime')`), not from the strategy's DataFrame column. Removing the strategy's redundant computation is safe — filter behaviour is unchanged.
+See [`reference/engine_owned.md`](./reference/engine_owned.md).
 
 ---
 
 ## Sweep Registry Hash Invariant
 
-The sweep registry `signature_hash`/`signature_hash_full` is the SHA256 of `normalize_signature(parse_directive(<file>))`. It changes when any non-NON_SIGNATURE_KEY in the directive changes.
-
-NON_SIGNATURE_KEYS (do NOT trigger hash change):
-- `start_date`, `end_date`, `repeat_override_reason`, `stop_contract_guard`
-- All keys under `test:` block that mirror identity: `name`, `strategy`, `broker`, `timeframe`, `description`
-
-Keys that DO trigger hash change (require registry update):
-- `indicators:` list (any addition or removal)
-- `signal_version:` (bumping for SIGNAL category)
-- Any `execution_rules:`, `volatility_filter:`, `trend_filter:`, etc. change
-
-**Never use `new_pass.py --rehash` for patches that already exist in the registry** — it appends a duplicate YAML key instead of updating the existing one. Use `_write_yaml_atomic` directly.
+See [`reference/sweep_hash.md`](./reference/sweep_hash.md).
 
 ---
 
@@ -450,40 +327,19 @@ Keys that DO trigger hash change (require registry update):
 
 ## Related Files
 
-| File                           | Location                                         |
-|--------------------------------|--------------------------------------------------|
-| Artifact snapshot — **look first** | `TradeScan_State/backtests/<directive_name>/` — `DIRECTIVE_SOURCE.txt` + `RECYCLE_RULE_SOURCE.py` (basket) + `raw/` |
-| Artifact snapshot — run_id companion | `TradeScan_State/runs/<run_id>/` — `directive.txt` + `strategy.py` \| `basket_code/` + `manifest.json` (sha256) |
-| Baseline resolver (`is_current`) | `tools/resolve_baseline.py`                    |
-| Rerun tool                     | `tools/rerun_backtest.py`                        |
-| Ledger DB + mark_superseded    | `tools/ledger_db.py`                             |
-| Idea Gate (Stage -0.20)        | `tools/orchestration/admission_controller.py`   |
-| Classifier Gate (Stage -0.21)  | `tools/classifier_gate.py`                      |
-| Directive signature schema     | `tools/directive_schema.py`                     |
-| Audit log                      | `outputs/logs/rerun_audit.jsonl`                 |
-| Overrides audit (Idea Gate)    | `governance/idea_gate_overrides.csv`             |
+See [`reference/related_files.md`](./reference/related_files.md).
 
 ---
 
 ## Rerun Contract (LOCKED — 2026-04-17, amended 2026-05-24, 2026-06-12, 2026-06-14)
 
-- **Variant-rotated reruns** — every rerun gets a fresh `__E###` suffix on filename + `test.name`. `test.strategy` stays at the base stem. `repeat_override_reason` is still the only Idea-Gate bypass.
-- **Stage-3 idempotent by `run_id`** *(amended 2026-06-12)* — the compiler skips a *repeated* `run_id`, never a new one; a rerun's new `run_id` writes normally. A collision with a prior `is_current=1` row for the same `(strategy,symbol)` is resolved **at the writer** (Phase-0): auto-supersede for declared reruns, fail-loud otherwise. **No manual row removal** (the prior "remove old rows first" rule is retired).
-- **Supersedence is enforced, not optional** *(amended 2026-06-12)* — for a **declared** rerun the prior `run_id` is auto-marked `is_current=0` at Stage-3 (Phase-0, `570f6c48`); `finalize` remains the path for `--quarantine` (BUG_FIX) and as the explicit/fallback. Append-only: flag `is_current=0`, never delete; no auto-overwrite of row identity or metrics.
-- **Directive = execution window** — `start_date`/`end_date` in the directive are the authority; no silent clamping by the engine.
-- **signal_version lives in test:** — `signal_version` is a child of the `test:` block per `canonical_schema.ALLOWED_NESTED_KEYS["test"]`. Root-level writes collide at the test→root mirror in `pipeline_utils.parse_directive_with_canonical_test` and are also rejected by Stage -0.25 canonicalization. The tool defensively strips any stray root-level key.
-- **Cross-skill contract with `/hypothesis-testing`** *(added 2026-06-14)* — the category taxonomy (`DATA_FRESH`/`SIGNAL`/`ENGINE`/`PARAMETER`/`BUG_FIX`) and the supersede-vs-compare boundary are **shared** with the [`/hypothesis-testing`](../hypothesis-testing/SKILL.md) §1.0 divert table, which routes reruns based on them. If either changes here, **review and update `/hypothesis-testing` §1.0 in the same change** — a one-sided edit silently drifts the two skills apart. (Reciprocal of the ownership note in `/hypothesis-testing` §0.)
-- **Retirement is part of the rerun** *(added 2026-06-14)* — a rerun is **not complete until its predecessor is retired**: its row archived to `TradeScan_State/retired/retired_runs.parquet` and its heavy artifacts pruned, via [`/pipeline-state-cleanup`](../pipeline-state-cleanup/SKILL.md)'s authorized drop (archive-BEFORE-drop; the only sanctioned ledger-row removal under Invariant #2). Applies to **all** rerun categories. The predecessor's seed (directive + `RECYCLE_RULE_SOURCE.py`) is retired only *after* its rerun consumes it. Keeps the live ledger trim; the cold archive is the don't-re-test record. Enforcement = the `retire` tool step + the `/session-close` drift check (pending).
+See [`reference/contracts.md`](./reference/contracts.md).
 
 ---
 
 ## System Contract
 
-- `master_filter` is append-only. Reruns never delete — they supersede via `is_current=0` (auto at Stage-3 for **declared** reruns since Phase-0 `570f6c48`; via `finalize` otherwise / for `--quarantine`).
-- `is_current=1 AND quarantined=0` is the canonical filter for "live, eligible-for-promotion" rows. `filter_strategies.py` enforces this.
-- `test.repeat_override_reason` is the ONLY sanctioned Idea-Gate bypass. The tool's auto-prefix is machine-parseable for forensic reconstruction.
-- `signal_version` increments are the ONLY sanctioned way to satisfy the Classifier Gate's SIGNAL-diff rule. Never hand-edit it outside this tool.
-- Every `prepare` and `finalize` invocation is written to `outputs/logs/rerun_audit.jsonl` — do not bypass the tool with manual YAML edits.
+See [`reference/contracts.md`](./reference/contracts.md).
 
 ---
 
@@ -497,4 +353,5 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 | 2026-06-12 | Phase-0 auto-supersede (`570f6c48`) made the finalize / "remove rows first" / `reset_directive` rerun guidance stale; Stage-3 gate is `run_id`-keyed (not `(strategy,symbol)`) and `reset_directive` never touches the ledger. | Rewrote Stage-3 §, added a Phase-0 note to `finalize` §, amended the LOCKED Rerun Contract (auto-supersede declared reruns; `finalize` kept for `--quarantine`/fallback). Verified vs `stage3_compiler.py:414` + `reset_directive.py` (no ledger refs). |
 | 2026-06-17 | ENGINE-category engine-verify run routed here instead of execute-directives; "verify wiring on existing strategy" reads as ENGINE rerun but is a fresh run | Add "when NOT to use" contrast vs execute-directives to the ENGINE category row |
 | 2026-06-21 | Same-day-crashed bug-fix rerun looped 4 guards; 2-pass recovery misses the preflight first-exec EXPERIMENT_DISCIPLINE check (a crashed run counts as "first ran") | Recovery → FAILURE_PLAYBOOK "same-day crashed base"; root-cause guard fix → SYSTEM_STATE HIGH-ROI proposal |
-| 2026-06-24 | ENGINE rerun of a deliberately window-pinned directive (PSBRK P17, end-dated to dodge a gap-crash bar): the default `end_date=today` extend would re-introduce the dodged gap → crash; had to pin `--end-date` by hand. Also: a directive paused at admission isn't re-run by `--all` (sits in active_backup → manual re-queue to INBOX). | Pending: warn in the "Backtest date window" § that gap-/window-sensitive reruns MUST pin `--end-date` (extend can re-introduce a dodged crash); document the active_backup re-queue recovery. |
+| 2026-06-24 | ENGINE rerun of a deliberately window-pinned directive (PSBRK P17, end-dated to dodge a gap-crash bar): the default `end_date=today` extend would re-introduce the dodged gap → crash; had to pin `--end-date` by hand. Also: a directive paused at admission isn't re-run by `--all` (sits in active_backup → manual re-queue to INBOX). | Landed 2026-06-29: "Backtest date window" § now warns gap-/window-sensitive reruns MUST pin `--end-date` (extend re-introduces the dodged crash); Provisioner 2-Pass § documents single-ID resume of a paused `active_backup` directive (`--all` trips `PIPELINE_BUSY`). |
+| 2026-06-29 | Re-validating a contaminated identity (valid-but-wrong prior run) hit `SWEEP_COLLISION` + first-exec EXPERIMENT_DISCIPLINE — same-identity rerun blocked; worked the multi-guard gauntlet by hand. | Added Pre-Condition #4: quarantine the prior run first (`quarantine_run` / `finalize --quarantine`) to release identity ownership, then rerun under the original identity. Capability `bc2c8246`; procedure → `project_quarantine_lifecycle` memory. |
