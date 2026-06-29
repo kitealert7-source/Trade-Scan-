@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-06-29T06:43:41Z
+> Generated: 2026-06-29T07:23:49Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -40,15 +41,15 @@
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `65a03729 docs(skills): reference/ extraction for promote + launch-windows (cognitive-load)`
+- Working tree: 1 uncommitted
+- Last substantive commit: `3930f4c8 session: refresh skill-audit cadence baseline (2026-06-29)`
 
 ## Deferred Maintenance
 
 > Hygiene tasks deliberately not done this session. NOT problems — see `## Known Issues` below for actual problems. Available to address whenever convenient; nothing here is blocking.
 
 ### Auto-detected (regenerated each run)
-- [SIZE] SYSTEM_STATE Manual section 13 lines (approaching 20-line limit) — prune DONE entries and move verbose detail to a linked report (target ≤12).
+- (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
 <!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
@@ -57,8 +58,6 @@
 - [MONITOR] repeat_override_reason refresh-auth debt — `tools/refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass field to authorize refreshes (debt-marked in code + plan, operator-flagged). Promote to BUILD (dedicated refresh-intent signal) when a 2nd refresh use-case (baskets / master_filter) needs the auth path. First seen 2026-06-07.
 - [RESOLVED 2026-06-25 — was MONITOR+PLAN] broader-pytest close gate **PARALLELIZED**. `tools/check_broader_pytest_baseline.py` runs **two-phase**: (1) `pytest tests/ -n auto --dist loadscope` over the bulk, (2) the 2 `SERIAL_FILES` (`test_engine_abi_{v1_5_9,adversarial}`) serially. Runtime **172s serial → ~78s (2.2×)**, identical pass/skip totals (2174/64), deterministic, tree-clean. Audit finding: **NO test writes the real `ledger.db`/MPS/FSP** (sha256 byte-unchanged across runs — Excel-is-view + tmp-isolation held; SQLite-concurrency worry moot). Two in-process shared-state clusters surfaced: (a) engine_abi adversarial **tampers the REAL committed manifest + `__init__.py`** (+ `v1_5_9` reload) — can't sandbox (audit must hit the real triple-gate), stays serial; (b) the 3 `test_intent_injector_*` shared `.claude/logs|state` via the hook subprocess — **ROOT-FIXED**: the hook honors `INTENT_INJECTOR_STATE_ROOT` + `tests/conftest.py` gives each xdist worker its own temp state dir, so they parallelize AND the suite no longer pollutes the real operational logs (verified byte-unchanged). `pytest-xdist>=3.0` in requirements; gate falls back to single-serial if absent. **`xdist_group`/`loadgroup` co-location was tried + REJECTED** (non-deterministic — cross-file on-disk state isn't tamed by grouping; two-phase + per-worker sandbox is). Add to `SERIAL_FILES` only when a race is proven AND can't be sandboxed via a per-worker dir.
 - [RESOLVED 2026-06-22 — was HIGH-ROI/PROPOSAL 2026-06-21] EXPERIMENT_DISCIPLINE first-exec guard counted a CRASHED/`state=failed` run as "first execution" (`tools/system_registry.py::_get_directive_first_execution_timestamp`), false-blocking a bug-fix rerun of a same-day-crashed strategy (cost ~30 tool calls this session; unblocked only by manually clearing run_registry+RUNS_DIR crash debris). PROPOSAL (Protected-Infra #6 — plan+approval, NOT self-applied): exclude failed/crashed runs from the first-exec baseline so the guard fires only on strategy.py edits after a VALID run. **RESOLVED 2026-06-22** — shipped as the two-layer auto-delete (Layer-1 `delete_failed_run_if_safe` at the failure handler + Layer-2 `is_zero_artifact_terminal_run` FAILED/ABORTED first-exec filter, the single shared predicate) + `prune_completed_base_stubs`. FAILURE_PLAYBOOK fallback retained for residual hard-kill cases.
-- [MEMORY-SIZE / IMMEDIATE 2026-06-21] MEMORY.md (auto-memory index) 24.9 KB > 24.4 KB limit — session-start confirmed "only part of it was loaded". Consolidate index entries (`/anthropic-skills:consolidate-memory`) so all entries load again.
-- [PERIODIC 2026-06-21] skill-maintenance audit deferred at close — 3 SKILL.md modified this session (Source-Grounding Gate + rerun friction-row; manually format-verified) but no `outputs/.session_state/last_skill_audit.txt` baseline exists. Run `/skill-maintenance` next session to establish the cadence baseline.
 - [SKILL_REFACTOR] Changes D+F deferred — session-close §3.3 → repo-cleanup-refactor §1d; system-health-maintenance §5/§6 overlap removal. Detail: backlog report.
 - [NEXT-FOCUS] ★FULL 5-BASKET FLEET LIVE on canonical z=2.5 (2026-06-19). All 5 cointegration baskets (CADJPYUSDCHF/CHFJPYEURUSD/EURJPYGBPJPY/GBPAUDUSDCHF/EURJPYUSDJPY) signal-driven + HEALTHY on OctaFX-Demo 213872531; TS_Basket_Supervisor RE-ENABLED (5-min daemon, crash-survival). **Substrate hardened — immutable deployment descriptors:** the 06-16 corpus prune had deleted all 5 baskets' directives from `backtest_directives/completed/` (live producers read from there → would SystemExit on cold-start). FIX (operator-approved, protected-infra): producer now reads `strategy_pool/<ID>/directive.txt` (prune-immune, deployment-owned) first, falls back to completed/; promotion co-locates it; consistency-gated on directive_id. Canonical config = z_entry=2.5 + coint_break_exit=true + entry_fill_timing=current_bar_open (the LAST-DEPLOYED 06-13 config; vault z=2.0 snapshot was stale — reconstructed from producer.log banner, faithfulness-verified). See [[immutable-deployment-descriptors]], [[restore-source-fidelity-gap]]. Entry regime-gated: only EURJPYGBPJPY currently 'cointegrated'; other 4 'breaking' → FLAT until re-cointegration. OPEN: (a) provenance smell — canonical directive keeps ID while params changed (signature should fold params); (b) promotion run receipts ALSO pruned (golden test can't run — same artifact-loss class); (c) weekend-flat policy (see DECISION below); (d) collect live evidence (regime-gated).
 - [DECISION 2026-06-07] Weekend scheduler (`TS_Friday_Shutdown` Windows task → `tools/orchestration/stop_execution.py`) audited → LIFECYCLE-REVIEW bucket with burn-in/shadow: DISABLED, delegate `TS_Execution/tools/stop_execution.py` MISSING, hardwired to old `src/main.py --phase 2` daemon (stood down), basket shim imports none of it. Shim's own weekend handling (heartbeat-stale skip-open + fill-verify ABORTED_FLAT + reconcile NOOP) makes it redundant. RESIDUAL GAP (design decision before go-live): no proactive weekend-flatten — a basket IN at Fri 22:00 is held across the 48h gap, and reactive close needs a live tick, so weekend-flat must come from the PRODUCER emitting FLAT before close (producer-policy choice).
