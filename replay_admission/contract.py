@@ -109,14 +109,20 @@ def resolve_indicators(sig: dict, repo_root: Path = REPO_ROOT) -> tuple[list[str
     return mods, errors
 
 
-def verify_indicator_provenance(sig: dict, manifest: Optional[dict] = None) -> list[str]:
-    """SEAM for chip task_0abbf64c. When a snapshot manifest is supplied, recompute
-    live indicator hashes and return a non-empty error list on ANY drift (fail loud).
-    Until the manifest format lands, this is a no-op (resolvability is checked separately)."""
+def verify_indicator_provenance(manifest: Optional[dict] = None, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Verify recorded indicators against the LIVE registry — fail-loud on drift.
+
+    Filled in Phase 1 (chip task_0abbf64c landed the verifier): when a snapshot manifest
+    (`indicators_manifest.json`, dict form) is supplied, delegate to
+    `tools.run_indicator_snapshot.verify_indicator_manifest`, which recomputes the live
+    sha256 of each recorded module and returns a drift-error string per mismatch/missing
+    module (empty list == clean). Manifest absent → no error (the caller records an
+    'indicator provenance absent / unverified' warning rather than blocking — snapshotting
+    is forward-path only, backfill descoped)."""
     if not manifest:
         return []
-    # Deferred: implement against the indicators_manifest.json the chip defines.
-    return []
+    from tools.run_indicator_snapshot import verify_indicator_manifest
+    return verify_indicator_manifest(manifest, repo_root)
 
 
 # --------------------------------------------------------------------------- #
@@ -197,7 +203,7 @@ def verify_experiment(
 
     indicators, ind_errs = resolve_indicators(sig or {}, repo_root=repo_root)
     errors.extend(ind_errs)
-    errors.extend(verify_indicator_provenance(sig or {}, indicator_manifest))
+    errors.extend(verify_indicator_provenance(indicator_manifest, repo_root=repo_root))
 
     cfg, source, exp_errs = normalize_experiment(
         experiment_json=experiment_json, cli=cli, recovered=recovered
