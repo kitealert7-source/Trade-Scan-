@@ -88,3 +88,11 @@ Evidence: Same window 2016-02..2026-05-26 charged v1.5.10: multi-entry -$96/PF1.
 Conclusion: First-of-day selectivity removes the 62%-stop-out re-entry churn driving the blowup; flips net sign + kills the >100% no-liquidation DD, but PF~1.04/SQN0.56 still sub-deployable -- the signal is the ceiling, not the sizing.
 Implication: For multi-session intraday breakout families, test a one-entry-per-day cap before concluding dead. Long-only P17 (next probe) blocked pending the v1.5.11 invalid-fill SKIP engine fix (gap-fill stop-contract crash; design parked).
 ---
+
+---
+2026-06-29 | Tags: SPKFADE, XAU, 1h, full-history-survival, cost-mirage, vol-regime-artifact | Strategy: 11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S04 | Run IDs: ArmA=af124d0275ad95604afe9306, ArmB=c85a8918ba54990b3ca75225, contaminated=38943bd44819c98b3e032b4e(quarantined)
+Finding: Faithful S04 (trend_filter.exclude_regime:0 neutral-exclusion restored after de-contamination) on charged v1.5.11: strong on the 2024-26 recent window, collapses on full history 2015-26.
+Evidence: Arm A 2024-26 PF1.50/SQN1.61/RetDD1.67/110tr vs Arm B 2015-26 PF1.06/SQN0.44/RetDD0.42/551tr; 9 of 12 yrs negative, 100% of net from 2024-26 (+291 vs -192 across prior 9yr).
+Conclusion: PF1.50 is a 2024-26 vol-regime artifact (recent-only-profit pattern identical to PSBRK 1.25->1.01 and 05_PORT); the de-contamination win (exclude_regime:0 removes neutral noise: +PF +SQN -DD vs contaminated 1.32) is real methodology but cannot rescue a non-durable edge.
+Implication: SPKFADE XAU 1h joins the high-freq XAU family as a charged cost-mirage; do NOT deploy, retire idea11/S04. Judge survival by full-history RetDD + year-wise, not recent-window PF. Faithful re-validation via quarantine-released identity is the reproducible method (infra LIVE).
+---

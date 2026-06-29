@@ -472,6 +472,14 @@ ideas:
         signature_hash: b56fd8da313ca551
         directive_hash_full: b56fd8da313ca551fdbc76728c61333c034c23f66526de377c99310e0ed3875e
         signature_hash_full: b56fd8da313ca551fdbc76728c61333c034c23f66526de377c99310e0ed3875e
+        patches:
+          P00:
+            directive_name: 11_REV_XAUUSD_1H_SPKFADE_VOLFILT_S04_V1_P00__E001
+            reserved_at_utc: '2026-06-29T03:12:17.916515+00:00'
+            directive_hash: 10ff2a725b2b570c
+            signature_hash: 10ff2a725b2b570c
+            directive_hash_full: 10ff2a725b2b570c1a3ac5a3147a69aa105d4001c9e4803e8a0d1c3bb1cf0f8b
+            signature_hash_full: 10ff2a725b2b570c1a3ac5a3147a69aa105d4001c9e4803e8a0d1c3bb1cf0f8b
   '12':
     next_sweep: 4
     sweeps:
