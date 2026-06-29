@@ -69,10 +69,18 @@ REGISTRY_INVALID = "invalid"
 REGISTRY_ABORTED = "aborted"
 REGISTRY_QUARANTINED = "quarantined"
 
+# Statuses whose run no longer owns a strategy/sweep identity, so the slot may be
+# reclaimed. FAILED/INVALID/ABORTED/interrupted never produced a real verdict.
+# QUARANTINED is the existing "preserved-but-analytically-invalid" status (the run,
+# its run_id, and its ledger row are kept forever — append-only, auditable). It is
+# listed here so the two remaining ownership gates honor it: sweep reclaim
+# (sweep_registry_gate._can_reclaim_sweep) and the first-exec anchor
+# (system_registry._get_directive_first_execution_timestamp).
 REGISTRY_RECLAIMABLE = frozenset({
     REGISTRY_FAILED,
     REGISTRY_INVALID,
     REGISTRY_ABORTED,
+    REGISTRY_QUARANTINED,
     "interrupted",
 })
 

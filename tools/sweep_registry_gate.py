@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from tools.directive_schema import normalize_signature
 from tools.pipeline_utils import parse_directive
 from tools.system_registry import _load_registry
+from config.status_enums import REGISTRY_RECLAIMABLE
 
 
 NAMESPACE_ROOT = PROJECT_ROOT / "governance" / "namespace"
@@ -58,28 +59,27 @@ def _extract_namespace_info(path: Path) -> dict[str, str]:
 def _can_reclaim_sweep(directive_name: str) -> bool:
     """
     Check if a sweep slot allocated to `directive_name` can be reclaimed.
-    Reclaim is allowed if ALL existing runs for this directive are in a
-    non-terminal failure state (failed, invalid, aborted, interrupted).
-    If ANY run is 'complete', reclaim is blocked to preserve successful research.
-    Note: If no runs exist, reclaim is allowed.
+    Reclaim is allowed iff EVERY existing run for this directive has a status in
+    config.status_enums.REGISTRY_RECLAIMABLE (failed / invalid / aborted /
+    interrupted / quarantined). A 'complete' run blocks reclaim to preserve
+    successful research; a QUARANTINED run does not — this gate now honors the
+    existing QUARANTINED status as reclaimable (the run_id, artifacts, and ledger
+    row are kept). Note: If no runs exist, reclaim is allowed.
     """
     reg = _load_registry()
     runs_for_directive = [
         data for data in reg.values()
         if data.get("directive_hash") == directive_name
     ]
-    
+
     if not runs_for_directive:
         return True
 
-    valid_failures = {"failed", "invalid", "aborted", "interrupted"}
     for r in runs_for_directive:
         status = r.get("status", "unknown").lower()
-        if status == "complete":
+        if status not in REGISTRY_RECLAIMABLE:
             return False
-        if status not in valid_failures:
-            return False
-            
+
     return True
 
 

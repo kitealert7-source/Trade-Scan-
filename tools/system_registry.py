@@ -252,6 +252,47 @@ def delete_run(run_id: str) -> bool:
     return removed
 
 
+def quarantine_run(run_id: str) -> bool:
+    """Flip an existing run's global-registry status to 'quarantined' in place,
+    preserving every other field (created_at, directive_hash, artifact_hash, ...).
+
+    This is the REGISTRY half of the operator quarantine action; the LEDGER half is
+    ledger_db.mark_superseded(quarantine=True). Both are invoked by the one operator
+    path, rerun_backtest `finalize --quarantine`. It applies the SAME status flip
+    reconcile_registry already performs when it finds a run physically in
+    quarantine/runs/ -- centralized here so the operator path emits the signal the
+    two ownership gates (sweep reclaim + first-exec) consume immediately, instead of
+    waiting for the next reconcile pass.
+
+    Sanctioned operator/parent-side mutation, co-located with delete_run so the
+    registry-topology guard (only system_registry mutates the registry) holds.
+    Locked + atomic. Append-only safe: never creates an entry, never deletes
+    history -- the run_id, created_at, artifacts, and the ledger row all survive.
+
+    Returns True if the status changed; False if run_id is absent or already
+    quarantined."""
+    if not run_id or not str(run_id).strip():
+        return False
+    before = None
+    with FileLock(str(LOCK_PATH)):
+        reg = _load_registry()
+        entry = reg.get(run_id)
+        if entry is None or str(entry.get("status", "")).lower() == "quarantined":
+            return False
+        before = entry.get("status")
+        entry["status"] = "quarantined"
+        _save_registry_atomic(reg)
+    log_event(
+        action="REGISTRY_STATUS_CHANGE",
+        target=f"run_id:{run_id}",
+        actor="quarantine_run",
+        reason="operator quarantine (finalize --quarantine); releases identity ownership",
+        before={"status": before},
+        after={"status": "quarantined"},
+    )
+    return True
+
+
 def log_run_to_registry(run_id: str, status: str, directive_id: str):
     """
     Log a run into the master lifecycle ledger.
@@ -797,6 +838,13 @@ def _get_directive_first_execution_timestamp(directive_id: str):
                 # Layer 2: a zero-artifact terminal run never anchors "first
                 # execution" (same shared predicate Layer-1 cleanup deletes on).
                 if is_zero_artifact_terminal_run(entry.get("run_id", rid)):
+                    continue
+                # Honor the existing QUARANTINED status the same way the sweep-
+                # reclaim gate does: a quarantined run is preserved (run_id,
+                # artifacts, and ledger row kept) but must not anchor "first
+                # execution" (EXPERIMENT_DISCIPLINE). Mirrors REGISTRY_QUARANTINED
+                # in REGISTRY_RECLAIMABLE (config.status_enums).
+                if str(entry.get("status", "")).lower() == "quarantined":
                     continue
                 raw = entry.get("created_at", "")
                 if not raw:

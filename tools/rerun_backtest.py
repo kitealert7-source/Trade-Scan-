@@ -604,6 +604,23 @@ def cmd_finalize(args: argparse.Namespace) -> int:
               f"superseded_by={new_rid}"
               + (" (quarantined)" if args.quarantine else ""))
 
+    # Quarantine has a LEDGER half (above) and a REGISTRY half. The ledger flag
+    # alone does NOT release identity ownership — the sweep-reclaim and first-exec
+    # gates read run_registry.status. Flip it here, through the same status the
+    # ownership gates honour, so a quarantined run actually frees its strategy/sweep
+    # identity for a faithful re-test. Append-only safe (status flip only; run_id,
+    # created_at, artifacts, and the superseded ledger row all survive).
+    registry_quarantined = False
+    if args.quarantine:
+        from tools.system_registry import quarantine_run
+        registry_quarantined = quarantine_run(old_rid)
+        if registry_quarantined:
+            print(f"[OK] run_registry status for {old_rid} -> quarantined "
+                  f"(identity ownership released).")
+        else:
+            print(f"[INFO] run_registry status for {old_rid} unchanged "
+                  f"(absent or already quarantined).")
+
     _audit_entry({
         "action": "finalize",
         "old_run_id": old_rid,
@@ -611,6 +628,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         "reason": reason,
         "rows_flipped": flipped,
         "quarantined": bool(args.quarantine),
+        "registry_quarantined": registry_quarantined,
     })
 
     return 0
