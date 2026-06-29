@@ -105,6 +105,35 @@ from tools.report.report_strategy_portfolio import (  # noqa: F401
 # Public entrypoint — thin orchestrator
 # ===========================================================================
 
+def _resolve_symbol_dirs(backtest_root: Path, directive_name: str) -> list[Path]:
+    """Per-symbol capsule dirs for `directive_name`, EXCLUDING rerun variants.
+
+    A genuine per-symbol sibling is ``<directive_name>_<SYMBOL>`` where ``<SYMBOL>``
+    is one symbol token with no underscore (XAUUSD, EURUSD, AUDJPYXAUUSD, ...). When
+    ``directive_name`` is a base stem (``test.strategy``, e.g. ``..._S04_V1_P00``),
+    a bare ``startswith(f"{directive_name}_")`` ALSO matches every rerun-variant
+    capsule (``..._S04_V1_P00__E001_XAUUSD``): the ``__E###`` suffix begins with
+    ``_``, so the variant leaks in as a phantom "symbol" and the rollup
+    double-counts the overlapping windows of what is really one strategy's reruns
+    (the SPKFADE S04 base report blended contaminated + Arm A + Arm B into a
+    meaningless PF). A variant's symbol-suffix keeps the leftover ``_E001_`` marker
+    — i.e. it contains an underscore — whereas a true symbol token never does.
+    Excluding underscored suffixes scopes the report to real per-symbol siblings;
+    each rerun is reported under its own ``directive_name``. Robust regardless of
+    which caller passes the base stem, and resilient to predecessor capsules that
+    linger un-pruned on disk.
+    """
+    prefix = f"{directive_name}_"
+    dirs: list[Path] = []
+    for d in backtest_root.iterdir():
+        if not d.is_dir() or not d.name.startswith(prefix):
+            continue
+        if "_" in d.name[len(prefix):]:   # rerun variant (e.g. "_E001_XAUUSD") — skip
+            continue
+        dirs.append(d)
+    return dirs
+
+
 def generate_backtest_report(directive_name: str, backtest_root: Path, *,
                              show_overlap: bool = False, show_late_ny: bool = False,
                              show_weekday: bool = False):
@@ -118,8 +147,7 @@ def generate_backtest_report(directive_name: str, backtest_root: Path, *,
         show_late_ny: If True, append Late NY analysis (21-24 UTC) to Session Breakdown.
         show_weekday: If True, append weekday breakdown + Direction × Day cross-tab.
     """
-    symbol_dirs = [d for d in backtest_root.iterdir()
-                   if d.is_dir() and d.name.startswith(f"{directive_name}_")]
+    symbol_dirs = _resolve_symbol_dirs(backtest_root, directive_name)
 
     # 1. Load per-symbol payloads (all CSV I/O happens here)
     pl = _collect_symbol_payloads(symbol_dirs, directive_name)
