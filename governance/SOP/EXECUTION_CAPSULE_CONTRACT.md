@@ -30,9 +30,20 @@ Emitted by `tools/basket_report.py` (since commit `60862b4c`) into
 |---|---|
 | `DIRECTIVE_SOURCE.txt` | the executed directive spec — **byte-identical** to the `backtest_directives/completed/<id>.txt` that would otherwise be tracked in git |
 | `RECYCLE_RULE_SOURCE.py` | the exact rule code that computed the run (e.g. `pine_ratio_zrev_v1_zcross.py`) |
+| `indicators_manifest.json` | the indicator modules the rule imports — module id + content-hash (sha256) + registry version; the **third behavioral determinant** alongside the directive spec + rule code (added 2026-06-29) |
+| `indicators_snapshot/` | byte copies of those indicator source files — bit-exact reproduction even after a live indicator's logic/params change (added 2026-06-29) |
 | `metadata/run_metadata.json` | `run_id`, `engine_version`, `date_range`, `leg_symbols`, `broker` — the provenance keys |
 | `raw/` | results (`results_basket_per_bar.parquet` + the `results_*.csv` family) |
 | `STRATEGY_CARD.md`, `BASKET_REPORT_*.md` | human-readable run summaries |
+
+> **Indicator provenance (2026-06-29).** `indicators_manifest.json` + `indicators_snapshot/` make the
+> capsule the **complete** basket reproduction unit: spec + rule code + indicators all travel with the
+> results. Basket reproduction/replay sources from the **capsule** (this folder), not from
+> `runs/<run_id>/` — so basket run folders intentionally do **not** carry the indicator manifest (it
+> would be redundant). The mirror-image holds for single-asset runs, whose authoritative home is
+> `runs/<run_id>/` (no `DIRECTIVE_SOURCE.txt` capsule); they carry the manifest there. Verify with
+> `tools/run_indicator_snapshot.py verify <capsule_dir>` (fails loud on drift). Emitter:
+> `tools/basket_report.py`; rationale: `outputs/system_reports/08_pipeline_audit/INDICATOR_SNAPSHOT_GAP_2026-06-29.md`.
 
 ## The decision rule
 
