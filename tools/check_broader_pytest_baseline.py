@@ -78,10 +78,12 @@ PYTEST_NUM_WORKERS = os.environ.get("BROADER_PYTEST_WORKERS", "8").strip() or "8
 # state another test sees concurrently, so they run in a SECOND serial phase while
 # everything else parallelizes (-n auto):
 #   - test_engine_abi_{v1_5_9,adversarial}: the adversarial file backs up + TAMPERS
-#     the REAL committed manifest + engine_abi/__init__.py then restores; v1_5_9
-#     reads that manifest and importlib.reload()s the ABI. These can't be sandboxed
-#     (the audit's whole point is to exercise the real triple-gate), and a crash
-#     mid-tamper dirties the tree — so they stay serial.
+#     the LOCAL committed manifest + engine_abi/__init__.py (the tree the suite runs
+#     in — worktree or real repo; abi_audit.py resolves both relative to its own
+#     tree) then restores; v1_5_9 reads that manifest and importlib.reload()s the
+#     ABI. These can't be sandboxed (the audit's whole point is to exercise the
+#     actual triple-gate), and a crash mid-tamper dirties the tree — so they stay
+#     serial.
 # The 3 test_intent_injector_* files used to be here too; they were isolated at the
 # ROOT instead — the hook honors INTENT_INJECTOR_STATE_ROOT and tests/conftest.py
 # points each xdist worker at its own temp state dir — so they now parallelize

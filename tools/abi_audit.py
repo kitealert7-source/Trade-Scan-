@@ -45,16 +45,27 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from config.path_authority import REAL_REPO_ROOT, TS_EXECUTION  # noqa: E402
+from config.path_authority import TS_EXECUTION  # noqa: E402
 
-_GOVERNANCE_DIR = REAL_REPO_ROOT / "governance"
-_ABI_PKG_DIR = REAL_REPO_ROOT / "engine_abi"
+# Resolve the engine_abi manifest + package from the LOCAL repo tree this tool
+# is invoked in (worktree OR real repo) via `_REPO_ROOT`, NOT REAL_REPO_ROOT.
+# This is a pre-commit / CI gate: it must validate the tree being committed.
+# Reading REAL_REPO_ROOT made the gate worktree-blind — a tamper staged in a
+# worktree was checked against the real repo's clean copy (fail-open at the
+# pre-commit layer), and it disagreed with the runtime layer
+# (engine_abi/<ver>/__init__.py already resolves the manifest relative to its
+# own module). `_REPO_ROOT` is the tree this tool lives in, so all three gate
+# layers now validate the same tree.
+_GOVERNANCE_DIR = _REPO_ROOT / "governance"
+_ABI_PKG_DIR = _REPO_ROOT / "engine_abi"
 
 _SUPPORTED_ABIS = ("v1_5_9", "v1_5_10", "v1_5_11")
 
 # Maps the leading segment of a `consumed_by` dotted path to a filesystem root.
+# "Trade_Scan" → the local tree (same rationale as above); siblings stay on
+# their path_authority anchors.
 _REPO_ROOTS = {
-    "Trade_Scan": REAL_REPO_ROOT,
+    "Trade_Scan": _REPO_ROOT,
     "TS_Execution": TS_EXECUTION,
 }
 
@@ -346,7 +357,7 @@ def _mode_dead_exports(abi_version: str, *, stale_days: int) -> int:
 def _git_head_sha() -> str:
     try:
         out = subprocess.check_output(
-            ["git", "-C", str(REAL_REPO_ROOT), "rev-parse", "HEAD"],
+            ["git", "-C", str(_REPO_ROOT), "rev-parse", "HEAD"],
             text=True,
         )
         return out.strip()
