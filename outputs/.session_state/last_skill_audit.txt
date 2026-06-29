@@ -1,1 +1,1 @@
-2026-06-25T14:42:56+00:00 | 26 skills scanned | 0 hard, 22 soft (>80char rows) | establishes cadence baseline
+2026-06-29T07:20:40+00:00 | 26 skills scanned | 0 hard, 36 soft (>80char rows) | hypothesis-testing + session-close refactors verified
