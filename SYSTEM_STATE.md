@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-29T01:03:36Z
+> Generated: 2026-06-29T06:43:41Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -13,17 +13,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 34 directives
+- Completed: 36 directives
 
 ## Ledgers
 
-- **Master Filter:** 24 rows
+- **Master Filter:** 26 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 0 rows — no status column
   - **Single-Asset Composites:** 0 rows — no status column
 
-- **Candidates (FPS):** 14 rows — FAIL: 7, WATCH: 7
+- **Candidates (FPS):** 15 rows — FAIL: 7, WATCH: 8
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -36,12 +36,12 @@
 - Latest bar: **2026-06-26** | Symbols: 221
 
 ## Artifacts
-- Run directories: 520
+- Run directories: 523
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `2fde22c1 session: closing SYSTEM_STATE snapshot`
+- Last substantive commit: `65a03729 docs(skills): reference/ extraction for promote + launch-windows (cognitive-load)`
 
 ## Deferred Maintenance
 
