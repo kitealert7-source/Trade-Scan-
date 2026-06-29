@@ -1663,7 +1663,14 @@ ideas:
         signature_hash: d13bb3d4849ec8a3
         signature_hash_full: d13bb3d4849ec8a34cb4607f73e61172a43cde9a0e283d30c757d87986cb90c1
         reserved_at_utc: '2026-04-13T10:58:56.482692+00:00'
-        patches: {}
+        patches:
+          P00:
+            directive_name: 42_REV_USDJPY_15M_LIQSWEEP_S01_V1_P00__E001
+            reserved_at_utc: '2026-06-29T14:27:32.353028+00:00'
+            directive_hash: f4b06a5f4ccf2fb2
+            signature_hash: f4b06a5f4ccf2fb2
+            directive_hash_full: f4b06a5f4ccf2fb2222fe89900c3e88510a2d86a1b07134fca3840af56b50717
+            signature_hash_full: f4b06a5f4ccf2fb2222fe89900c3e88510a2d86a1b07134fca3840af56b50717
       S02:
         directive_name: 42_REV_USDJPY_30M_LIQSWEEP_S02_V1_P00
         signature_hash: d13bb3d4849ec8a3

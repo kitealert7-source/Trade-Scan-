@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 10 uncommitted
 
-> Generated: 2026-06-29T13:37:51Z
+> Generated: 2026-06-29T16:09:56Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -13,17 +14,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 35 directives
+- Completed: 1 directives
 
 ## Ledgers
 
-- **Master Filter:** 26 rows
+- **Master Filter:** 27 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 0 rows — no status column
   - **Single-Asset Composites:** 0 rows — no status column
 
-- **Candidates (FPS):** 15 rows — FAIL: 7, WATCH: 8
+- **Candidates (FPS):** 17 rows — FAIL: 6, WATCH: 11
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -36,12 +37,12 @@
 - Latest bar: **2026-06-26** | Symbols: 221
 
 ## Artifacts
-- Run directories: 553
+- Run directories: 490
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `bc8f4715 docs(replay-admission): mark SUPERSEDED â€” re-running = purge-then-rerun, not a new subsystem`
+- Working tree: 10 uncommitted
+- Last substantive commit: `00bd18fe session: closing SYSTEM_STATE snapshot`
 
 ## Deferred Maintenance
 

@@ -3,8 +3,9 @@
 **Date:** 2026-06-29
 **Scope:** Families F6 (VOLEXP IDX 1d) + F5 (CMR FX 1d) of the legacy re-validation arc.
 **Engine:** v1.5.11, spreads charged (`spread_charged_diraware_v1_5_11`, ~89% coverage).
-**Status:** PROVISIONAL — produced via the run_stage1-direct path (see Method + Caveats). Not yet
-governance-graded in the ledger/FSP.
+**Status:** GOVERNANCE-GRADED 2026-06-29 (was PROVISIONAL). The 28 per-symbol batch-1 runs were
+graded into the authoritative ledger via the **grade-existing** path (no re-execution) — see
+"## Governance grading" below. Governed grades **refined the per-asset read on 2 of 6 survivors.**
 
 ---
 
@@ -82,11 +83,46 @@ Watch list (5): SPX500, EUSTX50, AUS200, GER40 (F6); AUDJPY (F5).
 
 ---
 
+## Governance grading (2026-06-29) — grade-existing path
+
+The 28 per-symbol batch-1 runs already existed as complete `STAGE_1_COMPLETE` runs (charged v1.5.11,
+full-history 2016→2026-06-25, real `run_id`s, valid Stage-2 `AK_Trade_Report`s). Rather than re-execute,
+they were graded into the ledger directly:
+
+1. Advance each run `STAGE_1_COMPLETE → STAGE_2_COMPLETE` via `PipelineStateManager.transition_to`
+   (Stage-2 reports genuinely existed; the transition records reality).
+2. `tools/stage3_compiler.py <prefix>` → 28 per-symbol rows into `master_filter` (DB-SSOT) + Excel.
+3. Backfill `engine_version=1.5.11` (stage3's report-extractor doesn't thread it from metadata).
+4. `tools/filter_strategies.py` → `candidate_status` (CORE/WATCH/FAIL) + FSP write.
+
+**Governed grades — survivors:**
+
+| Survivor | PF | Ret/DD | Sharpe | maxDD% | Grade | Note |
+|---|---|---|---|---|---|---|
+| USDJPY | 1.95 | 5.14 | 3.86 | 6.0 | **WATCH** | strongest |
+| CHFJPY | 1.61 | 4.12 | 2.89 | 5.4 | **WATCH** | |
+| USDCAD | 1.59 | 4.57 | 2.89 | 3.9 | **WATCH** | |
+| NAS100 | 1.57 | 3.46 | 2.70 | 38.3 | **WATCH** | |
+| US30 | 1.31 | 1.44 | 1.68 | **105.5** | excluded from FSP | maxDD >100% = no-liquidation fidelity artifact; leverage-floor decision DEFERRED |
+| JPN225 | 1.21 | 1.13 | 1.15 | 10.2 | excluded from FSP | expectancy $0.48 < $0.50 INDEX gate (marginal) |
+
+**Refinement vs the PROVISIONAL per-asset read (the Invariant-#31 payoff):** the governed pass changed
+2 of 6 verdicts. **US30** — the largest NetPnL in F6 ($1522), a clean "KEEP" above — carries a
+**>100% drawdown** (the documented leveraged no-liquidation artifact; per-symbol stage3 does not apply
+the `leverage_liquidation_adjust` floor), so its survivor status is **fidelity-suspect**, not a clean
+keep. **JPN225** fails the INDEX expectancy deployment gate by $0.02. The 4 clean WATCH survivors
+(USDJPY, CHFJPY, USDCAD, NAS100) stand as decision-grade. None reach CORE — all capped at WATCH by
+`trade_density < 50` (expected for low-frequency Daily strategies).
+
+> All 28 runs persist in `master_filter` (the full append-only ledger); FSP carries only the rows
+> clearing the inclusion gate (4 survivors among them). US30 leverage-floor handling left OPEN.
+
 ## Caveats / open items
 
-- **PROVISIONAL.** These are run_stage1-direct + Stage-2 + capital-wrapper results. They are NOT in
-  the ledger/master_filter or FSP, so there is **no formal CORE/WATCH/FAIL grade** and no
-  cross-strategy comparability yet (Invariant #31 — full governed path required for decision-grade).
+- **Provenance note (accepted):** these are `run_stage1`-direct (non-admitted) runs graded by advancing
+  FSM state. Invariant #31's *mechanical* requirement (ledger writes need a real `run_id`) is satisfied;
+  re-executing identical computation purely to launder admission provenance was judged unnecessary
+  busywork (operator decision 2026-06-29, the purge-then-rerun-vs-grade-existing fork).
 - **Root friction:** the governed pipeline is blocked for F6 by directive-schema drift (the
   `outside_band`/`cooldown_bars` volatility-filter vocab was dropped). F5's directive passes the
   canonicalizer and could run governed. → motivates a strategy.py-direct-injection pipeline mode so
@@ -101,5 +137,7 @@ Watch list (5): SPX500, EUSTX50, AUS200, GER40 (F6); AUDJPY (F5).
 ## Next
 
 - Batch 2: F4 (JPY LIQSWEEP) on the same per-asset method.
-- Governance grading: stand up a strategy.py-injection path so survivors get formal FSP/ledger entries
-  for comparison (proposed separately — protected infra).
+- Governance grading — **RESOLVED** via the grade-existing path above (no strategy.py-injection infra
+  needed; advance-state + `stage3_compiler` over the existing runs sufficed).
+- US30 leverage-floor decision (apply `leverage_liquidation_adjust` to the per-symbol >100%-DD row, or
+  accept FSP exclusion) — **DEFERRED** (operator, 2026-06-29).
