@@ -151,14 +151,9 @@ The retired `shadow_filter` *rejection* gate is gone — extraction proposes, it
 - **One moving variable per directive** (enforced by `/generate-directives`). Two variables
   → split into two directives (above), never a refusal.
 - **Matched windows** — reference and variant run the same cointegrated spans.
-- **Backtest date window (convention)** — the matched window follows the standard recent
-  range: **single-asset** runs `[2024-01-01 → first-available-bar (≈ 2024-01-02), latest-
-  available-bar]` (= `config/backtest_dates.py::resolve_dates(tf, stage="extended")`);
-  **cointegration** stays span-based — only cointegrated spans with `entry_date ≥ 2024-01-01`,
-  each a separate test (a fixed 2024→max window is rejected by `window_validity_gate`, which
-  requires containment in a cointegrated span — cf. [[feedback_test_window_must_match_signal_class]]).
-  Reference and variant share the identical window. *(Doc convention; tool auto-set is a pending
-  change — see [`/rerun-backtest`](../rerun-backtest/SKILL.md) "Backtest date window".)*
+- **Backtest date window (convention)** — reference and variant share the identical recent
+  window (single-asset extended range; cointegration span-based). Full convention:
+  [`reference/backtest_window.md`](./reference/backtest_window.md).
 - **The reference run is locked at session start** (next section); all §4 deltas read the
   frozen snapshot, never re-read live values.
 - **No gates.** No worth-gate, no pre-validation/overlap/diversity/dead-strategy/pass-budget
@@ -197,28 +192,9 @@ Lock from its output:
   representative member and points to `compare_cohorts.py`, which reads the cohort's rows live
   from the MPS.
 
-**Graceful degradation — lock what the resolver returns, note the gaps.** For an old or pruned
-reference the resolver yields a *best-available* snapshot with `warnings` (metrics from CSV, a
-`provenance_gap`, an absent capsule). That is **not** a halt: lock the fields present, record the
-resolver's `warnings` next to `locked_at`, and proceed. The resolver never invents a value — an
-`ABSENT` field is locked as absent, not guessed.
-
-**Stale lock is advisory, never a halt.** If the reference run is modified or re-run
-mid-session, the orchestrator continues, reports the delta against the now-stale snapshot,
-and notes the stale `locked_at` in the §5 record. The human may re-lock if concerned; the
-orchestrator never refuses a variant on lock-staleness grounds.
-
-**Stale *baseline* (not just stale lock) → re-baseline via /rerun-backtest first.**
-Lock-staleness (the reference was re-run mid-session) is advisory, above. But if the reference
-run is stale in *data or engine* terms — more bars now exist, or the engine changed since it ran
-— a fresh variant compared against it is not apples-to-apples. Offer to re-baseline the reference
-through [`/rerun-backtest`](../rerun-backtest/SKILL.md) (`DATA_FRESH` / `ENGINE`), then lock the
-new run as the reference (re-lock steps below). The human decides; the orchestrator never forces it.
-
-**To re-lock mid-session:** re-run the snapshot commands for the reference run, overwrite the
-session note's values, and update `locked_at` to the current UTC. Document the re-lock
-timestamp in the session summary so it is clear which baseline was used for subsequent
-comparisons.
+**Edge cases — graceful degradation (old/pruned reference), stale lock, stale *baseline*
+(re-baseline via [`/rerun-backtest`](../rerun-backtest/SKILL.md) first), and re-locking
+mid-session:** see [`reference/reference_lock.md`](./reference/reference_lock.md).
 
 ---
 
@@ -395,14 +371,7 @@ No auto-deploy. Promotion is a separate human decision.
 
 ## Related skills
 
-- **Stage 2 (form):** [`/generate-directives`](../generate-directives/SKILL.md).
-- **Stage 3 (run):** [`/execute-directives`](../execute-directives/SKILL.md).
-- **Conditional:** [`/port-strategy`](../port-strategy/SKILL.md) — build a new recycle rule
-  before transforming onto it.
-- **Divert (§1.0):** [`/rerun-backtest`](../rerun-backtest/SKILL.md) — re-run / re-baseline an
-  existing config (`DATA_FRESH` · `ENGINE` · `BUG_FIX`, or a re-baseline `PARAMETER`). It
-  *supersedes* the old row; this skill *compares*. Screen for it before classifying.
-- (Retired) `basket-hypothesis-testing` — folded into this orchestrator + `compare_cohorts.py` + `tools/basket_hypothesis/`; its skill dir is archived under `.claude/skills/archive/basket-hypothesis-testing/` (full prior content there + in git history).
+See [`reference/related_files.md`](./reference/related_files.md).
 
 ---
 
