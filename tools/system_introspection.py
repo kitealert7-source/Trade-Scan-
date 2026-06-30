@@ -821,9 +821,7 @@ def collect_deferred_maintenance() -> list[dict[str, str]]:
             "category": "SIZE",
             "text": f"SYSTEM_STATE Manual section {dm_manual_lines} lines "
                     f"(EXCEEDS 20-line limit) — delete DONE entries, move "
-                    f"verbose detail to a linked report (target ≤12). "
-                    f"See outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md "
-                    f"for the pattern.",
+                    f"verbose detail to a linked report (target ≤12).",
         })
     elif dm_manual_lines > 12:
         items.append({
