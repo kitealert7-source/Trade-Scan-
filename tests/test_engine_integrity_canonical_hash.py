@@ -7,10 +7,12 @@ when written in Phase 2). Proves that the canonical hash helper:
   1. Produces the SAME hash for an LF-only file and the CRLF rendering of the
      same content — so the engine integrity check no longer false-fails on
      Windows checkouts with `core.autocrlf=true`.
-  2. Reproduces the manifest's recorded hashes for clean v1.5.6 and v1.5.8
-     engine files (smoke-coverage of the production manifest contract).
-  3. Still detects real source drift — files that were modified post-freeze
-     (e.g. by `f3ae767` in engine_dev/v1_5_8/) MUST continue to fail.
+  2. Reproduces the manifest's recorded hashes for the kept engines' clean
+     files — v1.5.11 canonical + v1.5.10 rollback (smoke-coverage of the
+     production manifest contract). [Consolidation 2026-06-30: re-pointed from
+     the removed v1.5.6/v1.5.8 engines.]
+  3. Still detects real source drift — files modified post-freeze MUST continue
+     to fail (the original case was `f3ae767`'s drift in the since-removed v1_5_8).
 
 Scope: tool patch only. No engine source touched, no manifest touched, no
 vault touched.
@@ -124,8 +126,9 @@ class TestCanonicalHashAgainstLiveManifests(unittest.TestCase):
     hash MUST equal the manifest's recorded hash. This is the production
     contract the helper exists to satisfy."""
 
-    def _check_manifest(self, version_dir: str, clean_files: list[str]):
-        """Assert canonical_sha256 matches manifest hash for every named file."""
+    def _check_manifest(self, version_dir: str, clean_files: list[str] | None = None):
+        """Assert canonical_sha256 matches the manifest hash for every named file
+        (or for every file the manifest declares, when clean_files is None)."""
         version_path = (PROJECT_ROOT / "engine_dev"
                         / "universal_research_engine" / version_dir)
         manifest_path = version_path / "engine_manifest.json"
@@ -133,7 +136,10 @@ class TestCanonicalHashAgainstLiveManifests(unittest.TestCase):
             self.skipTest(f"Manifest not present: {manifest_path}")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         file_hashes = manifest.get("file_hashes", {})
-        for fname in clean_files:
+        names = clean_files if clean_files is not None else sorted(file_hashes)
+        self.assertTrue(
+            names, f"{version_dir}: manifest declares no file_hashes to check")
+        for fname in names:
             with self.subTest(version=version_dir, file=fname):
                 fpath = version_path / fname
                 if not fpath.exists():
@@ -147,58 +153,16 @@ class TestCanonicalHashAgainstLiveManifests(unittest.TestCase):
                     f"(this file should be clean at git-blob level)"
                 )
 
-    def test_v1_5_6_clean_files_match_manifest(self):
-        """v1.5.6 __init__.py and contract.json are unchanged at git-blob
-        level since freeze. The helper MUST reproduce manifest hashes."""
-        self._check_manifest("v1_5_6", ["__init__.py", "contract.json"])
+    # Consolidation 2026-06-30: re-pointed from the removed v1_5_6/v1_5_8 engines
+    # to the kept set {v1_5_11 canonical, v1_5_10 rollback}. Every file each kept
+    # manifest declares MUST reproduce its recorded canonical hash (git-blob-level
+    # integrity of the active engines; the helper-mechanism coverage is unchanged
+    # in TestCanonicalSha256Helper).
+    def test_canonical_v1_5_11_files_match_manifest(self):
+        self._check_manifest("v1_5_11")
 
-    def test_v1_5_8_clean_files_match_manifest(self):
-        """v1.5.8 __init__.py, main.py, contract.json are clean at git-blob
-        level (only execution_emitter_stage1, execution_loop, stage2_compiler
-        were drifted by f3ae767). The helper MUST reproduce manifest hashes
-        for the clean three."""
-        self._check_manifest("v1_5_8",
-                             ["__init__.py", "main.py", "contract.json"])
-
-
-# ---------------------------------------------------------------------------
-# Engine files must match their manifest (post TD-002 R1)
-# ---------------------------------------------------------------------------
-
-class TestEngineFilesMatchManifest(unittest.TestCase):
-    """After TD-002 R1 unified all hash sites to canonical_sha256 and the
-    engine manifest was regenerated, all engine files must match the manifest.
-    The prior f3ae767 "drift" was CRLF-only (false drift on Windows checkouts
-    with core.autocrlf=true) — it disappears once canonical_sha256 normalises
-    both sides to LF. This test replaces TestRealDriftStillDetected."""
-
-    V1_5_8_FILES = [
-        "execution_emitter_stage1.py",
-        "execution_loop.py",
-        "stage2_compiler.py",
-    ]
-
-    def test_v1_5_8_files_match_manifest(self):
-        version_path = (PROJECT_ROOT / "engine_dev"
-                        / "universal_research_engine" / "v1_5_8")
-        manifest_path = version_path / "engine_manifest.json"
-        if not manifest_path.exists():
-            self.skipTest(f"Manifest not present: {manifest_path}")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        file_hashes = manifest.get("file_hashes", {})
-        for fname in self.V1_5_8_FILES:
-            with self.subTest(file=fname):
-                fpath = version_path / fname
-                if not fpath.exists():
-                    self.skipTest(f"File missing: {fpath}")
-                expected = file_hashes.get(fname, "").upper()
-                actual = canonical_sha256(fpath).upper()
-                self.assertEqual(
-                    actual, expected,
-                    f"{fname}: canonical hash {actual[:16]} != manifest "
-                    f"{expected[:16]} — genuine post-freeze drift detected. "
-                    f"If intentional, regenerate the engine manifest."
-                )
+    def test_rollback_v1_5_10_files_match_manifest(self):
+        self._check_manifest("v1_5_10")
 
 
 if __name__ == "__main__":
