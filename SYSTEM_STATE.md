@@ -51,12 +51,12 @@
 - (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
-<!-- Operator-deferred items persist across regen. Max ~5 lines. Verbose detail → outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md -->
+<!-- Operator-deferred items persist across regen (system_introspection preserves this block); the auto-detected sections above do not. Keep to ~5 short lines. -->
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced); promote to BUILD after a gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence, screener block ~3 min/run; promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass; promote to BUILD when a 2nd refresh use-case needs the auth path. First seen 2026-06-07.
 - [DRIFT] retire backlog (~330 superseded runs un-retired) — un-actionable until rerun-backtest Phase-C retire tooling is built; defer, not a fire. First seen 2026-06-20.
-- [BACKLOG] smaller deferred items (Z-cross Phase-3, market_regime NaN, BASKET_REPORT polish, skill-refactor D+F, basket weekend-flatten policy) → [DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md](outputs/system_reports/DEFERRED_MAINTENANCE_BACKLOG_2026-06-06.md)
+- [BACKLOG] smaller deferred items: Z-cross Phase-3, market_regime NaN, BASKET_REPORT polish, skill-refactor D+F, basket weekend-flatten policy (detail in git history — the 06-06 backlog doc was pruned in `30ec963b`).
 
 ## Known Issues
 ### Auto-detected (regenerated each run)
