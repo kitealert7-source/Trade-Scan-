@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-30T08:59:17Z
+> Generated: 2026-06-30T17:20:54Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -13,17 +13,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 1 directives
+- Completed: 4 directives
 
 ## Ledgers
 
-- **Master Filter:** 27 rows
+- **Master Filter:** 33 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
   - **Portfolios:** 0 rows — no status column
   - **Single-Asset Composites:** 0 rows — no status column
 
-- **Candidates (FPS):** 17 rows — FAIL: 6, WATCH: 11
+- **Candidates (FPS):** 20 rows — FAIL: 8, WATCH: 12
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -36,12 +36,12 @@
 - Latest bar: **2026-06-26** | Symbols: 221
 
 ## Artifacts
-- Run directories: 490
+- Run directories: 496
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `a3f7e7a7 fix(introspection): drop dead DEFERRED_MAINTENANCE_BACKLOG pointer from [SIZE] hint`
+- Last substantive commit: `037673ba docs(diagnostics): Diagnostic Contract framework-wide design proposal`
 
 ## Deferred Maintenance
 
@@ -68,3 +68,13 @@
 #### Active Charter — (none — PARKED 2026-06-29)
 
 > **No active charter.** The 2026-06-20 infra-freeze charter was fulfilled + PARKED 2026-06-29 (freeze lifted, v1.5.11 Patch A canonical, demo fleet stood down). 2026-06-30: engine compute + ABI consolidations completed (single active engine + single ABI) → the `CURRENT`/`LIVE_ABI` dispatch-convergence follow-up is now largely MOOT (nothing left to select). History → [[project_v1_5_11_patch_a_canonical]] + [[project_engine_consolidation_2026_06_30]]. Set a new charter when the next multi-session focus is chosen.
+
+#### Next-session direction — set 2026-06-30
+
+> **Research (primary — pick fresh):** no active arc. The legacy→fresh-genesis migration path is now *proven* (VOLPULL ideas 73/74/75 ran clean per-symbol) and the `archive/Old directives Archive/` dump (110 files, incl. IDX22-28 / SPX01-04) is a genesis idea-source — continue mining it, or open a new family.
+>
+> **Infra (queued — only if friction repeats):** Diagnostic Contract **Phase 2** (breadth + auto-fix dispatch; design in `outputs/system_reports/04_governance_and_guardrails/DIAGNOSTIC_CONTRACT_PROPOSAL_2026-06-30.md`). The 2026-06-30 pipeline-friction stress test (old v1.2.1 XAUUSD port) located the next frontier for old-strategy migrations: **VERSION DRIFT** — pipeline/identity/known-gotcha friction is eliminated *everywhere*, but genuinely-old strategies hit indicator-path moves (`price.rsi`→`momentum.rsi`) and indicators lacking `SIGNAL_PRIMITIVE` under the current declare-only-signal contract (`ema_slope`), surfaced as **bare messages** (what, not where/remedy).
+>
+> **Friction log (carry forward — mechanism only on repeat, per [[feedback_research_throughput_over_infra]]):** `STOP_CONTRACT_VIOLATION` (close-anchored stop vs next_bar_open — hit 2 migrations, nearing mechanism threshold), indicator-path-drift, provisioner-won't-fix-wrong-import, `SIGNAL_PRIMITIVE`-missing.
+>
+> **Housekeeping:** two OS-locked leftover worktree dirs (`.claude/worktrees/suspicious-greider-aa8e36`, `condescending-payne-9a755a`) — git-deregistered + branches deleted; sweep next session if the dirs still resolve.
