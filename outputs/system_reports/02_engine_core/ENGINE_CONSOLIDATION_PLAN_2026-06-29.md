@@ -5,7 +5,7 @@
 
 > **✅ EXECUTED 2026-06-30.** Commits on `engine-consolidation`:
 > `b90507ef` P1 · `50df7100` P3 · `d2024608` P4 · `4c34cd54` P5 · `b16562b4` P6 · `244600d2` P6b · `dedf473f` P7
-> (P0 / P2 / P5.5 were verification-only — no commit). Cross-repo: TS_Execution `20382ec` (engine-path doc cleanup + harness fixture-decay fix).
+> (P0 / P2 / P5.5 were verification-only — no commit). Cross-repo: TS_Execution `20382ec` (engine-path doc cleanup + offline-replay decoupling) and the flag-clearance follow-up `9258870` (vendor the fixture strategy in-repo + repair stale live-loader env checks); pushed HEAD `9258870`. Both Trade_Scan `main` (`52edd58e`) and TS_Execution `main` (`9258870`) pushed to origin 2026-06-30.
 >
 > **Operator decisions during execution** (deviations from the literal plan — each surfaced and approved):
 > 1. **Registry MINIMAL** — keep `active_engine`, add `rollback`, drop the `engines{}` map (NOT a rename to `{canonical,rollback}`, which would have churned 5 working consumers + the single-asset runtime).
