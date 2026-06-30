@@ -73,6 +73,17 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+echo "[pre-commit] Scanning staged .py for imports of removed engines (v1.5.3-v1.5.9)..."
+python "$REPO_ROOT/tools/lint_no_removed_engine_imports.py" --staged
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] COMMIT BLOCKED. A removed compute engine (v1.5.3-v1.5.9) is"
+    echo "  imported above. Those engines were deleted by the 2026-06-30 consolidation"
+    echo "  (ENGINE_VAULT_CONTRACT.md section 14 -- defective/uncharged). Use the"
+    echo "  canonical engine v1_5_11 or the rollback v1_5_10."
+    exit 1
+fi
+
 echo "[pre-commit] Validating RESEARCH_MEMORY parse integrity..."
 python "$REPO_ROOT/tools/generate_research_memory_index.py" --check
 if [ $? -ne 0 ]; then

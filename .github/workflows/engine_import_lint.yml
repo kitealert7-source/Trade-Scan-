@@ -1,0 +1,35 @@
+name: engine import lint
+
+# Enforces the engine consolidation (2026-06-30): no live code may import a
+# removed compute engine (engine_dev/universal_research_engine/v1_5_3..v1_5_9).
+# The pre-commit hook runs the same lint on staged files; this is the CI backstop
+# for pushes/PRs that bypassed the local hook. See ENGINE_VAULT_CONTRACT.md section 14
+# and tools/lint_no_removed_engine_imports.py. Stdlib-only -> no dependency install.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.py'
+      - 'tools/lint_no_removed_engine_imports.py'
+      - '.github/workflows/engine_import_lint.yml'
+  pull_request:
+    paths:
+      - '**.py'
+      - 'tools/lint_no_removed_engine_imports.py'
+      - '.github/workflows/engine_import_lint.yml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Lint - no imports of removed engines (v1.5.3-v1.5.9)
+        run: python tools/lint_no_removed_engine_imports.py
