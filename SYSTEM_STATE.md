@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-29T16:59:24Z
+> Generated: 2026-06-30T08:27:59Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -41,7 +41,7 @@
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `cf3c13f9 docs(engine): engine consolidation plan â€” single active engine (DESIGN APPROVED)`
+- Last substantive commit: `9d079e69 chore(tmp): auto-prune cointegration backfill workdirs at the source (cause fix)`
 
 ## Deferred Maintenance
 
