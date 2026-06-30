@@ -83,10 +83,13 @@ CANONICAL_ENGINE_VERSION_DOTTED = normalize_engine_token(CANONICAL_ENGINE_ABI, "
 CANONICAL_SINGLE_ASSET_VERSION_DOTTED = normalize_engine_token(CANONICAL_SINGLE_ASSET_ENGINE, "dotted")  # "1.5.10"
 
 # --- Graft-(g) waiver: the dryrun structural surface, intentionally outside the
-#     authority. tools/strategy_dryrun_validator.py imports ContextView from this
-#     engine for a pure structural dry-run (NOT the run engine). It is deliberately
-#     pinned and is NOT part of canonical-engine selection. The convergence gate
-#     asserts the dryrun import still names DRYRUN_CONTEXTVIEW_ENGINE AND that this
-#     waiver is present, so the surface cannot silently drift unnoticed. ---
-DRYRUN_CONTEXTVIEW_ENGINE = "v1_5_6"
-DRYRUN_CONTEXTVIEW_WAIVER = True  # WAIVER: dryrun ContextView pinned to v1_5_6 by design
+#     authority. tools/strategy_dryrun_validator.py imports ContextView via a
+#     direct module import for a pure structural dry-run (NOT the run engine) -- it
+#     does NOT go through canonical-engine selection. The convergence gate asserts
+#     the dryrun import still names DRYRUN_CONTEXTVIEW_ENGINE AND that this waiver
+#     is present, so the surface cannot silently drift unnoticed. Re-pointed
+#     v1_5_6 -> v1_5_11 by the engine consolidation (2026-06-30): v1_5_6 is being
+#     removed and ContextView is byte-identical across versions, so the
+#     direct-import waiver now names the canonical engine. ---
+DRYRUN_CONTEXTVIEW_ENGINE = "v1_5_11"
+DRYRUN_CONTEXTVIEW_WAIVER = True  # WAIVER: dryrun ContextView is a direct structural import outside canonical selection (re-pointed v1_5_6 -> v1_5_11, consolidation 2026-06-30)

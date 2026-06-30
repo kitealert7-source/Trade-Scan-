@@ -466,8 +466,13 @@ def _git_commit(repo: Path) -> str:
 
 def _emit_resolve_emitter_and_capabilities(engine_ver, trades):
     """Phase A — dynamic-import the engine-version-pinned emitter module and
-    detect its dataclass capabilities. Falls back to v1_5_6 emitter if the
-    pinned version's emitter is missing. Raises RuntimeError if engine
+    detect its dataclass capabilities. A missing emitter for the pinned
+    version is a fail-fast RuntimeError, never a silent fallback to the
+    v1_5_6 emitter: the EMIT/schema layer must match the compute engine, so
+    substituting another version's emitter would ship artifacts whose
+    schema/identity disagree with the run's stamped engine_version
+    (Invariant #1; engine_identity_is_compute_not_stamp). Also raises
+    RuntimeError if engine
     output contains partial-exit metadata but the resolved emitter is the
     pre-v1.5.7 form that lacks partial-aware fields (silent downgrade
     would drop the partial-leg audit and ship composite-PnL as final-leg
