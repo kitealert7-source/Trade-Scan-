@@ -96,3 +96,11 @@ Evidence: Arm A 2024-26 PF1.50/SQN1.61/RetDD1.67/110tr vs Arm B 2015-26 PF1.06/S
 Conclusion: PF1.50 is a 2024-26 vol-regime artifact (recent-only-profit pattern identical to PSBRK 1.25->1.01 and 05_PORT); the de-contamination win (exclude_regime:0 removes neutral noise: +PF +SQN -DD vs contaminated 1.32) is real methodology but cannot rescue a non-durable edge.
 Implication: SPKFADE XAU 1h joins the high-freq XAU family as a charged cost-mirage; do NOT deploy, retire idea11/S04. Judge survival by full-history RetDD + year-wise, not recent-window PF. Faithful re-validation via quarantine-released identity is the reproducible method (infra LIVE).
 ---
+
+---
+2026-06-30 | Tags: volpull, index_dip_buy, instrument_dependent, per_index_identity, us_cluster_validation | Strategy: 73_MR_US30_1D_VOLPULL_ATRFILT_S01_V1_P00 | Run IDs: 0cfe632a3c7c3de24eb84f2a, 81480e46c55a5df98d929201, e96fc2fcfd2f91cf9643c443
+Finding: VOLPULL index dip-buy (close < prior-5bar-HH minus ATR14, ATR-pct<=75 + 5-bar shock cooldown, long-only daily, next_bar_open) is instrument-dependent across the US index cluster on the charged engine. Edge monotonically decays US30 > NAS100 > SPX500 and is US30-concentrated; all three tail-dependent (body loss-making ex-top trades). Run as 3 distinct ideas 73=US30 / 74=NAS100 / 75=SPX500.
+Evidence: Charged v1.5.11, 2024-01..2026-06: US30 48tr PF1.70 RetDD2.88; NAS100 38tr PF1.47 RetDD1.06; SPX500 39tr PF0.95 net -8.66 USD (dead).
+Conclusion: The instrument IS part of the hypothesis: the dip-reversion structure holds on US30 but not SPX500, so this is a per-index edge, not a generic index-family edge. Consistent with the engine identity model -- (family,model,symbol,timeframe) defines the idea (classifier_gate.py), so each index is its own idea.
+Implication: Treat VOLPULL index dip-buy as a PER-INDEX strategy, not a generic index-family strategy; evaluate each index independently under its own idea identity. Do not extend generically to more indices, and do not re-flag NAS100/SPX500 as a family failure (separate ideas). US30 is the only member with a non-trivial edge and still FAILs deployment on tail-concentration.
+---

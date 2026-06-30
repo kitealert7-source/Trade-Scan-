@@ -1,0 +1,83 @@
+
+
+
+Test Name - Range_Breakout_01
+Family: Forex
+Strategy: Range_Breakout
+Broker: OctaFX
+Timeframe: 15m
+Session Time Reference: UTC
+Start Date: 2024-01-01
+End Date: 2026-02-15
+
+Symbols:
+
+AUDNZD
+AUDUSD
+EURAUD
+EURUSD
+GBPAUD
+GBPUSD
+GBPNZD
+NZDUSD
+USDCAD
+USDCHF
+USDJPY
+
+
+Notes:
+
+Core Logic: Range Breakout
+
+Entry Rules:
+
+• Range Definition Window:
+  Analyze price action between 03:00 and 06:00 UTC.
+  Use M15 data to compute:
+      - Highest High
+      - Lowest Low
+  This defines the session range.
+
+• Volatility Filter (ATR Percentile Regime Filter):
+  Compute ATR(14) on M15 timeframe.
+  Calculate rolling ATR percentile over the past 100 completed M15 bars.
+  Trade is permitted ONLY if:
+      ATR Percentile > 66%
+
+  If ATR Percentile ≤ 66%, skip trading for that session.
+
+• Order Placement (at 06:00 UTC, only if filter passes):
+  Place:
+      - Buy Stop at Session High
+      - Sell Stop at Session Low
+
+• Execution Logic:
+
+  1. At 06:00 UTC:
+     - Place both Buy Stop (Session High) and Sell Stop (Session Low).
+
+  2. When one order triggers:
+     - Immediately cancel the opposite pending order.
+     - Apply Stop Loss at opposite side of session range.
+
+  3. If the first trade closes (either by Stop Loss or at 18:00 time exit):
+     - If total executed trades for the session < 2:
+         Re-place both Buy Stop and Sell Stop at the original session range levels.
+     - Otherwise:
+         Do not place any further orders.
+
+  4. Maximum 2 total executed trades per session.
+     Trades may occur in any direction (Long + Long, Short + Short, or Long + Short).
+     No third trade is permitted.
+
+
+Exit Rules:
+
+• Time-Based Exit:
+  Close all open positions at 18:00 UTC.
+
+• Stop Loss:
+  Opposite side of the defined session range.
+
+
+

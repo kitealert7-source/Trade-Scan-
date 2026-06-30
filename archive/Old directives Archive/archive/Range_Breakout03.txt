@@ -1,0 +1,67 @@
+Test Name: Range_Breakout03
+Family: Forex
+Strategy: Range_Breakout
+Broker: OctaFX
+Timeframe: 15m
+Session Time Reference: UTC
+
+Start Date: 2024-01-01
+End Date: 2026-01-31
+
+Symbols:
+AUDNZD
+AUDUSD
+EURAUD
+EURUSD
+GBPAUD
+GBPUSD
+GBPNZD
+NZDUSD
+USDCAD
+USDCHF
+USDJPY
+
+
+# --- Volatility Configuration ---
+Volatility Mode: HIGH_ONLY
+Volatility Classification: Rolling Percentile
+Volatility Percentile Range: 67-100
+Volatility Lookback: (Use existing rolling window implementation)
+
+
+# --- Strategy Rules (Final Alignment v3 + High-Vol Gate) ---
+
+Entry Rules
+
+Time Window (Range Definition):
+Analyze price action between 03:00 and 06:00 UTC.
+Identify highest high and lowest low during this 3-hour window using M5 data.
+
+Order Placement (06:00 UTC):
+• Place Buy Stop at session high.
+• Place Sell Stop at session low.
+
+Execution Logic:
+• When one side triggers, delete the opposing pending order immediately.
+• Maximum two trades per day total.
+• No re-entry after second trade.
+
+Volatility Gate:
+• Entries allowed ONLY when volatility_regime == "high".
+• Low and Normal regimes are excluded.
+• No scaling. Binary filter.
+
+
+Exit Rules
+
+• Stop Loss: Opposite side of defined range.
+• Time-Based Exit: Close all open positions at 18:00 UTC.
+• Take Profit: None.
+• Trailing Stop: None.
+
+
+# Notes
+# Range_Breakout03 = Range_Breakout02 + Native High-Volatility Exclusion
+# No parameter changes.
+# No structural modifications beyond volatility gate.
+# Designed for production consistency with live deployment.

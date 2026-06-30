@@ -1,0 +1,54 @@
+test:
+  name: Regime_Transition
+  family: Forex
+  strategy: Regime_Transition
+  broker: OctaFX
+  timeframe: 1h
+  session_time_reference: UTC
+  start_date: 2024-01-01
+  end_date: 2026-02-15
+  indicators:
+    - indicators.trend.linreg_regime
+    - indicators.trend.linreg_regime_htf
+    - indicators.trend.kalman_regime
+    - indicators.trend.trend_persistence
+    - indicators.trend.efficiency_ratio_regime
+    - indicators.volatility.atr
+    - indicators.volatility.volatility_regime
+
+symbols:
+  - AUDNZD
+  - AUDUSD
+  - EURAUD
+  - EURUSD
+  - GBPAUD
+  - GBPUSD
+  - GBPNZD
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - USDJPY
+
+regime_transition_rules:
+  entry:
+    type: cross_above
+    threshold: 2
+  exit:
+    type: cross_below
+    threshold: -2
+  direction: both
+
+execution_rules:
+  stop_loss:
+    type: atr_multiple
+    multiple: 2
+  take_profit:
+    enabled: false
+  trailing_stop:
+    enabled: false
+
+trade_management:
+  reentry:
+    allowed: true
+  direction_restriction: none
+

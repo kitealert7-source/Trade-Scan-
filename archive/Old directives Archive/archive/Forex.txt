@@ -1,0 +1,112 @@
+DIRECTIVE — FOREX BASELINE TREND REVERSAL (GBPUSD)
+
+Family: Forex
+Strategy Name: Baseline_Trend_Reversal_4C
+Symbol: EURUSD
+Broker: OctaFX
+Timeframe: 1D (Daily)
+
+Test Window
+
+Start Date: 2020-01-01
+
+End Date: 2025-12-31
+
+Candle Definitions
+
+GREEN candle: Close > Open
+
+RED candle: Close < Open
+
+Doji (Close == Open):
+
+Breaks consecutive count
+
+Invalidates entry/exit sequence
+
+Entry Logic (Executed at SIGNAL CANDLE CLOSE)
+Long Entry
+
+Enter LONG when all conditions are met:
+
+Four (4) consecutive RED daily candles
+
+Execution:
+
+Enter LONG at the CLOSE of the 4th RED candle
+
+Short Entry
+
+Enter SHORT when all conditions are met:
+
+Four (4) consecutive GREEN daily candles
+
+Execution:
+
+Enter SHORT at the CLOSE of the 4th GREEN candle
+
+Exit Logic
+Primary Exit — Stop & Reverse (Executed at SIGNAL CANDLE CLOSE)
+
+The strategy maintains at most one open position.
+
+If LONG:
+
+On completion of four (4) consecutive GREEN candles:
+
+Close LONG
+
+Open SHORT at the CLOSE of the 4th GREEN candle
+
+If SHORT:
+
+On completion of four (4) consecutive RED candles:
+
+Close SHORT
+
+Open LONG at the CLOSE of the 4th RED candle
+
+Fail-Safe Risk Control
+
+Hard Stop:
+
+500 pips adverse movement from entry price
+
+Stop is intraday-active
+
+On stop hit:
+
+Position is closed immediately
+
+No stop-and-reverse
+
+System waits for the next valid entry sequence
+
+Positioning Rules
+
+Single position only (no pyramiding)
+
+No partial exits
+
+Signals evaluated only on fully closed daily candles
+
+Stop & Reverse has priority over fresh entries
+
+Execution Compatibility Declaration
+
+Execution timing is CLOSE-OF-BAR
+
+Directive is fully compatible with
+Universal_Research_Engine v1.2.0
+
+No next-bar or OPEN execution is required
+
+Governance Notes
+
+No indicators beyond OHLC candles
+
+All metrics computed in Stage-1 only
+
+No parameter optimization permitted
+
+End of Directive

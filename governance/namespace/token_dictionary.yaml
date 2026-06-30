@@ -76,6 +76,7 @@ model:
   - IBS
   - UNION
   - DMA
+  - VOLPULL
 filter:
   - ATRFILT
   - VOLFILT

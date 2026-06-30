@@ -1,0 +1,73 @@
+IDX26 — UNIFORM SIZING (PRUNED BASKET)
+Family: Index Family
+Strategy ID: IDX26
+
+Strategy: IDX26
+Symbols:
+
+AUS200
+ESP35
+EUSTX50
+JPN225
+NAS100
+SPX500
+US30
+
+Broker: OctaFx
+Timeframe: 1d
+Start Date: 2015-01-01
+End Date: 2026-01-31
+Engine: Universal_Research_Engine
+
+Test Parameters
+
+Direction: Long Only
+Position Sizing: Uniform (1.0 lots * MinLot)
+
+Volatility Model
+
+ATR Type: Wilder (RMA)
+ATR Length: 14
+ATR Percentile Lookback: 100
+
+Volatility Filter
+
+Condition: Do NOT take trades when ATR(14) percentile > 75
+
+Volatility Shock Cooldown
+
+Trigger: When ATR(14) percentile crosses ABOVE 75
+
+Definition of Cross:
+
+ATR_pct_prev <= 75
+ATR_pct_current > 75
+
+Action:
+
+Disable new long entries for 5 bars following the cross
+
+Existing trades continue to manage normally
+
+Entry Logic
+
+Condition:
+Enter long when:
+
+Close < (Highest High of the previous 5 completed bars - ATR(14))
+
+ATR(14) percentile <= 75
+
+Cooldown is NOT active
+
+Exit Logic
+
+Price Exit (Dynamic): On each bar close, recompute HH_prev. Exit when Close > HH_prev
+
+Time Exit: Exit when Bars Held >= 5
+
+Notes
+
+Control test: Pruned basket (7 symbols) but with UNIFORM sizing (1x).
+Isolates the effect of pruning from the volatility-weighted sizing.
+Removed: GER40, FRA40, UK100.

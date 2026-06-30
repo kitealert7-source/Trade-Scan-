@@ -564,3 +564,27 @@ ideas:
     role: entry_edge
     instruments: XAUUSD
     status: active
+  '73':
+    family: MR
+    title: "US30 / equity-index volatility-pullback dip-buy -- LONG when close dips below the prior 5-bar Highest High minus ATR(14), gated by ATR-percentile <= 75 (stand aside in high vol) and a 5-bar post-shock cooldown; exit on close > HH_prev or 5-bar time, long-only, no stop, next_bar_open. Fresh genesis re-test of the legacy IDX22 'Dip Buying (Mean-Reversion)' idea (vault DR_BASELINE_2026_03_06_v2_2_0 strategies/C_IDX22) -- borrowed-idea-only, NO parity to the v1.2.1 run; re-validated on the charged engine v1.5.11. Existing indicators only (highest_high, atr, atr_percentile, volatility_regime); new model token VOLPULL. Single-symbol US30, report-only first pass."
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    instruments: US30
+    status: active
+  '74':
+    family: MR
+    title: "NAS100 volatility-pullback dip-buy (VOLPULL family, NAS100 member) -- LONG when close dips below the prior 5-bar Highest High minus ATR(14), gated by ATR-percentile <= 75 plus a 5-bar post-shock cooldown; exit on close > HH_prev or 5-bar time, long-only, no stop, next_bar_open. Same logic as idea 73 (US30) applied to NAS100 -- a DISTINCT idea because symbol is part of idea identity (family/model/symbol/timeframe; classifier_gate.py). Asset-by-asset validation of the IDX22/VOLPULL dip-buy across the US index cluster. Charged engine v1.5.11; existing indicators only."
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    instruments: NAS100
+    status: active
+  '75':
+    family: MR
+    title: "SPX500 volatility-pullback dip-buy (VOLPULL family, SPX500 member) -- LONG when close dips below the prior 5-bar Highest High minus ATR(14), gated by ATR-percentile <= 75 plus a 5-bar post-shock cooldown; exit on close > HH_prev or 5-bar time, long-only, no stop, next_bar_open. Same logic as idea 73 (US30) applied to SPX500 -- a DISTINCT idea because symbol is part of idea identity (family/model/symbol/timeframe; classifier_gate.py). Asset-by-asset validation of the IDX22/VOLPULL dip-buy across the US index cluster. Charged engine v1.5.11; existing indicators only."
+    class: indicator_logic
+    regime: range
+    role: entry_edge
+    instruments: SPX500
+    status: active

@@ -1,0 +1,48 @@
+SPX02 — DIP BUYING (MEAN-REVERSION)
+
+
+Family: SPX (Index Family)
+Strategy ID: SPX04
+
+TEST PARAMETERS
+ASSET- SPX500
+BROKER- OCTAFX
+BROKER FEED - OCTAFX
+TIME FRAME -DAILY
+DIRECTON - LONG ONLY
+Start Date: 2015-01-01
+End Date: 2026-01-31
+LOT SIZE -MINIMUM AS PER BROKER SPECS
+Engine: Universal_Research_Engine 
+Mode: Trade_Scan
+Position Size: Default as per Trade_Scan
+
+
+ENTRY LOGIC
+Direction: Long only
+Condition:
+Enter long when Close < (Highest High of the previous 5 completed bars − ATR(10))
+
+EXIT LOGIC (OR precedence — whichever occurs first)
+
+1. Price Exit (Dynamic):
+   On each bar close, recompute:
+   HH_prev = Highest High of the previous 5 completed bars
+   Exit when Close > HH_prev
+
+2. Time Exit:
+   Exit when Bars Held ≥ 4
+
+EXECUTION RULES
+
+Single position only (no pyramiding)
+No short trades
+Entry only when flat
+Exit resets position to flat
+Bar held must be tracked internally
+
+RISK MANAGEMENT
+No fixed stop-loss
+No ATR-based stop
+No trailing stop
+Default Trade_Scan risk and sizing rules apply

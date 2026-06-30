@@ -3662,3 +3662,39 @@ ideas:
         attempt: 3
         directive_hash: f4c65af4d14b86e1
         directive_hash_full: f4c65af4d14b86e140fb3b8735caea581e5afee8e61b57b43153faeea308a1cf
+  '73':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 73_MR_US30_1D_VOLPULL_ATRFILT_S01_V1_P00
+        signature_hash: 8a41a83c95289a70
+        signature_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
+        reserved_at_utc: '2026-06-30T13:50:08.357045+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 8a41a83c95289a70
+        directive_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
+  '74':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 74_MR_NAS100_1D_VOLPULL_ATRFILT_S01_V1_P00
+        signature_hash: 8a41a83c95289a70
+        signature_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
+        reserved_at_utc: '2026-06-30T13:50:08.357045+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 8a41a83c95289a70
+        directive_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
+  '75':
+    next_sweep: 2
+    sweeps:
+      S01:
+        directive_name: 75_MR_SPX500_1D_VOLPULL_ATRFILT_S01_V1_P00
+        signature_hash: 8a41a83c95289a70
+        signature_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
+        reserved_at_utc: '2026-06-30T13:50:08.357045+00:00'
+        patches: {}
+        attempt: 2
+        directive_hash: 8a41a83c95289a70
+        directive_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225

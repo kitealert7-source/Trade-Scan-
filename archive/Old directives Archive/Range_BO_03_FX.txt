@@ -1,0 +1,111 @@
+test:
+  name: Range_BO_03_FX
+  family: Forex
+  strategy: Range_BO_03_FX
+  broker: OctaFX
+  timeframe: 15m
+
+  # Time Governance
+  session_time_reference: UTC
+  data_timezone: UTC
+  broker_timezone: UTC
+  dst_adjustment: false
+
+  start_date: 2024-01-01
+  end_date: 2026-02-15
+
+  indicators:
+    - indicators.structure.highest_high
+    - indicators.structure.lowest_low
+    - indicators.volatility.volatility_regime
+    - indicators.volatility.atr
+
+symbols:
+  - AUDNZD
+  - AUDUSD
+  - EURAUD
+  - EURUSD
+  - GBPAUD
+  - GBPUSD
+  - GBPNZD
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - USDJPY
+
+
+# -----------------------------------------
+# RANGE DEFINITION (Deterministic Freeze)
+# -----------------------------------------
+
+range_definition:
+  window_start: "03:00"
+  window_end: "06:00"
+  freeze_at: "06:00"          # Range locked at close of 06:00 candle
+  include_window_end_bar: true
+  calculation:
+    source: timeframe_data
+    timeframe: 15m
+
+
+# -----------------------------------------
+# ORDER PLACEMENT
+# -----------------------------------------
+
+order_placement:
+  time: "06:15"               # First bar after freeze
+  type: stop
+  price_validation:
+    ignore_pre_breakouts: true   # If price already outside range before placement, still use frozen levels
+  orders:
+    - direction: long
+      level: session_high
+    - direction: short
+      level: session_low
+
+
+# -----------------------------------------
+# EXECUTION RULES
+# -----------------------------------------
+
+execution_rules:
+  cancel_opposite_on_fill: true
+
+  stop_loss:
+    type: session_opposite_range   # SL = opposite side of frozen range
+
+  take_profit:
+    enabled: false
+
+  trailing_stop:
+    enabled: false
+
+
+# -----------------------------------------
+# TRADE MANAGEMENT (Deterministic Counting)
+# -----------------------------------------
+
+trade_management:
+  max_trades_per_session: 2        # Hard cap (inclusive of reentries)
+
+  trade_counting_mode: filled_orders   # Each filled order increments count
+
+  reentry:
+    allowed: true
+    reuse_original_range: true
+    place_both_orders_on_reentry: true
+    allowed_until_trade_count: 1    # Reentry allowed only after first completed trade
+
+  direction_restriction: none
+  no_reentry_after_second_trade: true
+
+
+# -----------------------------------------
+# EXIT RULES
+# -----------------------------------------
+
+exit_rules:
+  time_exit:
+    enabled: true
+    time: "18:00"
+    execution: market
