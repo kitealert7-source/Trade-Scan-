@@ -100,6 +100,39 @@ def _log(msg: str) -> None:
           flush=True)
 
 
+# Transient parquet workdirs (tmp/backfill_<ts>/) accumulate — the screener runs on a
+# boot+4h cadence and historically never cleaned them (500+ dirs / 3000+ parquet by
+# 2026-06-30). The parquet are P1 intermediates (consumed into SQLite/Excel by the
+# daily runner; recoverable via `cointegration_excel.py --export`), so completed-run
+# workdirs are safe to age-prune. Default 7d retention keeps a week for debugging;
+# override with the COINT_BACKFILL_RETENTION_DAYS env var.
+BACKFILL_RETENTION_DAYS = int(os.environ.get("COINT_BACKFILL_RETENTION_DAYS", "7"))
+
+
+def _prune_old_backfill_workdirs(tmp_root: Path,
+                                 retention_days: int = BACKFILL_RETENTION_DAYS) -> int:
+    """Delete `tmp/backfill_*` workdirs older than retention_days (by mtime).
+
+    Housekeeping at the source for the standard accumulation location. Touches ONLY
+    the `backfill_*` glob — never other tmp/ contents (logs, test dirs, run output).
+    Recent / in-flight runs (< retention_days) are preserved. `rmtree(ignore_errors)`
+    so a locked or concurrently-written dir is skipped, not fatal. Returns the count
+    removed.
+    """
+    if retention_days < 0 or not tmp_root.is_dir():
+        return 0
+    cutoff = time.time() - retention_days * 86400
+    removed = 0
+    for d in sorted(tmp_root.glob("backfill_*")):
+        try:
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 # ---------------------------------------------------------------------------
 # Mandatory pre-flight — scheduled-writer pause check (BC1 §6.7)
 # ---------------------------------------------------------------------------
@@ -524,7 +557,15 @@ def backfill(start_date: pd.Timestamp, end_date: pd.Timestamp,
     dates = pd.bdate_range(start_date, end_date)
 
     suffix = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    used_default_workdir = not workdir
     workdir = workdir or (PROJECT_ROOT / "tmp" / f"backfill_{suffix}")
+    if used_default_workdir:
+        # Housekeeping at the source: prune accumulated old tmp/backfill_* before
+        # creating this run's workdir (skipped when an explicit --workdir is given).
+        _pruned = _prune_old_backfill_workdirs(PROJECT_ROOT / "tmp")
+        if _pruned:
+            _log(f"housekeeping: pruned {_pruned} tmp/backfill_* workdir(s) older "
+                 f"than {BACKFILL_RETENTION_DAYS}d")
     workdir.mkdir(parents=True, exist_ok=True)
 
     _log(f"backfill plan: {len(dates)} business days from "
