@@ -256,8 +256,9 @@ class BasketRunner:
         # warmup only — leg strategies AND basket rules see no signals /
         # apply during this window. Default 0 = byte-equivalent to pre-
         # 2026-05-30 behavior (every aligned bar is signal-eligible).
-        # Mirrors the proven engine-side mute pattern in
-        # engine_dev/universal_research_engine/v1_5_8/main.py:88-104.
+        # Mirrors the proven engine-side mute pattern in the canonical engine
+        # (engine_dev/universal_research_engine/v1_5_11/main.py; originated in
+        # v1_5_8, now in git history — consolidation 2026-06-30).
         self.warmup_bars: int = int(warmup_bars)
 
         # Capture initial lots — read by basket-level primitives such as

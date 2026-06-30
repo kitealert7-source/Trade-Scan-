@@ -233,8 +233,9 @@ def get_engine_version(engine_path=None):
                 # so the dotted/underscored conventions draw from a single source.
                 from config.engine_authority import normalize_engine_token
                 return normalize_engine_token(active, "dotted")
-        # Legacy fallback: hardcoded v1.5.6 path
-        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_6/main.py"
+        # Legacy fallback (registry missing/empty): the canonical engine.
+        # (Consolidation 2026-06-30: was a hardcoded v1.5.6 path; v1_5_6 removed.)
+        engine_path = PROJECT_ROOT / "engine_dev/universal_research_engine/v1_5_11/main.py"
 
     if not engine_path.exists():
         raise RuntimeError(f"Engine main.py not found at {engine_path}")

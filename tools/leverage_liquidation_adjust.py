@@ -3,8 +3,9 @@ leveraged-sizing studies.
 
 WHY THIS EXISTS (2026-06-04 finding, forensic in
 outputs/system_reports/06_strategy_research/SZVP_LEVERAGE_FORENSIC.md):
-The basket backtest engine (engine_dev/universal_research_engine/v1_5_8, FROZEN)
-does NOT enforce margin-call / liquidation. Under high-leverage sizing
+The basket backtest engine (engine_dev/universal_research_engine/v1_5_11, FROZEN —
+canonical; same limitation held in the removed v1_5_8) does NOT enforce
+margin-call / liquidation. Under high-leverage sizing
 (vol_parity, granular_parity) a basket can run to deeply NEGATIVE equity instead
 of being liquidated at the stake. This inflates modeled downside past -100% and,
 at extreme leverage (the SZVP vol-parity arm, ~1000-6000x), even lets a blown

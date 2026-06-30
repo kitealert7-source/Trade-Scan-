@@ -42,7 +42,7 @@ def _version_digits(token: str) -> list:
     token: 'engine_abi.v1_5_9', 'v1_5_9', 'v1_5_10', '1.5.9', 'v1.5.9'.
 
     NOTE: expects a bare engine token, not a full module path. For a dotted
-    module path (e.g. 'engine_dev.universal_research_engine.v1_5_6.execution_loop')
+    module path (e.g. 'engine_dev.universal_research_engine.v1_5_11.execution_loop')
     extract the 'vN_N_N' segment first (re.search(r'v\\d+_\\d+_\\d+', path)).
     """
     t = token.strip()
