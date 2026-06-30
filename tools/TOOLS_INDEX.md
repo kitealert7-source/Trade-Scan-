@@ -22,9 +22,9 @@ Top-level modules are operational entrypoints; modules under subpackages
 `utils/`, `system_logging/`, `state_lifecycle/`) are internal libraries.
 
 
-Total modules indexed: 383 (excludes `__init__.py`).
+Total modules indexed: 384 (excludes `__init__.py`).
 
-## tools/ (top-level)  (181 modules)
+## tools/ (top-level)  (182 modules)
 
 | Module | Summary |
 |---|---|
@@ -51,7 +51,7 @@ Total modules indexed: 383 (excludes `__init__.py`).
 | `tools.basket_report` | basket_report.py — per-window report emitter for basket runs. |
 | `tools.basket_reproducibility_check` | basket_reproducibility_check.py — is a basket directive's re-run reproducible? |
 | `tools.basket_reset` | Governance-Authorized Basket Directive Reset Tool |
-| `tools.basket_runner` | basket_runner.py — N-leg basket orchestrator over engine_abi.v1_5_9. |
+| `tools.basket_runner` | basket_runner.py — N-leg basket orchestrator over engine_abi.v1_5_11. |
 | `tools.basket_schema` | basket_schema.py — Multi-leg basket directive schema validator. |
 | `tools.basket_vault` | basket_vault.py — N-symbol DRY_RUN_VAULT extension for basket directives. |
 | `tools.canonical_schema` | canonical_schema.py — Frozen Directive Schema Definition |
@@ -92,7 +92,7 @@ Total modules indexed: 383 (excludes `__init__.py`).
 | `tools.directive_schema` | directive_schema.py — Single Source of Truth for Directive YAML Contract |
 | `tools.directive_utils` | directive_utils.py |
 | `tools.engine_features` | engine_features.py — minimal directive `engine_features:` block resolver. |
-| `tools.engine_resolver` | Engine resolver — capability + contract driven engine selection. |
+| `tools.engine_resolver` | Engine resolver — canonical-engine VALIDATOR (not a selector). |
 | `tools.event_log` | event_log.py — Append-only governance event log for durable state changes. |
 | `tools.exec_preflight` | (no docstring) |
 | `tools.execution_emitter_stage1` | Stage-1 Execution Emitter — SOP_OUTPUT Compliant |
@@ -128,6 +128,7 @@ Total modules indexed: 383 (excludes `__init__.py`).
 | `tools.lint_helpers` | lint_helpers.py -- shared utilities for tools/lint_*.py pre-commit gates |
 | `tools.lint_indicator_registry_sync` | Pre-commit lint — block adding an indicator module without a registry entry. |
 | `tools.lint_no_hardcoded_paths` | lint_no_hardcoded_paths.py — Pre-commit gate: block hardcoded user paths |
+| `tools.lint_no_removed_engine_imports` | lint_no_removed_engine_imports.py — Pre-commit + CI gate: block imports of the |
 | `tools.lint_signature_completeness` | Lint: every behavior-affecting class-level constant in strategy.py must |
 | `tools.lint_supersession_map_append_only` | Pre-commit lint — enforce the append-only invariant on |
 | `tools.manifest_verification` | Single source of truth for run-manifest artifact verification. |

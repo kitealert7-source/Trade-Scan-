@@ -879,8 +879,8 @@ def _basket_write_vault_snapshot(directive_id: str, parsed, result):
 def _basket_compute_engine_version() -> str:
     """Authoritative engine identity for EVERY basket-run stamp.
 
-    Baskets compute on the hardcoded ``engine_abi.v1_5_9`` ABI (basket_runner.py
-    imports it directly; ``engine_abi/`` exposes only v1_5_9). A basket run's
+    Baskets compute on the hardcoded ``engine_abi.v1_5_11`` ABI (basket_runner.py
+    imports it directly; ``engine_abi/`` exposes only v1_5_11). A basket run's
     engine identity is therefore DEFINED by that module's ``ENGINE_VERSION`` and
     is INERT to ``ENGINE_VERSION_OVERRIDE`` (proven byte-identical compute under
     override 1.5.9 vs 1.5.10). Every basket stamp -- manifest/input_provenance,

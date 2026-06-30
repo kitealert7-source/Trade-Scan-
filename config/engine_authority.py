@@ -5,7 +5,7 @@ path (single-asset + basket). This module holds ONLY name constants + a
 normalizer; it imports NO engine.
 
 Compute-binding by VERIFICATION, not dispatch: the real compute is the static
-``from engine_abi.v1_5_9 import (...)`` at tools/basket_runner.py:38 (basket) and
+``from engine_abi.v1_5_11 import (...)`` at tools/basket_runner.py:40 (basket) and
 the dynamically-imported module in tools/run_stage1.run_engine_logic
 (single-asset). This module only declares the EXPECTED identity; a fail-closed
 convergence gate

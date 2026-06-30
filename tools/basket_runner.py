@@ -1,11 +1,11 @@
-"""basket_runner.py — N-leg basket orchestrator over engine_abi.v1_5_9.
+"""basket_runner.py — N-leg basket orchestrator over engine_abi.v1_5_11.
 
 Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 2 (Section 7-8). New consumer
-of `engine_abi.v1_5_9`; imports nothing from the engine source directly.
+of `engine_abi.v1_5_11`; imports nothing from the engine source directly.
 The Phase 0a ABI is the only path in.
 
 Phase 2 contract (skeleton): per-leg state is independent, no basket-level
-rules. Output is byte-identical to running engine_abi.v1_5_9.evaluate_bar
+rules. Output is byte-identical to running engine_abi.v1_5_11.evaluate_bar
 N times independently on each leg. The `rules` argument is the future
 extension point for Phase 3's RecycleRule + regime_gate + harvest logic;
 when empty (Phase 2 default), the runner is pure orchestration.
@@ -16,7 +16,7 @@ Phase 3+ (NOT in this module yet):
   * Regime-gate adapter (USD_SYNTH.compression_5d etc.).
 
 Acceptance gate (Phase 2): `tests/test_basket_runner_phase2.py` exercises
-the equivalence test against engine_abi.v1_5_9.evaluate_bar in two ways:
+the equivalence test against engine_abi.v1_5_11.evaluate_bar in two ways:
   (a) per-leg trade lists identical when no rules attached.
   (b) BarState progression observable bar-by-bar identical.
 
@@ -180,7 +180,7 @@ class BasketRule(Protocol):
 
 
 class BasketRunner:
-    """Orchestrates a multi-leg basket via engine_abi.v1_5_9.evaluate_bar.
+    """Orchestrates a multi-leg basket via engine_abi.v1_5_11.evaluate_bar.
 
     The orchestrator does not own the strategies' behavior — each leg
     supplies its own StrategyProtocol-conforming object. The runner only
@@ -279,7 +279,7 @@ class BasketRunner:
     def _prepare(self) -> None:
         """prepare_indicators + apply_regime_model + resolve_engine_config per leg.
 
-        Mirrors the setup block of engine_abi.v1_5_9.run_execution_loop.
+        Mirrors the setup block of engine_abi.v1_5_11.run_execution_loop.
         State + trades reset to a fresh start so a runner instance can be
         re-run deterministically.
         """
@@ -490,7 +490,7 @@ class BasketRunner:
             # v1.5.10 direction-aware entry fill (fast path bypasses evaluate_bar,
             # so it charges here): long (BUY) at ask (raw), short (SELL) at bid
             # (= ask - per-bar embedded spread). No-op at spread=0 -> byte-identical
-            # to frozen v1.5.9. Mirrors engine_abi.v1_5_10 evaluate_bar._exec_fill.
+            # to frozen v1.5.9. Mirrors engine_abi.v1_5_11 evaluate_bar._exec_fill.
             fill_price = exec_fill(entry_open, is_sell=(leg.direction == -1),
                                    spread=bar_spread(entry_row))
             leg.state.in_pos = True

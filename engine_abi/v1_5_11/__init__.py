@@ -5,10 +5,11 @@ binding. Modifying this package (adding/removing/aliasing exports) requires
 editing `governance/engine_abi_v1_5_11_manifest.yaml` first and re-hashing via
 `python tools/abi_audit.py --rehash --abi-version v1_5_11`.
 
-v1.5.10 is v1.5.9 + direction-aware fills (SELL@bid / BUY@ask), byte-identical
-to v1.5.9 at spread=0. This package is the versioned successor surface to
-engine_abi.v1_5_9; it is NOT yet wired into basket_runner (that re-point is the
-gated canonical flip). Built inert so it can be parity-proven before activation.
+CANONICAL ABI (ABI consolidation 2026-06-30): the single engine_abi surface, wired
+into basket_runner (Trade_Scan basket compute) AND the TS_Execution live bridge.
+Binds compute engine_dev.universal_research_engine.v1_5_11 (direction-aware fills,
+SELL@bid / BUY@ask; byte-identical to the retired v1.5.10 it superseded). The
+predecessor shims engine_abi.v1_5_9 / engine_abi.v1_5_10 are retired — git history.
 
 Runtime guarantee (third CI gate):
   On import, `__all__` is compared against the manifest's `exports[*].name`.

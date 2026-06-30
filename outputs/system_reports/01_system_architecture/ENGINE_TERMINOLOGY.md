@@ -6,6 +6,12 @@
 > and comments should use them. Terminology hygiene only: it renames *concepts in prose*, not code
 > artifacts (files/packages). Renaming code is a separate, deliberate step.
 
+> **Update (2026-06-30 — ABI consolidation):** the `v1_5_9`-vs-`v1_5_10` ABI distinction this
+> glossary teaches is now **historical** — both shims were retired and `engine_abi` collapsed to a
+> **single canonical ABI, `engine_abi.v1_5_11`** (in prose: **LIVE_ABI_v1_5_11**), over RE v1.5.11.
+> The `v1_5_9`/`v1_5_10` examples below are retained to illustrate the mislabel the glossary was
+> created to resolve; substitute `v1_5_11` for the live surface. See `ENGINE_VAULT_CONTRACT.md` §14A.
+
 ## The four concepts — three on the research side, one on the execution side
 
 | Term | Is (today) | Means | Is NOT |
