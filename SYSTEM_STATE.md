@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-06-30T08:27:59Z
+> Generated: 2026-06-30T08:59:17Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -41,7 +41,7 @@
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `9d079e69 chore(tmp): auto-prune cointegration backfill workdirs at the source (cause fix)`
+- Last substantive commit: `a3f7e7a7 fix(introspection): drop dead DEFERRED_MAINTENANCE_BACKLOG pointer from [SIZE] hint`
 
 ## Deferred Maintenance
 
@@ -51,7 +51,7 @@
 - (none — no drift signals exceed threshold this session)
 
 ### Manual (operator-deferred items)
-<!-- Operator-deferred items persist across regen (system_introspection preserves this block); the auto-detected sections above do not. Keep to ~5 short lines. -->
+<!-- Operator-deferred items persist across regen (system_introspection preserves this block); the auto-detected sections above do not. Keep to ~12 lines (system_introspection warns >12, SESSION STATUS WARNING >20). -->
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced); promote to BUILD after a gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence, screener block ~3 min/run; promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass; promote to BUILD when a 2nd refresh use-case needs the auth path. First seen 2026-06-07.
