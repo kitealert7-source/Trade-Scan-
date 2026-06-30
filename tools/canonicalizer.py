@@ -38,11 +38,24 @@ from tools.canonical_schema import (
     ALLOWED_SUB_KEYS,
     CANONICAL_KEY_ORDER,
 )
+from tools.diagnostics import Diagnostic, render
 
 
 class CanonicalizationError(Exception):
-    """Hard failure during canonicalization."""
-    pass
+    """Hard failure during canonicalization.
+
+    May *carry* a Diagnostic (the Diagnostic Contract payload). When a diagnostic
+    is attached and no explicit message is supplied, ``str()`` renders the
+    structured block — so every existing ``except CanonicalizationError``
+    catch-site and ``f"...: {e}"`` formatter surfaces the full contract with no
+    changes. The Diagnostic is the contract; this exception is one transport.
+    """
+
+    def __init__(self, message: str = "", *, diagnostic: "Diagnostic | None" = None):
+        self.diagnostic = diagnostic
+        if diagnostic is not None and not message:
+            message = render(diagnostic)
+        super().__init__(message)
 
 
 def _order_dict(d: dict, key_order: list) -> dict:
@@ -189,10 +202,12 @@ def canonicalize(parsed: dict) -> tuple:
         if block_name in ALLOWED_NESTED_KEYS and isinstance(block_data, dict):
             unknown = set(block_data.keys()) - ALLOWED_NESTED_KEYS[block_name]
             if unknown:
-                raise CanonicalizationError(
-                    f"UNKNOWN_NESTED_KEY: Unknown keys in '{block_name}': "
-                    f"{sorted(unknown)}"
-                )
+                # Diagnostic Contract: gate supplies only code + context; all
+                # prose (cause/why_now/remedy/...) lives in the catalog.
+                raise CanonicalizationError(diagnostic=Diagnostic(
+                    code="canonicalizer.UNKNOWN_NESTED_KEY",
+                    context={"block_name": block_name, "unknown": sorted(unknown)},
+                ))
 
     # Level 2 -- sub-block children
     for block_name, block_data in canonical.items():

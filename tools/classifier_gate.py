@@ -387,6 +387,7 @@ def evaluate(
                 details={
                     "model": cur_model,
                     "asset_class": cur_asset,
+                    "idea_id": cur_idea,  # additive: consumed by the IDENTITY_CHANGE Diagnostic remedy
                     "identity_change": changed,
                     "current_identity": list(cur_identity),
                     "prior_identity": list(ref_identity),

@@ -1,0 +1,216 @@
+# Diagnostic Contract — Catalog (single source of truth for failure prose)
+# ===========================================================================
+# Keyed by namespaced `code` (<subsystem>.<CODE>). Gates supply ONLY code +
+# context; everything below is resolved here and templated against context
+# {placeholders} at render time. Gates contain NO explanatory prose.
+#
+# Required per entry (CI-enforced non-empty; see tools/diagnostics + the CI test
+# tests/test_diagnostics_ci_enforcement.py):
+#   category      one of: IDENTITY NAMESPACE SCHEMA ENGINE EXECUTION DATA GOVERNANCE FSM
+#   error         headline (what failed)
+#   cause         mechanism (why it failed, not a restatement)
+#   why_now       why the failure surfaced at THIS pipeline stage
+#   source        the gate / invariant / code location that enforces it
+#   remedy        what change fixes the problem (for a human)
+#   next_action   one of: stop_and_request_approval retry_after_autofix continue abort_directive
+#   auto_fixable  bool (allow-list; defaults false — true only with a tested fixer)
+#   severity      error | warn
+#   doc_ref       link(s) to the governing doc / invariant / memory
+# Optional:
+#   next_action_note  short parenthetical shown after the rendered verb
+#
+# Phase 1 WIRES exactly two gates (classifier.IDENTITY_CHANGE,
+# canonicalizer.UNKNOWN_NESTED_KEY). Other entries are DATA-ONLY (catalog shape
+# exercised; raise-sites convert in later phases). Design:
+# outputs/system_reports/04_governance_and_guardrails/DIAGNOSTIC_CONTRACT_PROPOSAL_2026-06-30.md
+# ===========================================================================
+
+# --- WIRED (Phase 1) -------------------------------------------------------
+
+classifier.IDENTITY_CHANGE:
+  category: IDENTITY
+  error: "Strategy identity differs from the registered idea."
+  cause: >-
+    (family, model, symbol, timeframe) defines the idea identity and is
+    immutable within an idea_id; a signal_version bump cannot admit an identity
+    change (semver "major" = a new idea).
+  why_now: >-
+    The classifier gate runs at admission Stage -0.21 -- before any run is
+    provisioned -- comparing the directive against prior directives that share
+    its idea_id.
+  source: |-
+    tools/classifier_gate.py Identity Guard (admission Stage -0.21)
+    Registered: {registered}
+    Current   : {current}
+  remedy: "Allocate a new sequential idea_id for {symbol}; do not reuse idea {idea_id}."
+  next_action: stop_and_request_approval
+  next_action_note: "allocating an idea is a research decision"
+  auto_fixable: false
+  severity: error
+  doc_ref: "CLAUDE.md#strategy-identity | reference_idea_identity_model"
+
+canonicalizer.UNKNOWN_NESTED_KEY:
+  category: SCHEMA
+  error: "Unknown keys in '{block_name}': {unknown}"
+  cause: >-
+    The directive schema is frozen (Stage -0.25, Option B); a key not in the
+    allow-list for this block is a schema regression -- typically a parameter
+    that was removed or that belongs as a strategy constant, not a directive key.
+  why_now: >-
+    Canonicalization (Stage -0.25) validates nested keys against the frozen
+    schema before semantic validation and provisioning.
+  source: >-
+    tools/canonicalizer.py canonicalize() Phase 6
+    (allow-list: tools/canonical_schema.py ALLOWED_NESTED_KEYS)
+  remedy: >-
+    Remove the unknown key(s) {unknown} from '{block_name}', or move the
+    parameter into a strategy constant; do not widen the frozen schema to admit
+    them.
+  next_action: stop_and_request_approval
+  auto_fixable: false
+  severity: error
+  doc_ref: "tools/canonical_schema.py | outputs/system_reports/04_governance_and_guardrails/GUARDRAILS_WALKTHROUGH.md"
+
+# --- PILOT (cataloged-only in Phase 1; raise wiring deferred) --------------
+# The early identity guard on main (namespace_gate._check_identity_registered)
+# is the de-facto first Diagnostic-Contract instance. Its raise is NOT wired
+# here (the guard is not yet on this branch); cataloged so the code is reserved
+# and the shape is exercised. See commit body for the deferral note.
+namespace.IDENTITY_NOT_REGISTERED:
+  category: IDENTITY
+  error: "Strategy identity is not registered in the idea registry."
+  cause: >-
+    Every strategy identity (family, model, symbol, timeframe) must map to a
+    registered idea_id before admission; an unregistered identity has no
+    governance lineage.
+  why_now: >-
+    The namespace gate (Stage -0.30) checks identity registration before
+    provisioning.
+  source: "tools/namespace_gate.py _check_identity_registered (admission Stage -0.30)"
+  remedy: >-
+    Register the identity (allocate an idea_id) in governance/idea_registry.yaml,
+    or correct the strategy name to an already-registered identity.
+  next_action: stop_and_request_approval
+  auto_fixable: false
+  severity: error
+  doc_ref: "reference_idea_identity_model | CLAUDE.md#strategy-identity"
+
+# --- DATA-ONLY SEEDS (exercise the catalog shape; raise-sites in later phases)
+
+fsm.MISSING_APPROVED_MARKER:
+  category: FSM
+  error: "Run is missing its APPROVED marker."
+  cause: >-
+    The FSM expects an APPROVED marker artifact before this transition; its
+    absence is a recoverable bookkeeping gap, not a research decision.
+  why_now: "The state-machine invariant check runs before the run advances to the next stage."
+  source: "tools/ (FSM marker check) — see step6 state-machine invariants"
+  remedy: "Re-emit the APPROVED marker for the run (mechanical; no logic change)."
+  next_action: retry_after_autofix
+  auto_fixable: true
+  severity: error
+  doc_ref: "outputs/system_reports/10_State Lifecycle Management/Workflow_Design.md"
+
+sweep.NOT_RESERVED:
+  category: NAMESPACE
+  error: "Sweep slot is not reserved for this directive."
+  cause: >-
+    The sweep registry has no reservation for the directive's sweep id; a
+    sequential slot must be reserved before admission proceeds.
+  why_now: "The sweep registry gate (Stage -0.35) reserves the slot before provisioning."
+  source: "tools/sweep_registry_gate.py reserve_sweep (admission Stage -0.35)"
+  remedy: "Reserve the next sweep slot for this directive (auto-advance)."
+  next_action: retry_after_autofix
+  auto_fixable: true
+  severity: error
+  doc_ref: "governance/ (sweep_registry)"
+
+fsm.SIGNATURE_DRIFT:
+  category: FSM
+  error: "Recorded signature drifted from the recomputed signature."
+  cause: >-
+    A stored STRATEGY_SIGNATURE no longer matches the recomputed value; usually
+    a stale marker after a deterministic, content-preserving change.
+  why_now: "The FSM verifies the recorded signature before trusting downstream cached state."
+  source: "tools/ (signature verification)"
+  remedy: "Recompute and rewrite the signature marker (mechanical)."
+  next_action: retry_after_autofix
+  auto_fixable: true
+  severity: error
+  doc_ref: "feedback_timeframe_in_signature_hash"
+
+namespace.UNKNOWN_TOKEN:
+  category: NAMESPACE
+  error: "Strategy name contains an unregistered namespace token."
+  cause: >-
+    A MODEL/token in the strategy name is absent from
+    governance/namespace/token_dictionary.yaml (and its aliases); the namespace
+    vocabulary is closed.
+  why_now: "The namespace gate (Stage -0.30) validates tokens before provisioning."
+  source: "tools/namespace_gate.py (admission Stage -0.30)"
+  remedy: >-
+    Use a registered token, or register the new token in
+    governance/namespace/token_dictionary.yaml (a governance decision).
+  next_action: stop_and_request_approval
+  auto_fixable: false
+  severity: error
+  doc_ref: "governance/namespace/token_dictionary.yaml | CLAUDE.md#namespace-token-validation"
+
+idea.REPEAT_FAILED:
+  category: GOVERNANCE
+  error: "Directive repeats a concept whose prior runs failed."
+  cause: >-
+    The Idea Evaluation gate matched this MODEL+TF concept to prior FAILED runs;
+    re-testing without a material change repeats known-dead work.
+  why_now: "The idea-evaluation gate (Stage -0.20) checks concept history before provisioning."
+  source: "tools/idea_evaluation_gate.py (admission Stage -0.20)"
+  remedy: >-
+    Change the hypothesis materially, or add test.repeat_override_reason (>=50
+    chars) justifying why prior runs are no longer comparable (audited).
+  next_action: stop_and_request_approval
+  auto_fixable: false
+  severity: error
+  doc_ref: "governance/idea_gate_overrides.csv | feedback_fresh_over_recreate_legacy"
+
+runtime.DAILY_PENDING_ENTRY_EXPIRED:
+  category: EXECUTION
+  error: "Daily pending entries expired before fill (session_reset default)."
+  cause: >-
+    The default session_reset expires daily pending entries at the session
+    boundary, so signals that would fill next bar never do — producing 0 trades.
+  why_now: "Surfaces at Stage-1 runtime when the backtest yields NO_TRADES despite valid signals."
+  source: "engine runtime (session_reset handling)"
+  remedy: "Set session_reset: none for strategies whose entries must persist across sessions."
+  next_action: stop_and_request_approval
+  next_action_note: "the session_reset: none patch is proposed, not auto-applied"
+  auto_fixable: false
+  severity: error
+  doc_ref: "outputs/system_reports/06_strategy_research/BACKTEST_DATE_POLICY_AND_DATA_FLOW.md"
+
+semantic.ENGINE_OWNED_FIELDS:
+  category: ENGINE
+  error: "Strategy writes an engine-owned field."
+  cause: >-
+    A field owned by the engine (e.g. vol_regime) was assigned in strategy code;
+    engine-owned fields are read-only to strategies.
+  why_now: "The semantic validator checks field ownership before the run compiles."
+  source: "tools/semantic_validator.py (engine-owned field check)"
+  remedy: "Remove the assignment; read the engine-owned field instead of writing it."
+  next_action: stop_and_request_approval
+  auto_fixable: false
+  severity: error
+  doc_ref: "feedback_engine_owned_fields"
+
+idea.REPEAT_PROMISING:
+  category: GOVERNANCE
+  error: "Directive repeats a concept whose prior runs were promising (advisory)."
+  cause: >-
+    The Idea Evaluation gate matched prior runs that were promising; re-testing
+    is allowed but the operator should be aware it overlaps earlier work.
+  why_now: "The idea-evaluation gate (Stage -0.20) annotates concept history; this is warn-mode, non-blocking."
+  source: "tools/idea_evaluation_gate.py (admission Stage -0.20)"
+  remedy: "No change required; proceed if the overlap is intentional."
+  next_action: continue
+  auto_fixable: false
+  severity: warn
+  doc_ref: "feedback_screening_rules_for_research"

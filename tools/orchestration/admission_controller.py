@@ -261,6 +261,32 @@ class AdmissionStage:
             return
 
         if verdict.verdict == "BLOCK":
+            # Diagnostic Contract (additive reporting only): the IDENTITY_CHANGE
+            # block now speaks the structured contract. The DECISION is
+            # unchanged — still a non-fatal admission pause (exit 0).
+            # PipelineAdmissionPause is the *transport*; the Diagnostic is the
+            # contract it carries. Other BLOCK reasons keep their prior message.
+            if verdict.classification == "IDENTITY_CHANGE":
+                from tools.diagnostics import Diagnostic, render
+                d = verdict.details or {}
+                cur_id = d.get("current_identity") or []
+                pri_id = d.get("prior_identity") or []
+                diag = Diagnostic(
+                    code="classifier.IDENTITY_CHANGE",
+                    context={
+                        "idea_id": d.get("idea_id"),
+                        "symbol": cur_id[2] if len(cur_id) > 2 else "",
+                        "changed": d.get("identity_change"),
+                        "registered": tuple(pri_id),
+                        "current": tuple(cur_id),
+                        "prior_directive": verdict.prior_directive,
+                    },
+                )
+                raise PipelineAdmissionPause(
+                    f"STAGE -0.21 CLASSIFIER GATE blocked admission.\n{render(diag)}",
+                    directive_id=context.directive_id,
+                    diagnostic=diag,
+                )
             raise PipelineAdmissionPause(
                 f"STAGE -0.21 CLASSIFIER GATE: {verdict.reason}",
                 directive_id=context.directive_id,

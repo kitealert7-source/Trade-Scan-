@@ -10,7 +10,12 @@ class PipelineError(Exception):
 
 
 class PipelineAdmissionPause(PipelineError):
-    """Pause requested by an admission gate (non-fatal, exit code 0)."""
+    """Pause requested by an admission gate (non-fatal, exit code 0).
+
+    May *carry* a Diagnostic (the Diagnostic Contract payload) via the optional
+    ``diagnostic`` kwarg — this exception is one transport for it, not the
+    contract itself. Backward compatible: existing callers pass only ``message``.
+    """
 
     def __init__(
         self,
@@ -18,11 +23,13 @@ class PipelineAdmissionPause(PipelineError):
         *,
         directive_id: str | None = None,
         run_ids: Sequence[str] | None = None,
+        diagnostic: "object | None" = None,
     ) -> None:
         super().__init__(message)
         self.directive_id = directive_id
         self.run_ids = list(run_ids or [])
         self.exit_code = 0
+        self.diagnostic = diagnostic
 
 
 class PipelineExecutionError(PipelineError):
