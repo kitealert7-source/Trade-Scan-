@@ -5,7 +5,7 @@ ANY execution path, every emitted ``engine_version`` must equal the ACTUAL
 compute that ran, regardless of ``ENGINE_VERSION_OVERRIDE``. The two paths
 consolidate INDEPENDENTLY:
 
-  * BASKET -- compute is hardcoded to ``engine_abi.v1_5_9`` via
+  * BASKET -- compute is hardcoded to ``engine_abi.v1_5_11`` via
     ``tools.basket_runner`` (the ONE module that imports the ABI). It re-exports
     ENGINE_VERSION + ENGINE_ABI as the SINGLE SOURCE; every basket stamp
     (manifest/input_provenance, run_metadata.json, STRATEGY_CARD.md, the

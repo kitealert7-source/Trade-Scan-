@@ -4,7 +4,7 @@ Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 2 + Section 9 migration risk
 table: "N-leg no-rules basket_runner == N indep runs".
 
 With no basket-level rules attached, BasketRunner must produce per-leg trade
-lists byte-identical to running engine_abi.v1_5_9.evaluate_bar directly in
+lists byte-identical to running engine_abi.v1_5_11.evaluate_bar directly in
 a loop on each leg. This guarantees the Phase 2 skeleton is pure
 orchestration with zero hidden state coupling. Phase 3 will add coupling
 deliberately through the BasketRule plugin interface.
@@ -77,7 +77,7 @@ def _synthetic_ohlc(symbol: str, n: int = 240, seed: int = 0) -> pd.DataFrame:
 
 
 def _independent_run(df: pd.DataFrame, strategy: _NoOpStrategy) -> list[dict]:
-    """Reference loop: same setup engine_abi.v1_5_9.run_execution_loop does,
+    """Reference loop: same setup engine_abi.v1_5_11.run_execution_loop does,
     inlined so the test does not depend on basket_runner internals."""
     df = strategy.prepare_indicators(df)
     df = apply_regime_model(df)
