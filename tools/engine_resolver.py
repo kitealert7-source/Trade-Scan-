@@ -1,40 +1,47 @@
 """
-Engine resolver — capability + contract driven engine selection.
+Engine resolver — canonical-engine VALIDATOR (not a selector).
 
-Pure function. No side effects other than a structured INFO log when
-newer compatible engines exist alongside the selected one. Deterministic
-for identical inputs.
+Pure function. No side effects other than a structured WARNING log when a
+strategy declares a stale contract_id whitelist (advisory, non-blocking).
+Deterministic for identical inputs.
 
-Contract model
---------------
-Each engine directory ships an optional contract.json declaring its I/O
-surface. engine_manifest.json.contract_id MUST equal sha256(contract.json).
-Engines without a contract.json are silently filtered out — they cannot
-participate in capability resolution until the migration has annotated
-them.
+Consolidation 2026-06-30 (ENGINE_CONSOLIDATION_PLAN_2026-06-29.md, Phase 3):
+**inverted from SELECTION to VALIDATION.** There is exactly ONE canonical
+compute engine (``config.engine_authority.CANONICAL_SINGLE_ASSET_ENGINE``), so
+the runtime never asks *"which engine?"* — only *"is the canonical engine valid
+for this run?"*. Runtime engine selection is FORBIDDEN: this module does NOT
+enumerate ``engine_dev/`` or ``vault/engines/`` and never chooses among versions
+(the old min-semver tie-break + NEWER_ENGINE_AVAILABLE visibility are gone).
 
-Selection policy
+Validation model
 ----------------
-  1. Collect manifests under engine_dev/ and vault/engines/.
-  2. Self-verify: manifest.contract_id == sha256(contract.json). Mismatch
-     raises EngineResolverError("F8").
-  3. Filter by status == FROZEN. EXPERIMENTAL engines are eliminated here
-     and never resurrected.
-  4. Filter by capability: engine capabilities must cover the required
-     set. Capability match is exact OR explicit via the catalog's
-     compatible_with mapping. No transitive or implicit compatibility.
-  5. Filter by contract_id: engine contract_id must be in the strategy's
-     declared required_contract_ids whitelist.
-  6. If no FROZEN candidates: raise F9. If only EXPERIMENTAL candidates
-     satisfy the cap + contract filters, raise F10 with their versions
-     enumerated.
-  7. Tie-break: lowest semantic version wins (principle of least change).
-  8. Newer-version visibility: if other candidates have higher versions,
-     emit INFO log "NEWER_ENGINE_AVAILABLE" with the list. Selection
-     unchanged.
+The canonical engine ships an ``engine_manifest.json`` (+ ``contract.json``)
+declaring its capabilities and I/O contract. For a run we assert:
 
-Failure codes mirror the hardening plan's F-series and are never
-swallowed.
+  1. F8 — contract integrity: ``manifest.contract_id == sha256(contract.json)``
+     (LF-normalized canonical hash, same as the manifest writers).
+  2. F9 — the canonical engine is FROZEN.
+  3. F9 — the canonical engine's capabilities cover the strategy's
+     ``required_capabilities`` (exact OR via the catalog ``compatible_with``
+     map). v1.5.11 is the capability superset, so this holds for every current
+     strategy; a real miss is a genuine wiring/contract fault and fails loud.
+  4. Contract whitelist (ADVISORY, non-blocking — consolidation 2026-06-30):
+     if the canonical engine's ``contract_id`` is NOT in the strategy's declared
+     ``required_contract_ids``, log a WARNING and flag ``contract_whitelist_ok =
+     False`` in the result, but PROCEED. In a single-engine world the whitelist
+     only ever pinned *which of several* engine contracts a strategy accepted;
+     with one canonical engine the binding question is the capability check (F9)
+     plus the downstream F11 runtime-shape gate in governance.preflight, which
+     reads ``contract.json`` from the returned ``engine_path``. Strategies that
+     still declare an older engine's contract_id are therefore tolerated (their
+     stale whitelist is surfaced, not enforced). See the plan's Phase 3 + the
+     operator decision "Advisory whitelist".
+
+Failure codes mirror the hardening plan's F-series and are never swallowed.
+F10 (EXPERIMENTAL-only candidates) is retired — there is nothing to select
+among, so an EXPERIMENTAL canonical engine simply fails F9 ("not FROZEN").
+
+Doctrine: engine_identity_is_compute_not_stamp.
 """
 import json
 import logging
@@ -56,7 +63,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from tools.verify_engine_integrity import canonical_sha256  # noqa: E402
 
 ENGINE_DEV_ROOT = PROJECT_ROOT / "engine_dev" / "universal_research_engine"
-VAULT_ENGINE_ROOT = PROJECT_ROOT / "vault" / "engines" / "Universal_Research_Engine"
 CATALOG_PATH = PROJECT_ROOT / "governance" / "capability_catalog.yaml"
 
 logger = logging.getLogger(__name__)
@@ -82,12 +88,6 @@ def _load_compat_map() -> dict:
     }
 
 
-def _semver_key(version: str) -> tuple:
-    """Normalize 'v1_5_7' / '1.5.7' / 'v1.5.7' to (1, 5, 7)."""
-    parts = version.lstrip("vV").replace("_", ".").split(".")
-    return tuple(int(p) for p in parts if p.isdigit())
-
-
 def _engine_satisfies(engine_caps: set, required: set, compat_map: dict) -> bool:
     """
     Required ⊆ engine_caps, allowing explicit compatibility mapping.
@@ -104,95 +104,103 @@ def _engine_satisfies(engine_caps: set, required: set, compat_map: dict) -> bool
     return True
 
 
-def _load_all_manifests() -> list:
-    manifests = []
-    for root in (ENGINE_DEV_ROOT, VAULT_ENGINE_ROOT):
-        if not root.exists():
-            continue
-        for engine_dir in sorted(root.iterdir()):
-            if not engine_dir.is_dir():
-                continue
-            mpath = engine_dir / "engine_manifest.json"
-            if not mpath.exists():
-                continue
-            with open(mpath, encoding="utf-8") as f:
-                m = json.load(f)
-            m["_path"] = engine_dir
-            m["_manifest_path"] = mpath
-            manifests.append(m)
-    return manifests
+def _load_canonical_manifest() -> dict:
+    """Load ONLY the canonical engine's manifest — no enumeration.
+
+    The canonical engine is named by config.engine_authority (the single
+    selection authority; it imports no engine). We deliberately do NOT iterate
+    engine_dev/ or vault/engines/: runtime engine selection is forbidden
+    (consolidation 2026-06-30), so there is nothing to choose among.
+    """
+    from config.engine_authority import CANONICAL_SINGLE_ASSET_ENGINE
+
+    engine_dir = ENGINE_DEV_ROOT / CANONICAL_SINGLE_ASSET_ENGINE
+    mpath = engine_dir / "engine_manifest.json"
+    if not mpath.exists():
+        raise EngineResolverError(
+            "F9",
+            f"canonical engine {CANONICAL_SINGLE_ASSET_ENGINE} has no "
+            f"engine_manifest.json at {mpath}",
+        )
+    with open(mpath, encoding="utf-8") as f:
+        m = json.load(f)
+    m["_path"] = engine_dir
+    m["_manifest_path"] = mpath
+    return m
 
 
 def resolve_engine(required_capabilities, required_contract_ids) -> dict:
     """
-    Resolve the minimal FROZEN engine satisfying the declared requirements.
+    Validate that the CANONICAL engine satisfies the declared requirements.
 
-    Returns dict: {engine_version, engine_path, contract_id}.
-    Raises EngineResolverError(code) on every failure path.
+    Single-engine VALIDATOR (consolidation 2026-06-30) — never enumerates or
+    selects. Returns dict:
+        {engine_version, engine_path, contract_id,
+         contract_whitelist_ok, declared_contract_ids}.
+    Raises EngineResolverError(code) on every hard-failure path (F8/F9).
+
+    The contract whitelist is advisory (non-blocking): contract_whitelist_ok is
+    False when the canonical contract_id is not in required_contract_ids, and a
+    WARNING is logged, but resolution still succeeds.
     """
     required_caps = set(required_capabilities)
     required_contracts = set(required_contract_ids)
     compat_map = _load_compat_map()
-    manifests = _load_all_manifests()
 
-    for m in manifests:
-        contract_path = m["_path"] / "contract.json"
-        if not contract_path.exists():
-            continue
-        actual = _sha256_file(contract_path)
-        declared = m.get("contract_id")
-        if declared != actual:
-            raise EngineResolverError(
-                "F8",
-                f"engine {m.get('engine_version')} contract_id mismatch: "
-                f"manifest={declared} actual={actual}",
-            )
+    m = _load_canonical_manifest()  # the ONE engine; no enumeration
+    version = m.get("engine_version")
 
-    frozen = [m for m in manifests if m.get("engine_status") == "FROZEN"]
-    experimental = [m for m in manifests if m.get("engine_status") == "EXPERIMENTAL"]
-
-    def _cap_ok(m):
-        return _engine_satisfies(set(m.get("capabilities") or []), required_caps, compat_map)
-
-    def _contract_ok(m):
-        return m.get("contract_id") in required_contracts
-
-    candidates = [m for m in frozen if _cap_ok(m) and _contract_ok(m)]
-    experimental_candidates = [m for m in experimental if _cap_ok(m) and _contract_ok(m)]
-
-    if not candidates:
-        if experimental_candidates:
-            raise EngineResolverError(
-                "F10",
-                f"only EXPERIMENTAL engines satisfy requirements; "
-                f"experimental_candidates="
-                f"{[m.get('engine_version') for m in experimental_candidates]}",
-            )
+    # F8 — canonical contract integrity (manifest contract_id == sha256(contract.json)).
+    contract_path = m["_path"] / "contract.json"
+    if not contract_path.exists():
         raise EngineResolverError(
-            "F9",
-            f"no FROZEN engine satisfies "
-            f"required_capabilities={sorted(required_caps)} "
-            f"required_contract_ids={sorted(required_contracts)}",
+            "F8", f"canonical engine {version} has no contract.json at {contract_path}"
+        )
+    actual = _sha256_file(contract_path)
+    declared = m.get("contract_id")
+    if declared != actual:
+        raise EngineResolverError(
+            "F8",
+            f"canonical engine {version} contract_id mismatch: "
+            f"manifest={declared} actual={actual}",
         )
 
-    candidates.sort(key=lambda m: _semver_key(m["engine_version"]))
-    selected = candidates[0]
-    selected_key = _semver_key(selected["engine_version"])
+    # F9 — the canonical engine must be FROZEN (EXPERIMENTAL never runs; F10 retired).
+    if m.get("engine_status") != "FROZEN":
+        raise EngineResolverError(
+            "F9",
+            f"canonical engine {version} is not FROZEN "
+            f"(engine_status={m.get('engine_status')!r})",
+        )
 
-    newer = [
-        m["engine_version"]
-        for m in candidates
-        if _semver_key(m["engine_version"]) > selected_key
-    ]
-    if newer:
-        logger.info(json.dumps({
-            "event": "NEWER_ENGINE_AVAILABLE",
-            "selected": selected["engine_version"],
-            "newer_candidates": newer,
+    # F9 — capability satisfaction: canonical must cover the required capabilities.
+    if not _engine_satisfies(set(m.get("capabilities") or []), required_caps, compat_map):
+        raise EngineResolverError(
+            "F9",
+            f"canonical engine {version} does not satisfy "
+            f"required_capabilities={sorted(required_caps)} "
+            f"(engine capabilities={sorted(m.get('capabilities') or [])})",
+        )
+
+    # Contract whitelist — ADVISORY (non-blocking). A stale declaration (an older
+    # engine's contract_id, e.g. a strategy authored against v1.5.6/v1.5.8) is
+    # surfaced, not enforced: the real binding is the capability check above plus
+    # the F11 runtime-shape gate in governance.preflight.
+    contract_whitelist_ok = declared in required_contracts
+    if not contract_whitelist_ok:
+        logger.warning(json.dumps({
+            "event": "STALE_CONTRACT_WHITELIST",
+            "canonical_engine": version,
+            "canonical_contract_id": declared,
+            "declared_contract_ids": sorted(required_contracts),
+            "note": "strategy required_contract_ids does not include the canonical "
+                    "engine contract_id; proceeding (advisory, single-engine model)",
         }))
 
     return {
-        "engine_version": selected["engine_version"],
-        "engine_path": str(selected["_path"]),
-        "contract_id": selected["contract_id"],
+        "engine_version": version,
+        "engine_path": str(m["_path"]),
+        "contract_id": declared,
+        "contract_whitelist_ok": contract_whitelist_ok,
+        "declared_contract_ids": sorted(required_contracts),
     }

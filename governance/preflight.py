@@ -788,10 +788,20 @@ def run_preflight(
                         "resolved_engine_version": _resolved["engine_version"],
                         "resolved_engine_path": _resolved["engine_path"],
                         "resolved_contract_id": _resolved["contract_id"],
+                        # Advisory (consolidation 2026-06-30): False when the
+                        # strategy's declared contract_ids omit the canonical
+                        # engine contract_id (stale whitelist). Non-blocking —
+                        # capability (F9) + runtime-shape (F11) gates still hold.
+                        "contract_whitelist_ok": _resolved.get("contract_whitelist_ok", True),
                     }, _f, indent=2)
                 _tmp.replace(_res_path)
                 print(f"[PREFLIGHT] Capability resolution: {_strategy_name} → "
                       f"{_resolved['engine_version']}")
+                if not _resolved.get("contract_whitelist_ok", True):
+                    print(f"[PREFLIGHT][WARN] {_strategy_name} declares a stale "
+                          f"contract_id whitelist (omits canonical "
+                          f"{_resolved['contract_id'][:24]}...); proceeding "
+                          f"(advisory — single-engine model).")
             except EngineResolverError as _er:
                 return ("BLOCK_EXECUTION",
                         f"ENGINE_RESOLUTION_FAILED: {_er}", None)

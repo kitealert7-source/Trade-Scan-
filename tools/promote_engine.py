@@ -21,8 +21,9 @@ Two operations that today are a hand-edited marathon across ~13 surfaces:
 
 Encodes the v1.5.11 promotion's hard-won gotchas so the next one can't trip them:
 LF-normalized hashes (tools/verify_engine_integrity.canonical_sha256), the
-basket_runner load-time self-check literal, the registry engines{} map, the
-convergence-gate version literals, the vault sync. The convergence gate is the
+basket_runner load-time self-check literal, the registry active_engine +
+rollback roles, the convergence-gate version literals, the vault sync. The
+convergence gate is the
 final INDEPENDENT verifier -- it caught a mid-edit partial flip during v1.5.11.
 
 ASCII-only output (Windows console); utf-8 on all file I/O. Protected infra
@@ -204,7 +205,7 @@ def flip_surfaces(vOLD: str, vNEW: str, freeze_date: str, *, dry: bool) -> None:
         _replace_once(ct, f'"{vOLD}": "{dOLD}"]', f'"{vOLD}": "{dOLD}", "{vNEW}": "{dNEW}"]',
                       required=1, dry=dry)
 
-    _say("[5/8] registry active_engine + engines{} map")
+    _say("[5/8] registry active_engine (canonical) + rollback roles")
     flip_registry(vOLD, vNEW, freeze_date, dry=dry)
 
     _say("[6/8] freeze manifest + LF-hash re-stamp")
@@ -222,23 +223,23 @@ def flip_surfaces(vOLD: str, vNEW: str, freeze_date: str, *, dry: bool) -> None:
 
 
 def flip_registry(vOLD: str, vNEW: str, freeze_date: str, *, dry: bool) -> None:
+    """Update the registry's two named roles: active_engine (canonical) = vNEW,
+    and rollback = the prior canonical (vOLD). The registry is METADATA naming
+    the canonical + rollback engines, NOT a candidate list -- the engines{} map
+    was retired in the engine consolidation (2026-06-30) and runtime engine
+    selection is forbidden (tools/engine_resolver validates the canonical engine,
+    it never selects among versions)."""
     reg_path = PROJECT_ROOT / "config" / "engine_registry.json"
     reg = json.loads(_read(reg_path))
     reg["active_engine"] = vNEW
+    reg["rollback"] = vOLD
     reg["freeze_date"] = freeze_date
-    for v, e in reg.get("engines", {}).items():
-        if e.get("canonical"):
-            e["canonical"] = False
-    reg.setdefault("engines", {})[vNEW] = {
-        "status": "FROZEN", "canonical": True,
-        "note": f"FROZEN {freeze_date} -- canonical compute for both paths "
-                f"(promoted from {vOLD}). See engine_manifest.json promotion_note.",
-    }
+    reg.pop("engines", None)  # candidate-list map retired (consolidation 2026-06-30)
     if dry:
-        _say(f"would set active_engine={vNEW}, {vNEW} canonical:true, {vOLD} canonical:false")
+        _say(f"would set active_engine={vNEW} (canonical), rollback={vOLD}")
         return
     _write(reg_path, json.dumps(reg, indent=2) + "\n")
-    _say(f"registry: active_engine={vNEW}; {vNEW} canonical:true; cleared prior canonical")
+    _say(f"registry: active_engine={vNEW} (canonical); rollback={vOLD}")
 
 
 # --------------------------------------------------------------------------- #
