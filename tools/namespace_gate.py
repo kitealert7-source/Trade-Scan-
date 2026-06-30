@@ -30,10 +30,12 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.pipeline_utils import parse_directive
 from tools.basket_schema import is_basket_directive, validate_basket_block
+from config.asset_classification import parse_strategy_name
 
 NAMESPACE_ROOT = PROJECT_ROOT / "governance" / "namespace"
 IDEA_REGISTRY_PATH = NAMESPACE_ROOT / "idea_registry.yaml"
 TOKEN_DICTIONARY_PATH = NAMESPACE_ROOT / "token_dictionary.yaml"
+SWEEP_REGISTRY_PATH = NAMESPACE_ROOT / "sweep_registry.yaml"
 RECYCLE_REGISTRY_PATH = PROJECT_ROOT / "governance" / "recycle_rules" / "registry.yaml"
 
 
@@ -187,6 +189,91 @@ def _extract_name_fields(parsed_directive: dict[str, Any], directive_path: Path)
     return file_stem, test_name, test_strategy
 
 
+def _format_identity(identity: tuple[str, str, str, str]) -> str:
+    """Render an identity tuple as 'FAMILY MODEL SYMBOL TIMEFRAME' for diagnostics."""
+    family, model, symbol, timeframe = identity
+    return f"{family} {model} {symbol} {timeframe}"
+
+
+def _registered_identity_set(
+    idea_id: str,
+    sweep_registry_path: Path | None = None,
+) -> set[tuple[str, str, str, str]]:
+    """Return the SET of identity tuples (family, model, symbol, timeframe) already
+    registered under ``idea_id`` in the sweep registry.
+
+    The set is sourced from the ``directive_name`` values filed under the idea
+    (sweep owners + their patches), parsed with the SAME parser the classifier
+    gate uses (config.asset_classification.parse_strategy_name). Legacy or
+    unparseable names are skipped rather than raising -- this guard never blocks
+    on a name it cannot read.
+
+    Returns an empty set when the registry is absent, the idea has no entries, or
+    nothing filed under it parses.
+    """
+    path = sweep_registry_path or SWEEP_REGISTRY_PATH
+    if not path.exists():
+        return set()
+    try:
+        registry = _load_yaml(path)
+    except NamespaceValidationError:
+        return set()  # unreadable registry -- soft skip; never block on it
+    # Reuse the canonical sweeps+patches traversal so a registry schema change is
+    # absorbed in one place (tools.sweep_registry_gate.get_all_allocated_names).
+    from tools.sweep_registry_gate import get_all_allocated_names
+
+    identities: set[tuple[str, str, str, str]] = set()
+    for name in get_all_allocated_names(registry):
+        parsed = parse_strategy_name(name)
+        if not parsed or parsed.get("idea_id") != idea_id:
+            continue
+        identities.add(
+            (parsed["family"], parsed["model"], parsed["symbol"], parsed["timeframe"])
+        )
+    return identities
+
+
+def _check_identity_registered(
+    idea_id: str,
+    current_identity: tuple[str, str, str, str],
+    sweep_registry_path: Path | None = None,
+) -> None:
+    """EARLY identity guard -- fail at lint / pre-provision time when a directive
+    reuses an ``idea_id`` for an identity that idea_id does not already own.
+
+    An idea_id OWNS a SET of already-registered identity tuples
+    (family, model, symbol, timeframe) -- its **registered identity set**. The
+    sweep registry is treated as append-only and forward-only:
+
+      * Existing registered tuples are IMMUTABLE and always valid (grandfathered).
+        This check governs NEW registrations only; it never rewrites or
+        invalidates a legacy allocation. (26 idea_ids legitimately own >1 tuple --
+        e.g. idea 42 = 20 FX LIQSWEEP pairs -- and every one keeps passing on
+        re-run because it self-matches its own registered tuple.)
+      * A tuple NOT in the set cannot be added to an existing idea_id -> FAIL;
+        allocate a new sequential idea_id.
+      * An empty set (fresh idea_id) -> PASS; the idea establishes its first
+        identity here.
+
+    This is the EARLY twin of classifier_gate.py's late IDENTITY_CHANGE verdict --
+    the same rule, but sourced from the registry so it fires before
+    strategy_provisioner.py scaffolds anything. classifier_gate.py is left
+    unchanged; this is an additive earlier surface.
+    """
+    registered = _registered_identity_set(idea_id, sweep_registry_path)
+    if not registered or current_identity in registered:
+        return
+    listing = "\n".join("  " + _format_identity(t) for t in sorted(registered))
+    raise NamespaceValidationError(
+        f"NAMESPACE_IDENTITY_NOT_REGISTERED: Identity tuple not registered under "
+        f"idea_id '{idea_id}'.\n\n"
+        f"Registered identities:\n{listing}\n\n"
+        f"Current:\n  {_format_identity(current_identity)}\n\n"
+        f"Action:\n  Allocate a new sequential idea_id "
+        f"(identity (family, model, symbol, timeframe) is immutable within an idea_id)."
+    )
+
+
 def validate_namespace(directive_path: str | Path) -> dict[str, str]:
     d_path = Path(directive_path)
     if not d_path.exists():
@@ -286,6 +373,12 @@ def validate_namespace(directive_path: str | Path) -> dict[str, str]:
             raise NamespaceValidationError(
                 f"IDEA_METADATA_MISSING: idea_id='{idea_id}' missing required field '{field}'."
             )
+
+    # EARLY identity guard: the directive's full identity tuple must already belong
+    # to this idea_id's registered identity set, else a new sequential idea_id must
+    # be allocated. Fires at lint / pre-provision time -- the early twin of
+    # classifier_gate.py's late IDENTITY_CHANGE verdict. See _check_identity_registered.
+    _check_identity_registered(idea_id, (family, model, symbol, timeframe))
 
     # Basket-directive guard (Plan Phase 1):
     #   * if model == RECYCLE, the directive MUST contain a `basket:` block.

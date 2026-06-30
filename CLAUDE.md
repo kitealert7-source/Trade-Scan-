@@ -121,6 +121,32 @@ To find which workflows, tools, governance artifacts, reports, audits, failure p
 
 ---
 
+## Strategy Identity — MANDATORY FIRST STEP
+
+Before creating ANY directive, determine the immutable **strategy identity** — the tuple:
+
+`(family, model, symbol, timeframe)`
+
+This tuple defines the strategy identity (semver **MAJOR**). **Derive** the `idea_id` from it; do not memorize per-case rules:
+
+- **Identical tuple already exists** → continue under that existing `idea_id`.
+- **Any element differs** (`family`, `model`, `symbol`, OR `timeframe`) → allocate a **new sequential `idea_id`**. (Same logic on a new symbol → new idea; same logic on a new timeframe → new idea.)
+- `idea_id` is a **serial identifier only** — it carries no semantic meaning.
+- `signal_version`, `S##` (sweep), and `P##` (patch) may vary **only while preserving the identity tuple** (semver MINOR — within-identity variation).
+- **Never reuse an `idea_id` across a different symbol** (or family / model / timeframe).
+
+Practical consequence: N symbols of the same logic = **N ideas**, each `NN_<FAMILY>_<SYMBOL>_<TF>_<MODEL>...` → independent solo per-symbol reports. The class-token form (`NN_..._IDX_...` + a multi-symbol `symbols:` list) instead yields one idea with an **aggregated** portfolio report — use only when a composite is intended.
+
+**Enforced by — two surfaces, same rule:**
+- **EARLY** — `tools/namespace_gate.py` `_check_identity_registered()` (runs in `directive_linter.py --check` AND admission **Stage -0.30**). Registry-based, **append-only / forward-only**: an `idea_id` owns a **registered identity set** (the tuples already filed under it in `governance/namespace/sweep_registry.yaml`); a tuple not in that set is rejected at lint / pre-provision time with `NAMESPACE_IDENTITY_NOT_REGISTERED`, before `tools/strategy_provisioner.py` scaffolds anything.
+- **LATE** — `tools/classifier_gate.py` Identity Guard (admission **Stage -0.21**, verdict `IDENTITY_CHANGE`) — a `signal_version` bump **cannot** admit an identity change.
+
+**Legacy note:** 26 idea_ids predate this rule and own multiple tuples (e.g. idea 42 = 20 FX LIQSWEEP pairs). Those allocations are immutable and always valid — the guard governs NEW registrations only and never rewrites legacy data. Do NOT "clean up" the old registry into a one-tuple-per-idea shape it never had.
+
+Full model: auto-memory `reference_idea_identity_model`.
+
+---
+
 ## Namespace Token Validation — MANDATORY FIRST STEP
 
 Before creating ANY file, confirm the MODEL token exists in `governance/namespace/token_dictionary.yaml` (or under `aliases.model`). Not found → STOP. The YAML is canonical; the list below is a convenience mirror (relocated here from auto-memory 2026-06-24, deferred Fix 1).
