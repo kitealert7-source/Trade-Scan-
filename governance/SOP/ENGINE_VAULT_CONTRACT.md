@@ -155,6 +155,12 @@ retains a mix of dotted (`v1.5.2`, `v1.5.3`, `v1.5.4`, `v1.5.6`) and underscored
 (`v1_5_7`, `v1_5_8`) directories from successive promotions. Both conventions resolve
 identically; do not rename existing vaulted directories (immutability rule §6).
 
+> **Note (2026-06-30 — CURRENT canonical + consolidation):** Canonical is **v1.5.11**
+> (`active_engine=v1_5_11`); rollback is **v1.5.10**. Compute engines **v1.5.3–v1.5.9 were
+> REMOVED** from `engine_dev/` (defective/uncharged — see §14). The notes below are
+> **fully HISTORICAL**: the "successor engines … retained for replay" model is superseded
+> by §14 for the compute tree.
+>
 > **Note (2026-06-17 — CURRENT canonical):** The canonical engine is now **v1.5.10**
 > (`active_engine=v1_5_10`; charged direction-aware spread; single-asset **and** basket).
 > Promoted 2026-06-17 via PR #3 (merge `d98a4770`) — see §12 (closure) + §13 (log). The
@@ -333,6 +339,45 @@ One row per canonical promotion (§12 item 9), each indexing a durable record fi
 | Date | Promoted | Prior canonical | Promotion commit(s) | Merge | Vault snapshot | Rollback path |
 |---|---|---|---|---|---|---|
 | [2026-06-17](../promotions/2026-06-17__v1_5_10.md) | v1_5_10 | v1_5_8 | `bb15c768` (single-asset flip) + `06839158` (freeze); basket Phase B `363c8179`/`cd2e229b`; R9 self-ID `24c4b7e8` | `d98a4770` (PR #3) | `DR_BASELINE_2026_06_17_v1_5_10` | `git revert` the config commits (`engine_registry.json` / `engine_authority.py`) or the merge `d98a4770` |
+
+---
+
+## 14. Single Active Engine (Consolidation 2026-06-30)
+
+This section supersedes, for compute engines ≤ v1.5.9, the §7 "successor engines …
+retained for historical replay" model. It is the governance record of the engine
+consolidation (`outputs/system_reports/02_engine_core/ENGINE_CONSOLIDATION_PLAN_2026-06-29.md`).
+
+**14.1 — engine_dev/ holds exactly two compute engines: {canonical, rollback}.**
+Currently `v1_5_11` (canonical) + `v1_5_10` (rollback). The canonical is the one and
+only engine the runtime ever runs (§2 execution/testing/preflight/strategy/portfolio).
+The rollback is present, FROZEN, byte-identical, and **inert** — reached only by a
+deliberate operator swap, never by an automatic resolver.
+
+**14.2 — Runtime engine selection is FORBIDDEN.** `config/engine_registry.json` names
+`active_engine` (canonical) + `rollback` as METADATA, not a candidate list.
+`tools/engine_resolver.py` VALIDATES the canonical engine for a run (does it satisfy
+the strategy's capabilities/contract?); it does NOT enumerate `engine_dev/` or
+`vault/engines/` and never chooses among versions. This tightens alignment with §10
+(no automatic vault inspection during execution): the prior resolver enumerated
+`vault/engines/` during capability resolution; that scan has been removed, so
+capability resolution now matches the intended runtime model.
+
+**14.3 — Superseded compute engines are REMOVED from engine_dev/, not archived for replay.**
+The removal set (≤ v1.5.9) is **defective**: v1.5.10 introduced the correct cost model
+(direction-aware spread charging); every engine ≤ v1.5.9 is UNCHARGED. The
+charged/uncharged boundary is exactly v1.5.10 — identical to the keep/remove line.
+Reproducing a pre-v1.5.10 run reproduces a *known-wrong* number, so there is **no valid
+replay or audit target**. Therefore:
+  - **git history is the forensic record** (the removed dirs are committed; restorable via
+    `git checkout <sha> -- <path>`). This is the §8 disaster-recovery path for the removed set.
+  - **vault/engines/ archival of a removed DEFECTIVE engine is OPTIONAL housekeeping**, not a
+    deletion gate. (Contrast: a CORRECT engine being retired would still warrant the full §4
+    byte-verified archive bar — this relaxation applies ONLY to the defective ≤v1.5.9 set.)
+
+**14.4 — Scope boundary.** This governs the COMPUTE engines (`engine_dev/universal_research_engine/`).
+The basket Signal-ABI shims (`engine_abi/v1_5_9|v1_5_10|v1_5_11`) are a separate contract,
+out of scope here; `engine_abi.v1_5_9` is a kept shim binding v1_5_10 compute.
 
 ---
 
