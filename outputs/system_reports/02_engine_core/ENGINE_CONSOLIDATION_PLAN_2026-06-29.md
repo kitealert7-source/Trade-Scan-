@@ -1,9 +1,20 @@
 # Engine Consolidation — Implementation Plan (single active compute engine)
 
-**Status:** ✅ DESIGN APPROVED 2026-06-29 (operator review — decisions A/C/E resolved, rename-to-disabled gate added). **Execution pending explicit go** (Invariant #6: protected infra — `engine_dev/`, `tools/`, `config/`, `governance/`). No code touched yet.
-**Date:** 2026-06-29 · **Author:** agent (Claude) · **Trigger:** operator — "there should be only one version of engine which is active."
+**Status:** ✅ **EXECUTED + COMPLETE 2026-06-30** (design approved 2026-06-29). All phases landed on branch `engine-consolidation` (Trade_Scan) plus one cross-repo doc commit (TS_Execution). Verified GREEN: broader-pytest 0 failed / 2228 passed / 66 skipped · abi_audit triple-gate · system_preflight REGISTRY/STRATEGIES/ARCHIVE/GUARDRAILS. Final state: `engine_dev/` = {v1_5_11 canonical, v1_5_10 rollback}.
+**Date:** 2026-06-29 (design) → 2026-06-30 (execution) · **Author:** agent (Claude) · **Trigger:** operator — "there should be only one version of engine which is active."
 
-> **No code touched.** This is the plan; nothing executes until approved.
+> **✅ EXECUTED 2026-06-30.** Commits on `engine-consolidation`:
+> `b90507ef` P1 · `50df7100` P3 · `d2024608` P4 · `4c34cd54` P5 · `b16562b4` P6 · `244600d2` P6b · `dedf473f` P7
+> (P0 / P2 / P5.5 were verification-only — no commit). Cross-repo: TS_Execution `20382ec` (engine-path doc cleanup + harness fixture-decay fix).
+>
+> **Operator decisions during execution** (deviations from the literal plan — each surfaced and approved):
+> 1. **Registry MINIMAL** — keep `active_engine`, add `rollback`, drop the `engines{}` map (NOT a rename to `{canonical,rollback}`, which would have churned 5 working consumers + the single-asset runtime).
+> 2. **Stale contract whitelist → ADVISORY** (warn-not-block). All 9 strategies with `REQUIRED_CONTRACT_IDS` declared a *removal-set* contract_id (the old selector resolved them to v1_5_6/v1_5_8); F11 `required_keys` are identical across versions, so the real shape gate is unaffected.
+> 3. **`test_v1510_*` parity → EXTRACT, then retire.** The plan's "keep untouched" was impossible (they import removed engines). Analysis found unique engine-path fill coverage (entry/exit spread, the R11 SL/TP-exit gap) not held by any current-engine test → extracted onto v1_5_11 (`test_v1_5_11_directional_fills.py`); the historical byte-comparisons retired.
+> 4. **Phase 5.5 rename-proof methodology flaw:** the uncommitted `mv` dirties the tree, tripping tests that read the live git change set (intent-injector hook + a telemetry test) — 4 false-positive "failures", zero real import/enumeration dependency. The clean proof is the *committed* deletion + `git revert` net.
+> 5. **Phase 6 also fixed 5 stale live-code references** the rename-proof could not catch (path-strings / comments in unexercised branches, incl. a live `pipeline_utils` fallback) — found by post-deletion `git grep`; and re-pointed 3 skip-not-fail integrity tests that had evaded every prior sweep.
+>
+> Enforcement (P7): `tools/lint_no_removed_engine_imports.py` (AST, imports-only) + pre-commit hook + `.github/workflows/engine_import_lint.yml` + `tests/test_lint_no_removed_engine_imports.py`. Governance: `ENGINE_VAULT_CONTRACT.md` §14.
 
 ---
 
