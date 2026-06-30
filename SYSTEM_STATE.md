@@ -68,9 +68,3 @@
 #### Active Charter — (none — PARKED 2026-06-29)
 
 > **No active charter.** The 2026-06-20 infra-freeze charter was fulfilled + PARKED 2026-06-29 (freeze lifted, v1.5.11 Patch A canonical, demo fleet stood down). 2026-06-30: engine compute + ABI consolidations completed (single active engine + single ABI) → the `CURRENT`/`LIVE_ABI` dispatch-convergence follow-up is now largely MOOT (nothing left to select). History → [[project_v1_5_11_patch_a_canonical]] + [[project_engine_consolidation_2026_06_30]]. Set a new charter when the next multi-session focus is chosen.
-
-#### Stage-1 emitter drops `entry_reason` — minor open follow-up (from RESOLVED worker NO_TRADES investigation, 2026-06-21)
-Native signal-overlap means `entry_reason` is dropped at emit and must be reconstructed downstream. Low priority; the parent worker NO_TRADES / anti-masking investigation is RESOLVED (full record in git history + `[[worker-stage1-complete-not-run-proof]]`).
-
-#### Engine no-liquidation fidelity limitation — ACCEPTED-WITH-MITIGATION (disclosed 2026-06-16)
-The execution engine (canonical **v1.5.11**, rollback v1.5.10) models NO margin-call/liquidation: under leveraged sizing (`granular_parity` / `vol_parity`) a basket can run to NEGATIVE equity instead of liquidating at the stake, so modeled net%/maxDD% can exceed 100%. **Scope: backtest-FIDELITY only** — live trades at fixed 0.01 lot are broker-margined (bounded). **Mitigation (LIVE):** analysis-layer floor `tools/leverage_liquidation_adjust.py` wired into `tools/cointegration_aggregator.py` (default-on). NOT fixed in-engine by design (run-halting would stall corpus generation). Ref: `SZVP_LEVERAGE_FORENSIC.md`, `[[project-v1_5_10-canonical-readiness]]` R7/R8.
