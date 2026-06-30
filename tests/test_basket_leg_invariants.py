@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from engine_abi.v1_5_9 import BarState
+from engine_abi.v1_5_11 import BarState
 from tools.basket_runner import BasketLeg
 from tools.recycle_strategies import (
     PineZRevArmedState,

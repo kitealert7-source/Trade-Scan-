@@ -6,7 +6,7 @@ Single tool, three modes, all fail-closed:
   --rehash       Recompute and stamp manifest_sha256 after a deliberate manual edit.
   --dead-exports Informational audit: consumer_count==0 or stale last_verified.
 
-Requires --abi-version <ver> (currently only v1_5_9 — v1_5_3 retired in
+Requires --abi-version <ver> (currently only v1_5_11 — v1_5_3 retired in
 plan v11). The CLI keeps `--abi-version` plural-capable so re-introducing a
 parallel ABI later doesn't require a tool rewrite. Plan: H2_ENGINE_PROMOTION_PLAN.md
 Section 1l, 6.8, Phase 0a Step 4.
@@ -59,7 +59,7 @@ from config.path_authority import TS_EXECUTION  # noqa: E402
 _GOVERNANCE_DIR = _REPO_ROOT / "governance"
 _ABI_PKG_DIR = _REPO_ROOT / "engine_abi"
 
-_SUPPORTED_ABIS = ("v1_5_9", "v1_5_10", "v1_5_11")
+_SUPPORTED_ABIS = ("v1_5_11",)
 
 # Maps the leading segment of a `consumed_by` dotted path to a filesystem root.
 # "Trade_Scan" → the local tree (same rationale as above); siblings stay on

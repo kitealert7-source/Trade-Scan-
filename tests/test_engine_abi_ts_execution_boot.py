@@ -1,4 +1,4 @@
-"""Phase 0a Step 6 — TS_Execution boot smoke via engine_abi.v1_5_9.
+"""Phase 0a Step 6 — TS_Execution boot smoke via engine_abi.v1_5_11.
 
 We can't start the live MT5 broker connection from CI, so the boot test
 exercises the import surface only:
@@ -12,7 +12,7 @@ exercises the import surface only:
 If any of these regresses, TS_Execution would refuse to boot at run time.
 
 Plan ref: H2_ENGINE_PROMOTION_PLAN.md Phase 0a Step 6 acceptance gate
-          (post-v11: TS_Execution migrated to v1_5_9, v1_5_3 retired).
+          (post-v11: TS_Execution migrated to v1_5_11, v1_5_3 retired).
 """
 from __future__ import annotations
 
@@ -53,14 +53,14 @@ def test_phase0_validation_against_portfolio(ts_execution_on_path):
     portfolio_path = _TS_EXECUTION_ROOT / "portfolio.yaml"
     assert portfolio_path.is_file(), f"missing {portfolio_path}"
     v = assert_abi(portfolio_path)
-    assert v == "v1_5_9", (
-        f"TS_Execution portfolio.yaml abi_version expected v1_5_9, got {v!r}."
+    assert v == "v1_5_11", (
+        f"TS_Execution portfolio.yaml abi_version expected v1_5_11, got {v!r}."
     )
 
 
 def test_execution_adapter_imports_compile(ts_execution_on_path):
-    """execution_adapter.py imports admit + validate_cap via engine_abi.v1_5_9."""
-    from engine_abi.v1_5_9 import admit, validate_cap
+    """execution_adapter.py imports admit + validate_cap via engine_abi.v1_5_11."""
+    from engine_abi.v1_5_11 import admit, validate_cap
     from engines.concurrency_gate import admit as src_admit
     from engines.concurrency_gate import validate_cap as src_validate_cap
     assert admit is src_admit
@@ -68,10 +68,10 @@ def test_execution_adapter_imports_compile(ts_execution_on_path):
 
 
 def test_main_imports_compile(ts_execution_on_path):
-    """main.py imports ContextView + apply_regime_model via engine_abi.v1_5_9."""
-    from engine_abi.v1_5_9 import ContextView, apply_regime_model
-    # ABI re-points its source to v1_5_10 (direction-aware, B' 2026-06-14)
-    from engine_dev.universal_research_engine.v1_5_10.evaluate_bar import (
+    """main.py imports ContextView + apply_regime_model via engine_abi.v1_5_11."""
+    from engine_abi.v1_5_11 import ContextView, apply_regime_model
+    # ABI re-points its source to v1_5_11 (direction-aware, B' 2026-06-14)
+    from engine_dev.universal_research_engine.v1_5_11.evaluate_bar import (
         ContextView as src_ContextView,
     )
     from engines.regime_state_machine import apply_regime_model as src_arm
@@ -80,15 +80,15 @@ def test_main_imports_compile(ts_execution_on_path):
 
 
 def test_pipeline_imports_compile(ts_execution_on_path):
-    """pipeline.py imports REGIME_CACHE_DIR via engine_abi.v1_5_9."""
-    from engine_abi.v1_5_9 import REGIME_CACHE_DIR
+    """pipeline.py imports REGIME_CACHE_DIR via engine_abi.v1_5_11."""
+    from engine_abi.v1_5_11 import REGIME_CACHE_DIR
     from engines.regime_state_machine import REGIME_CACHE_DIR as src_dir
     assert REGIME_CACHE_DIR is src_dir
 
 
 def test_strategy_loader_imports_compile(ts_execution_on_path):
-    """strategy_loader.py imports StrategyProtocol via engine_abi.v1_5_9."""
-    from engine_abi.v1_5_9 import StrategyProtocol
+    """strategy_loader.py imports StrategyProtocol via engine_abi.v1_5_11."""
+    from engine_abi.v1_5_11 import StrategyProtocol
     from engines.protocols import StrategyProtocol as src_protocol
     assert StrategyProtocol is src_protocol
 
@@ -96,7 +96,7 @@ def test_strategy_loader_imports_compile(ts_execution_on_path):
 def test_normalized_context_view_subclass_still_constructs(ts_execution_on_path):
     """main.py subclasses ContextView to NormalizedContextView. ABI re-export
     must remain a real class (not a function/wrapper), so subclassing works."""
-    from engine_abi.v1_5_9 import ContextView
+    from engine_abi.v1_5_11 import ContextView
 
     class NormalizedContextView(ContextView):
         def get(self, key, default=None):
@@ -109,10 +109,10 @@ def test_normalized_context_view_subclass_still_constructs(ts_execution_on_path)
 
 
 def test_replay_harness_imports_compile(ts_execution_on_path):
-    """harness/replay.py uses the same engine_abi.v1_5_9 surface as main.py.
+    """harness/replay.py uses the same engine_abi.v1_5_11 surface as main.py.
 
     Validates that no legacy v1_5_3 import fallback exists in active code: a
-    fallback would silently rebind types if v1_5_9 ever became unavailable,
+    fallback would silently rebind types if v1_5_11 ever became unavailable,
     which the plan explicitly prohibits. Post-v11 there is only one ABI.
     Stale comments mentioning v1_5_3 are tolerated (history references);
     we only ban executable import statements via AST inspection.
@@ -121,7 +121,7 @@ def test_replay_harness_imports_compile(ts_execution_on_path):
     replay_py = _TS_EXECUTION_ROOT / "harness" / "replay.py"
     assert replay_py.is_file()
     text = replay_py.read_text(encoding="utf-8")
-    assert "from engine_abi.v1_5_9 import ContextView, apply_regime_model" in text
+    assert "from engine_abi.v1_5_11 import ContextView, apply_regime_model" in text
 
     tree = ast.parse(text)
     bad_imports: list[str] = []

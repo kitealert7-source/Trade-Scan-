@@ -75,7 +75,7 @@ def build_cointegration_row(
     # single-source value (run_pipeline._basket_engine_abi), so the two engine
     # fields move together on a promotion. See engine_identity_is_compute_not_stamp.
     engine_version: str,
-    engine_abi: str = "engine_abi.v1_5_9",
+    engine_abi: str = "engine_abi.v1_5_11",
     classifier_version: str | None = None,
     data_vintage: str | None = None,
     methodology_version: str = "v2_log_eg",

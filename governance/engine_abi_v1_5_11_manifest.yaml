@@ -1,4 +1,4 @@
-# engine_abi.v1_5_11 — direction-aware ABI manifest (basket_runner + TS_SignalValidator successor surface)
+# engine_abi.v1_5_11 -- direction-aware ABI manifest (CANONICAL; sole engine_abi surface)
 #
 # DO NOT EDIT MANUALLY without running `python tools/abi_audit.py --rehash --abi-version v1_5_11`.
 # Triple-gate CI enforces consistency:
@@ -7,11 +7,11 @@
 #   3. Runtime assertion (engine_abi/v1_5_11/__init__.py at import)
 # All three FAIL-CLOSED on divergence.
 #
-# v1.5.10 = v1.5.9 + direction-aware fills (SELL@bid / BUY@ask); byte-identical to
-# v1.5.9 at spread=0. Built as an INERT successor surface (parity-proven before
-# activation); basket_runner is NOT re-pointed here -- that is the gated canonical
-# flip. Until then, the sole consumer is the acceptance test test_engine_abi_v1_5_11.
-# Created 2026-06-16. Predecessor ABI: v1_5_9 (engine_abi_v1_5_9_manifest.yaml).
+# CANONICAL ABI (ABI consolidation 2026-06-30): the predecessor shims engine_abi.v1_5_9
+# and engine_abi.v1_5_10 were retired; v1_5_11 is the single engine_abi surface. Consumers:
+# basket_runner (Trade_Scan basket compute), the TS_Execution live bridge
+# (main / execution_adapter / pipeline / strategy_loader / replay), and the
+# acceptance + boot tests.
 abi_version: v1_5_11
 predecessor_abi: v1_5_10
 created_utc: '2026-06-16'
@@ -28,8 +28,11 @@ exports:
   source_module: engine_dev.universal_research_engine.v1_5_11.evaluate_bar
   type: class
   consumed_by:
+  - TS_Execution.harness.replay
+  - TS_Execution.src.main
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
   - Trade_Scan.tests.test_engine_abi_v1_5_11
-  consumer_count: 1
+  consumer_count: 4
   last_verified_commit: db8270efd43c86a0ec956568fd730e273056cc06
   last_verified_utc: '2026-06-16T12:28:46Z'
 - name: BarState
@@ -108,40 +111,51 @@ exports:
   source_module: engines.regime_state_machine
   type: function
   consumed_by:
+  - TS_Execution.harness.replay
+  - TS_Execution.src.main
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
   - Trade_Scan.tests.test_engine_abi_v1_5_11
-  consumer_count: 1
+  consumer_count: 4
   last_verified_commit: db8270efd43c86a0ec956568fd730e273056cc06
   last_verified_utc: '2026-06-16T12:28:46Z'
 - name: StrategyProtocol
   source_module: engines.protocols
   type: protocol
   consumed_by:
+  - TS_Execution.src.strategy_loader
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
   - Trade_Scan.tests.test_engine_abi_v1_5_11
-  consumer_count: 1
+  consumer_count: 3
   last_verified_commit: db8270efd43c86a0ec956568fd730e273056cc06
   last_verified_utc: '2026-06-16T12:28:46Z'
 - name: admit
   source_module: engines.concurrency_gate
   type: function
   consumed_by:
+  - TS_Execution.src.execution_adapter
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
   - Trade_Scan.tests.test_engine_abi_v1_5_11
-  consumer_count: 1
+  consumer_count: 3
   last_verified_commit: db8270efd43c86a0ec956568fd730e273056cc06
   last_verified_utc: '2026-06-16T12:28:46Z'
 - name: validate_cap
   source_module: engines.concurrency_gate
   type: function
   consumed_by:
+  - TS_Execution.src.execution_adapter
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
   - Trade_Scan.tests.test_engine_abi_v1_5_11
-  consumer_count: 1
+  consumer_count: 3
   last_verified_commit: db8270efd43c86a0ec956568fd730e273056cc06
   last_verified_utc: '2026-06-16T12:28:46Z'
 - name: REGIME_CACHE_DIR
   source_module: engines.regime_state_machine
   type: constant
   consumed_by:
+  - TS_Execution.src.pipeline
+  - Trade_Scan.tests.test_engine_abi_ts_execution_boot
   - Trade_Scan.tests.test_engine_abi_v1_5_11
-  consumer_count: 1
+  consumer_count: 3
   last_verified_commit: db8270efd43c86a0ec956568fd730e273056cc06
   last_verified_utc: '2026-06-16T12:28:46Z'
-manifest_sha256: 3320870b52bb7f8038035a32a4c609b75b2971aeddc750b15dae812b63fc9282
+manifest_sha256: 491545a40c8f0abc1a56775ed0d884ad9acf5dadea4707224dfd1bd84d40bc76

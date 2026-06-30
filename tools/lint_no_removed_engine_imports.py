@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """
 lint_no_removed_engine_imports.py — Pre-commit + CI gate: block imports of the
-removed compute engines v1.5.3–v1.5.9
+removed compute engines (v1.5.3–v1.5.9) AND the retired engine_abi shims (v1_5_9/v1_5_10)
 =========================================================================
-The engine consolidation (2026-06-30) removed
-``engine_dev/universal_research_engine/v1_5_3 … v1_5_9`` from the active tree —
-they are defective (uncharged cost model; the charged/uncharged boundary is
-exactly v1.5.10). See ENGINE_VAULT_CONTRACT.md §14. This lint enforces that no
-live code re-introduces an import of them, so the single-active-engine state
-cannot silently decay (per the enforceable-mechanisms doctrine —
-feedback_enforceable_mechanisms_only).
+Two consolidations, one gate:
+  * Compute (2026-06-30): ``engine_dev/universal_research_engine/v1_5_3 … v1_5_9``
+    removed (defective uncharged cost model; boundary is exactly v1.5.10).
+    ENGINE_VAULT_CONTRACT.md §14.
+  * ABI (2026-06-30): the ``engine_abi.v1_5_9`` / ``engine_abi.v1_5_10`` Signal-shim
+    packages retired; ``engine_abi.v1_5_11`` is the single canonical ABI (full
+    16-symbol parity). §14A.
+This lint enforces that no live code re-introduces an import of either, so the
+single-active-engine + single-ABI state cannot silently decay (per the
+enforceable-mechanisms doctrine — feedback_enforceable_mechanisms_only).
 
-Matches IMPORT statements only (AST-level `import` / `from … import`). Historical
-references in comments, docstrings, and path strings (e.g. "originated in v1_5_8")
-are intentionally NOT flagged — only an actual runtime import is a violation.
+Matches IMPORT statements only (AST-level `import` / `from … import`, including
+`from engine_abi import v1_5_9`). Historical references in comments, docstrings, and
+path/cost-model strings (e.g. "originated in v1_5_8", the cost-model provenance map
+key "engine_abi.v1_5_9") are intentionally NOT flagged — only a runtime import is a
+violation.
 
-Kept engines v1_5_10 (rollback) and v1_5_11 (canonical) are allowed. vault/ and
-archive/ are exempt (frozen historical snapshots legitimately self-reference old
-versions).
+Kept: compute v1_5_10 (rollback) + v1_5_11 (canonical); ABI v1_5_11 (canonical). vault/
+and archive/ are exempt (frozen historical snapshots legitimately self-reference).
 
 Usage:
     python tools/lint_no_removed_engine_imports.py           # scan all .py (CI)
@@ -40,6 +44,13 @@ from lint_helpers import get_staged_py_files, get_all_py_files, is_in_exempt_dir
 # `v1_5_[3-9]` followed by `.` or end-of-string matches exactly v1_5_3 … v1_5_9 and
 # NOT v1_5_10 / v1_5_11 (the char after `v1_5_` would be `1`, not in [3-9]).
 REMOVED_IMPORT = re.compile(r"^engine_dev\.universal_research_engine\.v1_5_[3-9](\.|$)")
+
+# ABI consolidation 2026-06-30: the engine_abi.v1_5_9 / v1_5_10 Signal-shim packages
+# were retired; v1_5_11 is the single canonical ABI. Block both the dotted-module form
+# (`import engine_abi.v1_5_9`, `from engine_abi.v1_5_10 import X`) and the name form
+# (`from engine_abi import v1_5_9 [as ...]`).
+REMOVED_ABI_IMPORT = re.compile(r"^engine_abi\.v1_5_(9|10)(\.|$)")
+REMOVED_ABI_NAMES = {"v1_5_9", "v1_5_10"}
 
 # Frozen historical snapshots + non-pipeline scratch trees that legitimately
 # reference (or still contain) old versions. The ACTIVE engine_dev/ is deliberately
@@ -75,13 +86,18 @@ def scan_file(filepath: Path) -> list[tuple[int, str]]:
     for node in ast.walk(tree):
         modules: list[str] = []
         if isinstance(node, ast.ImportFrom):
-            # Absolute `from engine_dev...` only; level>0 is a relative import.
+            # Absolute imports only; level>0 is a relative import.
             if node.module and node.level == 0:
                 modules.append(node.module)
+                # `from engine_abi import v1_5_9 [as ...]` (name form).
+                if node.module == "engine_abi":
+                    for alias in node.names:
+                        if alias.name in REMOVED_ABI_NAMES:
+                            violations.append((node.lineno, f"engine_abi.{alias.name}"))
         elif isinstance(node, ast.Import):
             modules.extend(alias.name for alias in node.names)
         for mod in modules:
-            if REMOVED_IMPORT.match(mod):
+            if REMOVED_IMPORT.match(mod) or REMOVED_ABI_IMPORT.match(mod):
                 violations.append((node.lineno, mod))
     return violations
 
@@ -104,11 +120,12 @@ def main() -> None:
             total += 1
 
     if total > 0:
-        print(f"\n  BLOCKED: {total} import(s) of a removed compute engine (v1.5.3–v1.5.9).")
-        print("  Those engines were removed by the 2026-06-30 consolidation")
-        print("  (ENGINE_VAULT_CONTRACT.md §14 — defective/uncharged). Use the canonical")
-        print("  engine v1_5_11 (or the rollback v1_5_10); a removed engine is restorable")
-        print("  from git history if truly required, but never imported by live code.")
+        print(f"\n  BLOCKED: {total} import(s) of a removed compute engine (v1.5.3–v1.5.9)")
+        print("  or a retired engine_abi shim (v1_5_9 / v1_5_10). Both were removed by the")
+        print("  2026-06-30 consolidations (ENGINE_VAULT_CONTRACT.md §14 / §14A). Use the")
+        print("  canonical compute engine v1_5_11 (or rollback v1_5_10) and the canonical ABI")
+        print("  engine_abi.v1_5_11; a removed package is restorable from git history if truly")
+        print("  required, but never imported by live code.")
         sys.exit(1)
 
     if not staged_only:

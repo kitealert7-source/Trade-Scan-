@@ -14,7 +14,7 @@ import pandas as pd
 
 from tools.basket_runner import BasketLeg
 from tools.recycle_rules import H2RecycleRule
-from engine_abi.v1_5_9 import BarState
+from engine_abi.v1_5_11 import BarState
 
 
 # ---------------------------------------------------------------------------

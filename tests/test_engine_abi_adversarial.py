@@ -34,10 +34,10 @@ _GOV_DIR = _REPO_ROOT / "governance"
 _PKG_DIR = _REPO_ROOT / "engine_abi"
 _AUDIT_TOOL = _REPO_ROOT / "tools" / "abi_audit.py"
 
-# Use v1_5_9 for adversarial mutation — it has more exports so the regex
+# Use v1_5_11 for adversarial mutation — it has more exports so the regex
 # distinguishes mutations cleanly. v1_5_3 follows the same pattern; one
 # representative is enough to exercise the framework.
-_ABI = "v1_5_9"
+_ABI = "v1_5_11"
 _MANIFEST_PATH = _GOV_DIR / f"engine_abi_{_ABI}_manifest.yaml"
 _PKG_INIT_PATH = _PKG_DIR / _ABI / "__init__.py"
 
@@ -73,7 +73,7 @@ def _force_reload_abi():
 
     Why importlib.reload() instead of `del sys.modules[...] + import_module`:
       The bare del+import pattern creates a NEW module object. Other test
-      modules that already imported `from engine_abi import v1_5_9 as engine`
+      modules that already imported `from engine_abi import v1_5_11 as engine`
       keep their OLD reference, so when those tests subsequently run their
       own assertions (which check module identity against the manifest),
       the saved `__all__` reference no longer matches the package-level

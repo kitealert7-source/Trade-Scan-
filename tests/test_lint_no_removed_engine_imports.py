@@ -29,6 +29,10 @@ def _write(tmp_path: Path, code: str) -> Path:
     "from engine_dev.universal_research_engine.v1_5_6.execution_loop import ContextView",
     "import engine_dev.universal_research_engine.v1_5_8.stage2_compiler",
     "import engine_dev.universal_research_engine.v1_5_9",
+    # Retired ABI shims (consolidation 2026-06-30) — all three import forms.
+    "from engine_abi.v1_5_9 import BarState",
+    "import engine_abi.v1_5_10.evaluate_bar",
+    "from engine_abi import v1_5_9 as abi",
 ])
 def test_flags_removed_engine_imports(tmp_path, code):
     """A deliberately-introduced import of a removed engine MUST be flagged."""
@@ -39,10 +43,15 @@ def test_flags_removed_engine_imports(tmp_path, code):
     # Kept engines — never flagged (the v1_5_[3-9] regex excludes v1_5_10/11).
     "from engine_dev.universal_research_engine.v1_5_10 import execution_loop",
     "import engine_dev.universal_research_engine.v1_5_11.main",
+    # Kept canonical ABI — never flagged.
+    "from engine_abi.v1_5_11 import BarState",
+    "import engine_abi.v1_5_11",
     # Historical references that are NOT runtime imports — must NOT be flagged.
     "# originated in v1_5_8; see engine_dev/universal_research_engine/v1_5_8/main.py",
     'PATH = "engine_dev/universal_research_engine/v1_5_6/main.py"',
     '"""Docstring mentioning the since-removed v1_5_8 engine (f3ae767)."""',
+    # Cost-model provenance STRING (decodes historical artifacts) — not an import.
+    'COST = {"engine_abi.v1_5_9": "spread_uncosted_roundtrip_v1_5_9"}',
 ])
 def test_ignores_kept_engines_and_non_imports(tmp_path, code):
     assert not scan_file(_write(tmp_path, code)), f"lint must NOT flag: {code!r}"

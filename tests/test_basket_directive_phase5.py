@@ -294,7 +294,7 @@ def test_h2_recycle_v3_cross_pair_pnl_math():
     AUDJPY and GBPAUD examples."""
     from tools.recycle_rules.h2_recycle_v3 import _leg_pnl_usd
     from tools.basket_runner import BasketLeg
-    from engine_abi.v1_5_9 import BarState
+    from engine_abi.v1_5_11 import BarState
 
     # AUDJPY long 0.01 lot, entry 100, current 102, USDJPY = 150
     #   pnl_jpy = 0.01 × 100000 × (102 − 100) = 2000 JPY
@@ -332,7 +332,7 @@ def test_h2_recycle_v3_usd_anchored_parity_with_v1():
     """
     from tools.recycle_rules.h2_recycle_v3 import _leg_pnl_usd
     from tools.basket_runner import BasketLeg
-    from engine_abi.v1_5_9 import BarState
+    from engine_abi.v1_5_11 import BarState
 
     idx = pd.date_range("2024-09-02", periods=1, freq="5min")
     # EURUSD: pnl = lot × units × (price − entry) = 0.02 × 100000 × 0.01 = $20

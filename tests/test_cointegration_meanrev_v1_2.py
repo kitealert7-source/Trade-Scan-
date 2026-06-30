@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from engine_abi.v1_5_9 import BarState
+from engine_abi.v1_5_11 import BarState
 from tools.basket_runner import BasketLeg
 from tools.recycle_rules.cointegration_meanrev_v1_2 import (
     CointegrationMeanRevV1_2Rule,

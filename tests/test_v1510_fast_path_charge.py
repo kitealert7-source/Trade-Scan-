@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from engine_abi.v1_5_10 import BarState
+from engine_abi.v1_5_11 import BarState
 from engines.execution_fill import bar_spread, exec_fill
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.recycle_rules.pine_ratio_zrev_v1 import PineRatioZRevRule

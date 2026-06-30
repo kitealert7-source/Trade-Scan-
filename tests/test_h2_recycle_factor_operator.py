@@ -14,7 +14,7 @@ import pytest
 
 from tools.basket_runner import BasketLeg
 from tools.recycle_rules import H2RecycleRule, H2RecycleRuleV2, H2RecycleRuleV3
-from engine_abi.v1_5_9 import BarState
+from engine_abi.v1_5_11 import BarState
 
 
 # ---------------------------------------------------------------------------

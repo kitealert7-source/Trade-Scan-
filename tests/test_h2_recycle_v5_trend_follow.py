@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from engine_abi.v1_5_9 import BarState
+from engine_abi.v1_5_11 import BarState
 from tools.basket_runner import BasketLeg, BasketRunner
 from tools.recycle_rules.h2_recycle_v5 import H2RecycleRuleV5
 

@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from engine_abi.v1_5_9 import (
+from engine_abi.v1_5_11 import (
     BarState,
     apply_regime_model,
     evaluate_bar,

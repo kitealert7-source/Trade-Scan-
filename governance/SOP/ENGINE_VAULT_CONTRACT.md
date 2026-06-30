@@ -375,9 +375,31 @@ replay or audit target**. Therefore:
     deletion gate. (Contrast: a CORRECT engine being retired would still warrant the full §4
     byte-verified archive bar — this relaxation applies ONLY to the defective ≤v1.5.9 set.)
 
-**14.4 — Scope boundary.** This governs the COMPUTE engines (`engine_dev/universal_research_engine/`).
-The basket Signal-ABI shims (`engine_abi/v1_5_9|v1_5_10|v1_5_11`) are a separate contract,
-out of scope here; `engine_abi.v1_5_9` is a kept shim binding v1_5_10 compute.
+**14.4 — Scope boundary.** §14.1–14.3 govern the COMPUTE engines
+(`engine_dev/universal_research_engine/`); the basket Signal-ABI is governed by §14A.
+
+## 14A. Single Signal ABI (Consolidation 2026-06-30)
+
+The `engine_abi` Signal-shim layer is collapsed to ONE canonical ABI:
+**`engine_abi.v1_5_11`** (binds compute v1_5_11). The predecessor shims
+`engine_abi.v1_5_9` (TS_Execution's prior binding) and `engine_abi.v1_5_10` (the inert
+direction-aware successor) are RETIRED — git history is the record.
+
+**14A.1 — Full API parity was the precondition.** All three shims exported the identical
+16-symbol surface, so the collapse is a mechanical re-point with no behaviour change. Every
+consumer now imports `engine_abi.v1_5_11`: `basket_runner` (Trade_Scan basket compute) and
+the TS_Execution live bridge (main / execution_adapter / pipeline / strategy_loader / replay).
+
+**14A.2 — Single-ABI enforcement.** `tools/abi_audit.py` triple-gate now scopes only
+`v1_5_11` (`_SUPPORTED_ABIS=("v1_5_11",)`); one manifest
+`governance/engine_abi_v1_5_11_manifest.yaml`. `tools/lint_no_removed_engine_imports.py`
+blocks any import of `engine_abi.v1_5_9`/`v1_5_10` (pre-commit + CI).
+
+**14A.3 — Data-provenance keys are PRESERVED, not retired.** Historical artifacts
+(cointegration_sheet rows, run stamps) carry `engine_abi.v1_5_9`/`v1_5_10` as cost-model
+self-ID stamps; the decoder map `basket_provenance._COST_MODEL_BY_ABI` RETAINS those keys —
+they interpret already-computed data (note `engine_abi.v1_5_9` decodes to the UNCHARGED
+model). Retiring the code packages does NOT retire the provenance keys.
 
 ---
 

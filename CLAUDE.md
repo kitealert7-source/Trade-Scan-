@@ -89,7 +89,7 @@ Full rules: `outputs/system_reports/04_governance_and_guardrails/TOOL_ROUTING_TA
 | Promoting a strategy to LIVE | `.claude/skills/promote/SKILL.md` |
 | Deployment doctrine (historical) | `outputs/system_reports/11_deployment_and_burnin/README.md` (index) |
 | Basket directive / RECYCLE family / H2 engine | `outputs/system_reports/01_system_architecture/H2_ENGINE_PROMOTION_PLAN.md` (LOCKED v11) — `tools/basket_runner.py`, `tools/basket_pipeline.py`, `tools/basket_data_loader.py`, `tools/recycle_strategies.py`, `tools/recycle_rules/`, `governance/recycle_rules/registry.yaml`. Dispatched by `tools/run_pipeline.py:_try_basket_dispatch` |
-| ABI manifest / engine_abi versioning | `outputs/system_reports/01_system_architecture/H2_ENGINE_PROMOTION_PLAN.md` §1l + §5.12 — single ABI on `engine_abi.v1_5_9`; `tools/abi_audit.py` triple-gate enforcer (pre-commit + CI + runtime) |
+| ABI manifest / engine_abi versioning | `governance/SOP/ENGINE_VAULT_CONTRACT.md` §14A — single canonical ABI `engine_abi.v1_5_11` (v1_5_9/v1_5_10 retired 2026-06-30); `tools/abi_audit.py` triple-gate enforcer (pre-commit + CI + runtime), one manifest `governance/engine_abi_v1_5_11_manifest.yaml` |
 | Directory/file authority | `outputs/system_reports/01_system_architecture/REPOSITORY_AUTHORITY_MAP.md` |
 | Cross-repo orientation / "which sibling owns X" / topology | `../TS_Obsidian_Vault/system/00-START-HERE.md` — **advisory** vault map layer (cross-repo navigation only); confirm against canonical before acting and mind each map's `verified:` date. Never an authority for a decision (Invariant #31) |
 | System audit or review | Browse `outputs/system_reports/` folder READMEs first — each subfolder has an index |
