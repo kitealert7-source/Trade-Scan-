@@ -210,10 +210,24 @@ def test_single_strategy_unresolvable_engine_fails_loud(monkeypatch):
 def test_single_strategy_folder_version_skew_fails_loud(monkeypatch):
     """A folder whose module declares a DIFFERENT version than its name must
     abort rather than stamp the folder name onto the other engine's compute.
-    v1_5_3/main.py ships ENGINE_VERSION='1.5.4' -- the live skew case."""
+
+    Pre-consolidation this used the live v1_5_3-ships-1.5.4 skew; the engine
+    consolidation (2026-06-30) removed the defective predecessors, so no
+    naturally-skewed folder remains. The guard (tools.run_stage1.run_engine_logic)
+    is exercised SYNTHETICALLY: inject a fake canonical-engine main module that
+    LIES about its ENGINE_VERSION, so selection resolves the canonical folder but
+    the loaded module's identity disagrees -> abort. Doctrine unchanged."""
+    import sys
+    import types as _types
     from tools.run_stage1 import run_engine_logic
-    monkeypatch.setenv("ENGINE_VERSION_OVERRIDE", "1.5.3")
-    assert get_engine_version() == "1.5.3"
+
+    monkeypatch.delenv("ENGINE_VERSION_OVERRIDE", raising=False)
+    ver = get_engine_version()  # canonical, e.g. "1.5.11"
+    mod_path = f"engine_dev.universal_research_engine.v{ver.replace('.', '_')}.main"
+    fake = _types.ModuleType(mod_path)
+    fake.ENGINE_VERSION = "0.0.0-skew"          # disagrees with the folder name
+    fake.run_engine = lambda *a, **k: None
+    monkeypatch.setitem(sys.modules, mod_path, fake)
     with pytest.raises(RuntimeError, match="disagrees with the engine's own identity"):
         run_engine_logic(None, None)
 
@@ -344,13 +358,15 @@ def test_selection_surfaces_converge_on_authority(monkeypatch):
 
 
 def test_canonical_engines_declare_their_label_versions():
-    """Anchor (graft 3): each canonical-set engine module declares the version its
-    FOLDER LABEL claims, so retiring/relabelling can never silently stamp the
-    wrong compute. Full compute byte-equivalence (v1.5.8==v1.5.9 output;
-    v1.5.10==v1.5.9 @spread=0) is covered by tests/test_engine_abi_v1_5_9.py,
-    tests/test_engine_abi_v1_5_10.py, and tests/test_basket_runner_phase2.py."""
+    """Anchor (graft 3): each kept engine module declares the version its FOLDER
+    LABEL claims, so retiring/relabelling can never silently stamp the wrong
+    compute. Post-consolidation (2026-06-30) the kept set is {v1_5_10 rollback,
+    v1_5_11 canonical}. The canonical engine's direction-aware fill behaviour is
+    covered by tests/test_v1_5_11_directional_fills.py; the historical
+    v1.5.10-vs-v1.5.8/9 byte-equivalence parity retired with the defective
+    predecessors (git history is the forensic record)."""
     import importlib
-    EXPECT = {"v1_5_8": "1.5.8", "v1_5_9": "1.5.9", "v1_5_10": "1.5.10", "v1_5_11": "1.5.11"}
+    EXPECT = {"v1_5_10": "1.5.10", "v1_5_11": "1.5.11"}
     for label, dotted in EXPECT.items():
         mod = importlib.import_module(f"engine_dev.universal_research_engine.{label}.main")
         declared = getattr(mod, "ENGINE_VERSION", None) or getattr(mod, "__version__", None)

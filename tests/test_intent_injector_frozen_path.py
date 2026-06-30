@@ -69,7 +69,7 @@ class TestFrozenPathFilter:
     def test_changes_touch_frozen_paths_engine_dev(self):
         """File under engine_dev/<version>/ matches the default frozen
         patterns -> engine_change intent should fire."""
-        files = ["engine_dev/universal_research_engine/v1_5_8/execution_loop.py"]
+        files = ["engine_dev/universal_research_engine/v1_5_11/execution_loop.py"]
         assert intent_injector._changes_touch_frozen_paths(files) is True
 
     def test_changes_touch_frozen_paths_vault_engine(self):
