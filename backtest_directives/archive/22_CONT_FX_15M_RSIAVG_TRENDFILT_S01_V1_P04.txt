@@ -1,0 +1,64 @@
+test:
+  name: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P04
+  family: CONT
+  strategy: 22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P04
+  version: 1
+  signal_version: 2
+  broker: OctaFx
+  timeframe: 15m
+  start_date: "2024-01-02"
+  end_date: "2026-06-26"
+  research_mode: true
+  tuning_allowed: false
+  parameter_mutation: false
+  description: "RSI(2) Average Pullback on 15M, 5-pair friction-resilient subset (GBPUSD+AUDUSD+USDJPY+USDCHF+USDCAD). Trend-aligned mean reversion using 2-bar averaged RSI(2) (avg of t and t-1), min_abs_trend_score=2 gate, max_bars=3 time exit, ATR 2.0x stop. P02 hardening fixes F1/F2/F3 retained; NZDUSD+EURUSD dropped vs P03 (both failed under +0.2 pip friction stress)."
+  notes: "RECONSTRUCTED 2026-07-01: original directive .txt not recoverable -- 0 master_filter rows, 0 DIRECTIVE_SOURCE.txt capsules, 0 hits in backtest_directives/{completed,active_backup,active,archive} (idea 22 predates current ledger/artifact conventions, last touched 2026-04-18). Rebuilt verbatim from vault/snapshots/DR_BASELINE_2026_06_17_v1_5_10/strategies/22_CONT_FX_15M_RSIAVG_TRENDFILT_S01_V1_P04/strategy.py STRATEGY_SIGNATURE. Signature hash 10c26e362c7af710 cross-checked against governance/namespace/sweep_registry.yaml idea 22 S01 P04 registration -- MATCH. Window set per rerun-backtest reference/backtest_window.md single-asset convention (2024-01-02 -> latest bar), not the original historical dates."
+
+symbols:
+  - GBPUSD
+  - AUDUSD
+  - USDJPY
+  - USDCHF
+  - USDCAD
+
+indicators:
+  - indicators.trend.linreg_regime
+  - indicators.trend.linreg_regime_htf
+  - indicators.trend.kalman_regime
+  - indicators.trend.trend_persistence
+  - indicators.trend.efficiency_ratio_regime
+  - indicators.momentum.rsi
+  - indicators.volatility.atr
+
+execution_rules:
+  entry_when_flat_only: true
+  pyramiding: false
+  reset_on_exit: true
+  stop_loss:
+    type: atr_multiple
+    atr_multiplier: 2.0
+  trailing_stop:
+    enabled: false
+  take_profit:
+    enabled: false
+
+mean_reversion_rules:
+  entry:
+    rsi_period: 2
+    avg_bars: 2
+    long_threshold: 25
+    short_threshold: 75
+    min_abs_trend_score: 2
+  exit:
+    rsi_exit_long: 75
+    rsi_exit_short: 25
+    max_bars: 3
+
+order_placement:
+  type: market
+  execution_timing: next_bar_open
+
+trade_management:
+  direction_restriction: none
+  reentry:
+    allowed: true
