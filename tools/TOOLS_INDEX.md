@@ -22,9 +22,9 @@ Top-level modules are operational entrypoints; modules under subpackages
 `utils/`, `system_logging/`, `state_lifecycle/`) are internal libraries.
 
 
-Total modules indexed: 384 (excludes `__init__.py`).
+Total modules indexed: 386 (excludes `__init__.py`).
 
-## tools/ (top-level)  (182 modules)
+## tools/ (top-level)  (184 modules)
 
 | Module | Summary |
 |---|---|
@@ -129,6 +129,7 @@ Total modules indexed: 384 (excludes `__init__.py`).
 | `tools.lint_indicator_registry_sync` | Pre-commit lint — block adding an indicator module without a registry entry. |
 | `tools.lint_no_hardcoded_paths` | lint_no_hardcoded_paths.py — Pre-commit gate: block hardcoded user paths |
 | `tools.lint_no_removed_engine_imports` | lint_no_removed_engine_imports.py — Pre-commit + CI gate: block imports of the |
+| `tools.lint_protected_infra_approval` | Invariant #11 enforcement -- Protected Infrastructure approval gate (commit-msg hook). |
 | `tools.lint_signature_completeness` | Lint: every behavior-affecting class-level constant in strategy.py must |
 | `tools.lint_supersession_map_append_only` | Pre-commit lint — enforce the append-only invariant on |
 | `tools.manifest_verification` | Single source of truth for run-manifest artifact verification. |
@@ -182,6 +183,7 @@ Total modules indexed: 384 (excludes `__init__.py`).
 | `tools.safe_append_excel` | safe_append_excel.py — Non-Destructive Excel Appender |
 | `tools.sanitize_portfolio_folders` | One-shot migration: rename legacy PF_* portfolio folders to the canonical |
 | `tools.semantic_validator` | Stage-0.5 — Strategy Semantic Validation (Hardened) |
+| `tools.session_reset_gate` | Session-Reset Execution Invariant — one predicate. |
 | `tools.shadow_filter` | shadow_filter.py — Trade Filter Impact Analysis |
 | `tools.skill_loader` | (no docstring) |
 | `tools.stage2_compiler` | DEPRECATED — DO NOT USE. |
