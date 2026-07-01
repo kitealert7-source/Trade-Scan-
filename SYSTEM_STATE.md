@@ -1,9 +1,8 @@
 # SYSTEM STATE
 
-## SESSION STATUS: BROKEN
-- BROKEN: 1 commits not pushed to origin
+## SESSION STATUS: OK
 
-> Generated: 2026-07-01T15:02:45Z
+> Generated: 2026-07-01T15:03:31Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -40,9 +39,9 @@
 - Run directories: 498
 
 ## Git Sync
-- Remote: **1 commits ahead of origin/main** (vs `origin/main`)
+- Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `9915789d fix(system-state): correct FPS -> FSP typo in the Candidates label`
+- Last substantive commit: `912dcc18 session: SYSTEM_STATE snapshot â€” FSP label + Manual refresh (retire count, worktree sweep)`
 
 ## Deferred Maintenance
 
