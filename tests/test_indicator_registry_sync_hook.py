@@ -536,6 +536,7 @@ def test_session_close_skill_documents_step_6b():
 
 PRE_PUSH_SCRIPT = PROJECT_ROOT / "tools" / "hooks" / "pre-push"
 INSTALL_SCRIPT = PROJECT_ROOT / "tools" / "hooks" / "install.sh"
+COMMIT_MSG_SCRIPT = PROJECT_ROOT / "tools" / "hooks" / "commit-msg"
 
 
 def _fail_fast_if_no_shell() -> None:
@@ -568,6 +569,10 @@ def _seed_hook_install_tree(repo: Path) -> None:
         PROJECT_ROOT / "tools" / "hooks" / "pre-commit",
         repo / "tools" / "hooks" / "pre-commit",
     )
+    # commit-msg was added to HOOK_NAMES 2026-07-01 (Invariant #11 approval gate);
+    # install.sh now iterates it too, so the source must exist in the fixture or
+    # install.sh aborts with "source hook missing".
+    shutil.copy(COMMIT_MSG_SCRIPT, repo / "tools" / "hooks" / "commit-msg")
     shutil.copy(INSTALL_SCRIPT, repo / "tools" / "hooks" / "install.sh")
     os.chmod(repo / "tools" / "hooks" / "install.sh", 0o755)
     # The pre-push hook calls tools/indicator_registry_sync.py — copy it.
@@ -577,9 +582,9 @@ def _seed_hook_install_tree(repo: Path) -> None:
 def test_install_sh_installs_pre_push_hook(fake_repo):
     """ENVIRONMENT-CONDITIONAL (needs `sh` on PATH; acknowledged baseline TD -- see §11 header).
 
-    `tools/hooks/install.sh` extended in Patch 2 must install both
-    pre-commit and pre-push. Document-level guard against the loop
-    over `HOOK_NAMES` getting dropped by a future refactor.
+    `tools/hooks/install.sh` extended in Patch 2 must install pre-commit
+    and pre-push (+ commit-msg since 2026-07-01). Document-level guard
+    against the loop over `HOOK_NAMES` getting dropped by a future refactor.
     """
     _fail_fast_if_no_shell()
     _seed_hook_install_tree(fake_repo)
@@ -597,8 +602,10 @@ def test_install_sh_installs_pre_push_hook(fake_repo):
     # The git common dir is `<fake_repo>/.git` for a non-worktree clone.
     pre_push = fake_repo / ".git" / "hooks" / "pre-push"
     pre_commit = fake_repo / ".git" / "hooks" / "pre-commit"
+    commit_msg = fake_repo / ".git" / "hooks" / "commit-msg"
     assert pre_push.exists(), "install.sh failed to install pre-push hook"
     assert pre_commit.exists(), "install.sh regressed on pre-commit hook"
+    assert commit_msg.exists(), "install.sh failed to install commit-msg hook (Invariant #11 gate)"
     # On Windows the chmod is a no-op but should not fail; the hook still
     # works because git invokes via sh.
     assert pre_push.read_text(encoding="utf-8").startswith("#!/bin/sh")
