@@ -12,11 +12,12 @@ invariant's own prose.
 | Class | Meaning | Count | Invariants |
 |---|---|---|---|
 | **MECHANICAL** | A gate / test / hook / hash fails the build or the run if violated | **18** | 1, 4, 5, 10, 12, 14, 15, 16, 17, 19, 20, 21, 22, 23, 27, 28, 29, 32 |
-| **PARTIAL** | Some automation, but coverage has gaps (or is self-declared partial) | **7** | 2, 6, 7, 9, 13, 24, 31 |
-| **PROSE-ONLY** | Doctrine only — enforced by agent discipline, nothing machine-checks it | **6** | 3, 8, 11, 18, 25, 30 |
+| **PARTIAL** | Some automation, but coverage has gaps (or is self-declared partial) | **8** | 2, 6, 7, 9, 11, 13, 24, 31 |
+| **PROSE-ONLY** | Doctrine only — enforced by agent discipline, nothing machine-checks it | **5** | 3, 8, 18, 25, 30 |
 | **WAS STALE → FIXED** | Contradicted reality; corrected this audit | **1** | 26 |
 
-So **~56% are mechanically enforced**, ~22% partial, ~19% are honour-system doctrine.
+So **~56% are mechanically enforced**, ~25% partial, ~16% are honour-system doctrine (5 rows,
+down from 6 after #11 was mechanised — see below).
 The number (32) is not the problem — a mechanically-enforced invariant costs nothing to
 hold, because the gate remembers it, not a human. The risk lives entirely in the
 **prose-only** rows.
@@ -42,7 +43,7 @@ for ~5 weeks. This is the exact failure mode every other prose-only invariant is
 | 8 | Single Authority (run_state) | Convention — only `run_pipeline.py` writes; not enforced | PROSE-ONLY |
 | 9 | Append-Only Audit | Code uses append mode; no test asserts it | PARTIAL |
 | 10 | Human Gating | `PORTFOLIO_COMPLETE` state gate + human promote step | MECHANICAL |
-| 11 | **Protected Infrastructure** | **Agent discipline only — no hook blocks editing `tools/…`** | **PROSE-ONLY** |
+| 11 | **Protected Infrastructure** | `commit-msg` hook `lint_protected_infra_approval.py` — blocks protected-dir commits lacking a `Protected-Infra-Approved:` trailer (landed 2026-07-01, `a7ed489`) | PARTIAL |
 | 12 | Single Signature Authority | `directive_schema.normalize_signature` + `lint_signature_completeness` | MECHANICAL |
 | 13 | Genesis/Clone Classification | `classifier_gate` (partial) | PARTIAL |
 | 14 | No Workspace Mode | `verify_engine_integrity` + `tools_manifest` hash | MECHANICAL |
@@ -65,12 +66,14 @@ for ~5 weeks. This is the exact failure mode every other prose-only invariant is
 | 31 | Pipeline-Authoritative Conclusions | Self-declared split: action-layer mechanical (run_id-keyed writes); conclusion-layer STOP-doctrine | PARTIAL |
 | 32 | Viewing-Layer / Ledger Separation | View-projections in `GUARD_FILES` + `lint_guard_manifest_sync` | MECHANICAL |
 
-## The 6 prose-only rows (the decay surface)
+## The prose-only rows (the decay surface)
 
-- **#11 Protected Infrastructure** — the most-invoked invariant in practice (every `tools/`
-  edit), yet purely honour-system. A staged-file pre-commit *warning* when
-  `tools/|engines/|governance/|.claude/skills/` change without an approval marker would give
-  it teeth cheaply (see `tools/approval_marker.py`, already used for strategy.py).
+- **#11 Protected Infrastructure — MECHANISED 2026-07-01 (`a7ed489`), now PARTIAL.** The
+  `commit-msg` hook `tools/lint_protected_infra_approval.py` blocks protected-dir commits
+  that lack a `Protected-Infra-Approved: <reason>` trailer (auto-regen data exempt). It's a
+  deliberate-acknowledgment gate + audit trail (`git log --grep Protected-Infra-Approved`),
+  not cryptographic — but it catches accidental protected edits and records every approval.
+  The 5 rows below remain honour-system.
 - **#25 Scratch Script Placement**, **#30 Mandatory Tool Routing** — agent-discipline only;
   low blast radius, probably fine to leave as labelled doctrine.
 - **#3 Artifact Authority**, **#8 Single Authority**, **#18 Engine Manifest Generator** —
@@ -84,8 +87,10 @@ for ~5 weeks. This is the exact failure mode every other prose-only invariant is
 2. **Label enforcement class inline in AGENT.md.** Tag each invariant `[MECHANICAL]` /
    `[PARTIAL]` / `[DOCTRINE]` so a reader instantly sees which are machine-checked and which
    rest on discipline. Honesty about the soft spots is the point.
-3. **Give #11 a mechanism** (the one prose-only invariant with real blast radius): a
-   pre-commit warn-hook on protected-dir edits without an approval marker.
+3. ~~**Give #11 a mechanism**~~ — **DONE (2026-07-01, `a7ed489`)**: `commit-msg` hook
+   `tools/lint_protected_infra_approval.py` blocks protected-dir commits without a
+   `Protected-Infra-Approved:` trailer. #11 moved PROSE-ONLY → PARTIAL (still acknowledgment-
+   based, not cryptographic). Remaining prose-only: #3, #8, #18, #25, #30.
 4. **Add a periodic invariant↔mechanism re-audit** (quarterly, or per governance change) —
    this is the check that would have caught #26 five weeks earlier. Cheap; the audit above is
    the template. Aligns with the "enforceable mechanisms only; optional docs decay" principle.

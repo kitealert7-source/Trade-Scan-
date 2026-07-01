@@ -46,7 +46,7 @@ Non-negotiable. The agent must never violate any of these.
 8. **Single Authority** — Only `run_pipeline.py` may mutate `run_state.json`.
 9. **Append-Only Audit** — `directive_audit.log` and run audit logs are append-only.
 10. **Human Gating** — No new `strategy.py` may enter execution without explicit human approval.
-11. **Protected Infrastructure** — `tools/`, `engines/`, `engine_dev/`, `governance/`, `.claude/skills/` require implementation plan + explicit human approval before modification.
+11. **Protected Infrastructure** — `tools/`, `engines/`, `engine_dev/`, `governance/`, `.claude/skills/` require implementation plan + explicit human approval before modification. *Advisory enforcement (2026-07-01):* the `commit-msg` hook `tools/lint_protected_infra_approval.py` (installed via `tools/hooks/install.sh`) blocks a commit staging protected-dir files unless the message carries a `Protected-Infra-Approved: <reason>` trailer (auto-regen data — `tools_manifest.json`, namespace registries — exempt). Audit trail: `git log --grep Protected-Infra-Approved`. Deliberate-acknowledgment gate, not cryptographic.
 12. **Single Signature Authority** — Signature construction owned exclusively by `tools/directive_schema.py:normalize_signature()`.
 13. **Genesis/Clone Classification** — New strategies use GENESIS_MODE (directive-only, no cross-family borrowing). Existing strategies use CLONE_MODE.
 14. **No Workspace Mode** — All pipeline executions run in strict integrity mode. Engine hash + tools manifest verification mandatory.
