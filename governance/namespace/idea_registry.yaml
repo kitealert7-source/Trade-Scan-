@@ -588,3 +588,27 @@ ideas:
     role: entry_edge
     instruments: SPX500
     status: active
+  '94':
+    family: CONT
+    title: "FX RSIAVG pullback lifted to 1H -- churn/cost-mirage test. RSI(2) averaged over t and t-1; LONG when |trend_score|>=2 and rsi_2_avg<25, mirror SHORT; max_bars=3 (3h hold), ATR 2.0x stop, both directions, next_bar_open; 5-pair FX basket GBPUSD/AUDUSD/USDJPY/USDCHF/USDCAD. Fresh-genesis timeframe migration of legacy idea-22 (15m), which was net-negative on all 5 pairs on charged v1.5.11 (~1150 trades/pair/yr, spread ate the edge). Hypothesis: 1H (~4x fewer trades) cuts cumulative spread drag enough to surface the directional edge. Charged engine v1.5.11; existing indicators only (rsi, atr, trend regimes)."
+    class: indicator_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX (GBPUSD/AUDUSD/USDJPY/USDCHF/USDCAD)
+    status: active
+  '95':
+    family: CONT
+    title: "FX RSIAVG pullback lifted to 4H -- lowest-turnover churn test. RSI(2) averaged over t and t-1; LONG when |trend_score|>=2 and rsi_2_avg<25, mirror SHORT; max_bars=3 (12h hold), ATR 2.0x stop, both directions, next_bar_open; 5-pair FX basket GBPUSD/AUDUSD/USDJPY/USDCHF/USDCAD. Fresh-genesis timeframe migration of legacy idea-22 (15m), net-negative on all 5 pairs on charged v1.5.11. Hypothesis: 4H (~16x fewer trades than 15m) minimizes spread drag -- strongest test of whether the edge survives charging at low turnover. Charged engine v1.5.11; existing indicators only."
+    class: indicator_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX (GBPUSD/AUDUSD/USDJPY/USDCHF/USDCAD)
+    status: active
+  '96':
+    family: CONT
+    title: "FX RSIAVG pullback on DAILY -- lowest-turnover extreme of the churn/cost-mirage sweep. RSI(2) averaged over t and t-1; LONG when |trend_score|>=2 and rsi_2_avg<25, mirror SHORT; max_bars=3 (3-day hold), ATR 2.0x stop, both directions, next_bar_open; 5-pair FX basket GBPUSD/AUDUSD/USDJPY/USDCHF/USDCAD. Fresh-genesis timeframe migration of legacy idea-22 (15m) to daily, completing the 15m/1H/4H/1D turnover sweep. Daily minimizes cumulative spread drag (~20-40 trades/pair over 2024-26) -- if the edge survives charging it should be cleanest here, at the cost of small sample. Echoes the original idea-01 daily RSIAVG intent (that was on equity indices). Charged engine v1.5.11; existing indicators only."
+    class: indicator_logic
+    regime: trend
+    role: entry_edge
+    instruments: FX (GBPUSD/AUDUSD/USDJPY/USDCHF/USDCAD)
+    status: active
