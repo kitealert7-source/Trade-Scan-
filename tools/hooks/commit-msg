@@ -1,0 +1,21 @@
+#!/bin/sh
+# commit-msg hook -- tracked canonical source.
+# Install into this clone with `./tools/hooks/install.sh`.
+#
+# Enforces AGENT.md Invariant #11 (Protected Infrastructure): a commit that stages
+# files under tools/ engines/ engine_dev/ governance/ .claude/skills/ must carry an
+# operator-approval trailer in the commit message:
+#
+#     Protected-Infra-Approved: <one-line reason / who approved>
+#
+# else the commit is blocked. Auto-regenerated data (tools_manifest.json + the
+# namespace registries) is exempt. This is a deliberate-acknowledgment gate + audit
+# trail, not cryptographic enforcement. See tools/lint_protected_infra_approval.py.
+#
+# $1 is the path to the file holding the commit message.
+
+python tools/lint_protected_infra_approval.py "$1"
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+exit 0

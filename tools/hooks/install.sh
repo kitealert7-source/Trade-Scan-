@@ -16,7 +16,7 @@ set -e
 
 # Tracked hooks to install. Add new entries here when introducing a
 # new hook in tools/hooks/.
-HOOK_NAMES="pre-commit pre-push"
+HOOK_NAMES="pre-commit pre-push commit-msg"
 
 GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null)"
 if [ -z "$GIT_COMMON_DIR" ]; then
