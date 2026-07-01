@@ -2,7 +2,7 @@
 
 ## SESSION STATUS: OK
 
-> Generated: 2026-07-01T15:03:31Z
+> Generated: 2026-07-01T15:05:51Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -41,7 +41,7 @@
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `912dcc18 session: SYSTEM_STATE snapshot â€” FSP label + Manual refresh (retire count, worktree sweep)`
+- Last substantive commit: `fb72f4de session: SYSTEM_STATE snapshot (accurate close â€” SESSION STATUS OK)`
 
 ## Deferred Maintenance
 
@@ -77,4 +77,4 @@
 >
 > **Friction log (carry forward — mechanism only on repeat, per [[feedback_research_throughput_over_infra]]):** `STOP_CONTRACT_VIOLATION` (close-anchored stop vs next_bar_open — hit 2 migrations, nearing mechanism threshold), indicator-path-drift, provisioner-won't-fix-wrong-import, `SIGNAL_PRIMITIVE`-missing.
 >
-> **Housekeeping:** worktree leftovers swept 2026-07-01 — `suspicious-greider-aa8e36` + `condescending-payne-9a755a` removed. One remains: `quizzical-mendeleev-c1fc67` (git-deregistered + branch deleted, but the empty dir is OS-locked — `rm` it once the holding process releases).
+> **Housekeeping:** all leftover worktree dirs swept 2026-07-01 — `suspicious-greider-aa8e36`, `condescending-payne-9a755a`, and `quizzical-mendeleev-c1fc67` (the last freed once its background task ended) all removed; `.claude/worktrees/` clean, `git worktree list` shows only the main checkout.
