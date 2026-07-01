@@ -1059,3 +1059,36 @@ INVAR-002 (prune-vs-dependency guard).
 
 ---
 
+### MPS / Master-Filter xlsx Stale — DB Has the Rows — Recovery — 2026-07-01
+
+**Symptom:** portfolio (Stage-4) or aggregation (Stage-3) runs report success and `ledger.db`
++ the pipeline report show the new rows, but `Master_Portfolio_Sheet.xlsx` /
+`Strategy_Master_Filter.xlsx` is stale or missing them. The run log shows
+`[LEDGER] FileLock unavailable — MPS xlsx deferred` or `[WARN] Excel export failed`.
+
+**Cause (by design, not a failure):** SQLite `ledger.db` is the source of truth; the Excel
+workbooks are a derived, best-effort operator view. The xlsx write is serialized by a
+FileLock and is *deferred* (never fails the stage) when the lock is held — a stray Excel
+handle, Defender/AV scanning the file, or a concurrent `--max-parallel` writer. Since commit
+`03f1c37a` the authoritative DB upsert runs OUTSIDE the lock (SQLite is concurrency-safe by
+`portfolio_id`), so a deferred xlsx leaves the workbook behind the DB but never fails the run.
+
+**Recovery (regenerates every sheet from the DB — safe, idempotent):**
+```bash
+# close any open Excel handle on the workbook first (that held lock is why it deferred)
+python tools/ledger_db.py --export-mps       # rebuild Master_Portfolio_Sheet.xlsx from ledger.db
+python tools/ledger_db.py --export-mf        # rebuild Strategy_Master_Filter.xlsx (if that sheet is stale)
+python tools/ledger_db.py --export           # or both at once
+# then re-apply data-sheet styling (sort / hyperlinks / filters):
+python tools/format_excel_artifact.py --file <Master_Portfolio_Sheet.xlsx path> --profile portfolio
+```
+
+**Do NOT:** hand-edit the xlsx to "add the missing row" — the DB is authoritative, the edit is
+lost on the next export; treat a deferred xlsx as a failed run — check `ledger.db` / the report
+first, the run almost certainly succeeded.
+
+**See also:** `[[feedback_regenerate_mps_after_test]]`, STAGE_4_LEDGER_MISMATCH,
+commit `03f1c37a` (DB write moved outside the FileLock).
+
+---
+
