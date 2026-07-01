@@ -449,8 +449,10 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
     _lock_path = ledger_path.with_suffix(".lock")
     # DB FIRST (mandatory) — SQLite is the source of truth. The upsert is concurrency-safe
     # (keyed by portfolio_id), so the AUTHORITATIVE write runs UNLOCKED: it must never be
-    # gated behind the advisory FileLock, which can time out on Defender/stale-lock
-    # contention and would otherwise hard-fail a run whose portfolios already landed. (fix 2026-07-01)
+    # gated behind the advisory FileLock. A FileLock timeout means another PROCESS held the
+    # lock for the whole window (a concurrent --max-parallel writer, or a stuck/killed holder
+    # that never released) — filelock retries ~every 50ms, so a transient scan cannot cause
+    # it. Gating the DB write behind it would hard-fail a run whose portfolios already landed. (fix 2026-07-01)
     from tools.ledger_db import (
         _connect as _db_connect,
         create_tables as _db_create,
@@ -487,8 +489,9 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
                             except Exception:
                                 pass
             except Exception:
-                # Transient lock on the read (Defender/AV) must not fail the stage:
-                # DB is authoritative and `--export-mps` rebuilds every sheet.
+                # A transient handle on the workbook (Excel open on it, an indexer/backup, or
+                # possibly an AV scan — unconfirmed which) can fault the read; it must not fail
+                # the stage — DB is authoritative and `--export-mps` rebuilds every sheet.
                 pass
         try:
             def _render_mps_ledger(_p):

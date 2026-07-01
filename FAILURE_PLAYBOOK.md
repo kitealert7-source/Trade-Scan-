@@ -1068,10 +1068,14 @@ INVAR-002 (prune-vs-dependency guard).
 
 **Cause (by design, not a failure):** SQLite `ledger.db` is the source of truth; the Excel
 workbooks are a derived, best-effort operator view. The xlsx write is serialized by a
-FileLock and is *deferred* (never fails the stage) when the lock is held — a stray Excel
-handle, Defender/AV scanning the file, or a concurrent `--max-parallel` writer. Since commit
-`03f1c37a` the authoritative DB upsert runs OUTSIDE the lock (SQLite is concurrency-safe by
-`portfolio_id`), so a deferred xlsx leaves the workbook behind the DB but never fails the run.
+FileLock and is *deferred* (never fails the stage) when the lock is held. A FileLock timeout
+means another **process** held the advisory lock for the whole window — a concurrent
+`--max-parallel` writer, or a stuck/killed holder that never released (NOT an AV scan;
+filelock retries ~every 50ms so a transient scan can't hold it). A fault on the `.xlsx`
+itself is separate — an open handle (Excel open on the workbook, an indexer/backup, possibly
+AV — unconfirmed). Since commit `03f1c37a` the authoritative DB upsert runs OUTSIDE the lock
+(SQLite is concurrency-safe by `portfolio_id`), so a deferred xlsx leaves the workbook behind
+the DB but never fails the run.
 
 **Recovery (regenerates every sheet from the DB — safe, idempotent):**
 ```bash
