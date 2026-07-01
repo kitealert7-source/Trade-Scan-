@@ -369,7 +369,7 @@ def collect_ledgers() -> dict[str, Any]:
     except Exception as e:
         result["mps"] = {"error": str(e)}
 
-    # Candidates (FPS)
+    # Candidates (FSP)
     if CANDIDATE_FILTER_PATH.exists():
         try:
             df = pd.read_excel(CANDIDATE_FILTER_PATH)
@@ -1137,16 +1137,16 @@ def render_markdown(
             lines.append(f"  - **{sheet_name}:** {tab.get('rows', '?')} rows — {cls_str}")
     lines.append("")
 
-    # Candidates (FPS)
+    # Candidates (FSP)
     fps = ledgers.get("candidates", {})
     if fps.get("missing"):
-        lines.append("- **Candidates (FPS):** MISSING")
+        lines.append("- **Candidates (FSP):** MISSING")
     elif fps.get("error"):
-        lines.append(f"- **Candidates (FPS):** ERROR — {fps['error']}")
+        lines.append(f"- **Candidates (FSP):** ERROR — {fps['error']}")
     else:
         cls = fps.get("classification", {})
         cls_str = ", ".join(f"{k}: {v}" for k, v in sorted(cls.items())) if cls else ""
-        lines.append(f"- **Candidates (FPS):** {fps.get('rows', '?')} rows — {cls_str}")
+        lines.append(f"- **Candidates (FSP):** {fps.get('rows', '?')} rows — {cls_str}")
     lines.append("")
 
     # ── Portfolio (TS_Execution)
