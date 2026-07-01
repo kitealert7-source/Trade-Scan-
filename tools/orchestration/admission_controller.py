@@ -43,6 +43,9 @@ class AdmissionStage:
         # 0a'. Stage -0.23: Engine-features flag validation (Patch A, v1.5.11)
         self._run_engine_features_gate(context)
 
+        # 0a''. Stage -0.24: Session-reset execution invariant
+        self._run_session_reset_gate(context)
+
         # 0. Stage -0.20: Idea Evaluation (Concept Reuse Gate)
         self._run_idea_evaluation(context)
 
@@ -150,6 +153,37 @@ class AdmissionStage:
             ) from e
         print(f"[{self.stage_id}] Stage -0.23: Engine Features Gate PASSED "
               f"(invalid_fill_policy={policy}) [OK]")
+
+    def _run_session_reset_gate(self, context: PipelineContext) -> None:
+        """Stage -0.24: Session-reset execution invariant.
+
+        Blocks the one config combination that silently drops every entry:
+        next_bar_open fill + session_reset resolving to 'utc_day' on a >= 1-day
+        bar clears state.pending_entry before it fills -> 0 trades that read as
+        "no edge". A cheap admission check (both surfaces: linter --check and
+        pipeline admission run this same AdmissionStage) that turns a silent
+        multi-hour investigation into an immediate, self-explaining refusal.
+        See tools/session_reset_gate.check_session_reset_safety and memory
+        feedback_session_reset_daily_footgun.
+        """
+        import yaml
+        from tools.session_reset_gate import check_session_reset_safety
+        try:
+            parsed = yaml.safe_load(
+                context.directive_path.read_text(encoding="utf-8")
+            ) or {}
+        except Exception as e:
+            raise PipelineExecutionError(
+                f"STAGE -0.24 SESSION RESET GATE: failed to read directive ({e})",
+                directive_id=context.directive_id,
+            ) from e
+        msg = check_session_reset_safety(parsed)
+        if msg:
+            raise PipelineExecutionError(
+                f"STAGE -0.24 SESSION RESET GATE FAILED: {msg}",
+                directive_id=context.directive_id,
+            )
+        print(f"[{self.stage_id}] Stage -0.24: Session Reset Gate PASSED [OK]")
 
     def _run_idea_evaluation(self, context: PipelineContext) -> None:
         """Stage -0.20: Non-blocking concept reuse gate.
