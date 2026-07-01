@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.state_paths import MASTER_FILTER_PATH, POOL_DIR, RUNS_DIR, CANDIDATE_FILTER_PATH
+from config.state_paths import MASTER_FILTER_PATH, POOL_DIR, RUNS_DIR, CANDIDATE_FILTER_PATH, BACKTESTS_DIR
 from config.path_authority import TS_EXECUTION as _TS_EXEC
 from tools.system_registry import _load_registry, _save_registry_atomic
 
@@ -207,6 +207,28 @@ def _apply_candidate_status(df: pd.DataFrame) -> pd.DataFrame:
     return out[cols]
 
 
+def _complete_backtests_strategies() -> set:
+    """Strategy names whose backtests/ folder holds a COMPLETED run (a trade report).
+
+    This is the FSP's membership source of truth — the sheet mirrors the on-disk
+    backtests/ folder (BACKTESTS_DIR). Idea-90 (cointegration) is routed to the
+    cointegration_sheet -> MPS and is excluded here. Folders with only a no-trades
+    marker or staged raw input (no AK_Trade_Report) are NOT complete and are excluded.
+    """
+    complete: set = set()
+    if not BACKTESTS_DIR.exists():
+        return complete
+    for _d in BACKTESTS_DIR.iterdir():
+        if not _d.is_dir() or _d.name.startswith("90_"):
+            continue
+        try:
+            if any(_n.startswith("AK_Trade_Report") for _n in os.listdir(_d)):
+                complete.add(_d.name)
+        except OSError:
+            continue
+    return complete
+
+
 def filter_strategies():
     try:
         from tools.ledger_db import read_master_filter
@@ -280,18 +302,20 @@ def filter_strategies():
         df.get('quarantined', pd.Series(0, index=df.index)), errors='coerce'
     ).fillna(0).astype(int)
 
+    # FSP MIRRORS the backtests/ folder (source of truth): list every COMPLETE single-asset
+    # run on disk, labeled CORE/WATCH/FAIL by _apply_candidate_status below — NO quality gate
+    # (a failed-but-complete run still belongs in the sheet; promotion gates on candidate_status,
+    # not FSP membership). Idea-90 cointegration is excluded on disk (-> cointegration_sheet/MPS).
+    # Explicitly-superseded rows (is_current==0) drop; current + legacy(NaN->1) stay.
+    # (2026-07-01 source-of-truth reconcile; was: trades>=40 & PF>=1.05 & RDR>=0.6 & exp-gate & sharpe>=0.3 & dd<=80)
+    _complete = _complete_backtests_strategies()
     mask = (
-        (df['total_trades'] >= 40) &
-        (df['profit_factor'] >= 1.05) &
-        (df['return_dd_ratio'] >= 0.6) &
-        _exp_gate_pass &
-        (df['sharpe_ratio'] >= 0.3) &
-        (_dd_col <= 80.0) &
         (_is_current == 1) &
-        (_quarantined == 0)
+        (_quarantined == 0) &
+        (df['strategy'].astype(str).isin(_complete))
     )
 
-    passed_df = df[mask].copy()
+    passed_df = df[mask].copy().drop_duplicates(subset="strategy", keep="first")
     
     # --- CANDIDATE LEDGER GENERATION ---
     # Append+dedup semantics: previously passing strategies are never evicted,
@@ -324,79 +348,14 @@ def filter_strategies():
                 if _stale:
                     print(f"[CANDIDATES] Pruned {len(_stale)} old archive snapshot(s); kept last {CANDIDATE_ARCHIVE_RETENTION}.")
 
-            # Step 2: Read-modify-write with dedup on run_id.
-            # Existing rows whose run_id appears in the current Master Filter
-            # have their metric columns refreshed (handles re-runs and corrections).
-            # Rows NOT in the current Master Filter are preserved as-is (append-only).
-            if CANDIDATE_FILTER_PATH.exists():
-                try:
-                    df_existing = pd.read_excel(CANDIDATE_FILTER_PATH)
-                    # Cast numeric columns to float64 immediately after read.
-                    # Excel writes integer-valued floats (e.g. sqn=0) as int64,
-                    # causing silent truncation when float values (e.g. sqn=0.70)
-                    # are assigned back via .at[]. All metric cols must be float.
-                    _numeric_cols = [
-                        "sqn", "trade_density", "expectancy", "sharpe_ratio",
-                        "return_dd_ratio", "profit_factor", "total_net_profit",
-                        "gross_profit", "gross_loss", "max_drawdown", "max_dd_pct",
-                        "worst_5_loss_pct", "pct_time_in_market", "avg_bars_in_trade",
-                        "net_profit_high_vol", "net_profit_normal_vol", "net_profit_low_vol",
-                        "net_profit_asia", "net_profit_london", "net_profit_ny",
-                        "net_profit_strong_up", "net_profit_weak_up", "net_profit_neutral",
-                        "net_profit_weak_down", "net_profit_strong_down",
-                    ]
-                    for _nc in _numeric_cols:
-                        if _nc in df_existing.columns:
-                            df_existing[_nc] = pd.to_numeric(df_existing[_nc], errors="coerce").astype("float64")
-                    existing_run_ids = (
-                        set(df_existing["run_id"].astype(str).tolist())
-                        if "run_id" in df_existing.columns
-                        else set()
-                    )
-                    # Identify new rows (not yet in candidates)
-                    df_new_rows = passed_df[~passed_df["run_id"].astype(str).isin(existing_run_ids)]
-
-                    # Refresh metrics for existing rows that are also in passed_df.
-                    # Preserve Analysis_selection (owned by master_filter DB —
-                    # control_panel writes; this tool republishes).
-                    _preserve_cols = {"Analysis_selection"}
-                    # Refresh ALL rows present in master_filter (not just currently passing).
-                    # Rows that pass today get refreshed; rows that previously passed but
-                    # now fail also get refreshed so metrics don't go stale while they sit
-                    # in the append-only ledger. Rows absent from master_filter are preserved.
-                    refreshed_ids = set(df["run_id"].astype(str)) & existing_run_ids
-                    if refreshed_ids:
-                        # Refresh metric columns for rows in refreshed_ids.
-                        # Uses .loc + .map() — no set_index gymnastics, no merge.
-                        # Pre-cast columns to float64 to prevent silent int truncation
-                        # when the Excel-read column is int64 (e.g. sqn column of all 0s).
-                        metric_cols = [
-                            c for c in df.columns
-                            if c not in _preserve_cols and c != "run_id" and c in df_existing.columns
-                        ]
-                        _lookup = df.set_index(df["run_id"].astype(str))
-                        df_existing = df_existing.copy()
-                        df_existing["run_id"] = df_existing["run_id"].astype(str)
-                        _refresh_mask = df_existing["run_id"].isin(refreshed_ids)
-                        for col in metric_cols:
-                            if col not in _lookup.columns:
-                                continue
-                            # Cast destination to float to prevent int truncation
-                            try:
-                                df_existing[col] = df_existing[col].astype(float)
-                            except (ValueError, TypeError):
-                                pass  # non-numeric column, skip cast
-                            _new_vals = df_existing.loc[_refresh_mask, "run_id"].map(_lookup[col])
-                            df_existing.loc[_refresh_mask, col] = _new_vals.values
-                        print(f"[CANDIDATES] Refreshed metrics for {len(refreshed_ids)} existing row(s) from Master Filter")
-
-                    df_merged = pd.concat([df_existing, df_new_rows], ignore_index=True)
-                    print(f"[CANDIDATES] Merged: {len(existing_run_ids)} existing + {len(df_new_rows)} new = {len(df_merged)} total")
-                except Exception as read_err:
-                    print(f"[WARN] Could not read existing candidates file ({read_err}) — writing fresh.")
-                    df_merged = passed_df
-            else:
-                df_merged = passed_df
+            # Step 2: Mirror the backtests/ folder — passed_df already IS the complete
+            # on-disk single-asset set (scoped + deduped above). No append-only merge and
+            # no metric-refresh-from-existing: the sheet is rebuilt from the ledger every
+            # run, so a strategy whose backtests/ folder is gone simply drops out and one
+            # that reappears comes back with fresh metrics.
+            # (Superseded 2026-07-01: was read existing FSP -> refresh -> append new -> dedup
+            #  on run_id, which accumulated folder-gone rows and diverged from backtests/.)
+            df_merged = passed_df.copy()
 
             # Preserve manually-set REMOVE status — these rows were flagged by
             # human review and should not revert to computed status.
