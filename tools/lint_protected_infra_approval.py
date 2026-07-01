@@ -29,6 +29,7 @@ from pathlib import Path
 PROTECTED_PREFIXES = ("tools/", "engines/", "engine_dev/", "governance/", ".claude/skills/")
 EXEMPT = {
     "tools/tools_manifest.json",
+    "tools/TOOLS_INDEX.md",                      # auto-regen by system_introspection every session-close
     "governance/namespace/sweep_registry.yaml",
     "governance/namespace/idea_registry.yaml",
 }
