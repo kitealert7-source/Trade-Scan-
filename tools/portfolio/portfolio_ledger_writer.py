@@ -18,7 +18,7 @@ import sys
 from datetime import datetime
 
 import pandas as pd
-from filelock import FileLock
+from filelock import FileLock, Timeout as FileLockTimeout
 
 from tools.pipeline_utils import resilient_xlsx_write
 from tools.portfolio.portfolio_config import (
@@ -447,26 +447,34 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
     """Persist the ledger: DB first, Excel second, then formatter/notes best-effort."""
     df_final = pd.concat([df_ledger, new_row_df], ignore_index=True)
     _lock_path = ledger_path.with_suffix(".lock")
-    with FileLock(str(_lock_path), timeout=120):
-        # No standalone ensure_xlsx_writable() here: resilient_xlsx_write (below) kills
-        # Excel + backs off internally. A pre-check only re-introduced the spurious
-        # XLSX_LOCK_TIMEOUT -> sys.exit(3) on transient (Defender) locks, and gated the
-        # authoritative DB write behind an Excel probe. (fix 2026-07-01)
-        # DB FIRST (mandatory) — SQLite is the source of truth
-        from tools.ledger_db import (
-            _connect as _db_connect,
-            create_tables as _db_create,
-            upsert_mps_df as _db_upsert,
-        )
-        _db_conn = _db_connect()
-        _db_create(_db_conn)
-        _db_upsert(_db_conn, df_final, sheet=target_sheet)
-        if df_other is not None and not df_other.empty:
-            _db_upsert(_db_conn, df_other, sheet=other_sheet)
-        _db_conn.close()
-        print(f"  [LEDGER_DB] Synced {len(df_final)} {target_sheet} rows to ledger.db")
+    # DB FIRST (mandatory) — SQLite is the source of truth. The upsert is concurrency-safe
+    # (keyed by portfolio_id), so the AUTHORITATIVE write runs UNLOCKED: it must never be
+    # gated behind the advisory FileLock, which can time out on Defender/stale-lock
+    # contention and would otherwise hard-fail a run whose portfolios already landed. (fix 2026-07-01)
+    from tools.ledger_db import (
+        _connect as _db_connect,
+        create_tables as _db_create,
+        upsert_mps_df as _db_upsert,
+    )
+    _db_conn = _db_connect()
+    _db_create(_db_conn)
+    _db_upsert(_db_conn, df_final, sheet=target_sheet)
+    if df_other is not None and not df_other.empty:
+        _db_upsert(_db_conn, df_other, sheet=other_sheet)
+    _db_conn.close()
+    print(f"  [LEDGER_DB] Synced {len(df_final)} {target_sheet} rows to ledger.db")
 
-        # EXCEL SECOND (derived view, best-effort)
+    # EXCEL SECOND (derived view, best-effort, serialized by the FileLock). resilient_xlsx_write
+    # kills Excel + backs off internally. A FileLock timeout here only DEFERS the xlsx
+    # (regenerable via `ledger_db.py --export-mps`) — it never fails the stage.
+    _lock = FileLock(str(_lock_path), timeout=60)
+    try:
+        _lock.acquire()
+    except FileLockTimeout:
+        print("  [LEDGER] FileLock unavailable — MPS xlsx deferred; "
+              "regenerate with: python tools/ledger_db.py --export-mps")
+        return
+    try:
         _preserve = {}
         _data_names = {target_sheet, other_sheet}
         if ledger_path.exists():
@@ -511,6 +519,8 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
             )
         except subprocess.CalledProcessError as e:
             print(f"[WARN] Notes sheet failed: {e}")
+    finally:
+        _lock.release()
 
 
 def update_master_portfolio_ledger(strategy_id, metrics, corr_data, max_stress_corr,
