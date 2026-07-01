@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: BROKEN
+- BROKEN: 1 commits not pushed to origin
 
-> Generated: 2026-07-01T14:47:06Z
+> Generated: 2026-07-01T15:02:45Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -23,7 +24,7 @@
   - **Portfolios:** 4 rows — FAIL: 4
   - **Single-Asset Composites:** 0 rows — no status column
 
-- **Candidates (FPS):** 52 rows — FAIL: 41, WATCH: 11
+- **Candidates (FSP):** 52 rows — FAIL: 41, WATCH: 11
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -39,9 +40,9 @@
 - Run directories: 498
 
 ## Git Sync
-- Remote: IN SYNC (vs `origin/main`)
+- Remote: **1 commits ahead of origin/main** (vs `origin/main`)
 - Working tree: clean
-- Last substantive commit: `e4483c66 fix(governance): exempt tools/TOOLS_INDEX.md from the protected-infra approval gate`
+- Last substantive commit: `9915789d fix(system-state): correct FPS -> FSP typo in the Candidates label`
 
 ## Deferred Maintenance
 
@@ -55,7 +56,7 @@
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced); promote to BUILD after a gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence, screener block ~3 min/run; promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass; promote to BUILD when a 2nd refresh use-case needs the auth path. First seen 2026-06-07.
-- [DRIFT] retire backlog (~330 superseded runs un-retired) — un-actionable until rerun-backtest Phase-C retire tooling is built; defer, not a fire. First seen 2026-06-20.
+- [DRIFT] retire backlog (~10 superseded runs un-retired, down from ~330 after the ledger purge) — un-actionable until rerun-backtest Phase-C retire tooling is built; defer, not a fire. First seen 2026-06-20; count refreshed 2026-07-01.
 - [BACKLOG] smaller deferred items: Z-cross Phase-3, market_regime NaN, BASKET_REPORT polish, skill-refactor D+F, basket weekend-flatten policy (detail in git history — the 06-06 backlog doc was pruned in `30ec963b`).
 
 ## Known Issues
@@ -77,4 +78,4 @@
 >
 > **Friction log (carry forward — mechanism only on repeat, per [[feedback_research_throughput_over_infra]]):** `STOP_CONTRACT_VIOLATION` (close-anchored stop vs next_bar_open — hit 2 migrations, nearing mechanism threshold), indicator-path-drift, provisioner-won't-fix-wrong-import, `SIGNAL_PRIMITIVE`-missing.
 >
-> **Housekeeping:** two OS-locked leftover worktree dirs (`.claude/worktrees/suspicious-greider-aa8e36`, `condescending-payne-9a755a`) — git-deregistered + branches deleted; sweep next session if the dirs still resolve.
+> **Housekeeping:** worktree leftovers swept 2026-07-01 — `suspicious-greider-aa8e36` + `condescending-payne-9a755a` removed. One remains: `quizzical-mendeleev-c1fc67` (git-deregistered + branch deleted, but the empty dir is OS-locked — `rm` it once the holding process releases).
