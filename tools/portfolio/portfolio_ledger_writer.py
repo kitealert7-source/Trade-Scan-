@@ -20,7 +20,7 @@ from datetime import datetime
 import pandas as pd
 from filelock import FileLock
 
-from tools.pipeline_utils import ensure_xlsx_writable, resilient_xlsx_write
+from tools.pipeline_utils import resilient_xlsx_write
 from tools.portfolio.portfolio_config import (
     PORTFOLIO_ENGINE_VERSION,
     PROJECT_ROOT,
@@ -448,7 +448,10 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
     df_final = pd.concat([df_ledger, new_row_df], ignore_index=True)
     _lock_path = ledger_path.with_suffix(".lock")
     with FileLock(str(_lock_path), timeout=120):
-        ensure_xlsx_writable(ledger_path)
+        # No standalone ensure_xlsx_writable() here: resilient_xlsx_write (below) kills
+        # Excel + backs off internally. A pre-check only re-introduced the spurious
+        # XLSX_LOCK_TIMEOUT -> sys.exit(3) on transient (Defender) locks, and gated the
+        # authoritative DB write behind an Excel probe. (fix 2026-07-01)
         # DB FIRST (mandatory) — SQLite is the source of truth
         from tools.ledger_db import (
             _connect as _db_connect,
@@ -467,13 +470,18 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
         _preserve = {}
         _data_names = {target_sheet, other_sheet}
         if ledger_path.exists():
-            with pd.ExcelFile(ledger_path) as _xls:
-                for _sn in _xls.sheet_names:
-                    if _sn not in _data_names:
-                        try:
-                            _preserve[_sn] = pd.read_excel(_xls, sheet_name=_sn)
-                        except Exception:
-                            pass
+            try:
+                with pd.ExcelFile(ledger_path) as _xls:
+                    for _sn in _xls.sheet_names:
+                        if _sn not in _data_names:
+                            try:
+                                _preserve[_sn] = pd.read_excel(_xls, sheet_name=_sn)
+                            except Exception:
+                                pass
+            except Exception:
+                # Transient lock on the read (Defender/AV) must not fail the stage:
+                # DB is authoritative and `--export-mps` rebuilds every sheet.
+                pass
         try:
             def _render_mps_ledger(_p):
                 with pd.ExcelWriter(_p, engine="openpyxl", mode="w") as writer:
