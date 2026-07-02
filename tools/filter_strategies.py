@@ -515,7 +515,7 @@ def filter_strategies():
 
             try:
                 subprocess.run(
-                    [sys.executable, str(formatter_path), "--file", str(CANDIDATE_FILTER_PATH), "--notes-type", "candidates"],
+                    [sys.executable, str(formatter_path), "--file", str(CANDIDATE_FILTER_PATH), "--notes-type", "candidates", "--allow-notes-only"],  # notes-ONLY pass; full styling applied by the --profile run above (guard 2026-07-02)
                     check=True,
                     capture_output=True,
                 )

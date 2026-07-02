@@ -9,6 +9,14 @@ Applies strict styling, column ordering, number formatting, and filter pre-selec
 
 > **Presentation-layer only.** No data mutation. Safe to run at any time.
 
+> **THE SKILL IS THE CANONICAL INTERFACE.** Never call `format_excel_artifact.py` directly
+> unless debugging — the "no arguments needed" in this skill's description refers to the
+> *skill*; the *tool* requires `--profile <strategy|portfolio>` for canonical formatting.
+> `--notes-type` is **maintenance-only**: it regenerates ONLY the Notes sheet and does NOT
+> produce a fully formatted workbook. Since 2026-07-02 the tool refuses a bare notes-only
+> run (exit 2) unless `--allow-notes-only` is passed — a guard added after agents repeatedly
+> reached for `--notes-type` and silently left the MPS unstyled.
+
 > **Invariant #32 — viewing layer only.** The MPS/FSP column set is defined in CODE, not in the workbook. NEVER hand-add a column to the xlsx: `ledger_db.py --export-mps` (and this formatter's regenerate path) rebuild the tabs wholesale from the DB and silently WIPE any manually-added column (the `spans`/`fragment_count` loss, 2026-06-15). To add/change a displayed column, edit the code-defined projections under `tools/portfolio/*_view.py` (e.g. `cointegration_view.py`, `trade_candidates_view.py`), then re-run this skill.
 
 ---
@@ -98,4 +106,4 @@ Protocol: see [`../SELF_IMPROVEMENT.md`](../SELF_IMPROVEMENT.md).
 
 | Date | Friction (1 line) | Edit landed |
 |---|---|---|
-| _none yet_ | | |
+| 2026-07-02 | Recurring silent failure: agents bypassed the skill and called the tool with `--notes-type` only (syntactically valid) → Notes sheet regenerated, zero styling, MPS looked "done" but unformatted. Root cause: skill says "no arguments needed" (true of the skill), tool errors bare, so agents guessed the first plausible flag. | Tool guard landed (operator-approved): bare `--notes-type` now REFUSED exit 2 with canonical-usage warning; `--allow-notes-only` required for legit maintenance (stage3_compiler updated); notes-only completion prints "NOT in canonical formatted state"; both-flags case now honors `--profile` instead of silently dropping it. Skill header gained "THE SKILL IS THE CANONICAL INTERFACE" note. |

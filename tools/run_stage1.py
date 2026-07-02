@@ -281,12 +281,20 @@ def load_broker_spec(symbol: str) -> dict:
     
     with open(broker_spec_path, "r", encoding="utf-8") as f:
         spec = yaml.safe_load(f)
-        
+
     required = ["contract_size", "min_lot"]
     for field in required:
         if field not in spec or spec[field] is None:
             raise ValueError(f"Broker spec missing mandatory field: {field}")
-            
+
+    # HARD GATE — single-monetary-model invariant (2026-07-02): Stage-1 sizes
+    # from contract_size while the capital wrapper prices from the MT5-derived
+    # calibration; refuse execution if the two models disagree (root cause of
+    # the SPX500 10x Stage-1 $-inflation: contract_size 10 vs MT5-verified
+    # $1/pt/lot). One monetary model, multiple consumers.
+    from tools.capital.capital_broker_spec import validate_monetary_consistency
+    validate_monetary_consistency(spec, symbol)
+
     return spec
 
 

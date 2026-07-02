@@ -491,7 +491,10 @@ def _compile_stage3_locked(strategy_filter, master_filter_path):
                 check=True,
             )
             subprocess.run(
-                [sys.executable, str(formatter), "--file", str(master_filter_path), "--notes-type", "master_filter"],
+                # --allow-notes-only: legitimate notes-ONLY pass — full styling was
+                # already applied by the --profile strategy run above (guard 2026-07-02).
+                [sys.executable, str(formatter), "--file", str(master_filter_path),
+                 "--notes-type", "master_filter", "--allow-notes-only"],
                 check=True,
             )
             print("[SUCCESS] Master Filter updated and formatted.")

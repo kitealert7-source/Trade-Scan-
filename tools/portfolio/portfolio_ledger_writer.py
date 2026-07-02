@@ -517,7 +517,7 @@ def _append_ledger_row(ledger_path, df_ledger, df_other, new_row_df,
 
         try:
             subprocess.run(
-                [sys.executable, str(_formatter), "--file", str(ledger_path), "--notes-type", "portfolio"],
+                [sys.executable, str(_formatter), "--file", str(ledger_path), "--notes-type", "portfolio", "--allow-notes-only"],  # notes-ONLY pass; full styling applied by the --profile run above (guard 2026-07-02)
                 check=True,
             )
         except subprocess.CalledProcessError as e:

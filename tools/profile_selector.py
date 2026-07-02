@@ -384,7 +384,7 @@ def main():
 
     try:
         subprocess.run(
-            [sys.executable, str(_formatter), "--file", str(LEDGER_PATH), "--notes-type", "portfolio"],
+            [sys.executable, str(_formatter), "--file", str(LEDGER_PATH), "--notes-type", "portfolio", "--allow-notes-only"],  # notes-ONLY pass; full styling applied by the --profile run above (guard 2026-07-02)
             check=True,
         )
     except subprocess.CalledProcessError as e:

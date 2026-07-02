@@ -26,6 +26,64 @@ def broker_spec_path(symbol: str) -> Path:
 
 
 # ======================================================================
+# MONETARY CONSISTENCY GUARD (single-monetary-model invariant, 2026-07-02)
+# ======================================================================
+# One monetary model, multiple consumers: the MT5-derived calibration block
+# (usd_pnl_per_price_unit_0p01 = tick_value/tick_size * 0.01) is AUTHORITATIVE.
+# The top-level contract_size (profit-ccy per point per lot) must agree with it:
+#     implied_fx = usd_per_pu_per_lot / contract_size  ≈  FX(profit_ccy → USD)
+# A disagreement means two components would price the same trade differently
+# (root cause of the 2026-07-02 SPX500 10x Stage-1 inflation: contract_size=10
+# vs MT5-verified $1/pt/lot). This guard makes that drift a HARD failure at
+# spec-load — refusing execution — instead of a silent divergence.
+#
+# Bands are deliberately wide (they tolerate years of FX drift between
+# calibration refreshes) — any plausible spot stays inside; a 10x scale error
+# escapes every band.
+_IMPLIED_FX_BANDS = {
+    "USD": (0.95, 1.05),
+    "EUR": (0.80, 1.40),
+    "GBP": (1.00, 1.70),
+    "JPY": (0.0045, 0.0120),
+    "AUD": (0.50, 0.90),
+    "NZD": (0.45, 0.85),
+    "CAD": (0.55, 0.95),
+    "CHF": (0.90, 1.50),
+}
+
+
+def validate_monetary_consistency(spec: dict, symbol: str) -> None:
+    """HARD gate: top-level contract_size must agree with the MT5 calibration.
+
+    Specs without a calibration block (non-OctaFx legacy) pass through — they
+    have no authoritative reference to check against and use dynamic paths.
+    Raises ValueError (refusing execution) on inconsistency.
+    """
+    cal = spec.get("calibration") or {}
+    usd_per_pu_0p01 = cal.get("usd_pnl_per_price_unit_0p01")
+    contract_size = spec.get("contract_size")
+    if usd_per_pu_0p01 is None or contract_size in (None, 0):
+        return  # no authoritative calibration to check against
+    profit_ccy = str(cal.get("currency_profit", "USD")).upper()
+    band = _IMPLIED_FX_BANDS.get(profit_ccy)
+    if band is None:
+        return  # unknown profit ccy — no band defined; do not guess
+    implied_fx = (float(usd_per_pu_0p01) * 100.0) / float(contract_size)
+    lo, hi = band
+    if not (lo <= implied_fx <= hi):
+        raise ValueError(
+            f"Broker specification monetary fields inconsistent for {symbol}.\n"
+            f"Top-level contract specification disagrees with calibrated\n"
+            f"usd_pnl_per_price_unit_0p01 beyond tolerance.\n"
+            f"  contract_size={contract_size} ({profit_ccy}/pt/lot), "
+            f"calibrated usd_per_pu_per_lot={float(usd_per_pu_0p01)*100.0:.6f} USD/pt/lot\n"
+            f"  implied FX({profit_ccy}->USD)={implied_fx:.6f}, allowed band=[{lo}, {hi}]\n"
+            f"Refusing execution. Align contract_size with the MT5-verified calibration\n"
+            f"(single-monetary-model invariant, 2026-07-02)."
+        )
+
+
+# ======================================================================
 # BROKER VOLUME SPEC NORMALIZATION
 # ======================================================================
 # Cache: loaded once per symbol per process — YAML I/O never happens per trade.
@@ -42,6 +100,7 @@ def _load_broker_spec_cached(symbol: str) -> dict | None:
         return None
     with open(spec_path, encoding="utf-8") as _f:
         spec = yaml.safe_load(_f)
+    validate_monetary_consistency(spec, symbol)  # hard gate (single-monetary-model)
     _BACKTEST_BROKER_SPECS[symbol] = spec
     return spec
 
@@ -96,7 +155,9 @@ def load_broker_spec(symbol: str) -> dict:
     if not spec_path.exists():
         raise FileNotFoundError(f"Missing broker spec: {spec_path}")
     with open(spec_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        spec = yaml.safe_load(f)
+    validate_monetary_consistency(spec, symbol)  # hard gate (single-monetary-model)
+    return spec
 
 
 def get_usd_per_price_unit_static(spec: dict) -> float:

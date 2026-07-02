@@ -20,11 +20,9 @@ from tools.capital_wrapper import (
     build_events,
     load_broker_spec,
     PortfolioState,
-    ConversionLookup,
-    _parse_fx_currencies,
-    get_usd_per_price_unit_dynamic,
     get_usd_per_price_unit_static,
 )
+from tools.capital.capital_portfolio_state import PROFILES
 
 
 def _shift_timestamp(dt_str: str, shift_years: int) -> str:
@@ -51,6 +49,12 @@ def run_block_bootstrap(
     """
     random.seed(seed)
 
+    if profile not in PROFILES:
+        raise ValueError(
+            f"Unknown capital profile '{profile}' — cannot bootstrap. "
+            f"Known profiles: {sorted(PROFILES)}"
+        )
+
     deploy_dir = STRATEGIES_DIR / prefix / "deployable" / profile
     acc_df = pd.read_csv(deploy_dir / "deployable_trade_log.csv")
     accepted_ids = set(acc_df["trade_id"])
@@ -70,20 +74,12 @@ def run_block_bootstrap(
 
     orig_trades = [t for t in orig_trades_raw if t["trade_id"] in accepted_ids]
 
-    # Pre-load broker specs and conversion lookup
-    quote_ccys = set()
+    # Pre-load broker specs (canonical MT5 static valuation — no conversion lookup)
     broker_specs = {}
     for t in orig_trades:
         sym = t["symbol"]
         if sym not in broker_specs:
             broker_specs[sym] = load_broker_spec(sym)
-        _, q = _parse_fx_currencies(sym)
-        if q:
-            quote_ccys.add(q)
-    quote_ccys.add("USD")
-
-    c_lookup = ConversionLookup()
-    c_lookup.load(quote_ccys)
 
     # Group by year
     years_dict: dict[int, list] = {}
@@ -122,14 +118,16 @@ def run_block_bootstrap(
         if not events:
             continue
 
+        # Replay under the ACTUAL profile being bootstrapped — resolved from the
+        # canonical PROFILES registry (single source; capital_portfolio_state).
+        # The previous hardcoded legacy params (risk 0.75% of $1k, heat 4%,
+        # leverage 5) rejected every index-CFD trade (LOT_BELOW_VOL_MIN) and
+        # emitted all-zero statistics with no error (root-caused 2026-07-02).
+        profile_cfg = dict(PROFILES[profile])
+        profile_cfg["starting_capital"] = start_cap
         state = PortfolioState(
             profile_name=f"MC_{i}",
-            starting_capital=start_cap,
-            risk_per_trade=0.0075,
-            heat_cap=0.04,
-            leverage_cap=5.0,
-            min_lot=0.01,
-            lot_step=0.01,
+            **profile_cfg,
         )
 
         sim_start = events[0].timestamp
@@ -140,17 +138,28 @@ def run_block_bootstrap(
             if e.event_type == "ENTRY":
                 sym = e.symbol
                 bs = broker_specs[sym]
-                cs = bs["contract_size"]
-                _, q = _parse_fx_currencies(sym)
-                if not q:
-                    q = "USD"
-                stat = get_usd_per_price_unit_static(bs)
-                r, _ = get_usd_per_price_unit_dynamic(
-                    cs, q, e.timestamp.date(), c_lookup, stat, sym
-                )
-                state.process_entry(e, r, cs)
+                cs = float(bs["contract_size"])
+                # Canonical MT5 static valuation — the SAME monetary model
+                # run_simulation uses ("universal path for ALL instruments;
+                # tick_value already accounts for currency"). The previous
+                # deprecated dynamic-path call mispriced indices ~12x
+                # (single-monetary-model invariant, 2026-07-02).
+                usd_per_pu = get_usd_per_price_unit_static(bs)
+                state.process_entry(e, usd_per_pu, cs)
             else:
                 state.process_exit(e)
+
+        # TRIPWIRE (2026-07-02): an iteration that accepts ZERO trades means the
+        # profile/sizing replay is misconfigured — emitting flat-equity zeros
+        # would silently reproduce the all-zero Section-14 defect. Fail loudly.
+        if state.total_accepted == 0:
+            sample = state.rejection_log[0] if state.rejection_log else {}
+            raise RuntimeError(
+                f"Block bootstrap iteration {i}: 0 of {len(sim_trades)} trades "
+                f"accepted under profile '{profile}' — refusing to emit all-zero "
+                f"statistics. First rejection: {sample.get('reason', 'n/a')} "
+                f"({sample.get('detail', '')})"
+            )
 
         cagr = (
             ((state.equity / start_cap) ** (1.0 / sim_years) - 1.0) * 100
