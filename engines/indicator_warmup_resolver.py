@@ -29,6 +29,16 @@ UNARY_OPERATORS = {
     ast.USub: op.neg,
 }
 
+# Whitelisted n-ary functions for warmup formulas. max/min are the canonical
+# way to express "warmup = the longest of several lookback windows" (e.g.
+# kc_bands: max(ema_window, atr_period) + smooth). Positional numeric args only;
+# no keywords. Kept to a strict allowlist — the resolver stays a pure numeric
+# evaluator, never a general eval.
+CALL_FUNCTIONS = {
+    "max": max,
+    "min": min,
+}
+
 # Global cache to avoid repeated file reads
 _REGISTRY_CACHE = None
 
@@ -157,6 +167,25 @@ def _eval_node(node: ast.AST, params: dict, original_formula: str, indicator_nam
             return float(val)
         else:
             raise RegistryFormulaError(f"Formula variable '{node.id}' not present in resolved_params for {indicator_name}")
+    elif isinstance(node, ast.Call):
+        # Strict allowlist: only bare-name calls to whitelisted functions
+        # (max/min), positional numeric args only. Anything else — attribute
+        # calls, keywords, *args, unknown names — is rejected, so the resolver
+        # can never become a general code evaluator.
+        if not isinstance(node.func, ast.Name) or node.func.id not in CALL_FUNCTIONS:
+            fname = getattr(node.func, "id", type(node.func).__name__)
+            raise RegistryFormulaError(
+                f"Unsupported function '{fname}' in formula: {original_formula} "
+                f"(allowed: {', '.join(sorted(CALL_FUNCTIONS))})")
+        if node.keywords or any(isinstance(a, ast.Starred) for a in node.args):
+            raise RegistryFormulaError(
+                f"Function '{node.func.id}' takes positional numeric args only "
+                f"in formula: {original_formula}")
+        if not node.args:
+            raise RegistryFormulaError(
+                f"Function '{node.func.id}' requires at least one arg in formula: {original_formula}")
+        args = [_eval_node(a, params, original_formula, indicator_name) for a in node.args]
+        return float(CALL_FUNCTIONS[node.func.id](*args))
     else:
         raise RegistryFormulaError(f"Unsupported node type {type(node)} in formula: {original_formula}")
 
