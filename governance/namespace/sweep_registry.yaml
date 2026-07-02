@@ -3600,6 +3600,13 @@ ideas:
             reserved_at_utc: '2026-06-21T13:46:17.205637+00:00'
             directive_hash: 7ec19f477aa9b382
             directive_hash_full: 7ec19f477aa9b38265a7027daa2e3c72d881708701d8ab8ce196136d7e7cea88
+          P00:
+            directive_name: 70_MR_IDX_1D_IBS_S01_V1_P00__E001
+            reserved_at_utc: '2026-07-02T14:18:52.455873+00:00'
+            directive_hash: 52c993f85a10a4ba
+            signature_hash: 52c993f85a10a4ba
+            directive_hash_full: 52c993f85a10a4ba69715610f5b4d58ec4dec5265dee38d1b8404bbf71365223
+            signature_hash_full: 52c993f85a10a4ba69715610f5b4d58ec4dec5265dee38d1b8404bbf71365223
         attempt: 2
         directive_hash: 52c993f85a10a4ba
         directive_hash_full: 52c993f85a10a4ba69715610f5b4d58ec4dec5265dee38d1b8404bbf71365223
@@ -3715,7 +3722,14 @@ ideas:
         signature_hash: 8a41a83c95289a70
         signature_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
         reserved_at_utc: '2026-06-30T13:50:08.357045+00:00'
-        patches: {}
+        patches:
+          P00:
+            directive_name: 75_MR_SPX500_1D_VOLPULL_ATRFILT_S01_V1_P00__E001
+            reserved_at_utc: '2026-07-02T14:20:06.278198+00:00'
+            directive_hash: 8a41a83c95289a70
+            signature_hash: 8a41a83c95289a70
+            directive_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
+            signature_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
         attempt: 2
         directive_hash: 8a41a83c95289a70
         directive_hash_full: 8a41a83c95289a70a85f87cbbe1bd63b337ce7802f49db833d2c89c642218225
