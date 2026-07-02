@@ -23,6 +23,22 @@ MASTER_SHEET = MASTER_FILTER_PATH
 # write -- one pre-mutation copy suffices; restore from it, else regenerate from DB.
 CANDIDATE_ARCHIVE_RETENTION = 1
 
+# FSP is a FILTERED VIEW: the promotion mask (is_current==1 & quarantined==0)
+# already guarantees every surviving row is current + non-quarantined, so these
+# supersession/quarantine lifecycle columns are constant here and carry no
+# information (relics of the hoard-era mark-and-keep flow, superseded by the
+# delete-not-hoard `repair_integrity --action drop` default). The DURABLE copies
+# live in master_filter (DB) → SMF (Strategy_Master_Filter.xlsx); the filtered
+# candidate view drops them. Consumers that need the flags read the DB/SMF, or
+# guard for absence (cleanup_reconciler, lineage_pruner). (2026-07-02)
+_FSP_EXCLUDED_LIFECYCLE_COLS = [
+    "is_current",
+    "superseded_by",
+    "superseded_at",
+    "supersede_reason",
+    "quarantined",
+]
+
 # TS_Execution portfolio.yaml — source of truth for LIVE status.
 # Only entries with promotion_source="promote_to_live" AND valid vault_id
 # are treated as LIVE. This prevents the circular loop where FSP marks
@@ -475,6 +491,14 @@ def filter_strategies():
                 "asset_class",        # classify_asset() above
                 "base_strategy_id",   # _derive_base_id() above
             }
+            # Drop the supersession/quarantine lifecycle columns from the
+            # candidate view (constant post-mask; durable copy is in SMF).
+            _excl = [c for c in _FSP_EXCLUDED_LIFECYCLE_COLS if c in df_merged.columns]
+            if _excl:
+                df_merged = df_merged.drop(columns=_excl)
+                print(f"[CANDIDATES] Excluded {len(_excl)} lifecycle column(s) "
+                      f"from FSP view (durable in SMF): {_excl}")
+
             _allowed = set(df.columns) | _FSP_DERIVED_COLS
             _zombies = [c for c in df_merged.columns if c not in _allowed]
             if _zombies:
