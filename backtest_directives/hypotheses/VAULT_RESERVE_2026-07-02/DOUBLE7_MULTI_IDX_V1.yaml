@@ -1,0 +1,70 @@
+id: DOUBLE7_MULTI_IDX_V1
+title: "Connors Double 7 pooled across SPX500 + NAS100 — multi-instrument density play"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[equity-index-double7-multi-instrument-cfd]]. Connors Double 7: long when
+  close < 7-day low, exit when close > 7-day high, gated by close > SMA(200). Run
+  simultaneously on SPX500 + NAS100 (+ other OctaFX index CFDs): 7-day lows don't
+  coincide across indices -> natural entry-timing diversification.
+  Fits a SETTLED structural finding: daily index MR density is structural (~7-10
+  trades/yr/index, RESEARCH_MEMORY 2026-06-20) and "the ONLY density-clearing path is
+  multi-instrument aggregation". Double 7 is a different entry/exit pair from the
+  tested RSI(4)/IBS lines (channel-low entry + channel-high EXIT, no oscillator) — a
+  distinct MODEL, so it is not a repeat. Swap-free OctaFX = multi-day holds pay no carry.
+
+baseline:
+  directive: "per-index solos of the tested MR lines (idea 69 RSI PF 1.74 / idea 70 IBS)"
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: TBD, stake_usd: TBD }
+
+variants:
+  - id: DOUBLE7_MULTI_IDX_V1_SOLO
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params: { entry: close_lt_7d_low, exit: close_gt_7d_high, regime_gate: close_gt_sma200, timeframe: 1D }
+    # per-index solos FIRST (SPX500, NAS100 as separate ideas per identity model);
+    # pooled composite only if >=2 solos show edge
+  - id: DOUBLE7_MULTI_IDX_V1_POOL
+    rule: TBD
+    rule_build_required: false
+    architecture: { basket_id: IDX_POOL, legs: [] }   # composite of surviving solos
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params: { members: from_solo_survivors }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "> best single-index arm"        # pooling must ADD, not just aggregate
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # SMA(200) gate is load-bearing (keeps flat when indices crash together — the regime
+  # where cross-index diversification fails); do not test ungated.
+
+evidence_required:
+  class: multi-window-N
+  parity_gate: not_applicable
+  reason: |
+    Per-index solos (per-identity, separate idea_ids) then a pooled composite via the
+    composite-portfolio path. The pooled arm is the actual hypothesis — solos are its
+    admission evidence.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/equity-index-double7-multi-instrument-cfd.md"
+  memory_refs:
+    - reference_idea_identity_model
+
+decision:
+  outcome: TBD

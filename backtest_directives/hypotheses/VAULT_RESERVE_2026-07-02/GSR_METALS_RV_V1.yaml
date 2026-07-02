@@ -1,0 +1,85 @@
+id: GSR_METALS_RV_V1
+title: "Gold-Silver ratio (XAUUSD/XAGUSD synthetic 1D) — MR fade + breakout mirror; single-leg vs dollar-neutral 2-leg fork"
+class: architecture
+status: PROPOSED          # reserve — added to the 2026-07-02 snapshot from same-day StatOasis ingest
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[gsr-mean-reversion-metals-cfd]] (ingested 2026-07-02) — the vault's first
+  relative-value/ratio idea. Trade GSR = XAUUSD close / XAGUSD close as a synthetic 1D
+  series: fade percentile extremes (MR primary) with the breakout mirror as bake-off;
+  EMA-cross on the ratio as alt signal. TWO direction builds, both required:
+  (a) single-leg long-gold-on-signal (what the source actually measured), and
+  (b) true 2-leg dollar-neutral spread (the RV interpretation the source did NOT test).
+  NOT previously tested: the cointegration corpus is FX-centric z-score architecture —
+  XAGUSD isn't in the screener universe and this is a RATIO with percentile bands, not
+  a cointegration spread. A metals RV stream would be genuinely new diversification.
+  Biggest structural risk: 2-leg entry+exit pays spread ~4x a single round-trip and
+  XAGUSD spread is proportionally wide.
+
+baseline:
+  directive: null
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: GSR_METALS_RV_V1_SL
+    rule: TBD
+    rule_build_required: false         # BUILT 2026-07-02: indicators/stats/pair_ratio.py (registry v19, 6/6 tests;
+                                       # strict-alignment default, inner opt-in). Signal math already existed:
+                                       # rolling_percentile (bands) + ema_cross (Method 2). Remaining build cost is
+                                       # DATA-LAYER only: the directive/basket loader must feed both legs bar-aligned
+                                       # (strict mode raises on any seam mismatch by design)
+    architecture: { basket_id: null, legs: [ { symbol: XAUUSD, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-06-01, end: latest }
+    rule_params:
+      signal_series: gsr_ratio_1d      # bar-aligned XAUUSD/XAGUSD closes; verify no session-seam corruption
+      entry: percentile_band_fade      # re-derive bands on CFD data — do NOT inherit futures 60/80/40 levels
+      exit: opposite_cross_plus_bar_timeout
+      style_mirror: breakout_arm_also_run
+  - id: GSR_METALS_RV_V1_2LEG
+    rule: TBD
+    rule_build_required: true
+    architecture:
+      basket_id: GSR_RV
+      legs:
+        - { symbol: XAUUSD, direction: signal, lot: dollar_neutral }
+        - { symbol: XAGUSD, direction: inverse, lot: dollar_neutral }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-06-01, end: latest }
+    rule_params: { sizing_mode: dollar_neutral, entry: percentile_band_fade, exit: opposite_cross_plus_bar_timeout }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0 after BOTH legs' spread charged (2-leg build)"
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Not-really-RV guard: if build (a)'s returns correlate ~1 with plain long XAUUSD,
+  # the ratio adds nothing — parsimony kills it. The RV claim stands only if build (b)
+  # shows a distinct low-beta decorrelated stream vs the existing MR book.
+
+evidence_required:
+  class: single-window
+  parity_gate: required
+  reason: |
+    Basket-architecture (2-leg synthetic) — parity gate applies to any in-process probe.
+    Gross-vs-net R reported side by side; net is the only number that counts. The
+    survivorship caveat is severe (source's figures are the top of a ~10k sweep over a
+    metals bull) — full-history + sub-period (bull vs range) split is mandatory.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/gsr-mean-reversion-metals-cfd.md"
+  memory_refs:
+    - feedback_prefer_pipeline_over_research_scripts
+    - feedback_test_window_must_match_signal_class
+
+decision:
+  outcome: TBD

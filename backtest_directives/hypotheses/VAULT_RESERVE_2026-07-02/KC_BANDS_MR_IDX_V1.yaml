@@ -1,0 +1,73 @@
+id: KC_BANDS_MR_IDX_V1
+title: "KC Bands (EMA-of-H/L +/- ATR) MR entry on SPX500 1D — decorrelation bake-off vs BB/Keltner/incumbent triggers"
+class: mechanic
+status: PROPOSED          # reserve — added to the 2026-07-02 snapshot from same-day StatOasis ingest
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[kc-bands-mr-breakout-index-cfd]] (ingested 2026-07-02). "KC Bands" =
+  upper EMA(High,n) / lower EMA(Low,n) +/- mult*ATR(a), 3-bar smoothed; MR entry
+  close < lower band, exit close > upper band OR 5-bar cap. The thesis is EXPLICITLY
+  NOT superiority: the source concedes it does not beat standard Bollinger Bands on
+  aggregate expectancy. The claimed edge is REFERENCE-CHOICE DECORRELATION — same
+  market, same rules, only the signal reference changed -> different losing years ->
+  a low-correlation (<~0.3) equity stream that complements the index-MR book.
+  Dedup note: the archived BB work was BB-on-SPREAD (cointegration z-series); this is
+  bands-on-PRICE — different object entirely. The deliverable is a measured correlation
+  matrix vs the incumbent RSI/IBS lines, not a PF headline.
+
+baseline:
+  directive: "incumbent index-MR book: idea 69 RSI (WATCH) + idea 70 IBS champion, matched windows"
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: TBD, stake_usd: TBD }
+
+variants:
+  - id: KC_BANDS_MR_IDX_V1_A
+    rule: TBD
+    rule_build_required: false         # BUILT 2026-07-02: indicators/volatility/kc_bands.py (registry v16,
+                                       # 7/7 unit tests, generic defaults ema20/atr30/mult1.0/smooth3;
+                                       # outputs kc_upper/kc_lower/kc_pct_c/kc_width_c). 'kc_band_stretch' LANDED in _ALLOWED_PRIMITIVES 2026-07-02
+                                       # (end-of-batch, operator pre-approved) — declarable now. Benchmarks keltner_channel + bollinger
+                                       # already exist.
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }   # matched to idea-69/70 baselines
+    rule_params:
+      entry: close_lt_kc_lower
+      exit: close_gt_kc_upper_or_5bar_cap
+      band_smoothing: 1                # fix s=1 (no smoothing) to bound the grid
+      params_from: plateau_not_peak
+      timeframe: 1D
+    # Arm B (%C stretch sweep) and Arm C (Width-C breakout/filter) run ONLY if Arm A
+    # clears spread — staged, per the vault spec
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0 after spread"        # standalone survival first
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # THE thesis test: realized daily-return correlation vs the RSI/IBS lines < ~0.3 at
+  # comparable expectancy -> earns an ensemble slot. Correlation > ~0.5 -> redundant
+  # reskin, REJECT regardless of PF. Underperforming IBS while correlated would also
+  # CONFIRM the standing range-location > channel-reference prior — a useful negative.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Four-way bake-off (BB / Keltner / KC-Bands / incumbent trigger) on identical rules,
+    sizing, window, and charged spread; correlation computed from run artifacts on a
+    common calendar, not asserted from year tables.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/kc-bands-mr-breakout-index-cfd.md"
+  memory_refs: []
+
+decision:
+  outcome: TBD

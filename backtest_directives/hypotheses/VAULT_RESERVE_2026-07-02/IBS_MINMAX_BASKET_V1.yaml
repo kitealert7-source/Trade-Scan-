@@ -1,0 +1,63 @@
+id: IBS_MINMAX_BASKET_V1
+title: "Cross-sectional IBS min-max basket — long lowest-IBS / short highest-IBS index CFD, 1-day hold"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[ibs-minmax-basket-cfd]] (Pandey & Joshi country-ETF result, Sharpe
+  ~2.9-3.9). Each day: long the OctaFX index CFD with the LOWEST IBS, short the one
+  with the HIGHEST, enter at close, exit next close -> market-neutral stream.
+  DELTA vs tested IBS work: ideas 70/71 used IBS as a single-instrument TIME-SERIES
+  threshold (IBS<0.20). This is CROSS-SECTIONAL ranking across the index universe —
+  a genuinely different mechanism (relative-value, market-neutral) never tested here.
+  OctaFX swap-free = no carry on either leg; the gate is two-sided spread + the fact
+  that our index CFDs are far more correlated than country ETFs. That correlation
+  concern is the falsification target.
+
+baseline:
+  directive: "70_MR_IDX_1D_IBS_S01_V1_P00 (single-instrument IBS champion, PF 1.45 SQN 2.33)"
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: TBD, stake_usd: TBD }
+
+variants:
+  - id: IBS_MINMAX_BASKET_V1_P00
+    rule: TBD
+    rule_build_required: true        # cross-sectional ranking needs a basket-style rule (H2/basket_runner lineage)
+    architecture:
+      basket_id: IDX_XSECT
+      legs: []                       # legs chosen DAILY by IBS rank across ~10-index universe
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }
+    rule_params: { rank_signal: ibs, long_rank: min, short_rank: max, hold: next_close, universe: octafx_index_cfds }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # after TWO-SIDED charged spread — the binding cost
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Also record realized market-neutrality (net beta / correlation to SPX500) — if the
+  # long-short stream is just noisy index beta, the premise failed even if net > 0.
+
+evidence_required:
+  class: single-window
+  parity_gate: required
+  reason: |
+    Basket-architecture rule -> any in-process probe must pass the 1-window parity gate
+    before pipeline conclusions (feedback_prefer_pipeline_over_research_scripts).
+    Daily turnover on both legs makes this the most cost-fragile idea in the reserve —
+    charge everything.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/ibs-minmax-basket-cfd.md"
+  memory_refs:
+    - feedback_prefer_pipeline_over_research_scripts
+
+decision:
+  outcome: TBD

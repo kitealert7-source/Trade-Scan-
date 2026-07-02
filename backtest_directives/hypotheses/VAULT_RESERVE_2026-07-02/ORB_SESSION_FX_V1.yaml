@@ -1,0 +1,73 @@
+id: ORB_SESSION_FX_V1
+title: "FX opening-range breakout — London/NY session window entry, daily SMA trend gate, end-of-session exit"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[orb-session-window-fx-intraday]], FOLDING IN the companion filter idea
+  [[daily-sma-regime-filter-intraday]] (a component, not a standalone strategy — it
+  rides here as the host's trend gate). ORB: entry only on a break of the opening range
+  within a defined session window (London or NY open), exit at end of session; daily
+  close-vs-SMA(10/20) gate suppresses counter-trend entries.
+  NOT previously tested as such: the archive has session-overlay work on COINTEGRATION
+  (rejected — MR needs overnight reversion) but no FX opening-range breakout; LORB
+  token exists in the dictionary but no LORB arc appears in research memory.
+  RISK FLAG: intraday cost-mirage finding applies (XAU/legacy corpus); FX majors have
+  the tightest spreads in the universe, which is the one instrument class where an
+  intraday edge could still clear costs — that IS the test. One entry per session,
+  session_reset footgun checked at authoring.
+
+baseline:
+  directive: null
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: ORB_SESSION_FX_V1_P00
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: EURUSD, direction: both, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-06-01, end: latest }   # deep 5m history available (fx_basket_deep_history)
+    rule_params:
+      session: london_open           # NY-open arm = P01 variant, same identity
+      opening_range_minutes: TBD
+      trend_gate: daily_close_vs_sma
+      trend_gate_period: 20          # un-tuned default; N=10 sibling allowed, no sweep beyond that
+      entries_per_session: 1
+      exit: end_of_session
+      timeframe: 15M
+    # GBPUSD/USDJPY siblings = SEPARATE idea_ids (identity model); EURUSD decides first
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # charged, full 2016-2026 history
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Kill-fast: year-wise concentration check (vol-regime artifact pattern) and the
+  # trend-gate ON/OFF delta — if the gate does not improve the gated arm, the
+  # daily-SMA-filter sub-hypothesis is answered (negative) at the same time.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history run per session arm on EURUSD. F19 note: scan
+    RESEARCH_MEMORY for NO_TRADES entries on any prior LORB/session-breakout FX config
+    before authoring the directive (none found at snapshot time).
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/orb-session-window-fx-intraday.md"
+  memory_refs:
+    - project_fx_basket_deep_history
+    - feedback_session_reset_daily_footgun
+
+decision:
+  outcome: TBD

@@ -1,0 +1,56 @@
+id: BTC_TOD_SEASONALITY_V1
+title: "BTCUSD time-of-day seasonality — buy 21:00 UTC, sell 23:00 UTC, zero-parameter"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  Zero-parameter calendar rule from vault [[btc-time-of-day-seasonality-cfd]] (source:
+  Padysak/Vojtko — 33%/yr gross on Gemini spot 2015-2022). Buy BTCUSD 21:00 UTC, sell
+  23:00 UTC daily. Economic story: 22-23 UTC is the only window all major exchanges are
+  closed -> thin retail/Asia flow. Prior is SKEPTICAL: daily turnover x wide BTC-CFD
+  spread + post-2022 maturation decay likely kill it — but it is zero-parameter and
+  cheap to falsify. A clean negative is valuable; a positive is an uncorrelated bonus.
+  NOT previously tested (RESEARCH_MEMORY has no BTC time-of-day arc; BTC work was
+  IMPULSE 1H and SYMSEQ 4H — different mechanisms).
+
+baseline:
+  directive: null                    # no incumbent — flat/no-trade is the benchmark
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: BTC_TOD_SEASONALITY_V1_P00
+    rule: TBD                        # time-window entry/exit, no indicator
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: BTCUSD, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2022-01-01, end: latest }   # recent window only — pre-2022 regime is the source's sample
+    rule_params: { entry_utc: "21:00", exit_utc: "23:00", timeframe: 1H }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # after charged OctaFX spread — the whole question
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Zero-parameter falsification probe. One charged full-recent-window run decides it;
+    ~730 trades/2yr clears density gates by construction. Spread is the hypothesis-killer,
+    so the run MUST be charged (v1.5.11).
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/btc-time-of-day-seasonality-cfd.md"
+  memory_refs: []
+
+decision:
+  outcome: TBD

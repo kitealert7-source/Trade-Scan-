@@ -1,0 +1,79 @@
+id: QUANTITATIVO_MR_COMPOSITION_V1
+title: "Quantitativo MR composition (IBS<0.3 + range-scaled pullback band + SMA300 stop) vs bare IBS<0.2 on SPX500 1D"
+class: mechanic
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[quantitativo-qqq-mr-index-cfd]] (ingested 2026-07-01). The full
+  Quantitativo composition on SPX500 1D: entry = IBS<0.3 AND close inside a
+  range-scaled pullback band; base exit = close > prior high; improved variant adds a
+  close<SMA(300) regime stop. Long-only; optional bear arm shorts below SMA(300).
+  DELTA vs tested work (survives dedup on composition, not trigger): bare IBS<0.20 is
+  the settled champion (idea 70) and RSI∪IBS union (idea 71) proved SIGNAL
+  DIVERSIFICATION adds where THRESHOLD LOOSENING fails. This tests the third axis —
+  CONDITION STACKING on a loosened IBS(0.3): does the band + confirmation-exit +
+  regime-stop composition rescue the marginal 0.2-0.3 population that idea-70's P01/P02
+  showed is lower-quality on its own? Explicit A/B against the champion, matched window.
+
+baseline:
+  directive: "70_MR_IDX_1D_IBS_S01_V1_P00 (IBS<0.20 champion — PF 1.45, SQN 2.33, 323 tr, maxDD 5.87%)"
+  rule: "run 3344c46617c134ef5a513a7d"
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: 5.87, ret_dd: TBD, stake_usd: TBD }
+
+variants:
+  - id: QUANTITATIVO_MR_COMPOSITION_V1_BASE
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }   # window-matched to the idea-70 champion
+    rule_params:
+      ibs_max: 0.3
+      band: "close < highest_high(10) - 2.5 * rolling_mean(high - low, 25)"   # H-L mean, NOT true-range ATR
+      exit: close_gt_prior_high
+      regime_stop: null
+      timeframe: 1D
+  - id: QUANTITATIVO_MR_COMPOSITION_V1_STOP
+    rule: TBD
+    rule_build_required: false
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }
+    rule_params:
+      ibs_max: 0.3
+      band: "close < highest_high(10) - 2.5 * rolling_mean(high - low, 25)"
+      exit: close_gt_prior_high
+      regime_stop: close_lt_sma300           # "improved" arm — source quotes 2.11 Sharpe (uncosted)
+      timeframe: 1D
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "> IBS<0.20 champion on matched window"   # composition must BEAT the bare trigger, not match it
+  must_not_be_worse_on:
+    max_dd_pct: "<= 1.5 * champion"
+    survival: "not-BLOWN"
+  # If the composition only MATCHES the champion, parsimony wins — keep bare IBS<0.2,
+  # verdict REJECT (parsimony-as-robustness-proxy).
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Two charged arms window-matched to the champion. NAS100 extension only if SPX500
+    ACCEPTs (separate idea_id per identity model).
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/quantitativo-qqq-mr-index-cfd.md"
+  memory_refs:
+    - feedback_fail_is_a_probe
+
+decision:
+  outcome: TBD

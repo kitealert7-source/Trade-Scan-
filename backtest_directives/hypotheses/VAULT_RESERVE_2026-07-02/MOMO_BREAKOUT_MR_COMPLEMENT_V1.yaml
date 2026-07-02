@@ -1,0 +1,68 @@
+id: MOMO_BREAKOUT_MR_COMPLEMENT_V1
+title: "4H ROC(40) 3-bars-rising momentum breakout on SPX500/NAS100 — decorrelation complement to the RSI-MR line"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[momentum-breakout-index-cfd]] (StatOasis port, ingested 2026-07-01 —
+  newest idea in the vault). Momentum-breakout leg: ROC(40) rising 3 consecutive 4H
+  bars -> long. The HYPOTHESIS IS THE CORRELATION, not the standalone edge: the
+  momentum stream should run near-uncorrelated (~0) to the existing RSI-MR WATCH line
+  (idea 69/71), so the combined trend+MR book beats either standalone on Ret/DD.
+  This directly addresses the settled next-step from the DMA-gold arc ("next =
+  breakout module, structurally uncorrelated to the MR book") but on indices, where
+  the MR book actually lives. Vault pinned 4H because the source's 12h is NOT a
+  supported TF token. NOT previously tested.
+
+baseline:
+  directive: "71_MR_IDX_1D_UNION_S01_V1_P00 (RSI-IBS union WATCH, run 894fa6ff5b96261059b2acfc)"
+  rule: "RSI-IBS union — PF 1.62, SQN 2.93, ~33 tr/yr"
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: 9.11, ret_dd: 4.45, stake_usd: TBD }
+
+variants:
+  - id: MOMO_BREAKOUT_MR_COMPLEMENT_V1_SOLO
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }   # match the MR-line window for the correlation measurement
+    rule_params: { roc_period: 40, rising_bars: 3, timeframe: 4H }
+  - id: MOMO_BREAKOUT_MR_COMPLEMENT_V1_COMBO
+    rule: TBD
+    rule_build_required: false
+    architecture: { basket_id: TREND_MR_COMBO, legs: [] }   # composite of solo + idea-71 stream
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }
+    rule_params: { members: [ MOMO_SOLO, IDEA_71_UNION ] }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "combined book > best standalone"     # the decorrelation claim, cashed out
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Gate 1 before the combo: measured daily-PnL correlation solo-vs-MR-line < 0.3 AND
+  # solo PF >= ~1.0 after spread (the leg must not bleed; it only has to not-lose while
+  # decorrelating). If solo bleeds, REJECT without running the combo.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Solo leg through the pipeline first; combo via the composite-portfolio path
+    (/run-composite-portfolio) on matched windows. Correlation measured from run
+    artifacts, not ad-hoc series.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/momentum-breakout-index-cfd.md"
+  memory_refs: []
+
+decision:
+  outcome: TBD

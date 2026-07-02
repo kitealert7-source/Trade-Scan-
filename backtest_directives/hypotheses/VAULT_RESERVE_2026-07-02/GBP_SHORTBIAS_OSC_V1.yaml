@@ -1,0 +1,74 @@
+id: GBP_SHORTBIAS_OSC_V1
+title: "GBPUSD 1D short-side structural bias — single-condition oscillator short (RSI primary, CCI check) vs long control"
+class: architecture
+status: PROPOSED          # reserve — added to the 2026-07-02 snapshot from same-day StatOasis ingest
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[gbp-shortside-structural-bias-cfd]] (ingested 2026-07-02). The claim
+  under test is the BIAS, not the indicator: GBP futures showed a directionally
+  symmetric market where 24/26 robust single-condition strategies were SHORT — a
+  structural short-side bias. Port: single-condition oscillator short on GBPUSD 1D
+  (RSI-at-level primary — the source names RSI the best trigger for this instrument;
+  CCI-at-level as the demonstrated cross-check; ATR-breakout short as third arm), with
+  the identical LONG build as the symmetry control. No filter in the base.
+  Corroboration: the archived two-bar-reversal FX arc independently found short-biased
+  directions on GBP pairs by a completely different method. NOT previously tested as a
+  standalone oscillator-short line. Sequencing note: the bias-confirmation census
+  (step 1) is cheap and gates everything — if the futures bias doesn't transfer to
+  OctaFX spot data, the arc dies before any strategy run.
+
+baseline:
+  directive: null                      # long-side control arm IS the internal baseline
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: GBP_SHORTBIAS_OSC_V1_RSI
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: GBPUSD, direction: short, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-06-01, end: latest }
+    rule_params: { trigger: rsi_at_level_short, lookback: plateau_sweep_not_point, exit: n_bar_time_exit, n_bars: 10, timeframe: 1D }
+  - id: GBP_SHORTBIAS_OSC_V1_LCTL
+    rule: TBD
+    rule_build_required: false
+    architecture: { basket_id: null, legs: [ { symbol: GBPUSD, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-06-01, end: latest }
+    rule_params: { trigger: rsi_at_level_long_mirror, exit: n_bar_time_exit, n_bars: 10, timeframe: 1D }
+    # CCI cross-check arm: BUILT 2026-07-02 — indicators/momentum/cci.py (registry v18,
+    # 8/8 tests; source='hl2' covers the video's (H+L)/2 variant). Run it only if the
+    # RSI arm confirms the bias. 'cci_threshold' LANDED in _ALLOWED_PRIMITIVES 2026-07-02 — declarable now
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "short arm > 0 after spread AND materially > long control"   # the asymmetry IS the finding
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Plateau requirement: edge must hold across a lookback range (+/-50-200%), not one
+  # cell — a single-cell winner is a survivor of the source's 1,100-strategy search.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Charged full-history 1D run, short + long-control pair on identical windows. The
+    long/short gap is the test; USD-regime gate is a durability add-on only if the base
+    asymmetry confirms.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/gbp-shortside-structural-bias-cfd.md"
+  memory_refs:
+    - feedback_experiment_basket_composition
+
+decision:
+  outcome: TBD

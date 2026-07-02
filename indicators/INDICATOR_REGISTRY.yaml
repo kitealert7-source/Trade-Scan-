@@ -94,7 +94,37 @@ governance_updates:
     date: '2026-06-22'
     changes:
     - 'indicator_registry_sync: 2 stub entries added.'
-registry_version: 15
+  version_16:
+    date: '2026-07-02'
+    changes:
+    - 'new_indicator: kc_bands added to indicators/volatility/ (StatOasis KC Bands port — asymmetric
+      EMA-of-H/L +/- ATR channel with kc_pct_c + kc_width_c outputs; generic defaults, concept-harvest).
+      SIGNAL_PRIMITIVE kc_band_stretch pending _ALLOWED_PRIMITIVES addition (protected surface).'
+    - 'registry_summary_updated: total_indicators 76 -> 77, volatility_count 11 -> 12'
+  version_17:
+    date: '2026-07-02'
+    changes:
+    - 'new_indicator: supertrend added to indicators/trend/ (textbook ATR trailing channel, generic
+      defaults period=10/mult=3.0, Wilder ATR, O(n) forward-only ratchet loop; outputs supertrend/
+      st_dir/st_upper/st_lower). SIGNAL_PRIMITIVE supertrend_flip pending _ALLOWED_PRIMITIVES
+      addition (batched with kc_band_stretch, end of 2026-07-02 authoring run).'
+    - 'registry_summary_updated: total_indicators 77 -> 78, trend_count 8 -> 9'
+  version_18:
+    date: '2026-07-02'
+    changes:
+    - 'new_indicator: cci added to indicators/momentum/ (textbook Lambert CCI, generic defaults
+      period=20/typical-price/0.015; source param covers hl2/close variants per SOP 11.3).
+      SIGNAL_PRIMITIVE cci_threshold pending _ALLOWED_PRIMITIVES batch addition.'
+    - 'registry_summary_updated: total_indicators 78 -> 79, momentum_count 11 -> 12'
+  version_19:
+    date: '2026-07-02'
+    changes:
+    - 'new_indicator: pair_ratio added to indicators/stats/ (2-feed synthetic RV ratio constructor,
+      e.g. GSR = XAUUSD/XAGUSD; strict-alignment default per Invariant #1 fail-fast, inner opt-in).
+      Substrate constructor — carries NO SIGNAL_PRIMITIVE by design (signal indicators are applied
+      ON the ratio downstream).'
+    - 'registry_summary_updated: total_indicators 79 -> 80, statistical_count 9 -> 10'
+registry_version: 19
 generated_at: '2026-06-22T07:17:58+00:00'
 indicators:
   candle_state:
@@ -1238,6 +1268,59 @@ indicators:
     - high
     - low
     - close
+  kc_bands:
+    module_path: indicators.volatility.kc_bands
+    category: volatility
+    function_name: kc_bands
+    classification: Volatility
+    input_requirements:
+    - df: DataFrame with columns [high, low, close]
+    - ema_window: int
+    - atr_period: int
+    - atr_mult: float
+    - smooth: int
+    parameters:
+      ema_window: int — EMA period for the per-side centerlines (EMA of highs / EMA of lows)
+      atr_period: int — Wilder ATR period for the width term
+      atr_mult: float — ATR multiplier for channel width
+      smooth: int — SMA bars applied to the raw bands (flicker suppression)
+    default_parameters:
+      ema_window: 20
+      atr_period: 30
+      atr_mult: 1.0
+      smooth: 3
+    output_type: DataFrame
+    output_columns:
+    - kc_upper: float — smoothed upper band (EMA(high) + mult*ATR)
+    - kc_lower: float — smoothed lower band (EMA(low) - mult*ATR)
+    - kc_pct_c: float — close position in channel *100; graded, may exceed 0-100
+    - kc_width_c: float — channel width / close *100 (volatility state)
+    output_scale: kc_upper/kc_lower price units; kc_pct_c and kc_width_c percent
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Asymmetric stretch reference for MR entries (close < kc_lower, or graded
+      kc_pct_c threshold) and Width-C compression/expansion breakout signals or filters.
+      Reference-choice decorrelation lever vs Bollinger/Keltner on the same rules.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: max(ema_window, atr_period) + smooth
+    warmup: max(ema_window, atr_period) + smooth
+    input_columns:
+    - high
+    - low
+    - close
+    notes: Authored 2026-07-02 (StatOasis KC Bands port, generic defaults — concept-harvest,
+      no source parity intended). SIGNAL_PRIMITIVE 'kc_band_stretch' declared in-module but
+      NOT yet in tools/semantic_validator.py _ALLOWED_PRIMITIVES (protected surface) — add
+      before any directive declares this module.
   market_state:
     module_path: indicators.volatility.market_state
     category: volatility
@@ -2809,16 +2892,143 @@ indicators:
     - close
     notes: Stub entry added via indicator_registry_sync — module_path verified; rich metadata (function_name, input_requirements,
       output_columns, etc.) to be backfilled.
+  cci:
+    module_path: indicators.momentum.cci
+    category: momentum
+    function_name: cci
+    classification: Momentum
+    input_requirements:
+    - df: DataFrame with columns [high, low, close]
+    - period: int
+    - source: str (typical | hl2 | close)
+    parameters:
+      period: int — rolling window for SMA and mean absolute deviation
+      source: str — price source; 'typical' (H+L+C)/3 default, 'hl2' (H+L)/2, 'close'
+    default_parameters:
+      period: 20
+      source: typical
+    output_type: Series
+    output_columns:
+    - cci: float — unbounded oscillator, typically ~[-300, +300]
+    output_scale: unbounded oscillator units (Lambert 0.015 scaling)
+    lookahead_safe: true
+    rolling_window_used: true
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Level-based entries using the informative tail (e.g. CCI crosses
+      -95 upward -> short per the GBP structural-bias line); not a linear signal.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: period
+    warmup: period
+    input_columns:
+    - high
+    - low
+    - close
+    notes: Authored 2026-07-02 (concept-harvest, generic Lambert defaults). Rolling MAD via
+      rolling.apply(raw numpy) — no nested Python loops. SIGNAL_PRIMITIVE 'cci_threshold'
+      pending _ALLOWED_PRIMITIVES batch addition.
+  pair_ratio:
+    module_path: indicators.stats.pair_ratio
+    category: stats
+    function_name: pair_ratio
+    classification: Statistical
+    input_requirements:
+    - numerator: pd.Series (price, e.g. XAUUSD close)
+    - denominator: pd.Series (price, e.g. XAGUSD close)
+    - align: str (strict | inner)
+    parameters:
+      align: str — 'strict' (default) raises on any index mismatch; 'inner' intersects
+        indexes (explicit opt-in for research probes)
+    default_parameters:
+      align: strict
+    output_type: Series
+    output_columns:
+    - pair_ratio: float — numerator/denominator per bar (NaN on zero denominator)
+    output_scale: ratio units (dimensionless)
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: true
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Synthetic RV substrate (Gold-Silver Ratio etc.); downstream signal
+      indicators (rolling_percentile, rolling_zscore, ema_cross) consume the ratio series.
+      Bar alignment is upstream data-layer responsibility — strict mode enforces that.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: 0
+    warmup: 0
+    input_columns:
+    - close (per leg, passed as Series)
+    notes: Authored 2026-07-02 (GSR_METALS_RV_V1 substrate; concept-harvest). No
+      SIGNAL_PRIMITIVE by design — substrate constructor, not a declared entry signal.
+  supertrend:
+    module_path: indicators.trend.supertrend
+    category: trend
+    function_name: supertrend
+    classification: Trend
+    input_requirements:
+    - df: DataFrame with columns [high, low, close]
+    - period: int
+    - multiplier: float
+    parameters:
+      period: int — Wilder ATR period
+      multiplier: float — ATR multiplier for the trailing bands
+    default_parameters:
+      period: 10
+      multiplier: 3.0
+    output_type: DataFrame
+    output_columns:
+    - supertrend: float — active stop/trail line (NaN during warmup)
+    - st_dir: int — +1 uptrend / -1 downtrend / 0 warmup
+    - st_upper: float — final (ratcheted) upper band
+    - st_lower: float — final (ratcheted) lower band
+    output_scale: supertrend/st_upper/st_lower price units; st_dir categorical -1/0/+1
+    lookahead_safe: true
+    rolling_window_used: false
+    vectorized: false
+    htf_compatible: true
+    dependency_indicators: []
+    typical_use_case: 'Trend-following flip signal (long while st_dir=+1, exit/flip on
+      st_dir change). Multi-instance dual-SuperTrend (fast 10/2 + slow 30/4 confirmation)
+      is directive-level parameterization, not separate modules.
+
+      '
+    compatibility:
+      suitable_for_intraday: true
+      suitable_for_daily: true
+      computational_cost: Low
+      risk_of_overfitting: Low
+    lookback: period
+    warmup: period + 1
+    input_columns:
+    - high
+    - low
+    - close
+    notes: Authored 2026-07-02 (concept-harvest, generic textbook defaults; single O(n)
+      forward-only ratchet loop — governance loop-audit annotation in module docstring).
+      SIGNAL_PRIMITIVE 'supertrend_flip' pending _ALLOWED_PRIMITIVES batch addition.
 registry_summary:
-  total_indicators: 76
+  total_indicators: 80
   by_category:
-    momentum_count: 11
-    trend_count: 8
-    volatility_count: 11
+    momentum_count: 12
+    trend_count: 9
+    volatility_count: 12
     regime_count: 10
     structure_count: 16
     composite_count: 3
-    statistical_count: 9
+    statistical_count: 10
     macro_count: 2
     price_pattern_count: 2
   intraday_ready: 50

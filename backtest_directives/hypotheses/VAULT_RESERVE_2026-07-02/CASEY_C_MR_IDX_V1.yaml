@@ -1,0 +1,71 @@
+id: CASEY_C_MR_IDX_V1
+title: "Casey C% (smoothed min-max rank of close-change) MR trigger on SPX500 1D — three-way bake-off vs RSI/IBS, decorrelation thesis"
+class: mechanic
+status: PROPOSED          # reserve — added to the 2026-07-02 snapshot from same-day StatOasis ingest
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[casey-c-mean-reversion-index-cfd]] (ingested 2026-07-02). CORRECTION
+  vs the vault page (verified against indicators/ 2026-07-02): Casey C% ALREADY EXISTS
+  as indicators/momentum/ultimate_c_percent.py (UC% = "Ultimate C%", same Ali Casey
+  indicator: percent-rank of close-change ROC, min-max normalized multi-horizon,
+  SMA-smoothed, 75/25 zones) + a preset variant in indicators/price/. The vault's
+  "does NOT exist / needs authoring" claim is WRONG. Moreover the ULTC model token is
+  registered and the 01_MR_FX_1H_ULTC_REGFILT lineage was tested to exhaustion
+  (2026-03): preset-mode sweeps CLOSED (baseline lookback=5/smooth=3/75-25 confirmed
+  strongest; fast/balanced/slow all worse), limit-entry axis CLOSED.
+  What remains genuinely NEW is the identity: UC% has never run on SPX500/NAS100 1D
+  as an index-MR trigger (FX 1H only) — new (family,model,symbol,TF) tuple, new
+  idea_id, continuing under model token ULTC. The decorrelation thesis stands:
+  three-way bake-off (UC% vs RSI(4) vs IBS<0.2), deliverable = correlation structure.
+  Honest prior unchanged: a close-change oscillator should NOT beat range-location
+  IBS; if it does, investigate before believing.
+
+baseline:
+  directive: "idea 69 RSI E001 (run 51d49c9b) + idea 70 IBS champion (run 3344c466), matched windows"
+  rule: "incumbent MR triggers on SPX500 1D"
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: TBD, stake_usd: TBD }
+
+variants:
+  - id: CASEY_C_MR_IDX_V1_P00
+    rule: TBD
+    rule_build_required: false         # indicator EXISTS: indicators.momentum.ultimate_c_percent (verified 2026-07-02)
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }   # same window as the E001 baselines
+    rule_params:
+      indicator: ultimate_c_percent    # baseline preset ONLY: lookback=5, smooth=3, OB/OS=75/25
+      entry: uc_lt_25
+      exit: uc_gt_75                   # plus exit-next-close arm for IBS parity
+      preset_sweep: FORBIDDEN_at_P00   # FX-1H lineage closed preset sweeps; re-open on 1D only if baseline shows edge AND with a documented structural-context rationale
+      timeframe: 1D
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0 after spread AND expectancy not below the RSI/IBS lines net of spread"
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # THE thesis: trade-return/equity correlation vs RSI2 and IBS series must be low at
+  # comparable expectancy -> ensemble slot earned. High correlation -> worse RSI clone,
+  # REJECT. No plateau in N/S/thresholds -> curve-fit, REJECT.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Three-way bake-off on the same instrument/window/cost model as the settled idea-69/70
+    runs; correlation computed from run artifacts. NAS100 extension only on SPX500
+    ACCEPT (separate idea_id).
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/casey-c-mean-reversion-index-cfd.md"
+  memory_refs: []
+
+decision:
+  outcome: TBD

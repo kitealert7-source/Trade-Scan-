@@ -1,0 +1,76 @@
+id: EMA_STACK_ADX_SWING_V1
+title: "Triple-EMA(21/50/100) stack + ADX>25 swing trend-follower, 4H, crypto + index CFDs"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[ema-stack-adx-swing-trend-cfd]] (Saleh port, ingested 2026-06-25).
+  Long when EMA21 > EMA50 > EMA100 and price > EMA21 (mirrored short), ADX(14) > 25
+  gate, 2xATR stop, half off at 3xATR -> break-even -> 2xATR trail. The claimed edge
+  lives in the regime filter + exit management, not the entry (entry-is-least-important).
+  Why reserve: the book has NO swing (4H) trend-follower on crypto/index CFDs — trend
+  work was intraday (GMAFLIP 5M, exhausted) or BTC 1H IMPULSE (archived). 4H holds are
+  swap-free. Structure is textbook-simple = low curve-fit surface, PROVIDED params are
+  NOT re-tuned per instrument (parameter-stability-over-optimality).
+  Caveat: high-freq intraday was a uniform cost-mirage across the legacy corpus — 4H
+  swing with multi-day holds is the cost-side escape this family needs to prove.
+
+baseline:
+  directive: null
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: EMA_STACK_ADX_SWING_V1_P00
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: BTCUSD, direction: both, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-06-01, end: latest }
+    rule_params:
+      ema_fast: 21
+      ema_mid: 50
+      ema_slow: 100
+      adx_period: 14
+      adx_min: 25
+      stop_atr_mult: 2.0
+      scaleout_atr_mult: 3.0
+      trail_atr_mult: 2.0
+      timeframe: 4H
+    # NAS100 4H = sibling variant, SEPARATE idea_id (identity model); fixed params both
+    # P01 candidate (from vault source btc-supertrend-htf-scalper, declined as a literal
+    # 15m scalp = spread death): add a higher-TF PERMISSION GATE (1D supertrend/EMA200
+    # must agree with direction) on top of the 4H stack — the source's one transferable
+    # element; HTF series must be point-in-time (look-ahead caveat)
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # after charged spread, full history
+  must_not_be_worse_on:
+    max_dd_pct: "< 40"               # the source's pitch is drawdown-CONTROLLED trend
+    survival: "not-BLOWN"
+  # Note: 3% risk/trade sizing from the source is NOT part of the acceptance test —
+  # judge the signal at pipeline-standard sizing; sizing is a capital-model overlay.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history 4H run per instrument, un-tuned textbook params. Per-index/
+    per-symbol identity discipline; scale-out/trail mechanics may need engine-capability
+    check before authoring (partial-close support).
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/ema-stack-adx-swing-trend-cfd.md"
+  memory_refs:
+    - project_legacy_revalidation_arc
+
+decision:
+  outcome: TBD

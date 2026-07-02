@@ -1,0 +1,70 @@
+id: NAS100_MIDNIGHT_BREAKOUT_V1
+title: "NAS100 long-only intraday breakout anchored on midnight close, morning entry gate, EOD exit"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[nas100-midnight-close-intraday-breakout]]. Long-only NAS100 intraday:
+  (1) day filter — price must have exceeded the midnight close before 8AM NY;
+  (2) entry — after 8AM NY, long when price > midnight close + N points; exit EOD.
+  Exploits NASDAQ's structural long-breakout bias with a daily-context anchor.
+  RISK FLAG (why this sits in reserve, not front of queue): the legacy re-validation
+  arc concluded high-freq intraday was a UNIFORM COST-MIRAGE, and PSBRK gold showed
+  multi-entry intraday churn is net-destructive. Two mitigations are pre-wired into
+  the spec: first-breakout-only (one entry/day — the exact fix that flipped PSBRK's
+  sign) and index-not-XAU instrument class. Acceptance is full-history survival, not
+  recent-window PF. NOT previously tested (no midnight-anchor arc anywhere).
+
+baseline:
+  directive: null
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: NAS100_MIDNIGHT_BREAKOUT_V1_P00
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: NAS100, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params:
+      anchor: midnight_close_utc     # confirm NY-midnight vs UTC-midnight against source before authoring
+      day_filter: touched_anchor_before_0800_ny
+      entry_window: "0800-0930_ny"
+      breakout_offset_points: TBD
+      entries_per_day: 1             # first breakout only — PSBRK churn lesson baked in
+      exit: eod
+      timeframe: 1H
+    # session_reset guard: next_bar_open + session boundaries — check Stage -0.24
+    # (feedback_session_reset_daily_footgun) when authoring
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # charged, FULL history 2016-2026
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Kill-fast rule: if year-wise net is 100% concentrated in 2024-26 (SPKFADE pattern),
+  # REJECT as vol-regime artifact regardless of headline PF.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history run. Intraday index + EOD flat = cost-fragile; the charged
+    engine verdict is the entire question.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/nas100-midnight-close-intraday-breakout.md"
+  memory_refs:
+    - project_legacy_revalidation_arc
+    - feedback_session_reset_daily_footgun
+
+decision:
+  outcome: TBD

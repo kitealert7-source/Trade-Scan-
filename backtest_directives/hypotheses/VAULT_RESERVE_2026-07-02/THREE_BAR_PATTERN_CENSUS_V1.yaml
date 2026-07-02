@@ -1,0 +1,66 @@
+id: THREE_BAR_PATTERN_CENSUS_V1
+title: "Three-bar close-direction pattern census (8 patterns) on structurally-matched instruments, 1D"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[three-bar-binary-pattern-cfd]]. Enumerate ALL 8 three-bar
+  close-direction patterns (each bar up/down vs prior = 2^3) on daily CFDs MATCHED to
+  instrument character: SPX500 (long-MR bias -> pattern 'three lower closes' long),
+  XAUUSD and NG as contrast classes. Zero parameters, complete census — no
+  cherry-picking risk beyond the 8-way selection effect, which the structural-matching
+  prior mitigates. NOT previously tested: no bar-pattern census arc exists (two-bar
+  reversal FX work in the archive is a different pattern family and was intraday
+  15M-4H). Census framing fits the experiment-basket doctrine: run all 8 including
+  expected-dead cells as controls; the SHAPE of the census (does edge concentrate
+  where structure predicts?) is the finding, not any single pattern's PF.
+
+baseline:
+  directive: null                    # census — the 8-pattern cross-section is its own control
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: THREE_BAR_PATTERN_CENSUS_V1_SPX
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params: { pattern_set: all_8, exit: TBD_fixed_horizon, timeframe: 1D }
+    # XAUUSD / NG arms = separate idea_ids (identity model); SPX500 census first —
+    # if structure-matched cells show nothing there, the method dies cheaply.
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0 in the structure-PREDICTED cells specifically"
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Pre-declare the predicted cells BEFORE the run (e.g. SPX500: 3-lower-closes ->
+  # long). Edge appearing only in unpredicted cells = selection effect -> REJECT.
+  # Uniform results across all 8 cells = wiring red flag (synthesis-uniformity), audit
+  # before concluding.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history run per instrument arm, all 8 patterns instrumented in a
+    single pass (pattern-tagged trades), predictions pre-registered in the directive
+    rationale.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/three-bar-binary-pattern-cfd.md"
+  memory_refs:
+    - feedback_experiment_basket_composition
+    - synthesis-uniformity-as-red-flag
+
+decision:
+  outcome: TBD

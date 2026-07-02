@@ -1,0 +1,69 @@
+id: TWO_BAR_REVERSAL_FX_DAILY_V1
+title: "Two-bar reversal pattern on DAILY FX (EURUSD/GBPUSD) with macro regime gate"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[two-bar-reversal-pattern-fx]] (Ali Casey). Long setup: bar 2 is a
+  down-bar closing below the prior bar's low; enter next bar on penetration of bar 2's
+  high; exit on first profitable close or 10-bar time cap; macro regime gate against
+  2008-2011-style bleed. Zero indicators, zero tuned parameters.
+  DELTA vs tested work (this survives dedup ONLY on timeframe + gate): the archive has
+  substantial two-bar-reversal FX work at 15M/1H/4H, where the USD_SYNTH Z-score
+  extreme filter was a CONFIRMED edge enhancer and — critically — SMA(100)
+  trend-following gates DESTROYED value at every TF tested. Daily TF is untested.
+  Consequence baked into the spec: the vault's proposed generic "SPX monthly / SMA"
+  macro gate is REPLACED by the already-validated USD_SYNTH |Z| extreme gate as the
+  primary arm; a plain SMA-gated arm may run only as a falsification control.
+
+baseline:
+  directive: "archive two-bar reversal FX arcs (15M/1H/4H, USD_SYNTH-filtered) — no daily arm exists"
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: TBD, stake_usd: TBD }
+
+variants:
+  - id: TWO_BAR_REVERSAL_FX_DAILY_V1_P00
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: EURUSD, direction: both, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-06-01, end: latest }
+    rule_params:
+      pattern: two_bar_reversal      # close<open AND close<prior_low; entry on bar-2 high penetration
+      exit: first_profitable_close
+      time_cap_bars: 10
+      macro_gate: usd_synth_z_extreme   # validated enhancer from the archive arc — NOT SMA
+      timeframe: 1D
+    # GBPUSD sibling = separate idea_id. F19: the archive arc is 15M/1H/4H — confirm no
+    # prior DAILY NO_TRADES entry before authoring (none found at snapshot time).
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # charged, full 2016-2026
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Density expectation is LOW on daily (pattern is rare) — administrative FAIL on
+  # trade count is acceptable; the question is whether the intraday edge family
+  # transports to daily at all.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history daily run on EURUSD with the USD_SYNTH gate. A same-window
+    ungated arm quantifies the gate's contribution at daily TF (it was TF-consistent
+    at 15M-4H; daily confirmation would extend that finding).
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/two-bar-reversal-pattern-fx.md"
+  memory_refs: []
+
+decision:
+  outcome: TBD

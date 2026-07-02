@@ -185,6 +185,9 @@ _ALLOWED_PRIMITIVES = {
     "regime",
     "distance_from_moving_average_pct",   # dma_pct (idea 72 — MA-distance stretch)
     "armed_reversal_event",               # armed_reversal event engine (idea 72)
+    "kc_band_stretch",                    # kc_bands (2026-07-02 vault-reserve authoring batch)
+    "supertrend_flip",                    # supertrend (same batch)
+    "cci_threshold",                      # cci (same batch)
 }
 _ALLOWED_PIVOT_SOURCES = {"none", "swing_pivots_k3", "session_high_low"}
 _PIVOT_PRIMITIVES = {"pivot_k3", "structure_gated"}

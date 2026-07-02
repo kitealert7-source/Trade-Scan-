@@ -1,0 +1,78 @@
+id: VOLFILTER_BAKEOFF_MR_IDX_V1
+title: "Volatility-regime filter bake-off (ATR vs StdDev vs BB-width) on the tested RSI2/IBS index-MR lines, 1D"
+class: mechanic
+status: PROPOSED          # reserve — added to the 2026-07-02 snapshot from same-day StatOasis ingest
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[volatility-regime-filter-bakeoff-rsi2-mr-index-cfd]] (StatOasis, ingested
+  2026-07-02). The tested SPX500 MR lines (idea 69 RSI WATCH, idea 70 IBS champion)
+  carry a DIRECTION gate (SMA200) but NO volatility gate — a genuine untested filter
+  category. Bake off three fixed, zero-free-parameter vol filters (ATR-rising,
+  StdDev-rising, BB-width-expanding) one at a time on the existing base; then — the
+  sharper claim — portfolio 2-4 legs of the SAME base differing only by filter
+  (implementation-variant decorrelation). Filters stay FIXED, out of any optimizer.
+  Sibling of R3_FILTER_BAKEOFF_IDX_V1 (same filter thesis, different base entry) —
+  run whichever first; results cross-inform.
+
+baseline:
+  directive: "69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00 E001 (run 51d49c9b2d927e4029a17662)"
+  rule: "RSI line, SMA200-gated — PF 1.74, 86 trades, WATCH; IBS champion run 3344c466 as alt base"
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: 2.53, stake_usd: TBD }
+
+variants:
+  - id: VOLFILTER_BAKEOFF_MR_IDX_V1_ATR
+    rule: TBD
+    rule_build_required: false         # indicators/volatility/atr.py + atr_percentile exist
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }   # window-matched to the idea-69/70 baselines
+    rule_params: { base: existing_rsi_or_ibs_line, vol_filter: atr_rising, filter_fixed: true, timeframe: 1D }
+  - id: VOLFILTER_BAKEOFF_MR_IDX_V1_STD
+    rule: TBD
+    rule_build_required: false         # ALL vol indicators EXIST (verified 2026-07-02): realized_vol, atr_percentile, bollinger_band_width, bb_squeeze, volatility_regime
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }
+    rule_params: { base: existing_rsi_or_ibs_line, vol_filter: stddev_rising, filter_fixed: true, timeframe: 1D }
+  - id: VOLFILTER_BAKEOFF_MR_IDX_V1_BBW
+    rule: TBD
+    rule_build_required: false         # indicators/volatility/bollinger_band_width.py exists
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }
+    rule_params: { base: existing_rsi_or_ibs_line, vol_filter: bb_width_expanding, filter_fixed: true, timeframe: 1D }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "> unfiltered base on matched window, after spread, for at least one filter"
+  must_not_be_worse_on:
+    trade_count: ">= ~85% of base"     # filter-significance gate: meaningful cut, not sample starvation
+    survival: "not-BLOWN"
+  # Placebo control (vault's own guard): if a random ~10% trade removal improves ret_dd
+  # comparably, the gate is doing the work, not the volatility content -> REJECT.
+  # Portfolio stage (2-4 filter-variant legs) runs ONLY if >=2 filters individually pass.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Per-filter arms window-matched to the existing baseline runs; sample is already thin
+    (86 trades on the RSI base) so per-leg verdicts are WATCH-grade at best — the IBS
+    base (323 trades) is the denser substrate, prefer it.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/volatility-regime-filter-bakeoff-rsi2-mr-index-cfd.md"
+  memory_refs:
+    - feedback_fail_is_a_probe
+
+decision:
+  outcome: TBD

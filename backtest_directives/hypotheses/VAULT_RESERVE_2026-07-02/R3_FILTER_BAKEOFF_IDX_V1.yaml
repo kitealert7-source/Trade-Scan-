@@ -1,0 +1,75 @@
+id: R3_FILTER_BAKEOFF_IDX_V1
+title: "Relaxed Connors R3 (RSI2 pullback) on 4 index CFDs — directional (SMA200) vs volatility filter bake-off"
+class: mechanic
+status: PROPOSED          # reserve — added to the 2026-07-02 snapshot from same-day StatOasis ingest
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[r3-index-cfd-filter-bakeoff]] (ingested 2026-07-02). Relaxed R3 entry:
+  RSI(2) < 40 AND RSI(2) fell on >=2 of the last 4 bars; exit RSI(2) > 70 or 5-bar
+  time cap; long-only on SPX500/NAS100/US30/US2000 (source's Midcap400 has no clean
+  OctaFX CFD — dropped). Strict classic R3 (RSI2<10 chain) runs as the tight baseline.
+  The test: does a FIXED volatility filter (e.g. ATR(5) rising) beat the classic
+  SMA200 directional gate on average-trade — and do the two filters' equity curves
+  decorrelate enough that the combined 4-index portfolio beats either single-filter
+  book on Ret/DD?
+  DELTA vs tested work: idea 69 IS nearly this base (RSI + SMA200, WATCH) — this
+  hypothesis is a FILTER-ARM + PORTFOLIO extension of it, not a re-test; reuse its
+  directive skeleton and cost model. Sibling of VOLFILTER_BAKEOFF_MR_IDX_V1 (same
+  filter-category thesis, different base) — cross-inform, run one first.
+
+baseline:
+  directive: "69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00 E001 (run 51d49c9b, PF 1.74, 86tr, WATCH) + its 10-index sweep"
+  rule: "RSI pullback + SMA200 gate"
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: 2.53, stake_usd: TBD }
+
+variants:
+  - id: R3_FILTER_BAKEOFF_IDX_V1_DIR
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }
+    rule_params: { entry: relaxed_r3, filter: sma200_directional, exit: rsi2_gt_70_or_5bar, timeframe: 1D }
+  - id: R3_FILTER_BAKEOFF_IDX_V1_VOL
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }
+    rule_params: { entry: relaxed_r3, filter: atr5_rising_fixed, exit: rsi2_gt_70_or_5bar, timeframe: 1D }
+    # NAS100/US30/US2000 arms = separate idea_ids per identity model; the cross-filter
+    # portfolio assembles from per-index survivors via the composite path
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    avg_trade_r: "vol-filter arm > directional arm at similar win%"   # the source's central claim
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Portfolio stage: measured A-vs-B return correlation on a common calendar must be
+  # low AND the combined book must beat either single-filter book on Ret/DD — else
+  # keep the single best filter (parsimony). Relaxed-vs-strict entry comparison also
+  # reported: if relaxation only adds trades without holding avg-R, keep strict.
+
+evidence_required:
+  class: multi-window-N
+  parity_gate: not_applicable
+  reason: |
+    Per-index charged runs window-matched to the idea-69 sweep; filters FIXED, never
+    optimized. This extends an existing WATCH line, so supersede/extend semantics per
+    /rerun-backtest may apply instead of a fresh idea — decide at authoring.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/r3-index-cfd-filter-bakeoff.md"
+  memory_refs:
+    - feedback_fail_is_a_probe
+
+decision:
+  outcome: TBD

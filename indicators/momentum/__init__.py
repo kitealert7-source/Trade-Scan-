@@ -1,3 +1,4 @@
+from .cci import cci
 from .roc import roc
 from .rsi import rsi
 from .stochastic import stochastic_k

@@ -1,0 +1,74 @@
+id: DONCHIAN_4020_BASKET_V1
+title: "40-in/20-out Donchian breakout, both directions per-instrument gated, across a 9-symbol CFD basket, 1D"
+class: architecture
+status: PROPOSED          # reserve — added to the 2026-07-02 snapshot from same-day StatOasis ingest
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[donchian-40-20-breakout-basket-cfd]] (Turtle/CTA port, ingested
+  2026-07-02). Entry: close beyond the 40-bar Donchian channel (both directions);
+  exit: close through the opposite 20-bar channel — the reverse channel IS the stop.
+  The strategy is the PER-INSTRUMENT DIRECTION GATE: run long and short standalone per
+  market, deploy only the structurally-biased side (priors from the source, to be
+  re-validated: SPX500 long, XAUUSD long, NATGAS short, GBPUSD short-lean).
+  Distinct from CHANNEL_TREND_LONGONLY_IDX_V1 (the vault page carries the diff table):
+  pure Donchian vs Keltner+Donchian; 40-in/20-out vs 20-in/40-out; both-directions
+  gated vs long-only; bias-exploitation thesis vs drawdown-reduction thesis. Same
+  family, materially different variant — bake off head-to-head, don't duplicate.
+  Basket: SPX500 NAS100 US30 US2000 XAUUSD XAGUSD GBPUSD NATGAS BTCUSD (source's
+  Coffee/Midcap400 have no clean OctaFX CFD — dropped, breadth loss noted).
+
+baseline:
+  directive: "CHANNEL_TREND_LONGONLY_IDX_V1 (reserve sibling) once run — else buy-and-hold per symbol"
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: TBD, stake_usd: TBD }
+
+variants:
+  - id: DONCHIAN_4020_BASKET_V1_SOLO
+    rule: TBD
+    rule_build_required: false         # verified 2026-07-02: indicators/structure/lowest_low.py, highest_high.py AND donchian_channel.py all exist — zero authoring
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: both_tested_separately, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params: { entry_channel_bars: 40, exit_channel_bars: 20, fill: next_bar_open, timeframe: 1D }
+    # one solo pair (long-only + short-only) PER SYMBOL, each symbol a separate idea_id
+  - id: DONCHIAN_4020_BASKET_V1_GATED
+    rule: TBD
+    rule_build_required: false
+    architecture: { basket_id: DONCH_BASKET, legs: [] }   # winning side per market, from solo evidence
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params: { members: per_instrument_winning_sides, weight: equal }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "gated basket > naive symmetric both-sides basket"   # the gate IS the strategy
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Rank by return-to-drawdown and avg-trade-R, never net profit alone. ~40 trades per
+  # market since 2016 -> per-market conclusions low-confidence; the basket aggregate is
+  # the decision unit. Redundancy check vs CHANNEL_TREND_LONGONLY + MOMO_BREAKOUT: if
+  # it neither beats nor decorrelates from them, prefer the simpler line.
+
+evidence_required:
+  class: multi-window-N
+  parity_gate: not_applicable
+  reason: |
+    Per-symbol per-side solos (charged, full history) feed the gated basket. 4H/1H
+    variants (proxy for the source's unsupported 12h) only if the daily edge motivates.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/donchian-40-20-breakout-basket-cfd.md"
+  memory_refs:
+    - reference_idea_identity_model
+    - feedback_experiment_basket_composition
+
+decision:
+  outcome: TBD

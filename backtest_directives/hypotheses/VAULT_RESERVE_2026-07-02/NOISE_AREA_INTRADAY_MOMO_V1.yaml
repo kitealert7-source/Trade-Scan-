@@ -1,0 +1,68 @@
+id: NOISE_AREA_INTRADAY_MOMO_V1
+title: "Zarattini Noise-Area intraday momentum on SPX500 — VWAP/band trailing stop, flat at cash close"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[noise-area-intraday-momentum-index-cfd]] (ingested 2026-06-24). Build a
+  14-day time-of-day "Noise Area" envelope around the session open; trade breaks of it;
+  trail on max(VWAP, current band); flat at US cash close. The source isolates the edge
+  to the EXIT + vol sizing, not the entry — consistent with our exit-dominance doctrine.
+  RISK FLAG: this is the most cost-exposed idea in the snapshot (1-5m bars, daily
+  round-trips) and the high-freq cost-mirage finding applies with full force. It stays
+  in reserve because the mechanism is genuinely untested here (time-of-day-scaled noise
+  envelope + VWAP trail — no overlap with PSBRK prior-session-range or ORB fixed-window)
+  and the source's claim is specifically that the EXIT design is what survives costs.
+  Engine-capability check needed first: session VWAP + time-of-day envelope as
+  indicators/ modules; 5M data depth for SPX500.
+
+baseline:
+  directive: null
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: NOISE_AREA_INTRADAY_MOMO_V1_P00
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: both, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: full_available_5m_history, end: latest }
+    rule_params:
+      noise_lookback_days: 14
+      trail: "max(session_vwap, current_band)"
+      exit: cash_close_flat
+      entries_per_day: 1
+      timeframe: 5M
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # charged, full available history
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Secondary probe (the source's own claim): naive opposite-band stop arm should be
+  # materially WORSE than the VWAP/band-trail arm. If exit choice doesn't move the
+  # result, the ported mechanism isn't what the source measured -> reject the port.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    Charged pipeline run; run LAST among the reserve intraday ideas — only worth the
+    build cost if NAS100_MIDNIGHT_BREAKOUT_V1 (cheaper probe of the same
+    intraday-index-vs-cost question) survives.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/noise-area-intraday-momentum-index-cfd.md"
+  memory_refs:
+    - project_legacy_revalidation_arc
+
+decision:
+  outcome: TBD

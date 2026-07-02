@@ -1,0 +1,74 @@
+id: COINT_EXIT_OVERLAYS_V1
+title: "Cointegration exit overlays — fixed time exit + catastrophic stop on top of z-exit"
+class: mechanic
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[cointegration-exit-method-experiments]] (source: 8-exit taxonomy).
+  Layer two FIXED overlays onto the existing z-score-normalization exit:
+  (1) time exit — close any trade still open after N bars (a spread that hasn't
+  reverted in N bars is likely a breaking relationship; caps slow-breakdown damage);
+  (2) catastrophic stop — fixed max-loss floor per cycle.
+  This targets EXITS, the open frontier — the entry-filter arc for cointegration is
+  CLOSED (ADX gate + BB adaptive Exp1 settled 2026-06-16/19; generic entry bands
+  rejected). Fat-tail blowups remain the binding constraint (20 blowup pairs of 476
+  in the FXD25 control cohort; regime-conditional losses dominate: broken-period PnL
+  -3892 vs +431 elsewhere, RESEARCH_MEMORY 2026-06-20). An exit overlay is the
+  cheapest untested lever against exactly that tail. NOT an entry filter — no overlap
+  with the closed arc.
+
+baseline:
+  directive: "FXD25 control cohort (fixed |z|>2.5, is_current=1 in cointegration_sheet)"
+  rule: "pine_ratio_zrev_v1_zcross@1"
+  parquet_path: TBD                  # per-pair, inherited from each control
+  key_metrics: { net_pct: TBD, max_dd_pct: TBD, ret_dd: 0.000, stake_usd: 1000.0 }
+  # cohort medians: ret_dd 0.000, 32 trades, 20 blowups (max-DD >= 50% stake)
+
+variants:
+  - id: COINT_EXIT_OVERLAYS_V1_TIME
+    rule: "pine_ratio_zrev_v1_zcross@TBD"   # additive params, follow BB Exp1 precedent (in-place patch if byte-identical default-off)
+    rule_build_required: true
+    architecture: { basket_id: COHORT_SUBSET, legs: [] }   # representative subset first, per falsification-first discipline
+    stake_usd: 1000.0
+    harvest_target_usd: 1000000.0
+    window: { start: per-pair, end: per-pair }             # window-matched to controls
+    rule_params: { time_exit_bars: TBD, catastrophic_stop_pct: null }
+  - id: COINT_EXIT_OVERLAYS_V1_STOP
+    rule: "pine_ratio_zrev_v1_zcross@TBD"
+    rule_build_required: true
+    architecture: { basket_id: COHORT_SUBSET, legs: [] }
+    stake_usd: 1000.0
+    harvest_target_usd: 1000000.0
+    window: { start: per-pair, end: per-pair }
+    rule_params: { time_exit_bars: null, catastrophic_stop_pct: TBD }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    blowup_count: "< baseline"       # HEADLINE — same bar as BB Exp1: cut the fat tail
+  must_not_be_worse_on:
+    median_ret_dd: ">= 0.9 * baseline"   # not blowup-trimming by killing all reversion room
+    survival: "not-BLOWN"
+  # Guard: mean-reversion-stop-loss paradox — tight stops on MR convert winners to losers.
+  # Test each overlay SEPARATELY before stacking; N and the stop floor are structural
+  # (breakdown-timescale-derived), not tuned.
+
+evidence_required:
+  class: multi-window-cohort
+  parity_gate: not_applicable
+  reason: |
+    Same evidence design as BB_ADAPTIVE_WIDTH_V1: per-pair TEST-CONTROL deltas on matched
+    windows, representative subset first, full cohort only if the subset survives.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/cointegration-exit-method-experiments.md"
+  memory_refs:
+    - project_cointegration_baseline_v1510_spread_verdict
+    - bb-adaptive-width-trigger-exp1
+
+decision:
+  outcome: TBD

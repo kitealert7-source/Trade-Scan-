@@ -1,0 +1,62 @@
+id: CHANNEL_TREND_LONGONLY_IDX_V1
+title: "Long-only Keltner(20,2)+Donchian(20) channel trend-following, exit to flat below Donchian(40), 1D"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[long-only-channel-trend-following-cfd]] (Zarattini-Antonacci "Timing
+  Industry", ingested 2026-06-24). Long when price breaks the combined upper band of
+  Keltner(20,2) + Donchian(20); exit to FLAT below the longer Donchian(40) lower band;
+  daily signal, multi-week/month holds. Century-robust, un-optimized -> low curve-fit
+  surface. Position-timeframe trend is a structural gap in the book: everything trend
+  we've tested was intraday-to-4H; nothing holds multi-week. Swap-free = long holds
+  cost nothing but spread, paid rarely (low turnover = most cost-robust idea in this
+  snapshot). Asymmetric bands (enter 20, exit 40) are the design's point — ride trends,
+  exit on regime breakdown to cash. NOT previously tested in any form.
+
+baseline:
+  directive: null                    # buy-and-hold on the same window is the informal reference
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: CHANNEL_TREND_LONGONLY_IDX_V1_P00
+    rule: TBD
+    rule_build_required: false         # verified 2026-07-02: indicators/volatility/keltner_channel.py + indicators/structure/donchian_channel.py both exist — zero authoring
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params:
+      entry_band: "max(keltner(20,2).upper, donchian(20).high)"
+      exit_band: "donchian(40).low"
+      timeframe: 1D
+    # NAS100 sibling = separate idea_id; vol-targeted sizing from the source is a
+    # capital-model overlay, NOT part of the signal test
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "> buy-and-hold ret_dd on matched window"   # trend-timing must beat holding
+  must_not_be_worse_on:
+    max_dd_pct: "< buy-and-hold max_dd"                 # the drawdown-reduction claim IS the edge
+    survival: "not-BLOWN"
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history 1D run per index. Trade count will be low (multi-week
+    holds) — judge edge existence + DD reduction, not the 50/yr density gate.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/long-only-channel-trend-following-cfd.md"
+  memory_refs: []
+
+decision:
+  outcome: TBD

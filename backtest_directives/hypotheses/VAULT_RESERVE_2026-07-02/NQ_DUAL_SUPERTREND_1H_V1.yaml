@@ -1,0 +1,67 @@
+id: NQ_DUAL_SUPERTREND_1H_V1
+title: "Dual SuperTrend (10/2 fast + 30/4 slow) + SMA(200), long-only NAS100 1H"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[nq-dual-supertrend-60min-nas100-cfd]] (Ali Casey NQ port: $315k net,
+  62% WR, 5.1 Ret/DD claimed on futures). Long when BOTH SuperTrends green AND price >
+  SMA(200); exit when the fast SuperTrend flips red. Fast(ATR10, mult2) = signal,
+  slow(ATR30, mult4) = confirmation — a scale-consistent indicator hierarchy speaking
+  one language (ATR channel flips). Exploits NASDAQ's structural long bias.
+  NOT previously tested: no SuperTrend primitive exists in the book (GMAFLIP arc closed
+  with "replace slope-flip with a different trend primitive entirely" — this IS such a
+  primitive, on a different symbol + TF, so it also answers that closed arc's
+  forward-pointer). 1H trend with multi-day holds sits between the dead intraday
+  scalps and the untested 4H/1D swing family on the cost spectrum; source claims
+  survive-costs on futures, CFD spread is the open question.
+
+baseline:
+  directive: null
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: NQ_DUAL_SUPERTREND_1H_V1_P00
+    rule: TBD
+    rule_build_required: false       # BUILT 2026-07-02: indicators/trend/supertrend.py (registry v17,
+                                     # 7/7 tests; dual fast/slow = two calls with different params per
+                                     # SOP_INDICATOR 11.3). 'supertrend_flip' LANDED in _ALLOWED_PRIMITIVES 2026-07-02 — declarable now
+    architecture: { basket_id: null, legs: [ { symbol: NAS100, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }
+    rule_params:
+      st_fast: { atr_period: 10, mult: 2 }
+      st_slow: { atr_period: 30, mult: 4 }
+      regime_gate: close_gt_sma200
+      exit: fast_st_flip_red
+      timeframe: 1H
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # charged, full history
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Kill-fast rule: year-wise concentration check (SPKFADE pattern) before any
+  # parameter discussion; source's params are used AS-IS (no re-tune on first pass).
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history 1H run, source params verbatim. The SMA(200) gate is part
+    of the spec (source shows it removes a 6-7yr flat stretch) — do not test ungated.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/nq-dual-supertrend-60min-nas100-cfd.md"
+  memory_refs: []
+
+decision:
+  outcome: TBD

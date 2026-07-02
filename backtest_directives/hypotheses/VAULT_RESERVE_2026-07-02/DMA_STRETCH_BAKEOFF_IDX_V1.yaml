@@ -1,0 +1,61 @@
+id: DMA_STRETCH_BAKEOFF_IDX_V1
+title: "DMA stretch trigger on SPX500 1D — bake-off vs the tested RSI(4) and IBS<0.2 lines"
+class: mechanic
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[dma-mean-reversion-trigger-cfd]]. Long when price closes X% below a short
+  (5-10 period) SMA, exit on reversion to mean — the MA-distance member of the stretch
+  family, never tested on single-instrument index PRICE (only as spread z-score).
+  DELTA vs already-tested work (this is why it survives the dedup):
+  - Idea 72 tested DMA on XAUUSD 5M (different identity — symbol AND timeframe differ;
+    reached regime-conditional WATCH, arc closed "don't overoperate").
+  - The SPX500 1D stretch family has RSI(4)<30 (idea 69, PF 1.74 WATCH) and IBS<0.20
+    (idea 70, champion) settled — DMA is the missing third arm of that bake-off.
+  Prior is NEGATIVE per vault concept [[mean-reversion-stretch-signals]]: MA-distance
+  likely UNDER-performs IBS/range-location. Cheap bake-off, not a prior bet — value is
+  completing the stretch-family census on the same line with matched windows.
+
+baseline:
+  directive: "70_MR_IDX_1D_IBS_S01_V1_P00 (IBS<0.20 champion) + 69 RSI(4) line"
+  rule: "IBS<0.20 daily MR (run 3344c46617c134ef5a513a7d); RSI(4) run 51d49c9b2d927e4029a17662"
+  parquet_path: TBD
+  key_metrics: { net_pct: TBD, max_dd_pct: 5.87, ret_dd: TBD, stake_usd: TBD }
+  # IBS champion: PF 1.45, SQN 2.33, 323 trades; RSI E001: PF 1.74, 86 trades
+
+variants:
+  - id: DMA_STRETCH_BAKEOFF_IDX_V1_P00
+    rule: TBD
+    rule_build_required: false         # verified 2026-07-02: indicators/stats/dma_pct.py exists (the module idea 72 used)
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: long, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2017-01-01, end: latest }   # match idea-69/70 full-history windows
+    rule_params: { sma_period: 5, stretch_pct: TBD, timeframe: 1D, exit: revert_to_sma }
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    ret_dd: "> IBS<0.20 arm on the matched window"   # else it's a dominated trigger — census closes
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history SPX500 1D run, window-matched to the idea-69/70 baselines.
+    Whatever the result, the stretch-family census (RSI vs IBS vs DMA) closes — a
+    dominated DMA is a valid terminal answer.
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/dma-mean-reversion-trigger-cfd.md"
+  memory_refs:
+    - feedback_fail_is_a_probe
+
+decision:
+  outcome: TBD

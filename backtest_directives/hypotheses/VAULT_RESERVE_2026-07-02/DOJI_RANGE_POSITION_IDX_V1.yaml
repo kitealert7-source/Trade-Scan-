@@ -1,0 +1,67 @@
+id: DOJI_RANGE_POSITION_IDX_V1
+title: "Doji range-position edge on SPX500 1D — body-in-range third decides direction"
+class: architecture
+status: PROPOSED          # reserve — snapshotted from vault 2026-07-02, not yet scheduled
+created: 2026-07-02
+author: "agent (Claude Fable 5)"
+supersedes: null
+
+motivation: |
+  From vault [[doji-range-position-index-cfd]] (StatOasis port, ingested 2026-06-25).
+  On a doji bar (body/range ~15%): body in the MIDDLE third of the bar's range -> long
+  next bar; body in the BOTTOM third -> short. Exit on direction-confirmation (close
+  beyond prior bar) or 10-bar time cap. SPX500 1D first, then NAS100/GER40.
+  Why it earns a reserve slot: the discriminator is body-position-in-range — the same
+  range-location family that produced the IBS champion (range-location beats
+  close-change), but as a distinct PATTERN mechanism, not an oscillator threshold;
+  ~2-3 day holds are swap-free on OctaFX. NOT previously tested (no doji/candle-pattern
+  arc anywhere in RESEARCH_MEMORY or the archive).
+
+baseline:
+  directive: null                    # standalone new architecture; flat benchmark
+  rule: TBD
+  parquet_path: TBD
+  key_metrics: { net_pct: 0.0, max_dd_pct: 0.0, ret_dd: 0.0, stake_usd: TBD }
+
+variants:
+  - id: DOJI_RANGE_POSITION_IDX_V1_P00
+    rule: TBD
+    rule_build_required: true
+    architecture: { basket_id: null, legs: [ { symbol: SPX500, direction: both, lot: 0.01 } ] }
+    stake_usd: TBD
+    harvest_target_usd: TBD
+    window: { start: 2016-01-01, end: latest }   # full history — survival gate up front
+    rule_params:
+      body_over_range_max: 0.15
+      long_zone: middle_third
+      short_zone: bottom_third
+      exit: direction_confirmation
+      time_cap_bars: 10
+      timeframe: 1D
+
+acceptance_criteria:
+  primary_metric: ret_dd
+  must_beat_baseline:
+    net_pct: "> 0"                   # after charged spread, full history
+  must_not_be_worse_on:
+    survival: "not-BLOWN"
+  # Judge by full-history RetDD + year-wise spread, not recent-window PF
+  # (SPKFADE lesson 2026-06-29). Density expectation ~2/month — will FAIL the 50/yr
+  # gate administratively; the question is edge existence, pooling comes later.
+
+evidence_required:
+  class: single-window
+  parity_gate: not_applicable
+  reason: |
+    One charged full-history run per index; SPX500 decides whether NAS100/GER40 follow.
+    Per-index identity discipline applies (VOLPULL lesson: instrument IS part of the
+    hypothesis — separate idea_id per index if extended).
+
+session_links:
+  prior_session_commits: []
+  research_doc: "../TS_Obsidian_Vault/research-ideas/doji-range-position-index-cfd.md"
+  memory_refs:
+    - reference_idea_identity_model
+
+decision:
+  outcome: TBD
