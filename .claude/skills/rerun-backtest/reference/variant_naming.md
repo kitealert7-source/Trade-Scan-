@@ -16,3 +16,25 @@ Rerun output:  INBOX/90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E003.txt
 ```
 
 `reset_directive.py` is **not** required for `__E###`-rotated reruns — the new variant has a distinct directive_id, so PORTFOLIO_COMPLETE on the prior variant doesn't block it. The state file is keyed by filename stem, and the stem now differs.
+
+## Per-symbol ledger names (canonical-stem derivation)
+
+The `master_filter` ledger stores **per-symbol** runs with an appended `_<SYMBOL>` suffix (e.g. `69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00_SPX500`), and a rerun-of-a-rerun target can carry an embedded `__E###` too — sometimes both, in either order. `prepare` must **not** rotate on that ledger handle directly: a stem like `..._P00__E001_SPX500` is non-parseable (→ `classifier_gate` matches on an empty model token and cross-diffs an unrelated family → phantom SIGNAL) and rotation doubles the suffix (`..._SPX500__E001` → `NAMESPACE_IDENTITY_MISMATCH` at Stage -0.30).
+
+So `prepare` derives a **canonical base stem** before rotating:
+
+1. Prefer the source capsule's own `test.strategy` (the immutable namespace base anchor).
+2. Otherwise peel trailing `__E###` and `_<TOKEN>` chunks until `parse_strategy_name` accepts the remainder with an **empty** `symbol_suffix`.
+3. Basket / non-conforming ids (never namespace-structured) pass through unchanged (trailing `__E###` stripped only).
+
+The derivation is **idempotent** — `canonical(canonical(x)) == canonical(x)` — which is the guard against future suffix explosions. All per-symbol clones of one class-token idea reduce to the same base stem and therefore **share** one `__E###` sequence.
+
+```
+Ledger target: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00_SPX500   (per-symbol row)
+Canonical stem: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00          (peels _SPX500)
+Rerun output:  INBOX/69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00__E001.txt
+                 test.strategy: 69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00
+                 test.name:     69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00__E001
+```
+
+(Fix + regression tests landed 2026-07-02 — see the Friction log.)

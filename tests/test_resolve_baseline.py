@@ -60,7 +60,9 @@ def env(tmp_path, monkeypatch):
     backtests = state / "backtests"
     strategies = state / "strategies"
     runs = state / "runs"
-    for d in (backtests, strategies, runs):
+    sandbox = state / "sandbox"
+    candidates = state / "candidates"
+    for d in (backtests, strategies, runs, sandbox, candidates):
         d.mkdir(parents=True, exist_ok=True)
 
     # Patch the ledger's dynamic db-path resolution.
@@ -80,6 +82,10 @@ def env(tmp_path, monkeypatch):
         # holds strategy.py + directive.txt, so point it here too.
         monkeypatch.setattr(mod, "REPO_STRATEGIES_DIR", strategies, raising=False)
         monkeypatch.setattr(mod, "RUNS_DIR", runs, raising=False)
+        # POOL_DIR (sandbox) / SELECTED_DIR (candidates) are probed by the seed
+        # ladder; patch them so the temp tree — not the real state root — is read.
+        monkeypatch.setattr(mod, "POOL_DIR", sandbox, raising=False)
+        monkeypatch.setattr(mod, "SELECTED_DIR", candidates, raising=False)
 
     class _Env:
         pass
@@ -89,6 +95,8 @@ def env(tmp_path, monkeypatch):
     e.backtests = backtests
     e.strategies = strategies
     e.runs = runs
+    e.sandbox = sandbox
+    e.candidates = candidates
     e.db = state / "ledger.db"
     return e
 
@@ -268,6 +276,43 @@ def test_seed_ladder_prefers_run_directive(env):
     ref = rb.resolve_baseline(full).references[0]
     assert ref.seed["source"] == "run_directive_txt"
     assert ref.seed["truth"] == "exact_execution"
+
+
+def test_seed_ladder_uses_sandbox_run_home_over_strategy_copy(env):
+    """A run that has migrated to sandbox/ (POOL_DIR) still yields its exact
+    per-run seed. That snapshot must win over the mutable
+    strategies/<base>/directive.txt working copy, which the last per-symbol
+    clone overwrites (observed stale JPN225 seed, 2026-07-02). Regression: the
+    ladder previously probed only runs/, so a sandbox-tier run fell through to
+    the stale strategy copy (human_keyed_continuity)."""
+    import tools.resolve_baseline as rb
+
+    full = "01_MR_FX_1H_ULTC_REGFILT_S07_V1_P02_EURUSD"
+    base = "01_MR_FX_1H_ULTC_REGFILT_S07_V1_P02"
+    run_id = "9" * 24
+    _make_ledger(
+        env.db,
+        [{"run_id": run_id, "strategy": full, "symbol": "EURUSD",
+          "is_current": "1", "profit_factor": "1.0"}],
+    )
+    _seed_single_asset_capsule(env, full)
+
+    # No runs/<run_id>/directive.txt — the run lives ONLY in sandbox/.
+    sbdir = env.sandbox / run_id
+    sbdir.mkdir(parents=True, exist_ok=True)
+    (sbdir / "directive.txt").write_text(
+        "test:\n  name: sandbox_exact\n", encoding="utf-8")
+    # Stale working copy the last clone left behind.
+    sdir = env.strategies / base
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "directive.txt").write_text(
+        "test:\n  name: stale_strategy_copy\n", encoding="utf-8")
+
+    ref = rb.resolve_baseline(full).references[0]
+    assert ref.seed["source"] == "sandbox_directive_txt"
+    assert ref.seed["truth"] == "exact_execution"
+    assert ref.seed["path"].endswith("directive.txt")
+    assert "sandbox" in ref.seed["path"]
 
 
 def test_basket_metrics_via_canonical_path(env, monkeypatch):

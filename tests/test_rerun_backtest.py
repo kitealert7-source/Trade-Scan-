@@ -252,6 +252,59 @@ def test_next_e_index_ignores_unrelated_prefix_collisions(sandbox):
     assert rerun_backtest._next_e_index(base) == 1
 
 
+# ── canonical base stem (per-symbol ledger suffix) ─────────────────────────
+
+_PER_SYMBOL_BASE = "69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00"
+
+
+def test_canonical_base_stem_reduces_per_symbol_and_suffix():
+    """The ledger stores per-symbol runs with a trailing _<SYMBOL> and reruns
+    add __E### — in either order. Every polluted form must reduce to the base
+    stem, which parse_strategy_name accepts with an empty symbol_suffix."""
+    from config.asset_classification import parse_strategy_name
+
+    for polluted in (
+        _PER_SYMBOL_BASE,                          # already clean
+        f"{_PER_SYMBOL_BASE}_SPX500",              # per-symbol suffix
+        f"{_PER_SYMBOL_BASE}__E001",               # trailing rerun tag
+        f"{_PER_SYMBOL_BASE}__E001_SPX500",        # tag THEN symbol (the 2026-07-02 shape)
+        f"{_PER_SYMBOL_BASE}_SPX500__E003",        # symbol THEN tag
+        f"{_PER_SYMBOL_BASE}__E001__E002",         # doubled tag
+    ):
+        got = rerun_backtest._canonical_base_stem(polluted)
+        assert got == _PER_SYMBOL_BASE, f"{polluted!r} -> {got!r}"
+        p = parse_strategy_name(got)
+        assert p is not None and not p.get("symbol_suffix")
+        assert p["model"] == "RSIPULL"
+
+
+def test_canonical_base_stem_is_idempotent():
+    """Operator-requested fixed-point invariant (2026-07-02): applying the
+    reduction twice equals applying it once. This is the guard that catches
+    future suffix explosions (__E001 -> __E001__E002 -> ...)."""
+    for name in (
+        _PER_SYMBOL_BASE,
+        f"{_PER_SYMBOL_BASE}__E001",
+        f"{_PER_SYMBOL_BASE}__E001__E002",
+        f"{_PER_SYMBOL_BASE}_SPX500",
+        f"{_PER_SYMBOL_BASE}__E001_SPX500",
+        f"{_PER_SYMBOL_BASE}_SPX500__E003",
+        "90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100",       # basket passthrough
+        "90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100__E002",  # basket + tag
+    ):
+        once = rerun_backtest._canonical_base_stem(name)
+        twice = rerun_backtest._canonical_base_stem(once)
+        assert twice == once, f"not idempotent: {name!r} -> {once!r} -> {twice!r}"
+
+
+def test_canonical_base_stem_basket_passthrough():
+    """Non-conforming basket ids don't parse; the helper falls back to
+    stripping a trailing __E### only, leaving the base id otherwise intact."""
+    basket = "90_PORT_CHFJPYUK100_1D_COINTREV_V3_L100"
+    assert rerun_backtest._canonical_base_stem(basket) == basket
+    assert rerun_backtest._canonical_base_stem(f"{basket}__E002") == basket
+
+
 # ── prepare: non-basket regression ─────────────────────────────────────────
 
 def test_non_basket_signal_rerun(sandbox):
@@ -368,6 +421,93 @@ def test_target_with_suffix_produces_next_e_not_nested(sandbox):
     parsed = yaml.safe_load(out.read_text(encoding="utf-8"))
     assert parsed["test"]["strategy"] == base
     assert parsed["test"]["name"] == f"{base}__E003"
+
+
+def test_per_symbol_ledger_name_yields_canonical_stem(sandbox):
+    """Regression 2026-07-02: master_filter stores per-symbol runs with an
+    appended _<SYMBOL>. prepare must anchor test.strategy on the capsule's
+    canonical base stem, not the polluted ledger name — otherwise (a) the
+    classifier parses an empty model token and cross-matches an unrelated
+    family, and (b) rotation doubles the suffix (..._SPX500__E001 fails the
+    namespace gate)."""
+    from config.asset_classification import parse_strategy_name
+
+    base = "69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00"
+    ledger = f"{base}_SPX500"
+    # Source directive filed under the per-symbol ledger name, but its
+    # test.strategy is the canonical base (how per-symbol capsules are written).
+    _seed(sandbox["completed"], ledger,
+          _NON_BASKET_DIRECTIVE.format(name=ledger, strategy=base))
+
+    rc = _prepare(ledger, category="SIGNAL",
+                  reason="Monetary-repair rerun of the SPX500 per-symbol clone")
+    assert rc == 0
+
+    out = sandbox["inbox"] / f"{base}__E001.txt"
+    assert out.exists(), (
+        f"expected canonical {base}__E001.txt; INBOX has "
+        f"{[p.name for p in sandbox['inbox'].iterdir()]}")
+    parsed = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert parsed["test"]["strategy"] == base           # NOT ..._P00_SPX500
+    assert parsed["test"]["name"] == f"{base}__E001"     # single suffix, no _SPX500
+    # The prepared stem parses with a real model token (fixes phantom SIGNAL).
+    p = parse_strategy_name(parsed["test"]["strategy"])
+    assert p is not None and p["model"] == "RSIPULL" and not p["symbol_suffix"]
+
+
+def test_per_symbol_fallback_when_capsule_strategy_absent(sandbox):
+    """When the source capsule has no test.strategy (legacy directive), the
+    canonical stem is derived from the ledger name by peeling the _<SYMBOL>
+    suffix rather than trusting the polluted handle."""
+    base = "69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00"
+    ledger = f"{base}_SPX500"
+    body = _NON_BASKET_DIRECTIVE.format(name=ledger, strategy=base)
+    body = "\n".join(
+        ln for ln in body.splitlines() if not ln.strip().startswith("strategy:")
+    ) + "\n"
+    _seed(sandbox["completed"], ledger, body)
+
+    rc = _prepare(ledger, category="DATA_FRESH",
+                  reason="Capsule missing test.strategy; stem must come from ledger name")
+    assert rc == 0
+    out = sandbox["inbox"] / f"{base}__E001.txt"
+    assert out.exists()
+    parsed = yaml.safe_load(out.read_text(encoding="utf-8"))
+    assert parsed["test"]["strategy"] == base
+    assert parsed["test"]["name"] == f"{base}__E001"
+
+
+def test_prepare_round_trip_stem_is_stable(sandbox):
+    """Operator invariant (2026-07-02): feed a prepared rerun directive back
+    into prepare — the stem must stay canonical across generations (no suffix
+    explosion), while the __E### advances E001 -> E002."""
+    base = "69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00"
+    ledger = f"{base}_SPX500"
+    _seed(sandbox["completed"], ledger,
+          _NON_BASKET_DIRECTIVE.format(name=ledger, strategy=base))
+
+    # Gen 1: rerun the per-symbol ledger name.
+    assert _prepare(ledger, category="SIGNAL",
+                    reason="Gen-1 monetary-repair rerun of SPX500 clone") == 0
+    gen1 = sandbox["inbox"] / f"{base}__E001.txt"
+    assert gen1.exists()
+    g1 = yaml.safe_load(gen1.read_text(encoding="utf-8"))
+    assert g1["test"]["strategy"] == base
+    assert g1["test"]["name"] == f"{base}__E001"
+
+    # Publish gen1 into completed/ so it is a discoverable source, then rerun
+    # ITS name. The stem must remain canonical; the suffix advances to E002.
+    (sandbox["completed"] / f"{base}__E001.txt").write_text(
+        gen1.read_text(encoding="utf-8"), encoding="utf-8")
+    assert _prepare(f"{base}__E001", category="SIGNAL",
+                    reason="Gen-2 follow-on rerun; stem must remain canonical") == 0
+    gen2 = sandbox["inbox"] / f"{base}__E002.txt"
+    assert gen2.exists(), (
+        f"expected {base}__E002.txt (stable stem); INBOX has "
+        f"{[p.name for p in sandbox['inbox'].iterdir()]}")
+    g2 = yaml.safe_load(gen2.read_text(encoding="utf-8"))
+    assert g2["test"]["strategy"] == base             # stem stable across gens
+    assert g2["test"]["name"] == f"{base}__E002"       # single suffix, advanced
 
 
 def test_legacy_root_signal_version_defensively_stripped(sandbox):

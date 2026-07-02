@@ -297,6 +297,46 @@ def _strip_e_suffix(name: str) -> str:
     return _E_SUFFIX_RE.sub("", name)
 
 
+def _canonical_base_stem(name: str) -> str:
+    """Reduce a strategy / ledger name to its canonical namespace base stem.
+
+    The ``master_filter`` ledger stores per-symbol run names with an appended
+    ``_<SYMBOL>`` suffix (e.g. ``69_MR_IDX_1D_RSIPULL_REGFILT_S01_V1_P00_SPX500``)
+    and reruns add ``__E###`` — a single name can carry BOTH, in either order
+    (``..._P00__E001_SPX500``). The base stem that anchors namespace identity is
+    the ``<ID>_<FAMILY>_<SYMBOL>_<TF>_<MODEL>[_<FILTER>]_S##_V#_P##`` core with
+    NO trailing ``symbol_suffix`` and NO ``__E###`` tag.
+
+    Strategy: strip any trailing ``__E###`` block, then peel trailing
+    ``_<TOKEN>`` chunks one at a time, returning the FIRST remainder that
+    ``parse_strategy_name`` accepts with an empty ``symbol_suffix``. When nothing
+    parses cleanly (basket / non-conforming directive ids that were never
+    namespace-structured), fall back to ``_strip_e_suffix`` (trailing ``__E###``
+    only) so basket reruns behave exactly as before.
+
+    Idempotent by construction: a clean base parses on the first check, so no
+    further peeling occurs -> ``_canonical_base_stem(_canonical_base_stem(x)) ==
+    _canonical_base_stem(x)`` for every ``x``. That fixed-point property is the
+    guard against the 2026-07-02 suffix explosion (``..._P00__E001_SPX500__E001``).
+    """
+    from config.asset_classification import parse_strategy_name
+
+    def _clean(candidate: str) -> bool:
+        parsed = parse_strategy_name(candidate)
+        return bool(parsed) and not parsed.get("symbol_suffix")
+
+    stem = _strip_e_suffix(name)
+    if _clean(stem):
+        return stem
+    candidate = stem
+    while "_" in candidate:
+        candidate = _strip_e_suffix(candidate.rsplit("_", 1)[0])
+        if _clean(candidate):
+            return candidate
+    # Non-conforming (basket) — preserve legacy behaviour: trailing __E### only.
+    return _strip_e_suffix(name)
+
+
 def _next_e_index(base_stem: str) -> int:
     """Return the smallest unused ``__E###`` integer for ``base_stem``.
 
@@ -501,9 +541,35 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     # 4e. __E### suffix rotation — uniqueness guard at run_pipeline.py:483
     # refuses any directive_id already in the registry. Allocate the next
     # free E suffix so the rerun lands as a distinct directive_id. The
-    # ``test.strategy`` field stays at the base stem (family root); only
-    # filename + ``test.name`` carry the suffix.
-    base_stem = _strip_e_suffix(strategy)
+    # ``test.strategy`` field stays at the canonical base stem (namespace
+    # anchor); only filename + ``test.name`` carry the suffix.
+    #
+    # Prefer the source capsule's own ``test.strategy`` (the immutable namespace
+    # base) over the ledger / CLI ``strategy`` handle, which for per-symbol runs
+    # carries a ``_<SYMBOL>`` suffix and/or a prior ``__E###`` tag
+    # (e.g. ``..._P00__E001_SPX500``). Rotating on that polluted handle both
+    # (a) writes a non-parseable ``test.strategy`` -> classifier_gate sees an
+    # empty model token and cross-matches an unrelated family, and (b) doubles
+    # the ``__E###`` suffix -> NAMESPACE_IDENTITY_MISMATCH at admission
+    # Stage -0.30. (Reference: 2026-07-02 SPX500 monetary-repair reruns.)
+    from config.asset_classification import parse_strategy_name
+
+    capsule_strategy = str(test_block.get("strategy", "")).strip()
+    base_stem = _canonical_base_stem(capsule_strategy or strategy)
+
+    # Fail-fast: when the ledger handle is itself namespace-structured but the
+    # derived base still won't parse cleanly, refuse rather than emit a directive
+    # that dies at the namespace gate. Baskets parse as None here and are left to
+    # the legacy passthrough inside ``_canonical_base_stem``.
+    if parse_strategy_name(strategy) is not None:
+        parsed_base = parse_strategy_name(base_stem)
+        if parsed_base is None or parsed_base.get("symbol_suffix"):
+            print(f"ERROR: could not derive a canonical namespace base stem from "
+                  f"strategy={strategy!r} (capsule test.strategy="
+                  f"{capsule_strategy!r}); got base_stem={base_stem!r}. Refusing "
+                  f"to write a directive that would fail namespace Stage -0.30.")
+            return 1
+
     test_block["strategy"] = base_stem
     next_e = _next_e_index(base_stem)
     new_variant_name = f"{base_stem}__E{next_e:03d}"
@@ -519,6 +585,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     # 6. Summary.
     print()
     print(f"  Strategy:       {strategy}")
+    if base_stem != strategy:
+        print(f"  Canonical stem: {base_stem}  (base anchor for test.strategy + rotation)")
     print(f"  Variant:        {new_variant_name}  (auto __E### rotation)")
     print(f"  Category:       {category}  ({cfg['description']})")
     print(f"  end_date:       {old_end}  -->  {new_end}")
@@ -542,6 +610,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     _audit_entry({
         "action": "prepare",
         "strategy": strategy,
+        "capsule_strategy": capsule_strategy,
         "base_stem": base_stem,
         "variant_name": new_variant_name,
         "originating_run_id": orig_run_id,

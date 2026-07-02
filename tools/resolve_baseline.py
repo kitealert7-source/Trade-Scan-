@@ -48,7 +48,9 @@ if str(_REPO_ROOT) not in sys.path:
 
 from config.state_paths import (  # noqa: E402
     BACKTESTS_DIR,
+    POOL_DIR,
     RUNS_DIR,
+    SELECTED_DIR,
     STRATEGIES_DIR,
     capsule_path,
     strategy_dir,
@@ -342,13 +344,22 @@ def _detect_run_type(run_id: str | None, backtest_dir: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Per-run-home seed source labels — keyed by the physical folder name so a
+# rename in state_paths surfaces here instead of silently mislabelling.
+_RUN_HOME_SEED_SOURCE = {
+    "runs": "run_directive_txt",
+    "sandbox": "sandbox_directive_txt",
+    "candidates": "candidates_directive_txt",
+}
+
+
 def _resolve_seed(
     base: str,
     full_strategy: str,
     symbol: str | None,
     sdir: Path,
     bdir: Path,
-    rdir: Path,
+    run_id: str,
 ) -> dict[str, Any]:
     """Walk the seed ladder; stop at the first hit. Records source + truth.
 
@@ -357,9 +368,23 @@ def _resolve_seed(
     """
     candidates: list[tuple[Path, str, str]] = [
         (bdir / "DIRECTIVE_SOURCE.txt", "DIRECTIVE_SOURCE", "exact_execution"),
-        (rdir / "directive.txt", "run_directive_txt", "exact_execution"),
-        (sdir / "directive.txt", "strategy_directive_txt", "human_keyed_continuity"),
     ]
+    # Per-run directive snapshot — probe EVERY canonical run home (runs/, then
+    # sandbox/, then candidates/), not just runs/. A run that has migrated out of
+    # runs/ still carries its exact seed under its current home, and that
+    # per-run snapshot must win over the mutable strategies/<base>/directive.txt
+    # working copy, which is overwritten by whichever per-symbol clone
+    # provisioned last (observed stale JPN225 seed, 2026-07-02). The constants
+    # are read from module globals (not the pre-baked RUN_DIRS_IN_LOOKUP_ORDER
+    # tuple) so a monkeypatched test tree is honored.
+    for run_home in (RUNS_DIR, POOL_DIR, SELECTED_DIR):
+        source = _RUN_HOME_SEED_SOURCE.get(run_home.name, "run_directive_txt")
+        candidates.append(
+            (run_home / run_id / "directive.txt", source, "exact_execution")
+        )
+    candidates.append(
+        (sdir / "directive.txt", "strategy_directive_txt", "human_keyed_continuity")
+    )
     # Tier 4: completed/ corpus fallback (keyed by directive id; try full then base).
     completed_dir = _REPO_ROOT / "backtest_directives" / "completed"
     for did in (full_strategy, base):
@@ -764,7 +789,7 @@ def _build_reference(
         )
 
     # Seed (§7), then code (§8), then metrics (§9 — needs stake from seed).
-    ref.seed = _resolve_seed(base, full_strategy, sym, sdir, bdir, rdir)
+    ref.seed = _resolve_seed(base, full_strategy, sym, sdir, bdir, run_id)
     if ref.seed.get("source") == "ABSENT":
         ref.warnings.append("provenance_gap: seed unrecoverable (old/grandfathered run)")
     # Drop bulky inline content from the emitted schema (path is the contract).
