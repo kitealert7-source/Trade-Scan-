@@ -9,6 +9,12 @@ held **in reserve — nothing here is scheduled or authorized to run**. `TBD` fi
 resolved at directive-authoring time; the F19 re-test guard and Idea-Identity
 registration apply then, not now.
 
+> **Engine-capability triage:** before authoring any directive from this reserve,
+> read [`ENGINE_CAPABILITY_TRIAGE.md`](./ENGINE_CAPABILITY_TRIAGE.md) — a living
+> per-hypothesis assessment of whether each exit/stop design is buildable today
+> (`rule_build_required`) vs needs `engine enhancement required`. As of 2026-07-02:
+> 0 of 22 need exit-engine work; NOISE_AREA is conditional on trail monotonicity.
+
 ## Reserve contents (16)
 
 | Hypothesis | One-liner | Cost-risk note |
