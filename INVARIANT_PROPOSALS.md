@@ -120,3 +120,41 @@ changed no behaviour (documentation-only; no engine-flip / ABI governance).
 The gate asserts the metadata-key sets agree; a key present in one but missing from another **fails at commit time** — instead of as a sequence of opaque runtime admission failures. Cheap (a set-membership test) vs the cost (a multi-run debugging marathon per half-integrated field).
 
 **Out of scope of the proposal:** the separate question of whether `rerun_of` should be injected at all (it is write-only/redundant). The invariant is about *consistency*, not *which keys exist*.
+
+---
+
+## INVAR-005 — Single monetary model: all price→USD conversion consumes the MT5 calibration
+
+**Proposed:** 2026-07-02  
+**Status:** IMPLEMENTED  
+**Enforcement:** `tools/capital/capital_broker_spec.py::validate_monetary_consistency` — HARD gate
+(raises, "Refusing execution") wired into all three spec-load paths (`_load_broker_spec_cached`,
+`load_broker_spec`, and `tools/run_stage1.py::load_broker_spec`). Negative-tested: re-introducing
+the SPX500 defect in-memory is refused; full 31-spec sweep passes.
+
+No component may independently compute monetary value from broker specifications.
+The flow is:
+
+```
+Broker YAML → MT5 calibration (usd_pnl_per_price_unit_0p01 = tick_value/tick_size × 0.01)
+            → canonical monetary representation
+            → ALL consumers
+```
+
+Never per-component models (`run_stage1` → contract_size; `capital_wrapper` → calibration;
+bootstrap → deprecated dynamic path). Two components pricing the same trade differently is a
+silent-divergence class, not a tolerable approximation.
+
+Enforcement mechanics: top-level `contract_size` (profit-ccy/pt/lot) must agree with the
+calibration via implied FX = `usd_per_pu_per_lot / contract_size`, checked against wide
+per-currency sanity bands (tolerate FX drift; catch scale errors). Specs without a calibration
+block pass through (no authoritative reference).
+
+**Origin (2026-07-02):** dual monetary models produced (a) a 10× Stage-1 $-inflation on every
+SPX500 run (`contract_size: 10` vs MT5-verified $1/pt/lot — repaired runs e5bb72dd / 66462f1d
+confirmed exact 10×: $404.99→$40.46, $164.37→$16.41), and (b) a 12.6× mispricing in the
+Section-14 block bootstrap (deprecated dynamic path vs canonical static; fixed to consume
+`get_usd_per_price_unit_static`, parity-verified 1614.34 == 1614.34 vs the wrapper's own run).
+
+**See also:** RESEARCH_MEMORY 2026-07-02 infrastructure entry; `feedback_mechanism_port_check`
+(mechanism must exist at EVERY integration point).

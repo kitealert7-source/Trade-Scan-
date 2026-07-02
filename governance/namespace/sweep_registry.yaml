@@ -3615,10 +3615,29 @@ ideas:
           P00:
             directive_name: 71_MR_IDX_1D_UNION_S01_V1_P00__E001
             reserved_at_utc: '2026-06-21T15:35:49.900858+00:00'
-            directive_hash: 1444dbfb06c482ca
-            signature_hash: 1444dbfb06c482ca
-            directive_hash_full: 1444dbfb06c482ca52c650e8a04ecd0be6eb01fb943a8d2468e93367e2f3ab73
-            signature_hash_full: 1444dbfb06c482ca52c650e8a04ecd0be6eb01fb943a8d2468e93367e2f3ab73
+            directive_hash: 8ff7ef2abd22d097
+            signature_hash: 8ff7ef2abd22d097
+            directive_hash_full: 8ff7ef2abd22d097df3290fcb2098a8d34a462baad15d6b6b5f5e3e6e824ba26
+            signature_hash_full: 8ff7ef2abd22d097df3290fcb2098a8d34a462baad15d6b6b5f5e3e6e824ba26
+            provenance_reconciliation:
+              date_utc: '2026-07-02'
+              action: one-time hash reconciliation 1444dbfb06c482ca -> 8ff7ef2abd22d097
+              reason: original P00 directive + strategy.py pruned with run snapshot
+                894fa6ff (v1.5.10 era); strategy rebuilt from the two surviving component
+                legs (idea-69 RSIPULL + idea-70 IBS) + STRATEGY_CARD and re-established
+                on canonical Engine v1.5.11. The v1.5.11 signature (8ff7, == the S01
+                sweep base hash) is the authoritative P00 config for all future work.
+                Historical 1444 hash belonged to the pruned v1.5.10 directive whose
+                exact bytes are unrecoverable; its RESULTS (run 894fa6ff, 314 trades,
+                PF 1.62, SQN 2.92, ledger row is_current) remain preserved and coexist.
+              authorized_by: operator (2026-07-02 session, Option B)
+          P01:
+            directive_name: 71_MR_IDX_1D_UNION_S01_V1_P01
+            reserved_at_utc: '2026-07-02T09:42:15.261310+00:00'
+            directive_hash: 13424e787be4a95b
+            signature_hash: 13424e787be4a95b
+            directive_hash_full: 13424e787be4a95b66dc78661169caf4d46ffb9e34c243bca9fa195299ed831f
+            signature_hash_full: 13424e787be4a95b66dc78661169caf4d46ffb9e34c243bca9fa195299ed831f
         attempt: 2
         directive_hash: 8ff7ef2abd22d097
         directive_hash_full: 8ff7ef2abd22d097df3290fcb2098a8d34a462baad15d6b6b5f5e3e6e824ba26
