@@ -11,7 +11,18 @@ Usage:
 
 Output:
     Console report with PASS/FAIL/DRIFT per symbol.
-    With --patch: updates YAMLs in-place (contract_size, calibration, status).
+    With --patch: updates YAMLs in-place (contract_size, calibration, status,
+    mt5_trade_contract_size, pricing_units_per_lot).
+
+Monetary model (single-monetary-model invariant, INVAR-005 phase 2, 2026-07-02):
+    - `contract_size` / `mt5_trade_contract_size`: RAW MT5 metadata, immutable
+      semantics (provenance + drift detection). Never a pricing input.
+    - `pricing_units_per_lot`: the CANONICAL pricing field, derived here from
+      the MT5 tick calibration via derive_pricing_units_per_lot(). All pricing
+      paths consume only this field.
+    - GENERATION-TIME GATE: every emitted YAML is self-validated with
+      validate_monetary_consistency() BEFORE writing. An inconsistent or
+      irreconcilable spec is REFUSED (never written) and the run exits 2.
 """
 
 import argparse
@@ -22,6 +33,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 from config.path_authority import ANTI_GRAVITY_DATA_ROOT, TS_EXECUTION as _TS_EXECUTION
+from tools.capital.capital_broker_spec import (
+    derive_pricing_units_per_lot,
+    validate_monetary_consistency,
+)
 BROKER_SPECS_DIR = PROJECT_ROOT / "data_access" / "broker_specs" / "OctaFx"
 
 # Canonical 2026-05-23+ location — written by DATA_INGRESS's daily post-hook
@@ -150,6 +165,32 @@ def compare_symbol(symbol, mt5_spec, yaml_spec, force_all=False):
     findings["mt5"]["digits"] = mt5_spec.get("digits")
     findings["mt5"]["usd_per_pu_per_lot"] = mt5_spec.get("derived_usd_per_pu_per_lot")
 
+    # --- canonical pricing field (INVAR-005 phase 2) ---
+    # Report-mode visibility: a missing or drifted pricing_units_per_lot is a
+    # DRIFT (regeneration needed); an underivable one (MT5 metadata disagrees
+    # with calibration AND profit ccy is not USD) is IRRECONCILABLE — the
+    # patch phase will REFUSE to write such a spec.
+    yaml_pu = yaml_spec.get("pricing_units_per_lot")
+    findings["yaml"]["pricing_units_per_lot"] = yaml_pu
+    mt5_upl = mt5_spec.get("derived_usd_per_pu_per_lot")
+    if mt5_upl:
+        try:
+            expected_pu, basis = derive_pricing_units_per_lot(
+                mt5_cs, float(mt5_upl), mt5_ccy or "USD")
+            findings["mt5"]["expected_pricing_units_per_lot"] = expected_pu
+            if (yaml_pu is None
+                    or abs(float(yaml_pu) - expected_pu) > 1e-6 * expected_pu):
+                findings["issues"].append(
+                    f"pricing_units_per_lot: YAML={yaml_pu} vs "
+                    f"derived={expected_pu} (basis={basis})"
+                )
+                findings["patch"]["pricing_units_per_lot"] = expected_pu
+                if findings["status"] == "PASS":
+                    findings["status"] = "DRIFT"
+        except ValueError as exc:
+            findings["issues"].append(f"pricing_units_per_lot IRRECONCILABLE: {exc}")
+            findings["status"] = "IRRECONCILABLE"
+
     return findings
 
 
@@ -234,6 +275,38 @@ def patch_yaml(yaml_path, findings):
     if mt5_digits is not None:
         data["calibration"]["digits"] = mt5_digits
 
+    # ── Canonical pricing field (INVAR-005 phase 2, 2026-07-02) ──────────
+    # 1. mt5_trade_contract_size: raw MT5 provenance, always persisted.
+    #    (contract_size above keeps tracking the same raw MT5 value — its
+    #    semantics are immutable; it is metadata, never a pricing input.)
+    raw_cs = findings["mt5"].get("contract_size")
+    if raw_cs is not None:
+        old_raw = data.get("mt5_trade_contract_size")
+        data["mt5_trade_contract_size"] = raw_cs
+        if old_raw != raw_cs:
+            patches_applied.append(f"mt5_trade_contract_size: {old_raw} -> {raw_cs}")
+
+    # 2. pricing_units_per_lot: derived from the FINAL patched state (not the
+    #    pre-patch findings), so the emitted file is internally consistent by
+    #    construction. derive_pricing_units_per_lot raises ValueError on an
+    #    irreconcilable spec — propagated to the caller, which REFUSES the
+    #    write (generation-time gate: no inconsistent YAML is ever emitted).
+    cal_upl = (data.get("calibration") or {}).get("usd_per_pu_per_lot")
+    if cal_upl:
+        profit_ccy = (data.get("calibration") or {}).get("currency_profit", "USD")
+        pricing_units, basis = derive_pricing_units_per_lot(
+            data.get("contract_size"), float(cal_upl), profit_ccy)
+        old_pu = data.get("pricing_units_per_lot")
+        data["pricing_units_per_lot"] = pricing_units
+        if old_pu != pricing_units:
+            patches_applied.append(
+                f"pricing_units_per_lot: {old_pu} -> {pricing_units} (basis={basis})")
+
+    # 3. Self-validate the fully patched spec BEFORE writing. Raises
+    #    ValueError on inconsistency — the caller refuses the write.
+    _sym = findings.get("symbol") or data.get("symbol") or yaml_path.stem
+    validate_monetary_consistency(data, _sym)
+
     # Write back
     with open(yaml_path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -242,11 +315,21 @@ def patch_yaml(yaml_path, findings):
 
 
 def create_yaml_from_mt5(symbol, mt5_spec):
-    """Create a new broker spec YAML from MT5 ground truth."""
+    """Create a new broker spec YAML from MT5 ground truth.
+
+    Applies the same generation-time gate as patch_yaml: the canonical
+    pricing_units_per_lot is derived from the calibration, and the assembled
+    spec is self-validated BEFORE writing. Raises ValueError (spec refused,
+    nothing written) if the MT5 metadata is irreconcilable with the tick
+    calibration.
+    """
     tick_size = mt5_spec.get("trade_tick_size", 0)
     tick_value = mt5_spec.get("trade_tick_value", 0)
     usd_per_pu_per_lot = tick_value / tick_size if tick_size > 0 else 0
     usd_pnl_per_pu_0p01 = usd_per_pu_per_lot * 0.01
+
+    raw_cs = mt5_spec.get("trade_contract_size")
+    profit_ccy = mt5_spec.get("currency_profit", "USD")
 
     data = {
         "broker": "OctaFX",
@@ -259,18 +342,26 @@ def create_yaml_from_mt5(symbol, mt5_spec):
         "apply_additional_costs": False,
         "infer_missing_fields": False,
         "allow_manual_override": False,
-        "contract_size": mt5_spec.get("trade_contract_size"),
+        "contract_size": raw_cs,
+        "mt5_trade_contract_size": raw_cs,
         "calibration": {
             "base_lot": 0.01,
             "usd_pnl_per_price_unit_0p01": round(usd_pnl_per_pu_0p01, 6),
             "usd_per_pu_per_lot": round(usd_per_pu_per_lot, 6),
-            "currency_profit": mt5_spec.get("currency_profit", "USD"),
+            "currency_profit": profit_ccy,
             "mt5_tick_value": tick_value,
             "mt5_tick_size": tick_size,
             "digits": mt5_spec.get("digits"),
             "status": "MT5_VERIFIED",
         },
     }
+
+    # Canonical pricing field + generation-time gate (raises on refusal).
+    if usd_per_pu_per_lot > 0:
+        pricing_units, _basis = derive_pricing_units_per_lot(
+            raw_cs, round(usd_per_pu_per_lot, 6), profit_ccy)
+        data["pricing_units_per_lot"] = pricing_units
+    validate_monetary_consistency(data, symbol)
 
     yaml_path = BROKER_SPECS_DIR / f"{symbol}.yaml"
     with open(yaml_path, "w", encoding="utf-8") as f:
@@ -323,7 +414,9 @@ def main():
 
     # Process each broker spec
     all_findings = []
-    counters = {"PASS": 0, "MINOR_DRIFT": 0, "DRIFT": 0, "MISMATCH": 0, "NO_MT5": 0, "NO_YAML": 0}
+    counters = {"PASS": 0, "MINOR_DRIFT": 0, "DRIFT": 0, "MISMATCH": 0,
+                "IRRECONCILABLE": 0, "NO_MT5": 0, "NO_YAML": 0}
+    refused = []  # symbols whose YAML write was REFUSED by the generation gate
 
     # Get all symbols (union of MT5 + YAML)
     yaml_symbols = {f.stem for f in BROKER_SPECS_DIR.glob("*.yaml")}
@@ -344,9 +437,13 @@ def main():
 
         if yaml_spec is None:
             if args.patch or args.force_all:
-                # Create new YAML from MT5 ground truth
-                created_path = create_yaml_from_mt5(sym, mt5_spec)
-                print(f"  {sym:<12} {'CREATED':<14}  -> {created_path.name}")
+                # Create new YAML from MT5 ground truth (gate may refuse)
+                try:
+                    created_path = create_yaml_from_mt5(sym, mt5_spec)
+                    print(f"  {sym:<12} {'CREATED':<14}  -> {created_path.name}")
+                except ValueError as exc:
+                    refused.append(sym)
+                    print(f"  {sym:<12} {'REFUSED':<14}  generation gate: {exc}")
                 counters["NO_YAML"] += 1
                 continue
             else:
@@ -401,7 +498,15 @@ def main():
             if yaml_path is None or not yaml_path.exists():
                 continue
 
-            patches = patch_yaml(yaml_path, findings)
+            try:
+                patches = patch_yaml(yaml_path, findings)
+            except ValueError as exc:
+                # Generation-time gate: the patched spec failed monetary
+                # self-validation — the YAML on disk was NOT modified.
+                refused.append(sym)
+                print(f"\n  {sym}: REFUSED (spec not written)")
+                print(f"    {exc}")
+                continue
             if patches:
                 patched += 1
                 print(f"\n  {sym}:")
@@ -412,12 +517,19 @@ def main():
                 print(f"\n  {sym}: (already at MT5 values)")
 
         print(f"\n  Patched {patched} files.")
+        if refused:
+            print(f"\n  REFUSED {len(refused)} spec(s) at the generation gate: "
+                  f"{', '.join(refused)}")
+            print("  These YAMLs were NOT written. Operator review required "
+                  "(irreconcilable MT5 metadata vs tick calibration).")
     else:
         needs_patch = sum(1 for f in all_findings if f["issues"])
         if needs_patch:
             print(f"\n  {needs_patch} symbols have issues. Run with --patch or --force-all to fix.")
 
     print("\nDone.")
+    if refused:
+        sys.exit(2)
 
 
 if __name__ == "__main__":

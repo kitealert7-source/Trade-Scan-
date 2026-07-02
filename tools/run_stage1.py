@@ -282,16 +282,25 @@ def load_broker_spec(symbol: str) -> dict:
     with open(broker_spec_path, "r", encoding="utf-8") as f:
         spec = yaml.safe_load(f)
 
-    required = ["contract_size", "min_lot"]
+    required = ["pricing_units_per_lot", "min_lot"]
     for field in required:
         if field not in spec or spec[field] is None:
+            if field == "pricing_units_per_lot":
+                raise ValueError(
+                    f"Broker spec for {symbol} missing canonical pricing field "
+                    f"'pricing_units_per_lot'.\n"
+                    f"Regenerate broker specs using verify_broker_specs.py --patch\n"
+                    f"(single-monetary-model invariant, INVAR-005 phase 2, "
+                    f"2026-07-02). Stage-1 no longer prices from the raw MT5 "
+                    f"contract_size metadata field."
+                )
             raise ValueError(f"Broker spec missing mandatory field: {field}")
 
-    # HARD GATE — single-monetary-model invariant (2026-07-02): Stage-1 sizes
-    # from contract_size while the capital wrapper prices from the MT5-derived
-    # calibration; refuse execution if the two models disagree (root cause of
-    # the SPX500 10x Stage-1 $-inflation: contract_size 10 vs MT5-verified
-    # $1/pt/lot). One monetary model, multiple consumers.
+    # HARD GATE — single-monetary-model invariant (2026-07-02): the persisted
+    # pricing_units_per_lot must agree with the MT5-derived calibration it was
+    # generated from (root cause of the SPX500 10x Stage-1 $-inflation: MT5
+    # metadata contract_size=10 vs MT5-verified $1/pt/lot). One monetary
+    # authority (the calibration), one pricing field, multiple consumers.
     from tools.capital.capital_broker_spec import validate_monetary_consistency
     validate_monetary_consistency(spec, symbol)
 
@@ -583,7 +592,11 @@ def _emit_compute_trade_money(i, t, df, broker_spec, symbol):
     """
     import pandas as pd
 
-    contract_size = float(broker_spec["contract_size"])
+    # Canonical pricing field (INVAR-005 phase 2, 2026-07-02): units are sized
+    # from pricing_units_per_lot — the calibration-derived pricing authority —
+    # NEVER from the raw MT5 contract_size metadata field (whose value is
+    # broker-quirky for index CFDs, e.g. SPX500 10 vs MT5-verified $1/pt/lot).
+    pricing_units_per_lot = float(broker_spec["pricing_units_per_lot"])
     min_lot = float(broker_spec["min_lot"])
     entry = t['entry_price']
     exit_p = t['exit_price']
@@ -596,7 +609,7 @@ def _emit_compute_trade_money(i, t, df, broker_spec, symbol):
         size_lots = min_lot * multiplier
     else:
         size_lots = t.get('size', min_lot)
-    units = size_lots * contract_size
+    units = size_lots * pricing_units_per_lot
     base_ccy, quote_ccy = parse_symbol_properties(symbol)
 
     partial_leg = t.get("partial_leg") if isinstance(t, dict) else None
@@ -1596,7 +1609,8 @@ def _stage1_emit_and_verify(trades, df, broker_spec, target_symbol, run_id,
             json.dump(state_data, f, indent=4)
             f.truncate()
 
-    contract_size = float(broker_spec["contract_size"])
+    # Canonical pricing field (INVAR-005 phase 2) — see _emit_compute_trade_money.
+    pricing_units_per_lot = float(broker_spec["pricing_units_per_lot"])
     min_lot = float(broker_spec["min_lot"])
     has_mult = 'size_multiplier' in df.columns
     total_pnl = 0.0
@@ -1614,7 +1628,7 @@ def _stage1_emit_and_verify(trades, df, broker_spec, target_symbol, run_id,
         else:
             sl = t.get('size', min_lot)
 
-        units = sl * contract_size
+        units = sl * pricing_units_per_lot
         raw_pnl_quote = (t['exit_price'] - t['entry_price']) * d * units
 
         try:

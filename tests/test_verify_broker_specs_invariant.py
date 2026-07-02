@@ -37,14 +37,23 @@ def _write_spec(path, *, usd_per_pu_per_lot, usd_pnl_0p01):
 
 
 def _findings(usd_per_pu_per_lot):
-    """Minimal findings dict carrying a fresh MT5 usd_per_pu_per_lot."""
+    """Minimal findings dict carrying a fresh MT5 usd_per_pu_per_lot.
+
+    The patched spec must be monetary-consistent or patch_yaml's generation
+    gate (INVAR-005 phase 2, 2026-07-02) refuses the write. USD profit ccy +
+    contract_size == usd_per_pu_per_lot keeps every magnitude reconcilable
+    (implied FX == 1.0) so this file can keep testing its own subject — the
+    0p01 sibling-field invariant — across arbitrary scales.
+    """
     return {
-        "patch": {},
+        "symbol": "TESTSYM",
+        "patch": {"contract_size": usd_per_pu_per_lot},
         "mt5": {
+            "contract_size": usd_per_pu_per_lot,
             "usd_per_pu_per_lot": usd_per_pu_per_lot,
             "tick_value": usd_per_pu_per_lot * 0.001,
             "tick_size": 0.001,
-            "currency_profit": "JPY",
+            "currency_profit": "USD",
             "digits": 3,
         },
     }

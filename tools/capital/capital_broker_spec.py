@@ -28,14 +28,21 @@ def broker_spec_path(symbol: str) -> Path:
 # ======================================================================
 # MONETARY CONSISTENCY GUARD (single-monetary-model invariant, 2026-07-02)
 # ======================================================================
-# One monetary model, multiple consumers: the MT5-derived calibration block
+# One monetary model, one authority: the MT5-derived calibration block
 # (usd_pnl_per_price_unit_0p01 = tick_value/tick_size * 0.01) is AUTHORITATIVE.
-# The top-level contract_size (profit-ccy per point per lot) must agree with it:
-#     implied_fx = usd_per_pu_per_lot / contract_size  ≈  FX(profit_ccy → USD)
-# A disagreement means two components would price the same trade differently
-# (root cause of the 2026-07-02 SPX500 10x Stage-1 inflation: contract_size=10
-# vs MT5-verified $1/pt/lot). This guard makes that drift a HARD failure at
-# spec-load — refusing execution — instead of a silent divergence.
+#
+# Canonical pricing field (2026-07-02, INVAR-005 phase 2):
+#     pricing_units_per_lot — profit-ccy P&L per 1.0 price-unit move per
+#     1.0 lot. THE only field pricing paths may consume. It is the persisted
+#     representation of the calibration authority, derived at generation time
+#     by verify_broker_specs.py --patch via derive_pricing_units_per_lot().
+#
+# Top-level contract_size is RAW MT5 METADATA (immutable, descriptive-only):
+# it feeds drift detection (verify_broker_specs raw-vs-raw compare) and
+# TS_Execution static/live validation, and must never be re-semanticized.
+# Root cause of the 2026-07-02 SPX500 10x Stage-1 inflation: MT5 reports
+# contract_size=10 for SPX500 while the tick calibration proves $1/pt/lot —
+# Stage-1 sized from the metadata field instead of the calibration.
 #
 # Bands are deliberately wide (they tolerate years of FX drift between
 # calibration refreshes) — any plausible spot stays inside; a 10x scale error
@@ -51,24 +58,144 @@ _IMPLIED_FX_BANDS = {
     "CHF": (0.90, 1.50),
 }
 
+# Strict relative tolerance for USD-profit symbols, where the calibration is
+# an exact USD figure (FX factor == 1) and equality must hold to float noise.
+_USD_STRICT_RTOL = 1e-6
+
+
+def derive_pricing_units_per_lot(contract_size: float | None,
+                                 usd_per_pu_per_lot: float,
+                                 profit_ccy: str) -> tuple[float, str]:
+    """Derive the canonical pricing_units_per_lot from the calibration authority.
+
+    Returns (value, basis):
+      - MT5 contract_size consistent with the calibration (implied FX inside
+        the per-currency band)  -> (contract_size, "MT5_CONTRACT_SIZE").
+        Honest symbols: numerically identical to today's pricing.
+      - Inconsistent + profit ccy USD -> (usd_per_pu_per_lot,
+        "CALIBRATION_USD"). Exact, since FX(USD->USD) == 1 (the SPX500 case).
+      - Inconsistent + non-USD profit ccy -> ValueError. The FX rate needed to
+        back out units is unknowable here; an operator decision is required.
+        REFUSE loudly, never guess.
+
+    Single implementation shared by the generator (verify_broker_specs.py
+    --patch) and the tests, so generation and validation can never diverge.
+    """
+    profit_ccy = str(profit_ccy).upper()
+    band = _IMPLIED_FX_BANDS.get(profit_ccy)
+    if band is None:
+        raise ValueError(
+            f"Cannot derive pricing_units_per_lot: no FX plausibility band for "
+            f"profit currency '{profit_ccy}'. Add it to _IMPLIED_FX_BANDS after "
+            f"operator review — refusing to guess."
+        )
+    if contract_size not in (None, 0):
+        implied_fx = usd_per_pu_per_lot / float(contract_size)
+        lo, hi = band
+        if lo <= implied_fx <= hi:
+            return float(contract_size), "MT5_CONTRACT_SIZE"
+    if profit_ccy == "USD":
+        return float(usd_per_pu_per_lot), "CALIBRATION_USD"
+    raise ValueError(
+        f"Cannot derive pricing_units_per_lot: MT5 contract_size="
+        f"{contract_size} disagrees with calibrated usd_per_pu_per_lot="
+        f"{usd_per_pu_per_lot:.6f} and profit currency '{profit_ccy}' is not "
+        f"USD, so the unit count cannot be backed out without an FX rate. "
+        f"Operator review required — refusing to guess."
+    )
+
 
 def validate_monetary_consistency(spec: dict, symbol: str) -> None:
-    """HARD gate: top-level contract_size must agree with the MT5 calibration.
+    """HARD gate: the pricing representation must agree with the calibration.
+
+    The validator never compares two equally-authoritative values — it checks
+    the PERSISTED pricing field against the CALIBRATION authority it was
+    derived from:
+
+      - `pricing_units_per_lot` present (reconciled spec):
+          expected = calibration-derived value.
+          USD profit ccy  -> strict equality (rel tol 1e-6; FX factor is 1).
+          non-USD         -> implied FX = usd_per_pu_per_lot /
+                             pricing_units_per_lot must sit in the ccy band
+                             (exact FX at calibration time is not persisted).
+      - `pricing_units_per_lot` absent (legacy spec): fall back to the
+        original contract_size-vs-calibration band check, byte-identical to
+        the 2026-07-02 INVAR-005 behavior, so un-regenerated specs keep
+        refusing exactly as before.
 
     Specs without a calibration block (non-OctaFx legacy) pass through — they
-    have no authoritative reference to check against and use dynamic paths.
+    have no authoritative reference to check against.
     Raises ValueError (refusing execution) on inconsistency.
     """
     cal = spec.get("calibration") or {}
     usd_per_pu_0p01 = cal.get("usd_pnl_per_price_unit_0p01")
-    contract_size = spec.get("contract_size")
-    if usd_per_pu_0p01 is None or contract_size in (None, 0):
+    if usd_per_pu_0p01 is None:
         return  # no authoritative calibration to check against
+    # Prefer the unrounded per-lot field when present (sibling invariant:
+    # 0p01 == usd_per_pu_per_lot * 0.01, enforced by the generator); the
+    # 6-dp-rounded 0p01 field x100 introduces rounding noise at small
+    # magnitudes that would false-fail the strict USD check.
+    _cal_upl = cal.get("usd_per_pu_per_lot")
+    usd_per_pu_per_lot = (float(_cal_upl) if _cal_upl
+                          else float(usd_per_pu_0p01) * 100.0)
     profit_ccy = str(cal.get("currency_profit", "USD")).upper()
+
+    pricing_units = spec.get("pricing_units_per_lot")
+    if pricing_units is not None:
+        pricing_units = float(pricing_units)
+        if pricing_units <= 0:
+            raise ValueError(
+                f"Broker spec for {symbol}: pricing_units_per_lot="
+                f"{pricing_units} is not a positive number. Regenerate broker "
+                f"specs using verify_broker_specs.py --patch."
+            )
+        if profit_ccy == "USD":
+            if abs(pricing_units - usd_per_pu_per_lot) > _USD_STRICT_RTOL * usd_per_pu_per_lot:
+                raise ValueError(
+                    f"Broker spec monetary fields inconsistent for {symbol}.\n"
+                    f"Persisted pricing_units_per_lot={pricing_units} does not "
+                    f"equal the calibration authority "
+                    f"usd_per_pu_per_lot={usd_per_pu_per_lot:.6f} (profit ccy "
+                    f"USD -> strict equality required).\n"
+                    f"Refusing execution. Regenerate broker specs using "
+                    f"verify_broker_specs.py --patch\n"
+                    f"(single-monetary-model invariant, 2026-07-02)."
+                )
+        else:
+            band = _IMPLIED_FX_BANDS.get(profit_ccy)
+            if band is None:
+                raise ValueError(
+                    f"Broker spec for {symbol}: pricing_units_per_lot present "
+                    f"but profit currency '{profit_ccy}' has no FX band — "
+                    f"cannot validate the persisted value against the "
+                    f"calibration. Add the band to _IMPLIED_FX_BANDS after "
+                    f"operator review."
+                )
+            implied_fx = usd_per_pu_per_lot / pricing_units
+            lo, hi = band
+            if not (lo <= implied_fx <= hi):
+                raise ValueError(
+                    f"Broker spec monetary fields inconsistent for {symbol}.\n"
+                    f"Persisted pricing_units_per_lot={pricing_units} disagrees "
+                    f"with the calibration authority beyond tolerance.\n"
+                    f"  calibrated usd_per_pu_per_lot={usd_per_pu_per_lot:.6f} "
+                    f"USD/pt/lot\n"
+                    f"  implied FX({profit_ccy}->USD)={implied_fx:.6f}, allowed "
+                    f"band=[{lo}, {hi}]\n"
+                    f"Refusing execution. Regenerate broker specs using "
+                    f"verify_broker_specs.py --patch\n"
+                    f"(single-monetary-model invariant, 2026-07-02)."
+                )
+        return
+
+    # ── Legacy fallback (spec not yet regenerated): original 2026-07-02 gate ──
+    contract_size = spec.get("contract_size")
+    if contract_size in (None, 0):
+        return  # no authoritative reference to check against
     band = _IMPLIED_FX_BANDS.get(profit_ccy)
     if band is None:
         return  # unknown profit ccy — no band defined; do not guess
-    implied_fx = (float(usd_per_pu_0p01) * 100.0) / float(contract_size)
+    implied_fx = usd_per_pu_per_lot / float(contract_size)
     lo, hi = band
     if not (lo <= implied_fx <= hi):
         raise ValueError(
@@ -76,9 +203,10 @@ def validate_monetary_consistency(spec: dict, symbol: str) -> None:
             f"Top-level contract specification disagrees with calibrated\n"
             f"usd_pnl_per_price_unit_0p01 beyond tolerance.\n"
             f"  contract_size={contract_size} ({profit_ccy}/pt/lot), "
-            f"calibrated usd_per_pu_per_lot={float(usd_per_pu_0p01)*100.0:.6f} USD/pt/lot\n"
+            f"calibrated usd_per_pu_per_lot={usd_per_pu_per_lot:.6f} USD/pt/lot\n"
             f"  implied FX({profit_ccy}->USD)={implied_fx:.6f}, allowed band=[{lo}, {hi}]\n"
-            f"Refusing execution. Align contract_size with the MT5-verified calibration\n"
+            f"Refusing execution. This spec predates the canonical pricing field —\n"
+            f"regenerate broker specs using verify_broker_specs.py --patch\n"
             f"(single-monetary-model invariant, 2026-07-02)."
         )
 
