@@ -1,8 +1,9 @@
 # SYSTEM STATE
 
-## SESSION STATUS: OK
+## SESSION STATUS: WARNING
+- WARNING: Working tree 1 uncommitted
 
-> Generated: 2026-07-01T15:05:51Z
+> Generated: 2026-07-02T11:27:45Z
 >
 > SESSION SNAPSHOT — regenerated at session **start and end** (`python tools/system_introspection.py`).
 > If `Generated:` is >16 h old this file is stale — re-run before trusting the numbers.
@@ -13,17 +14,17 @@
 
 ## Pipeline Queue
 - Queue empty. No directives in INBOX or active.
-- Completed: 8 directives
+- Completed: 31 directives
 
 ## Ledgers
 
-- **Master Filter:** 65 rows
+- **Master Filter:** 87 rows
 
 - **Master Portfolio Sheet:** `TradeScan_State/strategies/Master_Portfolio_Sheet.xlsx`
-  - **Portfolios:** 4 rows — FAIL: 4
+  - **Portfolios:** 7 rows — FAIL: 7
   - **Single-Asset Composites:** 0 rows — no status column
 
-- **Candidates (FSP):** 52 rows — FAIL: 41, WATCH: 11
+- **Candidates (FSP):** 72 rows — FAIL: 58, WATCH: 14
 
 ## Portfolio (TS_Execution)
 - **Total entries:** 0 | **Enabled:** 0
@@ -33,15 +34,15 @@
 - Snapshots: 19 | Latest: `DRY_RUN_2026_06_09__ca6acb78`
 
 ## Data Freshness
-- Latest bar: **2026-06-26** | Symbols: 221
+- Latest bar: **2026-07-02** | Symbols: 221
 
 ## Artifacts
-- Run directories: 498
+- Run directories: 521
 
 ## Git Sync
 - Remote: IN SYNC (vs `origin/main`)
-- Working tree: clean
-- Last substantive commit: `fb72f4de session: SYSTEM_STATE snapshot (accurate close â€” SESSION STATUS OK)`
+- Working tree: 1 uncommitted
+- Last substantive commit: `018aaaff research: 71 UNION arc â€” cross-section, stop-realism, arc conclusion`
 
 ## Deferred Maintenance
 
@@ -55,7 +56,7 @@
 - [MONITOR] conclusion-write-path provenance gate — ungated auto-memory (AGENT.md #31 STOP-doctrine, not mechanically enforced); promote to BUILD after a gate-shakeout session. First seen 2026-05-29.
 - [MONITOR] cointegration screener write-volume/runtime — 4h cadence, screener block ~3 min/run; promote when block > 8 min. First seen 2026-06-07.
 - [MONITOR] repeat_override_reason refresh-auth debt — `refresh_cointegration.py` reuses the Idea-Gate REPEAT_FAILED bypass; promote to BUILD when a 2nd refresh use-case needs the auth path. First seen 2026-06-07.
-- [DRIFT] retire backlog (~10 superseded runs un-retired, down from ~330 after the ledger purge) — un-actionable until rerun-backtest Phase-C retire tooling is built; defer, not a fire. First seen 2026-06-20; count refreshed 2026-07-01.
+- [DRIFT] retire backlog (12 superseded runs un-retired) — +2 this session: SPX500 894fa6ff + f9f335fa, quarantined 2026-07-02, superseded by the monetary-fix dollar-repair reruns (e5bb72dd/66462f1d), Phase-C not run. Un-actionable until rerun-backtest Phase-C retire tooling is built; defer, not a fire. First seen 2026-06-20; count refreshed 2026-07-02.
 - [BACKLOG] smaller deferred items: Z-cross Phase-3, market_regime NaN, BASKET_REPORT polish, skill-refactor D+F, basket weekend-flatten policy (detail in git history — the 06-06 backlog doc was pruned in `30ec963b`).
 
 ## Known Issues
